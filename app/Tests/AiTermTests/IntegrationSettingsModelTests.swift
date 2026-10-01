@@ -1,0 +1,266 @@
+import Foundation
+import Synchronization
+import Testing
+import AiTermCore
+@testable import AiTerm
+
+/// The Integrations tab's logic, off the view: what Save stores and refuses, and when each card's
+/// connection is tested. Keychain writes go to a `MemorySecretStore`; the testers are stand-ins.
+@MainActor
+@Suite(.serialized) struct IntegrationSettingsModelTests {
+    static let site = URL(string: "https://example.atlassian.net")!
+    static let jira = JiraConfig(siteURL: site, email: "me@example.com", token: "jira-token")
+    static let gitLab = GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "gl-token")
+    static let gitHub = GitHubConfig(token: "gh-token")
+
+    /// The configs each service was tested with. The testers run off the main actor, so the
+    /// record is kept behind a lock.
+    final class Testers: Sendable {
+        private let calls = Mutex<(jira: [JiraConfig], gitLab: [GitLabConfig], gitHub: [GitHubConfig])>(([], [], []))
+        var jiraCalls: [JiraConfig] { calls.withLock { $0.jira } }
+        var gitLabCalls: [GitLabConfig] { calls.withLock { $0.gitLab } }
+        var gitHubCalls: [GitHubConfig] { calls.withLock { $0.gitHub } }
+        func tested(_ config: JiraConfig) { calls.withLock { $0.jira.append(config) } }
+        func tested(_ config: GitLabConfig) { calls.withLock { $0.gitLab.append(config) } }
+        func tested(_ config: GitHubConfig) { calls.withLock { $0.gitHub.append(config) } }
+    }
+
+    private func model(jira: JiraConfig? = nil, gitLab: GitLabConfig? = nil, gitHub: GitHubConfig? = nil,
+                       store: SecretStore = MemorySecretStore(),
+                       defaults: UserDefaults = ScratchDefaults.make(), testers: Testers = Testers(),
+                       record: ServiceTestRecord = ServiceTestRecord(), retestDelay: Duration = .milliseconds(20),
+                       jiraAnswer: @escaping @Sendable () async throws -> String = { "Jira Person" }) -> IntegrationSettingsModel {
+        IntegrationSettingsModel(jira: jira, gitLab: gitLab, gitHub: gitHub, store: store, defaults: defaults, record: record,
+                                 retestDelay: retestDelay,
+                                 testJira: { testers.tested($0); return try await jiraAnswer() },
+                                 testGitLab: { testers.tested($0); return "GitLab Person" },
+                                 testGitHub: { testers.tested($0); return "octocat" })
+    }
+
+    private func settle(until done: () -> Bool) async {
+        for _ in 0..<100 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    @Test func gitHubSavesAndDisconnectsItsToken() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        let m = model(store: store, defaults: defaults)
+        m.gitHub.fields = GitHubFields(Self.gitHub)
+        #expect(m.save() == nil)
+        #expect(GitHubSettings.load(store: store) == Self.gitHub)
+
+        let reopened = model(gitHub: Self.gitHub, store: store, defaults: defaults)
+        #expect(reopened.gitHub.canDisconnect)
+        reopened.gitHub.disconnect()
+        #expect(reopened.save() == nil)
+        #expect(GitHubSettings.load(store: store) == nil)
+    }
+
+    @Test func aSavedGitHubTokenIsTestedOnOpeningAndAfterTypingPauses() async {
+        let testers = Testers()
+        let m = model(gitHub: Self.gitHub, testers: testers)
+        m.testConfigured()
+        await settle { m.gitHub.test == .connected("octocat") }
+        #expect(testers.gitHubCalls == [Self.gitHub])
+        m.gitHub.fields.token = "gh-other"
+        await settle { testers.gitHubCalls.count == 2 }
+        #expect(testers.gitHubCalls.last == GitHubConfig(token: "gh-other"))
+    }
+
+    @Test func aBlankGitHubCardSavesNothing() {
+        let store = MemorySecretStore()
+        let m = model(store: store)
+        m.gitHub.fields.token = "   "
+        #expect(m.save() == nil)
+        #expect(GitHubSettings.load(store: store) == nil)
+    }
+
+    @Test func blankFieldsSaveNothing() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        let m = model(store: store, defaults: defaults)
+        #expect(m.save() == nil)
+        #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
+        #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
+    }
+
+    @Test func saveStoresEachTypedServiceBehindTheSecretStore() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        let m = model(store: store, defaults: defaults)
+        m.jira.fields = JiraFields(Self.jira)
+        m.gitLab.fields = GitLabFields(Self.gitLab)
+        #expect(m.save() == nil)
+        #expect(JiraSettings.load(store: store, defaults: defaults) == Self.jira)
+        #expect(GitLabSettings.load(store: store, defaults: defaults) == Self.gitLab)
+    }
+
+    /// A URL without a host is refused before anything is stored — neither service is half-saved.
+    @Test func anInvalidURLIsRefusedAndNothingIsStored() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        let m = model(store: store, defaults: defaults)
+        m.jira.fields.site = "not a url"
+        m.jira.fields.email = "me@example.com"
+        #expect(m.save() == "Enter a valid Jira site URL")
+        m.jira.fields = JiraFields(nil)
+        m.gitLab.fields.token = "gl-token"
+        m.gitLab.fields.host = "gitlab"
+        #expect(m.save() == "Enter a valid GitLab host URL")
+        #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
+        #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
+    }
+
+    @Test func aRefusingKeychainIsSaid() {
+        let m = model(store: RefusingSecretStore())
+        m.gitLab.fields = GitLabFields(Self.gitLab)
+        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        m.jira.fields = JiraFields(Self.jira)
+        #expect(m.save() == "Couldn’t save the API token to the Keychain")
+    }
+
+    /// Opening tests only the services with enough filled in, and each answer lands on its card.
+    @Test func openingTestsEachConfiguredServiceOnItsOwnCard() async {
+        let testers = Testers()
+        let m = model(jira: Self.jira, testers: testers)
+        #expect(m.jira.status == SettingsStatus(.idle, "Not tested yet"))
+        #expect(m.gitLab.status == SettingsStatus(.idle, "Not set up"))
+        m.testConfigured()
+        await settle { m.jira.test != .running }
+        #expect(m.jira.status == SettingsStatus(.ready, "Connected as Jira Person"))
+        #expect(m.gitLab.test == nil)
+        #expect(testers.jiraCalls == [Self.jira])
+        #expect(testers.gitLabCalls.isEmpty)
+    }
+
+    /// An edit clears the card's answer at once and, once typing pauses, tests the new fields —
+    /// once, however many keystrokes came before the pause.
+    @Test func anEditClearsTheAnswerAndRetestsOnceTypingPauses() async {
+        let testers = Testers()
+        let m = model(testers: testers)
+        m.gitLab.fields.host = "https://git.example.net"
+        m.gitLab.fields.token = "gl"
+        m.gitLab.fields.token = "gl-token"
+        #expect(m.gitLab.test == nil)
+        await settle { m.gitLab.test == .connected("GitLab Person") }
+        #expect(m.gitLab.test == .connected("GitLab Person"))
+        #expect(testers.gitLabCalls == [Self.gitLab])
+
+        m.gitLab.fields.token = "gl-token-2"
+        #expect(m.gitLab.test == nil, "the answer was for the fields before the edit")
+    }
+
+    /// A test still running when the fields change answers for fields no longer shown: dropped.
+    @Test func anAnswerForEditedFieldsIsDropped() async {
+        let gate = Gate()
+        // A retest far off, so the only answer that could land is the stale one.
+        let m = model(jira: Self.jira, retestDelay: .seconds(60), jiraAnswer: { await gate.wait(); return "Stale" })
+        m.jira.runTest()
+        #expect(m.jira.test == .running)
+        m.jira.fields.email = "other@example.com"
+        await gate.open()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(m.jira.test == nil)
+    }
+
+    /// Disconnect is offered only over credentials saved earlier, and once pressed it is gone.
+    @Test func disconnectIsOfferedOverSavedCredentialsOnly() {
+        let m = model(jira: Self.jira)
+        #expect(m.jira.canDisconnect)
+        #expect(!m.gitLab.canDisconnect)
+        m.jira.disconnect()
+        #expect(m.jira.fields == JiraFields(nil))
+        #expect(m.jira.status == SettingsStatus(.idle, "Not set up"))
+        #expect(!m.jira.canDisconnect)
+    }
+
+    /// Save removes the saved site or host and the Keychain token of each disconnected service.
+    @Test func saveRemovesADisconnectedService() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        JiraSettings.save(Self.jira, store: store, defaults: defaults)
+        GitLabSettings.save(Self.gitLab, store: store, defaults: defaults)
+        let m = model(jira: Self.jira, gitLab: Self.gitLab, store: store, defaults: defaults)
+        m.jira.disconnect()
+        m.gitLab.disconnect()
+        #expect(m.save() == nil)
+        #expect(JiraSettings.load(store: store, defaults: defaults) == nil)
+        #expect(GitLabSettings.load(store: store, defaults: defaults) == nil)
+        #expect(store.get("jira.token") == nil)
+        #expect(store.get("gitlab.token") == nil)
+        #expect(defaults.string(forKey: "jira.site") == nil)
+        #expect(defaults.string(forKey: "gitlab.host") == nil)
+    }
+
+    /// Nothing is removed until Save: a sheet cancelled after Disconnect leaves everything saved.
+    @Test func disconnectWithoutSaveKeepsEverything() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        JiraSettings.save(Self.jira, store: store, defaults: defaults)
+        let m = model(jira: Self.jira, store: store, defaults: defaults)
+        m.jira.disconnect()
+        #expect(JiraSettings.load(store: store, defaults: defaults) == Self.jira)
+    }
+
+    /// New credentials typed in after Disconnect are what Save stores.
+    @Test func credentialsTypedAfterDisconnectAreSaved() {
+        let store = MemorySecretStore(), defaults = ScratchDefaults.make()
+        JiraSettings.save(Self.jira, store: store, defaults: defaults)
+        let m = model(jira: Self.jira, store: store, defaults: defaults)
+        m.jira.disconnect()
+        let other = JiraConfig(siteURL: URL(string: "https://other.atlassian.net")!, email: "you@example.com", token: "t2")
+        m.jira.fields = JiraFields(other)
+        #expect(m.save() == nil)
+        #expect(JiraSettings.load(store: store, defaults: defaults) == other)
+    }
+
+    @Test func aRefusingKeychainIsSaidOnRemovalToo() {
+        let m = model(gitLab: Self.gitLab, store: RefusingSecretStore())
+        m.gitLab.disconnect()
+        #expect(m.save() == "Couldn’t remove the GitLab token from the Keychain")
+    }
+
+    /// A saved service's test answer is remembered for the next opening; a test of fields not yet
+    /// saved is not, until Save stores them.
+    @Test func aSavedServicesLastTestIsRemembered() async {
+        let record = ServiceTestRecord()
+        let failing = model(jira: Self.jira, record: record, jiraAnswer: { throw URLError(.userAuthenticationRequired) })
+        failing.testConfigured()
+        await settle { failing.jira.test != .running }
+        #expect(record.jiraFailed)
+        #expect(record.anyFailed)
+
+        let passing = model(jira: Self.jira, record: record)
+        passing.testConfigured()
+        await settle { passing.jira.test != .running }
+        #expect(!record.jiraFailed)
+
+        let unsaved = model(record: record, jiraAnswer: { throw URLError(.userAuthenticationRequired) })
+        unsaved.jira.fields = JiraFields(Self.jira)
+        unsaved.jira.runTest()
+        await settle { unsaved.jira.test != .running }
+        #expect(!record.jiraFailed, "those fields were never saved")
+        #expect(unsaved.save() == nil)
+        #expect(record.jiraFailed, "saved now, and their last test failed")
+
+        unsaved.jira.disconnect()
+        #expect(unsaved.save() == nil)
+        #expect(!record.jiraFailed, "a removed service has no last test")
+    }
+
+    @Test func aURLWithoutAHostFailsItsTestAtOnce() {
+        let m = model()
+        m.jira.fields.site = "nope"
+        m.jira.runTest()
+        #expect(m.jira.test == .failed("Enter a valid Jira site URL"))
+    }
+}
+
+private actor Gate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() { isOpen = true; waiters.forEach { $0.resume() }; waiters = [] }
+}
+
+private final class RefusingSecretStore: SecretStore {
+    func get(_ key: String) -> String? { nil }
+    func set(_ key: String, _ value: String?) -> Bool { false }
+}

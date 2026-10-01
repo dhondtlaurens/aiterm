@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in AiTerm does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Feature requests are not taken — see [CONTRIBUTING.md](https://github.com/dhondtlaurens/aiterm/blob/main/CONTRIBUTING.md). Remove anything private from logs.
+  - type: input
+    id: version
+    attributes:
+      label: AiTerm version
+      description: AiTerm › About AiTerm
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: input
+    id: iterm
+    attributes:
+      label: iTerm2 version
+    validations:
+      required: true
+  - type: dropdown
+    id: agents
+    attributes:
+      label: Agents involved
+      multiple: true
+      options: [Claude Code, Codex, Grok Build, PI, None]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: aitermd.log excerpt
+      description: ~/Library/Application Support/AiTerm/aitermd.log — copy it before relaunching; AiTerm clears it at launch.
+      render: text

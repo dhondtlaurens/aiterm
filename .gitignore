@@ -1,0 +1,19 @@
+.DS_Store
+.worktrees/
+*.pyc
+__pycache__/
+.venv/
+daemon/.venv/
+build/
+DerivedData/
+.build/
+# Local Claude Code state is private; the link to the repo's own skills (.agents/skills) is not.
+.claude/*
+!.claude/skills
+.superpowers/
+daemon/*.egg-info/
+daemon/.pytest_cache/
+
+# AI working documents (specs, plans, reviews) stay local.
+docs/superpowers/
+docs/research/

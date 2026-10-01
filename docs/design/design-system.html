@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AiTerm Design System</title>
+<style>
+  /* ------------------------------------------------------------------------------------------
+     Every value below is transcribed from app/Sources/AiTermUI/Palette.swift and Metrics.swift.
+     The hexes are RESOLVED .darkAqua values read back from the live Palette, not definitions —
+     most Palette members name an AppKit semantic colour and let macOS decide the number.
+     AiTerm is dark-only (a04d02d), so this page commits to one theme on purpose: there is no
+     light variant in the app to document, and inventing one here would be a lie about the code.
+     ------------------------------------------------------------------------------------------ */
+  :root {
+    color-scheme: dark;
+
+    /* Palette — surfaces */
+    --surface: #1E1E1E;              /* .windowBackgroundColor */
+    --surface-raised: #282828;       /* .underPageBackgroundColor */
+    --border: rgba(255, 255, 255, 0.098); /* .separatorColor */
+    --control-active: #464646;       /* .unemphasizedSelectedContentBackgroundColor */
+    --code-background: #141519;      /* literal 0x141519 */
+
+    /* Palette — text */
+    --text: rgba(255, 255, 255, 0.847);  /* .labelColor */
+    --muted: rgba(255, 255, 255, 0.549); /* .secondaryLabelColor */
+
+    /* Palette — accent and status */
+    --accent: #007AFF;               /* .controlAccentColor */
+    --link: #419CFF;                 /* .linkColor */
+    --green: #30D158;                /* .systemGreen */
+    --amber: #FF9230;                /* .systemOrange */
+    --destructive: #FF4245;          /* .systemRed */
+    --diff-added: var(--green);      /* diffAdded = green */
+    --diff-removed: var(--destructive); /* diffRemoved = destructive */
+
+    /* Palette — brand marks */
+    --claude: #D97757;
+    --jira: #2684FF;
+    --gitlab: #FC6D26;
+    --vscode: #23A9F2;
+
+    /* Palette — sidebar and washes */
+    --badge: rgba(255, 255, 255, 0.068);
+    --badge-hovered: rgba(255, 255, 255, 0.14);
+    --badge-selected: rgba(255, 255, 255, 0.2);
+    --badge-selected-hovered: rgba(255, 255, 255, 0.28);
+    --row-hover: rgba(255, 255, 255, 0.06);
+    --row-hover-solid: #2C2C2C;
+    --selection: #0059D1;            /* .selectedContentBackgroundColor */
+    --idle-ring: rgba(255, 255, 255, 0.247); /* .tertiaryLabelColor */
+    --placeholder: var(--idle-ring); /* placeholder = idleRing; AppKit's .placeholderTextColor */
+    --spinner-track: rgba(143, 143, 143, 0.28);
+
+    /* Metrics.Space */
+    --space-hairline: 2px; --space-tight: 4px; --space-snug: 6px; --space-base: 8px;
+    --space-inset: 10px;  --space-gap: 12px;  --space-block: 16px; --space-section: 20px;
+    --space-margin: 24px;
+
+    /* Metrics.Radius */
+    --radius-chip: 4px; --radius-control: 6px; --radius-group: 8px; --radius-panel: 10px;
+
+    /* Metrics.Size */
+    --size-chip: 16px; --size-slot: 20px; --size-menu-row: 24px; --size-control: 28px;
+    --size-avatar: 18px; --size-row: 52px;
+
+    /* The two faces the app has. No third one is introduced here. */
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Roboto Mono", monospace;
+  }
+
+  body {
+    margin: 0;
+    background: var(--surface);
+    color: var(--text);
+    font: 13px/1.5 var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* One measure for the whole page. Page copy used to cap itself at 62-72ch while the swatch
+     grids, scales and tables filled the wrap, which left every section ragged down the right.
+     Prose now runs the wrap's width like everything else; only component *specimens* (.ai-help)
+     keep their own width, because there the width is part of what is being shown. */
+  .wrap {
+    max-width: 940px;
+    margin: 0 auto;
+    padding-inline: var(--space-margin);
+    padding-block: 40px 64px;
+  }
+  @media (max-width: 600px) { .wrap { padding-inline: var(--space-block); padding-block: var(--space-margin) 40px; } }
+
+  a { color: var(--link); }
+  code, .m { font-family: var(--mono); font-size: 11px; }
+  code { color: var(--text); }
+  p { margin: 0; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 600; }
+
+  /* --- masthead ------------------------------------------------------------------------- */
+  .eyebrow {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  .masthead h1 { font-size: 15px; margin-block: var(--space-snug) 0; } /* Typography.title */
+  .masthead .rule { height: var(--space-hairline); width: var(--size-row); background: var(--accent);
+                    margin-block: var(--space-block); }
+  .contract { display: flex; flex-direction: column; gap: var(--space-inset); }
+  .contract strong { font-weight: 600; color: var(--text); }
+  .contract p { color: var(--muted); }
+
+  .ladder { margin: var(--space-section) 0 0; padding: 0; list-style: none; counter-reset: rung;
+            display: flex; flex-direction: column; gap: var(--space-inset); }
+  .ladder li { counter-increment: rung; display: grid; grid-template-columns: var(--size-slot) 1fr;
+               gap: var(--space-inset); color: var(--muted); }
+  .ladder li::before {
+    content: counter(rung); font-family: var(--mono); font-size: 10px; font-weight: 600;
+    color: var(--accent); line-height: var(--size-slot); text-align: center;
+    background: var(--badge); border-radius: var(--radius-chip); height: var(--size-slot);
+  }
+  .ladder b { color: var(--text); font-weight: 600; }
+
+  .owns { margin-top: var(--space-section); border-top: 1px solid var(--border); }
+  .owns dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-snug) var(--space-block);
+             margin: var(--space-block) 0 0; }
+  .owns dt { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .owns dd { margin: 0; color: var(--muted); }
+  @media (max-width: 600px) { .owns dl { grid-template-columns: 1fr; gap: var(--space-hairline) var(--space-block); }
+                              .owns dd { margin-bottom: var(--space-snug); } }
+
+  /* --- tabs ---------------------------------------------------------------------------- */
+  .tabs {
+    display: flex; gap: var(--space-hairline); padding: var(--space-hairline);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-group); width: max-content;
+    margin-block: 40px var(--space-margin);
+  }
+  .tabs button {
+    font: 500 13px/1 var(--font); color: var(--muted); background: none; border: 0;
+    padding-inline: var(--space-gap); height: var(--size-menu-row);
+    border-radius: var(--radius-control); cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] { background: var(--control-active); color: var(--text); }
+  .tabs button:focus-visible { outline: 2px solid rgba(0, 122, 255, 0.35); outline-offset: 2px; }
+  [role="tabpanel"][hidden] { display: none !important; }
+
+  /* --- sections ------------------------------------------------------------------------ */
+  .section { padding-block: var(--space-margin) 0; margin-top: var(--space-margin);
+             border-top: 1px solid var(--border); }
+  .section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+  .section > h2 { font-size: 13px; } /* page chrome, not a Typography member */
+  .section > .why { color: var(--muted); margin-top: var(--space-base); }
+  .section > .why + .why { margin-top: var(--space-snug); }
+
+  .note {
+    margin-top: var(--space-block); padding: var(--space-gap) var(--space-block);
+    background: var(--code-background); border-radius: var(--radius-control);
+    border-left: var(--space-hairline) solid var(--accent); color: var(--muted);
+  }
+  .note b { color: var(--text); font-weight: 600; }
+
+  h3.group {
+    font-size: 10px; font-weight: 600; font-family: var(--mono); letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+    margin-block: var(--space-margin) var(--space-gap);
+  }
+
+  /* --- colour tokens ------------------------------------------------------------------- */
+  .tokens { display: flex; flex-direction: column; }
+  .token {
+    display: grid; grid-template-columns: var(--size-row) 220px 1fr; gap: var(--space-block);
+    align-items: start; padding-block: var(--space-gap);
+    border-bottom: 1px solid var(--border);
+  }
+  .token:first-child { border-top: 1px solid var(--border); }
+  .chip {
+    width: var(--size-row); height: var(--size-row); border-radius: var(--radius-control);
+    border: 1px solid var(--border); box-sizing: border-box;
+  }
+  .chip.wash { background-image: linear-gradient(var(--w), var(--w)); background-color: var(--surface); }
+  .token .name { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .token .value { font-family: var(--mono); font-size: 10px; color: var(--muted);
+                  font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .token .appkit { font-family: var(--mono); font-size: 10px; color: var(--accent); margin-top: 3px; }
+  .token .use { color: var(--muted); }
+  .alias { display: inline-block; font-family: var(--mono); font-size: 10px; color: var(--muted);
+           background: var(--badge); border-radius: var(--radius-chip); padding: 0 var(--space-tight);
+           height: var(--size-chip); line-height: var(--size-chip); vertical-align: 1px; }
+  @media (max-width: 720px) {
+    .token { grid-template-columns: var(--size-row) 1fr; gap: var(--space-gap); }
+    .token .use { grid-column: 2; }
+  }
+
+  /* --- space / radius / size scales ---------------------------------------------------- */
+  .scale { display: flex; flex-direction: column; margin-top: var(--space-block); }
+  .scale .step {
+    display: grid; grid-template-columns: 156px 1fr; gap: var(--space-block);
+    align-items: center; padding-block: var(--space-inset);
+    border-bottom: 1px solid var(--border);
+  }
+  .scale .step:first-child { border-top: 1px solid var(--border); }
+  .scale .label { font-family: var(--mono); font-size: 11px; color: var(--text); min-width: 0; }
+  .scale .label span { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .scale .draw { display: flex; align-items: center; gap: var(--space-gap); min-width: 0; }
+  .scale .draw .purpose { color: var(--muted); font-family: var(--font); font-size: 13px; }
+  .bar { height: 12px; background: var(--accent); flex: none; }
+  .offbeat { color: var(--amber); }
+
+  .radii { display: flex; flex-wrap: wrap; gap: var(--space-block); margin-top: var(--space-block); }
+  .radii figure { margin: 0; width: 200px; }
+  /* Drawn on a Size.row square so the four radii can be compared on one shape. */
+  .radii .sq { width: var(--size-row); height: var(--size-row); background: var(--surface-raised);
+               border: 1px solid var(--border); box-sizing: border-box; }
+  .radii figcaption { margin-top: var(--space-base); }
+
+  .sizes { display: flex; flex-direction: column; margin-top: var(--space-block); }
+  .sizes .step { display: grid; grid-template-columns: 156px 1fr; gap: var(--space-block);
+                 align-items: center; padding-block: var(--space-inset);
+                 border-bottom: 1px solid var(--border); }
+  .sizes .step:first-child { border-top: 1px solid var(--border); }
+  @media (max-width: 600px) {
+    .scale .step, .sizes .step { grid-template-columns: 1fr; gap: var(--space-base); }
+  }
+  .box { background: var(--control-active); border-radius: var(--radius-chip); flex: none; }
+  .dot { background: var(--control-active); border-radius: 50%; flex: none; }
+  .wide-scroll { overflow-x: auto; }
+
+  /* --- typography specimens ------------------------------------------------------------ */
+  .specimens { display: flex; flex-direction: column; margin-top: var(--space-block); }
+  .specimen { display: grid; grid-template-columns: 1fr 200px; gap: var(--space-block);
+              align-items: baseline; padding-block: var(--space-gap);
+              border-bottom: 1px solid var(--border); }
+  .specimen:first-child { border-top: 1px solid var(--border); }
+  .specimen .meta { font-family: var(--mono); font-size: 10px; color: var(--muted);
+                    font-variant-numeric: tabular-nums; text-align: right; }
+  .specimen .meta b { display: block; color: var(--text); font-weight: 500; font-size: 11px; }
+  @media (max-width: 720px) {
+    .specimen { grid-template-columns: 1fr; gap: var(--space-tight); }
+    .specimen .meta { text-align: left; }
+  }
+
+  /* --- component cards ----------------------------------------------------------------- */
+  .cards { display: flex; flex-direction: column; gap: var(--space-block); margin-top: var(--space-block); }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius-group);
+    padding: var(--space-section); background: var(--surface);
+  }
+  .card header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-base);
+                 justify-content: space-between; }
+  .card h3 { font-size: 13px; font-family: var(--mono); color: var(--text); }
+  .card .file { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .card > p.what { color: var(--muted); margin-top: var(--space-base); }
+  .stage {
+    margin-top: var(--space-block); padding: var(--space-block);
+    background: var(--code-background); border-radius: var(--radius-control);
+    display: flex; flex-wrap: wrap; gap: var(--space-section); align-items: flex-end;
+  }
+  .stage.on-sidebar { background: var(--surface); border: 1px solid var(--border); }
+  .demo { display: flex; flex-direction: column; gap: var(--space-base); min-width: 0; }
+  .demo .cap { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .rules { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-block);
+           margin-top: var(--space-block); }
+  .rules div { color: var(--muted); }
+  .rules .h { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+              text-transform: uppercase; display: block; margin-bottom: var(--space-tight); }
+  .rules .yes .h { color: var(--green); }
+  .rules .no .h { color: var(--amber); }
+  @media (max-width: 600px) { .rules { grid-template-columns: 1fr; gap: var(--space-gap); } }
+
+  /* --- the drawn components ------------------------------------------------------------ */
+  /* Badge: Size.chip tall, Radius.chip, Typography.monoChip, Space.tight all round. */
+  .ai-badge {
+    display: inline-flex; align-items: center; gap: var(--space-tight);
+    height: var(--size-chip); padding-inline: var(--space-tight);
+    border-radius: var(--radius-chip); background: var(--badge);
+    font: 500 10px/1 var(--mono); color: var(--text);
+  }
+  .ai-badge.icon-only { width: var(--size-avatar); padding: 0; justify-content: center; }
+  .ai-badge.hovered { background: var(--badge-hovered); }
+  .ai-badge .secondary { opacity: 0.85; }
+  /* Badge.Diff: the two counts Space.hairline apart, after the label at Space.tight. */
+  .ai-badge .diff { display: inline-flex; gap: var(--space-hairline); }
+  .ai-badge .diff .added { color: var(--diff-added); }
+  .ai-badge .diff .removed { color: var(--diff-removed); }
+  /* Badge(style: .quiet): no padding, no wash at rest, label in secondaryInk; the hovered wash is
+     drawn Space.tight outside the content. */
+  .ai-badge.quiet { background: transparent; padding-inline: 0; color: var(--muted); }
+  .ai-badge.quiet.hovered { background: var(--badge-hovered); box-shadow: 0 0 0 var(--space-tight) var(--badge-hovered);
+                            border-radius: 0; clip-path: inset(0 calc(-1 * var(--space-tight)) round var(--radius-chip)); }
+  .on-accent-row {
+    display: inline-flex; align-items: center; gap: var(--space-base);
+    background: var(--selection); border-radius: var(--radius-control);
+    padding: var(--space-snug) var(--space-base);
+  }
+  .on-accent-row .ai-badge { background: var(--badge-selected); color: #FFFFFF; }
+  .on-accent-row .ai-badge.hovered { background: var(--badge-selected-hovered); }
+  .on-accent-row .ai-badge .secondary { opacity: 1; }
+  .on-accent-row .ai-badge .diff .added, .on-accent-row .ai-badge .diff .removed { color: #FFFFFF; }
+  .on-accent-row .rowtitle { font-size: 13px; color: #FFFFFF; }
+
+  /* An SF Symbol is drawn by macOS. Named, never redrawn. */
+  .sf {
+    display: inline-flex; align-items: center; height: var(--size-chip);
+    padding-inline: var(--space-tight); border: 1px dashed var(--border);
+    border-radius: var(--radius-chip); font: 10px/1 var(--mono); color: var(--muted);
+  }
+
+  /* Input / fieldChrome: Size.control tall, Radius.control, Space.inset horizontal. */
+  .ai-field {
+    display: flex; align-items: center; height: var(--size-control);
+    padding-inline: var(--space-inset); box-sizing: border-box;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-control); font-size: 13px; color: var(--text);
+    width: 260px; max-width: 100%;
+  }
+  .ai-field.placeholder { color: var(--placeholder); }
+  .ai-field.mono { font: 12px/1 var(--mono); }
+  .ai-field.focused { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.35); } /* focusRing: 2 pt at 35 %, outside */
+
+  /* Select: an NSPopUpButton at .controlSize(.large). AppKit draws the bezel; this approximates it. */
+  .ai-select {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-base);
+    height: var(--size-control); padding-left: var(--space-inset); padding-right: 3px;
+    box-sizing: border-box; background: var(--control-active);
+    border-radius: var(--radius-control); font-size: 13px; color: var(--text);
+    width: 260px; max-width: 100%;
+  }
+  .ai-select.mono { font: 12px/1 var(--mono); }
+  .ai-select .chev {
+    display: flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+    background: var(--accent); border-radius: var(--radius-chip); flex: none;
+  }
+
+  /* SegmentedControl: 28 pt track, 2 pt inset, 24 pt segments, 8 outside / 6 inside. */
+  .ai-seg {
+    display: inline-flex; gap: var(--space-hairline); padding: var(--space-hairline);
+    height: var(--size-control); box-sizing: border-box;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-group);
+  }
+  .ai-seg > span {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-snug);
+    height: var(--size-menu-row); padding-inline: var(--space-gap);
+    border-radius: var(--radius-control); font-size: 13px; color: var(--muted);
+  }
+  /* .neutral: controlActive under the selected segment, its label in Palette.text. The agent
+     picker sets it in bodyEmphasis; .regular keeps Typography.body, as Sidebar size does. */
+  .ai-seg > span.on { background: var(--control-active); color: var(--text); font-weight: 500; }
+  .ai-seg > span.on.regular { font-weight: 400; }
+  /* Keyed to enabled, not to selection: an unselected but enabled segment draws at full opacity. */
+  .ai-seg > span.disabled { opacity: 0.4; }
+  .ai-seg.focused { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.35); }
+
+  /* Kbd: Size.chip caps, Radius.chip, 3 pt gap, inked by the Surface it sits on. On .accent:
+     keycapFill / keycapStroke, onAccent ink. Elsewhere: the surface's badgeWash, Palette.border
+     edge, the surface's ink. */
+  .ai-primary {
+    display: inline-flex; align-items: center; gap: var(--space-base);
+    height: var(--size-control); padding-inline: var(--space-gap); box-sizing: border-box;
+    background: var(--accent); border-radius: var(--radius-control);
+    font-size: 13px; color: #FFFFFF;
+  }
+  .ai-kbd { display: inline-flex; gap: 3px; }
+  .ai-kbd span {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: var(--size-chip); height: var(--size-chip); box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.22); border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: var(--radius-chip); font: 11px/1 var(--mono); color: #FFFFFF;
+  }
+  .ai-kbd.quiet span { background: var(--badge); border-color: var(--border); color: var(--text); }
+  .kbd-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-gap);
+             width: 300px; max-width: 100%; font-size: 13px; color: var(--text); }
+
+  /* FormField: Typography.label above the control, Space.snug between. */
+  .ai-formfield { display: flex; flex-direction: column; gap: var(--space-snug); }
+  .ai-formfield > .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
+  .ai-help { font-size: 11px; color: var(--muted); max-width: 42ch; }
+  .ai-help.warn { color: var(--amber); }
+
+  /* SidebarHeading: Typography.micro, uppercase, kerning(0.45) — an untokenised optical
+     correction — in Palette.muted. */
+  .ai-heading { font: 600 10px/1 var(--font); letter-spacing: 0.45px; text-transform: uppercase; color: var(--muted); }
+  /* Hairline: a 1 pt Palette.border rectangle. A stroke, so it does not scale. */
+  .ai-hairline { height: 1px; background: var(--border); }
+  .ai-divider-row { display: flex; align-items: center; gap: var(--space-base); height: var(--size-menu-row);
+                    width: 300px; max-width: 100%; }
+  .ai-divider-row .ai-hairline { flex: 1; }
+
+  /* VendorMark-style circles, for the drawn marks. */
+  .mark { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+
+  /* --- patterns table ------------------------------------------------------------------ */
+  .patterns { width: 100%; border-collapse: collapse; margin-top: var(--space-block); font-size: 13px; }
+  .patterns th {
+    text-align: left; font: 600 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); padding-block: var(--space-base); border-bottom: 1px solid var(--border);
+  }
+  .patterns td { padding-block: var(--space-inset); border-bottom: 1px solid var(--border);
+                 vertical-align: top; color: var(--muted); }
+  .patterns td:first-child { font-family: var(--mono); font-size: 11px; color: var(--text);
+                             white-space: nowrap; padding-right: var(--space-block); }
+  .patterns td:last-child { font-family: var(--mono); font-size: 10px; white-space: nowrap;
+                            padding-left: var(--space-block); }
+  .table-scroll { overflow-x: auto; }
+
+  /* --- proposals tab ------------------------------------------------------------------- */
+  /* Always present. It holds designs that are NOT in the code yet; an implemented proposal is
+     deleted from it and the other two tabs are synced to the Swift. What follows is the kit a
+     proposal draws with — option cards and mocks of the sidebar, a task row, a sheet, a picker and a menu —
+     kept while the tab is empty so the next proposal starts from it. Mocks are drawn
+     1 CSS px = 1 pt at InterfaceScale ×1, from the tokens above. */
+  .tabs button.proposal-tab, .tabs button.proposal-tab[aria-selected="true"] { color: var(--amber); }
+  .proposal-flag { color: var(--amber); margin-bottom: var(--space-snug); }
+  .no-proposals { margin-top: var(--space-block); color: var(--muted); }
+
+  .diagnosis { margin: var(--space-block) 0 0; padding: 0; list-style: none; counter-reset: dx;
+               display: flex; flex-direction: column; gap: var(--space-gap); }
+  .diagnosis li { counter-increment: dx; display: grid; grid-template-columns: var(--size-slot) 1fr;
+                  gap: var(--space-inset); color: var(--muted); }
+  .diagnosis li::before {
+    content: counter(dx); font: 600 10px/var(--size-slot) var(--mono); text-align: center;
+    color: var(--amber); background: var(--badge); border-radius: var(--radius-chip);
+    height: var(--size-slot);
+  }
+  .diagnosis b { color: var(--text); font-weight: 600; }
+
+  .options { display: flex; flex-direction: column; gap: var(--space-block); margin-top: var(--space-block); }
+  .option { border: 1px solid var(--border); border-radius: var(--radius-group); padding: var(--space-section); }
+  .option.pick { border-color: var(--accent); }
+  .option header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-base); }
+  .option h3 { font-size: 13px; color: var(--text); }
+  .option .letter { font: 600 10px/var(--size-chip) var(--mono); color: var(--muted); background: var(--badge);
+                    border-radius: var(--radius-chip); padding-inline: var(--space-tight); height: var(--size-chip); }
+  .option.pick .letter { color: #FFFFFF; background: var(--accent); }
+  .option .rec { font: 500 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+  .option > p { color: var(--muted); margin-top: var(--space-base); }
+  .option > p b { color: var(--text); font-weight: 600; }
+  .option .rules { margin-top: var(--space-block); }
+  .option .rules .yes .h { color: var(--green); }
+  .option .rules .no .h { color: var(--amber); }
+
+  .figs { display: flex; flex-wrap: wrap; gap: var(--space-section); align-items: flex-start; margin-top: var(--space-block); }
+  .fig { margin: 0; min-width: 0; max-width: 100%; }
+  .fig .scroll { overflow-x: auto; max-width: 100%; padding: 1px; }
+  .fig figcaption { font: 10px/1.5 var(--mono); color: var(--muted); margin-top: var(--space-base); }
+
+  /* The sidebar: Size.sidebarMinWidth, with the List's own Space.inset either side. */
+  .mk-sidebar { width: 360px; box-sizing: border-box; padding: var(--space-snug) var(--space-inset);
+                background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
+  /* ProjectHeaderRow: Size.projectRow tall, Space.base leading and between, the trailing inset
+     Space.base − (Size.slot − Size.trailingGlyph) / 2 = 3 pt. */
+  .mk-head { display: flex; align-items: center; gap: var(--space-base); height: 28px;
+             padding-left: var(--space-base); padding-right: 3px; border-radius: var(--radius-control); }
+  .mk-head .chev { width: 10px; flex: none; display: flex; justify-content: center; color: var(--muted); }
+  .mk-head .prov { width: var(--size-avatar); height: var(--size-avatar); flex: none;
+                   display: flex; align-items: center; justify-content: center; }
+  .mk-head .nm { font: 500 13px/1 var(--font); color: var(--text); white-space: nowrap; overflow: hidden;
+                 text-overflow: ellipsis; min-width: 0; }
+  .mk-head .bdg { display: flex; align-items: center; gap: var(--space-gap); flex: none; }
+  .mk-head .sp { flex: 1; min-width: var(--space-tight); }
+  .mk-head .plus { width: var(--size-slot); height: var(--size-slot); flex: none; display: flex;
+                   align-items: center; justify-content: center; color: var(--muted); }
+  .mk-head .ai-badge { cursor: pointer; }
+
+  /* Approximations of what macOS draws: an NSMenu, and a bordered push button. Named, not tokens. */
+  .mk-menu { width: 248px; box-sizing: border-box; padding: 5px; background: var(--surface-raised);
+             border: 1px solid var(--border); border-radius: var(--radius-panel);
+             box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); font: 13px/1 var(--font); color: var(--text); }
+  .mk-menu .it { display: flex; align-items: center; gap: var(--space-base); height: 22px;
+                 padding-inline: var(--space-base); border-radius: var(--radius-chip); white-space: nowrap; }
+  .mk-menu .it.on { background: var(--accent); color: #FFFFFF; }
+  .mk-menu .it.off { color: var(--muted); opacity: 0.6; }
+  .mk-menu .it .k { font: 12px/1 var(--mono); color: var(--link); min-width: 36px; }
+  .mk-menu .it.on .k { color: #FFFFFF; }
+  .mk-menu .it .arrow { margin-left: auto; color: var(--muted); }
+  .mk-menu .it.on .arrow { color: #FFFFFF; }
+  .mk-menu .sep { height: 1px; background: var(--border); margin: 5px var(--space-base); }
+  .mk-menu .new { outline: 1px dashed var(--amber); outline-offset: -1px; }
+  .mk-menu-pair { display: flex; align-items: flex-start; }
+  .mk-menu-pair .mk-menu + .mk-menu { margin-left: -6px; }
+
+  /* SheetLayout: Sheet.width, title in Typography.title, nav Size.control, Space.margin gutters,
+     Space.section above and Space.block below the header; the footer on Palette.surfaceRaised. */
+  .mk-sheet { width: 560px; height: 560px; box-sizing: border-box; display: flex; flex-direction: column;
+              background: var(--surface); box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius-panel);
+              overflow: hidden; font: 13px/1.3 var(--font); color: var(--text); }
+  .mk-sheet.short { height: auto; }
+  .mk-sheet .hd { padding: var(--space-section) var(--space-margin) var(--space-block);
+                  display: flex; flex-direction: column; gap: var(--space-block); }
+  .mk-sheet .ttl { font: 600 15px/1.2 var(--font); }
+  .mk-sheet .nav { height: var(--size-control); display: flex; align-items: center;
+                   font: 12px/1 var(--font); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-sheet .rule { height: 1px; background: var(--border); flex: none; } /* Hairline */
+  .mk-sheet .bd { flex: 1; padding: var(--space-margin); display: flex; flex-direction: column; gap: var(--space-block); }
+  .mk-sheet .ft { padding: var(--space-block) var(--space-margin); background: var(--surface-raised);
+                  display: flex; justify-content: flex-end; gap: var(--space-base); }
+  .mk-sheet .btn { display: inline-flex; align-items: center; height: var(--size-control); padding-inline: var(--space-gap);
+                   background: var(--control-active); border-radius: var(--radius-control); font-size: 13px; }
+
+  .mk-ff { display: flex; flex-direction: column; gap: var(--space-snug); position: relative; }
+  .mk-ff > .lbl { font: 500 12px/1 var(--font); color: var(--muted); }
+  .mk-field { display: flex; align-items: center; gap: var(--space-base); height: var(--size-control);
+              box-sizing: border-box; padding-inline: var(--space-inset); background: var(--surface);
+              border: 1px solid var(--border); border-radius: var(--radius-control); }
+  .mk-field.focused { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.35); }
+  .mk-field .ph { color: var(--placeholder); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-field .k { font: 12px/1 var(--mono); color: var(--link); }
+  .mk-field .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-field .x, .mk-field .dn { color: var(--muted); display: flex; }
+  .mk-field .dn { width: var(--size-menu-row); justify-content: center; margin-right: calc(var(--space-tight) - var(--space-inset)); }
+  .mk-stack { display: flex; flex-direction: column; gap: var(--space-snug); }
+  .mk-help { font: 11px/1.4 var(--font); color: var(--muted); }
+
+  /* SearchPicker's results: Size.control + Space.tight under the field, Space.tight padding,
+     menuChrome (Palette.menu, the hairline, Radius.panel), Size.menuRow rows, Space.base inside. */
+  .mk-results { position: absolute; left: 0; right: 0; z-index: 2; padding: var(--space-tight);
+                background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-panel);
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
+  .mk-results .r { display: flex; align-items: center; gap: var(--space-base); height: var(--size-menu-row);
+                   padding-inline: var(--space-base); border-radius: var(--radius-chip); font-size: 12px; }
+  .mk-results .r.on { background: var(--accent); color: #FFFFFF; }
+  .mk-results .r .k { font: 12px/1 var(--mono); color: var(--link); flex: none; }
+  .mk-results .r.on .k { color: #FFFFFF; }
+  .mk-results .r .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-results .r .d { font-size: 11px; color: var(--muted); flex: none; }
+  .mk-results .r.on .d { color: rgba(255, 255, 255, 0.75); }
+  .mk-results .r.on svg path { fill: #FFFFFF; }
+
+  /* SidebarBanner, above the List and outside its inset: text at Space.inset + Space.base, the
+     PROJECTS heading's leading edge. .mk-pane holds a banner over an .mk-sidebar with no shadow. */
+  .mk-pane { width: 360px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
+  .mk-pane > .mk-sidebar { box-shadow: none; }
+  /* SidebarHeading: Typography.micro, uppercase, kerning(0.45), Palette.muted, on a Size.menuRow row. */
+  .mk-heading { display: flex; align-items: center; height: var(--size-menu-row); padding-left: var(--space-base);
+                font: 600 10px/1 var(--font); letter-spacing: 0.45px; text-transform: uppercase; color: var(--muted); }
+  .mk-banner { display: flex; flex-direction: column; gap: var(--space-tight);
+               padding: var(--space-base) var(--space-base) var(--space-base) calc(var(--space-inset) + var(--space-base));
+               font: 11px/1.4 var(--font); color: var(--text); }
+  .mk-banner .rs { color: var(--muted); }
+  .mk-banner .acts { display: flex; gap: var(--space-gap); }
+  .mk-banner .acts span { color: var(--link); }
+  /* An approximation of a regular bordered push button in the sidebar. Named, not a token. */
+  .mk-banner .push { align-self: flex-start; height: 22px; display: inline-flex; align-items: center;
+                     padding-inline: var(--space-base); background: var(--badge); border-radius: var(--radius-control);
+                     font-size: 13px; color: var(--link); }
+  /* The marked banner: the mark takes the shared leading edge, as a project row's chevron does;
+     the close button sits in the trailing column, on the + glyphs' Size.slot. */
+  .mk-banner.marked { display: grid; grid-template-columns: 12px 1fr var(--size-slot); column-gap: var(--space-snug);
+                      row-gap: var(--space-tight); padding-right: calc(var(--space-inset) + 3px); }
+  .mk-banner.marked > * { grid-column: 2; }
+  .mk-banner.marked .mk { grid-column: 1; grid-row: 1; color: var(--destructive); display: flex; padding-top: 2px; }
+  .mk-banner.marked .x { grid-column: 3; grid-row: 1; height: 16px; display: flex; align-items: center;
+                         justify-content: center; color: var(--muted); }
+  .mk-banner.marked .x svg { width: 10px; height: 10px; }
+  .mk-banner-rule { height: 1px; background: var(--border); margin-left: calc(var(--space-inset) + var(--space-base)); margin-right: var(--space-inset); }
+  .mk-banner.card { margin: var(--space-snug) var(--space-inset) 0; padding: var(--space-base) 3px var(--space-base) var(--space-base);
+                    background: rgba(255, 66, 69, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 66, 69, 0.38);
+                    border-radius: var(--radius-group); }
+
+  /* TaskRowView inside SelectableRow: Size.row tall at least, Space.base above, below and leading,
+     the trailing inset 3 pt, indented Space.section, Radius.control. Avatars Size.avatar with a
+     −5 pt overlap and a 2 pt ring; the title Typography.body; the chip line Size.chip tall with
+     quiet badges Space.gap apart; the status mark Size.trailingGlyph in a Size.slot. */
+  .mk-row { display: flex; align-items: center; gap: var(--space-inset); min-height: var(--size-row); box-sizing: border-box;
+            padding: var(--space-base) 3px var(--space-base) var(--space-base); margin-left: var(--space-section);
+            border-radius: var(--radius-control); font: 13px/1 var(--font); }
+  .mk-row.sel { background: var(--selection); }
+  .mk-row .av { width: 31px; flex: none; display: flex; }
+  .mk-row .av .mark { width: 18px; height: 18px; box-shadow: 0 0 0 1px var(--surface); }
+  .mk-row .av .mark + .mark { margin-left: -5px; }
+  .mk-row.sel .av .mark { box-shadow: 0 0 0 1px var(--selection); }
+  .mk-row .ln { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; flex: 1; }
+  .mk-row .tt { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 16px; }
+  .mk-row .cl { display: flex; align-items: center; gap: var(--space-gap); height: var(--size-chip); min-width: 0; }
+  .mk-row .q { display: inline-flex; align-items: center; gap: var(--space-tight); flex: none;
+               font: 500 10px/1 var(--mono); color: var(--muted); }
+  .mk-row .q svg { width: 10px; height: 10px; }
+  .mk-row .q .d { display: inline-flex; gap: var(--space-hairline); }
+  .mk-row .q .a { color: var(--diff-added); } .mk-row .q .r { color: var(--diff-removed); }
+  .mk-row .br { font: 11px/1 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .mk-row .sub { font: 11px/1.3 var(--font); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mk-row .sub.warn { color: var(--amber); }
+  .mk-row .sub.busy { height: var(--size-chip); display: flex; align-items: center; }
+  .mk-row .slot { width: var(--size-slot); flex: none; display: flex; justify-content: center; margin-left: var(--space-tight); }
+  .mk-row .st { width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; display: block; }
+  .mk-row .st.idle { border: 1.5px solid var(--idle-ring); }
+  .mk-row .st.needs { background: var(--amber); }
+  .mk-row .st.spin { border-radius: 0; }
+  .mk-row .st.spin .arc { transform-origin: 5px 5px; animation: mk-spin 1.1s linear infinite; }
+  @keyframes mk-spin { to { transform: rotate(360deg); } }
+  .mk-row.sel .tt { color: #FFFFFF; }
+  .mk-row.sel .q, .mk-row.sel .br, .mk-row.sel .sub { color: rgba(255, 255, 255, 0.75); }
+  .mk-row.sel .q .a, .mk-row.sel .q .r { color: #FFFFFF; }
+  .mk-row.sel .q svg use { fill: #FFFFFF; }
+  /* The removing row's title drops to secondary ink — Surface.secondaryInk, nothing new. */
+  .mk-row.removing .tt { color: var(--muted); }
+  .mk-row.sel.removing .tt { color: rgba(255, 255, 255, 0.75); }
+  /* ToastView: Typography.label on Palette.surface in a capsule edged in the hairline, Space.gap
+     across and Space.base down; its shadow is one of the untokenised optical corrections. */
+  .mk-toast { display: inline-flex; align-items: center; gap: var(--space-snug); padding: var(--space-base) var(--space-gap);
+              background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+              box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28); font: 500 12px/1 var(--font); color: var(--text); }
+  .mk-pane + figcaption { max-width: 360px; }
+  .mk-gone { height: var(--size-row); margin-left: var(--space-section); border: 1px dashed var(--border);
+             border-radius: var(--radius-control); display: flex; align-items: center; justify-content: center;
+             font: 10px/1 var(--mono); color: var(--muted); }
+
+  .impl { margin: var(--space-block) 0 0; padding-left: var(--space-block); color: var(--muted);
+          display: flex; flex-direction: column; gap: var(--space-snug); }
+  .impl b { color: var(--text); font-weight: 600; }
+
+
+  /* --- 29 Sep 2026 consistency proposals ---------------------------------------------- */
+  /* A menu item's key equivalent, trailing, the way NSMenu prints it. An approximation. */
+  .mk-menu .it .sc { margin-left: auto; padding-left: var(--space-block); color: var(--muted); font: 13px/1 var(--font); }
+  .mk-menu .it.on .sc { color: #FFFFFF; }
+  .mk-menu .it.danger { color: var(--destructive); }
+  .mk-menu .hdr { font: 600 11px/1 var(--font); color: var(--muted); padding: var(--space-snug) var(--space-base) var(--space-tight); }
+  /* The menu bar's titles above a menu. An approximation of what macOS draws. */
+  .mk-bar { display: flex; gap: var(--space-block); height: var(--size-menu-row); align-items: center; padding-inline: var(--space-gap);
+            background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-control);
+            font: 13px/1 var(--font); color: var(--text); margin-bottom: var(--space-tight); width: max-content; max-width: 100%; }
+  .mk-bar b { font-weight: 600; }
+  .mk-bar .open { background: var(--accent); color: #FFFFFF; border-radius: var(--radius-chip); padding: 3px var(--space-snug); margin: -3px calc(-1 * var(--space-snug)); }
+  .mk-bar .new, .mk-menu .it.new, .mk-row.new, .mk-head.new { outline: 1px dashed var(--amber); outline-offset: -1px; }
+
+  /* SettingsCard: Space.block padding in groupChrome, a Size.control mark, Space.inset beside it,
+     Typography.card title over a Size.statusMarkSmall dot and Typography.help line, Space.tight apart;
+     actions at Size.control; a Hairline and the fields below, Space.block apart. */
+  .mk-card { display: flex; flex-direction: column; gap: var(--space-block); padding: var(--space-block);
+             background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-group); }
+  .mk-card .top { display: flex; align-items: center; gap: var(--space-inset); }
+  .mk-card .mark { width: var(--size-control); height: var(--size-control); flex: none; font: 600 11px/1 var(--mono); color: #FFFFFF; }
+  .mk-card .tl { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; flex: 1; }
+  .mk-card .tl b { font: 600 12px/1.2 var(--font); color: var(--text); }
+  .mk-card .st { display: flex; align-items: center; gap: var(--space-tight); font: 11px/1.2 var(--font); }
+  .mk-card .st i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .mk-card .st.ok { color: var(--green); } .mk-card .st.ok i { background: var(--green); }
+  .mk-card .st.warn { color: var(--amber); } .mk-card .st.warn i { background: var(--amber); }
+  .mk-card .st.idle { color: var(--muted); } .mk-card .st.idle i { background: var(--muted); }
+  .mk-card .hl { height: 1px; background: var(--border); }
+  .mk-card .acts { display: flex; gap: var(--space-base); flex: none; }
+  .mk-sheet .btn.new { outline: 1px dashed var(--amber); outline-offset: -1px; }
+  .mk-sheet .bd.tight { gap: var(--space-gap); }
+  .ai-seg.accent > span.on { background: var(--accent); color: #FFFFFF; font-weight: 400; }
+  .ai-seg.accent > span { color: var(--muted); padding-inline: var(--space-block); }
+
+  /* NSAlert, approximated: macOS draws it; nothing here is a token. */
+  .mk-alert { width: 260px; box-sizing: border-box; padding: var(--space-section) var(--space-block) var(--space-block);
+              background: var(--surface-raised); border: 1px solid var(--border); border-radius: 16px;
+              box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: var(--space-base);
+              text-align: center; font: 13px/1.35 var(--font); color: var(--text); }
+  .mk-alert b { font-weight: 600; }
+  .mk-alert .dt { font-size: 11px; color: var(--muted); }
+  .mk-alert .bt { display: flex; flex-direction: column; gap: var(--space-base); margin-top: var(--space-base); }
+  .mk-alert .bt span { height: var(--size-control); display: flex; align-items: center; justify-content: center;
+                       border-radius: var(--radius-control); background: var(--control-active); }
+  .mk-alert .bt span.def { background: var(--accent); color: #FFFFFF; }
+  .mk-alert .bt span.red { color: var(--destructive); }
+  .mk-alert .bt span.def.red { background: var(--destructive); color: #FFFFFF; }
+  .mk-alert .bt small { font: 10px/1 var(--mono); opacity: 0.7; margin-left: var(--space-snug); }
+
+  /* The empty sidebar: SidebarHeading, then Typography.body over HelpText and one push button. */
+  .mk-empty { display: flex; flex-direction: column; gap: var(--space-base); align-items: flex-start;
+              padding: var(--space-tight) var(--space-base) var(--space-block); }
+  .mk-empty b { font: 400 13px/1.3 var(--font); color: var(--text); }
+  .mk-empty .push { height: 22px; display: inline-flex; align-items: center; padding-inline: var(--space-base);
+                    background: var(--control-active); border-radius: var(--radius-control); font-size: 13px; color: var(--text); }
+
+  /* Copy tables on the proposals tab reuse .patterns; the "today" column is struck through. */
+  .patterns td s { color: var(--muted); text-decoration-color: var(--amber); }
+  .patterns td.to { color: var(--text); font-family: var(--font); font-size: 13px; white-space: normal; }
+  .patterns td.why2 { font-family: var(--font); font-size: 12px; white-space: normal; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+  /* InterfaceScale specimen. Every length is Metrics × --s, rounded to whole points as
+     InterfaceScale.callAsFunction does; font sizes are × --s unrounded, as TypeStyle.scaled is. */
+  .scale-switch { display: inline-flex; gap: var(--space-hairline); padding: var(--space-hairline);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-group);
+    margin-top: var(--space-block); }
+  .scale-switch button { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0;
+    height: calc(var(--size-control) - 2 * var(--space-hairline)); padding: 0 var(--space-gap);
+    border-radius: var(--radius-control); cursor: pointer; }
+  .scale-switch button[aria-pressed="true"] { background: var(--control-active); color: var(--text); }
+  .scale-row { --s: 1; overflow-x: auto; }
+  .scale-row .pill {
+    display: flex; align-items: center; box-sizing: border-box; width: max-content;
+    min-height: round(calc(52px * var(--s)), 1px);
+    padding-block: round(calc(8px * var(--s)), 1px);
+    padding-inline-start: round(calc(8px * var(--s)), 1px);
+    padding-inline-end: calc(round(calc(8px * var(--s)), 1px) - (round(calc(20px * var(--s)), 1px) - round(calc(10px * var(--s)), 1px)) / 2);
+    margin-inline-start: round(calc(20px * var(--s)), 1px);
+    gap: round(calc(10px * var(--s)), 1px);
+    border-radius: round(calc(6px * var(--s)), 1px);
+    background: var(--selection);
+  }
+  .scale-row .avatars { width: calc(2 * round(calc(18px * var(--s)), 1px) + round(calc(-5px * var(--s)), 1px)); flex: none; }
+  .scale-row .avatar { width: round(calc(18px * var(--s)), 1px); height: round(calc(18px * var(--s)), 1px);
+    border-radius: 50%; background: var(--claude); }
+  .scale-row .lines { display: flex; flex-direction: column; gap: round(calc(4px * var(--s)), 1px); }
+  .scale-row .title { font-size: calc(13px * var(--s)); color: #FFFFFF; white-space: nowrap; }
+  .scale-row .chips { display: flex; align-items: center; gap: round(calc(12px * var(--s)), 1px);
+    height: round(calc(16px * var(--s)), 1px); }
+  .scale-row .chip-q { display: inline-flex; align-items: center; gap: round(calc(4px * var(--s)), 1px);
+    font-family: var(--mono); font-size: calc(10px * var(--s)); font-weight: 500; color: rgba(255, 255, 255, 0.75); }
+  .scale-row .chip-q svg { width: round(calc(10px * var(--s)), 1px); height: round(calc(10px * var(--s)), 1px); }
+  .scale-row .branch { font-family: var(--mono); font-size: calc(11px * var(--s)); color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+  .scale-row .slot { width: round(calc(20px * var(--s)), 1px); display: flex; justify-content: center; flex: none;
+    margin-inline-start: round(calc(4px * var(--s)), 1px); }
+  .scale-row .status { width: round(calc(10px * var(--s)), 1px); height: round(calc(10px * var(--s)), 1px);
+    border-radius: 50%; background: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">app/Sources/AiTermUI</p>
+    <h1>AiTerm Design System</h1>
+    <div class="rule"></div>
+
+    <div class="contract">
+      <p><strong>Swift is the source of truth.</strong> The system is the code in
+        <code>app/Sources/AiTermUI/</code> and the rules in its <code>README.md</code>. There is no
+        generated token file, no canvas and no build step.</p>
+      <p><strong>This page is a human view of that code</strong>, synced on request by the
+        <code>design-system</code> skill. When the two disagree, the Swift wins — and you never need
+        this page to write correct Swift.</p>
+    </div>
+
+    <ol class="ladder">
+      <li><span><b>Reuse before new.</b> A new variant or content case on an existing primitive.
+        <code>Badge</code> absorbed three bespoke types this way.</span></li>
+      <li><span><b>A pattern</b> — existing primitives arranged. It keeps an AiTerm name and lives in
+        <code>Views/</code>, not in the library.</span></li>
+      <li><span><b>A genuinely new primitive.</b> It owes a standard name, every measurement from
+        <code>Metrics</code>, every colour from <code>Palette</code>, a declared variant × state
+        matrix, a line in the README's inventory, and a test under
+        <code>app/Tests/AiTermUITests/</code>.</span></li>
+    </ol>
+
+    <div class="owns">
+      <dl>
+        <dt>Palette.swift</dt><dd>Every colour. Semantic AppKit names, brand marks, and the washes.</dd>
+        <dt>Metrics.swift</dt><dd><code>Space</code>, <code>Radius</code>, <code>Size</code>,
+          <code>Typography</code>, <code>Sheet</code> — every height, radius, spacing and text size.</dd>
+        <dt>Surface.swift</dt><dd>The ground a component is drawn on, read from the environment.</dd>
+        <dt>ControlChrome.swift</dt><dd><code>focusRing</code>, <code>fieldChrome</code>,
+          <code>fieldBox</code>, <code>menuChrome</code>, <code>menuRowHighlight</code>,
+          <code>groupChrome</code> — the house chrome.</dd>
+        <dt>InterfaceScale.swift</dt><dd>How much larger than Apple's sizes the sidebar is drawn,
+          read from the environment like <code>Surface</code>.</dd>
+        <dt>IconSource.swift<br>Logos.swift</dt><dd>One way to name any mark the app draws, and the
+          vendor paths it draws them from. <code>Logos</code> and <code>LogoGlyph</code> are internal
+          to the module.</dd>
+        <dt>README.md</dt><dd>The rules: two tiers, reuse before new, one theme, states are a matrix.</dd>
+        <dt>AiTerm/Views/</dt><dd>The patterns. AiTerm names, AiTerm concepts, primitives only.</dd>
+      </dl>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Design system sections">
+    <button type="button" id="tab-foundations" role="tab" aria-selected="true" aria-controls="foundations">Foundations</button>
+    <button type="button" id="tab-components" role="tab" aria-selected="false" aria-controls="components">Components</button>
+    <button type="button" id="tab-proposals" role="tab" aria-selected="false" aria-controls="proposals" class="proposal-tab">Proposals</button>
+  </div>
+
+  <!-- ==================================================================================== -->
+  <!-- FOUNDATIONS                                                                          -->
+  <!-- ==================================================================================== -->
+  <section id="foundations" role="tabpanel" aria-labelledby="tab-foundations" tabindex="0">
+
+    <div class="section">
+      <h2>Colour</h2>
+      <p class="why">Almost every token names an AppKit semantic colour rather than a number.
+        <code>.labelColor</code> already knows what secondary text should look like under increased
+        contrast, and it keeps knowing when macOS changes its mind; a literal does not. The
+        deliberate exceptions are <code>codeBackground</code> — AppKit's text background resolves
+        too close to the window background in dark — <code>onAccent</code>, the one solid white,
+        which ink on the accent and the vendor discs' paper alias; <code>markInk</code>, the vendor
+        discs' black; <code>spinnerTrack</code>; and the washes, which are alphas painted over
+        another colour, something AppKit publishes no semantic name for. A colour derived from
+        another — a wash, a dimmed ink, a pressed state — is a named member too, never an
+        <code>.opacity(…)</code> written in a view.</p>
+      <p class="why">One more rule, enforced by <code>PaletteDistinctionTests</code>: every
+        distinctly-written token must resolve to a distinct colour. Where two roles share a value it
+        is declared as an alias in the source, and shown as one here. The test exists because a
+        hover wash once resolved to the surface it was painted over and drew a visible halo around
+        every hovered avatar.</p>
+
+      <div class="note">
+        <b>These hexes are resolved values, not definitions.</b> Each one was read back from the
+        live <code>Palette</code> under a forced <code>.darkAqua</code> appearance — the same
+        resolution <code>ColorProbe</code> uses in the tests. The Swift names the semantic colour;
+        macOS decides the number. Two of them follow the accent chosen in System Settings
+        (<code>.controlAccentColor</code> and <code>.selectedContentBackgroundColor</code>) and are
+        shown here at the default blue.
+      </div>
+
+      <h3 class="group">Surfaces</h3>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip" style="background: #1E1E1E"></div>
+          <div><div class="name">surface</div><div class="value">#1E1E1E</div><div class="appkit">.windowBackgroundColor</div></div>
+          <div class="use">The window, the sidebar and any control drawn flush on them.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #282828"></div>
+          <div><div class="name">surfaceRaised</div><div class="value">#282828</div><div class="appkit">.underPageBackgroundColor</div></div>
+          <div class="use">The sheet footer that holds the primary action. Lighter than the surface.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #282828"></div>
+          <div><div class="name">menu <span class="alias">= surfaceRaised</span></div><div class="value">#282828</div></div>
+          <div class="use">The fill of anything that hangs over a sheet's content: the completion
+            popup and a <code>SearchPicker</code>'s results, drawn in <code>menuChrome()</code>. On the
+            sheet's own <code>surface</code> a popup had only its hairline to tell it from the field
+            and the text it covered.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.098)"></div>
+          <div><div class="name">border</div><div class="value">#FFFFFF · 9.8 % over the surface</div><div class="appkit">.separatorColor</div></div>
+          <div class="use">The one hairline: a control's outline and a separator between rows. It
+            replaced <code>controlStroke</code> and <code>divider</code>, which were two names for
+            one value.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #464646"></div>
+          <div><div class="name">controlActive</div><div class="value">#464646</div><div class="appkit">.unemphasizedSelectedContentBackgroundColor</div></div>
+          <div class="use">A secondary selection — a selected row that is not first responder, or a
+            segmented control's chosen segment. Kept neutral: the accent is reserved for the current
+            step and for focus.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #141519"></div>
+          <div><div class="name">codeBackground</div><div class="value">#141519</div><div class="appkit">literal 0x141519</div></div>
+          <div class="use">The command preview block in a sheet, kept visually distinct from the
+            surrounding surface. A literal on purpose.</div>
+        </div>
+      </div>
+
+      <h3 class="group">Text</h3>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.847)"></div>
+          <div><div class="name">text</div><div class="value">#FFFFFF · 84.7 %</div><div class="appkit">.labelColor</div></div>
+          <div class="use">The default label colour: row titles, field values, button labels and
+            most on-screen text.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.549)"></div>
+          <div><div class="name">muted</div><div class="value">#FFFFFF · 54.9 %</div><div class="appkit">.secondaryLabelColor</div></div>
+          <div class="use">Captions, help copy, timestamps — anything subordinate to the primary
+            label.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.247)"></div>
+          <div><div class="name">placeholder <span class="alias">= idleRing</span></div><div class="value">#FFFFFF · 24.7 %</div></div>
+          <div class="use">The prompt editor's placeholder, which AppKit cannot draw on an
+            <code>NSTextView</code>. It matches the <code>.placeholderTextColor</code> AppKit draws
+            every <code>Input</code> and <code>SearchField</code> placeholder in. That is
+            <code>.tertiaryLabelColor</code> in dark, with or without increased contrast, so it is
+            declared as an alias.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.439)"></div>
+          <div><div class="name">faint</div><div class="value">muted × 80 % · #FFFFFF · 43.9 %</div><div class="appkit">muted.opacity(0.8)</div></div>
+          <div class="use">Text that sits back behind the secondary copy on its own line: a
+            completion's source, after its detail.</div>
+        </div>
+      </div>
+
+      <h3 class="group">Accent and status</h3>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip" style="background: #007AFF"></div>
+          <div><div class="name">accent</div><div class="value">#007AFF</div><div class="appkit">.controlAccentColor</div></div>
+          <div class="use">Primary buttons, focus rings and the active step in a flow.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(0,122,255,0.35)"></div>
+          <div><div class="name">focusRing</div><div class="value">#007AFF · 35 %</div><div class="appkit">accent.opacity(0.35)</div></div>
+          <div class="use">The house focus ring: the accent at 35 % — a hint around a field, not a
+            second border competing with a segmented track's own.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(0,122,255,0.8)"></div>
+          <div><div class="name">accentPressed</div><div class="value">#007AFF · 80 %</div><div class="appkit">accent.opacity(0.8)</div></div>
+          <div class="use">A pressed row in a dropdown: the accent, dimmed while the pointer holds it
+            down.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #007AFF"></div>
+          <div><div class="name">tabActive <span class="alias">= accent</span></div><div class="value">#007AFF</div></div>
+          <div class="use">The active Settings tab and the primary sheet action are one accent
+            family.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #419CFF"></div>
+          <div><div class="name">link</div><div class="value">#419CFF</div><div class="appkit">.linkColor</div></div>
+          <div class="use">A clickable link's text colour — a URL or cross-reference inside body copy.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #30D158"></div>
+          <div><div class="name">green</div><div class="value">#30D158</div><div class="appkit">.systemGreen</div></div>
+          <div class="use">The positive semantic: a passing check, a connected status, a completed
+            state shown inline.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FF9230"></div>
+          <div><div class="name">amber</div><div class="value">#FF9230</div><div class="appkit">.systemOrange</div></div>
+          <div class="use">The warning semantic: a status needing attention without being an
+            outright error.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FF4245"></div>
+          <div><div class="name">destructive</div><div class="value">#FF4245</div><div class="appkit">.systemRed</div></div>
+          <div class="use">An irreversible, data-losing action. SwiftUI's <code>role:
+            .destructive</code> already supplies this colour at every call site that needs it; the
+            token exists so the design system can <em>express</em> it, not so call sites start
+            reaching for it.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FF9230"></div>
+          <div><div class="name">badgeAmber <span class="alias">= amber</span></div><div class="value">#FF9230</div></div>
+          <div class="use">The pip on a badge that needs to draw the eye — an unread or pending
+            count. Written twice as an identical literal until the distinction test caught it.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #30D158"></div>
+          <div><div class="name">diffAdded <span class="alias">= green</span></div><div class="value">#30D158</div></div>
+          <div class="use">Lines a checkout adds against the branch it started from — the
+            <code>+12</code> on the VS Code badge.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FF4245"></div>
+          <div><div class="name">diffRemoved <span class="alias">= destructive</span></div><div class="value">#FF4245</div></div>
+          <div class="use">Lines a checkout removes against the branch it started from — the
+            <code>−3</code> beside <code>diffAdded</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FF9230"></div>
+          <div><div class="name">devBuild <span class="alias">= amber</span></div><div class="value">#FF9230</div></div>
+          <div class="use">The DEV pill a local build draws over its Dock icon, so it is never
+            mistaken for the release in Applications.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FFFFFF"></div>
+          <div><div class="name">devBuildInk <span class="alias">= onAccent</span></div><div class="value">#FFFFFF</div></div>
+          <div class="use">The "DEV" lettering on <code>devBuild</code>. White, like everything on a
+            saturated fill: the pill sits on the app icon, not on the window, so no
+            appearance-resolving label colour applies.</div>
+        </div>
+      </div>
+
+      <h3 class="group">On the accent</h3>
+      <p class="why">Ink and washes for a selected row and a primary button. The swatches below are
+        drawn over the ground they paint on: <code>selection</code> for a row's, <code>accent</code>
+        for a keycap's.</p>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip" style="background: #FFFFFF"></div>
+          <div><div class="name">onAccent</div><div class="value">#FFFFFF</div><div class="appkit">Color.white</div></div>
+          <div class="use">Ink on the accent: a selected row's title, marks and badges, a primary
+            button's keycaps. Literal white, not <code>.labelColor</code> — AppKit's own selected-row
+            text is white on it. <code>Surface.accent.ink</code> is this.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.75); background-color: #0059D1"></div>
+          <div><div class="name">onAccentSecondary</div><div class="value">#FFFFFF · 75 %</div><div class="appkit">onAccent.opacity(0.75)</div></div>
+          <div class="use">Subordinate ink on the accent — a selected row's branch, its subtitle, its
+            quiet badges' labels — where <code>muted</code> would be a grey on blue.
+            <code>Surface.accent.secondaryInk</code> is this.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.3); background-color: #0059D1"></div>
+          <div><div class="name">spinnerTrackOnAccent</div><div class="value">#FFFFFF · 30 %</div><div class="appkit">onAccent.opacity(0.3)</div></div>
+          <div class="use">A spinner's unfilled track on a selected row, where
+            <code>spinnerTrack</code>'s grey would read as a smudge on the accent.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.22); background-color: #007AFF"></div>
+          <div><div class="name">keycapFill</div><div class="value">#FFFFFF · 22 %</div><div class="appkit">onAccent.opacity(0.22)</div></div>
+          <div class="use">A keycap's fill on a primary button (<code>Kbd</code>): enough white to lift
+            the cap off the accent.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.16); background-color: #007AFF"></div>
+          <div><div class="name">keycapStroke</div><div class="value">#FFFFFF · 16 %</div><div class="appkit">onAccent.opacity(0.16)</div></div>
+          <div class="use">A keycap's edge, fainter than its fill, so the cap reads as one shape rather
+            than a box.</div>
+        </div>
+      </div>
+
+      <h3 class="group">Brand marks</h3>
+      <p class="why">A <code>Brand</code> derives its <code>Color</code>, its hex string, its SVG
+        path and its fallback SF Symbol from one number, which is what stops the two forms drifting
+        — <code>#2684FF</code> used to be written once as <code>Palette.jira</code> and once as a
+        literal inside <code>JiraChip</code>. These are vendor colours, not UI colours: never reach
+        for one to colour a button or a status.</p>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip" style="background: #D97757"></div>
+          <div><div class="name">claude</div><div class="value">#D97757</div><div class="appkit">Brand(0xD97757)</div></div>
+          <div class="use">Anthropic's mark. Falls back to <code>asterisk</code> if the SVG will not
+            decode.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #2684FF"></div>
+          <div><div class="name">jira</div><div class="value">#2684FF</div><div class="appkit">Brand(0x2684FF)</div></div>
+          <div class="use">Atlassian's mark, on the ticket badge. Falls back to <code>ticket</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #FC6D26"></div>
+          <div><div class="name">gitlab</div><div class="value">#FC6D26</div><div class="appkit">Brand(0xFC6D26)</div></div>
+          <div class="use">GitLab's mark. The project header's provider mark and the GitLab Settings
+            card draw the four-colour tanuki, <code>Icon(.gitlabTanuki)</code>, instead — a
+            full-colour artwork that falls back to this brand. Falls back to
+            <code>triangle.fill</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #23A9F2"></div>
+          <div><div class="name">vscode</div><div class="value">#23A9F2</div><div class="appkit">Brand(0x23A9F2)</div></div>
+          <div class="use">Microsoft's mark, on the "Open in VS Code" badge. Falls back to
+            <code>chevron.left.forwardslash.chevron.right</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #000000"></div>
+          <div><div class="name">openai</div><div class="value">#000000</div><div class="appkit">Brand(0x000000)</div></div>
+          <div class="use">OpenAI's mark, in its own black, drawn on <code>VendorMark</code>'s white
+            Codex disc. Falls back to <code>hexagon</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #000000"></div>
+          <div><div class="name">grok</div><div class="value">#000000</div><div class="appkit">Brand(0x000000)</div></div>
+          <div class="use">xAI's mark — Grok has no brand colour. Its inner cut needs
+            <code>evenOdd</code>, the one <code>Brand</code> that does: SVG's default nonzero
+            winding rule would fill it in instead of leaving a hole. Falls back to
+            <code>circle.slash</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(38,132,255,0.18)"></div>
+          <div><div class="name">Brand.wash</div><div class="value">brand colour · 18 %</div><div class="appkit">color.opacity(0.18)</div></div>
+          <div class="use">A brand's colour as a faint wash behind a label in its own ink — a ticket's
+            or merge request's lane in a picker (<code>LaneChip</code>): neutral information in the
+            vendor's colour, not a warning. The one derivation off a token, because it is one rule for
+            every vendor. Drawn here for Jira.</div>
+        </div>
+      </div>
+
+      <h3 class="group">Vendor discs</h3>
+      <p class="why">A round vendor mark keeps its vendor's colours, not the appearance's.</p>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip" style="background: #FFFFFF"></div>
+          <div><div class="name">markPaper <span class="alias">= onAccent</span></div><div class="value">#FFFFFF</div></div>
+          <div class="use">The white of a round vendor mark: the Codex and GitLab discs, and the logo on
+            Claude's, Jira's, Pi's, Grok's and the shell's.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #000000"></div>
+          <div><div class="name">markInk</div><div class="value">#000000</div><div class="appkit">Color.black</div></div>
+          <div class="use">The black of a round vendor mark: the Pi, Grok and shell discs.</div>
+        </div>
+      </div>
+
+      <h3 class="group">Sidebar and washes</h3>
+      <p class="why">A wash is an alpha drawn <em>over</em> another colour. The swatches below are
+        drawn over <code>surface</code>, which is the ground they actually paint on.</p>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.068)"></div>
+          <div><div class="name">badge</div><div class="value">#FFFFFF · 6.8 %</div><div class="appkit">Color.primary.opacity(0.08)</div></div>
+          <div class="use">A neutral translucent wash behind an unselected count chip or badge. It
+            is declared at 8 % on <code>.primary</code>, which carries its own ≈84.7 % alpha, so it
+            resolves to 6.8 % white — the same compounding the <code>rowHover</code> comment warns
+            about.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.2)"></div>
+          <div><div class="name">badgeSelected</div><div class="value">#FFFFFF · 20 %</div><div class="appkit">Color.white.opacity(0.2)</div></div>
+          <div class="use">The same badge wash, brighter, drawn when its row is selected.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.14)"></div>
+          <div><div class="name">badgeHovered</div><div class="value">#FFFFFF · 14 %</div><div class="appkit">Color.white.opacity(0.14)</div></div>
+          <div class="use">A badge under the pointer, on any ground but the accent.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.28); background-color: #0059D1"></div>
+          <div><div class="name">badgeSelectedHovered</div><div class="value">#FFFFFF · 28 %</div><div class="appkit">Color.white.opacity(0.28)</div></div>
+          <div class="use">A badge under the pointer on a selected row: stronger than
+            <code>badgeSelected</code>, as <code>badgeHovered</code> is than <code>badge</code>. Drawn
+            over <code>selection</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #1E1E1E"></div>
+          <div><div class="name">sidebar <span class="alias">= surface</span></div><div class="value">#1E1E1E</div></div>
+          <div class="use">The sidebar's own background. Equal to <code>surface</code>, but named
+            separately so sidebar styling reads locally.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.06)"></div>
+          <div><div class="name">rowHover</div><div class="value">#FFFFFF · 6 %</div><div class="appkit">Color.white.opacity(0.06)</div></div>
+          <div class="use">The translucent wash painted behind a sidebar row while the pointer is
+            over it. Literal white rather than <code>.primary</code>, precisely so the 6 % is really
+            6 %.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #2C2C2C"></div>
+          <div><div class="name">rowHoverSolid</div><div class="value">#2C2C2C</div><div class="appkit">computed: rowHover over sidebar, in sRGB</div></div>
+          <div class="use">The opaque colour a hovered row's avatar ring is painted: derived from
+            <code>rowHover</code> and <code>sidebar</code> rather than hardcoded, so the two can never
+            drift. Composited by hand in sRGB and resolved once, under the forced
+            <code>.darkAqua</code> AiTerm always draws in — a <code>static let</code>, since the
+            answer cannot change.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #0059D1"></div>
+          <div><div class="name">selection</div><div class="value">#0059D1</div><div class="appkit">.selectedContentBackgroundColor</div></div>
+          <div class="use">An actively selected row or item, stronger than a hover. This is the
+            ground <code>Surface.accent</code> stands for.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.247)"></div>
+          <div><div class="name">idleRing</div><div class="value">#FFFFFF · 24.7 %</div><div class="appkit">.tertiaryLabelColor</div></div>
+          <div class="use">A faint ring around an item that is idle or inactive.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(143,143,143,0.28)"></div>
+          <div><div class="name">spinnerTrack</div><div class="value">#8F8F8F · 28 %</div><div class="appkit">Color(white: 0.56, opacity: 0.28)</div></div>
+          <div class="use">The background track behind an active spinner's or progress
+            indicator's stroke — the unfilled part of a <code>UsageRing</code>.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.549)"></div>
+          <div><div class="name">spinner <span class="alias">= muted</span></div><div class="value">#FFFFFF · 54.9 %</div></div>
+          <div class="use">The active stroke of a spinner or progress indicator. Shares
+            <code>muted</code> so it reads as secondary UI, not an alert.</div>
+        </div>
+        <div class="token">
+          <div class="chip" style="background: #007AFF"></div>
+          <div><div class="name">done <span class="alias">= accent</span></div><div class="value">#007AFF</div></div>
+          <div class="use">Marks a completed task or step. Completion is a positive, current-state
+            signal, so it stays in the accent family.</div>
+        </div>
+      </div>
+
+      <h3 class="group">Status count chips</h3>
+      <p class="why">A collapsed project's <code>StatusCountChips</code>: a fill and a stroke per
+        status family, each a wash of that family's colour, strengthening with urgency — idle and
+        working in <code>muted</code>, needs-input in <code>amber</code>, done in
+        <code>accent</code>. A deliberate progression, so each is written out rather than derived
+        from one opacity. Drawn over <code>surface</code>.</p>
+      <div class="tokens">
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.077)"></div>
+          <div><div class="name">statusChipQuietFill</div><div class="value">muted × 14 % · #FFFFFF · 7.7 %</div><div class="appkit">muted.opacity(0.14)</div></div>
+          <div class="use">An idle or working chip's fill.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,255,255,0.165)"></div>
+          <div><div class="name">statusChipQuietStroke</div><div class="value">muted × 30 % · #FFFFFF · 16.5 %</div><div class="appkit">muted.opacity(0.30)</div></div>
+          <div class="use">The quiet chip's edge.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,146,48,0.16)"></div>
+          <div><div class="name">statusChipAttentionFill</div><div class="value">#FF9230 · 16 %</div><div class="appkit">amber.opacity(0.16)</div></div>
+          <div class="use">A needs-input chip's fill.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(255,146,48,0.38)"></div>
+          <div><div class="name">statusChipAttentionStroke</div><div class="value">#FF9230 · 38 %</div><div class="appkit">amber.opacity(0.38)</div></div>
+          <div class="use">A needs-input chip's edge.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(0,122,255,0.17)"></div>
+          <div><div class="name">statusChipDoneFill</div><div class="value">#007AFF · 17 %</div><div class="appkit">accent.opacity(0.17)</div></div>
+          <div class="use">A done chip's fill.</div>
+        </div>
+        <div class="token">
+          <div class="chip wash" style="--w: rgba(0,122,255,0.42)"></div>
+          <div><div class="name">statusChipDoneStroke</div><div class="value">#007AFF · 42 %</div><div class="appkit">accent.opacity(0.42)</div></div>
+          <div class="use">A done chip's edge.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Surface</h2>
+      <p class="why">A component reads the ground it sits on from the environment —
+        <code>@Environment(\.surface)</code>, set with <code>.surface(_:)</code> — instead of taking
+        a <code>selected: Bool</code>. Each case publishes its own ink, secondary ink, badge wash,
+        hovered badge wash and occluding background, so a badge inside a newly selected row turns
+        white by itself rather than every call site re-deriving the same colours. <code>Surface</code> is not a component
+        and gets no card; it is a rule the components assume.</p>
+      <div class="table-scroll">
+        <table class="patterns">
+          <thead><tr><th>Case</th><th>ink</th><th>secondaryInk</th><th>badgeWash</th><th>badgeWashHovered</th><th>occludingBackground</th></tr></thead>
+          <tbody>
+            <tr><td>.sidebar</td><td>#FFFFFF · 84.7 %</td><td>#FFFFFF · 54.9 %</td><td>#FFFFFF · 6.8 %</td><td>#FFFFFF · 14 %</td><td>#1E1E1E</td></tr>
+            <tr><td>.hover</td><td>#FFFFFF · 84.7 %</td><td>#FFFFFF · 54.9 %</td><td>#FFFFFF · 6.8 %</td><td>#FFFFFF · 14 %</td><td>#2C2C2C</td></tr>
+            <tr><td>.accent</td><td>#FFFFFF · 100 %</td><td>#FFFFFF · 75 %</td><td>#FFFFFF · 20 %</td><td>#FFFFFF · 28 %</td><td>#0059D1</td></tr>
+            <tr><td>.sheet</td><td>#FFFFFF · 84.7 %</td><td>#FFFFFF · 54.9 %</td><td>#FFFFFF · 6.8 %</td><td>#FFFFFF · 14 %</td><td>#1E1E1E</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="why">A ring or divider painted <em>over</em> content needs
+        <code>occludingBackground</code> rather than the wash: <code>AvatarGroupView</code>'s ring
+        has to hide the avatar behind it, and a translucent colour lets the stacked marks show
+        through. <code>.sheet</code> is the default.</p>
+    </div>
+
+    <div class="section">
+      <h2>Scale</h2>
+      <p class="why">Every number on this page is a size at ×1. It becomes points where a view reads
+        it, at the environment's <code>InterfaceScale</code> — <code>@Environment(\.interfaceScale)</code>,
+        set with <code>.interfaceScale(_:)</code>, like <code>Surface</code>. <code>Typography</code>
+        scales by itself, because <code>View.font(TypeStyle)</code> reads the environment, and is not
+        rounded, so text never outgrows the layout around it. <code>Space</code>, <code>Radius</code>
+        and <code>Size</code> are read through <code>scale(…)</code> and land on whole points; at ×1
+        that is the identity. Strokes — hairlines, borders, rings, the focus ring — do not scale.
+        A <code>size:</code> parameter is points on screen: the caller scales the token it passes,
+        and a view scales only its own token reads.</p>
+      <div class="table-scroll">
+        <table class="patterns">
+          <thead><tr><th>Step</th><th>factor</th><th>Size.row</th><th>Size.chip</th><th>Size.avatar</th><th>Space.base</th><th>Radius.control</th><th>Typography.body</th><th>sidebarMinWidth</th><th>sidebarWidth</th></tr></thead>
+          <tbody>
+            <tr><td>.standard · Actual Size</td><td>1</td><td>52</td><td>16</td><td>18</td><td>8</td><td>6</td><td>13</td><td>360</td><td>420</td></tr>
+            <tr><td>.large · Large</td><td>1.15</td><td>60</td><td>18</td><td>21</td><td>9</td><td>7</td><td>14.95</td><td>414</td><td>483</td></tr>
+            <tr><td>.extraLarge · Extra Large</td><td>1.3</td><td>68</td><td>21</td><td>23</td><td>10</td><td>8</td><td>16.9</td><td>468</td><td>546</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="why">Only the sidebar is scaled; <code>SidebarSheet</code> resets to
+        <code>.standard</code>. AppKit's pop-up and push-button bezels stop at 28 pt —
+        <code>.extraLarge</code> draws the <code>.large</code> bezel on macOS 26 — so a sheet, full of
+        them, keeps Apple's sizes. Of the primitives, <code>Badge</code> scales,
+        <code>SidebarHeading</code> and <code>HelpText</code> (under the empty sidebar's line) scale
+        through their one token, a <code>Typography</code> style, and <code>Hairline</code> is a
+        stroke; the rest are only drawn in sheets and read their tokens at ×1, and a primitive that
+        moves into the sidebar must first read its tokens through <code>scale</code>. <code>Select</code> can never scale:
+        it is a native bezel. The person picks the step as <code>InterfaceSize</code> — Settings ›
+        Interface › Sidebar size, or View › Zoom In / Zoom Out / Actual Size — and the app maps it
+        onto <code>InterfaceScale</code>.</p>
+      <div class="scale-switch" role="group" aria-label="Interface scale">
+        <button type="button" data-scale="1" aria-pressed="true">Actual Size</button>
+        <button type="button" data-scale="1.15" aria-pressed="false">Large</button>
+        <button type="button" data-scale="1.3" aria-pressed="false">Extra Large</button>
+      </div>
+      <div class="stage on-sidebar scale-row" id="scale-row">
+        <div class="pill">
+          <div class="avatars"><div class="avatar"></div></div>
+          <div class="lines">
+            <div class="title">Add Apple Pay to the checkout flow</div>
+            <div class="chips">
+              <span class="chip-q"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>PAY-214</span>
+              <span class="chip-q"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>+148 &minus;12</span>
+              <span class="branch">feat/pay-214-apple-pay</span>
+            </div>
+          </div>
+          <div class="slot"><div class="status"></div></div>
+        </div>
+      </div>
+      <p class="why" style="margin-top: var(--space-gap)">A selected task row, drawn from the tokens
+        at the chosen step: the pill, its padding and radius, the avatar column, the chip line and
+        the trailing slot on whole points; the title and the chip text at the unrounded size.</p>
+    </div>
+
+    <div class="section">
+      <h2>Space</h2>
+      <p class="why"><code>Space</code> is the one house scale in the system — a 4-point rhythm, plus
+        three named steps that earn their place inside chips, control tracks and field interiors,
+        where the rhythm's own steps are the wrong size. Those three are marked below. Drawn at
+        actual size.</p>
+      <div class="scale">
+        <div class="step"><div class="label">hairline <span>2 pt</span> <span class="offbeat">·</span></div>
+          <div class="draw"><div class="bar" style="width: 2px"></div><span class="purpose">Inside a segmented track, between it and its selected segment.</span></div></div>
+        <div class="step"><div class="label">tight <span>4 pt</span></div>
+          <div class="draw"><div class="bar" style="width: 4px"></div><span class="purpose">Icon to label inside a chip.</span></div></div>
+        <div class="step"><div class="label">snug <span>6 pt</span> <span class="offbeat">·</span></div>
+          <div class="draw"><div class="bar" style="width: 6px"></div><span class="purpose">A label to its control; a branch name to its <code>+n</code> chip.</span></div></div>
+        <div class="step"><div class="label">base <span>8 pt</span></div>
+          <div class="draw"><div class="bar" style="width: 8px"></div><span class="purpose">Related controls; a row's leading padding.</span></div></div>
+        <div class="step"><div class="label">inset <span>10 pt</span> <span class="offbeat">·</span></div>
+          <div class="draw"><div class="bar" style="width: 10px"></div><span class="purpose">A control's own interior padding, and the gap from a row's avatar to its text. Also the sidebar <code>List</code>'s own inset, which the usage footer, below the list, adds back to line up with the rows. At 8 the text crowds the field's stroke; at 12 a short value looks lost.</span></div></div>
+        <div class="step"><div class="label">gap <span>12 pt</span></div>
+          <div class="draw"><div class="bar" style="width: 12px"></div><span class="purpose">Two fields side by side; the quiet badges along a sidebar row's subtitle line, which have no box to separate them.</span></div></div>
+        <div class="step"><div class="label">block <span>16 pt</span></div>
+          <div class="draw"><div class="bar" style="width: 16px"></div><span class="purpose">Field to field, section to section, and a sheet footer's padding.</span></div></div>
+        <div class="step"><div class="label">section <span>20 pt</span></div>
+          <div class="draw"><div class="bar" style="width: 20px"></div><span class="purpose">A task row's indent under its project; a sheet header's top.</span></div></div>
+        <div class="step"><div class="label">margin <span>24 pt</span></div>
+          <div class="draw"><div class="bar" style="width: 24px"></div><span class="purpose">The sheet gutter.</span></div></div>
+      </div>
+      <p class="why" style="margin-top: var(--space-gap)"><span class="offbeat">·</span> off the
+        4-point rhythm, on purpose.</p>
+    </div>
+
+    <div class="section">
+      <h2>Radius</h2>
+      <p class="why">AppKit's own control radii: 4 at the small control size, 6 at regular, 8 at
+        large — and 10, which is what a macOS popover uses, for anything that floats. Nothing here
+        was chosen because it looked right beside its neighbour. Drawn at actual size.</p>
+      <div class="radii">
+        <figure>
+          <div class="sq" style="border-radius: 4px"></div>
+          <figcaption><div class="name m">chip · 4 pt</div><div class="use" style="color: var(--muted)">Badges, the <code>+n</code> chip, a menu row's highlight, the provider tile.</div></figcaption>
+        </figure>
+        <figure>
+          <div class="sq" style="border-radius: 6px"></div>
+          <figcaption><div class="name m">control · 6 pt</div><div class="use" style="color: var(--muted)">Fields, buttons, sidebar rows, the command block.</div></figcaption>
+        </figure>
+        <figure>
+          <div class="sq" style="border-radius: 8px"></div>
+          <figcaption><div class="name m">group · 8 pt</div><div class="use" style="color: var(--muted)">Segmented tracks and the boxed groups in Settings.</div></figcaption>
+        </figure>
+        <figure>
+          <div class="sq" style="border-radius: 10px"></div>
+          <figcaption><div class="name m">panel · 10 pt</div><div class="use" style="color: var(--muted)">Menus, dropdowns, the completion popup.</div></figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Size</h2>
+      <p class="why">Heights, widths and diameters: the sidebar's own widths, every control and row
+        height, and the marks drawn inside them. A field, a pop-up
+        button, a segmented track and a footer button are all 28 pt because that is what
+        <code>.controlSize(.large)</code> measures — not because 28 looked balanced. Drawn at actual
+        size.</p>
+      <div class="sizes">
+        <div class="step"><div class="label m">statusMarkSmall <span style="color: var(--muted)">8 pt</span></div>
+          <div class="draw"><div class="dot" style="width: 8px; height: 8px"></div><span class="purpose">The status mark inside a count chip, where the usual size would overflow it.</span></div></div>
+        <div class="step"><div class="label m">statusMark <span style="color: var(--muted)">10 pt</span></div>
+          <div class="draw"><div class="dot" style="width: 10px; height: 10px"></div><span class="purpose">A status mark on a row, and the usage footer's ring drawn to its recipe. A row's mark sits in the trailing column, so this is declared as an alias: <code>statusMark = trailingGlyph</code>.</span></div></div>
+        <div class="step"><div class="label m">trailingGlyph <span style="color: var(--muted)">10 pt</span></div>
+          <div class="draw"><div class="box" style="width: 10px; height: 10px"></div><span class="purpose">The ink in the sidebar's trailing column, centred in a <code>slot</code>.</span></div></div>
+        <div class="step"><div class="label m">chevron <span style="color: var(--muted)">10 pt</span></div>
+          <div class="draw"><div class="box" style="width: 10px; height: 10px"></div><span class="purpose">The column a project row's disclosure chevron sits in, leading its provider mark. Its own name, not <code>trailingGlyph</code>'s: that one feeds the trailing column's inset arithmetic, and a change there must not move this glyph.</span></div></div>
+        <div class="step"><div class="label m">pickerRowLogo <span style="color: var(--muted)">11 pt</span></div>
+          <div class="draw"><div class="box" style="width: 11px; height: 11px"></div><span class="purpose">A vendor mark in a picker's result row — smaller than <code>pickerLogo</code>, to sit inside a <code>menuRow</code>.</span></div></div>
+        <div class="step"><div class="label m">pickerLogo <span style="color: var(--muted)">13 pt</span></div>
+          <div class="draw"><div class="box" style="width: 13px; height: 13px"></div><span class="purpose">A vendor mark beside a picked item in a picker's field: the ticket, the merge request, the Jira project.</span></div></div>
+        <div class="step"><div class="label m">chip <span style="color: var(--muted)">16 pt</span></div>
+          <div class="draw"><div class="box" style="width: 52px; height: 16px"></div><span class="purpose">Every chip: the Jira key, the VS Code badge, <code>+n</code>, a status count.</span></div></div>
+        <div class="step"><div class="label m">vendorMark <span style="color: var(--muted)">16 pt</span></div>
+          <div class="draw"><div class="dot" style="width: 16px; height: 16px"></div><span class="purpose">A vendor mark outside an avatar group: the usage footer, the agent picker. A diameter that happens to equal <code>chip</code>'s height.</span></div></div>
+        <div class="step"><div class="label m">avatar <span style="color: var(--muted)">18 pt</span></div>
+          <div class="draw"><div class="dot" style="width: 18px; height: 18px"></div><span class="purpose">A vendor mark in an avatar group, and the provider tile beside a project name. Also an icon-only <code>Badge</code>'s width.</span></div></div>
+        <div class="step"><div class="label m">slot <span style="color: var(--muted)">20 pt</span></div>
+          <div class="draw"><div class="box" style="width: 20px; height: 20px"></div><span class="purpose">The click target the sidebar's trailing column is built from.</span></div></div>
+        <div class="step"><div class="label m">menuRow <span style="color: var(--muted)">24 pt</span></div>
+          <div class="draw"><div class="box" style="width: 120px; height: 24px"></div><span class="purpose">A row in a menu, a dropdown or the completion popup; the sidebar's <code>PROJECTS</code> header and a <code>DividerRow</code>; a usage footer row and its CONTEXT and USAGE headings. Also the width a picker's list toggle answers to clicks in (<code>SearchPicker</code>).</span></div></div>
+        <div class="step"><div class="label m">control <span style="color: var(--muted)">28 pt</span></div>
+          <div class="draw"><div class="box" style="width: 120px; height: 28px"></div><span class="purpose">A field, a pop-up button, a segmented track, a footer button — <code>.controlSize(.large)</code>.</span></div></div>
+        <div class="step"><div class="label m">projectRow <span style="color: var(--muted)">28 pt</span></div>
+          <div class="draw"><div class="box" style="width: 120px; height: 28px"></div><span class="purpose">A project header. Same number as <code>control</code>, kept a separate name because it answers to a different scale.</span></div></div>
+        <div class="step"><div class="label m">row <span style="color: var(--muted)">52 pt</span></div>
+          <div class="draw"><div class="box" style="width: 120px; height: 52px"></div><span class="purpose">A task or terminal row: a 16 pt title, <code>Space.tight</code>, a 16 pt chip line, inside <code>Space.base</code> above and below. Was 44, which left 5 pt around the text.</span></div></div>
+        <div class="step"><div class="label m">sidebarMinWidth <span style="color: var(--muted)">360 pt</span></div>
+          <div class="draw wide-scroll"><div class="box" style="width: 360px; height: 28px"></div></div></div>
+        <div class="step"><div class="label m">sidebarWidth <span style="color: var(--muted)">420 pt</span></div>
+          <div class="draw wide-scroll"><div class="box" style="width: 420px; height: 28px"></div></div></div>
+      </div>
+      <p class="why" style="margin-top: var(--space-gap)">The two sidebar widths are the measured
+        numbers in the file. <code>sidebarMinWidth</code> is as narrow as the sidebar goes: a vendor
+        usage row's common case — two windows under 100 %, the 5-hour one resetting today and the
+        weekly one on a later day.
+        <code>UsageFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth</code> holds
+        that honest. It was 395 while each vendor row also carried its <code>ctx</code> segment;
+        context moved to the footer's task row, which carries nothing else, and the minimum came
+        back to 360. <code>sidebarWidth</code> is where the sidebar opens with no saved frame, sized
+        to a task row instead: at 360 a row with a Jira key, a diff and a <code>+n</code> squeezes
+        its branch to <code>feat/f…t-side</code>; at 420 the branch keeps its type, the ticket's
+        prefix and its tail.</p>
+      <p class="why" style="margin-top: var(--space-snug)">Some names above share a number —
+        <code>chip</code>/<code>vendorMark</code> at 16, <code>trailingGlyph</code>/<code>chevron</code>
+        at 10, <code>control</code>/<code>projectRow</code> at 28. That is allowed:
+        <code>Metrics</code> has no distinctness rule, only <code>Palette</code> does. Each name
+        answers to a different scale and may move without the other. <code>statusMark</code> is
+        different: it is declared as an alias of <code>trailingGlyph</code>, so the two cannot
+        part.</p>
+    </div>
+
+    <div class="section">
+      <h2>Typography</h2>
+      <p class="why">The macOS system text scale. AiTerm draws with <code>.system(size:)</code>
+        rather than a text style, so each member is labelled below with the system style it is the
+        size of. A <code>TypeStyle</code> keeps its size, weight and design as separate parts, and
+        its <code>nsFont</code> consults all three — so the handful of AppKit views that take an
+        <code>NSFont</code> can never quietly narrow a style to just its size. Specimens are set at
+        their real size, weight and design.</p>
+      <div class="specimens">
+        <div class="specimen">
+          <div style="font: 600 15px/1.3 var(--font)">New task</div>
+          <div class="meta"><b>title</b>15 pt · semibold · .title3</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 600 12px/1.4 var(--font)">Telemetry</div>
+          <div class="meta"><b>card</b>12 pt · semibold · .callout</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 400 13px/1.4 var(--font)">Close the grep blind spot</div>
+          <div class="meta"><b>body</b>13 pt · regular · .body</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 500 13px/1.4 var(--font)">AiTerm</div>
+          <div class="meta"><b>bodyEmphasis</b>13 pt · medium · .body</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 500 12px/1.4 var(--font)">Working directory</div>
+          <div class="meta"><b>label</b>12 pt · medium · .callout</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 400 12px/1.4 var(--font)">Pick the agent this task runs on</div>
+          <div class="meta"><b>caption</b>12 pt · regular · .callout</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 400 11px/1.4 var(--font)">Claude Code is not on your login shell's PATH.</div>
+          <div class="meta"><b>help</b>11 pt · regular · .subheadline</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 600 10px/1.4 var(--font)">PROJECTS</div>
+          <div class="meta"><b>micro</b>10 pt · semibold · .footnote</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 400 11px/1.4 var(--mono)">feat/final-ui-refactor</div>
+          <div class="meta"><b>mono</b>11 pt · monospaced</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 400 12px/1.4 var(--mono)">claude --resume</div>
+          <div class="meta"><b>monoCode</b>12 pt · monospaced</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 400 13px/1.4 var(--mono)">Draw the design system as one page</div>
+          <div class="meta"><b>promptMono</b>13 pt · monospaced</div>
+        </div>
+        <div class="specimen">
+          <div style="font: 500 10px/1.4 var(--mono)">AIT-214</div>
+          <div class="meta"><b>monoChip</b>10 pt · medium · monospaced</div>
+        </div>
+      </div>
+      <p class="why" style="margin-top: var(--space-gap)"><code>promptMono</code> has to match
+        <code>PromptEditor</code>'s real <code>NSTextView</code> font exactly, or its placeholder
+        sits where typed text will not.</p>
+    </div>
+
+    <div class="section">
+      <h2>Sheet</h2>
+      <p class="why">The two sheet footprints. Everything inside them measures in
+        <code>Space</code>, <code>Radius</code> and <code>Size</code>.</p>
+      <div class="scale">
+        <div class="step"><div class="label">width <span>560 pt</span></div><div class="draw"><span class="purpose">Both sheets.</span></div></div>
+        <div class="step"><div class="label">height <span>560 pt</span></div><div class="draw"><span class="purpose">Every sheet but Settings: New Task, New Review, and every <code>NameSheet</code> — New terminal, Add divider, Rename.</span></div></div>
+        <div class="step"><div class="label">settingsHeight <span>580 pt</span></div><div class="draw"><span class="purpose">Settings, whose forms want a slightly taller viewport.</span></div></div>
+        <div class="step"><div class="label">fittingHeight(_:)</div><div class="draw"><span class="purpose">Clamps a preferred height to the screen, never below 320 pt.</span></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>One theme</h2>
+      <p class="why">AiTerm is dark-only. There is no light variant to keep in sync, and this page
+        commits to the same single theme rather than inventing one the app does not have. Kerning
+        and shadow geometry — blur radius, offset, opacity — are deliberately not tokenised: they
+        are one-off optical corrections on a single element, not a scale anything else draws from.
+        Their absence from <code>Metrics</code> is a decision, not an oversight.</p>
+    </div>
+
+  </section>
+
+  <!-- ==================================================================================== -->
+  <!-- COMPONENTS                                                                           -->
+  <!-- ==================================================================================== -->
+  <section id="components" role="tabpanel" aria-labelledby="tab-components" tabindex="0" hidden>
+
+    <div class="section">
+      <h2>States are a matrix</h2>
+      <p class="why">A component's states are <strong>declared up front, not discovered</strong>:
+        default, hover, pressed, disabled, focused, selected. A new primitive owes that matrix the
+        same way it owes a name — every variant crossed with every state, decided before the first
+        call site, rather than a hover wash bolted on the week someone notices it is missing.</p>
+      <p class="why">One rule overrides the matrix: when a target does not exist, the control is
+        <strong>absent, not disabled</strong>. <code>SidebarView</code> draws no VS Code badge when
+        VS Code is not installed, rather than a greyed one — the branch after it stays on the row as
+        plain text. A disabled control is
+        a promise that the action exists and is currently unavailable — if it can never become
+        available, showing it is a lie the user has to test by clicking.</p>
+      <p class="why">Reduce Motion is honoured rather than ignored: <code>StatusMark</code> keeps its
+        arc and drops the rotation.</p>
+    </div>
+
+    <div class="section">
+      <h2>Primitives</h2>
+      <p class="why">Eleven components, all in <code>app/Sources/AiTermUI/</code>. They take standard
+        names and <strong>no AiTerm type appears in their signature</strong> — a primitive that
+        knows what a task is has stopped being a primitive. Each one reads its ground from
+        <code>Surface</code> rather than taking a <code>selected</code> flag.</p>
+      <p class="why">Every variant below is drawn in HTML at the real numbers from
+        <code>Metrics</code>. Where macOS draws something this page cannot — an SF Symbol, an
+        <code>NSPopUpButton</code>'s bezel — the card says so instead of pretending.</p>
+
+      <div class="cards">
+
+        <!-- Badge --------------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>Badge</h3><span class="file">AiTermUI/Badge.swift</span></header>
+          <p class="what">The one chip. 16 pt tall (<code>Size.chip</code>) at
+            <code>Radius.chip</code>, labelled in <code>Typography.monoChip</code>, on a neutral
+            wash from the surface it sits on. It replaced three bespoke types —
+            <code>EditorBadge</code>, <code>JiraChip</code> and <code>BranchLabelView</code>'s
+            <code>+n</code> chip — that each redrew the same shape. Passing an
+            <code>action</code> makes it a button; without one it draws its shape only. An
+            optional <code>iconTint</code> inks the icon off the accent — a Settings check's green
+            checkmark or amber warning — and yields to white on it like everything else. An optional
+            <code>diff</code> (<code>Badge.Diff(added:removed:)</code>) extends it with signed line
+            counts after its icon and label — <code>+12 −3</code>, green and red, <code>Space.hairline</code>
+            apart, a true minus sign — and leaves out a side that is zero; an empty diff draws
+            nothing extra. A badge is a chip at its own width, never squeezed or stretched by the
+            row around it. <code>style: .quiet</code> drops the box at rest: no outer padding, the
+            label in the surface's <code>secondaryInk</code>, and the hovered wash drawn
+            <code>Space.tight</code> outside the content so nothing moves; its content shape keeps the
+            gaps between mark and diff clickable. The sidebar's project headers and task and terminal
+            rows use it; everywhere else a badge stays <code>.boxed</code>. Every token it reads goes
+            through <code>scale</code>.</p>
+          <div class="stage">
+            <div class="demo">
+              <span class="cap">icon + label</span>
+              <span class="ai-badge">
+                <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2684FF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>
+                <span class="secondary">AIT-214</span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">icon only · 18 pt wide</span>
+              <span class="ai-badge icon-only">
+                <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#23A9F2" d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">icon + diff · the VS Code badge off its base</span>
+              <span class="ai-badge">
+                <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#23A9F2" d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
+                <span class="diff"><span class="added">+12</span><span class="removed">&minus;3</span></span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">diff · one side only</span>
+              <span class="ai-badge">
+                <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#23A9F2" d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
+                <span class="diff"><span class="added">+148</span></span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">label only</span>
+              <span class="ai-badge">+3</span>
+            </div>
+            <div class="demo">
+              <span class="cap">hovered · wash 14 %</span>
+              <span class="ai-badge hovered">+3</span>
+            </div>
+            <div class="demo">
+              <span class="cap">quiet · at rest</span>
+              <span style="display: inline-flex; gap: var(--space-gap)">
+                <span class="ai-badge quiet">
+                  <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2684FF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>
+                  <span>PAY-214</span>
+                </span>
+                <span class="ai-badge quiet">
+                  <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#23A9F2" d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
+                  <span class="diff"><span class="added">+7</span><span class="removed">&minus;2</span></span>
+                </span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">quiet · hovered, wash outset 4 pt</span>
+              <span class="ai-badge quiet hovered">
+                <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2684FF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>
+                <span>PAY-214</span>
+              </span>
+            </div>
+            <div class="demo">
+              <span class="cap">iconTint · a Settings check</span>
+              <span style="display: inline-flex; gap: var(--space-snug)">
+                <span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M4 12.5l5 5L20 6.5"/></svg>CLI</span>
+                <span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="var(--amber)" stroke-width="3" stroke-linecap="round" d="M12 4v10M12 20v.01"/></svg>Driver</span>
+              </span>
+            </div>
+            <div class="demo" style="flex-basis: 100%">
+              <span class="cap">on Surface.accent · wash 20 %, everything turns white</span>
+              <span class="on-accent-row">
+                <span class="rowtitle">Draw the artifact</span>
+                <span class="ai-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>
+                  <span class="secondary">AIT-214</span>
+                </span>
+                <span class="ai-badge">
+                  <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
+                  <span class="diff"><span class="added">+12</span><span class="removed">&minus;3</span></span>
+                </span>
+                <span class="ai-badge">+3</span>
+              </span>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>A ticket key, a vendor mark, an
+              overflow count, a Settings check, a vendor mark with the diff it opens onto — anything chip-shaped that carries one fact. A new kind of chip is a
+              new content case here, not a new type. <code>.quiet</code> where several sit in one line of
+              text, as on a sidebar row, spaced <code>Space.gap</code> apart.</div>
+            <div class="no"><span class="h">Not for</span>A status count.
+              <code>StatusCountChip</code> varies its tint, its ink and both its fill and stroke
+              opacity by status — a three-dimensional progression keyed to urgency that no single
+              colour parameter could carry. It stays its own pattern.</div>
+          </div>
+        </article>
+
+        <!-- Icon ---------------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>Icon</h3><span class="file">AiTermUI/IconSource.swift</span></header>
+          <p class="what">Draws an <code>IconSource</code> at a size, optionally overriding its ink.
+            <code>IconSource</code> is the one way to name any mark AiTerm draws —
+            <code>.symbol(String)</code> for an SF Symbol, <code>.brand(Brand)</code> for a
+            single-colour vendor mark, or <code>.artwork(svg:fallback:)</code> for a full-colour SVG
+            that carries its own fallback (<code>.gitlabTanuki</code>, <code>.piBadge</code>) — so a
+            component showing an icon does not care which kind it is. A brand or an artwork fills a
+            <code>size</code> square; a symbol keeps its glyph's own width at that point size. A brand
+            keeps its vendor colour unless <code>tint</code> overrides it, which is what a selected
+            row does: a brand colour on the accent reads as a mistake. A symbol with no tint takes the
+            ink of the surface it sits on; an artwork has no one colour, so a tint reaches only its
+            fallback. The vendor paths live in <code>Logos</code> and are drawn by
+            <code>LogoGlyph</code>, both internal to the module: the one way the app draws a logo, and
+            no fill travels as a hex string.</p>
+          <div class="stage">
+            <div class="demo">
+              <span class="cap">.symbol("checkmark.circle.fill")</span>
+              <span class="sf">SF Symbol · drawn by macOS</span>
+            </div>
+            <div class="demo">
+              <span class="cap">.brand(Palette.claude) · 16 pt</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#D97757" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>
+            </div>
+            <div class="demo">
+              <span class="cap">.brand(Palette.gitlab) · 18 pt</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FC6D26" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg>
+            </div>
+            <div class="demo">
+              <span class="cap">tint override · on the accent</span>
+              <span class="on-accent-row" style="padding: var(--space-tight) var(--space-base)">
+                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>Any mark drawn at a
+              <code>Size</code> step. Adding a vendor is one <code>Brand</code>, usable everywhere
+              an <code>IconSource</code> is accepted.</div>
+            <div class="no"><span class="h">Not for</span>A mark that needs its own shape around it
+              — a filled disc. That is <code>VendorMark</code> or <code>IntegrationMark</code>, both
+              patterns.</div>
+          </div>
+        </article>
+
+        <!-- FormField ----------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>FormField</h3><span class="file">AiTermUI/FormField.swift</span></header>
+          <p class="what">A label above its control, at the system's spacing:
+            <code>Typography.label</code> in <code>Palette.muted</code>, then
+            <code>Space.snug</code>, then whatever the caller puts in the builder. It is the only
+            thing in the system that decides how far a label sits from its field.</p>
+          <div class="stage">
+            <div class="demo" style="flex: 1">
+              <span class="cap">label + Input</span>
+              <div class="ai-formfield">
+                <span class="lbl">Task name</span>
+                <div class="ai-field placeholder">Describe the task</div>
+              </div>
+            </div>
+            <div class="demo" style="flex: 1">
+              <span class="cap">label + Select</span>
+              <div class="ai-formfield">
+                <span class="lbl">Base branch</span>
+                <div class="ai-select mono"><span>main</span><span class="chev" aria-hidden="true">
+                  <svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg>
+                </span></div>
+              </div>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>Every labelled control in a sheet.
+              Its content builder takes anything, so the label stays consistent across
+              <code>Input</code>, <code>Select</code>, <code>SegmentedControl</code> and
+              <code>PromptEditor</code>.</div>
+            <div class="no"><span class="h">Not for</span>A label that is not above a control — a
+              heading inside a boxed group is <code>Typography.card</code>, in the view itself.</div>
+          </div>
+        </article>
+
+        <!-- HelpText ------------------------------------------------------------------ -->
+        <article class="card">
+          <header><h3>HelpText</h3><span class="file">AiTermUI/FormField.swift</span></header>
+          <p class="what">Subordinate caption copy under a control: what a field means, why an
+            option is unavailable. <code>Typography.help</code> in <code>Palette.muted</code>, and
+            it wraps rather than truncating — its <code>fixedSize</code> keeps a long sentence from
+            being clipped to one line.</p>
+          <div class="stage">
+            <div class="demo" style="flex: 1">
+              <span class="cap">default</span>
+              <div class="ai-help">Worktree at .worktrees/final-ui-refactor</div>
+            </div>
+            <div class="demo" style="flex: 1">
+              <span class="cap">tone: .warning</span>
+              <div class="ai-help warn">Claude Code is not on your login shell's PATH.</div>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>One or two lines under a field, in a
+              <code>tone</code>: <code>.secondary</code>, the default, or <code>.warning</code>,
+              <code>Palette.amber</code>. It inks itself, so it is coloured by its tone and never by an
+              outer <code>foregroundStyle</code>. <code>DestinationLine</code> is one, at the foot of
+              every sheet that opens a window.</div>
+            <div class="no"><span class="h">Not for</span>An error that blocks the action. That
+              belongs beside the primary button, in <code>SheetActionRow</code>'s status slot.</div>
+          </div>
+        </article>
+
+        <!-- Input --------------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>Input</h3><span class="file">AiTermUI/Input.swift</span></header>
+          <p class="what">A plain text field in the house field chrome: 28 pt tall
+            (<code>Size.control</code>), <code>Radius.control</code>, filled with
+            <code>Palette.surface</code> inside a one-point <code>Palette.border</code>, with
+            <code>Space.inset</code> of horizontal padding. Its binding is proxied so only real
+            edits reach the caller — AppKit hands a field's value back when editing begins and ends,
+            not only when the text changes, so an unproxied setter with a side effect would fire
+            because the user clicked some other field.</p>
+          <div class="stage">
+            <div class="demo"><span class="cap">placeholder</span><div class="ai-field placeholder">Describe the task</div></div>
+            <div class="demo"><span class="cap">value</span><div class="ai-field">Draw the artifact</div></div>
+            <div class="demo"><span class="cap">monospaced: true</span><div class="ai-field mono">feat/final-ui-refactor</div></div>
+            <div class="demo"><span class="cap">focused · focusRing, 2 pt at 35 %, outside the edge</span><div class="ai-field focused">Draw the artifact</div></div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>Any single-line text entry.
+              <code>monospaced: true</code> switches it to <code>Typography.monoCode</code> for a
+              branch name or a path; <code>secure: true</code> hides what is typed, for a token.</div>
+            <div class="no"><span class="h">Not for</span>Multi-line prompts
+              (<code>PromptEditor</code>, a pattern) or a field whose AppKit delegate has to
+              intercept navigation keys (<code>SearchField</code>, the primitive below). Both need a
+              real <code>NSView</code> SwiftUI does not expose.</div>
+          </div>
+        </article>
+
+        <!-- Select -------------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>Select</h3><span class="file">AiTermUI/Select.swift</span></header>
+          <p class="what">A real <code>NSPopUpButton</code> at <code>.controlSize(.large)</code>,
+            which is exactly <code>Size.control</code>. Its menu is a window of its own, so it opens
+            <em>over</em> what is below it instead of pushing the sheet around, and it fills the
+            column it is given — which neither SwiftUI's menu-style <code>Picker</code> nor
+            <code>Menu</code> will do: both hug their widest title and centre themselves in what is
+            left. Each value may carry a <code>detail</code> string, which becomes that menu item's
+            tooltip.</p>
+          <div class="stage">
+            <div class="demo" style="flex: 1">
+              <span class="cap">default</span>
+              <div class="ai-select"><span>Claude Sonnet 4.5</span><span class="chev" aria-hidden="true">
+                <svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg>
+              </span></div>
+            </div>
+            <div class="demo" style="flex: 1">
+              <span class="cap">monospaced: true</span>
+              <div class="ai-select mono"><span>main</span><span class="chev" aria-hidden="true">
+                <svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg>
+              </span></div>
+            </div>
+          </div>
+          <p class="what" style="margin-top: var(--space-gap)">AppKit draws this bezel, not the
+            design system — the drawing above is an approximation. The only numbers
+            <code>Select</code> owns are its 28 pt height and the fact that it takes the width it is
+            offered rather than its intrinsic one.</p>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>Choosing one of a list: a model, a
+              reasoning effort, a base branch.</div>
+            <div class="no"><span class="h">Not for</span>Two or three options that should all be
+              visible at once — that is <code>SegmentedControl</code>.</div>
+          </div>
+        </article>
+
+        <!-- SegmentedControl ---------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>SegmentedControl</h3><span class="file">AiTermUI/SegmentedControl.swift</span></header>
+          <p class="what">A hand-built segmented control that can carry a logo. 28 pt overall
+            (<code>Size.control</code>, so it lines up with the fields beside it), which is a 24 pt
+            segment inside a 2 pt track, and a 6 pt segment radius concentric inside the track's 8.
+            It is hand-built rather than a <code>Picker</code> because the system control cannot
+            carry a logo and paints its selection in the accent colour. It answers to ← and → and
+            skips a segment <code>isSelectable</code> rejects. <code>style: .neutral</code>, the
+            default, puts <code>Palette.controlActive</code> under the selected segment and draws the
+            house focus ring, not SwiftUI's compositor halo, while the track has the keyboard — the
+            agent picker, Sidebar size. <code>style: .accent</code> puts
+            <code>Palette.tabActive</code> under it, declares <code>.surface(.accent)</code> there, and
+            draws no ring, since an accent ring around an accent segment reads as a second
+            selection — the Settings tab bar.</p>
+          <div class="stage">
+            <div class="demo">
+              <span class="cap">agent picker · AgentSegmented · Codex disabled, its CLI is not on PATH</span>
+              <div class="ai-seg">
+                <span class="on">
+                  <span class="mark" style="width: 16px; height: 16px; background: #D97757">
+                    <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>
+                  </span>Claude Code</span>
+                <span class="disabled">
+                  <span class="mark" style="width: 16px; height: 16px; background: #FFFFFF">
+                    <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#000000" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+                  </span>Codex</span>
+                <span>
+                  <span class="mark" style="width: 16px; height: 16px; background: #000000">
+                    <svg width="11.2" height="11.2" style="transform: translate(-0.32px, 0)" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" fill-rule="evenodd" d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"/></svg>
+                  </span>Grok Build</span>
+                <span>
+                  <span class="mark" style="width: 16px; height: 16px; background: #000000">
+                    <svg width="7.68" height="7.68" style="transform: translate(0.58px, 0)" viewBox="0 0 560 560" aria-hidden="true"><path fill="#FFFFFF" d="M420 280H280V140H0V0H420V280Z"/><path fill="#FFFFFF" d="M560 560H420V280H560V560Z"/><path fill="#FFFFFF" d="M140 560H0V140H140V280H280V420H140V560Z"/></svg>
+                  </span>PI</span>
+              </div>
+            </div>
+            <div class="demo">
+              <span class="cap">style: .accent · the Settings tab bar</span>
+              <div class="ai-seg accent">
+                <span class="on">Agents</span><span>Integrations</span><span>Interface</span>
+              </div>
+            </div>
+            <div class="demo">
+              <span class="cap">style: .neutral · Sidebar size · focused</span>
+              <div class="ai-seg focused">
+                <span class="on regular">Actual Size</span><span>Large</span><span>Extra Large</span>
+              </div>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>Two to four options that should all
+              stay visible: the agent picker, Sidebar size, the Settings tab bar. A disabled value
+              drops to 40 % and explains itself in a tooltip — ← and → skip it.</div>
+            <div class="no"><span class="h">Not for</span>A long list, or anything that needs to
+              scroll. That is <code>Select</code>. And <code>.accent</code> only where the track is
+              the sheet's navigation, as the Settings tab bar is: elsewhere the selected segment stays
+              <code>Palette.controlActive</code>, since the accent belongs to focus and to the current
+              step.</div>
+          </div>
+        </article>
+
+        <!-- Kbd ----------------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>Kbd</h3><span class="file">AiTermUI/Kbd.swift</span></header>
+          <p class="what">Keycaps for a shortcut. Each cap is <code>Size.chip</code> tall with a
+            <code>Size.chip</code> minimum width, at <code>Radius.chip</code>, in
+            <code>Typography.mono</code>, with a 3 pt gap — narrower than <code>Space.tight</code>,
+            because the caps read as one shortcut rather than two controls side by side.
+            It takes no style: the caps read the <code>Surface</code> they sit on. On
+            <code>.accent</code>, which <code>SheetPrimaryButton</code>'s label declares, they restate
+            a key equivalent in <code>Palette.onAccent</code> on <code>keycapFill</code> and
+            <code>keycapStroke</code>, white at 22 % and 16 %, which only hold against the accent.
+            Anywhere else they take the surface's ink on its badge wash, edged in
+            <code>Palette.border</code>, as the keyboard section of Settings › Interface lists them.</p>
+          <div class="stage">
+            <div class="demo">
+              <span class="cap">on Surface.accent · a primary sheet action</span>
+              <span class="ai-primary">Create Task <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span>
+            </div>
+            <div class="demo">
+              <span class="cap">on Surface.accent · Settings</span>
+              <span class="ai-primary">Save <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span>
+            </div>
+            <div class="demo">
+              <span class="cap">on Surface.sheet · a keyboard shortcuts row</span>
+              <span class="kbd-row">Remove the task, review or terminal <span class="ai-kbd quiet"><span>⌘</span><span>⌫</span></span></span>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>A key equivalent restated on a
+              <em>primary</em> button, or a key listed on a surface; the ground picks the inks. Pass the glyphs macOS menus use — <code>⌘</code>,
+              <code>↩</code> (U+21A9, not U+23CE, which reads heavier at this size),
+              <code>⎋</code>, <code>⇧</code>, <code>⌫</code>. It is hidden from accessibility: read out,
+              it would turn every press into "Create Task command return".</div>
+            <div class="no"><span class="h">Not for</span>The grey secondary button: caps on it read
+              as a second control. And not as a control — it restates a
+              shortcut, it does not handle one.</div>
+          </div>
+        </article>
+
+        <!-- SearchField --------------------------------------------------------------- -->
+        <article class="card">
+          <header><h3>SearchField</h3><span class="file">AiTermUI/SearchField.swift</span></header>
+          <p class="what">A single-line field whose AppKit delegate gives an open popup first
+            refusal on navigation commands — SwiftUI's <code>TextField</code> exposes no such hook,
+            which is the whole reason this is an <code>NSViewRepresentable</code> rather than an
+            <code>Input</code>. It wears the same house chrome as <code>Input</code>
+            (<code>Size.control</code>, <code>Radius.control</code>, <code>Palette.surface</code>
+            inside <code>Palette.border</code>) and sets its text in <code>Typography.body</code>.
+            Focus may be requested before SwiftUI has inserted it into a window, so it retries at
+            window attachment rather than dropping the request.</p>
+          <div class="stage">
+            <div class="demo"><span class="cap">ticket picker · placeholder</span><div class="ai-field placeholder">Search by key or title</div></div>
+            <div class="demo"><span class="cap">merge request picker · placeholder</span><div class="ai-field placeholder">Search by !number, title or branch</div></div>
+            <div class="demo"><span class="cap">focused, list open</span><div class="ai-field focused">gift</div></div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>The text half of any picker whose
+              results need the arrow keys, Return and Escape before the sheet sees them. Three
+              fields use it today: the ticket picker, the merge request picker and the branch
+              picker.</div>
+            <div class="no"><span class="h">Not for</span>Ordinary single-line entry — that is
+              <code>Input</code>, which costs no <code>NSView</code>. It carries no list of its own:
+              the dropdown, its rows and its key contract belong to <code>SearchPicker</code>, a
+              pattern, because hanging results under a field is this app's layout decision rather
+              than a library part.</div>
+          </div>
+        </article>
+
+        <!-- SidebarHeading ------------------------------------------------------------ -->
+        <article class="card">
+          <header><h3>SidebarHeading</h3><span class="file">AiTermUI/SidebarHeading.swift</span></header>
+          <p class="what">A heading in the sidebar's own voice: <code>Typography.micro</code>,
+            uppercase, tracked out with <code>kerning(0.45)</code>, in <code>Palette.muted</code>. The
+            tracking is an optical correction, not a size, so it is not tokenised and does not scale;
+            the heading scales through its one token, <code>Typography.micro</code>, which scales by
+            itself. It has no states: it is a label, never a control.</p>
+          <div class="stage on-sidebar">
+            <div class="demo"><span class="cap">the list's header</span><span class="ai-heading">Projects</span></div>
+            <div class="demo"><span class="cap">a divider's name</span><span class="ai-heading">Work</span></div>
+            <div class="demo"><span class="cap">the usage footer</span><span class="ai-heading">Context</span></div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span><code>PROJECTS</code>, a
+              <code>DividerRow</code>'s name, and the usage footer's CONTEXT and USAGE — anything that
+              heads a stretch of the sidebar.</div>
+            <div class="no"><span class="h">Not for</span>A heading in a sheet or a Settings group.
+              There a heading is <code>Typography.card</code> or <code>Typography.bodyEmphasis</code>,
+              in <code>Palette.text</code>.</div>
+          </div>
+        </article>
+
+        <!-- Hairline ------------------------------------------------------------------ -->
+        <article class="card">
+          <header><h3>Hairline</h3><span class="file">AiTermUI/Hairline.swift</span></header>
+          <p class="what">The one 1 pt rule: <code>Palette.border</code> on a filled rectangle, the
+            same stroke as every control's outline. A rectangle rather than SwiftUI's
+            <code>Divider</code>, so it stays horizontal inside an <code>HStack</code>, where
+            <code>Divider</code> turns vertical. The sheets used to lay a <code>Divider</code> under
+            the border, which read a third brighter; that second weight was folded into this one. A
+            stroke, so it does not scale.</p>
+          <div class="stage on-sidebar">
+            <div class="demo"><span class="cap">DividerRow · rule, name, rule</span>
+              <div class="ai-divider-row"><div class="ai-hairline"></div><span class="ai-heading">Work</span><div class="ai-hairline"></div></div>
+            </div>
+            <div class="demo"><span class="cap">DividerRow · no name, a plain rule</span>
+              <div class="ai-divider-row"><div class="ai-hairline"></div></div>
+            </div>
+          </div>
+          <div class="rules">
+            <div class="yes"><span class="h">Use it for</span>Every rule: either side of a
+              <code>DividerRow</code>'s name, the usage footer's, the step bar's connectors, a
+              sheet's header and footer edges, under a Settings card's header, between the Interface
+              tab's rows.</div>
+            <div class="no"><span class="h">Not for</span>A bare <code>Divider()</code> — never. A
+              menu's separator is the menu's own <code>Divider</code>, which AppKit draws.</div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Patterns</h2>
+      <p class="why">These are <strong>AiTerm compositions, not library parts</strong>. They live in
+        <code>app/Sources/AiTerm/Views/</code>, keep AiTerm names, carry AiTerm concepts, and are
+        built only from the primitives above. A pattern is promoted to a primitive only when two or
+        more files use it <em>and</em> it carries no AiTerm type <em>and</em> it is not app-shell
+        composition — a sheet's own anatomy, a window's chrome — which stays here regardless of
+        reuse. One call site is not a library.</p>
+      <div class="table-scroll">
+        <table class="patterns">
+          <thead><tr><th>Pattern</th><th>What it composes</th><th>File</th></tr></thead>
+          <tbody>
+            <tr><td>SheetLayout</td><td>The shared modal chrome: the title, the band under it, the scrolling content, the actions below. The band holds a <code>StepBar</code>, a tab bar, or one <code>SheetSubtitle</code> — never a path.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>SheetActionRow</td><td>Secondary and primary actions together at the trailing edge, with optional status text.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>SheetPrimaryButton</td><td>A sheet's prominent action: <code>.borderedProminent</code> with <code>Kbd</code> "⌘ ↩" on it, answering ⌘↩ and only ⌘↩ — a plain ⏎ stays with the focused control. Every sheet uses it rather than restating that.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>SheetSubtitle</td><td>The band's one sentence on a sheet without steps or tabs, saying what the sheet does: "Opens a shell in the project folder.", "The branch and worktree keep their names."</td><td>SheetChrome.swift</td></tr>
+            <tr><td>DestinationLine</td><td>Where a sheet's window opens, in one format at the foot of its content: <code>Opens in iTerm2 · &lt;project&gt;/&lt;worktree path&gt; · &lt;branch&gt;</code> — the project alone for New terminal, <code>task “&lt;title&gt;”</code> for a review that opens in the task that has its branch. A <code>HelpText</code> that wraps to two lines, then cuts in the middle, with the whole line in its tooltip. New Task and New Review draw it on steps 1 and 3.</td><td>DestinationLine.swift</td></tr>
+            <tr><td>CreationSheet</td><td>The frame New Task and New Review share, generic over the sheet's <code>CreationModel</code>: the <code>StepBar</code>, the <code>CommandBlock</code> under every step past the first, the <code>DestinationLine</code> that ends steps 1 and 3, the <code>CreationFooter</code> and its keys, and the loads it starts as it appears. Each sheet hands it values and keeps its own first step. ⎋ closes an open picker first, on step 1, and a click on the sheet's background closes them all.</td><td>CreationSheet.swift</td></tr>
+            <tr><td>CreationFooter</td><td>The footer New Task and New Review share: the last failure as a sentence — git's lines through <code>GitError.sentence</code>, as the banner has them, with git's whole output in the tooltip (<code>CreationFailure</code>) — and any missing-CLI note in <code>Palette.amber</code>, Back — Cancel on step 1 — and a <code>SheetPrimaryButton</code>. ⎋ closes an open picker before it goes back.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>StepBar</td><td>1 Task —— 2 Agent —— 3 Prompt across the header; the connectors stretch so the steps sit left, middle and right. The names are a parameter, so New Review reads 1 Branch —— 2 Agent —— 3 Prompt.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>AgentSegmented</td><td>A <code>SegmentedControl</code> of <code>VendorMark</code>s. An agent whose CLI is not on the login shell's PATH cannot be picked, and says so.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>CommandBlock</td><td>The exact command the task will run, on <code>Palette.codeBackground</code> at <code>Typography.monoCode</code>, with the whole thing in the tooltip.</td><td>SheetChrome.swift</td></tr>
+            <tr><td>StatusMark</td><td>The per-status glyph on a row, at <code>Size.statusMark</code>. Reads <code>Surface</code> rather than a selected flag, and under Reduce Motion keeps its arc and drops the rotation.</td><td>StatusMark.swift</td></tr>
+            <tr><td>StatusCountChips</td><td>The counts a collapsed project header draws in place of the rows it hides: <code>StatusMark</code> at <code>Size.statusMarkSmall</code> in front of a number.</td><td>StatusCountChips.swift</td></tr>
+            <tr><td>AvatarGroupView</td><td>A fixed column two marks wide (31 pt), so every row's title starts at the same x: stacked <code>VendorMark</code>s at <code>Size.avatar</code>, at most two — a third agent turns the second slot into "+n" (<code>SidebarModel.avatarMax</code>) — each ringed in the row's own <code>occludingBackground</code>, with a hand-drawn circle — <code>Palette.controlActive</code> under "+n" at <code>Typography.micro</code> — in the last slot, not a <code>Badge</code>. (<code>BranchLabelView</code> below is the one that draws its "+n" with <code>Badge</code>; the app has two "+n" renderings, one rectangular and one circular, a candidate for a future <code>Badge</code> variant.)</td><td>AvatarGroupView.swift</td></tr>
+            <tr><td>VendorMark</td><td>The round vendor avatar: a <code>Icon</code> on a filled circle in <code>markPaper</code> or <code>markInk</code> (PI draws <code>Icon(.piBadge)</code>, white on black), or the <code>&gt;_</code> prompt glyph for a shell. Grok Build has no brand colour either, so it takes the same white-on-black disc as PI and the shell. Each logo is placed by <code>LogoFit</code>: a box of 61 % of the diameter by default, sized down and nudged for a logo that carries more ink or leans off-centre (PI at 48 %, Jira at 55 %), so every mark covers about 18 % of its disc with its mass on the centre — except Grok, whose long diagonal reaches the disc's edge before its ink does: nothing here clips to the circle, so widening its box past 70 % pushes its tips outside the disc. Containment wins, so Grok stays at 70 % (dx nudged back from the right) and covers only about 14 % of its disc. <code>marks.png</code> from <code>scripts/snapshots.sh</code> is where they are measured — check both the ink and that no glyph pixel lands outside the disc.</td><td>VendorMark.swift</td></tr>
+            <tr><td>BranchLabelView</td><td>A row's branch, last on its badge line: the name in <code>Typography.mono</code> and the surface's <code>secondaryInk</code>, as plain text that selects the row like the rest of it, plus a <code>Badge</code> "+n", <code>Space.snug</code> after it, when the window has other branches open. The name is the only thing allowed to truncate, and it truncates in the middle; "+n" keeps its width however narrow the row gets. A drifted branch — the agent is not on the branch the row is bound to — is <code>Palette.amber</code>, and the tooltip names both.</td><td>BranchLabelView.swift</td></tr>
+            <tr><td>ToastView</td><td>A transient confirmation: an SF Symbol label at <code>Typography.label</code>.</td><td>ToastView.swift</td></tr>
+            <tr><td>ProviderIcon</td><td>The provider mark beside a project name, centred in a <code>Size.avatar</code> square so the name lines up with the avatars below; no tile behind it. The four-colour tanuki for GitLab, <code>arrow.triangle.branch</code> for plain git and <code>folder.fill</code> for a folder, the two symbols in the surface's <code>secondaryInk</code>.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>CompletionPopup</td><td>The agent's own slash commands and skills as a menu-shaped list, in <code>menuChrome()</code>. Drawn over everything below the prompt field, the command preview included.</td><td>PromptEditor.swift</td></tr>
+            <tr><td>SearchPicker</td><td>A <code>SearchField</code> with its results hanging under it: at most six rows in <code>menuChrome()</code>, offset <code>Size.control + Space.tight</code> so they overlay the sheet rather than pushing it down. Generic over the row; the key contract lives beside it in <code>SearchPickerKeys</code> as a pure function — arrows wrap, Return accepts, Escape closes the popup only.</td><td>SearchPicker.swift</td></tr>
+            <tr><td>PickedItemField</td><td>A picker's pick, drawn in its field's place in <code>fieldChrome</code>: the service's mark at <code>Size.pickerLogo</code>, the key in <code>Typography.monoCode</code> and <code>Palette.link</code>, the title, anything trailing, and the ✕ that clears it. A branch has no mark or key and is set in the code face, cut in the middle.</td><td>SearchPicker.swift</td></tr>
+            <tr><td>PickerResultRow</td><td>A result row of the ticket, merge request and Jira project pickers: the mark at <code>Size.pickerRowLogo</code>, the key in a fixed column so the titles start on one line, the title in <code>Typography.caption</code>, and a trailing detail in <code>Typography.help</code> — inked for the accent when highlighted (<code>PickerRowAppearance</code>).</td><td>SearchPicker.swift</td></tr>
+            <tr><td>LaneChip</td><td>A ticket's or merge request's lane on its service's <code>Brand.wash</code>, in <code>Typography.label</code>, <code>Size.chip</code> tall at <code>Radius.chip</code>, <code>Space.snug</code> across — not amber, which means "needs attention", and not a <code>Badge</code>, which sets its label in the mono chip face on a neutral wash.</td><td>SearchPicker.swift</td></tr>
+            <tr><td>AgentStep</td><td>Step 2 of both creation sheets: the <code>AgentSegmented</code> picker above the model and reasoning <code>Select</code>s, with an amber note naming any CLI missing from the login shell's PATH.</td><td>Steps/AgentStep.swift</td></tr>
+            <tr><td>PromptStep</td><td>Step 3 of both creation sheets: <code>PromptEditor</code> with its placeholder overlay and <code>CompletionPopup</code>, plus a trailing slot the sheet fills — New Task puts its "include ticket details" checkbox there, New Review passes nothing.</td><td>Steps/PromptStep.swift</td></tr>
+            <tr><td>CompletionHint</td><td>The line under the prompt editor saying what <code>/</code> opens — the one trigger for every agent; a Codex skill picked there is written as its <code>$</code> mention.</td><td>PromptEditor.swift</td></tr>
+            <tr><td>NativeRowHighlight</td><td>Keeps AppKit's list selection live for keyboard navigation while dropping its drawing, so the row's own pill draws every state.</td><td>NativeRowHighlight.swift</td></tr>
+            <tr><td>UsageFooter</td><td>Compact telemetry in two named groups on the list's grid, split by a full-width 1 pt <code>Palette.border</code> rule. Each group is a heading in the <code>PROJECTS</code> header's treatment — <code>Typography.micro</code>, uppercase, <code>kerning(0.45)</code>, <code>Palette.muted</code> — over <code>Size.menuRow</code> rows, with <code>Space.tight</code> above and <code>Space.base</code> below; its ink runs from the header's leading edge to the status column's, the list's inset plus <code>Space.base</code> on each side. CONTEXT is the selected task, review or terminal: the <code>Size.vendorMark</code> mark of whatever runs in its active tab and that provider's fill — ring and percentage, no <code>ctx</code> label, since the heading says it; the room after the number is for its note. A shell tab shows the shell's mark with no fill; an agent that has not reported yet reads "No context yet" in <code>Palette.muted</code>. USAGE is one row per vendor — Claude, Codex — with each rate-limit window showing how much is left and until when; PI and Grok Build have no account-quota source AiTerm can read, so neither gets a USAGE row, only CONTEXT when one of their tasks is selected. With nothing selected CONTEXT and its rule are absent. Every window — its label, ring, number and reset — carries one tooltip and one VoiceOver label in words (<code>UsageLine.help</code>): "Weekly limit, 61 % used, resets Friday 23:33".</td><td>UsageFooter.swift</td></tr>
+            <tr><td>UsageRing</td><td>The fill beside a telemetry number, closing clockwise from twelve at <code>Size.statusMark</code>. Drawn to <code>StatusMark</code>'s recipe — same diameter, same <code>size * 0.15</code> stroke, same round cap — so the sidebar's round marks read as one family. A pattern, not a primitive: the ladder promotes at a second call site, and only <code>UsageFooter</code> draws one.</td><td>UsageFooter.swift</td></tr>
+            <tr><td>PromptEditor</td><td>The first-prompt editor: a real <code>NSTextView</code>, which is what makes the completion popup possible at all.</td><td>PromptEditor.swift</td></tr>
+            <tr><td>SidebarView</td><td>Projects → tasks → tabs. The app's one persistent surface: opens at <code>Size.sidebarWidth</code>, narrows to <code>Size.sidebarMinWidth</code>.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarScrollFollower</td><td>Scrolls the list to a row selected away from it — Focus View, a notification raising its window — a turn later. Its own view, so the selection moving re-runs it and not <code>SidebarView</code>'s body.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarEmptyState</td><td>What sits under <code>PROJECTS</code> while there are none: a <code>Typography.body</code> line, a <code>HelpText</code> line and an "Add Project…" push button that runs the header's own action. Its spacing reads <code>scale</code>; the button is an AppKit bezel, <code>.regular</code> at ×1 and <code>.large</code> above.</td><td>SidebarEmptyState.swift</td></tr>
+            <tr><td>SidebarBanners</td><td>What sits above the list: a failed save with Retry Saving, a failed operation, and the helper's connection line — <code>Palette.amber</code> when only the person can end it, <code>Palette.muted</code> otherwise — all at <code>Typography.help</code>, their answers as links <code>Space.gap</code> apart. A failed operation is an <code>OperationIssue</code>: its title in <code>Palette.text</code>, then its reason in <code>Palette.muted</code>, then its actions and Dismiss. A branch git kept for commits its base lacks offers Keep Branch and Delete Branch… (which asks first); the issue goes when the task it is about does.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarBanner</td><td>One banner: its text starting where the <code>PROJECTS</code> heading's does (<code>Space.inset + Space.base</code>), a <code>detail</code> after it in <code>Palette.muted</code>, and its link buttons. Its tone inks it — <code>.error</code> <code>Palette.text</code>, <code>.warning</code> <code>Palette.amber</code>, <code>.info</code> <code>Palette.muted</code>; its trailing and vertical margins are each banner's own.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarToast</td><td>The <code>ToastView</code> over the sidebar's foot, <code>Space.block</code> above the bottom, sliding in from below — or simply appearing under Reduce Motion. Its own view, so a toast coming and going redraws this and not the list.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarSheet</td><td>The sheet each kind of request presents — Jira projects, new task, review, terminal or divider, a rename, Settings — wired to the controller that asked. Add Project… has none: the folder chooser adds the project at once.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarSheetPresenter</td><td>Presents <code>controller.sheet</code>, reading nothing else, so a change to the list does not rebuild the open sheet — nor a sheet opening re-run the list.</td><td>SidebarView.swift</td></tr>
+            <tr><td>SidebarHeader</td><td>"PROJECTS", a <code>SidebarHeading</code>, with the "+" menu that adds a project or a divider — Add Project… and Add Divider… — at <code>Size.menuRow</code>.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>ProjectHeaderRow</td><td>A project at <code>Size.projectRow</code>: disclosure chevron in a <code>Size.chevron</code> column, <code>ProviderIcon</code>, name in <code>Typography.bodyEmphasis</code>, then one quiet Jira <code>Badge</code> per linked Jira project, in the order they were linked and <code>Space.gap</code> apart, each opening its own project — they keep their width and the name truncates — or, collapsed, <code>StatusCountChips</code> for the rows it hides; and the "+" menu for a task, review or terminal. It is on the arrow path: selected, it sits in <code>RowPill</code> on <code>Surface.accent</code> and its chevron, name, glyph and "+" turn white; ↩ folds or opens it, and it shows no window. An empty project has nothing to disclose: like a leaf in a Finder outline it draws no chevron — the column stays, so its name lines up — and does not fold, so ↩ on its header opens its context menu instead, below the row with the first item highlighted, through <code>RowMenuAnchor</code>. Its context menu's "Jira Projects…" opens <code>JiraProjectSheet</code>.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>RowMenuAnchor</td><td>Opens a row's context menu from the keyboard: ↩ on an empty project header. SwiftUI cannot present a <code>.contextMenu</code>, so a view in the row's background right-clicks the row at its bottom leading corner — the menu drops below the row, item for item the one a click brings up — and a queued ↓ highlights its first enabled item, so ↑ ↓, ↩ and ⎋ work on it at once. Draws nothing and takes no clicks.</td><td>RowMenuAnchor.swift</td></tr>
+            <tr><td>SelectableRow</td><td>A task's or terminal's row, at least <code>Size.row</code> tall with <code>Space.base</code> above and below its content, inset <code>Space.section</code>, in a <code>RowPill</code>, with the click that activates it. It owns its row's hover, so the pointer redraws one row. Which row is selected — a project header, a task or a terminal, never a divider — belongs to <code>RowFocus</code> (<code>controller.focus</code>), an owner, not a view.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>RowPill</td><td>The one pill every selectable sidebar row is drawn in, a project header's included, at <code>Radius.control</code>: <code>Palette.selection</code> when selected, <code>Palette.rowHover</code> while hovered. It declares the <code>Surface</code> — <code>.accent</code>, <code>.hover</code> or <code>.sidebar</code> — its contents read.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>RowTitle · RowCaption</td><td>A row's title, and a line under it, inked from the row's <code>Surface</code> rather than a <code>selected</code> flag. <code>RowCaption(warns:)</code> is <code>Palette.amber</code> off the accent only.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>TaskRowView</td><td>A task or review in a <code>SelectableRow</code>: <code>AvatarGroupView</code>, the title in <code>Surface</code> ink, then, <code>Space.tight</code> below it and <code>Space.gap</code> apart, in this order, the Jira and merge-request <code>Badge</code>s, the VS Code <code>Badge</code> — all three <code>.quiet</code> — and the <code>BranchLabelView</code>, last because it is the one thing that truncates. The VS Code badge is the mark alone; when the checkout differs from the branch the task or review started from it extends to a <code>+12 −3</code> diff, with the base it is measured against named in the tooltip rather than on the badge. Clicking it opens the worktree in VS Code either way; with no VS Code there is no badge. A Settings › Interface switch that drops a badge's detail (<code>BadgeDetails</code>) keeps its mark, its click and its tooltip — <code>TaskRowBadges</code> decides them. Below them, a "Window closed" or "Worktree missing" caption in <code>secondaryInk</code> — or why its removal stopped (<code>TaskRemoval.stopped</code>, "Not removed: branch kept") in a warning <code>RowCaption</code>, which stays when the banner moves on; trailing, the <code>StatusMark</code>. While the row is being removed (<code>AppController.removals</code>) the title drops to <code>secondaryInk</code>, the arrow keys step over it, "Removing…" — "Closing…" for a checkout deleted outside AiTerm — stands in for the badge line at its height, the caption is hidden and the mark spins; the row cannot be activated, Reopen window is hidden, and Rename and Remove are disabled. <code>TaskRowCaption</code> decides those lines.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>TerminalRowView</td><td>A terminal in the same <code>SelectableRow</code> and the same two-line layout: its window's agents, its name, then the quiet VS Code <code>Badge</code> — the mark alone, no diff, opening the project folder — and the <code>BranchLabelView</code> with the project's branch, and the <code>StatusMark</code>.</td><td>SidebarRows.swift</td></tr>
+            <tr><td>DividerRow</td><td>A named rule between two projects: rule · name · rule at <code>Size.menuRow</code>, the name in the <code>PROJECTS</code> header's own treatment — <code>Typography.micro</code>, uppercase, <code>kerning(0.45)</code>, <code>Palette.muted</code> — because that is what it is, a heading for the projects under it. The rules are filled <code>Rectangle</code>s a point tall, the house <code>Hairline</code> — <code>Palette.border</code>, the same stroke as a control's outline, also drawn by <code>UsageFooter</code>, <code>StepBar</code> and every sheet's section breaks: SwiftUI's own <code>Divider</code> turns vertical inside an <code>HStack</code>. A label, not a container — not selectable, no hover wash, no trailing "+"; only its context menu responds. An empty name draws a plain rule.</td><td>DividerRow.swift</td></tr>
+            <tr><td>JiraProjectSheet</td><td>Edits the Jira projects linked to an AiTerm project, from its context menu's "Jira Projects…" only; an empty list means none, and New Task then searches every Jira project. Each linked project is a <code>PickedItemField</code>, <code>Space.snug</code> apart, whose ✕ unlinks it; below them a <code>SearchPicker</code> over the whole project list, filtered locally and leaving out what is linked, adds one more: a <code>Typography.monoCode</code> key beside a <code>Typography.caption</code> name per row. ⎋ closes its list before the sheet. Nothing changes until Save. A linked project then wears its key as a Jira <code>Badge</code> beside the project's name in the sidebar.</td><td>JiraProjectSheet.swift</td></tr>
+            <tr><td>SettingsView</td><td>A <code>SegmentedControl</code> tab bar — Agents, Integrations, Interface, also ⌘1–⌘3 — over <code>SettingsCard</code>s and <code>SettingsGroup</code>s, no tab opening with an intro line. It opens on Integrations while iTerm2 is not connected or a saved service's last test failed (<code>ServiceTestRecord</code>), on Agents otherwise — decided as it opens, never switched afterwards.</td><td>SettingsView.swift</td></tr>
+            <tr><td>SettingsCard</td><td>The one box every Settings entry is drawn in: a mark at <code>Size.control</code>, a title in <code>Typography.card</code> with optional check chips, a status line in one of three tones — ready (<code>Palette.green</code>), attention (<code>Palette.amber</code>), idle (<code>Palette.muted</code>) — beside a <code>Size.statusMarkSmall</code> dot, trailing actions at <code>.controlSize(.large)</code>, and fields below a divider, at <code>Radius.group</code> on <code>Palette.surface</code>. Cards carry no Test button: Settings tests every card when it opens, and a service again once its fields stop changing; the answer replaces that card's status line rather than landing in the sheet footer. A harness card's one action is named by its state and runs the same code: Install while the CLI or driver is missing, Repair while a check is amber, Reinstall when Ready. A Jira or GitLab card with saved credentials trails Disconnect, which Save carries out and Cancel undoes.</td><td>SettingsCard.swift</td></tr>
+            <tr><td>ItermSettingsCard</td><td>The iTerm2 card, first on Integrations: it tests the chain AiTerm → Python → helper → iTerm2 when Settings opens and follows it live — green with the iTerm2 version, amber with numbered steps (a <code>Typography.mono</code> number in <code>Palette.muted</code> beside a <code>Typography.caption</code> step, <code>Space.snug</code> apart), grey while a state clears on its own. No fields.</td><td>ItermSettingsCard.swift</td></tr>
+            <tr><td>ServiceCard</td><td>Jira's or GitLab's <code>SettingsCard</code> on Integrations: its <code>IntegrationMark</code> at <code>Size.control</code>, its connection's status line, a trailing Disconnect while it holds saved credentials, and the fields laid out from the connection's binding. It observes the connection, so an edit or a test answer redraws this card and not the sheet.</td><td>SettingsView.swift</td></tr>
+            <tr><td>SettingsGroup</td><td>A group that connects and tests nothing — Sidebar size, Sidebar badges, each keyboard group: the card's box and rule without its mark, status or actions. A heading over one line of <code>HelpText</code>, a <code>Hairline</code>, then rows, <code>Space.gap</code> throughout, a <code>Hairline</code> between rows.</td><td>SettingsCard.swift</td></tr>
+            <tr><td>SettingsSwitch</td><td>A Settings switch: a small trailing <code>.switch</code> toggle whose hidden title is what VoiceOver reads; the row beside it shows the same title in its own type.</td><td>SettingsCard.swift</td></tr>
+            <tr><td>IntegrationMark</td><td>Jira's, GitLab's and iTerm2's round mark on a Settings card, drawn to <code>VendorMark</code>'s recipe — a filled disc with the logo placed by <code>LogoFit</code> — so services and harnesses read as one family. iTerm2 is the shell <code>VendorMark</code> itself: its icon is a prompt on black already.</td><td>SettingsCard.swift</td></tr>
+            <tr><td>InterfaceSettingsPane</td><td>The Interface tab, appearance only: the dark-terminal-background row (its own <code>groupChrome</code> box: a swatch, a title, a switch), a "Sidebar size" <code>SettingsGroup</code> (a <code>SegmentedControl</code> of <code>InterfaceSize</code>, applied to the sidebar behind the sheet as it is picked and put back by Cancel) and the "Sidebar badges" switches; <code>Space.section</code> below them, the keyboard section.</td><td>InterfaceSettingsPane.swift</td></tr>
+            <tr><td>KeyboardSettingsPane</td><td>The "Keyboard shortcuts" section at the foot of Interface, read-only: a <code>Typography.bodyEmphasis</code> heading over "Shortcuts can’t be changed yet.", then one <code>SettingsGroup</code> per <code>KeyBindingGroup</code>, the action in <code>Typography.body</code> and its keys in <code>Kbd</code> at the trailing edge, read out as key names. The groups run from the widest reach to the narrowest — Switching apps (macOS's ⌘⇥, labelled as macOS's), Anywhere in AiTerm, Sidebar, Sheets, Lists and the prompt. Anywhere in AiTerm is the menu bar's keys in their menus' order, the File menu's plain-⌘ create keys first — Add Project… ⌘P, Add Divider… ⌘D, New Task… ⌘N, New Review… ⌘R, New Terminal… ⌘T. The Sidebar's are ↑ ↓ to peek at a row's window, a plain ↩ to go to it, fold or open a project, or open an empty one's menu, and ⌘⌫ to remove; ⌘↩ belongs to the sheets. In Lists and the prompt, <code>/</code> is the one key for commands and skills. The table is <code>KeyBindings.all</code>, written by hand; a row that mirrors a menu item carries that item's exact title, and <code>KeyboardSettingsTests</code> checks titles, keys and modifiers against the menu bar.</td><td>KeyboardSettingsPane.swift</td></tr>
+            <tr><td>HarnessSettingsPane</td><td>The Agents tab: one <code>SettingsCard</code> per harness, a <code>VendorMark</code> for its mark, <code>Badge</code> chips for its CLI and driver, its one Install, Repair or Reinstall action, and the default model and reasoning <code>Select</code>s as its fields; a footnote says Settings tests each agent when it opens.</td><td>HarnessSettingsPane.swift</td></tr>
+            <tr><td>NameSheet</td><td>One field, one name — every flow whose whole question is what to call something: Add divider (its button Add Divider), New terminal, and Rename for a task or review, a terminal and a divider, each rename's title, field and sentence from <code>RenameTarget</code>. A single <code>FormField</code> inside <code>SheetLayout</code> and <code>SheetActionRow</code>, with a <code>SheetSubtitle</code> and an optional <code>HelpText</code> slot, ⌘↩ confirming, and the name trimmed before it reaches its caller; an empty rename keeps the old name.</td><td>NameSheet.swift</td></tr>
+            <tr><td>NewTaskSheet</td><td>The three-step task sheet — Ticket, then the shared <code>AgentStep</code> and <code>PromptStep</code>. Step 1 is a <code>SearchPicker</code> over Jira — every linked Jira project at once, named in its placeholder ("Search APP and OPS by key or title"), or every project when none is linked — a task name, and the new and base branches.</td><td>NewTaskSheet.swift</td></tr>
+            <tr><td>NewReviewSheet</td><td>Its sibling, for reviewing a branch that already exists — Branch, then the same <code>AgentStep</code> and <code>PromptStep</code>. Step 1 is two <code>SearchPicker</code>s: an optional GitLab merge request, which fills the name and branch, and the branch itself. No base branch, and no ticket checkbox on step 3.</td><td>NewReviewSheet.swift</td></tr>
+            <tr><td>NewTerminalSheet</td><td>The shortest sibling: a <code>NameSheet</code> carrying this flow's copy, and its <code>DestinationLine</code> — the project and its branch — under the field.</td><td>NewTerminalSheet.swift</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="why" style="margin-top: var(--space-block)">This is the README's own inventory,
+        plus <code>RowMenuAnchor</code>, which the code has and the README does not list yet.
+        Those files — and <code>SheetKind.swift</code>, for <code>RenameTarget</code> — also hold a
+        few supporting types that the inventory does not name —
+        <code>StatusCountChip</code>, <code>SearchPickerKeys</code>, <code>Destination</code>, <code>RenameTarget</code>,
+        <code>SearchPickerRowStyle</code>, <code>PickerRowAppearance</code>, <code>ProjectJiraBadge</code>, <code>TaskRowBadges</code>, <code>TaskRowCaption</code>, <code>SidebarRowLayout</code>, <code>LogoFit</code> and <code>BadgeDetailSwitch</code> — each private to, or
+        used only by, the patterns above.</p>
+    </div>
+
+  </section>
+
+  <!-- ==================================================================================== -->
+  <!-- PROPOSALS — always present; holds only what is not in the code yet                   -->
+  <!-- ==================================================================================== -->
+  <section id="proposals" role="tabpanel" aria-labelledby="tab-proposals" tabindex="0" hidden>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="p-jira" viewBox="0 0 24 24"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></symbol>
+      <symbol id="p-gitlab" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/><path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></symbol>
+      <symbol id="p-chev" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="p-plus" viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+      <symbol id="p-claude" viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></symbol>
+      <symbol id="p-openai" viewBox="0 0 24 24"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></symbol>
+      <symbol id="p-vscode" viewBox="0 0 24 24"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></symbol>
+      <symbol id="p-x" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2 2 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    </svg>
+
+    <div class="section">
+      <p class="eyebrow proposal-flag">How this tab works</p>
+      <h2>Proposals</h2>
+      <p class="why"><strong>Nothing on this tab is in the code yet.</strong> A proposal is a
+        change drawn at real size from the current tokens, with its options side by side, so it can
+        be chosen before any Swift is written. Foundations and Components describe what ships; this
+        tab describes what might.</p>
+      <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
+        two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
+      <p class="no-proposals">No open proposals.</p>
+    </div>
+
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var row = document.getElementById('scale-row');
+    var buttons = document.querySelectorAll('.scale-switch button');
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        row.style.setProperty('--s', b.dataset.scale);
+        buttons.forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+      });
+    });
+  })();
+
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+    function show(id) {
+      tabs.forEach(function (t) {
+        var on = t.getAttribute('aria-controls') === id;
+        t.setAttribute('aria-selected', String(on));
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        if (panel) { panel.hidden = !on; }
+      });
+      try { localStorage.setItem('aiterm-ds-tab', id); } catch (e) {}
+    }
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () { show(t.getAttribute('aria-controls')); });
+      t.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') { return; }
+        var i = tabs.indexOf(t) + (e.key === 'ArrowRight' ? 1 : -1);
+        if (i < 0 || i >= tabs.length) { return; }
+        e.preventDefault();
+        tabs[i].focus();
+        show(tabs[i].getAttribute('aria-controls'));
+      });
+    });
+    try {
+      var saved = localStorage.getItem('aiterm-ds-tab');
+      if (saved && document.getElementById(saved)) { show(saved); }
+    } catch (e) {}
+  })();
+</script>
+</body>
+</html>

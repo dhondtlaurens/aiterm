@@ -1,0 +1,79 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BROKEN_SWIFT="$ROOT/scripts/fixtures/swift-6.3.sh"
+GOOD_SWIFT="$HOME/.swiftly/bin/swift"
+PINNED_VERSION="$(sed -nE 's/^([0-9]+\.[0-9]+).*/\1/p' "$ROOT/.swift-version")"
+
+[[ -x "$BROKEN_SWIFT" ]] || { print -u2 "missing fixture: $BROKEN_SWIFT"; exit 1; }
+[[ -x "$GOOD_SWIFT" ]] || { print -u2 "missing fixture: $GOOD_SWIFT"; exit 1; }
+[[ -n "$PINNED_VERSION" ]] || { print -u2 "missing major.minor version in $ROOT/.swift-version"; exit 1; }
+
+bad_output="$(mktemp)"
+aggregate_output=""
+trap 'rm -f "$bad_output" "$aggregate_output"' EXIT
+if SWIFT="$BROKEN_SWIFT" "$ROOT/scripts/swift.sh" --version >"$bad_output" 2>&1; then
+    print -u2 "expected Swift 6.3 to be rejected"
+    exit 1
+fi
+grep -Fq "AiTerm requires Swift 6.4 or newer" "$bad_output" || {
+    print -u2 "expected the compatible-toolchain diagnostic"
+    sed -n '1,20p' "$bad_output" >&2
+    exit 1
+}
+
+good_output="$(SWIFT="$GOOD_SWIFT" "$ROOT/scripts/swift.sh" --version)"
+[[ "$good_output" == *"Swift version $PINNED_VERSION"* ]] || {
+    print -u2 "expected pinned Swift $PINNED_VERSION to be accepted"
+    exit 1
+}
+
+package_tools_version="$(SWIFT="$GOOD_SWIFT" "$ROOT/scripts/swift.sh" package --package-path "$ROOT/app" tools-version)"
+[[ "$package_tools_version" == "$PINNED_VERSION.0" ]] || {
+    print -u2 "expected app package to require Swift tools $PINNED_VERSION.0, found $package_tools_version"
+    exit 1
+}
+
+manifest_diagnostics=""
+if ! manifest_diagnostics="$(SWIFT="$GOOD_SWIFT" "$ROOT/scripts/swift.sh" package --package-path "$ROOT/app" dump-package 2>&1 >/dev/null)"; then
+    print -u2 "expected the app package manifest to load with the pinned Swift toolchain"
+    print -u2 -- "$manifest_diagnostics"
+    exit 1
+fi
+if print -r -- "$manifest_diagnostics" | grep -Eq '(^|[[:space:]])(warning|error):'; then
+    print -u2 "expected the app package manifest to load without compiler diagnostics"
+    print -u2 -- "$manifest_diagnostics"
+    exit 1
+fi
+
+if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE:-0}" == "1" ]]; then
+    print "swift toolchain guard passed"
+    exit 0
+fi
+
+aggregate_output="$(mktemp)"
+if SWIFT="$BROKEN_SWIFT" PYTEST=false "$ROOT/scripts/test.sh" >"$aggregate_output" 2>&1; then
+    print -u2 "expected the aggregate command to reject Swift 6.3"
+    exit 1
+fi
+grep -Fq "AiTerm requires Swift 6.4 or newer" "$aggregate_output" || {
+    print -u2 "expected the aggregate command to stop at the toolchain guard"
+    sed -n '1,20p' "$aggregate_output" >&2
+    exit 1
+}
+
+normal_output="$(mktemp)"
+trap 'rm -f "$bad_output" "$aggregate_output" "$normal_output"' EXIT
+if ! SWIFT="$GOOD_SWIFT" PYTEST=/usr/bin/true "$ROOT/scripts/test.sh" >"$normal_output" 2>&1; then
+    print -u2 "expected the aggregate command to pass with the pinned Swift toolchain"
+    sed -n '1,80p' "$normal_output" >&2
+    exit 1
+fi
+grep -Fq "swift toolchain guard passed" "$normal_output" || {
+    print -u2 "expected the aggregate command to run the toolchain guard"
+    sed -n '1,80p' "$normal_output" >&2
+    exit 1
+}
+
+print "swift toolchain guard passed"
