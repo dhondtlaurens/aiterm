@@ -655,9 +655,9 @@ private struct ReadmeDesktop: View {
 
     /// The windows' size, as they were on the 1512 × 982 pt desktop the picture used to sit on.
     static let windowHeight: CGFloat = 862, windowsWidth: CGFloat = 1300, gap: CGFloat = 12
-    /// The transparent margin around the windows: enough for `DesktopWindow`'s shadow, which
-    /// falls 24 pt down, so the bottom gets more than the top.
-    static let side: CGFloat = 72, top: CGFloat = 60, bottom: CGFloat = 108
+    /// The transparent margin around the windows, the same on every side and wide enough that
+    /// `DesktopWindow`'s shadow has faded out before the picture's edge.
+    static let margin: CGFloat = 48
     /// The band a window's traffic lights sit in, and iTerm2's title bar.
     static let titleBar: CGFloat = 28
 
@@ -673,13 +673,12 @@ private struct ReadmeDesktop: View {
             DesktopWindow { ItermWindow(title: tabTitle, tabs: tabs) }
                 .frame(width: terminalWidth, height: Self.windowHeight)
         }
-        .padding(.horizontal, Self.side)
-        .padding(.top, Self.top).padding(.bottom, Self.bottom)
+        .padding(Self.margin)
     }
 }
 
 /// A window's frame: rounded, edged in a faint light line, its traffic lights over the content's
-/// top band, and a deep shadow on whatever the picture is set on.
+/// top band, and a soft shadow on whatever the picture is set on.
 private struct DesktopWindow<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -696,7 +695,7 @@ private struct DesktopWindow<Content: View>: View {
             }
             .clipShape(shape)
             .overlay(shape.strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
-            .shadow(color: .black.opacity(0.6), radius: 35, y: 24)
+            .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
     }
 }
 
