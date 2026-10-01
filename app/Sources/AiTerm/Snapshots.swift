@@ -152,7 +152,7 @@ enum Snapshots {
     }
 
     /// The README's picture: the hosted `SidebarView` and the iTerm2 window of its selected task,
-    /// floating on a desktop under the menu bar. Its own workspace — a home folder, then ai-term
+    /// side by side on a transparent ground. Its own workspace — a home folder, then aiterm
     /// under Personal and acme under Work, two tasks each, one of them a review — so the fixture
     /// the other images share stays small. Hosted only: `ImageRenderer` never materialises a `List`.
     private static func readmeDesktop(to out: URL) {
@@ -175,7 +175,7 @@ enum Snapshots {
                      createdAt: Date(), windowId: window)
         }
         let home = project("laurensdhondt", .none)
-        let aiterm = project("ai-term", .github)
+        let aiterm = project("aiterm", .github)
         let acme = project("acme", .gitlab, jira: [ml, web])
 
         let refactor = task(aiterm, "Refactor the session tracker", "refactor/session-tracker", .claude, "a1")
@@ -644,81 +644,42 @@ enum Snapshots {
     }
 }
 
-/// The desktop the README's picture is set on: a wallpaper, the menu bar, and the two windows
-/// floating on it — the real `SidebarView` at `Size.sidebarMinWidth`, and a drawn iTerm2 window
-/// `Snap.taskFrame`'s 12 pt to its right. Everything here but the sidebar approximates what macOS
-/// and iTerm2 draw, so its numbers are this view's own, not `Metrics` tokens.
+/// The README's picture: the two windows and nothing behind them — the real `SidebarView` at
+/// `Size.sidebarMinWidth`, and a drawn iTerm2 window `Snap.taskFrame`'s 12 pt to its right — on a
+/// transparent ground with room left for their shadows. Everything here but the sidebar
+/// approximates what macOS and iTerm2 draw, so its numbers are this view's own, not `Metrics` tokens.
 private struct ReadmeDesktop: View {
     let controller: AppController
     let tabTitle: String
     let tabs: Int
 
-    static let screen = CGSize(width: 1512, height: 982)
-    static let menuBar: CGFloat = 24, inset: CGFloat = 106, margin: CGFloat = 48, gap: CGFloat = 12
+    /// The windows' size, as they were on the 1512 × 982 pt desktop the picture used to sit on.
+    static let windowHeight: CGFloat = 862, windowsWidth: CGFloat = 1300, gap: CGFloat = 12
+    /// The transparent margin around the windows: enough for `DesktopWindow`'s shadow, which
+    /// falls 24 pt down, so the bottom gets more than the top.
+    static let side: CGFloat = 72, top: CGFloat = 60, bottom: CGFloat = 108
     /// The band a window's traffic lights sit in, and iTerm2's title bar.
     static let titleBar: CGFloat = 28
 
     var body: some View {
-        let height = Self.screen.height - Self.menuBar - 2 * Self.margin
-        let terminalWidth = Self.screen.width - 2 * Self.inset - Size.sidebarMinWidth - Self.gap
-        ZStack(alignment: .topLeading) {
-            DesktopWallpaper()
-            HStack(alignment: .top, spacing: Self.gap) {
-                DesktopWindow {
-                    // The list's own top inset already clears the traffic lights, as the real
-                    // window's transparent title bar leaves it.
-                    SidebarView(controller: controller)
-                }
-                .frame(width: Size.sidebarMinWidth, height: height)
-                DesktopWindow { ItermWindow(title: tabTitle, tabs: tabs) }
-                    .frame(width: terminalWidth, height: height)
+        let terminalWidth = Self.windowsWidth - Size.sidebarMinWidth - Self.gap
+        HStack(alignment: .top, spacing: Self.gap) {
+            DesktopWindow {
+                // The list's own top inset already clears the traffic lights, as the real
+                // window's transparent title bar leaves it.
+                SidebarView(controller: controller)
             }
-            .padding(.leading, Self.inset)
-            .padding(.top, Self.menuBar + Self.margin)
-            DesktopMenuBar().frame(width: Self.screen.width, height: Self.menuBar)
+            .frame(width: Size.sidebarMinWidth, height: Self.windowHeight)
+            DesktopWindow { ItermWindow(title: tabTitle, tabs: tabs) }
+                .frame(width: terminalWidth, height: Self.windowHeight)
         }
-        .frame(width: Self.screen.width, height: Self.screen.height)
-    }
-}
-
-/// A dark blue-violet wallpaper. Not Apple's: a picture of the app should not lean on theirs.
-private struct DesktopWallpaper: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(hex: 0x10183A), Color(hex: 0x1A1033)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            RadialGradient(colors: [Color(hex: 0x3B4F9A), Color(hex: 0x3B4F9A, opacity: 0)],
-                           center: UnitPoint(x: 0.78, y: 0.18), startRadius: 0, endRadius: 900)
-            RadialGradient(colors: [Color(hex: 0x5A2E6E), Color(hex: 0x5A2E6E, opacity: 0)],
-                           center: UnitPoint(x: 0.18, y: 0.92), startRadius: 0, endRadius: 750)
-        }
-    }
-}
-
-/// AiTerm's menu bar as `AiTermApp` builds it, then the status items and the clock.
-private struct DesktopMenuBar: View {
-    var body: some View {
-        HStack(spacing: 20) {
-            Image(systemName: "apple.logo").font(.system(size: 14))
-            Text("AiTerm").fontWeight(.bold)
-            Text("File"); Text("Edit"); Text("View")
-            Spacer()
-            HStack(spacing: 16) {
-                Image(systemName: "battery.75percent")
-                Image(systemName: "wifi")
-                Image(systemName: "magnifyingglass")
-                Image(systemName: "switch.2")
-                Text("Thu 1 Oct  9:41")
-            }
-        }
-        .font(.system(size: 13))
-        .foregroundStyle(.white)
-        .padding(.leading, 20).padding(.trailing, 14)
-        .background(Color.black.opacity(0.18))
+        .padding(.horizontal, Self.side)
+        .padding(.top, Self.top).padding(.bottom, Self.bottom)
     }
 }
 
 /// A window's frame: rounded, edged in a faint light line, its traffic lights over the content's
-/// top band, and a deep shadow on the wallpaper.
+/// top band, and a deep shadow on whatever the picture is set on.
 private struct DesktopWindow<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -739,6 +700,32 @@ private struct DesktopWindow<Content: View>: View {
     }
 }
 
+/// The iTerm2 profile the picture draws: the default profile's Monokai colours, in MesloLGS NF,
+/// with Interface → "Use dark terminal background" on, so the daemon paints AiTerm's tabs the
+/// `#1E1E1E` it sets in `set_aiterm_background`. The profile's tab style is Minimal, so the title
+/// bar and the tabs take that background too.
+private enum Monokai {
+    static let background = Color(hex: 0x1E1E1E), foreground = Color(hex: 0xFDFFF1)
+    static let red = Color(hex: 0xF92672), green = Color(hex: 0xA6E22E), yellow = Color(hex: 0xE6DB74)
+    static let magenta = Color(hex: 0xAE81FF), cyan = Color(hex: 0x66D9EF)
+    /// The profile's bold colour: iTerm2 draws bold text in the default foreground in it.
+    static let bold = cyan
+    /// ANSI 8, bright black.
+    static let brightBlack = Color(hex: 0x6E7066)
+    /// Faint text: iTerm2 draws it at half opacity, which over `background` lands here.
+    static let faint = Color(hex: 0x8E8E87)
+    static let cursor = Color(hex: 0xC0C1B5)
+    /// The Minimal tab bar's ground behind the tabs that are not in front, and the lines between them.
+    static let tabBar = Color(hex: 0x171717), tabLine = Color(hex: 0x111111)
+
+    static func font(_ weight: Font.Weight = .regular) -> Font {
+        // Fall back to the system monospace so a machine without Meslo keeps the columns.
+        NSFont(name: "MesloLGS NF", size: 12) == nil
+            ? .system(size: 12, weight: weight, design: .monospaced)
+            : .custom("MesloLGS NF", fixedSize: 12).weight(weight)
+    }
+}
+
 /// iTerm2's window for the selected task: its title bar, one tab per session — each titled with
 /// the task's branch, as `SidebarModel.sessionTitles` sets it — and Claude Code mid-turn in front.
 private struct ItermWindow: View {
@@ -749,9 +736,9 @@ private struct ItermWindow: View {
         VStack(spacing: 0) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(Monokai.foreground.opacity(0.85))
                 .frame(maxWidth: .infinity, minHeight: ReadmeDesktop.titleBar)
-                .background(Color(hex: 0x2B2B2B))
+                .background(Monokai.background)
             HStack(spacing: 0) {
                 ForEach(0..<tabs, id: \.self) { index in
                     HStack(spacing: 8) {
@@ -760,63 +747,69 @@ private struct ItermWindow: View {
                         Text("⌘\(index + 1)").font(.system(size: 11)).opacity(0.6)
                     }
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(index == 0 ? 0.9 : 0.5))
+                    .foregroundStyle(Monokai.foreground.opacity(index == 0 ? 0.9 : 0.5))
                     .padding(.horizontal, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(index == 0 ? Color(hex: 0x1E1E1E) : .clear)
-                    .overlay(alignment: .trailing) { Color(hex: 0x111111).frame(width: 1) }
+                    .background(index == 0 ? Monokai.background : .clear)
+                    .overlay(alignment: .trailing) { Monokai.tabLine.frame(width: 1) }
                 }
             }
             .frame(height: 26)
-            .background(Color(hex: 0x232323))
-            .overlay(alignment: .bottom) { Color(hex: 0x111111).frame(height: 1) }
+            .background(Monokai.tabBar)
+            .overlay(alignment: .bottom) { Monokai.tabLine.frame(height: 1) }
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(ClaudeTurn.lines.enumerated()), id: \.offset) { _, line in line }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color(hex: 0x1E1E1E))
+            .background(Monokai.background)
         }
     }
 }
 
-/// Claude Code's transcript in the front tab, one 16 pt line at a time in iTerm2's 12 pt mono.
+/// Claude Code's transcript in the front tab, one 16 pt line at a time in the profile's 12 pt mono.
+/// Claude Code runs its `dark-ansi` theme, so every colour is an ANSI slot of `Monokai`: Claude's
+/// own accent is bright red, success bright green, the text bright white, the dim text faint,
+/// the auto-accept mode bright magenta, and the user's prompt sits on bright black. Bold text takes
+/// the profile's bold colour. A diff has no line washes: its gutter carries the red and green, the
+/// removed code is faint, and the rest is highlighted in the profile's colours.
 private enum ClaudeTurn {
-    enum Ink { case text, dim, green, orange, bold, prompt, mode }
+    enum Ink { case text, dim, green, red, accent, bold, mode, keyword, type, function, link, boldLink }
     typealias Run = (String, Ink)
 
-    static let lineHeight: CGFloat = 16, diffWidth: CGFloat = 648
+    static let lineHeight: CGFloat = 16
 
     static var lines: [AnyView] {
         [
-            line(("✻", .orange), (" ", .text), ("Welcome to Claude Code", .bold), ("  · opus · ~/ai-term/.worktrees/session-tracker", .dim)),
+            line(("✻", .accent), (" ", .text), ("Welcome to Claude Code", .bold), ("  · opus · ~/aiterm/.worktrees/session-tracker", .dim)),
             blank,
-            line(("> Refactor the session tracker into one owner: LiveSessions and CheckoutMonitor", .prompt)),
-            line(("  each keep their own copy of the open tabs. Fold that into a SessionTracker.", .prompt)),
+            prompt("> Refactor the session tracker into one owner: LiveSessions and CheckoutMonitor"),
+            prompt("  each keep their own copy of the open tabs. Fold that into a SessionTracker."),
             blank,
             line(("⏺", .green), (" Both copies are rebuilt from the same workspace snapshot, so one owner can", .text)),
             line(("  feed the sidebar and the tab titles alike. Reading both first.", .text)),
             blank,
-            tool("Read", "app/Sources/AiTerm/LiveSessions.swift"), result("Read 214 lines"), blank,
-            tool("Read", "app/Sources/AiTerm/CheckoutMonitor.swift"), result("Read 171 lines"), blank,
-            tool("Write", "app/Sources/AiTerm/SessionTracker.swift"), result("Wrote 96 lines to app/Sources/AiTerm/SessionTracker.swift"), blank,
+            tool("Read", "app/Sources/AiTerm/LiveSessions.swift"), result(("Read ", .text), ("214", .bold), (" lines", .text)), blank,
+            tool("Read", "app/Sources/AiTerm/CheckoutMonitor.swift"), result(("Read ", .text), ("171", .bold), (" lines", .text)), blank,
+            tool("Write", "app/Sources/AiTerm/SessionTracker.swift"),
+            result(("Wrote ", .text), ("96", .bold), (" lines to ", .text), ("app/Sources/AiTerm/SessionTracker.swift", .boldLink)), blank,
             tool("Update", "app/Sources/AiTerm/CheckoutMonitor.swift"),
-            result("Updated app/Sources/AiTerm/CheckoutMonitor.swift with 2 additions and 3 removals"),
-            diff("      162      ", "/// The titles read the tabs as they are after the pass.", nil),
-            diff("      163 ", "-    private func syncTitles(_ scan: WorkspaceScan) async {", Color(hex: 0x4A2224)),
-            diff("      164 ", "-        let sessions = live.sessions", Color(hex: 0x4A2224)),
-            diff("      165 ", "-        let titles = SidebarModel.sessionTitles(state: workspace(),", Color(hex: 0x4A2224)),
-            diff("      163 ", "+    private func syncTitles(_ scan: WorkspaceScan) async {", Color(hex: 0x1D3B25)),
-            diff("      164 ", "+        let titles = tracker.titles(after: scan)", Color(hex: 0x1D3B25)),
-            diff("      166      ", "        await onTitles(titles, tracker.sessions)", nil),
+            result(("Added ", .text), ("1", .bold), (" line, removed ", .text), ("2", .bold), (" lines", .text)),
+            diff(162, nil, "    /// The titles read the tabs as they are after the pass."),
+            diff(163, nil, "    private func syncTitles(_ scan: WorkspaceScan) async {"),
+            diff(164, "-", "        let sessions = live.sessions"),
+            diff(165, "-", "        let titles = SidebarModel.sessionTitles(state: workspace(),"),
+            diff(164, "+", "        let titles = tracker.titles(after: scan)"),
+            diff(165, nil, "            await onTitles(titles, tracker.sessions)"),
             blank,
-            tool("Bash", "scripts/test.sh"), result("Executed 412 tests, with 0 failures"), blank,
-            line(("✶ Moving tab titles onto the tracker…", .orange), (" (4m 02s · ↓ 6.2k tokens · esc to interrupt)", .dim)),
+            tool("Bash", "scripts/test.sh", link: false),
+            result(("Executed 412 tests, with 0 failures", .text)), blank,
+            line(("✶ Moving tab titles onto the tracker…", .accent), (" (4m 02s · ↓ 6.2k tokens · esc to interrupt)", .dim)),
             blank,
             rule,
             AnyView(HStack(spacing: 0) {
                 text([("> ", .dim)])
-                Rectangle().fill(Color(hex: 0xDADADA)).frame(width: 7, height: 15)
+                Rectangle().fill(Monokai.cursor).frame(width: 7, height: 15)
             }.frame(height: lineHeight)),
             rule,
             line(("  ⏵⏵ accept edits on", .mode), (" (shift+tab to cycle)", .dim)),
@@ -825,18 +818,47 @@ private enum ClaudeTurn {
 
     static var blank: AnyView { AnyView(Color.clear.frame(height: lineHeight)) }
     static var rule: AnyView {
-        AnyView(Color(hex: 0x4A4A4A).frame(height: 1).frame(maxWidth: .infinity).frame(height: lineHeight))
+        AnyView(Monokai.brightBlack.frame(height: 1).frame(maxWidth: .infinity).frame(height: lineHeight))
     }
-    static func tool(_ name: String, _ argument: String) -> AnyView {
-        line(("⏺", .green), (" ", .text), (name, .bold), ("(\(argument))", .text))
+    /// A line of the user's prompt, on the theme's message background across the whole row.
+    static func prompt(_ text: String) -> AnyView {
+        AnyView(self.text([(text, .text)])
+            .frame(maxWidth: .infinity, minHeight: lineHeight, maxHeight: lineHeight, alignment: .leading)
+            .background(Monokai.brightBlack))
     }
-    static func result(_ text: String) -> AnyView { line(("  ⎿  \(text)", .dim)) }
-    static func diff(_ gutter: String, _ code: String, _ wash: Color?) -> AnyView {
-        AnyView(text([(gutter, .dim), (code, wash == nil ? .text : .bold)])
-            .frame(width: diffWidth, height: lineHeight, alignment: .leading)
-            .background(wash ?? .clear))
+    /// A tool call; a file argument is a link, which iTerm2 underlines dashed.
+    static func tool(_ name: String, _ argument: String, link: Bool = true) -> AnyView {
+        line(("⏺", .green), (" ", .text), (name, .bold), ("(", .text), (argument, link ? .link : .text), (")", .text))
     }
-    static func line(_ runs: Run...) -> AnyView {
+    static func result(_ runs: Run...) -> AnyView { line([("  ⎿  ", .text)] + runs) }
+    /// A diff line: its number, then `-` or `+` for a removed or added line, then the code.
+    static func diff(_ number: Int, _ sign: String?, _ code: String) -> AnyView {
+        let mark: Ink = sign == "-" ? .red : sign == "+" ? .green : .dim
+        return line([("    \(number) \(sign == "-" ? "−" : sign ?? " ")  ", mark)]
+                    + (sign == "-" ? [(code, .dim)] : highlighted(code)))
+    }
+    /// Swift as the profile highlights it: keywords magenta, types cyan, a declared function yellow,
+    /// comments faint, everything else the foreground.
+    static func highlighted(_ code: String) -> [Run] {
+        if code.trimmingCharacters(in: .whitespaces).hasPrefix("//") { return [(code, .dim)] }
+        let keywords: Set = ["private", "func", "let", "var", "await", "async", "return"]
+        var runs: [Run] = [], word = "", previous = ""
+        func flush() {
+            guard !word.isEmpty else { return }
+            let ink: Ink = keywords.contains(word) ? .keyword
+                : previous == "func" ? .function
+                : word.first!.isUppercase ? .type : .text
+            runs.append((word, ink)); previous = word; word = ""
+        }
+        for character in code {
+            if character.isLetter || character.isNumber || character == "_" && !word.isEmpty { word.append(character) }
+            else { flush(); runs.append((String(character), .text)) }
+        }
+        flush()
+        return runs
+    }
+    static func line(_ runs: Run...) -> AnyView { line(runs) }
+    static func line(_ runs: [Run]) -> AnyView {
         AnyView(text(runs).frame(height: lineHeight, alignment: .leading))
     }
 
@@ -845,19 +867,24 @@ private enum ClaudeTurn {
         for (chunk, ink) in runs {
             var run = AttributedString(chunk)
             switch ink {
-            case .text: run.foregroundColor = Color(hex: 0xDADADA)
-            case .dim: run.foregroundColor = Color(hex: 0x8A8A8A)
-            case .green: run.foregroundColor = Color(hex: 0x4EBA65)
-            case .orange: run.foregroundColor = Color(hex: 0xD97757)
-            case .prompt: run.foregroundColor = Color(hex: 0xB0B0B0)
-            case .mode: run.foregroundColor = Color(hex: 0xB1B9F9)
-            case .bold:
-                run.foregroundColor = Color(hex: 0xE6E6E6)
-                run.font = .system(size: 12, weight: .bold, design: .monospaced)
+            case .text: run.foregroundColor = Monokai.foreground
+            case .dim: run.foregroundColor = Monokai.faint
+            case .green: run.foregroundColor = Monokai.green
+            case .red, .accent: run.foregroundColor = Monokai.red
+            case .mode, .keyword: run.foregroundColor = Monokai.magenta
+            case .type: run.foregroundColor = Monokai.cyan
+            case .function: run.foregroundColor = Monokai.yellow
+            case .link:
+                run.foregroundColor = Monokai.foreground
+                run.underlineStyle = Text.LineStyle(pattern: .dash)
+            case .bold, .boldLink:
+                run.foregroundColor = Monokai.bold
+                run.font = Monokai.font(.bold)
+                if ink == .boldLink { run.underlineStyle = Text.LineStyle(pattern: .dash) }
             }
             string += run
         }
-        return Text(string).font(.system(size: 12, design: .monospaced))
+        return Text(string).font(Monokai.font())
     }
 }
 
