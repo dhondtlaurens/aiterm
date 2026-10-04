@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -69,11 +70,13 @@ import Testing
     @Test func shutdownWaitsForAnInFlightTurnOnAndEndsOff() async {
         let fake = FakeBackpack()
         let release = DispatchSemaphore(value: 0)
-        fake.lid.onSet = { if $0 { release.wait() } }
+        let entered = Mutex(false)
+        fake.lid.onSet = { if $0 { entered.withLock { $0 = true }; release.wait() } }
         let toasts = Recorder()
         let backpack = controller(fake, toasts: toasts)
         let first = Task { await backpack.turnOn() }
-        while !backpack.busy { await Task.yield() }
+        // Until the turn-on's work is on the queue: `busy` is set a moment before it gets there.
+        while !entered.withLock({ $0 }) { await Task.yield() }
         let releaser = Thread { Thread.sleep(forTimeInterval: 0.2); release.signal() }
         releaser.start()
         backpack.shutdown()
@@ -82,6 +85,17 @@ import Testing
         await first.value
         #expect(!backpack.isOn)
         #expect(toasts.lines.isEmpty, "no 'on' toast for a mode the quit already turned off")
+    }
+
+    /// The gap the test above cannot hold open: quit lands after ⌘B set `busy` but before its work
+    /// reached the queue. That turn-on must find the mode closed.
+    @Test func aTurnOnThatReachesTheQueueAfterShutdownDoesNothing() async {
+        let fake = FakeBackpack()
+        let backpack = controller(fake)
+        backpack.shutdown()
+        await backpack.turnOn()
+        #expect(!fake.lid.calls.contains(true))
+        #expect(!backpack.isOn)
     }
 
     @Test func theTickAtTheCutoffTurnsItOffWithAToast() async {

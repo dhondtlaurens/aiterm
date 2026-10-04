@@ -64,6 +64,8 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
     case batteryLow(level: Int)
     case notInRange(network: String)
     case joinFailed(network: String)
+    /// AiTerm is quitting: a turn-on that was still on its way. Never shown.
+    case quitting
 
     public var message: String {
         switch self {
@@ -71,6 +73,7 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
         case .batteryLow(let level): "Battery at \(level) %: Backpack Mode stays off"
         case .notInRange(let network): "\(network) isn’t in range: Backpack Mode stays off"
         case .joinFailed(let network): "Couldn’t join \(network): check its password in Settings › Backpack"
+        case .quitting: "AiTerm is quitting: Backpack Mode stays off"
         }
     }
 }

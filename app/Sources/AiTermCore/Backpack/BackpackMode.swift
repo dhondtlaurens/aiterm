@@ -9,6 +9,8 @@ public final class BackpackMode: Sendable {
     public let settings: BackpackSettings
     private let now: @Sendable () -> Date
     private let current = Mutex(BackpackState.off)
+    /// Set by `close()`, for good: no turn-on gets past it.
+    private let closed = Mutex(false)
     /// Off the network: when the next rejoin may be tried, and how many have been since the drop.
     private let rejoin = Mutex<(next: Date?, tries: Int)>((nil, 0))
 
@@ -33,6 +35,7 @@ public final class BackpackMode: Sendable {
     /// without a scan first: a locked iPhone's hotspot is missing from scans but joins with its
     /// password; the scan only decides which failure to report.
     public func turnOn() -> Result<BackpackStatus, BackpackRefusal> {
+        if closed.withLock({ $0 }) { return .failure(.quitting) }
         if case .on(let status) = state { return .success(status) }
         let setup = setup()
         guard setup.isComplete, let network = setup.network else { return .failure(.needsSetup) }
@@ -41,6 +44,8 @@ public final class BackpackMode: Sendable {
         if ports.wifi.currentNetwork() != network, !ports.wifi.join(network, password: settings.password) {
             return .failure(ports.wifi.isInRange(network) ? .joinFailed(network: network) : .notInRange(network: network))
         }
+        // Checked again: quit may have come while the join ran.
+        if closed.withLock({ $0 }) { return .failure(.quitting) }
         settings.engaged = true
         guard ports.lidSleep.setDisabled(true) else {
             settings.engaged = false
@@ -69,6 +74,12 @@ public final class BackpackMode: Sendable {
             state = (time.addingTimeInterval(delay), state.tries + 1)
             return true
         }
+    }
+
+    /// Quit: from now on every turn-on refuses. Safe from any thread, and immediate — unlike the
+    /// queue the app runs this mode on — so a turn-on still on its way finds it.
+    public func close() {
+        closed.withLock { $0 = true }
     }
 
     /// A launch after a crash or a force quit: the marker says AiTerm left sleep disabled.

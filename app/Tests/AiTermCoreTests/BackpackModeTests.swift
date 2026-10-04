@@ -115,6 +115,16 @@ import Foundation
         #expect(mode.state == .off)
     }
 
+    /// Quit closes the mode first: a turn-on still on its way must not disable sleep after it.
+    @Test func aClosedModeNeverTurnsOn() {
+        let fake = FakeBackpack()
+        let mode = mode(fake)
+        mode.close()
+        #expect(mode.turnOn() == .failure(.quitting))
+        #expect(fake.lid.calls.isEmpty && fake.wifi.joins.isEmpty)
+        #expect(mode.state == .off)
+    }
+
     @Test func turningOffWhenOffDoesNothing() {
         let fake = FakeBackpack()
         mode(fake).turnOff()

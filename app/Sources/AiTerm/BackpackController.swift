@@ -152,6 +152,9 @@ final class BackpackController {
     func shutdown() {
         ticking?.cancel()
         let mode = self.mode
+        // Closed before waiting: a turn-on whose work has not reached the queue yet would otherwise
+        // run after this turn-off and leave sleep disabled behind the quit.
+        mode.close()
         queue.sync { mode.turnOff() }
         state = mode.state
     }
