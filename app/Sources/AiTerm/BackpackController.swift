@@ -12,6 +12,8 @@ enum BackpackTransition: Equatable { case turningOn, turningOff }
 final class BackpackController {
     private(set) var state: BackpackState = .off
     private(set) var setup = BackpackSetup(sleepRule: false, location: false, network: nil)
+    /// The battery as last read: with setup, and on every check while on.
+    private(set) var power = PowerReading.mains
     /// A turn-on, turn-off or setup is running. ⌘B is ignored until it ends.
     private(set) var busy = false
     /// Set for as long as a turn-on or turn-off runs: joining a hotspot takes seconds.
@@ -132,6 +134,7 @@ final class BackpackController {
         let mode = self.mode
         let outcome = try? await BackgroundWork.run(on: queue) { mode.tick() }
         state = mode.state
+        if case .on(let status) = state { power = status.power }
         if case .turnedOff(let level)? = outcome {
             ticking?.cancel()
             toast(BackpackCopy.cutOff(level: level))
@@ -159,12 +162,16 @@ final class BackpackController {
         self.state = state
         self.setup = setup
         self.transition = transition
+        if case .on(let status) = state { power = status.power }
     }
     #endif
 
     private func refreshSetupWhileBusy() async {
-        let mode = self.mode
-        if let fresh = try? await BackgroundWork.run(on: queue, { mode.setup() }) { setup = fresh }
+        let mode = self.mode, powerSource = ports.power
+        if let fresh = try? await BackgroundWork.run(on: queue, { (mode.setup(), powerSource.reading()) }) {
+            setup = fresh.0
+            power = fresh.1
+        }
     }
 
     private func startTicking() {

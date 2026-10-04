@@ -107,6 +107,15 @@ import Testing
         #expect(backpack.setup.missingSteps.isEmpty)
     }
 
+    /// The Battery card reads the level even while the mode is off.
+    @Test func refreshingReadsTheBatteryToo() async {
+        let fake = FakeBackpack()
+        fake.power.value = PowerReading(level: 64, onBattery: true)
+        let backpack = controller(fake)
+        await backpack.refreshSetup()
+        #expect(backpack.power == PowerReading(level: 64, onBattery: true))
+    }
+
     @Test func removeSetupTurnsTheModeOffFirst() async {
         let fake = FakeBackpack()
         let backpack = controller(fake)
