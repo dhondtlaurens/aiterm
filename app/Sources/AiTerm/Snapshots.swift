@@ -293,6 +293,14 @@ enum Snapshots {
             .frame(width: Size.sidebarWidth)
             .background(Palette.sidebar), to: out.appendingPathComponent("usage-footer-agents.png"))
         controller.focus.browse(.task(piTask.id))
+        // The header with Backpack Mode on, then degraded (off the hotspot).
+        for (name, joined) in [("sidebar-header-backpack.png", true), ("sidebar-header-backpack-amber.png", false)] {
+            controller.backpack.preview(state: .on(BackpackStatus(network: "My iPhone", joined: joined, power: .mains, cutoff: 10)),
+                                        setup: BackpackSetup(sleepRule: true, location: true, network: "My iPhone"))
+            write(SidebarHeader(controller: controller).padding(.horizontal, Space.inset).frame(width: 360).background(Palette.sidebar),
+                  to: out.appendingPathComponent(name))
+        }
+        controller.backpack.preview(state: .off, setup: BackpackSetup(sleepRule: false, location: false, network: nil))
     }
 
     /// Every step of the New Task and New Review sheets, and the New Terminal sheet.

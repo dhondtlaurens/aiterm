@@ -41,15 +41,21 @@ private struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, and the menu that adds one — or a divider.
+/// `PROJECTS`, Backpack Mode's glyph while it is on, and the menu that adds a project or a divider.
 struct SidebarHeader: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+
+    /// The glyph is absent while the mode is off, not disabled.
+    static func showsBackpack(_ controller: AppController) -> Bool { controller.backpack.isOn }
 
     var body: some View {
         HStack {
             SidebarHeading("Projects")
             Spacer()
+            if Self.showsBackpack(controller) {
+                BackpackHeaderButton(backpack: controller.backpack, openSettings: { controller.presentSettings(tab: .backpack) })
+            }
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { controller.addProject() }
                 Button("Add Divider…") { controller.presentNewDivider() }
@@ -57,6 +63,35 @@ struct SidebarHeader: View {
         }
         .frame(height: scale(Size.menuRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
         .padding(.top, scale(Space.base)).padding(.bottom, scale(Space.tight))
+    }
+}
+
+/// Backpack Mode's glyph in the PROJECTS header: the trailing column's ink in a `Size.slot`, as the
+/// "+" beside it is, in `Palette.text`, amber while degraded. Its menu says the state in a sentence
+/// and offers Turn Off and the settings. Built like `AddMenu`, for the same rendering.
+struct BackpackHeaderButton: View {
+    let backpack: BackpackController
+    let openSettings: () -> Void
+    @Environment(\.interfaceScale) private var scale
+
+    static func ink(for status: BackpackStatus) -> Color { status.degraded ? Palette.amber : Palette.text }
+
+    var body: some View {
+        if case .on(let status) = backpack.state {
+            let summary = BackpackPresentation.summary(status)
+            Menu {
+                Text(summary)
+                Divider()
+                Button("Turn Off Backpack Mode") { backpack.toggle() }
+                Button("Backpack Settings…", action: openSettings)
+            } label: {
+                Icon(.symbol("backpack.fill"), size: SidebarRowLayout.trailingGlyph(scale), tint: Self.ink(for: status))
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+            .frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
+            .help(summary)
+            .accessibilityLabel(summary)
+        }
     }
 }
 

@@ -38,13 +38,15 @@ extension AppController {
     /// initializer. A peek waits no time: a test awaits the one it starts.
     convenience init(store: StateStore? = nil, preferences: InterfacePreferences, prompter: Prompter = ModalPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
-                     activateIterm: @escaping @MainActor () -> Void = {}, peekDelay: Duration = .zero,
+                     activateIterm: @escaping @MainActor () -> Void = {}, backpackPorts: BackpackPorts = .inert,
+                     peekDelay: Duration = .zero,
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      }) {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-test-state-\(UUID().uuidString).json")
         self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: ScratchHome.bare,
                   bundledResourcesURL: nil, locateAgents: { nil }, jiraSettings: { nil }, gitLabSettings: { nil }, gitHubSettings: { nil },
-                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, peekDelay: peekDelay, scan: scan)
+                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, backpackPorts: backpackPorts,
+                  peekDelay: peekDelay, scan: scan)
     }
 }
