@@ -26,6 +26,7 @@ import Testing
     @Test func aRefusalIsAToastAndTheModeStaysOff() async {
         let fake = FakeBackpack(), toasts = Recorder()
         fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
         let backpack = controller(fake, toasts: toasts)
         await backpack.turnOn()
         #expect(!backpack.isOn)

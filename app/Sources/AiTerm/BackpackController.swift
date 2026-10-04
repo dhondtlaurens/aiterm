@@ -19,7 +19,7 @@ final class BackpackController {
     @ObservationIgnored private let queue = DispatchQueue(label: "com.laurensdhondt.aiterm.backpack")
     @ObservationIgnored private var ticking: Task<Void, Never>?
 
-    init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(60),
+    init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
          toast: @escaping @MainActor (String) -> Void) {
         self.ports = ports
         mode = BackpackMode(ports: ports, settings: settings)
@@ -120,7 +120,7 @@ final class BackpackController {
         return (try? await BackgroundWork.run { wifi.knownNetworks() }) ?? []
     }
 
-    /// The 60 s check: the cutoff, and the network.
+    /// The 5 s check: the cutoff, and the network.
     func tick() async {
         let mode = self.mode
         let outcome = try? await BackgroundWork.run(on: queue) { mode.tick() }

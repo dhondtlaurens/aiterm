@@ -75,7 +75,7 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
     }
 }
 
-/// What one 60 s check found.
+/// What one 5 s check found.
 public enum BackpackTick: Equatable, Sendable {
     case unchanged
     case changed

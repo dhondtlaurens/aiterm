@@ -7,11 +7,19 @@ import Synchronization
 public final class BackpackMode: Sendable {
     private let ports: BackpackPorts
     public let settings: BackpackSettings
+    private let now: @Sendable () -> Date
     private let current = Mutex(BackpackState.off)
+    /// Off the network: when the next rejoin may be tried, and how many have been since the drop.
+    private let rejoin = Mutex<(next: Date?, tries: Int)>((nil, 0))
 
-    public init(ports: BackpackPorts, settings: BackpackSettings) {
+    /// The waits between rejoin attempts: a 5 s check that scanned every time would keep the Wi-Fi
+    /// busy for as long as the hotspot is gone.
+    static let rejoinDelays: [TimeInterval] = [5, 10, 20, 30]
+
+    public init(ports: BackpackPorts, settings: BackpackSettings, now: @escaping @Sendable () -> Date = Date.init) {
         self.ports = ports
         self.settings = settings
+        self.now = now
     }
 
     public var state: BackpackState { current.withLock { $0 } }
@@ -20,17 +28,18 @@ public final class BackpackMode: Sendable {
         BackpackSetup(sleepRule: ports.lidSleep.isAllowed(), location: ports.location.isAuthorized(), network: settings.network)
     }
 
-    /// The spec's order: setup, battery, range, join, marker, then `disablesleep 1`. The first
-    /// failure leaves the mode off and nothing changed but, at most, the Wi-Fi network.
+    /// The spec's order: setup, battery, join, marker, then `disablesleep 1`. The first failure
+    /// leaves the mode off and nothing changed but, at most, the Wi-Fi network. The join comes
+    /// without a scan first: a locked iPhone's hotspot is missing from scans but joins with its
+    /// password; the scan only decides which failure to report.
     public func turnOn() -> Result<BackpackStatus, BackpackRefusal> {
         if case .on(let status) = state { return .success(status) }
         let setup = setup()
         guard setup.isComplete, let network = setup.network else { return .failure(.needsSetup) }
         let power = ports.power.reading(), cutoff = settings.cutoff
         if power.onBattery, let level = power.level, level <= cutoff { return .failure(.batteryLow(level: level)) }
-        if ports.wifi.currentNetwork() != network {
-            guard ports.wifi.isInRange(network) else { return .failure(.notInRange(network: network)) }
-            guard ports.wifi.join(network, password: settings.password) else { return .failure(.joinFailed(network: network)) }
+        if ports.wifi.currentNetwork() != network, !ports.wifi.join(network, password: settings.password) {
+            return .failure(ports.wifi.isInRange(network) ? .joinFailed(network: network) : .notInRange(network: network))
         }
         settings.engaged = true
         guard ports.lidSleep.setDisabled(true) else {
@@ -39,6 +48,7 @@ public final class BackpackMode: Sendable {
         }
         let status = BackpackStatus(network: network, joined: true, power: power, cutoff: cutoff)
         current.withLock { $0 = .on(status) }
+        rejoin.withLock { $0 = (nil, 0) }
         return .success(status)
     }
 
@@ -50,13 +60,25 @@ public final class BackpackMode: Sendable {
         current.withLock { $0 = .off }
     }
 
+    /// Whether a rejoin may be tried now; if so, the next one is booked.
+    private func rejoinIsDue() -> Bool {
+        let time = now()
+        return rejoin.withLock { state in
+            if let next = state.next, time < next { return false }
+            let delay = Self.rejoinDelays[min(state.tries, Self.rejoinDelays.count - 1)]
+            state = (time.addingTimeInterval(delay), state.tries + 1)
+            return true
+        }
+    }
+
     /// A launch after a crash or a force quit: the marker says AiTerm left sleep disabled.
     public func recoverAtLaunch() {
         guard settings.engaged else { return }
         if ports.lidSleep.setDisabled(false) { settings.engaged = false }
     }
 
-    /// The 60 s check while on: the battery cutoff, then the network, rejoining it when it is back.
+    /// The 5 s check while on: the battery cutoff, then the network. Off it, a rejoin is tried at
+    /// once, then after each of `rejoinDelays`, the last repeating; joined again, that starts over.
     public func tick() -> BackpackTick {
         guard case .on(let old) = state else { return .unchanged }
         let power = ports.power.reading()
@@ -65,7 +87,10 @@ public final class BackpackMode: Sendable {
             return .turnedOff(level: level)
         }
         var joined = ports.wifi.currentNetwork() == old.network
-        if !joined, ports.wifi.isInRange(old.network) { joined = ports.wifi.join(old.network, password: settings.password) }
+        if !joined, rejoinIsDue() {
+            joined = ports.wifi.join(old.network, password: settings.password)
+        }
+        if joined { rejoin.withLock { $0 = (nil, 0) } }
         let next = BackpackStatus(network: old.network, joined: joined, power: power, cutoff: old.cutoff)
         guard next != old else { return .unchanged }
         current.withLock { if $0.isOn { $0 = .on(next) } }

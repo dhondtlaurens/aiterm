@@ -60,15 +60,27 @@ import Foundation
         _ = try mode(fake).turnOn().get()
     }
 
-    @Test func outOfRangeOrAFailedJoinStaysOff() {
-        let away = FakeBackpack()
-        away.wifi.inRange = ["Home"]
-        #expect(mode(away).turnOn() == .failure(.notInRange(network: "Phone")))
-        let failing = FakeBackpack()
-        failing.wifi.joinSucceeds = false
-        #expect(mode(failing).turnOn() == .failure(.joinFailed(network: "Phone")))
-        #expect(away.lid.calls.isEmpty && failing.lid.calls.isEmpty)
-        #expect(!away.settings.engaged && !failing.settings.engaged)
+    /// A locked iPhone's hotspot is missing from scans but joins with its password: ⌘B tries.
+    @Test func turningOnJoinsEvenWhenTheScanCannotSeeIt() throws {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        _ = try mode(fake).turnOn().get()
+        #expect(fake.wifi.joins == ["Phone"])
+    }
+
+    @Test func aFailedJoinOutOfSightIsNotInRange() {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        #expect(mode(fake).turnOn() == .failure(.notInRange(network: "Phone")))
+        #expect(fake.lid.calls.isEmpty && !fake.settings.engaged)
+    }
+
+    @Test func aFailedJoinInSightIsAPasswordProblem() {
+        let fake = FakeBackpack()
+        fake.wifi.joinSucceeds = false
+        #expect(mode(fake).turnOn() == .failure(.joinFailed(network: "Phone")))
+        #expect(fake.lid.calls.isEmpty && !fake.settings.engaged)
     }
 
     /// The rule went missing between the check and the call: the marker comes back off.
@@ -141,19 +153,47 @@ import Foundation
     }
 
     @Test func theTickMarksItDegradedOffTheNetworkAndRejoinsWhenBack() throws {
-        let fake = FakeBackpack()
-        let mode = mode(fake)
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
         _ = try mode.turnOn().get()
         fake.wifi.current = "Home"
-        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
         #expect(mode.tick() == .changed)
         guard case .on(let away) = mode.state else { Issue.record("expected on"); return }
         #expect(!away.joined && away.degraded)
-        fake.wifi.inRange = ["Home", "Phone"]
+        fake.wifi.joinSucceeds = true
+        clock.advance(by: 5)
         #expect(mode.tick() == .changed)
         guard case .on(let back) = mode.state else { Issue.record("expected on"); return }
         #expect(back.joined && !back.degraded)
-        #expect(fake.wifi.joins == ["Phone", "Phone"])
+        #expect(fake.wifi.joins == ["Phone", "Phone", "Phone"])
+    }
+
+    /// Off the network, a join is tried at once, then after 5, 10, 20 and every 30 s — not on every
+    /// 5 s check, which would keep the Wi-Fi scanning — and the schedule starts over once joined.
+    @Test func rejoinAttemptsBackOffAndResetOnceJoined() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        fake.wifi.current = "Home"
+        fake.wifi.joinSucceeds = false
+        func attempts() -> Int { fake.wifi.joins.count - 1 }
+        _ = mode.tick()
+        #expect(attempts() == 1)
+        for (wait, expected) in [(4.0, 1), (1.0, 2), (5.0, 2), (5.0, 3), (19.0, 3), (1.0, 4), (29.0, 4), (1.0, 5), (30.0, 6)] {
+            clock.advance(by: wait)
+            _ = mode.tick()
+            #expect(attempts() == expected, "after +\(wait) s")
+        }
+        fake.wifi.joinSucceeds = true
+        clock.advance(by: 30)
+        _ = mode.tick()
+        #expect(attempts() == 7)
+        guard case .on(let back) = mode.state, back.joined else { Issue.record("expected joined"); return }
+        fake.wifi.current = "Home"
+        fake.wifi.joinSucceeds = false
+        _ = mode.tick()
+        #expect(attempts() == 8, "a new drop tries at once")
     }
 
     @Test func theTickWhenOffDoesNothing() {
