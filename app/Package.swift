@@ -5,7 +5,8 @@ let package = Package(
     name: "AiTerm",
     platforms: [.macOS("26.0")],
     targets: [
-        .target(name: "AiTermCore", path: "Sources/AiTermCore"),
+        .target(name: "AiTermCore", path: "Sources/AiTermCore",
+                linkerSettings: [.linkedFramework("CoreWLAN"), .linkedFramework("IOKit"), .linkedFramework("CoreLocation")]),
         .target(name: "AiTermUI", path: "Sources/AiTermUI", exclude: ["README.md"]),
         .executableTarget(name: "AiTerm", dependencies: ["AiTermCore", "AiTermUI"], path: "Sources/AiTerm",
                           resources: [.copy("Resources")]),

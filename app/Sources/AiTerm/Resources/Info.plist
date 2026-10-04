@@ -20,6 +20,10 @@
 	<string>26.0</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>AiTerm asks iTerm2 for an API cookie to open and arrange terminal windows.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>AiTerm reads the names of nearby Wi-Fi networks so Backpack Mode can join the one you chose. It never reads your location.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>AiTerm reads the names of nearby Wi-Fi networks so Backpack Mode can join the one you chose. It never reads your location.</string>
 	<key>AiTermUpdateFeed</key>
 	<string>github:dhondtlaurens/aiterm</string>
 </dict>
