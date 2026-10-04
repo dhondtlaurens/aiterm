@@ -103,16 +103,15 @@ struct ProjectHeaderRow: View {
                 HeaderChevron(collapsed: section.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
                     .opacity(section.isEmpty ? 0 : 1)
                 ProviderIcon(provider: project.provider)
-                HeaderTitle(text: project.name)
-                // One per linked Jira project, `Space.gap` apart as a task row's quiet badges are.
-                // They keep their width; the name is what truncates.
-                let badges = ProjectJiraBadge.badges(for: project, showsKey: controller.preferences.badgeDetails.jiraProject)
-                if !badges.isEmpty {
-                    HStack(spacing: scale(Space.gap)) {
-                        ForEach(badges, id: \.key) { badge in
-                            Badge(badge.label, icon: .brand(Palette.jira), help: badge.help,
-                                  style: .quiet, action: { ExternalApps.open(link: badge.url.absoluteString) })
-                        }
+                // The name, then one badge per linked Jira project, all `Space.gap` apart as a task
+                // row's quiet badges and branch are: the name's gap to the first badge is the same as
+                // one badge's gap to the next. They keep their width; the name is what truncates.
+                HStack(spacing: scale(Space.gap)) {
+                    HeaderTitle(text: project.name)
+                    ForEach(ProjectJiraBadge.badges(for: project, showsKey: controller.preferences.badgeDetails.jiraProject),
+                            id: \.key) { badge in
+                        Badge(badge.label, icon: .brand(Palette.jira), help: badge.help,
+                              style: .quiet, action: { ExternalApps.open(link: badge.url.absoluteString) })
                     }
                 }
                 Spacer(minLength: scale(Space.tight))
