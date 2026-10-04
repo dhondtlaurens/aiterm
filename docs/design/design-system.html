@@ -2158,7 +2158,7 @@
         <li><span><b>The Settings card mixes setup, fields and status in one box.</b> Two permissions, a network and a battery limit read as one list with no order.</span></li>
       </ol>
 
-      <h2 style="margin-top: var(--space-section)">Decision 1: the glyph, always there</h2>
+      <h2 style="margin-top: var(--space-section)">Decision 1: the glyph, always there <span class="rec" style="color:var(--green)">Picked: A</span></h2>
       <p class="why">The backpack sits beside <code>+</code> in every state. <b>Off</b> is the <code>+</code>'s own grey
         (<code>Palette.muted</code>); <b>turning on or off</b> is <code>StatusMark</code>'s spinner at
         <code>Size.statusMark</code>; <b>on</b> is <code>Palette.accent</code>; <b>needs you</b> is
@@ -2203,98 +2203,87 @@
         </div>
       </div>
 
-      <h2 style="margin-top: var(--space-section)">Decision 2: Settings › Backpack as setup in order</h2>
-      <div class="options">
-        <div class="option pick">
-          <header><span class="letter">A</span><h3>Numbered cards: 1 Mac permissions, 2 Hotspot, then Battery</h3><span class="rec">Recommended</span></header>
-          <p>Each step is a <code>SettingsCard</code> whose mark is its number, a green check once done. <b>Each
-            permission has its own row and its own Allow…</b>, so it is clear which prompt comes from which.
-            The mode's live status moves to the Hotspot card, where the network it names is. Battery is a plain
-            <code>SettingsGroup</code>: it connects nothing. Nothing is greyed out: step 2 can be filled in before step 1.</p>
-          <div class="figs">
-            <figure class="fig"><div class="scroll">
-              <div class="mk-sheet" style="height: auto">
-                <div class="hd"><div class="ttl">Settings</div>
-                  <div class="ai-seg accent"><span>Agents</span><span>Integrations</span><span>Interface</span><span class="on">Backpack</span></div></div>
-                <div class="rule"></div>
-                <div class="bd">
-                  <div class="mk-card">
-                    <div class="top"><span class="stepmark">1</span>
-                      <div class="tl"><b>Mac permissions</b><span class="st warn"><i></i>1 of 2 allowed</span></div></div>
-                    <div class="hl"></div>
-                    <div class="mk-perm">
-                      <div><b>Keep awake with the lid closed</b><div class="ai-help">Lets AiTerm turn lid sleep off and back on. Asks for your Mac’s password once.</div></div>
-                      <div class="end"><span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24"><path fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M4 12.5l5 5L20 6.5"/></svg>Allowed</span><span class="lnk">Remove</span></div>
-                    </div>
-                    <div class="hl"></div>
-                    <div class="mk-perm">
-                      <div><b>See nearby Wi-Fi networks</b><div class="ai-help">macOS hides network names from apps without Location access. AiTerm never reads where you are.</div></div>
-                      <div class="end"><span class="btn" style="display:inline-flex;align-items:center;height:28px;padding-inline:12px;background:var(--control-active);border-radius:6px;font-size:13px">Allow…</span></div>
-                    </div>
-                  </div>
-                  <div class="mk-card">
-                    <div class="top"><span class="stepmark">2</span>
-                      <div class="tl"><b>Hotspot</b><span class="st idle"><i></i>Ready · ⌘B turns Backpack Mode on</span></div></div>
-                    <div class="hl"></div>
-                    <div class="mk-fields">
-                      <div class="ai-formfield"><span class="lbl">Network</span>
-                        <div class="ai-select"><span>Laurens D’Hondt - iPhone</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div>
-                      <div class="ai-formfield"><span class="lbl">Password</span>
-                        <div class="ai-field">••••••••</div></div>
-                    </div>
-                    <span class="ai-help" style="max-width: none">Open Personal Hotspot on the phone before you turn it on. The password is saved in Keychain; the phone shows it under Personal Hotspot.</span>
-                  </div>
-                  <div class="mk-card" style="gap: var(--space-gap)">
-                    <div><div class="mk-group-ttl">Battery</div><div class="ai-help" style="max-width:none;margin-top:4px">Backpack Mode turns itself off so the Mac can still sleep before it runs out.</div></div>
-                    <div class="hl"></div>
-                    <div class="mk-perm"><b>Turn off below</b>
-                      <div class="ai-select" style="width: 160px"><span>10 %</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div>
-                  </div>
+      <h2 style="margin-top: var(--space-section)">Decision 2: Settings › Backpack, in the other tabs' parts (2A, redrawn)</h2>
+      <p class="why"><b>Picked: 2A, then redrawn in the vocabulary the other tabs already use</b>, so nothing on this tab is new.
+        Mac permissions is a harness card (Agents): a round mark, ✓ / ! check <code>Badge</code>s beside the title, one
+        action named by its state, and <code>ItermSettingsCard</code>'s numbered steps only while something is missing.
+        Hotspot is a service card (Jira, GitLab): fields side by side and the same "Save stores … in Keychain." line.
+        Battery is a <code>SettingsGroup</code> with a <code>SegmentedControl</code>, as Sidebar size is. No step numbers: no
+        other tab numbers its cards, and the order alone says which comes first.</p>
+      <div class="figs">
+        <figure class="fig"><div class="scroll">
+          <div class="mk-sheet" style="height: auto">
+            <div class="hd"><div class="ttl">Settings</div>
+              <div class="ai-seg accent"><span>Agents</span><span>Integrations</span><span>Interface</span><span class="on">Backpack</span></div></div>
+            <div class="rule"></div>
+            <div class="bd">
+              <div class="mk-card">
+                <div class="top"><span class="bpmark"><svg viewBox="0 0 14 14" style="width:12px;height:12px"><path fill="currentColor" d="M4 6V4.5a3 3 0 0 1 6 0V6h.5A1.5 1.5 0 0 1 12 7.5v4A1.5 1.5 0 0 1 10.5 13h-7A1.5 1.5 0 0 1 2 11.5v-4A1.5 1.5 0 0 1 3.5 6zm1.5 0h3V4.5a1.5 1.5 0 0 0-3 0z"/></svg></span>
+                  <div class="tl"><b style="display:flex;gap:6px;align-items:center">Mac permissions
+                      <span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24"><path fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M4 12.5l5 5L20 6.5"/></svg>Lid sleep</span>
+                      <span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24"><path fill="none" stroke="var(--amber)" stroke-width="3" stroke-linecap="round" d="M12 4v10M12 20v.01"/></svg>Location</span></b>
+                    <span class="st warn"><i></i>Needs Location access</span></div>
+                  <div class="acts"><span class="btn">Allow…</span></div></div>
+                <div class="hl"></div>
+                <div class="mk-steps"><div><span>1</span>Allow AiTerm to see nearby Wi-Fi networks. macOS hides their names from apps without Location access; AiTerm never reads where you are.</div></div>
+              </div>
+              <div class="mk-card">
+                <div class="top"><span class="bpmark"><svg viewBox="0 0 14 14" style="width:13px;height:13px"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 9.5a3.5 3.5 0 0 1 0-5M9.5 4.5a3.5 3.5 0 0 1 0 5M2.6 11.4a6.2 6.2 0 0 1 0-8.8M11.4 2.6a6.2 6.2 0 0 1 0 8.8"/></g><circle cx="7" cy="7" r="1.3" fill="currentColor"/></svg></span>
+                  <div class="tl"><b>Hotspot</b><span class="st idle"><i></i>Ready · ⌘B turns Backpack Mode on</span></div></div>
+                <div class="hl"></div>
+                <div class="mk-fields">
+                  <div class="ai-formfield"><span class="lbl">Network</span>
+                    <div class="ai-select"><span>Laurens D’Hondt - iPhone</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div>
+                  <div class="ai-formfield"><span class="lbl">Password</span><div class="ai-field">••••••••</div></div>
                 </div>
+                <span class="ai-help" style="max-width: none">Open Personal Hotspot on the phone before you turn it on. Save stores the password in Keychain.</span>
               </div>
-            </div><figcaption>step 1 half done, step 2 filled in</figcaption></figure>
-          </div>
-        </div>
-
-        <div class="option">
-          <header><span class="letter">B</span><h3>One card with a vertical checklist</h3></header>
-          <p>The same three steps as numbered lines joined by a rule, inside one "Backpack Mode" card. More compact.
-            <b>But</b> it is a new pattern (a vertical stepper) that nothing else in AiTerm draws, and the mode's
-            status and the steps' statuses would share one line.</p>
-          <div class="figs">
-            <figure class="fig"><div class="scroll" style="width: 512px"><div class="mk-card">
-              <div class="top"><span class="bpmark"><svg><use href="#p-backpack"/></svg></span>
-                <div class="tl"><b>Backpack Mode</b><span class="st warn"><i></i>Needs setup</span></div></div>
-              <div class="hl"></div>
-              <div>
-                <div class="mk-vstep"><div><div class="n done">✓</div><div class="line" style="height: 28px"></div></div>
-                  <div class="body"><b style="font:500 13px var(--font)">Mac permissions</b><span class="ai-help">Both allowed.</span></div></div>
-                <div class="mk-vstep"><div><div class="n">2</div><div class="line" style="height: 52px"></div></div>
-                  <div class="body"><b style="font:500 13px var(--font)">Hotspot</b><div class="mk-fields"><div class="ai-select"><span>Laurens D’Hondt - iPhone</span><span class="chev"></span></div><div class="ai-field">••••••••</div></div></div></div>
-                <div class="mk-vstep"><div><div class="n">3</div></div>
-                  <div class="body" style="padding-bottom:0"><b style="font:500 13px var(--font)">Battery</b><div class="ai-select" style="width:160px"><span>10 %</span><span class="chev"></span></div></div></div>
+              <div class="mk-card" style="gap: var(--space-gap)">
+                <div><div class="mk-group-ttl">Battery</div><div class="ai-help" style="max-width:none;margin-top:4px">Turns Backpack Mode off below this level, so the Mac can still sleep before it runs out.</div></div>
+                <div class="hl"></div>
+                <div class="ai-seg"><span>5 %</span><span class="on regular">10 %</span><span>15 %</span><span>20 %</span><span>25 %</span><span>30 %</span></div>
               </div>
-            </div></div><figcaption>one card, three steps</figcaption></figure>
+            </div>
           </div>
-        </div>
+        </div><figcaption>first visit · lid sleep allowed, Location missing</figcaption></figure>
 
-        <div class="option">
-          <header><span class="letter">C</span><h3>A step bar, one step at a time</h3></header>
-          <p>New Task's <code>StepBar</code> across the tab (1 Permissions —— 2 Hotspot —— 3 Battery) with Back and Next.
-            Familiar from the sheets. <b>But</b> Settings already has Cancel and Save in its footer; a second pair of
-            buttons for steps inside a tab is one flow too many, and every later visit pages through it again.</p>
-        </div>
+        <figure class="fig" style="display:flex;flex-direction:column;gap:var(--space-block)">
+          <div class="scroll" style="width: 512px"><div class="mk-card">
+            <div class="top"><span class="bpmark"><svg viewBox="0 0 14 14" style="width:12px;height:12px"><path fill="currentColor" d="M4 6V4.5a3 3 0 0 1 6 0V6h.5A1.5 1.5 0 0 1 12 7.5v4A1.5 1.5 0 0 1 10.5 13h-7A1.5 1.5 0 0 1 2 11.5v-4A1.5 1.5 0 0 1 3.5 6zm1.5 0h3V4.5a1.5 1.5 0 0 0-3 0z"/></svg></span>
+              <div class="tl"><b style="display:flex;gap:6px;align-items:center">Mac permissions
+                  <span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24"><path fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M4 12.5l5 5L20 6.5"/></svg>Lid sleep</span>
+                  <span class="ai-badge"><svg width="10" height="10" viewBox="0 0 24 24"><path fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M4 12.5l5 5L20 6.5"/></svg>Location</span></b>
+                <span class="st ok"><i></i>Ready</span></div>
+              <div class="acts"><span class="btn">Remove</span></div></div>
+            <div class="hl"></div>
+            <span class="ai-help" style="max-width:none">AiTerm can keep the Mac awake with the lid closed and see nearby Wi-Fi networks. Remove takes the lid-sleep rule out again.</span>
+          </div></div>
+          <div class="scroll" style="width: 512px"><div class="mk-card">
+            <div class="top"><span class="bpmark"><svg viewBox="0 0 14 14" style="width:13px;height:13px"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4.5 9.5a3.5 3.5 0 0 1 0-5M9.5 4.5a3.5 3.5 0 0 1 0 5M2.6 11.4a6.2 6.2 0 0 1 0-8.8M11.4 2.6a6.2 6.2 0 0 1 0 8.8"/></g><circle cx="7" cy="7" r="1.3" fill="currentColor"/></svg></span>
+              <div class="tl"><b>Hotspot</b><span class="st ok"><i></i>On · joined Laurens D’Hondt - iPhone · battery 64 %</span></div></div>
+          </div></div>
+          <figcaption>set up · the permissions card ready, the Hotspot card while on (fields as left)</figcaption>
+        </figure>
       </div>
+      <table class="patterns" style="margin-top: var(--space-block)">
+        <thead><tr><th>Part</th><th>Borrowed from</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Mac permissions card</td><td class="why2">A harness card: <code>SettingsCard</code>, check <code>Badge</code>s with <code>iconTint</code>, one action named by state (Allow… while missing, Remove when ready), numbered steps while amber</td><td>HarnessSettingsPane, ItermSettingsCard</td></tr>
+          <tr><td>Hotspot card</td><td class="why2">A <code>ServiceCard</code>'s anatomy: mark, status line, fields side by side, “Save stores … in Keychain.”</td><td>SettingsView</td></tr>
+          <tr><td>Battery</td><td class="why2"><code>SettingsGroup</code> + neutral <code>SegmentedControl</code>, as Sidebar size</td><td>InterfaceSettingsPane</td></tr>
+          <tr><td>Marks</td><td class="why2">A <code>Palette.controlActive</code> disc with an SF Symbol in <code>Palette.text</code>: <code>lock.fill</code>, <code>personalhotspot</code> (drawn here as approximations)</td><td>BackpackSettingsPane</td></tr>
+        </tbody>
+      </table>
 
       <h2 style="margin-top: var(--space-section)">Copy</h2>
       <table class="patterns">
         <thead><tr><th>Where</th><th>Round 1</th><th>Round 2</th></tr></thead>
         <tbody>
-          <tr><td>Step 1 title</td><td class="why2"><s>Needs setup, with two numbered sentences</s></td><td class="to">Mac permissions · “1 of 2 allowed” / “Both allowed”</td></tr>
-          <tr><td>Lid sleep row</td><td class="why2"><s>Allow AiTerm to keep the Mac awake with the lid closed. Asks for your password once.</s></td><td class="to">Keep awake with the lid closed — Lets AiTerm turn lid sleep off and back on. Asks for your Mac’s password once.</td></tr>
-          <tr><td>Location row</td><td class="why2"><s>Allow Location access, so AiTerm can see which Wi-Fi networks are in range.</s></td><td class="to">See nearby Wi-Fi networks — macOS hides network names from apps without Location access. AiTerm never reads where you are.</td></tr>
+          <tr><td>Step 1 title</td><td class="why2"><s>Needs setup, with two numbered sentences</s></td><td class="to">Mac permissions, with Lid sleep and Location check badges · “Needs Location access” / “Ready”</td></tr>
+          <tr><td>Lid sleep row</td><td class="why2"><s>Allow AiTerm to keep the Mac awake with the lid closed. Asks for your password once.</s></td><td class="to">Step while missing: “Allow AiTerm to keep the Mac awake with the lid closed. Asks for your Mac’s password once.”</td></tr>
+          <tr><td>Location row</td><td class="why2"><s>Allow Location access, so AiTerm can see which Wi-Fi networks are in range.</s></td><td class="to">Step while missing: “Allow AiTerm to see nearby Wi-Fi networks. macOS hides their names from apps without Location access; AiTerm never reads where you are.”</td></tr>
           <tr><td>Step 2 title</td><td class="why2"><s>Wi-Fi network</s></td><td class="to">Hotspot · fields Network and Password</td></tr>
-          <tr><td>Card actions</td><td class="why2"><s>Set Up… / Remove Setup</s></td><td class="to">Allow… per row; Remove (a link) beside the lid-sleep Allowed badge</td></tr>
+          <tr><td>Card actions</td><td class="why2"><s>Set Up… / Remove Setup</s></td><td class="to">One action by state: Allow… (runs what is missing) / Remove</td></tr>
           <tr><td>Glyph menu</td><td class="why2"><s>Turn Off Backpack Mode only while on</s></td><td class="to">Turn On / Turn Off Backpack Mode ⌘B, always</td></tr>
         </tbody>
       </table>
