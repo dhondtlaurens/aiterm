@@ -69,6 +69,21 @@ owner each, reached as a property of the controller. Views read the owners direc
 | `LiveSessions` | `live` | every tab the daemon reports, usage, and each row's last context fill |
 | `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and every 2 s |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the titles already sent |
+| `BackpackController` | `backpack` | Backpack Mode: its state, setup and battery reading, run on a serial queue of its own |
+
+### Backpack Mode
+
+`AiTermCore/Backpack/` decides; `BackpackController` drives it. Five ports, each faked in the
+tests: lid sleep (`sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by `/etc/sudoers.d/aiterm`,
+which Settings › Backpack installs and removes through an `osascript` admin prompt after `visudo`
+checks it), Wi-Fi (CoreWLAN, `networksetup` as the fallback and for the known-network list),
+battery (IOKit), Location (CoreLocation: macOS hides Wi-Fi names without it) and the installer.
+The hotspot's password lives in AiTerm's Keychain item: macOS will not hand another app an iPhone
+hotspot's saved one. Every 5 s it checks the network and the battery; off the network it rejoins
+at once, then after 5, 10, 20 and every 30 s. `backpack.engaged` in UserDefaults is written before
+`disablesleep 1` and cleared only after `disablesleep 0` succeeds: a failed restore is retried on
+every check, a launch that finds the marker puts sleep back, and quit closes the mode first, so no
+turn-on can follow it.
 
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
 socket; the app's tests record it in process instead.

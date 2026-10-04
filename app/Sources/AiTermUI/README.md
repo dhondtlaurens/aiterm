@@ -180,7 +180,17 @@ vendor needs both.
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `IntegrationMark`, `HarnessSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`,
-`NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
+`BackpackSettingsPane`, `SymbolMark`, `BackpackHeaderButton`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
+
+**Backpack Mode.** Settings › Backpack (`BackpackSettingsPane`) is three `SettingsCard`s, each with a
+`SymbolMark` — an SF Symbol in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s
+family for things that are not vendors: Mac permissions (`lock.fill`; harness-style check `Badge`s,
+one action named by its state, `ItermSettingsCard`'s numbered steps while something is missing),
+Hotspot (`personalhotspot`; the mode's live status and a `ServiceCard`'s fields) and Battery
+(`battery.75percent`; a neutral `SegmentedControl`, as Sidebar size). `BackpackHeaderButton` is the
+mode's glyph in the `PROJECTS` header, always there beside the `+` and built like it: `figure.walk` in
+the `+`'s `Palette.muted` while off, `StatusMark`'s spinner while it switches, `Palette.accent` while
+on, `Palette.amber` while it needs the person; a click opens its menu.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -226,8 +236,8 @@ the one trigger for every agent; a Codex skill picked there is written as its `$
 `SheetPrimaryButton` is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows, and
 every sheet uses it rather than restating that.
 
-`SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or with
-⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
+`SettingsView` has four tabs — Agents, Integrations, Interface, Backpack — picked from the tab bar or
+with ⌘1–⌘4, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
 saved service's last test failed (`ServiceTestRecord`), and on Agents otherwise; that is decided
 once, as the sheet opens, and a test answering afterwards never switches the tab.
 
