@@ -146,6 +146,14 @@ final class BackpackController {
         state = mode.state
     }
 
+    #if DEBUG
+    /// Snapshots draw a state without turning anything on.
+    func preview(state: BackpackState, setup: BackpackSetup) {
+        self.state = state
+        self.setup = setup
+    }
+    #endif
+
     private func refreshSetupWhileBusy() async {
         let mode = self.mode
         if let fresh = try? await BackgroundWork.run(on: queue, { mode.setup() }) { setup = fresh }

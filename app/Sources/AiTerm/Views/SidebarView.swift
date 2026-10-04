@@ -247,14 +247,16 @@ struct SidebarSheet: View {
                         case .terminal(let terminal): controller.rename(terminal: terminal, to: name)
                         }
                     })
-                case .settings(let jira, let gitLab, let gitHub):
+                case .settings(let jira, let gitLab, let gitHub, let tab):
                     SettingsView(jiraConfig: jira, gitLabConfig: gitLab, gitHubConfig: gitHub,
                                  harnessModel: controller.agents.harnessSettingsModel(),
                                  itermConnection: { controller.helper.itermConnection },
                                  checkIterm: controller.helper.checkIterm,
                                  preferences: controller.preferences,
                                  setMatchItermBackground: { controller.helper.setMatchItermBackground($0) },
-                                 setInterfaceSize: { controller.tiling.setInterfaceSize($0) })
+                                 setInterfaceSize: { controller.tiling.setInterfaceSize($0) },
+                                 initialTab: tab,
+                                 backpack: controller.backpack)
             }
         }
         .interfaceScale(.standard)

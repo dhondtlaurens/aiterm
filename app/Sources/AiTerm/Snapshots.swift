@@ -460,6 +460,19 @@ enum Snapshots {
                                     preferences: controller.preferences, setMatchItermBackground: { _ in }, setInterfaceSize: { _ in }, initialTab: .integrations)
         itermOff._itermEnvironment = State(initialValue: apiOff)
         write(itermOff, to: out.appendingPathComponent("settings-iterm-off.png"))
+        // Backpack, set up and on, on battery: the card's ready line and its fields.
+        let backpack = BackpackController.inert()
+        backpack.network = "My iPhone"
+        backpack.preview(state: .on(BackpackStatus(network: "My iPhone", joined: true,
+                                                   power: PowerReading(level: 64, onBattery: true), cutoff: 10)),
+                         setup: BackpackSetup(sleepRule: true, location: true, network: "My iPhone"))
+        var backpackOn = SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: harnessSettings,
+                                      itermConnection: { .connected(version: "3.7.2") },
+                                      checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
+                                      preferences: controller.preferences, setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
+                                      initialTab: .backpack, backpack: backpack)
+        backpackOn._knownNetworks = State(initialValue: ["Home", "My iPhone"])
+        write(backpackOn, to: out.appendingPathComponent("settings-backpack-on.png"))
     }
 
     private static func marks(to out: URL) {

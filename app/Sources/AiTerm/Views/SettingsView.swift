@@ -6,9 +6,10 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case agents = "Agents"
     case integrations = "Integrations"
     case interface = "Interface"
+    case backpack = "Backpack"
     var id: Self { self }
 
-    /// ⌘1, ⌘2 and ⌘3 pick the tabs in the order the tab bar draws them.
+    /// ⌘1–⌘4 pick the tabs in the order the tab bar draws them.
     var key: KeyEquivalent {
         KeyEquivalent(Character(String(Self.allCases.firstIndex(of: self)! + 1)))
     }
@@ -79,6 +80,16 @@ struct SettingsView: View {
     private var itermEnvironment: ItermEnvironment? { get { _itermEnvironment.wrappedValue } nonmutating set { _itermEnvironment.wrappedValue = newValue } }
     var _itermTesting = State<Bool>(initialValue: false)
     private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
+    /// Backpack Mode: its state and setup live; its fields are held here until Save.
+    let backpack: BackpackController
+    var _backpackNetwork: State<String?>
+    private var backpackNetwork: String? { get { _backpackNetwork.wrappedValue } nonmutating set { _backpackNetwork.wrappedValue = newValue } }
+    var _backpackCutoff: State<Int>
+    private var backpackCutoff: Int { get { _backpackCutoff.wrappedValue } nonmutating set { _backpackCutoff.wrappedValue = newValue } }
+    var _backpackPassword: State<String>
+    private var backpackPassword: String { get { _backpackPassword.wrappedValue } nonmutating set { _backpackPassword.wrappedValue = newValue } }
+    var _knownNetworks = State<[String]>(initialValue: [])
+    private var knownNetworks: [String] { get { _knownNetworks.wrappedValue } nonmutating set { _knownNetworks.wrappedValue = newValue } }
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,
          itermConnection: @escaping () -> ItermConnection,
@@ -87,7 +98,8 @@ struct SettingsView: View {
          setMatchItermBackground: @escaping (Bool) -> Void,
          setInterfaceSize: @escaping (InterfaceSize) -> Void,
          initialTab: SettingsTab? = nil,
-         testRecord: ServiceTestRecord = .shared) {
+         testRecord: ServiceTestRecord = .shared,
+         backpack: BackpackController = .inert()) {
         _tab = State(initialValue: initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
@@ -102,6 +114,10 @@ struct SettingsView: View {
         _badgeDetails = State(initialValue: preferences.badgeDetails)
         _interfaceSize = State(initialValue: preferences.interfaceSize)
         openingSize = preferences.interfaceSize
+        self.backpack = backpack
+        _backpackNetwork = State(initialValue: backpack.network)
+        _backpackCutoff = State(initialValue: backpack.cutoff)
+        _backpackPassword = State(initialValue: backpack.password ?? "")
     }
 
     var body: some View {
@@ -117,7 +133,7 @@ struct SettingsView: View {
                 SheetPrimaryButton(title: "Save") { if save() { dismiss.afterThisEvent() } }
             }
         }
-        // ⌘1–⌘3, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
+        // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
         // not buttons of their own.
         .background {
             ForEach(SettingsTab.allCases) { item in
@@ -131,6 +147,8 @@ struct SettingsView: View {
             testIterm()
             integrations.testConfigured()
             await harnessModel.load()
+            await backpack.refreshSetup()
+            knownNetworks = await backpack.knownNetworks()
         }
     }
 
@@ -143,6 +161,10 @@ struct SettingsView: View {
                 InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,
                                       badgeDetails: _badgeDetails.projectedValue,
                                       interfaceSize: Binding(get: { interfaceSize }, set: { pickInterfaceSize($0) }))
+            case .backpack:
+                BackpackSettingsPane(backpack: backpack, network: _backpackNetwork.projectedValue,
+                                     password: _backpackPassword.projectedValue,
+                                     cutoff: _backpackCutoff.projectedValue, knownNetworks: knownNetworks)
             }
         }
     }
@@ -213,6 +235,7 @@ struct SettingsView: View {
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
         saveInterface()
+        saveBackpack()
         harnessModel.save()
         return true
     }
@@ -234,6 +257,14 @@ struct SettingsView: View {
         setMatchItermBackground(matchItermBackground)
         preferences.badgeDetails = badgeDetails
         setInterfaceSize(interfaceSize)
+    }
+
+    /// Backpack's fields have nothing to validate. They take effect at the next turn-on; the
+    /// password goes to the Keychain, and an empty one removes it.
+    func saveBackpack() {
+        backpack.network = backpackNetwork
+        backpack.cutoff = backpackCutoff
+        backpack.password = backpackPassword
     }
 
     /// The card follows `itermConnection` on its own; the test only refreshes it and the parts of

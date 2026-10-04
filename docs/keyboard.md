@@ -109,7 +109,7 @@ Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘1 ⌘2 ⌘3 | Agents, Integrations, Interface | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
+| ⌘1 ⌘2 ⌘3 ⌘4 | Agents, Integrations, Interface, Backpack | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
 
 ## Alerts
 

@@ -1147,7 +1147,7 @@ extension AppControllerTests {
         controller.presentSettings()
         let deadline = TestDeadline.fromNow()
         while controller.sheet == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        guard case .settings(let saved, let gitLab, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
+        guard case .settings(let saved, let gitLab, _, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
         #expect(saved == jira && gitLab == nil)
         #expect(onMain.withLock { $0 } == [false, false])
     }

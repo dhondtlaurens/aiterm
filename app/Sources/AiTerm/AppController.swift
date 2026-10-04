@@ -690,14 +690,14 @@ final class AppController {
     /// New Task draft with it.
     var canPresentSettings: Bool { sheet == nil }
 
-    func presentSettings() {
+    func presentSettings(tab: SettingsTab? = nil) {
         guard canPresentSettings else { return }
         preparingSheet?.cancel()
         let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
         preparingSheet = Task {
             let saved = try? await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
             guard !Task.isCancelled, let saved, canPresentSettings else { return }
-            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub)
+            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: tab)
         }
     }
 

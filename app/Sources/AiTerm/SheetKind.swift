@@ -56,7 +56,7 @@ extension AppController {
         case newTerminal(Project, name: String, branch: String)
         case newDivider, rename(RenameTarget)
         /// Settings opens on the saved credentials, read from the Keychain once when it is presented.
-        case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?)
+        case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, tab: SettingsTab?)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
