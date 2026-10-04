@@ -1,6 +1,9 @@
 import Foundation
 import AiTermCore
 
+/// A turn-on or turn-off under way, which the header draws as a spinner.
+enum BackpackTransition: Equatable { case turningOn, turningOff }
+
 /// Backpack Mode as the app drives it: `BackpackMode`'s blocking calls run on one serial queue, so a
 /// turn-on, a turn-off and a tick never overlap, and their outcome is published here on the main
 /// actor for the menu item, Settings › Backpack and the header glyph.
@@ -11,6 +14,8 @@ final class BackpackController {
     private(set) var setup = BackpackSetup(sleepRule: false, location: false, network: nil)
     /// A turn-on, turn-off or setup is running. ⌘B is ignored until it ends.
     private(set) var busy = false
+    /// Set for as long as a turn-on or turn-off runs: joining a hotspot takes seconds.
+    private(set) var transition: BackpackTransition?
 
     @ObservationIgnored private let mode: BackpackMode
     @ObservationIgnored private let ports: BackpackPorts
@@ -59,7 +64,8 @@ final class BackpackController {
     func turnOn() async {
         guard !busy, !isOn else { return }
         busy = true
-        defer { busy = false }
+        transition = .turningOn
+        defer { busy = false; transition = nil }
         let mode = self.mode
         let result = (try? await BackgroundWork.run(on: queue) { mode.turnOn() }) ?? .failure(.needsSetup)
         state = mode.state
@@ -78,7 +84,8 @@ final class BackpackController {
     func turnOff() async {
         guard !busy, isOn else { return }
         busy = true
-        defer { busy = false }
+        transition = .turningOff
+        defer { busy = false; transition = nil }
         ticking?.cancel()
         let mode = self.mode
         _ = try? await BackgroundWork.run(on: queue) { mode.turnOff() }
@@ -148,9 +155,10 @@ final class BackpackController {
 
     #if DEBUG
     /// Snapshots draw a state without turning anything on.
-    func preview(state: BackpackState, setup: BackpackSetup) {
+    func preview(state: BackpackState, setup: BackpackSetup, transition: BackpackTransition? = nil) {
         self.state = state
         self.setup = setup
+        self.transition = transition
     }
     #endif
 

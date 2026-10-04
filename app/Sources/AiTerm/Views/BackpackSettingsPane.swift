@@ -36,6 +36,13 @@ enum BackpackPresentation {
         return "Backpack Mode is on · \(status.network) · battery \(level) %, turns off at \(status.cutoff) %"
     }
 
+    /// The header menu's first line: the state, and what turning it on would do.
+    static func menuLine(state: BackpackState, setup: BackpackSetup) -> String {
+        if case .on(let status) = state { return summary(status) }
+        guard setup.isComplete, let network = setup.network else { return "Backpack Mode needs setup" }
+        return "Backpack Mode is off · joins \(network)"
+    }
+
     /// "None" first, then the chosen network if the Mac no longer lists it, then the known ones.
     static func choices(known: [String], current: String?) -> [String?] {
         let kept = current.map { known.contains($0) ? [] : [$0] } ?? []

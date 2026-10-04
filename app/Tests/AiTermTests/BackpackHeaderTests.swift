@@ -6,23 +6,34 @@ import AiTermUI
 
 @MainActor
 @Suite(.serialized) struct BackpackHeaderTests {
-    @Test func theGlyphIsAmberOnlyWhenDegraded() {
-        let fine = BackpackStatus(network: "P", joined: true, power: .mains, cutoff: 10)
-        let away = BackpackStatus(network: "P", joined: false, power: .mains, cutoff: 10)
-        #expect(BackpackHeaderButton.ink(for: fine) == Palette.text)
-        #expect(BackpackHeaderButton.ink(for: away) == Palette.amber)
+    private let fine = BackpackStatus(network: "P", joined: true, power: .mains, cutoff: 10)
+    private let away = BackpackStatus(network: "P", joined: false, power: .mains, cutoff: 10)
+
+    /// Always drawn: off, a spinner while it turns on or off, on, or needing the person.
+    @Test func theLookFollowsTheStateAndAnyTransition() {
+        #expect(BackpackHeaderButton.look(state: .off, transition: nil) == .off)
+        #expect(BackpackHeaderButton.look(state: .off, transition: .turningOn) == .busy)
+        #expect(BackpackHeaderButton.look(state: .on(fine), transition: .turningOff) == .busy)
+        #expect(BackpackHeaderButton.look(state: .on(fine), transition: nil) == .on)
+        #expect(BackpackHeaderButton.look(state: .on(away), transition: nil) == .degraded)
     }
 
-    /// Off draws nothing: absent, not disabled.
-    @Test func theHeaderCarriesTheGlyphOnlyWhileOn() async {
-        let fake = FakeBackpack()
-        let controller = AppController(preferences: .scratch(), backpackPorts: fake.ports)
-        // The controller keeps its settings in the scratch preferences' defaults, not the fake's.
-        controller.backpack.network = "Phone"
-        #expect(!SidebarHeader.showsBackpack(controller))
-        await controller.backpack.turnOn()
-        #expect(SidebarHeader.showsBackpack(controller))
-        await controller.backpack.turnOff()
-        #expect(!SidebarHeader.showsBackpack(controller))
+    /// Off is the "+"'s own grey; on is the accent; needing the person is amber.
+    @Test func eachLookHasItsInk() {
+        #expect(BackpackHeaderButton.ink(for: .off) == Palette.muted)
+        #expect(BackpackHeaderButton.ink(for: .on) == Palette.accent)
+        #expect(BackpackHeaderButton.ink(for: .degraded) == Palette.amber)
+    }
+
+    @Test func theMenuSaysTheStateAndOffersTheToggle() {
+        let ready = BackpackSetup(sleepRule: true, location: true, network: "Phone")
+        #expect(BackpackPresentation.menuLine(state: .off, setup: ready) == "Backpack Mode is off · joins Phone")
+        #expect(BackpackPresentation.menuLine(state: .off, setup: BackpackSetup(sleepRule: false, location: true, network: nil))
+                == "Backpack Mode needs setup")
+        #expect(BackpackPresentation.menuLine(state: .on(fine), setup: ready) == "Backpack Mode is on · P")
+        #expect(BackpackHeaderButton.toggleTitle(isOn: false) == "Turn On Backpack Mode")
+        #expect(BackpackHeaderButton.toggleTitle(isOn: true) == "Turn Off Backpack Mode")
+        #expect(BackpackHeaderButton.settingsFirst(state: .off, setup: BackpackSetup(sleepRule: true, location: false, network: "Phone")))
+        #expect(!BackpackHeaderButton.settingsFirst(state: .off, setup: ready))
     }
 }

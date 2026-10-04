@@ -41,21 +41,16 @@ private struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, Backpack Mode's glyph while it is on, and the menu that adds a project or a divider.
+/// `PROJECTS`, Backpack Mode's glyph, and the menu that adds a project or a divider.
 struct SidebarHeader: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
-
-    /// The glyph is absent while the mode is off, not disabled.
-    static func showsBackpack(_ controller: AppController) -> Bool { controller.backpack.isOn }
 
     var body: some View {
         HStack {
             SidebarHeading("Projects")
             Spacer()
-            if Self.showsBackpack(controller) {
-                BackpackHeaderButton(backpack: controller.backpack, openSettings: { controller.presentSettings(tab: .backpack) })
-            }
+            BackpackHeaderButton(backpack: controller.backpack, openSettings: { controller.presentSettings(tab: .backpack) })
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
                 Button("Add Project…") { controller.addProject() }
                 Button("Add Divider…") { controller.presentNewDivider() }
@@ -66,32 +61,72 @@ struct SidebarHeader: View {
     }
 }
 
-/// Backpack Mode's glyph in the PROJECTS header: the trailing column's ink in a `Size.slot`, as the
-/// "+" beside it is, in `Palette.text`, amber while degraded. Its menu says the state in a sentence
-/// and offers Turn Off and the settings. Built like `AddMenu`, for the same rendering.
+/// How the Backpack glyph is drawn.
+enum BackpackGlyphLook: Equatable { case off, busy, on, degraded }
+
+/// Backpack Mode's glyph in the PROJECTS header, always there: the trailing column's ink in a
+/// `Size.slot`, as the "+" beside it is — the "+"'s grey while off, `StatusMark`'s spinner while it
+/// turns on or off, the accent while on, amber while it needs the person. A click opens its menu,
+/// as the "+" does: the state in a line, the toggle, and the settings. Built like `AddMenu`, for the
+/// same rendering.
 struct BackpackHeaderButton: View {
     let backpack: BackpackController
     let openSettings: () -> Void
     @Environment(\.interfaceScale) private var scale
 
-    static func ink(for status: BackpackStatus) -> Color { status.degraded ? Palette.amber : Palette.text }
+    /// Away from the desk. Also the Backpack toasts' symbol.
+    static let symbol = "figure.walk"
+
+    static func look(state: BackpackState, transition: BackpackTransition?) -> BackpackGlyphLook {
+        if transition != nil { return .busy }
+        guard case .on(let status) = state else { return .off }
+        return status.degraded ? .degraded : .on
+    }
+
+    /// The glyph's ink; `.busy` draws the spinner instead, in its own.
+    static func ink(for look: BackpackGlyphLook) -> Color {
+        switch look {
+        case .off, .busy: Palette.muted
+        case .on: Palette.accent
+        case .degraded: Palette.amber
+        }
+    }
+
+    static func toggleTitle(isOn: Bool) -> String { isOn ? "Turn Off Backpack Mode" : "Turn On Backpack Mode" }
+
+    /// While setup is missing, the settings lead: the toggle would only answer "needs setup".
+    static func settingsFirst(state: BackpackState, setup: BackpackSetup) -> Bool { !state.isOn && !setup.isComplete }
 
     var body: some View {
-        if case .on(let status) = backpack.state {
-            let summary = BackpackPresentation.summary(status)
-            Menu {
-                Text(summary)
-                Divider()
-                Button("Turn Off Backpack Mode") { backpack.toggle() }
+        let look = Self.look(state: backpack.state, transition: backpack.transition)
+        let line = BackpackPresentation.menuLine(state: backpack.state, setup: backpack.setup)
+        Menu {
+            Text(line)
+            Divider()
+            if Self.settingsFirst(state: backpack.state, setup: backpack.setup) {
                 Button("Backpack Settings…", action: openSettings)
-            } label: {
-                Icon(.symbol("backpack.fill"), size: SidebarRowLayout.trailingGlyph(scale), tint: Self.ink(for: status))
+                toggle
+            } else {
+                toggle
+                Button("Backpack Settings…", action: openSettings)
             }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-            .frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
-            .help(summary)
-            .accessibilityLabel(summary)
+        } label: {
+            if look == .busy {
+                StatusMark(status: .working, size: SidebarRowLayout.trailingGlyph(scale))
+            } else {
+                Icon(.symbol(Self.symbol), size: SidebarRowLayout.trailingGlyph(scale), tint: Self.ink(for: look))
+            }
         }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .frame(width: SidebarRowLayout.trailingSlot(scale), height: SidebarRowLayout.trailingSlot(scale))
+        .help(line)
+        .accessibilityLabel(line)
+    }
+
+    private var toggle: some View {
+        Button(Self.toggleTitle(isOn: backpack.isOn)) { backpack.toggle() }
+            .keyboardShortcut("b", modifiers: .command)
+            .disabled(backpack.busy)
     }
 }
 

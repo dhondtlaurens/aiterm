@@ -48,6 +48,22 @@ import Testing
         #expect(fake.wifi.joins == ["Phone"])
     }
 
+    /// The header's spinner reads this: set for as long as a turn-on runs, gone once it ends.
+    @Test func aTurnOnShowsAsTurningOnWhileItRuns() async {
+        let fake = FakeBackpack()
+        let release = DispatchSemaphore(value: 0)
+        fake.lid.onSet = { if $0 { release.wait() } }
+        let backpack = controller(fake)
+        #expect(backpack.transition == nil)
+        let first = Task { await backpack.turnOn() }
+        while !backpack.busy { await Task.yield() }
+        #expect(backpack.transition == .turningOn)
+        release.signal()
+        await first.value
+        #expect(backpack.transition == nil)
+        #expect(backpack.isOn)
+    }
+
     /// Quit during a turn-on: shutdown waits for it, then puts sleep back, so the Mac never stays
     /// sleepless after AiTerm is gone.
     @Test func shutdownWaitsForAnInFlightTurnOnAndEndsOff() async {

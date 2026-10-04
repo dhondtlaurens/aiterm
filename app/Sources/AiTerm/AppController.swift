@@ -198,7 +198,7 @@ final class AppController {
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
         backpack = BackpackController(ports: backpackPorts,
                                       settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
-                                      toast: { link.controller?.showToast($0, symbol: "backpack.fill") })
+                                      toast: { link.controller?.showToast($0, symbol: BackpackHeaderButton.symbol) })
         link.controller = self
     }
 

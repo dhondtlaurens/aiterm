@@ -293,12 +293,17 @@ enum Snapshots {
             .frame(width: Size.sidebarWidth)
             .background(Palette.sidebar), to: out.appendingPathComponent("usage-footer-agents.png"))
         controller.focus.browse(.task(piTask.id))
-        // The header with Backpack Mode on, then degraded (off the hotspot).
-        for (name, joined) in [("sidebar-header-backpack.png", true), ("sidebar-header-backpack-amber.png", false)] {
-            controller.backpack.preview(state: .on(BackpackStatus(network: "My iPhone", joined: joined, power: .mains, cutoff: 10)),
-                                        setup: BackpackSetup(sleepRule: true, location: true, network: "My iPhone"))
+        // The header's Backpack glyph in each look: off, turning on, on, needing the person.
+        let ready = BackpackSetup(sleepRule: true, location: true, network: "My iPhone")
+        let looks: [(String, BackpackState, BackpackTransition?)] = [
+            ("off", .off, nil), ("busy", .off, .turningOn),
+            ("on", .on(BackpackStatus(network: "My iPhone", joined: true, power: .mains, cutoff: 10)), nil),
+            ("amber", .on(BackpackStatus(network: "My iPhone", joined: false, power: .mains, cutoff: 10)), nil),
+        ]
+        for (name, state, transition) in looks {
+            controller.backpack.preview(state: state, setup: ready, transition: transition)
             write(SidebarHeader(controller: controller).padding(.horizontal, Space.inset).frame(width: 360).background(Palette.sidebar),
-                  to: out.appendingPathComponent(name))
+                  to: out.appendingPathComponent("sidebar-header-backpack-\(name).png"))
         }
         controller.backpack.preview(state: .off, setup: BackpackSetup(sleepRule: false, location: false, network: nil))
     }
