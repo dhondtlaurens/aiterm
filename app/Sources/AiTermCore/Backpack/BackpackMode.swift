@@ -3,7 +3,7 @@ import Synchronization
 
 /// Keeps the Mac awake with the lid closed, on one known Wi-Fi network: the decisions, over ports a
 /// test fakes. Every method blocks — a scan takes seconds, `sudo` a moment — so the app calls them
-/// on one serial queue of its own, never two at once.
+/// on one serial thread of its own, never two at once.
 public final class BackpackMode: Sendable {
     private let ports: BackpackPorts
     public let settings: BackpackSettings
@@ -91,7 +91,7 @@ public final class BackpackMode: Sendable {
     }
 
     /// Quit: from now on every turn-on refuses. Safe from any thread, and immediate — unlike the
-    /// queue the app runs this mode on — so a turn-on still on its way finds it.
+    /// thread the app runs this mode on — so a turn-on still on its way finds it.
     public func close() {
         closed.withLock { $0 = true }
     }

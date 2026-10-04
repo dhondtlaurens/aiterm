@@ -4,7 +4,7 @@ import AiTermCore
 /// A turn-on or turn-off under way, which the header draws as a spinner.
 enum BackpackTransition: Equatable { case turningOn, turningOff }
 
-/// Backpack Mode as the app drives it: `BackpackMode`'s blocking calls run on one serial queue, so a
+/// Backpack Mode as the app drives it: `BackpackMode`'s blocking calls run on one serial thread, so a
 /// turn-on, a turn-off and a tick never overlap, and their outcome is published here on the main
 /// actor for the menu item, Settings › Backpack and the header glyph.
 @MainActor
@@ -25,7 +25,8 @@ final class BackpackController {
     /// Opens Location in System Settings: where Allow… sends the person once macOS will not ask.
     @ObservationIgnored private let openLocationSettings: @MainActor () -> Void
     @ObservationIgnored private let tickInterval: Duration
-    @ObservationIgnored private let queue = DispatchQueue(label: "com.laurensdhondt.aiterm.backpack")
+    /// A thread of its own, not a Dispatch queue: a join blocks for up to a minute (see `SerialThread`).
+    @ObservationIgnored private let worker = SerialThread(name: "com.laurensdhondt.aiterm.backpack")
     @ObservationIgnored private var ticking: Task<Void, Never>?
 
     init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
@@ -67,7 +68,7 @@ final class BackpackController {
     /// Whether a password is saved, read off the main actor for the field's placeholder.
     func hasPassword() async -> Bool {
         let settings = mode.settings
-        return (try? await BackgroundWork.run { settings.password != nil }) ?? false
+        return await ThreadWork.run { settings.password != nil }
     }
 
     /// What a failed `disablesleep 0` says; the checks keep trying until it works.
@@ -85,7 +86,7 @@ final class BackpackController {
         transition = .turningOn
         defer { busy = false; transition = nil }
         let mode = self.mode
-        let result = (try? await BackgroundWork.run(on: queue) { mode.turnOn() }) ?? .failure(.needsSetup)
+        let result = await worker.run { mode.turnOn() }
         state = mode.state
         switch result {
         case .success(let status):
@@ -107,7 +108,7 @@ final class BackpackController {
         defer { busy = false; transition = nil }
         ticking?.cancel()
         let mode = self.mode
-        let restored = (try? await BackgroundWork.run(on: queue) { mode.turnOff() }) ?? false
+        let restored = await worker.run { mode.turnOff() }
         state = mode.state
         if !restored {
             toast(Self.restoreFailed)
@@ -126,10 +127,10 @@ final class BackpackController {
         busy = true
         defer { busy = false }
         await refreshSetupWhileBusy()
-        // Not on the mode's queue: the admin prompt waits on the person, and quit must not.
+        // Not on the mode's thread: the admin prompt waits on the person.
         if setup.missingSteps.contains(.sleepRule) {
             let installer = ports.installer
-            _ = try? await BackgroundWork.run { installer.install() }
+            _ = await ThreadWork.run { installer.install() }
         }
         if setup.missingSteps.contains(.location), !(await ports.location.request()) { openLocationSettings() }
         await refreshSetupWhileBusy()
@@ -147,19 +148,19 @@ final class BackpackController {
         busy = true
         defer { busy = false }
         let installer = ports.installer
-        _ = try? await BackgroundWork.run { installer.remove() }
+        _ = await ThreadWork.run { installer.remove() }
         await refreshSetupWhileBusy()
     }
 
     func knownNetworks() async -> [String] {
         let wifi = ports.wifi
-        return (try? await BackgroundWork.run { wifi.knownNetworks() }) ?? []
+        return await ThreadWork.run { wifi.knownNetworks() }
     }
 
     /// The 5 s check: the cutoff, and the network.
     func tick() async {
         let mode = self.mode
-        let outcome = try? await BackgroundWork.run(on: queue) { mode.tick() }
+        let outcome: BackpackTick? = await worker.run { mode.tick() }
         state = mode.state
         if case .on(let status) = state { power = status.power }
         if case .turnedOff(let level)? = outcome {
@@ -170,7 +171,7 @@ final class BackpackController {
     /// At launch, before anything else: a marker left by a crash puts sleep back.
     func recoverAtLaunch() {
         let mode = self.mode
-        queue.sync { mode.recoverAtLaunch() }
+        worker.sync { mode.recoverAtLaunch() }
     }
 
     /// Launch: put sleep back if a crash left it off, then read setup, so the header's menu knows.
@@ -180,7 +181,7 @@ final class BackpackController {
     }
 
     /// At quit. Closes the mode — waiting only for a turn-on in the middle of committing — then
-    /// turns it off at once: not behind a join on the queue, which can take a minute. A turn-on
+    /// turns it off at once: not behind a join on the worker, which can take a minute. A turn-on
     /// still on its way finds the mode closed, so AiTerm never exits leaving lid sleep disabled.
     func shutdown() {
         ticking?.cancel()
@@ -202,10 +203,9 @@ final class BackpackController {
 
     private func refreshSetupWhileBusy() async {
         let mode = self.mode, powerSource = ports.power
-        if let fresh = try? await BackgroundWork.run(on: queue, { (mode.setup(), powerSource.reading()) }) {
-            setup = fresh.0
-            power = fresh.1
-        }
+        let fresh = await worker.run { (mode.setup(), powerSource.reading()) }
+        setup = fresh.0
+        power = fresh.1
     }
 
     private func startTicking() {
