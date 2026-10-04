@@ -33,7 +33,9 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
                                             activateIterm: {
                                                 NSRunningApplication.runningApplications(withBundleIdentifier: ItermPreferences.bundleIdentifier)
                                                     .first?.activate()
-                                            }))
+                                            },
+                                            backpackPorts: .live(),
+                                            backpackSecrets: Keychain()))
     }
     init(controller: AppController) {
         self.controller = controller
@@ -176,6 +178,9 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         // fields are covered by the item turning off while one is up.
         viewMenu.addItem(withTitle: "Focus View", action: #selector(showFocusView), keyEquivalent: "f")
         viewMenu.addItem(withTitle: "List View", action: #selector(showListView), keyEquivalent: "l")
+        viewMenu.addItem(.separator())
+        // A mode, not a view: apart from them. ⌘B — the free key with the name's initial.
+        viewMenu.addItem(withTitle: "Backpack Mode", action: #selector(toggleBackpack), keyEquivalent: "b")
         // AppKit appends Enter Full Screen to a menu titled View; this keeps it apart from the views.
         viewMenu.addItem(.separator())
         viewItem.submenu = viewMenu
@@ -193,6 +198,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func actualSize() { changeInterfaceSize(to: .standard) }
     @objc func showFocusView() { controller.showFocusView() }
     @objc func showListView() { controller.showListView() }
+    @objc func toggleBackpack() { controller.backpack.toggle() }
 
     private func changeInterfaceSize(to size: InterfaceSize?) {
         if let size { controller.tiling.setInterfaceSize(size) }
@@ -216,6 +222,9 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(actualSize): return zoomable && controller.preferences.interfaceSize != .standard
         case #selector(showFocusView): return controller.canShowFocusView
         case #selector(showListView): return controller.canShowListView
+        case #selector(toggleBackpack):
+            item.state = controller.backpack.isOn ? .on : .off
+            return true
         default: return true
         }
     }

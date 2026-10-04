@@ -5,10 +5,14 @@ import Foundation
 public struct ToastMessage: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let message: String
+    /// The SF Symbol in front of the message: a checkmark for a completed action, unless the toast
+    /// names its own.
+    public let symbol: String
 
-    public init(id: UUID = UUID(), message: String) {
+    public init(id: UUID = UUID(), message: String, symbol: String = "checkmark.circle.fill") {
         self.id = id
         self.message = message
+        self.symbol = symbol
     }
 }
 
@@ -20,8 +24,8 @@ public struct ToastState: Equatable {
     }
 
     @discardableResult
-    public mutating func show(_ message: String) -> UUID {
-        let toast = ToastMessage(message: message)
+    public mutating func show(_ message: String, symbol: String = "checkmark.circle.fill") -> UUID {
+        let toast = ToastMessage(message: message, symbol: symbol)
         self.toast = toast
         return toast.id
     }

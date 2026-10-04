@@ -82,6 +82,8 @@ final class AppController {
     let agents: AgentIntegrations
     /// Every modal question the app asks goes through here, so tests answer them from a script.
     let prompter: Prompter
+    /// Backpack Mode: the menu item, Settings › Backpack and the header glyph read it.
+    let backpack: BackpackController
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
@@ -145,6 +147,8 @@ final class AppController {
          prompter: Prompter = ModalPrompter(),
          setBadge: @escaping @MainActor (String?) -> Void = { _ in },
          activateIterm: @escaping @MainActor () -> Void = {},
+         backpackPorts: BackpackPorts = .inert,
+         backpackSecrets: any SecretStore = MemorySecretStore(),
          peekDelay: Duration = .milliseconds(120),
          scan: @escaping CheckoutMonitor.Scanner = { WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6) }) {
         let link = ControllerLink()
@@ -192,6 +196,9 @@ final class AppController {
         agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                    rememberedModels: { link.controller?.state.lastModelByAgent ?? [:] },
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
+        backpack = BackpackController(ports: backpackPorts,
+                                      settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
+                                      toast: { link.controller?.showToast($0, symbol: "backpack.fill") })
         link.controller = self
     }
 
@@ -224,6 +231,7 @@ final class AppController {
     /// Launch: the checkout monitor, the agent CLI probes and the helper, each once.
     func start() {
         guard workspaceLoaded, agentProbe == nil else { return }
+        backpack.recoverAtLaunch()
         checkouts.startMonitoring()
         if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { report(BundleLocation.translocationWarning) }
         let agents = self.agents
@@ -235,6 +243,7 @@ final class AppController {
     /// Stops everything `start()` started, the helper last: see `HelperLink.shutdown()`. A later
     /// `start()` starts it all again.
     func shutdown() {
+        backpack.shutdown()
         agentProbe?.cancel()
         agentProbe = nil
         checkouts.stop()
@@ -245,8 +254,8 @@ final class AppController {
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
     /// what was kept and why. The id means an older delayed dismissal cannot hide a newer toast.
-    private func showToast(_ message: String) {
-        let id = toastState.show(message)
+    private func showToast(_ message: String, symbol: String = "checkmark.circle.fill") {
+        let id = toastState.show(message, symbol: symbol)
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled else { return }

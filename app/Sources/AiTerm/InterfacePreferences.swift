@@ -7,7 +7,8 @@ import AiTermCore
 @MainActor
 @Observable
 final class InterfacePreferences {
-    @ObservationIgnored private let defaults: UserDefaults
+    /// Also where Backpack Mode keeps its settings, so a test's scratch preferences cover both.
+    @ObservationIgnored let defaults: UserDefaults
 
     /// Which sidebar badges print their detail.
     var badgeDetails: BadgeDetails {
