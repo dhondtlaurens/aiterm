@@ -671,6 +671,39 @@
   .patterns td.to { color: var(--text); font-family: var(--font); font-size: 13px; white-space: normal; }
   .patterns td.why2 { font-family: var(--font); font-size: 12px; white-space: normal; }
 
+  /* --- 4 Oct 2026 Backpack Mode proposal ---------------------------------------------- */
+  /* The header glyph: a Size.slot button between the PROJECTS heading and the + menu, the glyph
+     at Size.trailingGlyph + 2 — an approximation of the SF Symbol backpack.fill. */
+  .mk-head .bp { width: var(--size-slot); height: var(--size-slot); flex: none; display: flex;
+                 align-items: center; justify-content: center; color: var(--text); border-radius: var(--radius-chip); }
+  .mk-head .bp.warn { color: var(--amber); }
+  .mk-head .bp.hover { background: var(--row-hover); }
+  .mk-head .bp svg, .bp-glyph { width: 12px; height: 12px; }
+  .mk-head.hdr { padding-right: 3px; }
+  /* A usage footer group: SidebarHeading over telemetry rows, Space.base either side. */
+  .mk-foot { border-top: 1px solid var(--border); padding: var(--space-tight) var(--space-base) var(--space-base); }
+  .mk-foot .rw { display: flex; align-items: center; gap: var(--space-base); height: var(--size-menu-row);
+                 padding-left: var(--space-base); font: 11px/1 var(--mono); color: var(--muted); }
+  .mk-foot .rw .nm { font: 13px/1 var(--font); color: var(--text); }
+  .mk-foot .rw .lk { margin-left: auto; font: 11px/1 var(--font); color: var(--link); padding-right: var(--space-base); }
+  .mk-foot .rw svg { color: var(--text); }
+  /* Numbered setup steps, as ItermSettingsCard draws them. */
+  .mk-steps { display: flex; flex-direction: column; gap: var(--space-snug); }
+  .mk-steps div { display: grid; grid-template-columns: 14px 1fr; gap: var(--space-snug); font: 12px/1.35 var(--font); color: var(--text); }
+  .mk-steps div span { font: 11px/1.5 var(--mono); color: var(--muted); }
+  .mk-card .bpmark { width: var(--size-control); height: var(--size-control); border-radius: 50%; flex: none;
+                     background: var(--control-active); color: var(--text); display: flex; align-items: center; justify-content: center; }
+  .mk-card .bpmark svg { width: 14px; height: 14px; }
+  .mk-card .btn { display: inline-flex; align-items: center; height: var(--size-control); padding-inline: var(--space-gap);
+                  background: var(--control-active); border-radius: var(--radius-control); font-size: 13px; color: var(--text); }
+  .mk-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-block); }
+  .mk-fields .ai-select { width: 100%; }
+  .mk-menu .it .ck { width: 12px; flex: none; text-align: center; }
+  .mk-menu .info { font: 11px/1.3 var(--font); color: var(--muted); padding: var(--space-tight) var(--space-base); }
+  .mk-menu .info b { color: var(--text); font-weight: 500; display: block; font-size: 13px; margin-bottom: 2px; }
+  .mk-toast .ok { color: var(--green); } .mk-toast .warn { color: var(--amber); }
+  .mk-toast svg { width: 12px; height: 12px; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
   /* InterfaceScale specimen. Every length is Metrics × --s, rounded to whole points as
@@ -2082,7 +2115,195 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-      <p class="no-proposals">No open proposals.</p>
+    </div>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="p-backpack" viewBox="0 0 12 12"><path fill="currentColor" fill-rule="evenodd" d="M4.5 1.6a1.5 1.5 0 0 1 3 0v.6h-.9v-.6a.6.6 0 0 0-1.2 0v.6h-.9zM3.6 2.6h4.8A1.6 1.6 0 0 1 10 4.2v5.7a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 9.9V4.2a1.6 1.6 0 0 1 1.6-1.6zM4.2 6.6v2.6h3.6V6.6z"/></symbol>
+    </svg>
+
+    <div class="section">
+      <p class="eyebrow proposal-flag">Proposal · Backpack Mode · 4 Oct 2026</p>
+      <h2>Backpack Mode: Settings and the sidebar indicator</h2>
+      <p class="why"><strong>Backpack Mode</strong> (View › Backpack Mode, <code>⌘B</code>) keeps the Mac
+        awake with the lid closed and joins one Wi-Fi network the Mac already knows, usually a phone's
+        hotspot, so agents keep working in a bag. It turns on only if that network is in range. It turns
+        itself off below a battery level (10 % by default) and whenever AiTerm quits. If AiTerm crashes,
+        the next launch puts normal sleep back.</p>
+      <ol class="diagnosis">
+        <li><span><b>Nothing keeps the Mac awake with the lid shut.</b> Closing the lid sleeps the Mac and every agent stops mid-turn. Staying awake needs root (<code>pmset disablesleep</code>), granted once by a set-up step.</span></li>
+        <li><span><b>Joining the hotspot is manual.</b> And macOS hides Wi-Fi names from apps without Location access, so AiTerm asks for it once.</span></li>
+        <li><span><b>A Mac that never sleeps in a bag must be visible.</b> Whenever the mode is on, something in the sidebar has to say so.</span></li>
+      </ol>
+
+      <h2 style="margin-top: var(--space-section)">Decision 1: where it lives in Settings</h2>
+      <div class="options">
+        <div class="option pick">
+          <header><span class="letter">A</span><h3>A fourth tab, "Backpack" (⌘4)</h3><span class="rec">Recommended</span></header>
+          <p>One <code>SettingsCard</code>: a round mark, the mode's status line in the three tones, a
+            <b>Set Up…</b> action while setup is missing, then the two fields. <b>Room to grow:</b> the
+            network-loss resume options planned next fit on the same tab. Costs: ⌘1–3 becomes ⌘1–4, and
+            the "Switch Settings tabs" key row changes.</p>
+          <div class="figs">
+            <figure class="fig"><div class="scroll">
+              <div class="mk-sheet" style="height: auto">
+                <div class="hd"><div class="ttl">Settings</div>
+                  <div class="ai-seg accent"><span>Agents</span><span>Integrations</span><span>Interface</span><span class="on">Backpack</span></div>
+                </div>
+                <div class="rule"></div>
+                <div class="bd">
+                  <div class="mk-card">
+                    <div class="top">
+                      <span class="bpmark"><svg><use href="#p-backpack"/></svg></span>
+                      <div class="tl"><b>Backpack Mode</b>
+                        <span class="st idle"><i></i>Off · ⌘B turns it on when My iPhone is in range</span></div>
+                      <div class="acts"><span class="btn">Remove Setup</span></div>
+                    </div>
+                    <div class="hl"></div>
+                    <div class="mk-fields">
+                      <div class="ai-formfield"><span class="lbl">Wi-Fi network</span>
+                        <div class="ai-select"><span>My iPhone</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div>
+                        <span class="ai-help">Networks this Mac already knows.</span></div>
+                      <div class="ai-formfield"><span class="lbl">Turn off below</span>
+                        <div class="ai-select"><span>10 % battery</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div>
+                        <span class="ai-help">So the Mac can still sleep before it runs out.</span></div>
+                    </div>
+                    <span class="ai-help" style="max-width: none">Keeps the Mac awake with the lid closed and joins this network. It turns off on its own below the battery level and when AiTerm quits.</span>
+                  </div>
+                </div>
+                <div class="ft"><span class="btn">Cancel</span><span class="btn" style="background: var(--accent); color: #FFFFFF">Save</span></div>
+              </div>
+            </div><figcaption>Settings › Backpack · set up, mode off</figcaption></figure>
+          </div>
+        </div>
+
+        <div class="option">
+          <header><span class="letter">B</span><h3>A card at the top of Integrations</h3></header>
+          <p>The same card, placed above iTerm2. No new tab. <b>But</b> Integrations is about services
+            AiTerm connects to (iTerm2, Jira, GitLab, GitHub), and this is about the Mac itself. It would also
+            push the iTerm2 card, which Settings opens on when something is broken, below the fold.</p>
+          <div class="figs">
+            <figure class="fig"><div class="scroll">
+              <div class="mk-sheet short" style="height: auto">
+                <div class="hd"><div class="ttl">Settings</div>
+                  <div class="ai-seg accent"><span>Agents</span><span class="on">Integrations</span><span>Interface</span></div>
+                </div>
+                <div class="rule"></div>
+                <div class="bd tight">
+                  <div class="mk-card"><div class="top"><span class="bpmark"><svg><use href="#p-backpack"/></svg></span>
+                    <div class="tl"><b>Backpack Mode</b><span class="st idle"><i></i>Off · ⌘B turns it on when My iPhone is in range</span></div></div></div>
+                  <div class="mk-card"><div class="top"><span class="mark" style="background: #000">&gt;_</span>
+                    <div class="tl"><b>iTerm2</b><span class="st ok"><i></i>Connected · 3.6</span></div></div></div>
+                  <div class="mk-card"><div class="top"><span class="mark" style="background: var(--jira)"><svg width="14" height="14"><use href="#p-jira" fill="#FFFFFF"/></svg></span>
+                    <div class="tl"><b>Jira</b><span class="st ok"><i></i>Connected</span></div></div></div>
+                </div>
+              </div>
+            </div><figcaption>Settings › Integrations · cards collapsed for the comparison</figcaption></figure>
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: var(--space-section)">Decision 2: the sidebar indicator while it is on</h2>
+      <p class="why">Off draws nothing: absent, not disabled. Each option shows the normal state and the amber
+        one: on, but not on the chosen network (the hotspot dropped), or within 5 % of the cutoff.</p>
+      <div class="options">
+        <div class="option pick">
+          <header><span class="letter">A</span><h3>A glyph in the PROJECTS header</h3><span class="rec">Recommended</span></header>
+          <p>A backpack in a <code>Size.slot</code> button beside <b>+</b>, in <code>Palette.text</code>;
+            amber when degraded. <b>Calm</b>, always in view, costs no row. A click opens a menu with the
+            network, the battery level and Turn Off ⌘B; the tooltip says the same in one line.</p>
+          <div class="figs">
+            <figure class="fig"><div class="scroll"><div class="mk-sidebar">
+              <div class="mk-head hdr new"><span class="ai-heading" style="padding-left: 0">Projects</span><span class="sp"></span>
+                <span class="bp hover"><svg><use href="#p-backpack"/></svg></span>
+                <span class="plus"><svg width="10" height="10"><use href="#p-plus"/></svg></span></div>
+            </div></div><figcaption>on · hovered</figcaption></figure>
+            <figure class="fig"><div class="scroll"><div class="mk-sidebar">
+              <div class="mk-head hdr new"><span class="ai-heading" style="padding-left: 0">Projects</span><span class="sp"></span>
+                <span class="bp warn"><svg><use href="#p-backpack"/></svg></span>
+                <span class="plus"><svg width="10" height="10"><use href="#p-plus"/></svg></span></div>
+            </div></div><figcaption>degraded · amber</figcaption></figure>
+            <figure class="fig"><div class="mk-menu">
+              <div class="info"><b>Backpack Mode is on</b>On My iPhone · battery 64 %, turns off at 10 %</div>
+              <div class="sep"></div>
+              <div class="it on">Turn Off<span class="sc">⌘B</span></div>
+              <div class="it">Backpack Settings…</div>
+            </div><figcaption>the glyph's menu</figcaption></figure>
+          </div>
+        </div>
+
+        <div class="option">
+          <header><span class="letter">B</span><h3>A row in the usage footer</h3></header>
+          <p>A <code>BACKPACK</code> group under Usage: the network by name, the battery against its cutoff,
+            and a Turn Off link. <b>More to read</b>, always spelled out. <b>But</b> it costs two footer rows,
+            and the footer is telemetry about agents, not a control.</p>
+          <div class="figs">
+            <figure class="fig"><div class="scroll"><div class="mk-sidebar" style="padding-inline: 0">
+              <div class="mk-foot">
+                <div class="mk-heading">Backpack</div>
+                <div class="rw"><svg class="bp-glyph"><use href="#p-backpack"/></svg><span class="nm">My iPhone</span><span>64 % · off at 10 %</span><span class="lk">Turn Off</span></div>
+              </div>
+            </div></div><figcaption>on · in the footer, under Usage</figcaption></figure>
+          </div>
+        </div>
+
+        <div class="option">
+          <header><span class="letter">C</span><h3>A banner above the list</h3></header>
+          <p>A <code>SidebarBanner</code> in the info tone with a Turn Off button. <b>Impossible to miss.</b>
+            <b>But</b> banners mean "something needs you", and this one would stand for hours while
+            nothing is wrong.</p>
+          <div class="figs">
+            <figure class="fig"><div class="mk-pane">
+              <div class="mk-banner"><span>Backpack Mode is on</span><span class="rs">My iPhone · the Mac stays awake with the lid closed.</span><span class="push">Turn Off</span></div>
+              <div class="mk-banner-rule"></div>
+              <div class="mk-sidebar"><div class="mk-heading">Projects</div></div>
+            </div><figcaption>on · info banner</figcaption></figure>
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top: var(--space-section)">Also drawn, no decision needed</h2>
+      <p class="why">The card's other two states, the menu item, and the toasts that answer ⌘B. These follow
+        existing patterns: <code>ItermSettingsCard</code>'s numbered steps and <code>ToastView</code>.</p>
+      <div class="figs">
+        <figure class="fig"><div class="scroll" style="width: 512px">
+          <div class="mk-card">
+            <div class="top"><span class="bpmark"><svg><use href="#p-backpack"/></svg></span>
+              <div class="tl"><b>Backpack Mode</b><span class="st warn"><i></i>Needs setup</span></div>
+              <div class="acts"><span class="btn">Set Up…</span></div></div>
+            <div class="hl"></div>
+            <div class="mk-steps">
+              <div><span>1</span>Allow AiTerm to keep the Mac awake with the lid closed. Asks for your password once.</div>
+              <div><span>2</span>Allow Location access, so AiTerm can see which Wi-Fi networks are in range.</div>
+            </div>
+          </div>
+        </div><figcaption>needs setup · Set Up… runs both steps</figcaption></figure>
+        <figure class="fig"><div class="scroll" style="width: 512px">
+          <div class="mk-card">
+            <div class="top"><span class="bpmark"><svg><use href="#p-backpack"/></svg></span>
+              <div class="tl"><b>Backpack Mode</b><span class="st ok"><i></i>On · joined My iPhone · battery 64 %</span></div>
+              <div class="acts"><span class="btn">Remove Setup</span></div></div>
+          </div>
+        </div><figcaption>on · fields as in Decision 1</figcaption></figure>
+        <figure class="fig">
+          <div class="mk-bar"><b>AiTerm</b><span>File</span><span>Edit</span><span class="open">View</span></div>
+          <div class="mk-menu">
+            <div class="it"><span class="ck"></span>Zoom In<span class="sc">⌘+</span></div>
+            <div class="it"><span class="ck"></span>Zoom Out<span class="sc">⌘−</span></div>
+            <div class="it"><span class="ck"></span>Actual Size<span class="sc">⌘0</span></div>
+            <div class="sep"></div>
+            <div class="it"><span class="ck"></span>Focus View<span class="sc">⌘F</span></div>
+            <div class="it"><span class="ck"></span>List View<span class="sc">⌘L</span></div>
+            <div class="sep"></div>
+            <div class="it on new"><span class="ck">✓</span>Backpack Mode<span class="sc">⌘B</span></div>
+          </div><figcaption>View › Backpack Mode · checked while on</figcaption></figure>
+        <figure class="fig" style="display: flex; flex-direction: column; gap: var(--space-base)">
+          <span class="mk-toast"><svg class="ok"><use href="#p-backpack"/></svg>Backpack Mode on · joined My iPhone</span>
+          <span class="mk-toast"><svg class="warn"><use href="#p-backpack"/></svg>My iPhone isn’t in range: Backpack Mode stays off</span>
+          <span class="mk-toast"><svg class="warn"><use href="#p-backpack"/></svg>Backpack Mode needs setup: Settings › Backpack</span>
+          <span class="mk-toast"><svg class="warn"><use href="#p-backpack"/></svg>Battery at 10 %: Backpack Mode turned off</span>
+          <figcaption>toasts · ⌘B's answers, and the battery cutoff</figcaption>
+        </figure>
+      </div>
     </div>
 
   </section>
