@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/SleepRule.swift
 import Foundation
 
 /// The sudoers rule that lets AiTerm turn lid sleep off and on without a password — those two

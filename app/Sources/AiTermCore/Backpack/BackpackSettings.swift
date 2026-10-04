@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/BackpackSettings.swift
 import Foundation
 import Synchronization
 

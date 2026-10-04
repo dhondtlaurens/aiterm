@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/BackpackPorts.swift
 import Foundation
 
 /// The battery as Backpack Mode reads it. `level` is a percentage, nil on a Mac without a battery.

@@ -1,4 +1,3 @@
-// app/Tests/AiTermCoreTests/Support/BackpackFakes.swift
 // AiTermTests has a copy of this file: test targets cannot share a source file.
 import Foundation
 @testable import AiTermCore

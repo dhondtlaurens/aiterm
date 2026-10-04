@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/LivePower.swift
 import Foundation
 import IOKit.ps
 

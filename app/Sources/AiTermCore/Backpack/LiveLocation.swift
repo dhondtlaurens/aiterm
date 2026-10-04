@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/LiveLocation.swift
 import Foundation
 import CoreLocation
 import Synchronization

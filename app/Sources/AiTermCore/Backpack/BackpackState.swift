@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/BackpackState.swift
 import Foundation
 
 /// What Backpack Mode still needs before it can turn on.

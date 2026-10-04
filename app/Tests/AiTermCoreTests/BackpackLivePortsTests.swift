@@ -1,4 +1,3 @@
-// app/Tests/AiTermCoreTests/BackpackLivePortsTests.swift
 import Testing
 @testable import AiTermCore
 

@@ -1,4 +1,3 @@
-// app/Tests/AiTermCoreTests/SleepRuleTests.swift
 import Testing
 @testable import AiTermCore
 

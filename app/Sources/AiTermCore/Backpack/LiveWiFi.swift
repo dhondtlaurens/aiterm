@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/LiveWiFi.swift
 import Foundation
 import CoreWLAN
 

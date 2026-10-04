@@ -1,4 +1,3 @@
-// app/Sources/AiTermCore/Backpack/LiveLidSleep.swift
 import Foundation
 
 /// `pmset disablesleep` through `sudo -n`, which fails at once rather than asking for a password
