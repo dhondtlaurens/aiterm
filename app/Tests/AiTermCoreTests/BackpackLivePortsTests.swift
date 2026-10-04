@@ -25,6 +25,15 @@ import Testing
         #expect(IOKitPowerSource.reading(from: [scaled]).level == 50)
     }
 
+    /// macOS answers `requestWhenInUseAuthorization` only while undetermined: asking again after a
+    /// "Don't Allow" would wait for a callback that never comes.
+    @Test func locationIsAskedForOnlyWhileUndetermined() {
+        #expect(CoreLocationAccess.canAsk(.notDetermined))
+        #expect(!CoreLocationAccess.canAsk(.denied))
+        #expect(!CoreLocationAccess.canAsk(.restricted))
+        #expect(!CoreLocationAccess.canAsk(.authorizedAlways))
+    }
+
     @Test func noInternalBatteryReadsAsMains() {
         #expect(IOKitPowerSource.reading(from: []) == .mains)
         #expect(IOKitPowerSource.reading(from: [["Type": "UPS", "Power Source State": "Battery Power"]]) == .mains)

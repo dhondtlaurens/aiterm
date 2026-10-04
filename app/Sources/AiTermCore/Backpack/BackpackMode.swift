@@ -9,8 +9,11 @@ public final class BackpackMode: Sendable {
     public let settings: BackpackSettings
     private let now: @Sendable () -> Date
     private let current = Mutex(BackpackState.off)
-    /// Set by `close()`, for good: no turn-on gets past it.
+    /// Whether `close()` has run, for good. Its lock is also the turn-on's commit — the marker,
+    /// `disablesleep 1` and the state — so quit either waits for a commit under way or stops it.
     private let closed = Mutex(false)
+    /// The password the mode turned on with: a Save while on takes effect at the next turn-on.
+    private let activePassword = Mutex<String?>(nil)
     /// Off the network: when the next rejoin may be tried, and how many have been since the drop.
     private let rejoin = Mutex<(next: Date?, tries: Int)>((nil, 0))
 
@@ -41,38 +44,49 @@ public final class BackpackMode: Sendable {
         guard setup.isComplete, let network = setup.network else { return .failure(.needsSetup) }
         let power = ports.power.reading(), cutoff = settings.cutoff
         if power.onBattery, let level = power.level, level <= cutoff { return .failure(.batteryLow(level: level)) }
-        if ports.wifi.currentNetwork() != network, !ports.wifi.join(network, password: settings.password) {
+        let password = settings.password
+        if ports.wifi.currentNetwork() != network, !ports.wifi.join(network, password: password) {
             return .failure(ports.wifi.isInRange(network) ? .joinFailed(network: network) : .notInRange(network: network))
         }
-        // Checked again: quit may have come while the join ran.
-        if closed.withLock({ $0 }) { return .failure(.quitting) }
-        settings.engaged = true
-        guard ports.lidSleep.setDisabled(true) else {
-            settings.engaged = false
-            return .failure(.needsSetup)
+        return closed.withLock { isClosed -> Result<BackpackStatus, BackpackRefusal> in
+            // Quit may have come while the join ran.
+            if isClosed { return .failure(.quitting) }
+            settings.engaged = true
+            guard ports.lidSleep.setDisabled(true) else {
+                settings.engaged = false
+                return .failure(.needsSetup)
+            }
+            let status = BackpackStatus(network: network, joined: true, power: power, cutoff: cutoff)
+            current.withLock { $0 = .on(status) }
+            activePassword.withLock { $0 = password }
+            rejoin.withLock { $0 = (nil, 0) }
+            return .success(status)
         }
-        let status = BackpackStatus(network: network, joined: true, power: power, cutoff: cutoff)
-        current.withLock { $0 = .on(status) }
-        rejoin.withLock { $0 = (nil, 0) }
-        return .success(status)
     }
 
-    /// Puts sleep back. The marker is cleared only once `disablesleep 0` succeeded, so a failure is
-    /// retried by the next launch. The Wi-Fi network stays as it is.
-    public func turnOff() {
-        guard state.isOn || settings.engaged else { return }
-        if ports.lidSleep.setDisabled(false) { settings.engaged = false }
+    /// Puts sleep back. False when `disablesleep 0` failed: the marker stays, and every `tick()`
+    /// and the next launch try again. The Wi-Fi network stays as it is.
+    @discardableResult
+    public func turnOff() -> Bool {
+        guard state.isOn || settings.engaged else { return true }
         current.withLock { $0 = .off }
+        guard ports.lidSleep.setDisabled(false) else { return false }
+        settings.engaged = false
+        return true
     }
 
-    /// Whether a rejoin may be tried now; if so, the next one is booked.
     private func rejoinIsDue() -> Bool {
         let time = now()
-        return rejoin.withLock { state in
-            if let next = state.next, time < next { return false }
+        return rejoin.withLock { state in state.next.map { time >= $0 } ?? true }
+    }
+
+    /// Booked once a failed join has ended — a join can take a minute, and counting from its start
+    /// would run the next one straight after.
+    private func bookNextRejoin() {
+        let time = now()
+        rejoin.withLock { state in
             let delay = Self.rejoinDelays[min(state.tries, Self.rejoinDelays.count - 1)]
             state = (time.addingTimeInterval(delay), state.tries + 1)
-            return true
         }
     }
 
@@ -91,7 +105,11 @@ public final class BackpackMode: Sendable {
     /// The 5 s check while on: the battery cutoff, then the network. Off it, a rejoin is tried at
     /// once, then after each of `rejoinDelays`, the last repeating; joined again, that starts over.
     public func tick() -> BackpackTick {
-        guard case .on(let old) = state else { return .unchanged }
+        guard case .on(let old) = state else {
+            // Off, but a failed `disablesleep 0` left sleep disabled: try again.
+            guard settings.engaged else { return .unchanged }
+            return turnOff() ? .changed : .unchanged
+        }
         let power = ports.power.reading()
         if power.onBattery, let level = power.level, level <= old.cutoff {
             turnOff()
@@ -99,7 +117,8 @@ public final class BackpackMode: Sendable {
         }
         var joined = ports.wifi.currentNetwork() == old.network
         if !joined, rejoinIsDue() {
-            joined = ports.wifi.join(old.network, password: settings.password)
+            joined = ports.wifi.join(old.network, password: activePassword.withLock { $0 })
+            if !joined { bookNextRejoin() }
         }
         if joined { rejoin.withLock { $0 = (nil, 0) } }
         let next = BackpackStatus(network: old.network, joined: joined, power: power, cutoff: old.cutoff)

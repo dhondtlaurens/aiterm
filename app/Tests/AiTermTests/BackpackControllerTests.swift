@@ -6,8 +6,10 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct BackpackControllerTests {
-    private func controller(_ fake: FakeBackpack, toasts: Recorder = Recorder()) -> BackpackController {
-        BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600), toast: { toasts.lines.append($0) })
+    private func controller(_ fake: FakeBackpack, toasts: Recorder = Recorder(),
+                            openLocationSettings: @escaping @MainActor () -> Void = {}) -> BackpackController {
+        BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
+                           openLocationSettings: openLocationSettings, toast: { toasts.lines.append($0) })
     }
 
     final class Recorder { var lines: [String] = [] }
@@ -139,6 +141,79 @@ import Testing
         #expect(fake.lid.calls == [true, false])
         #expect(fake.installer.removes == 1)
         #expect(backpack.setup.missingSteps == [.sleepRule])
+    }
+
+    /// Location already refused: macOS will not ask again, so Allow… opens its pane in System
+    /// Settings instead, and the controller is free again at once.
+    @Test func allowOpensLocationSettingsWhenTheRequestCannotAsk() async {
+        let fake = FakeBackpack()
+        fake.location.authorized = false
+        fake.location.grantsOnRequest = false
+        let opened = Recorder()
+        let backpack = controller(fake, openLocationSettings: { opened.lines.append("opened") })
+        await backpack.setUp()
+        #expect(opened.lines == ["opened"])
+        #expect(!backpack.busy)
+    }
+
+    @Test func aFailedTurnOffSaysSoAndKeepsTrying() async {
+        let fake = FakeBackpack(), toasts = Recorder()
+        let backpack = controller(fake, toasts: toasts)
+        await backpack.turnOn()
+        fake.lid.succeeds = false
+        await backpack.turnOff()
+        #expect(!backpack.isOn)
+        #expect(toasts.lines.last == "Couldn’t turn lid sleep back on: AiTerm keeps trying")
+        #expect(fake.settings.engaged)
+        fake.lid.succeeds = true
+        await backpack.tick()
+        #expect(!fake.settings.engaged)
+    }
+
+    /// Removing the rule while sleep is still disabled would leave nothing able to put it back.
+    @Test func removeSetupRefusesWhileSleepIsStillDisabled() async {
+        let fake = FakeBackpack(), toasts = Recorder()
+        let backpack = controller(fake, toasts: toasts)
+        await backpack.turnOn()
+        fake.lid.succeeds = false
+        await backpack.removeSetup()
+        #expect(fake.installer.removes == 0)
+        #expect(toasts.lines.last == "Couldn’t turn lid sleep back on: AiTerm keeps trying")
+    }
+
+    /// Quit does not sit behind a join that takes a minute: it closes the mode and turns off now.
+    @Test func quitDoesNotWaitBehindASlowJoin() async {
+        let fake = FakeBackpack()
+        let release = DispatchSemaphore(value: 0), entered = Mutex(false)
+        fake.wifi.onJoin = { entered.withLock { $0 = true }; release.wait() }
+        let backpack = controller(fake)
+        let first = Task { await backpack.turnOn() }
+        while !entered.withLock({ $0 }) { await Task.yield() }
+        let started = Date()
+        backpack.shutdown()
+        #expect(Date().timeIntervalSince(started) < 1)
+        release.signal()
+        await first.value
+        #expect(!fake.lid.calls.contains(true))
+        #expect(!backpack.isOn)
+    }
+
+    @Test func aSuccessfulTurnOnMarksSetupComplete() async {
+        let fake = FakeBackpack()
+        let backpack = controller(fake)
+        #expect(!backpack.setup.isComplete)
+        await backpack.turnOn()
+        #expect(backpack.setup.isComplete)
+    }
+
+    /// At launch the header's menu must know setup is done, not wait for Settings to open.
+    @Test func launchPutsSleepBackAndReadsSetup() async {
+        let fake = FakeBackpack()
+        fake.settings.engaged = true
+        let backpack = controller(fake)
+        await backpack.launch()
+        #expect(fake.lid.calls == [false])
+        #expect(backpack.setup.isComplete)
     }
 
     @Test func launchRecoveryClearsALeftoverMarker() {

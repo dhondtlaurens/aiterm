@@ -88,6 +88,8 @@ struct BackpackSettingsPane: View {
     let backpack: BackpackController
     let network: Binding<String?>
     let password: Binding<String>
+    /// Whether one is saved: the empty field then says so, and Save keeps it.
+    let passwordSaved: Bool
     let cutoff: Binding<Int>
     let knownNetworks: [String]
 
@@ -133,7 +135,7 @@ struct BackpackSettingsPane: View {
                     }
                     .frame(maxWidth: .infinity)
                     FormField("Password") {
-                        Input(placeholder: "The network’s password", text: password, secure: true)
+                        Input(placeholder: passwordSaved ? "Saved; type to replace" : "The network’s password", text: password, secure: true)
                     }
                     .frame(maxWidth: .infinity)
                 }

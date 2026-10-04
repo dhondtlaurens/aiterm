@@ -86,8 +86,11 @@ struct SettingsView: View {
     private var backpackNetwork: String? { get { _backpackNetwork.wrappedValue } nonmutating set { _backpackNetwork.wrappedValue = newValue } }
     var _backpackCutoff: State<Int>
     private var backpackCutoff: Int { get { _backpackCutoff.wrappedValue } nonmutating set { _backpackCutoff.wrappedValue = newValue } }
-    var _backpackPassword: State<String>
+    /// Opens empty, so opening Settings reads no secret; empty on Save keeps the saved one.
+    var _backpackPassword = State<String>(initialValue: "")
     private var backpackPassword: String { get { _backpackPassword.wrappedValue } nonmutating set { _backpackPassword.wrappedValue = newValue } }
+    var _backpackPasswordSaved = State<Bool>(initialValue: false)
+    private var backpackPasswordSaved: Bool { get { _backpackPasswordSaved.wrappedValue } nonmutating set { _backpackPasswordSaved.wrappedValue = newValue } }
     var _knownNetworks = State<[String]>(initialValue: [])
     private var knownNetworks: [String] { get { _knownNetworks.wrappedValue } nonmutating set { _knownNetworks.wrappedValue = newValue } }
 
@@ -117,7 +120,6 @@ struct SettingsView: View {
         self.backpack = backpack
         _backpackNetwork = State(initialValue: backpack.network)
         _backpackCutoff = State(initialValue: backpack.cutoff)
-        _backpackPassword = State(initialValue: backpack.password ?? "")
     }
 
     var body: some View {
@@ -149,6 +151,7 @@ struct SettingsView: View {
             await harnessModel.load()
             await backpack.refreshSetup()
             knownNetworks = await backpack.knownNetworks()
+            backpackPasswordSaved = await backpack.hasPassword()
         }
     }
 
@@ -163,7 +166,7 @@ struct SettingsView: View {
                                       interfaceSize: Binding(get: { interfaceSize }, set: { pickInterfaceSize($0) }))
             case .backpack:
                 BackpackSettingsPane(backpack: backpack, network: _backpackNetwork.projectedValue,
-                                     password: _backpackPassword.projectedValue,
+                                     password: _backpackPassword.projectedValue, passwordSaved: backpackPasswordSaved,
                                      cutoff: _backpackCutoff.projectedValue, knownNetworks: knownNetworks)
             }
         }
@@ -234,8 +237,10 @@ struct SettingsView: View {
     /// save can still be cancelled without changing the models used by new tasks.
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
+        if let failure = Self.storeBackpack(network: backpackNetwork, cutoff: backpackCutoff, password: backpackPassword, in: backpack) {
+            tab = .backpack; result = failure; return false
+        }
         saveInterface()
-        saveBackpack()
         harnessModel.save()
         return true
     }
@@ -259,12 +264,13 @@ struct SettingsView: View {
         setInterfaceSize(interfaceSize)
     }
 
-    /// Backpack's fields have nothing to validate. They take effect at the next turn-on; the
-    /// password goes to the Keychain, and an empty one removes it.
-    func saveBackpack() {
-        backpack.network = backpackNetwork
-        backpack.cutoff = backpackCutoff
-        backpack.password = backpackPassword
+    /// Backpack's fields take effect at the next turn-on. A typed password goes to the Keychain;
+    /// an empty field leaves the saved one alone. The failure to show, or nil.
+    static func storeBackpack(network: String?, cutoff: Int, password: String, in backpack: BackpackController) -> String? {
+        backpack.network = network
+        backpack.cutoff = cutoff
+        if !password.isEmpty, !backpack.setPassword(password) { return "Couldn’t save the hotspot password in Keychain." }
+        return nil
     }
 
     /// The card follows `itermConnection` on its own; the test only refreshes it and the parts of

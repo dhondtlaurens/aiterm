@@ -22,12 +22,16 @@ final class BackpackController {
     @ObservationIgnored private let mode: BackpackMode
     @ObservationIgnored private let ports: BackpackPorts
     @ObservationIgnored private let toast: @MainActor (String) -> Void
+    /// Opens Location in System Settings: where Allow… sends the person once macOS will not ask.
+    @ObservationIgnored private let openLocationSettings: @MainActor () -> Void
     @ObservationIgnored private let tickInterval: Duration
     @ObservationIgnored private let queue = DispatchQueue(label: "com.laurensdhondt.aiterm.backpack")
     @ObservationIgnored private var ticking: Task<Void, Never>?
 
     init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
+         openLocationSettings: @escaping @MainActor () -> Void = {},
          toast: @escaping @MainActor (String) -> Void) {
+        self.openLocationSettings = openLocationSettings
         self.ports = ports
         mode = BackpackMode(ports: ports, settings: settings)
         self.tickInterval = tickInterval
@@ -51,11 +55,23 @@ final class BackpackController {
         get { mode.settings.cutoff }
         set { mode.settings.cutoff = newValue }
     }
-    /// Read off the main actor's hot path only by Settings, once as it opens.
+    /// A Keychain read: off the main actor where it can be (`hasPassword()`).
     var password: String? {
         get { mode.settings.password }
-        set { mode.settings.password = newValue }
+        set { mode.settings.setPassword(newValue) }
     }
+
+    /// Writes the password to the Keychain; false when it refused.
+    func setPassword(_ value: String) -> Bool { mode.settings.setPassword(value) }
+
+    /// Whether a password is saved, read off the main actor for the field's placeholder.
+    func hasPassword() async -> Bool {
+        let settings = mode.settings
+        return (try? await BackgroundWork.run { settings.password != nil }) ?? false
+    }
+
+    /// What a failed `disablesleep 0` says; the checks keep trying until it works.
+    static let restoreFailed = "Couldn’t turn lid sleep back on: AiTerm keeps trying"
 
     /// ⌘B, and the header glyph's Turn Off.
     func toggle() {
@@ -75,6 +91,7 @@ final class BackpackController {
         case .success(let status):
             // A quit that ran while this was in flight has already turned it off again.
             guard state.isOn else { return }
+            setup = BackpackSetup(sleepRule: true, location: true, network: status.network)
             toast(BackpackCopy.turnedOn(network: status.network))
             startTicking()
         case .failure(let refusal):
@@ -90,8 +107,12 @@ final class BackpackController {
         defer { busy = false; transition = nil }
         ticking?.cancel()
         let mode = self.mode
-        _ = try? await BackgroundWork.run(on: queue) { mode.turnOff() }
+        let restored = (try? await BackgroundWork.run(on: queue) { mode.turnOff() }) ?? false
         state = mode.state
+        if !restored {
+            toast(Self.restoreFailed)
+            startTicking()
+        }
     }
 
     func refreshSetup() async {
@@ -105,11 +126,12 @@ final class BackpackController {
         busy = true
         defer { busy = false }
         await refreshSetupWhileBusy()
+        // Not on the mode's queue: the admin prompt waits on the person, and quit must not.
         if setup.missingSteps.contains(.sleepRule) {
             let installer = ports.installer
-            _ = try? await BackgroundWork.run(on: queue) { installer.install() }
+            _ = try? await BackgroundWork.run { installer.install() }
         }
-        if setup.missingSteps.contains(.location) { _ = await ports.location.request() }
+        if setup.missingSteps.contains(.location), !(await ports.location.request()) { openLocationSettings() }
         await refreshSetupWhileBusy()
     }
 
@@ -117,10 +139,15 @@ final class BackpackController {
     func removeSetup() async {
         if isOn { await turnOff() }
         guard !busy else { return }
+        // Without the rule nothing could put sleep back.
+        if mode.settings.engaged {
+            toast(Self.restoreFailed)
+            return
+        }
         busy = true
         defer { busy = false }
         let installer = ports.installer
-        _ = try? await BackgroundWork.run(on: queue) { installer.remove() }
+        _ = try? await BackgroundWork.run { installer.remove() }
         await refreshSetupWhileBusy()
     }
 
@@ -136,8 +163,7 @@ final class BackpackController {
         state = mode.state
         if case .on(let status) = state { power = status.power }
         if case .turnedOff(let level)? = outcome {
-            ticking?.cancel()
-            toast(BackpackCopy.cutOff(level: level))
+            toast(mode.settings.engaged ? Self.restoreFailed : BackpackCopy.cutOff(level: level))
         }
     }
 
@@ -147,15 +173,20 @@ final class BackpackController {
         queue.sync { mode.recoverAtLaunch() }
     }
 
-    /// At quit. Synchronous: it waits behind a turn-on still running on the queue, then turns the
-    /// mode off, so AiTerm never exits leaving lid sleep disabled.
+    /// Launch: put sleep back if a crash left it off, then read setup, so the header's menu knows.
+    func launch() async {
+        recoverAtLaunch()
+        await refreshSetup()
+    }
+
+    /// At quit. Closes the mode — waiting only for a turn-on in the middle of committing — then
+    /// turns it off at once: not behind a join on the queue, which can take a minute. A turn-on
+    /// still on its way finds the mode closed, so AiTerm never exits leaving lid sleep disabled.
     func shutdown() {
         ticking?.cancel()
         let mode = self.mode
-        // Closed before waiting: a turn-on whose work has not reached the queue yet would otherwise
-        // run after this turn-off and leave sleep disabled behind the quit.
         mode.close()
-        queue.sync { mode.turnOff() }
+        mode.turnOff()
         state = mode.state
     }
 
@@ -183,7 +214,8 @@ final class BackpackController {
         ticking = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
-                guard !Task.isCancelled, let self, self.isOn else { return }
+                // On, or off with a failed restore still to retry.
+                guard !Task.isCancelled, let self, self.isOn || self.mode.settings.engaged else { return }
                 await self.tick()
             }
         }

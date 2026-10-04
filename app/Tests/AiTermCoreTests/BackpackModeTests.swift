@@ -125,6 +125,50 @@ import Foundation
         #expect(mode.state == .off)
     }
 
+    /// A failed `disablesleep 0` is reported, keeps the marker, and the next check tries again.
+    @Test func aFailedRestoreIsReportedAndRetriedOnTheTick() throws {
+        let fake = FakeBackpack()
+        let mode = mode(fake)
+        _ = try mode.turnOn().get()
+        fake.lid.succeeds = false
+        #expect(!mode.turnOff())
+        #expect(fake.settings.engaged && mode.state == .off)
+        fake.lid.succeeds = true
+        _ = mode.tick()
+        #expect(!fake.settings.engaged)
+        #expect(fake.lid.calls == [true, false, false])
+    }
+
+    /// The wait before the next rejoin counts from when the last one ended: a join can take a
+    /// minute, and counting from its start would run the next one straight after.
+    @Test func theNextRejoinIsBookedAfterASlowJoinEnds() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        fake.wifi.current = "Home"
+        fake.wifi.joinSucceeds = false
+        fake.wifi.onJoin = { clock.advance(by: 60) }
+        _ = mode.tick()
+        #expect(fake.wifi.joins.count == 2)
+        _ = mode.tick()
+        #expect(fake.wifi.joins.count == 2, "the next attempt waits 5 s from the end of the slow one")
+    }
+
+    /// Saving another network and its password while on takes effect at the next turn-on: until
+    /// then a rejoin uses the password the mode turned on with.
+    @Test func rejoinsUseThePasswordTheModeTurnedOnWith() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        fake.settings.password = "phone-password"
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        fake.settings.network = "Other"
+        fake.settings.password = "other-password"
+        fake.wifi.current = "Home"
+        _ = mode.tick()
+        #expect(fake.wifi.joins == ["Phone", "Phone"])
+        #expect(fake.wifi.passwords == ["phone-password", "phone-password"])
+    }
+
     @Test func turningOffWhenOffDoesNothing() {
         let fake = FakeBackpack()
         mode(fake).turnOff()

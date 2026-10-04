@@ -23,8 +23,14 @@ public final class CoreLocationAccess: NSObject, LocationAccess, CLLocationManag
         Self.granted(status.withLock { $0 })
     }
 
+    /// macOS answers `requestWhenInUseAuthorization` only while the status is undetermined; once
+    /// it is answered, asking again prompts nothing and calls no delegate.
+    nonisolated static func canAsk(_ status: CLAuthorizationStatus) -> Bool { status == .notDetermined }
+
     public func request() async -> Bool {
-        if isAuthorized() { return true }
+        let current = manager.authorizationStatus
+        status.withLock { $0 = current }
+        guard Self.canAsk(current) else { return Self.granted(current) }
         return await withCheckedContinuation { continuation in
             waiting = continuation
             manager.requestWhenInUseAuthorization()

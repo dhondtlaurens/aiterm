@@ -487,7 +487,7 @@ enum Snapshots {
         backpackOn._knownNetworks = State(initialValue: ["Home", "My iPhone"])
         write(backpackOn, to: out.appendingPathComponent("settings-backpack-on.png"))
         // The tab runs past the sheet's height, so it is drawn once more at full length, as Interface is.
-        let backpackFull = BackpackSettingsPane(backpack: backpack, network: .constant("My iPhone"), password: .constant("secret"),
+        let backpackFull = BackpackSettingsPane(backpack: backpack, network: .constant("My iPhone"), password: .constant(""), passwordSaved: true,
                                                 cutoff: .constant(10), knownNetworks: ["Home", "My iPhone"])
             .padding(Space.margin).frame(width: Sheet.width).background(Palette.surface)
         write(backpackFull, to: out.appendingPathComponent("settings-backpack-full.png"))

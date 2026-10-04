@@ -198,6 +198,9 @@ final class AppController {
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
         backpack = BackpackController(ports: backpackPorts,
                                       settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
+                                      openLocationSettings: {
+                                          NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
+                                      },
                                       toast: { link.controller?.showToast($0, symbol: BackpackHeaderButton.symbol) })
         link.controller = self
     }
@@ -231,7 +234,8 @@ final class AppController {
     /// Launch: the checkout monitor, the agent CLI probes and the helper, each once.
     func start() {
         guard workspaceLoaded, agentProbe == nil else { return }
-        backpack.recoverAtLaunch()
+        let backpack = self.backpack
+        Task { await backpack.launch() }
         checkouts.startMonitoring()
         if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { report(BundleLocation.translocationWarning) }
         let agents = self.agents

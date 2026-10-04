@@ -23,10 +23,13 @@ final class FakeWiFi: WiFiControl, @unchecked Sendable {
     private(set) var joins: [String] = []
     /// The password each join was given, in order.
     private(set) var passwords: [String?] = []
+    /// Called inside `join`, before it answers: lets a test hold a join in flight or make it slow.
+    var onJoin: () -> Void = {}
     func knownNetworks() -> [String] { known }
     func currentNetwork() -> String? { current }
     func isInRange(_ network: String) -> Bool { inRange.contains(network) }
     func join(_ network: String, password: String?) -> Bool {
+        onJoin()
         joins.append(network)
         passwords.append(password)
         if joinSucceeds { current = network }

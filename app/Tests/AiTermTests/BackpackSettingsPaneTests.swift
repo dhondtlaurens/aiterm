@@ -67,8 +67,9 @@ import Testing
         #expect(SettingsTab.backpack.key == "4")
     }
 
-    /// Settings opens on the saved fields, and Save writes what they hold back.
-    @Test func saveWritesBothFields() {
+    /// Settings opens on the saved network and cutoff; the password field opens empty, so opening
+    /// Settings reads nothing from the Keychain on the main actor.
+    @Test func settingsOpensOnTheSavedFieldsButNotThePassword() {
         let backpack = BackpackController.inert()
         backpack.network = "Phone"
         backpack.cutoff = 20
@@ -80,13 +81,30 @@ import Testing
                                     initialTab: .backpack, backpack: backpack)
         #expect(settings._backpackNetwork.wrappedValue == "Phone")
         #expect(settings._backpackCutoff.wrappedValue == 20)
-        #expect(settings._backpackPassword.wrappedValue == "hunter2")
-        backpack.network = nil
-        backpack.cutoff = 10
-        backpack.password = nil
-        settings.saveBackpack()
-        #expect(backpack.network == "Phone")
-        #expect(backpack.cutoff == 20)
-        #expect(backpack.password == "hunter2")
+        #expect(settings._backpackPassword.wrappedValue == "")
     }
+
+    /// An empty field keeps the saved password: Save on any tab must not delete it.
+    @Test func anEmptyPasswordFieldKeepsTheSavedOne() {
+        let backpack = BackpackController.inert()
+        backpack.password = "hunter2"
+        #expect(SettingsView.storeBackpack(network: "Phone", cutoff: 15, password: "", in: backpack) == nil)
+        #expect(backpack.password == "hunter2")
+        #expect(backpack.network == "Phone" && backpack.cutoff == 15)
+        #expect(SettingsView.storeBackpack(network: "Phone", cutoff: 15, password: "new", in: backpack) == nil)
+        #expect(backpack.password == "new")
+    }
+
+    @Test func aPasswordTheKeychainRefusesIsReported() {
+        let backpack = BackpackController(ports: .inert, settings: BackpackSettings(defaults: nil, secrets: RefusingSecretStore()),
+                                          toast: { _ in })
+        #expect(SettingsView.storeBackpack(network: "Phone", cutoff: 10, password: "new", in: backpack)
+                == "Couldn’t save the hotspot password in Keychain.")
+    }
+}
+
+/// A Keychain that refuses every write.
+private final class RefusingSecretStore: SecretStore {
+    func get(_ key: String) -> String? { nil }
+    func set(_ key: String, _ value: String?) -> Bool { false }
 }
