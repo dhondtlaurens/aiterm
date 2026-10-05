@@ -1765,6 +1765,49 @@ async def test_codex_rollouts_are_read_off_the_event_loop(stack):
     assert threading.get_ident() not in set().union(*reader.values())
 
 
+async def test_a_codex_context_read_that_timed_out_holds_back_both_reads_until_it_returns(stack, monkeypatch):
+    svc, it, files, r, w = stack
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)
+    release = threading.Event()
+    calls = {"context": 0, "limits": 0}
+
+    class FirstReadHangs(CodexSessionFiles):
+        def context_percent(self, session_id):
+            calls["context"] += 1
+            if calls["context"] == 1:
+                release.wait(5)
+            return super().context_percent(session_id)
+
+        def rate_limits(self):
+            calls["limits"] += 1
+            return super().rate_limits()
+
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "codex", job_pid=403, title="Codex")
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-slow",
+                                                      "cwd": "/wt", "_aiterm_iterm_session_id": sid})
+    svc.codex_files = FirstReadHangs(files.root.parent / "codex-sessions")
+    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-slow.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(json.dumps({"type": "event_msg", "payload": {"type": "token_count", "info": {
+        "last_token_usage": {"total_tokens": 50}, "model_context_window": 100}}}) + "\n")
+    try:
+        await svc.tick()                   # the context read gives up at its deadline
+        assert svc.registry.get(sid).context_percent is None
+        await svc.tick()                   # still stuck: neither read starts beside it
+        assert calls == {"context": 1, "limits": 1}
+    finally:
+        release.set()
+    await asyncio.wait_for(asyncio.shield(svc._checks[service.CODEX_READ]), 2)
+
+    await svc.tick()
+
+    assert svc.registry.get(sid).context_percent == 50
+    assert calls == {"context": 2, "limits": 2}
+
+
 async def test_a_codex_rollout_read_that_hangs_costs_the_tick_its_deadline_not_the_loop(stack, monkeypatch):
     svc, it, files, r, w = stack
     monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)

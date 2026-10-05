@@ -42,6 +42,11 @@ POLL_SECONDS = 2.0
 # How long a tick waits for a check it runs on a worker thread: the orphan directories, the subagent
 # transcripts, the Codex rollouts.
 OFF_LOOP_CHECK_SECONDS = 1.0
+# Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill -- run
+# under this one off-loop name. They share CodexSessionFiles' caches, which nothing locks, so a read
+# still stuck from an earlier tick holds back the other kind as well, rather than race it on a
+# second worker thread.
+CODEX_READ = "the Codex rollout read"
 
 T = TypeVar("T")
 
@@ -317,7 +322,7 @@ class Service:
             return contexts
 
         none: dict[str, int | None] = {}
-        contexts = await self._off_loop("the Codex rollout read", read, none)
+        contexts = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
             if (context := contexts.get(thread_id)) is not None:
@@ -384,8 +389,8 @@ class Service:
         # than per session, and before the iTerm2 check: the feed does not depend on the terminal.
         if self.codex_files is None:
             return
-        # On a worker thread, with the contexts: a rollout without a `token_count` is read to its start.
-        found = await self._off_loop("the Codex rollout read", self.codex_files.rate_limits, None)
+        # On a worker thread, as the contexts are: a rollout without a `token_count` is read to its start.
+        found = await self._off_loop(CODEX_READ, self.codex_files.rate_limits, None)
         if found is None:
             return
         limits, written_at = found

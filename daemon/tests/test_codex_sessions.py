@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -197,11 +198,7 @@ def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_pa
     """Most of a rollout is messages and tool output, and one with no `token_count` at all is read
     in full on every poll while Codex writes to it: its lines are looked for as bytes, and only a
     candidate is parsed."""
-    import json as json_module
-
     from aitermd import codex_sessions
-
-    real_loads = json_module.loads
 
     root = tmp_path / "sessions"
     chatter = {"type": "response_item", "payload": {"type": "message", "content": "hello"}}
@@ -210,9 +207,10 @@ def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_pa
 
     def counting_loads(line, *args, **kwargs):
         parsed.append(line)
-        return real_loads(line, *args, **kwargs)
+        return json.loads(line, *args, **kwargs)
 
-    monkeypatch.setattr(codex_sessions.json, "loads", counting_loads)
+    # The module's own name for json, not the json module every other caller shares.
+    monkeypatch.setattr(codex_sessions, "json", SimpleNamespace(loads=counting_loads))
 
     assert CodexSessionFiles(root).context_percent("thread-1") == 42
     assert len(parsed) == 1
