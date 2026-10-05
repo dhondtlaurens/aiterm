@@ -351,4 +351,33 @@ final class DaemonSupervisorTests {
 
         #expect(logText().contains("hello-from-daemon"), "the daemon's output must reach \(logURL.path), got “\(logText())”")
     }
+
+    // CS-14: a daemon that still has the old file open (an orphan about to be adopted, or one
+    // still exiting) must keep writing into the file the banner points at, so the log is emptied
+    // in place rather than replaced.
+    @Test func testRestartEmptiesTheLogInPlaceSoAnOpenWriterStillReachesIt() async throws {
+        try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+        try Data("stale-line\n".utf8).write(to: logURL)
+        let before = try FileManager.default.attributesOfItem(atPath: logURL.path)[.systemFileNumber] as? Int
+        let orphan = try FileHandle(forWritingTo: logURL)
+        defer { try? orphan.close() }
+        _ = try orphan.seekToEnd()
+
+        let box = StateBox()
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/inode.sock",
+                                   arguments: ["-c", "echo new-daemon; sleep 30"], logURL: logURL) { state in
+            box.append(state)
+        }
+        sup.start()
+        func logText() -> String { (try? String(contentsOf: logURL, encoding: .utf8)) ?? "" }
+        await waitUntil(timeoutSeconds: 3) { logText().contains("new-daemon") }
+        try orphan.write(contentsOf: Data("orphan-line\n".utf8))
+        await waitUntil(timeoutSeconds: 3) { logText().contains("orphan-line") }
+        sup.stop()
+
+        let after = try FileManager.default.attributesOfItem(atPath: logURL.path)[.systemFileNumber] as? Int
+        #expect(after == before, "truncating must not swap the file under a running writer")
+        #expect(!logText().contains("stale-line"))
+        #expect(logText().contains("orphan-line"), "got “\(logText())”")
+    }
 }

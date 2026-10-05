@@ -39,21 +39,24 @@ public final class DaemonSupervisor: @unchecked Sendable {
 
     /// One launch's worth of log, not a forever-growing file: the log exists so the banner's
     /// "see …/aitermd.log" can be acted on, and a crash loop's last output is what matters.
+    ///
+    /// Emptied in place, never replaced: a daemon that already has the file open (an orphan about
+    /// to be adopted, or one still exiting) would otherwise keep writing into an unlinked inode.
     private func truncateLog() {
         try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? Data().write(to: logURL, options: .atomic)
+        let fd = open(logURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+        if fd >= 0 { close(fd) }
     }
 
-    /// Append-mode handle for the child's stdout+stderr. `nil` (unwritable support directory, a
-    /// read-only volume) means the child inherits our own descriptors, exactly as before — a daemon
-    /// that runs without a log is far better than one that cannot be started at all.
+    /// Append-mode handle for the child's stdout+stderr. `O_APPEND` makes every write land at the
+    /// end of the file, so a second writer (an adopted daemon's) cannot overwrite the child's lines.
+    /// `nil` (unwritable support directory, a read-only volume) means the child inherits our own
+    /// descriptors, exactly as before — a daemon that runs without a log is far better than one
+    /// that cannot be started at all.
     private func openLog() -> FileHandle? {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: logURL.path) { fm.createFile(atPath: logURL.path, contents: nil) }
-        guard let handle = try? FileHandle(forWritingTo: logURL) else { return nil }
-        _ = try? handle.seekToEnd()
-        return handle
+        try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+        return fd >= 0 ? FileHandle(fileDescriptor: fd, closeOnDealloc: true) : nil
     }
 
     /// How long `stop()` waits for the daemon to act on SIGTERM before resorting to SIGKILL.
