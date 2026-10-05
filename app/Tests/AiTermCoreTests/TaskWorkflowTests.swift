@@ -45,13 +45,13 @@ struct TaskWorkflowTests {
         let workflow = TaskWorkflow(git: recording)
         let created = try await workflow.create(draft: draft, project: project)
         let creation = recording.calls.map(\.args)
-        #expect(creation.contains { $0.contains("add") && $0.contains("worktree") })
-        #expect(creation.contains { $0.contains("--git-path") })
+        #expect(creation.contains { $0.starts(with: ["worktree", "add"]) })
+        #expect(creation.filter { $0.contains("info/exclude") }.count == 2, "`.worktrees/` before the checkout, `.aiterm/` after it")
         #expect(try await workflow.hasUnsavedWork(task: created.task, project: project) == false)
         _ = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
         let all = recording.calls.map(\.args)
         #expect(all.count > creation.count)
-        #expect(all.contains { $0.starts(with: ["worktree", "remove"]) || $0.contains("remove") })
+        #expect(all.contains { $0.starts(with: ["worktree", "remove"]) })
         #expect(all.contains { $0.starts(with: ["branch"]) })
     }
 

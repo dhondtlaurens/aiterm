@@ -710,8 +710,8 @@ import Testing
         draft.promptText = String(repeating: "long ", count: 400)
         try await controller.createTask(draft: draft, project: project)
         let asked = recording.calls.map(\.args)
-        #expect(asked.contains { $0.starts(with: ["worktree", "add"]) || $0.contains("worktree") })
-        #expect(asked.contains { $0.contains("--git-path") }, "the first-prompt exclusion is asked of the same runner")
+        #expect(asked.contains { $0.starts(with: ["worktree", "add"]) })
+        #expect(asked.filter { $0.contains("info/exclude") }.count == 2, "`.worktrees/` and the first-prompt exclusion are asked of the same runner")
     }
 
     /// The alert-level courtesy. The guarantee is `TaskWorkflow.remove`'s own refusal, tested in
