@@ -28,18 +28,24 @@ public final class DefaultBranchResolver: Sendable {
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
 
-    /// The default branch of the repository `repo` is in, or `nil` when it is not a git checkout.
+    /// The default branch of the repository `repo` is in — ``Worktrees/fallbackDefaultBranch`` when
+    /// it does not say — or `nil` when it is not a git checkout, or git could not be asked and nothing
+    /// was known before. A failure is never kept; one after an answer leaves that answer standing
+    /// until the next lookup.
     public func defaultBranch(for repo: String) -> String? {
         guard !repo.isEmpty else { return nil }
         let git = self.git
-        switch cache.answer(for: repo, locate: { Self.locate($0, git: git) }, read: { repo, _ in Worktrees.defaultBranch(repo: repo, git: git) }) {
-        case .notARepository: return nil
-        case .found(let branch): return branch
-        }
+        do {
+            switch try cache.answer(for: repo, locate: { try Self.locate($0, git: git) },
+                                    read: { repo, _ in try Worktrees.detectDefaultBranch(repo: repo, git: git) ?? Worktrees.fallbackDefaultBranch }) {
+            case .notARepository: return nil
+            case .found(let branch): return branch
+            }
+        } catch { return nil }
     }
 
-    private static func locate(_ repo: String, git: GitRunner) -> [String]? {
-        guard let common = try? git.run(["rev-parse", "--git-common-dir"], in: repo), !common.isEmpty else { return nil }
+    private static func locate(_ repo: String, git: GitRunner) throws -> [String]? {
+        guard let common = try git.ask(["rev-parse", "--git-common-dir"], in: repo, none: [128]), !common.isEmpty else { return nil }
         let directory = FileStamps.absolute(common, in: repo)
         return refs.map { directory + "/" + $0 }
     }

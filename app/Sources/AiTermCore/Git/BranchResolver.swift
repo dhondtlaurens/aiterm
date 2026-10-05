@@ -16,14 +16,18 @@ public final class BranchResolver: Sendable {
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
 
-    /// The branch checked out in `cwd`, or `nil` when that is not a git checkout.
+    /// The branch checked out in `cwd`, or `nil` when that is not a git checkout — or git could not
+    /// be asked and nothing was known before. A failure is never kept; one after an answer leaves
+    /// that answer standing until the next lookup.
     public func branch(for cwd: String) -> String? {
         guard !cwd.isEmpty else { return nil }
         let git = self.git
-        switch cache.answer(for: cwd, locate: { Self.locate($0, git: git).map { [$0] } }, read: { Self.read($0, head: $1[0], git: git) }) {
-        case .notARepository: return nil
-        case .found(let branch): return branch
-        }
+        do {
+            switch try cache.answer(for: cwd, locate: { try Self.locate($0, git: git).map { [$0] } }, read: { try Self.read($0, head: $1[0], git: git) }) {
+            case .notARepository: return nil
+            case .found(let branch): return branch
+            }
+        } catch { return nil }
     }
 
     /// One pass over several directories, duplicates collapsed; directories that resolve to nothing
@@ -40,10 +44,10 @@ public final class BranchResolver: Sendable {
     /// that holds HEAD — there the `HEAD` file is a stub no checkout touches, and every ref update
     /// adds a table and rewrites that list instead. Its content says nothing `parseHead` reads, so
     /// such a repository's answer comes from git.
-    private static func locate(_ cwd: String, git: GitRunner) -> String? {
-        guard let head = WatchedFileCache<String?>.gitPath("HEAD", in: cwd, git: git) else { return nil }
+    private static func locate(_ cwd: String, git: GitRunner) throws -> String? {
+        guard let head = try WatchedFileCache<String?>.gitPath("HEAD", in: cwd, git: git) else { return nil }
         guard (try? String(contentsOfFile: head, encoding: .utf8)).map(isReftableStub) == true else { return head }
-        return WatchedFileCache<String?>.gitPath("reftable/tables.list", in: cwd, git: git) ?? head
+        return try WatchedFileCache<String?>.gitPath("reftable/tables.list", in: cwd, git: git) ?? head
     }
 
     /// What a reftable repository keeps in its `HEAD` file, for tools that look for one.
@@ -53,11 +57,13 @@ public final class BranchResolver: Sendable {
 
     /// The branch name, or the short sha when HEAD is detached — a rebase or `git checkout <sha>`
     /// must not blank the row. The cache already found the `HEAD` file, and every checkout rewrites
-    /// it, so it is read directly; only what `parseHead` cannot answer costs a git call.
-    private static func read(_ cwd: String, head: String, git: GitRunner) -> String? {
+    /// it, so it is read directly; only what `parseHead` cannot answer costs a git call. `nil` is
+    /// git saying HEAD names nothing (a repository without a commit); a git that cannot be asked
+    /// throws.
+    private static func read(_ cwd: String, head: String, git: GitRunner) throws -> String? {
         if let text = try? String(contentsOfFile: head, encoding: .utf8), let answer = parseHead(text) { return answer }
-        if let name = try? git.run(["symbolic-ref", "--short", "--quiet", "HEAD"], in: cwd), !name.isEmpty { return name }
-        if let sha = try? git.run(["rev-parse", "--short", "HEAD"], in: cwd), !sha.isEmpty { return sha }
+        if let name = try git.ask(["symbolic-ref", "--short", "--quiet", "HEAD"], in: cwd, none: [1]), !name.isEmpty { return name }
+        if let sha = try git.ask(["rev-parse", "--short", "HEAD"], in: cwd, none: [128]), !sha.isEmpty { return sha }
         return nil
     }
 

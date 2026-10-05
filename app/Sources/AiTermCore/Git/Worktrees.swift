@@ -124,25 +124,45 @@ public enum Worktrees {
         catch let e as GitError where e.code == 128 { return nil }
     }
 
-    public static func remoteUrl(repo: String, git: GitRunner) -> String? {
-        if let upstream = try? git.run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: repo),
-           let remote = upstream.split(separator: "/").first, let url = try? git.run(["remote", "get-url", String(remote)], in: repo) { return url }
-        if let url = try? git.run(["remote", "get-url", "origin"], in: repo) { return url }
-        if let first = (try? git.run(["remote"], in: repo))?.split(separator: "\n").first, let url = try? git.run(["remote", "get-url", String(first)], in: repo) { return url }
+    /// The remote a project pushes to: the one the checked-out branch tracks, else `origin`, else the
+    /// first there is; `nil` when the repository has none. That is git's answer. When git cannot be
+    /// asked — it timed out, or did not start — this throws, since "no remote" would read as the
+    /// project having lost its remote.
+    public static func remoteUrl(repo: String, git: GitRunner) throws -> String? {
+        // 128 is "no upstream configured" (or a detached HEAD): the next steps ask again, and fail loudly.
+        if let upstream = try git.ask(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: repo, none: [128]),
+           let remote = upstream.split(separator: "/").first,
+           let url = try git.ask(["remote", "get-url", String(remote)], in: repo, none: [2]) { return url }
+        if let url = try git.ask(["remote", "get-url", "origin"], in: repo, none: [2]) { return url }
+        if let first = try git.run(["remote"], in: repo).split(separator: "\n").first {
+            return try git.ask(["remote", "get-url", String(first)], in: repo, none: [2])
+        }
         return nil
     }
 
-    public static func defaultBranch(repo: String, git: GitRunner) -> String {
+    /// The name the project menu and a new task's base branch fall back to when a repository gives
+    /// no default branch away.
+    public static let fallbackDefaultBranch = "main"
+
+    /// The default branch, or `nil` when the repository does not say: no usable `origin/HEAD` and
+    /// none of the usual names. Throws when git cannot be asked, which says nothing either way.
+    public static func detectDefaultBranch(repo: String, git: GitRunner) throws -> String? {
         // The whole name after `origin/`: a default branch can have slashes in it. And only while
         // origin still has it — a rename on origin leaves the old name in a clone's `origin/HEAD`.
         let prefix = "refs/remotes/origin/"
-        if let ref = try? git.run(["symbolic-ref", "--quiet", prefix + "HEAD"], in: repo), ref.hasPrefix(prefix),
-           sha(ref, repo: repo, git: git) != nil { return String(ref.dropFirst(prefix.count)) }
+        if let ref = try git.ask(["symbolic-ref", "--quiet", prefix + "HEAD"], in: repo, none: [1]), ref.hasPrefix(prefix),
+           try commit(ref, repo: repo, git: git) != nil { return String(ref.dropFirst(prefix.count)) }
         // No usable `origin/HEAD` — a clone of an empty repository, a remote added by hand: whichever
         // of the usual names exists, origin's first.
         for ref in ["refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"]
-        where sha(ref, repo: repo, git: git) != nil { return String(ref.split(separator: "/").last!) }
-        return "main"
+        where try commit(ref, repo: repo, git: git) != nil { return String(ref.split(separator: "/").last!) }
+        return nil
+    }
+
+    /// ``detectDefaultBranch(repo:git:)``, or ``fallbackDefaultBranch`` when there is none or git
+    /// cannot be asked — for a caller that must show some name and will be asked again.
+    public static func defaultBranch(repo: String, git: GitRunner) -> String {
+        ((try? detectDefaultBranch(repo: repo, git: git)) ?? nil) ?? fallbackDefaultBranch
     }
 
     /// "Pull main": the local default branch brought to origin's, fast-forward only. Checked
@@ -255,7 +275,7 @@ public enum Worktrees {
     /// the tracking ref compared against is updated whatever `remote.origin.fetch` says.
     private static func fetchDefaultBranch(repo: String, git: GitRunner) throws -> (branch: String, local: String, remote: String) {
         guard (try? git.run(["remote", "get-url", "origin"], in: repo)) != nil else { throw WorktreeError.noOrigin }
-        let branch = defaultBranch(repo: repo, git: git)
+        let branch = try detectDefaultBranch(repo: repo, git: git) ?? fallbackDefaultBranch
         try git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(branch):refs/remotes/origin/\(branch)"], in: repo)
         guard let local = sha("refs/heads/" + branch, repo: repo, git: git) else { throw WorktreeError.noLocalBranch(branch) }
         guard let remote = sha("refs/remotes/origin/" + branch, repo: repo, git: git) else { throw WorktreeError.noOrigin }
@@ -430,7 +450,13 @@ public enum Worktrees {
     }
 
     private static func sha(_ ref: String, repo: String, git: GitRunner) -> String? {
-        try? git.run(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: repo)
+        (try? commit(ref, repo: repo, git: git)) ?? nil
+    }
+
+    /// The commit `ref` names, `nil` when git says there is none (exit 1 under `--quiet`); thrown
+    /// when git could not be asked.
+    private static func commit(_ ref: String, repo: String, git: GitRunner) throws -> String? {
+        try git.ask(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: repo, none: [1])
     }
 
     private static func isAncestor(_ ancestor: String, of commit: String, repo: String, git: GitRunner) -> Bool {

@@ -7,6 +7,9 @@ public enum RepoRemote: Equatable, Sendable {
     case notARepository
     /// A checkout, and the remote its rows are classified from; `nil` when it has none yet.
     case remote(String?)
+    /// A checkout, but git could not be asked just now. Says nothing about the remote, and is never
+    /// kept: the next lookup asks again.
+    case unavailable
 }
 
 /// Maps a project's directory to the remote it points at, cheaply enough to be asked for every
@@ -29,14 +32,18 @@ public final class RemoteResolver: Sendable {
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
 
-    /// The remote configured in `repo`, or `.notARepository` when that is not a git checkout.
+    /// The remote configured in `repo`, `.notARepository` when that is not a git checkout, and
+    /// `.unavailable` when git could not be asked and nothing was known before. A failure is never
+    /// kept; one after an answer leaves that answer standing until the next lookup.
     public func remote(for repo: String) -> RepoRemote {
         guard !repo.isEmpty else { return .notARepository }
         let git = self.git
-        switch cache.answer(for: repo, locate: { WatchedFileCache<String?>.gitPath("config", in: $0, git: git).map { [$0] } },
-                            read: { repo, _ in Worktrees.remoteUrl(repo: repo, git: git) }) {
-        case .notARepository: return .notARepository
-        case .found(let remote): return .remote(remote)
-        }
+        do {
+            switch try cache.answer(for: repo, locate: { try WatchedFileCache<String?>.gitPath("config", in: $0, git: git).map { [$0] } },
+                                    read: { repo, _ in try Worktrees.remoteUrl(repo: repo, git: git) }) {
+            case .notARepository: return .notARepository
+            case .found(let remote): return .remote(remote)
+            }
+        } catch { return .unavailable }
     }
 }

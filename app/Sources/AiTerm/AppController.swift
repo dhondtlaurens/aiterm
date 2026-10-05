@@ -349,7 +349,9 @@ final class AppController {
         let inspection = try? await BackgroundWork.run {
             let top = try Worktrees.toplevel(of: picked, git: git)
             let path = top ?? picked
-            return (top, path, top == nil ? nil : Worktrees.remoteUrl(repo: path, git: git))
+            // A lookup that fails adds the project without a remote, which the checkout monitor's
+            // next pass finds and adopts; it is not worth refusing the folder over.
+            return (top, path, top == nil ? nil : try? Worktrees.remoteUrl(repo: path, git: git))
         }
         guard canChangeWorkspace, let (toplevel, path, remote) = inspection else { return }
         if let existing = state.projects.first(where: { $0.path == path }) {

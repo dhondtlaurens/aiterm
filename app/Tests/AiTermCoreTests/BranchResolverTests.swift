@@ -104,6 +104,31 @@ struct BranchResolverTests {
     }
 }
 
+extension BranchResolverTests {
+    /// Failing to find `HEAD` is not "not a repository", which would be remembered for the negative
+    /// window and leave the row without a branch.
+    @Test func aFailedLookupIsNotKeptAsNotARepository() throws {
+        let repo = try makeRepo(), flaky = FlakyGitRunner(), resolver = BranchResolver(git: flaky)
+        flaky.failing = true
+        #expect(resolver.branch(for: repo) == nil)
+        flaky.failing = false
+        #expect(resolver.branch(for: repo) == "main")
+    }
+
+    /// A reftable repository's branch comes from git. When git times out on a checkout, the row
+    /// keeps the branch it had rather than caching "none" until HEAD moves again.
+    @Test func aFailedReadKeepsTheLastBranchAndIsRetried() throws {
+        let repo = try makeRepo(refFormat: "reftable"), git = GitRunner()
+        let flaky = FlakyGitRunner(), resolver = BranchResolver(git: flaky)
+        #expect(resolver.branch(for: repo) == "main")
+        try git.run(["checkout", "-q", "-b", "feat/x"], in: repo)
+        flaky.failing = true
+        #expect(resolver.branch(for: repo) == "main", "the last answer stands while git cannot be asked")
+        flaky.failing = false
+        #expect(resolver.branch(for: repo) == "feat/x")
+    }
+}
+
 /// A `GitRunner` that counts how often it is actually asked to run something.
 ///
 /// Unchecked because its stored `var`s are mutable: every access holds `lock`.

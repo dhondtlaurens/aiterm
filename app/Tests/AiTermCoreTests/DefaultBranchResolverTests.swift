@@ -112,6 +112,33 @@ final class DefaultBranchResolverTests {
     }
 }
 
+extension DefaultBranchResolverTests {
+    /// A timeout is not "this repository has no usable default" and is not kept: the name shows up
+    /// on the next lookup, rather than the fallback standing until a ref moves.
+    @Test func aFailedLookupIsNotKept() throws {
+        let checkout = try clone(try makeRepo(branch: "develop"))
+        let flaky = FlakyGitRunner(), resolver = DefaultBranchResolver(git: flaky)
+        flaky.failing = true
+        #expect(resolver.defaultBranch(for: checkout) == nil)
+        flaky.failing = false
+        #expect(resolver.defaultBranch(for: checkout) == "develop")
+    }
+
+    /// While git cannot be asked, the name the menu already shows stays, and a ref that moved
+    /// meanwhile is read as soon as it can.
+    @Test func theLastAnswerStandsWhileGitCannotBeAsked() throws {
+        let checkout = try clone(try makeRepo(branch: "develop"))
+        let flaky = FlakyGitRunner(), resolver = DefaultBranchResolver(git: flaky)
+        #expect(resolver.defaultBranch(for: checkout) == "develop")
+        try git.run(["branch", "-q", "main"], in: checkout)
+        try git.run(["remote", "set-head", "origin", "-d"], in: checkout)
+        flaky.failing = true
+        #expect(resolver.defaultBranch(for: checkout) == "develop")
+        flaky.failing = false
+        #expect(resolver.defaultBranch(for: checkout) == "main", "origin/HEAD is gone, so the usual names decide: local main")
+    }
+}
+
 /// A `GitRunner` that counts how often it is actually asked to run something.
 ///
 /// Unchecked because its stored `var`s are mutable: every access holds `lock`.

@@ -44,9 +44,48 @@ import Darwin
         #expect(try Worktrees.toplevel(of: repo + "/", git: git) == repo)
         #expect(try Worktrees.toplevel(of: FileManager.default.temporaryDirectory.path, git: git) == nil)
         #expect(Worktrees.defaultBranch(repo: repo, git: git) == "main")
-        #expect(Worktrees.remoteUrl(repo: repo, git: git) == nil)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == nil)
         #expect(Worktrees.validateBranch("feat/x-1", git: git))
         #expect(!Worktrees.validateBranch("feat//bad..name", git: git))
+    }
+
+    /// "No remote" is git's answer; a timeout is not, and reads as an error rather than as `nil`.
+    @Test func aRemoteLookupThatFailsIsNotAnAnswer() throws {
+        let flaky = FlakyGitRunner()
+        flaky.failing = true
+        #expect(throws: GitError.self) { try Worktrees.remoteUrl(repo: repo, git: flaky) }
+        flaky.failing = false
+        #expect(try Worktrees.remoteUrl(repo: repo, git: flaky) == nil)
+        _ = try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: flaky) == "git@example.com:app.git")
+        flaky.failing = true
+        #expect(throws: GitError.self) { try Worktrees.remoteUrl(repo: repo, git: flaky) }
+    }
+
+    /// The remote the checked-out branch tracks wins over `origin`, and a remote that is not
+    /// called origin is found when there is no other.
+    @Test func remoteUrlPrefersTheUpstreamThenOriginThenAnyRemote() throws {
+        _ = try git.run(["remote", "add", "fork", "git@example.com:fork.git"], in: repo)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:fork.git")
+        _ = try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:app.git")
+        _ = try git.run(["config", "branch.main.remote", "fork"], in: repo)
+        _ = try git.run(["config", "branch.main.merge", "refs/heads/main"], in: repo)
+        _ = try git.run(["update-ref", "refs/remotes/fork/main", "HEAD"], in: repo)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:fork.git")
+    }
+
+    /// A default branch git cannot name is `nil`, and the name shown for it is "main"; a git that
+    /// times out names nothing, and says so rather than naming "main".
+    @Test func aDefaultBranchLookupThatFailsIsNotTheFallback() throws {
+        _ = try git.run(["branch", "-m", "main", "trunk"], in: repo)
+        #expect(try Worktrees.detectDefaultBranch(repo: repo, git: git) == nil)
+        #expect(Worktrees.defaultBranch(repo: repo, git: git) == "main")
+        _ = try git.run(["branch", "-m", "trunk", "master"], in: repo)
+        let flaky = FlakyGitRunner()
+        #expect(try Worktrees.detectDefaultBranch(repo: repo, git: flaky) == "master")
+        flaky.failing = true
+        #expect(throws: GitError.self) { try Worktrees.detectDefaultBranch(repo: repo, git: flaky) }
     }
 
     /// The base-branch popup is fed by git, not by a guess: the default branch leads, local

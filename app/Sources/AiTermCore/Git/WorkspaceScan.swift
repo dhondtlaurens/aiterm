@@ -17,14 +17,15 @@ public struct WorkspaceScan: Equatable, Sendable {
     public var missingCheckouts: Set<UUID>
     /// The missing ones whose removal is certain (see ``checkoutRemovalIsConfirmed(_:projectPath:)``).
     public var removedTasks: [TaskItem]
-    /// Only projects whose checkout could be read: an unmounted or mid-move folder says nothing
-    /// about its provider, and silently clearing its remote would take the badge and its links.
+    /// Only projects whose checkout could be read and git asked: an unmounted or mid-move folder,
+    /// or a git that timed out under load, says nothing about its provider, and silently clearing
+    /// its remote would take the badge and its links.
     public var remotes: [UUID: Remote]
     /// Each task's checkout against its base branch, for the VS Code badge. Tasks whose worktree is
     /// missing, or whose base cannot be found, are absent.
     public var diffByTask: [UUID: DiffStat] = [:]
     /// Each project's default branch, for the menu's "Pull main". A folder that is not a checkout
-    /// has none.
+    /// has none, and neither does one git could not be asked about while nothing was known of it.
     public var defaultBranch: [UUID: String] = [:]
 
     /// A scan's findings as given, for a stand-in scanner: the snapshot renderer's fixtures.
