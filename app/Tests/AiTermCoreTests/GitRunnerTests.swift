@@ -54,6 +54,19 @@ import Testing
         #expect(GitRunner.englishMessages([:]) == ["LC_MESSAGES": "C"])
     }
 
+    /// A test that counts or fails git sees every command, however it was asked: the one with an
+    /// environment of its own — `rebaseDefaultBranch`'s scratch `worktree add` — and `runRemote` and
+    /// `ask` included. They all end in the one requirement, so none escapes a conformer.
+    @Test func everyWayOfAskingEndsInTheOneRequirement() throws {
+        let recording = RecordingGitRunner()
+        try recording.run(["status"], in: "/")
+        try recording.run(["status"], in: "/", timeout: 3, environment: ["GIT_LFS_SKIP_SMUDGE": "1"])
+        try recording.runRemote(["fetch"], in: "/")
+        #expect(try recording.ask(["rev-parse"], in: "/", none: [1]) == "")
+        #expect(recording.calls.map(\.args) == [["status"], ["status"], GitRunner.stallGuard + ["fetch"], ["rev-parse"]])
+        #expect(recording.calls.map(\.timeout) == [GitRunner.localTimeout, 3, GitRunner.remoteTimeout, GitRunner.localTimeout])
+    }
+
     /// The runner's own environment goes on every command, and a call's goes on that one only.
     @Test func environmentIsSetForEveryCommandAndACallsForThatOne() throws {
         let (plain, directory) = try fakeGit("/usr/bin/env")

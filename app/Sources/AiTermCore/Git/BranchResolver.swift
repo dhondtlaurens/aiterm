@@ -8,10 +8,10 @@ import Foundation
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class BranchResolver: Sendable {
-    private let git: GitRunner
+    private let git: any GitRunning
     private let cache: WatchedFileCache<String?>
 
-    public init(git: GitRunner = GitRunner(), now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
         self.git = git
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
@@ -44,7 +44,7 @@ public final class BranchResolver: Sendable {
     /// that holds HEAD — there the `HEAD` file is a stub no checkout touches, and every ref update
     /// adds a table and rewrites that list instead. Its content says nothing `parseHead` reads, so
     /// such a repository's answer comes from git.
-    private static func locate(_ cwd: String, git: GitRunner) throws -> String? {
+    private static func locate(_ cwd: String, git: any GitRunning) throws -> String? {
         guard let head = try WatchedFileCache<String?>.gitPath("HEAD", in: cwd, git: git) else { return nil }
         guard (try? String(contentsOfFile: head, encoding: .utf8)).map(isReftableStub) == true else { return head }
         return try WatchedFileCache<String?>.gitPath("reftable/tables.list", in: cwd, git: git) ?? head
@@ -60,7 +60,7 @@ public final class BranchResolver: Sendable {
     /// it, so it is read directly; only what `parseHead` cannot answer costs a git call. `nil` is
     /// git saying HEAD names nothing (a repository without a commit); a git that cannot be asked
     /// throws.
-    static func read(_ cwd: String, head: String, git: GitRunner) throws -> String? {
+    static func read(_ cwd: String, head: String, git: any GitRunning) throws -> String? {
         if let text = try? String(contentsOfFile: head, encoding: .utf8), let answer = parseHead(text) { return answer }
         if let name = try git.ask(["symbolic-ref", "--short", "--quiet", "HEAD"], in: cwd, none: [1]), !name.isEmpty { return name }
         if let sha = try git.ask(["rev-parse", "--short", "HEAD"], in: cwd, none: [128]), !sha.isEmpty { return sha }

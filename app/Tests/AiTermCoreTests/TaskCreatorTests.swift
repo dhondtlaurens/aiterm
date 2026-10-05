@@ -7,7 +7,7 @@ import Darwin
 @testable import AiTermTestSupport
 
 @Suite struct TaskCreatorTests {
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     let defaults = ScratchDefaults.make()
     var repo: String
     var project: Project
@@ -178,7 +178,7 @@ import Darwin
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.apply(ticket: JiraTicket(key: "WEB-1", summary: "Thing", description: "Do it", issueType: "Task", status: nil, url: "https://x/browse/WEB-1"))
         d.promptText = "/plan"
-        let task = try TaskCreator.create(draft: d, project: project)
+        let task = try TaskCreator.create(draft: d, project: project, git: .hermetic())
         #expect(task.worktreePath == repo + "/.worktrees/web-1-thing")
         #expect(task.branch == "feat/web-1-thing"); #expect(task.jira?.key == "WEB-1"); #expect(task.title == "Thing")
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/.git"))
@@ -188,7 +188,7 @@ import Darwin
     @Test func testBranchWithoutAsciiStillGetsItsOwnWorktreeDirectory() throws {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("x"); d.setBranch("feat/日本語")
-        let task = try TaskCreator.create(draft: d, project: project)
+        let task = try TaskCreator.create(draft: d, project: project, git: .hermetic())
         let worktreesDir = repo + "/.worktrees/"
         #expect(task.worktreePath.hasPrefix(worktreesDir))
         #expect(task.worktreePath.count > worktreesDir.count, "the slug must never be empty: \(task.worktreePath)")
@@ -202,7 +202,7 @@ import Darwin
         for type in ["feat", "fix", "chore"] {
             var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
             d.setTitle("Login"); d.setBranch("\(type)/login")
-            paths.append(try TaskCreator.create(draft: d, project: project).worktreePath)
+            paths.append(try TaskCreator.create(draft: d, project: project, git: .hermetic()).worktreePath)
         }
         #expect(paths == ["login", "login-2", "login-3"].map { repo + "/.worktrees/" + $0 })
     }
@@ -230,7 +230,7 @@ import Darwin
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.apply(mr: Self.mergeRequest)
         d.promptText = "/code-review"
-        let task = try TaskCreator.createReview(draft: d, project: project)
+        let task = try TaskCreator.createReview(draft: d, project: project, git: .hermetic())
 
         #expect(task.kind == .review, "a review must be recognisable as one; nothing else distinguishes it")
         #expect(task.worktreePath == repo + "/.worktrees/review-mr-branch")
@@ -253,7 +253,7 @@ import Darwin
             try git.run(["branch", branch], in: repo)
             var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
             d.setTitle("Card"); d.setBranch(branch)
-            paths.append(try TaskCreator.createReview(draft: d, project: project).worktreePath)
+            paths.append(try TaskCreator.createReview(draft: d, project: project, git: .hermetic()).worktreePath)
         }
         #expect(paths == ["review-card", "review-card-2"].map { repo + "/.worktrees/" + $0 })
     }
@@ -263,7 +263,7 @@ import Darwin
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.setTitle("Look at Sam's branch")
         d.setBranch("feat/teammate-work")
-        let task = try TaskCreator.createReview(draft: d, project: project)
+        let task = try TaskCreator.createReview(draft: d, project: project, git: .hermetic())
         #expect(task.kind == .review)
         #expect(task.mr == nil)
         #expect(task.baseBranch == "", "no merge request means nothing to land on")
@@ -273,20 +273,20 @@ import Darwin
     @Test func testCreateReviewRejectsAnEmptyOrInvalidBranchBeforeTouchingGit() throws {
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.setTitle("Review")
-        let blank = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) }
+        let blank = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project, git: .hermetic()) }
         #expect(blank as? TaskCreator.Failure == .invalidBranch(""))
         d.setBranch("bad..name")
-        let bad = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) }
+        let bad = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project, git: .hermetic()) }
         #expect(bad as? TaskCreator.Failure == .invalidBranch("bad..name"))
         d.setTitle("   ")
-        #expect((#expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) })
+        #expect((#expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project, git: .hermetic()) })
                 as? TaskCreator.Failure == .emptyTitle)
     }
 
     @Test func testInvalidBranchIsRejectedBeforeTouchingGit() {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("x"); d.setBranch("bad..name")
-        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) }
+        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project, git: .hermetic()) }
         #expect(e as? TaskCreator.Failure == .invalidBranch("feat/bad..name"))
     }
 
@@ -294,7 +294,7 @@ import Darwin
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("No model")
         d.setModel("", catalog: [])
-        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) }
+        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project, git: .hermetic()) }
         #expect(e as? TaskCreator.Failure == .emptyModel)
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/no-model"))
     }

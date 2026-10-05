@@ -330,7 +330,7 @@ import Darwin
 
     /// A bare origin on `defaultBranch` with one commit, and two clones of it, all in a folder
     /// added to `roots`.
-    private static func clones(defaultBranch: String, git: GitRunner, into roots: inout [String]) throws -> (repo: String, other: String) {
+    private static func clones(defaultBranch: String, git: any GitRunning, into roots: inout [String]) throws -> (repo: String, other: String) {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent("pull-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         let root = realPath(raw)

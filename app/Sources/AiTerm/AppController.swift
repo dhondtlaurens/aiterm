@@ -88,7 +88,7 @@ final class AppController {
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
-    let git: GitRunner
+    let git: any GitRunning
     /// The home whose agent configuration the sheets read — models, skills, commands. The
     /// person's own in the app; a test's is a bare directory of its own.
     private let harnessHome: URL
@@ -97,7 +97,7 @@ final class AppController {
     private let jiraSettings: @Sendable () -> JiraConfig?
     private let gitLabSettings: @Sendable () -> GitLabConfig?
     private let gitHubSettings: @Sendable () -> GitHubConfig?
-    private let taskWorkflow = TaskWorkflow()
+    private let taskWorkflow: TaskWorkflow
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
     /// Brings iTerm2 forward once a new terminal's window is frontmost in it (`focus` does the same
@@ -152,13 +152,14 @@ final class AppController {
          activateIterm: @escaping @MainActor () -> Void,
          peekDelay: Duration,
          checkoutPollInterval: Duration,
-         git: GitRunner,
+         git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner) {
         let link = ControllerLink()
         self.store = store
         self.preferences = preferences
         self.harnessHome = harnessHome
         self.git = git
+        taskWorkflow = TaskWorkflow(git: git)
         self.jiraSettings = jiraSettings
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
@@ -186,7 +187,7 @@ final class AppController {
         let live = LiveSessions(workspace: { link.controller?.state ?? .empty },
                                 sessionsChanged: { link.controller?.sessionsChanged($0) })
         self.live = live
-        checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, workspace: { link.controller?.state ?? .empty },
+        checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: { link.controller?.state ?? .empty },
             removalInFlight: { id in
                 guard let controller = link.controller else { return false }
                 return controller.changingTasks.contains(id) && controller.removals[id]?.awaitsRetry != true
@@ -771,7 +772,7 @@ final class AppController {
         let home = harnessHome
         return TaskCreationModel(project: project, draft: draft, home: home, availableAgents: agents.availableAgents,
                           rememberedModels: state.lastModelByAgent,
-                          catalogue: { ModelCatalog.models(for: $0, home: home) }, initialCatalogue: catalogue,
+                          catalogue: { ModelCatalog.models(for: $0, home: home) }, initialCatalogue: catalogue, git: git,
                           canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
                           searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
                           createTask: { [weak self] draft in
@@ -785,7 +786,7 @@ final class AppController {
         let home = harnessHome
         return ReviewCreationModel(project: project, draft: draft, home: home, availableAgents: agents.availableAgents,
                             rememberedModels: state.lastModelByAgent,
-                            catalogue: { ModelCatalog.models(for: $0, home: home) }, initialCatalogue: catalogue,
+                            catalogue: { ModelCatalog.models(for: $0, home: home) }, initialCatalogue: catalogue, git: git,
                             canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
                             owningTask: { [weak self] branch, checkouts in
                                 self?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)

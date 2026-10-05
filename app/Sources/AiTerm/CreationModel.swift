@@ -44,6 +44,8 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     /// The catalogue the draft was built from, for the first load of the draft's own agent.
     private var initialCatalogue: (agent: AgentKind, models: [AgentModel])?
     private let defaults: UserDefaults
+    /// Lists the project's branches, and a review's checkouts.
+    let git: any GitRunning
     private let searchItems: @MainActor (String) async throws -> [Item]
     private let submit: @MainActor (Draft) async throws -> Void
     private var searchTask: Task<Void, Never>?
@@ -54,11 +56,11 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
 
     init(project: Project, draft: Draft, home: URL, availableAgents: Set<AgentKind>, rememberedModels: [AgentKind: String],
          catalogue: @escaping @Sendable (AgentKind) -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
-         defaults: UserDefaults,
+         defaults: UserDefaults, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void) {
         self.project = project; self.draft = draft; self.home = home; self.availableAgents = availableAgents
-        self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults
+        self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
         self.initialCatalogue = initialCatalogue.map { (draft.agent, $0) }
         self.canChangeWorkspace = canChangeWorkspace
         self.searchItems = search; self.submit = submit
@@ -133,7 +135,8 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
 
     func loadBranches() async {
         let path = project.path
-        let found = try? await BackgroundWork.run { Worktrees.branches(repo: path, git: GitRunner()) }
+        let git = git
+        let found = try? await BackgroundWork.run { Worktrees.branches(repo: path, git: git) }
         guard !Task.isCancelled else { return }
         branches = found ?? []
     }

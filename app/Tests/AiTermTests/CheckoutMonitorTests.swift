@@ -38,7 +38,7 @@ struct CheckoutMonitorTests {
         var titles: [([SessionTitle], [SessionInfo])] = []
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         live.sessions = [tab]
-        let monitor = CheckoutMonitor(live: live, scan: scanning([found]), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scanning([found]), git: .hermetic(), workspace: { state },
                                       removalInFlight: { _ in false },
                                       onRemotes: { remotes.append($0) }, onRemovedTasks: { removedTasks.append($0) },
                                       onTitles: { titles.append(($0, $1)) })
@@ -76,7 +76,7 @@ struct CheckoutMonitorTests {
         let scans = ScanLog(holding: true)
         var remotes = 0
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("first"), result("second")]), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("first"), result("second")]), git: .hermetic(), workspace: { state },
                                       removalInFlight: { _ in false },
                                       onRemotes: { _ in remotes += 1 }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
@@ -99,7 +99,7 @@ struct CheckoutMonitorTests {
         let scans = ScanLog(delay: 0.15)
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), pollInterval: .milliseconds(10),
-                                      workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
         defer { monitor.stop() }
 
@@ -118,7 +118,7 @@ struct CheckoutMonitorTests {
         let scans = ScanLog(delay: 0.1)
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), pollInterval: .milliseconds(400),
-                                      workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
         defer { monitor.stop() }
 
@@ -137,7 +137,7 @@ struct CheckoutMonitorTests {
         let scans = ScanLog(holding: true)
         var remotes = 0
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), git: .hermetic(), workspace: { state },
                                       removalInFlight: { _ in false },
                                       onRemotes: { _ in remotes += 1 }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
@@ -163,7 +163,7 @@ struct CheckoutMonitorTests {
                               agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         live.sessions = [tab]
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), git: .hermetic(), workspace: { state },
                                       removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
@@ -193,7 +193,7 @@ struct CheckoutMonitorTests {
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         live.sessions = [tab]
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("one"), result("two"), result("three")]),
-                                      workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in },
                                       onTitles: { titles, _ in
             sent.append(titles)
@@ -223,7 +223,7 @@ struct CheckoutMonitorTests {
         let release = DispatchSemaphore(value: 0)
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: { _, _, _, _, _, _, _ in _ = release.wait(timeout: .now() + 10); return found },
-                                      workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
         let stopped = monitor.refresh()
@@ -248,7 +248,7 @@ struct CheckoutMonitorTests {
         let missing = WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [removing.id, vanished.id],
                                     removedTasks: [], remotes: [:])
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scanning([present, missing]), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scanning([present, missing]), git: .hermetic(), workspace: { state },
                                       removalInFlight: { $0 == removing.id },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 

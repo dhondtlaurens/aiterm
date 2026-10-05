@@ -662,7 +662,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let repo = dir.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        let git = GitRunner()
+        let git = GitRunner.hermetic()
         try git.run(["init", "-q", "-b", "main"], in: repo.path)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"], in: repo.path)
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
@@ -688,6 +688,30 @@ import Testing
         #expect(saved.first?.worktreePath == created.worktreePath)
         #expect(saved.first?.branch == created.branch)
         #expect(saved.first?.windowId == nil)
+    }
+
+    /// The controller hands its git to what it builds, so a test's fixtures never run the developer's
+    /// own: creating a task makes its checkout through the controller's runner, and the agent
+    /// command's `.aiterm/` exclusion too.
+    @Test func aControllerRunsTheGitItWasGiven() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repo = dir.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try GitRunner.hermetic().run(["init", "-q", "-b", "main"], in: repo.path)
+        try GitRunner.hermetic().run(["commit", "--allow-empty", "-m", "init"], in: repo.path)
+        let recording = RecordingGitRunner(forwardingTo: .hermetic())
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: recording)
+        try controller.loadWorkspace()
+        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        controller.state.projects = [project]
+        var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
+        draft.setTitle("Through the runner")
+        draft.promptText = String(repeating: "long ", count: 400)
+        try await controller.createTask(draft: draft, project: project)
+        let asked = recording.calls.map(\.args)
+        #expect(asked.contains { $0.starts(with: ["worktree", "add"]) || $0.contains("worktree") })
+        #expect(asked.contains { $0.contains("--git-path") }, "the first-prompt exclusion is asked of the same runner")
     }
 
     /// The alert-level courtesy. The guarantee is `TaskWorkflow.remove`'s own refusal, tested in
@@ -757,7 +781,7 @@ import Testing
     /// Resolved with POSIX `realpath(3)`, as `WorktreesTests` does: git reports the physical path
     /// for a repository under `/var/folders`, and an unresolved one is added as "the repository
     /// around the folder you picked", a path the project would then not match.
-    private static func repoWithATaskAndAReviewWorktree(git: GitRunner) throws -> String {
+    private static func repoWithATaskAndAReviewWorktree(git: any GitRunning) throws -> String {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent("imp-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         let root = realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw
@@ -1226,9 +1250,10 @@ private final class ScanCounter: Sendable {
 }
 
 /// A git that times out whenever it is asked for the default branch's name, as it does under load.
-private final class DefaultBranchFailingGit: GitRunner, @unchecked Sendable {
-    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
+private struct DefaultBranchFailingGit: GitRunning {
+    let inner: any GitRunning = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         if args.contains("symbolic-ref") { throw GitError(args: args, code: 15, stderr: "git timed out after \(timeout) s") }
-        return try super.run(args, in: dir, timeout: timeout)
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

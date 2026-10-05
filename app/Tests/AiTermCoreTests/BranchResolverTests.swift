@@ -5,27 +5,18 @@ import Testing
 
 struct BranchResolverTests {
     private func makeRepo(refFormat: String = "files") throws -> String {
-        let git = GitRunner()
-        let dir = NSTemporaryDirectory() + "br-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        // git reports /private/var..., Foundation reports /var...; resolve once so the two agree.
-        let repo = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
-        try git.run(["init", "--initial-branch=main", "--ref-format=" + refFormat, "-q", repo], in: "/")
-        try git.run(["config", "user.email", "t@example.com"], in: repo)
-        try git.run(["config", "user.name", "T"], in: repo)
-        try git.run(["commit", "--allow-empty", "-q", "-m", "init"], in: repo)
-        return repo
+        try GitFixture.makeRepo(prefix: "br-", refFormat: refFormat)
     }
 
     @Test func resolvesTheCheckedOutBranchAndFollowsACheckout() throws {
-        let repo = try makeRepo(), git = GitRunner(), resolver = BranchResolver()
+        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = BranchResolver(git: .hermetic())
         #expect(resolver.branch(for: repo) == "main")
         try git.run(["checkout", "-q", "-b", "feat/x"], in: repo)
         #expect(resolver.branch(for: repo) == "feat/x")
     }
 
     @Test func resolvesALinkedWorktreeToItsOwnBranch() throws {
-        let repo = try makeRepo(), git = GitRunner(), resolver = BranchResolver()
+        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = BranchResolver(git: .hermetic())
         let worktree = repo + "/.worktrees/feat"
         try git.run(["worktree", "add", "-q", "-b", "feat/y", worktree], in: repo)
         #expect(resolver.branch(for: worktree) == "feat/y")
@@ -33,7 +24,7 @@ struct BranchResolverTests {
     }
 
     @Test func reportsTheShortShaWhenHeadIsDetached() throws {
-        let repo = try makeRepo(), git = GitRunner(), resolver = BranchResolver()
+        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = BranchResolver(git: .hermetic())
         let sha = try git.run(["rev-parse", "--short", "HEAD"], in: repo)
         try git.run(["checkout", "-q", "--detach"], in: repo)
         #expect(resolver.branch(for: repo) == sha)
@@ -44,7 +35,7 @@ struct BranchResolverTests {
     /// branch. Neither throws. A SHA-256 repository's `HEAD` is 64 hex digits, which `parseHead`
     /// leaves to git; a reftable one's `HEAD` file is a stub.
     @Test func headsGitIsAskedAboutResolveWithoutThrowing() throws {
-        let git = GitRunner()
+        let git = GitRunner.hermetic()
         let dir = NSTemporaryDirectory() + "br-sha256-" + UUID().uuidString
         defer { try? FileManager.default.removeItem(atPath: dir) }
         try git.run(["init", "--initial-branch=main", "--object-format=sha256", "-q", dir], in: "/")
@@ -65,21 +56,21 @@ struct BranchResolverTests {
     @Test func returnsNilOutsideARepository() throws {
         let dir = NSTemporaryDirectory() + "plain-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        #expect(BranchResolver().branch(for: dir) == nil)
-        #expect(BranchResolver().branch(for: "") == nil)
-        #expect(BranchResolver().branch(for: "/definitely/not/here") == nil)
+        #expect(BranchResolver(git: .hermetic()).branch(for: dir) == nil)
+        #expect(BranchResolver(git: .hermetic()).branch(for: "") == nil)
+        #expect(BranchResolver(git: .hermetic()).branch(for: "/definitely/not/here") == nil)
     }
 
     @Test func batchLookupSkipsWhatItCannotResolve() throws {
         let repo = try makeRepo()
-        let map = BranchResolver().branches(for: [repo, "", "/definitely/not/here", repo])
+        let map = BranchResolver(git: .hermetic()).branches(for: [repo, "", "/definitely/not/here", repo])
         #expect(map == [repo: "main"])
     }
 
     /// The cache is revalidated by HEAD's timestamp, so a checkout between two calls is picked up
     /// without re-running git for every tab on every update.
     @Test func cachedAnswerIsReusedUntilHeadChanges() throws {
-        let repo = try makeRepo(), git = GitRunner()
+        let repo = try makeRepo(), git = GitRunner.hermetic()
         let counting = CountingGitRunner()
         let resolver = BranchResolver(git: counting)
         #expect(resolver.branch(for: repo) == "main")
@@ -104,7 +95,7 @@ struct BranchResolverTests {
     /// A reftable repository's HEAD file is a stub, `ref: refs/heads/.invalid`, that no checkout
     /// rewrites: its refs, HEAD's target among them, live in tables the stack's list names.
     @Test func aReftableRepositoryIsResolvedAndFollowsACheckout() throws {
-        let repo = try makeRepo(refFormat: "reftable"), git = GitRunner(), resolver = BranchResolver()
+        let repo = try makeRepo(refFormat: "reftable"), git = GitRunner.hermetic(), resolver = BranchResolver(git: .hermetic())
         #expect(resolver.branch(for: repo) == "main")
         try git.run(["checkout", "-q", "-b", "feat/x"], in: repo)
         #expect(resolver.branch(for: repo) == "feat/x")
@@ -142,7 +133,7 @@ extension BranchResolverTests {
     /// A reftable repository's branch comes from git. When git times out on a checkout, the row
     /// keeps the branch it had rather than caching "none" until HEAD moves again.
     @Test func aFailedReadKeepsTheLastBranchAndIsRetried() throws {
-        let repo = try makeRepo(refFormat: "reftable"), git = GitRunner()
+        let repo = try makeRepo(refFormat: "reftable"), git = GitRunner.hermetic()
         let flaky = FlakyGitRunner(), resolver = BranchResolver(git: flaky)
         #expect(resolver.branch(for: repo) == "main")
         try git.run(["checkout", "-q", "-b", "feat/x"], in: repo)

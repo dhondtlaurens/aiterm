@@ -45,10 +45,10 @@ final class CheckoutMonitor {
     private let scan: Scanner
     /// The pause between one pass ending and the next starting.
     private let pollInterval: Duration
-    private let branches = BranchResolver()
-    private let remotes = RemoteResolver()
-    private let diffs = DiffStatResolver()
-    private let defaultBranches = DefaultBranchResolver()
+    private let branches: BranchResolver
+    private let remotes: RemoteResolver
+    private let diffs: DiffStatResolver
+    private let defaultBranches: DefaultBranchResolver
     private let live: LiveSessions
     /// The saved workspace a pass reads, and where what it finds for that workspace goes: remotes
     /// to adopt, tasks whose checkout is gone, the tab titles to send. `removalInFlight` says which
@@ -59,7 +59,7 @@ final class CheckoutMonitor {
     private let onRemovedTasks: @MainActor ([TaskItem]) -> Void
     private let onTitles: @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void
 
-    init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2),
+    init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
          workspace: @escaping @MainActor () -> AppState,
          removalInFlight: @escaping @MainActor (UUID) -> Bool,
          onRemotes: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void,
@@ -68,6 +68,8 @@ final class CheckoutMonitor {
         self.live = live
         self.scan = scan
         self.pollInterval = pollInterval
+        branches = BranchResolver(git: git); remotes = RemoteResolver(git: git)
+        diffs = DiffStatResolver(git: git); defaultBranches = DefaultBranchResolver(git: git)
         self.workspace = workspace
         self.removalInFlight = removalInFlight
         self.onRemotes = onRemotes

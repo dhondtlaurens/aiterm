@@ -25,7 +25,10 @@ public struct TaskWorkflow: Sendable {
     }
 
     private static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
-    public init() {}
+    /// Runs every git command of a creation, removal or pull. A test passes one that runs git without
+    /// the developer's own configuration.
+    private let git: any GitRunning
+    public init(git: any GitRunning) { self.git = git }
 
     public func create(draft: TaskDraft, project: Project) async throws -> Created {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
@@ -44,21 +47,23 @@ public struct TaskWorkflow: Sendable {
     /// and it is thrown rather than turned into a launch warning.
     public func reviewCommand(draft: ReviewDraft, in task: TaskItem) async throws -> String {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
+        let git = git
         return try await BackgroundWork.run(on: Self.queue) {
             try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                                   prompt: prompt, worktreePath: task.worktreePath)
+                                   prompt: prompt, worktreePath: task.worktreePath, git: git)
         }
     }
 
     /// Makes the checkout, then the agent command for it. A command that cannot be built is a
     /// launch warning, never a failure: it must not discard a real checkout.
     private func checkOut(_ draft: some AgentDraft & Sendable, prompt: String?,
-                          _ make: @escaping @Sendable (GitRunner) throws -> TaskItem) async throws -> Created {
-        try await BackgroundWork.run(on: Self.queue) {
-            let task = try make(GitRunner())
+                          _ make: @escaping @Sendable (any GitRunning) throws -> TaskItem) async throws -> Created {
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
+            let task = try make(git)
             do {
                 let command = try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                                                     prompt: prompt, worktreePath: task.worktreePath)
+                                                     prompt: prompt, worktreePath: task.worktreePath, git: git)
                 return Created(task: task, command: command, launchWarning: nil)
             } catch {
                 return Created(task: task, command: nil, launchWarning: error.localizedDescription)
@@ -69,14 +74,15 @@ public struct TaskWorkflow: Sendable {
     /// Whether removing the task's worktree without `force` would be refused for its uncommitted
     /// changes or untracked files.
     public func hasUnsavedWork(task: TaskItem, project: Project) async throws -> Bool {
-        try await BackgroundWork.run(on: Self.queue) {
-            try Worktrees.hasUnsavedWork(repo: project.path, path: task.worktreePath, git: GitRunner())
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
+            try Worktrees.hasUnsavedWork(repo: project.path, path: task.worktreePath, git: git)
         }
     }
 
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool) async throws -> Removed {
-        try await BackgroundWork.run(on: Self.queue) {
-            let git = GitRunner()
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
             // A review's branch is the merge request's: never deleted on request — a caller may ask and
             // simply not get it — but released by `releaseReviewBranch` below, which deletes only a
             // local copy with nothing origin lacks. The worktree is ours and is removed as a task's is.
@@ -119,23 +125,26 @@ public struct TaskWorkflow: Sendable {
 
     /// "Pull main", on the queue creation and removal use: all three move branches.
     public func pullDefaultBranch(of project: Project) async throws -> DefaultBranchPull {
-        try await BackgroundWork.run(on: Self.queue) {
-            try Worktrees.pullDefaultBranch(repo: project.path, git: GitRunner())
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
+            try Worktrees.pullDefaultBranch(repo: project.path, git: git)
         }
     }
 
     /// The rebase a diverged pull offers, on the same queue.
     public func rebaseDefaultBranch(of project: Project) async throws -> DefaultBranchRebase {
-        try await BackgroundWork.run(on: Self.queue) {
-            try Worktrees.rebaseDefaultBranch(repo: project.path, git: GitRunner())
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
+            try Worktrees.rebaseDefaultBranch(repo: project.path, git: git)
         }
     }
 
     /// `git branch -D`: the branch goes with the commits only it has. Only once someone has agreed
     /// to lose them, after `remove` refused with `.notMerged`.
     public func deleteUnmergedBranch(of task: TaskItem, in project: Project) async throws {
+        let git = git
         try await BackgroundWork.run(on: Self.queue) {
-            _ = try GitRunner().run(["branch", "-D", task.branch], in: project.path)
+            _ = try git.run(["branch", "-D", task.branch], in: project.path)
         }
     }
 }

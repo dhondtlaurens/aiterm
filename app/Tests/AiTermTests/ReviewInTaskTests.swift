@@ -115,7 +115,7 @@ extension AppControllerTests {
         let model = ReviewCreationModel(
             project: fixture.project, draft: fixture.draft, home: ScratchHome.bare,
             catalogue: { _ in [AgentModel(id: "sonnet", label: "Sonnet", detail: nil, efforts: [], defaultEffort: nil)] },
-            defaults: ScratchDefaults.make(),
+            defaults: ScratchDefaults.make(), git: .hermetic(),
             owningTask: { branch, checkouts in controller.state.task(checkingOut: branch, in: projectId, worktrees: checkouts) },
             searchMergeRequests: { _ in [] }, createReview: { _ in submitted = true })
         await model.loadAgentCatalogue()
@@ -149,7 +149,7 @@ extension AppControllerTests {
 private struct ReviewFixture {
     let root: URL
     let repo: URL
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     let project: Project
     let task: TaskItem
     let draft: ReviewDraft

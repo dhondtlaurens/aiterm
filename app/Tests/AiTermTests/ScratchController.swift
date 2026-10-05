@@ -19,7 +19,7 @@ extension AppController {
                      prompter: Prompter = ScriptedPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
                      activateIterm: @escaping @MainActor () -> Void = {}, peekDelay: Duration = .zero,
-                     checkoutPollInterval: Duration = .seconds(2), git: GitRunner = GitRunner(),
+                     checkoutPollInterval: Duration = .seconds(2), git: any GitRunning = GitRunner.hermetic(),
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      },

@@ -32,7 +32,7 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
          rememberedModels: [AgentKind: String] = [:],
          catalogue: @escaping @Sendable (AgentKind) -> [AgentModel],
          initialCatalogue: [AgentModel]? = nil,
-         defaults: UserDefaults = .standard,
+         defaults: UserDefaults = .standard, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
          codeHost: CodeHost = .gitLab,
@@ -41,7 +41,7 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
         self.codeHost = codeHost
         self.findOwner = owningTask
         super.init(project: project, draft: draft, home: home, availableAgents: availableAgents, rememberedModels: rememberedModels,
-                   catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults, canChangeWorkspace: canChangeWorkspace,
+                   catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
                    search: searchMergeRequests, submit: createReview)
         findOwningTask()
     }
@@ -56,7 +56,8 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
 
     func loadCheckouts() async {
         let path = project.path
-        let found = try? await BackgroundWork.run { try Worktrees.listed(repo: path, git: GitRunner()) }
+        let git = git
+        let found = try? await BackgroundWork.run { try Worktrees.listed(repo: path, git: git) }
         guard !Task.isCancelled else { return }
         checkouts = found ?? []
     }

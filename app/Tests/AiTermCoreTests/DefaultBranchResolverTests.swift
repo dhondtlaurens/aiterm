@@ -13,19 +13,14 @@ final class DefaultBranchResolverTests {
     /// A new folder under the temporary directory, resolved: git reports /private/var..., Foundation
     /// reports /var..., so resolve once and the two agree.
     private func folder(_ prefix: String) throws -> String {
-        let dir = NSTemporaryDirectory() + prefix + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let resolved = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
+        let resolved = try GitFixture.folder(prefix)
         made.append(resolved)
         return resolved
     }
 
     private func makeRepo(branch: String = "main", refFormat: String? = nil) throws -> String {
         let repo = try folder("dbr-")
-        try git.run(["init", "--initial-branch=\(branch)", "-q"] + (refFormat.map { ["--ref-format=\($0)"] } ?? []) + [repo], in: "/")
-        try git.run(["config", "user.email", "t@example.com"], in: repo)
-        try git.run(["config", "user.name", "T"], in: repo)
-        try git.run(["commit", "--allow-empty", "-q", "-m", "init"], in: repo)
+        try GitFixture.initRepo(at: repo, branch: branch, refFormat: refFormat, git: git)
         return repo
     }
 

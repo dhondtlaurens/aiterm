@@ -20,10 +20,10 @@ public final class DefaultBranchResolver: Sendable {
     private static let refs = ["refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master",
                                "refs/heads/main", "refs/heads/master", "packed-refs", "reftable/tables.list", "config"]
 
-    private let git: GitRunner
+    private let git: any GitRunning
     private let cache: WatchedFileCache<String>
 
-    public init(git: GitRunner = GitRunner(), now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
         self.git = git
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
@@ -44,7 +44,7 @@ public final class DefaultBranchResolver: Sendable {
         } catch { return nil }
     }
 
-    private static func locate(_ repo: String, git: GitRunner) throws -> [String]? {
+    private static func locate(_ repo: String, git: any GitRunning) throws -> [String]? {
         guard let common = try git.ask(["rev-parse", "--git-common-dir"], in: repo, none: [128]), !common.isEmpty else { return nil }
         let directory = FileStamps.absolute(common, in: repo)
         return refs.map { directory + "/" + $0 }

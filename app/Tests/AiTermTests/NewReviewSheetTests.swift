@@ -162,7 +162,7 @@ import AiTermCore
         let created = Created()
         let model = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                         home: ScratchHome.bare, availableAgents: [.claude], catalogue: ScratchHome.catalogue,
-                                        defaults: ScratchDefaults.make(), searchMergeRequests: { _ in mergeRequests },
+                                        defaults: ScratchDefaults.make(), git: .hermetic(), searchMergeRequests: { _ in mergeRequests },
                                         createReview: { draft in
                                             created.drafts.append(draft)
                                             if createFails { throw Refused() }

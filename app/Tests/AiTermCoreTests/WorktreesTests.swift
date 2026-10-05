@@ -8,7 +8,7 @@ import Darwin
 @testable import AiTermTestSupport
 
 @Suite struct WorktreesTests {
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     var repo: String
 
     /// Fully resolves symlinks in `path` using POSIX `realpath(3)`, matching what real `git`
@@ -621,8 +621,7 @@ import Darwin
     /// worktree exists unlocked for a `git worktree prune` to take.
     @Test func aWorktreeIsLockedByTheCommandThatCreatesIt() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let recording = RecordingGitRunner()
-        recording.forwards = true
+        let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let review = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: recording)
         let task = try Worktrees.create(repo: repo, slug: "task", branch: "feat/task", base: "main", git: recording)
 
@@ -639,8 +638,7 @@ import Darwin
     /// relock around a removal; the rest are local queries.
     @Test func eachGitCallGetsTheDeadlineForWhatItDoes() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let recording = RecordingGitRunner()
-        recording.forwards = true
+        let recording = RecordingGitRunner(forwardingTo: .hermetic())
         let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: recording)
         try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: recording)
         _ = Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: recording)
@@ -667,10 +665,13 @@ import Darwin
 /// `git worktree remove` as it goes with a watcher still running in the checkout: git deletes it
 /// and drops its record, the watcher writes its build output back, and git reports the folder it
 /// could not delete.
-private final class RefillingGitRunner: GitRunner, @unchecked Sendable {
-    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
-        guard args.starts(with: ["worktree", "remove"]), let path = args.last else { return try super.run(args, in: dir, timeout: timeout) }
-        try super.run(args, in: dir, timeout: timeout)
+private struct RefillingGitRunner: GitRunning {
+    let inner: any GitRunning = GitRunner.hermetic()
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        guard args.starts(with: ["worktree", "remove"]), let path = args.last else {
+            return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+        }
+        try inner.run(args, in: dir, timeout: timeout, environment: environment)
         try FileManager.default.createDirectory(atPath: path + "/app/.nuxt", withIntermediateDirectories: true)
         try "export {}\n".write(toFile: path + "/app/.nuxt/nuxt.d.ts", atomically: true, encoding: .utf8)
         throw GitError(args: args, code: 255, stderr: "error: failed to delete '\(path)': Directory not empty")

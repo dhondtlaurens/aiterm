@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 @testable import AiTerm
 
 @MainActor
@@ -310,7 +311,7 @@ struct SidebarInteractionTests {
         let first = dir.appendingPathComponent("first"), second = dir.appendingPathComponent("second")
         for (url, branch) in [(first, "first"), (second, "second")] {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            try GitRunner().run(["init", "-q", "-b", branch], in: url.path)
+            try GitRunner.hermetic().run(["init", "-q", "-b", branch], in: url.path)
         }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.loadWorkspace()

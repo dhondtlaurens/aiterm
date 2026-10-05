@@ -407,7 +407,7 @@ extension RecordingDaemon {
 private struct CheckoutFixture {
     let root: URL
     let repo: URL
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     let project: Project
     let task: TaskItem
     let controller: AppController

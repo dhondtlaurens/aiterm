@@ -25,7 +25,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     }
 
     /// A draft for `agent`, its model chosen from `catalog` — which the caller has read already.
-    public static func initial(project: Project, state: AppState, git: GitRunner, agent: AgentKind,
+    public static func initial(project: Project, state: AppState, git: any GitRunning, agent: AgentKind,
                                catalog: [AgentModel], defaults: UserDefaults = .standard) -> TaskDraft {
         let preference = Self.preference(for: agent, state: state, catalog: catalog, defaults: defaults)
         return TaskDraft(ticket: nil, baseBranch: Worktrees.defaultBranch(repo: project.path, git: git), agent: agent,
@@ -110,7 +110,7 @@ public enum TaskCreator {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    public static func create(draft: TaskDraft, project: Project, git: GitRunner = GitRunner()) throws -> TaskItem {
+    public static func create(draft: TaskDraft, project: Project, git: any GitRunning) throws -> TaskItem {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard Worktrees.validateBranch(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
@@ -121,7 +121,7 @@ public enum TaskCreator {
                         firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket, createdAt: Date(), windowId: nil)
     }
 
-    public static func createReview(draft: ReviewDraft, project: Project, git: GitRunner = GitRunner()) throws -> TaskItem {
+    public static func createReview(draft: ReviewDraft, project: Project, git: any GitRunning) throws -> TaskItem {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,

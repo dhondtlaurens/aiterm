@@ -550,7 +550,7 @@ extension AppControllerTests {
 struct RaceFixture {
     let root: URL
     let repo: URL
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     let project: Project
     let prompter: ScriptedPrompter
     let controller: AppController

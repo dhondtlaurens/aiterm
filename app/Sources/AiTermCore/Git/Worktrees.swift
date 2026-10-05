@@ -119,7 +119,7 @@ public enum Worktrees {
         [key?.lowercased(), slug(summary)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "-")
     }
 
-    public static func toplevel(of path: String, git: GitRunner) throws -> String? {
+    public static func toplevel(of path: String, git: any GitRunning) throws -> String? {
         do { return try git.run(["rev-parse", "--show-toplevel"], in: path) }
         catch let e as GitError where e.code == 128 { return nil }
     }
@@ -128,7 +128,7 @@ public enum Worktrees {
     /// first there is; `nil` when the repository has none. That is git's answer. When git cannot be
     /// asked — it timed out, or did not start — this throws, since "no remote" would read as the
     /// project having lost its remote.
-    public static func remoteUrl(repo: String, git: GitRunner) throws -> String? {
+    public static func remoteUrl(repo: String, git: any GitRunning) throws -> String? {
         // 128 is "no upstream configured" (or a detached HEAD): the next steps ask again, and fail loudly.
         if let upstream = try git.ask(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: repo, none: [128]),
            let remote = upstream.split(separator: "/").first,
@@ -146,7 +146,7 @@ public enum Worktrees {
 
     /// The default branch, or `nil` when the repository does not say: no usable `origin/HEAD` and
     /// none of the usual names. Throws when git cannot be asked, which says nothing either way.
-    public static func detectDefaultBranch(repo: String, git: GitRunner) throws -> String? {
+    public static func detectDefaultBranch(repo: String, git: any GitRunning) throws -> String? {
         // The whole name after `origin/`: a default branch can have slashes in it. And only while
         // origin still has it — a rename on origin leaves the old name in a clone's `origin/HEAD`.
         let prefix = "refs/remotes/origin/"
@@ -161,7 +161,7 @@ public enum Worktrees {
 
     /// ``detectDefaultBranch(repo:git:)``, or ``fallbackDefaultBranch`` when there is none or git
     /// cannot be asked — for a caller that must show some name and will be asked again.
-    public static func defaultBranch(repo: String, git: GitRunner) -> String {
+    public static func defaultBranch(repo: String, git: any GitRunning) -> String {
         ((try? detectDefaultBranch(repo: repo, git: git)) ?? nil) ?? fallbackDefaultBranch
     }
 
@@ -172,7 +172,7 @@ public enum Worktrees {
     /// rebases or resets.
     ///
     /// Unlike the fetch before a new worktree, this one's failure is thrown: pulling is the point.
-    public static func pullDefaultBranch(repo: String, git: GitRunner) throws -> DefaultBranchPull {
+    public static func pullDefaultBranch(repo: String, git: any GitRunning) throws -> DefaultBranchPull {
         let (branch, local, remote) = try fetchDefaultBranch(repo: repo, git: git)
         if local == remote { return .upToDate(branch) }
         if isAncestor(remote, of: local, repo: repo, git: git) { return .ahead(branch, commits: count(remote, local, repo: repo, git: git)) }
@@ -197,7 +197,7 @@ public enum Worktrees {
     /// checkout's HEAD is detached — and git's fetch refuses such a branch as it refuses a checked-out
     /// one. The refspec is not forced, so anything but a fast-forward of the ref as it is now, a
     /// concurrent change included, is refused too.
-    private static func fastForward(_ branch: String, repo: String, git: GitRunner) throws {
+    private static func fastForward(_ branch: String, repo: String, git: any GitRunning) throws {
         try git.run(["fetch", "--quiet", "--no-write-fetch-head", "--no-prune", "--no-recurse-submodules", ".",
                      "refs/remotes/origin/\(branch):refs/heads/\(branch)"], in: repo)
     }
@@ -209,7 +209,7 @@ public enum Worktrees {
     /// (where the sidebar would pick it up), removed afterwards. That checkout is only scratch:
     /// making it runs no hook and fetches no LFS file. A conflict aborts the rebase and leaves the
     /// branch as it was. Nothing is pushed.
-    public static func rebaseDefaultBranch(repo: String, git: GitRunner) throws -> DefaultBranchRebase {
+    public static func rebaseDefaultBranch(repo: String, git: any GitRunning) throws -> DefaultBranchRebase {
         let (branch, _, remote) = try fetchDefaultBranch(repo: repo, git: git)
         removeAbandonedScratch(repo: repo, git: git)
         if let holder = try holder(of: branch, repo: repo, git: git) {
@@ -234,7 +234,7 @@ public enum Worktrees {
     /// The rebase checkouts an app that died mid-rebase never removed. Each is still registered with
     /// the branch checked out, so every `git checkout` of it fails, and the next pull would merge in
     /// there; they are removed before the next pull or rebase looks for where the branch is.
-    private static func removeAbandonedScratch(repo: String, git: GitRunner) {
+    private static func removeAbandonedScratch(repo: String, git: any GitRunning) {
         let temporary = FileManager.default.temporaryDirectory.path
         let prefixes = Set([temporary, resolved(temporary)].map { ($0.hasSuffix("/") ? $0 : $0 + "/") + scratchPrefix })
         let abandoned = ((try? listed(repo: repo, git: git)) ?? []).filter { worktree in
@@ -251,7 +251,7 @@ public enum Worktrees {
     /// there is someone else's: git refuses this one, and theirs is not aborted. What it does is
     /// pinned on the command line, since config can change each part of it: no autostash (see
     /// `pullDefaultBranch`), merges dropped, and no other branch moved along with the commits.
-    private static func rebase(_ branch: String, onto remote: String, in checkout: String, git: GitRunner) throws {
+    private static func rebase(_ branch: String, onto remote: String, in checkout: String, git: any GitRunning) throws {
         let underWay = isRebasing(checkout, git: git)
         let pinned = ["--no-autostash", "--no-update-refs", "--no-rebase-merges"]
         do { try git.run(["rebase", "--quiet"] + pinned + [remote, branch], in: checkout, timeout: GitRunner.checkoutTimeout) }
@@ -264,7 +264,7 @@ public enum Worktrees {
 
     /// Whether a rebase is stopped in `checkout`: git keeps its state in `rebase-merge` (or, for
     /// the old apply backend, `rebase-apply`) in that checkout's own git directory.
-    private static func isRebasing(_ checkout: String, git: GitRunner) -> Bool {
+    private static func isRebasing(_ checkout: String, git: any GitRunning) -> Bool {
         ["rebase-merge", "rebase-apply"].contains { name in
             (try? git.run(["rev-parse", "--path-format=absolute", "--git-path", name], in: checkout))
                 .map { FileManager.default.fileExists(atPath: $0) } == true
@@ -273,7 +273,7 @@ public enum Worktrees {
 
     /// The default branch, fetched: its name, the local tip and origin's. An explicit refspec, so
     /// the tracking ref compared against is updated whatever `remote.origin.fetch` says.
-    private static func fetchDefaultBranch(repo: String, git: GitRunner) throws -> (branch: String, local: String, remote: String) {
+    private static func fetchDefaultBranch(repo: String, git: any GitRunning) throws -> (branch: String, local: String, remote: String) {
         guard (try? git.run(["remote", "get-url", "origin"], in: repo)) != nil else { throw WorktreeError.noOrigin }
         let branch = try detectDefaultBranch(repo: repo, git: git) ?? fallbackDefaultBranch
         try git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(branch):refs/remotes/origin/\(branch)"], in: repo)
@@ -283,12 +283,12 @@ public enum Worktrees {
     }
 
     /// The checkout that has `branch` checked out, usually the project's own; nil when none does.
-    private static func holder(of branch: String, repo: String, git: GitRunner) throws -> Worktree? {
+    private static func holder(of branch: String, repo: String, git: any GitRunning) throws -> Worktree? {
         try listed(repo: repo, git: git).first { $0.branch == branch }
     }
 
     /// How many commits `to` has that `from` lacks.
-    private static func count(_ from: String, _ to: String, repo: String, git: GitRunner) -> Int {
+    private static func count(_ from: String, _ to: String, repo: String, git: any GitRunning) -> Int {
         Int((try? git.run(["rev-list", "--count", from + ".." + to], in: repo)) ?? "") ?? 0
     }
 
@@ -296,7 +296,7 @@ public enum Worktrees {
     /// then branches that exist only on `origin` (offered under their short name, because that is
     /// what `git worktree add` resolves). The repository's default branch is always first, even
     /// when it has not been touched in months.
-    public static func branches(repo: String, git: GitRunner) -> [String] {
+    public static func branches(repo: String, git: any GitRunning) -> [String] {
         let locals = lines(try? git.run(["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"], in: repo))
         let remotes = lines(try? git.run(["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/remotes/origin"], in: repo))
             .compactMap { ref -> String? in
@@ -320,7 +320,7 @@ public enum Worktrees {
     /// own upstream only. The project's checkout is rarely sitting on the base branch — another
     /// task's branch is usually checked out there — so git refuses branches whose work is demonstrably
     /// safe in `main`. This answers the question the app actually means.
-    public static func isMerged(branch: String, into base: String, repo: String, git: GitRunner) -> Bool {
+    public static func isMerged(branch: String, into base: String, repo: String, git: any GitRunning) -> Bool {
         guard !base.isEmpty, base != branch else { return false }
         return ["refs/heads/" + base, "refs/remotes/origin/" + base].contains { ref in
             (try? git.run(["rev-parse", "--verify", "--quiet", ref], in: repo)) != nil
@@ -328,11 +328,11 @@ public enum Worktrees {
         }
     }
 
-    public static func validateBranch(_ name: String, git: GitRunner) -> Bool {
+    public static func validateBranch(_ name: String, git: any GitRunning) -> Bool {
         (try? git.run(["check-ref-format", "--branch", name], in: "/")) != nil
     }
 
-    public static func create(repo: String, slug: String, branch: String, base: String, git: GitRunner) throws -> String {
+    public static func create(repo: String, slug: String, branch: String, base: String, git: any GitRunning) throws -> String {
         let path = try prepare(repo: repo, slug: slug, git: git)
         let hasOrigin = fetchFromOrigin(base, repo: repo, git: git)
         let start = hasOrigin && (try? git.run(["rev-parse", "--verify", "--quiet", "origin/\(base)"], in: repo)) != nil ? "origin/\(base)" : base
@@ -349,7 +349,7 @@ public enum Worktrees {
     /// tracking origin's, which `releaseReviewBranch` takes back once the review is removed. Every
     /// refusal comes before anything is created, and no failure path deletes a branch that holds
     /// anything origin lacks — this one is someone's merge request.
-    public static func checkout(repo: String, slug: String, branch: String, git: GitRunner) throws -> String {
+    public static func checkout(repo: String, slug: String, branch: String, git: any GitRunning) throws -> String {
         let hasOrigin = fetchFromOrigin(branch, repo: repo, git: git)
         let local = sha("refs/heads/" + branch, repo: repo, git: git)
         let remote = hasOrigin ? sha("refs/remotes/origin/" + branch, repo: repo, git: git) : nil
@@ -389,7 +389,7 @@ public enum Worktrees {
     /// vouch for commits origin no longer has — and the next prune would take the only other copy.
     /// So a branch origin confirms it lacks is judged against the target, and if origin cannot be
     /// asked at all (offline, refused credentials) the branch is kept: that proves nothing either way.
-    public static func releaseReviewBranch(repo: String, branch: String, target: String, git: GitRunner) -> ReviewBranchRelease {
+    public static func releaseReviewBranch(repo: String, branch: String, target: String, git: any GitRunning) -> ReviewBranchRelease {
         guard (try? git.run(["remote", "get-url", "origin"], in: repo)) != nil,
               let local = sha("refs/heads/" + branch, repo: repo, git: git) else { return .untouched }
         if let holder = (try? listed(repo: repo, git: git))?.first(where: { $0.branch == branch }) {
@@ -419,7 +419,7 @@ public enum Worktrees {
 
     /// What origin has for each of `branches` right now: a name absent from the answer is a branch
     /// origin confirms it does not have. Throws when origin could not be asked.
-    private static func originHeads(_ branches: [String], repo: String, git: GitRunner) throws -> [String: String] {
+    private static func originHeads(_ branches: [String], repo: String, git: any GitRunning) throws -> [String: String] {
         let refs = branches.map { "refs/heads/" + $0 }
         var heads: [String: String] = [:]
         for line in try git.runRemote(["ls-remote", "origin"] + refs, in: repo).split(separator: "\n") {
@@ -434,7 +434,7 @@ public enum Worktrees {
     /// Whether `commit` — the tip origin reported for `branch` — is here to compare against,
     /// fetching the branch when it is not. The tracking ref is updated too, forced: it may be the
     /// stale value that was about to be trusted.
-    private static func fetched(_ commit: String, branch: String, repo: String, git: GitRunner) -> Bool {
+    private static func fetched(_ commit: String, branch: String, repo: String, git: any GitRunning) -> Bool {
         if sha(commit, repo: repo, git: git) != nil { return true }
         _ = try? git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(branch):refs/remotes/origin/\(branch)"], in: repo)
         return sha(commit, repo: repo, git: git) != nil
@@ -442,28 +442,28 @@ public enum Worktrees {
 
     /// `-D` because the question `-d` asks — merged into HEAD or the upstream — is not the one
     /// answered above, and the project's checkout is usually on some other branch.
-    private static func delete(_ branch: String, repo: String, git: GitRunner) -> ReviewBranchRelease {
+    private static func delete(_ branch: String, repo: String, git: any GitRunning) -> ReviewBranchRelease {
         do { try git.run(["branch", "-D", branch], in: repo); return .deleted }
         catch { return .kept(GitError.reason(of: error)) }
     }
 
-    private static func sha(_ ref: String, repo: String, git: GitRunner) -> String? {
+    private static func sha(_ ref: String, repo: String, git: any GitRunning) -> String? {
         (try? commit(ref, repo: repo, git: git)) ?? nil
     }
 
     /// The commit `ref` names, `nil` when git says there is none (exit 1 under `--quiet`); thrown
     /// when git could not be asked.
-    private static func commit(_ ref: String, repo: String, git: GitRunner) throws -> String? {
+    private static func commit(_ ref: String, repo: String, git: any GitRunning) throws -> String? {
         try git.ask(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: repo, none: [1])
     }
 
-    private static func isAncestor(_ ancestor: String, of commit: String, repo: String, git: GitRunner) -> Bool {
+    private static func isAncestor(_ ancestor: String, of commit: String, repo: String, git: any GitRunning) -> Bool {
         (try? git.run(["merge-base", "--is-ancestor", ancestor, commit], in: repo)) != nil
     }
 
     /// Where a new worktree goes, made ready for `git worktree add`: never through a symlink, with
     /// `.worktrees/` in the repository's exclude file so it does not show as untracked.
-    private static func prepare(repo: String, slug: String, git: GitRunner) throws -> String {
+    private static func prepare(repo: String, slug: String, git: any GitRunning) throws -> String {
         let dir = repo + "/" + directoryName, path = dir + "/" + slug
         for p in [dir, path] where (try? FileManager.default.destinationOfSymbolicLink(atPath: p)) != nil { throw WorktreeError.symlinkRefused(p) }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -476,7 +476,7 @@ public enum Worktrees {
     /// here: `git fetch origin <ref>` updates `refs/remotes/origin/<ref>` only when
     /// `remote.origin.fetch` covers it, which a single-branch or shallow clone's does not.
     @discardableResult
-    private static func fetchFromOrigin(_ ref: String, repo: String, git: GitRunner) -> Bool {
+    private static func fetchFromOrigin(_ ref: String, repo: String, git: any GitRunning) -> Bool {
         guard (try? git.run(["remote", "get-url", "origin"], in: repo)) != nil else { return false }
         _ = try? git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(ref):refs/remotes/origin/\(ref)"], in: repo)
         return true
@@ -485,12 +485,12 @@ public enum Worktrees {
     /// Whether `git worktree remove` would refuse `path` without `--force`: git's own check, asked
     /// ahead of it so the task's window can close before anything is deleted. `false` for a folder
     /// git does not know as a worktree — `git status` there would answer for the project's checkout.
-    public static func hasUnsavedWork(repo: String, path: String, git: GitRunner) throws -> Bool {
+    public static func hasUnsavedWork(repo: String, path: String, git: any GitRunning) throws -> Bool {
         guard FileManager.default.fileExists(atPath: path), try isRegistered(repo: repo, path: path, git: git) else { return false }
         return try !git.run(["status", "--porcelain", "--ignore-submodules=none"], in: path).isEmpty
     }
 
-    public static func remove(repo: String, path: String, deleteBranch: String?, force: Bool, git: GitRunner) throws {
+    public static func remove(repo: String, path: String, deleteBranch: String?, force: Bool, git: any GitRunning) throws {
         if try isRegistered(repo: repo, path: path, git: git) {
             try removeRegistered(repo: repo, path: path, force: force, git: git)
         } else {
@@ -502,7 +502,7 @@ public enum Worktrees {
         if let b = deleteBranch { try git.run(["branch", force ? "-D" : "-d", b], in: repo) }
     }
 
-    private static func removeRegistered(repo: String, path: String, force: Bool, git: GitRunner) throws {
+    private static func removeRegistered(repo: String, path: String, force: Bool, git: any GitRunning) throws {
         // Read the lock reason *before* unlocking: it is the only marker on disk that says whether
         // this worktree is a review's, and a refused removal must put back what was there rather
         // than stamping every survivor "aiterm task".
@@ -522,7 +522,7 @@ public enum Worktrees {
     }
 
     /// Whether git lists `path` as one of `repo`'s worktrees.
-    static func isRegistered(repo: String, path: String, git: GitRunner) throws -> Bool {
+    static func isRegistered(repo: String, path: String, git: any GitRunning) throws -> Bool {
         let wanted = resolved(path)
         return try listed(repo: repo, git: git).contains { resolved($0.path) == wanted }
     }
@@ -543,21 +543,21 @@ public enum Worktrees {
     /// `create` writes `taskLockReason`, and that is the only thing on disk that says which kind a
     /// worktree is — so an import that threw it away would turn a review back into a task, whose
     /// branch the app is willing to delete.
-    public static func existing(repo: String, git: GitRunner) throws -> [Worktree] {
+    public static func existing(repo: String, git: any GitRunning) throws -> [Worktree] {
         let prefix = resolved(repo) + "/" + directoryName + "/"
         return try listed(repo: repo, git: git).filter { $0.branch != nil && resolved($0.path).hasPrefix(prefix) }
     }
 
     /// The reason `path` is locked with. `nil` when the worktree is unlocked or unknown to git,
     /// `""` when it is locked without a reason.
-    public static func lockReason(repo: String, path: String, git: GitRunner) -> String? {
+    public static func lockReason(repo: String, path: String, git: any GitRunning) -> String? {
         let wanted = resolved(path)
         return ((try? listed(repo: repo, git: git)) ?? []).first { resolved($0.path) == wanted }?.lockReason
     }
 
     /// `git worktree list --porcelain`: blank-line-separated records of `worktree <path>`,
     /// `branch refs/heads/<name>` and `locked <reason>` — or a bare `locked` when the lock carries none.
-    public static func listed(repo: String, git: GitRunner) throws -> [Worktree] {
+    public static func listed(repo: String, git: any GitRunning) throws -> [Worktree] {
         var out: [Worktree] = [], current: Worktree?
         for line in try git.run(["worktree", "list", "--porcelain"], in: repo).split(separator: "\n", omittingEmptySubsequences: false) {
             if line.hasPrefix("worktree ") { current = Worktree(path: String(line.dropFirst(9)), branch: nil, lockReason: nil) }
@@ -581,7 +581,7 @@ public enum Worktrees {
     /// *file* pointing at the common dir, so the assumed path is not a directory we may create.
     /// git answers with an absolute path from inside a linked worktree and a relative one from a
     /// normal checkout; both are handled. `nil` means "not a git repository" (or git is missing).
-    public static func excludeFile(forWorktreeOrRepo path: String, git: GitRunner) -> URL? {
+    public static func excludeFile(forWorktreeOrRepo path: String, git: any GitRunning) -> URL? {
         guard let answer = try? git.run(["rev-parse", "--git-path", "info/exclude"], in: path), !answer.isEmpty else { return nil }
         return URL(fileURLWithPath: answer.hasPrefix("/") ? answer : path + "/" + answer)
     }
@@ -595,7 +595,7 @@ public enum Worktrees {
         try (current + (current.isEmpty || current.hasSuffix("\n") ? "" : "\n") + pattern + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    static func ensureExcluded(repo: String, git: GitRunner) throws {
+    static func ensureExcluded(repo: String, git: any GitRunning) throws {
         guard let excludeURL = excludeFile(forWorktreeOrRepo: repo, git: git) else { return }
         try appendExclude(directoryName + "/", to: excludeURL)
     }

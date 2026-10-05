@@ -21,7 +21,7 @@ extension AgentDraft {
 }
 
 extension TaskDraft {
-    static func initial(project: Project, state: AppState, git: GitRunner, home: URL, defaults: UserDefaults) -> TaskDraft {
+    static func initial(project: Project, state: AppState, git: any GitRunning, home: URL, defaults: UserDefaults) -> TaskDraft {
         let agent = state.lastAgentByProject[project.id] ?? .claude
         return initial(project: project, state: state, git: git, agent: agent,
                        catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)

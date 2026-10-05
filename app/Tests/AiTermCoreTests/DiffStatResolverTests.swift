@@ -4,19 +4,14 @@ import Testing
 @testable import AiTermTestSupport
 
 struct DiffStatResolverTests {
-    private let git = GitRunner()
+    private let git = GitRunner.hermetic()
 
     /// A repo on `main` with one tracked file of three lines, and a task worktree off it.
     private func makeRepo(refFormat: String = "files") throws -> (repo: String, worktree: String) {
-        let dir = NSTemporaryDirectory() + "diff-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let repo = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
-        try git.run(["init", "--initial-branch=main", "--ref-format=" + refFormat, "-q", repo], in: "/")
-        try git.run(["config", "user.email", "t@example.com"], in: repo)
-        try git.run(["config", "user.name", "T"], in: repo)
+        let repo = try GitFixture.makeRepo(prefix: "diff-", refFormat: refFormat, git: git)
         try write("one\ntwo\nthree\n", to: repo + "/a.txt")
         try git.run(["add", "."], in: repo)
-        try git.run(["commit", "-q", "-m", "init"], in: repo)
+        try git.run(["commit", "-q", "-m", "add a.txt"], in: repo)
         let worktree = repo + "/.worktrees/feat"
         try git.run(["worktree", "add", "-q", "-b", "feat/x", worktree], in: repo)
         return (repo, worktree)
@@ -33,20 +28,20 @@ struct DiffStatResolverTests {
 
     @Test func aFreshWorktreeHasNoDiff() throws {
         let (_, worktree) = try makeRepo()
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
     }
 
     @Test func countsCommittedWorkAgainstTheBase() throws {
         let (_, worktree) = try makeRepo()
         try write("one\nTWO\nthree\nfour\n", to: worktree + "/a.txt")
         try commit("edit", in: worktree)
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 1))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 1))
     }
 
     @Test func countsUncommittedEditsToo() throws {
         let (_, worktree) = try makeRepo()
         try write("one\nthree\n", to: worktree + "/a.txt")
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 1))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 1))
     }
 
     @Test func countsUntrackedFilesAsAdditions() throws {
@@ -54,7 +49,7 @@ struct DiffStatResolverTests {
         let (_, worktree) = try makeRepo()
         try write("x\ny\n", to: worktree + "/new.txt")
         try write("no trailing newline", to: worktree + "/partial.txt")
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0))
     }
 
     /// Once added, git counts a symlink as one line, its target path. The count must not follow it:
@@ -67,7 +62,7 @@ struct DiffStatResolverTests {
         try write("a\nb\nc\nd\n", to: target)
         try FileManager.default.createSymbolicLink(atPath: worktree + "/link", withDestinationPath: target)
         try FileManager.default.createSymbolicLink(atPath: worktree + "/dangling", withDestinationPath: worktree + "/nothing")
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
     }
 
     /// A link to a device never ends and a FIFO waits for a writer: reading either stalled the
@@ -77,7 +72,7 @@ struct DiffStatResolverTests {
         try FileManager.default.createSymbolicLink(atPath: worktree + "/zero", withDestinationPath: "/dev/zero")
         #expect(mkfifo(worktree + "/pipe", 0o600) == 0)
         try write("x\n", to: worktree + "/new.txt")
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
     }
 
     @Test func ignoredAndBinaryFilesDoNotCount() throws {
@@ -86,7 +81,7 @@ struct DiffStatResolverTests {
         try write("a\nb\nc\n", to: worktree + "/ignored.log")
         try Data([0x00, 0x01, 0x0A, 0x02]).write(to: URL(fileURLWithPath: worktree + "/blob.bin"))
         // `.gitignore` itself is one untracked line.
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 1, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 1, removed: 0))
     }
 
     @Test func measuresFromTheMergeBaseNotTheBaseTip() throws {
@@ -94,7 +89,7 @@ struct DiffStatResolverTests {
         let (repo, worktree) = try makeRepo()
         try write("one\ntwo\nthree\nmain only\n", to: repo + "/a.txt")
         try commit("main moves on", in: repo)
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
     }
 
     @Test func fallsBackToTheRemoteBranchWhenTheBaseIsNotLocal() throws {
@@ -102,7 +97,7 @@ struct DiffStatResolverTests {
         let (repo, worktree) = try makeRepo()
         try git.run(["update-ref", "refs/remotes/origin/develop", "HEAD"], in: repo)
         try write("extra\n", to: worktree + "/b.txt")
-        #expect(DiffStatResolver().diff(for: worktree, base: "develop") == DiffStat(added: 1, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "develop") == DiffStat(added: 1, removed: 0))
     }
 
     @Test func aStaleLocalBaseYieldsToTheLaterRemoteOne() throws {
@@ -114,12 +109,12 @@ struct DiffStatResolverTests {
         try git.run(["update-ref", "refs/remotes/origin/main", "HEAD"], in: worktree)
         try write("mine\nmine\n", to: worktree + "/mine.txt")
         try commit("task", in: worktree)
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
     }
 
     @Test func noBaseOrNoRepositoryIsNoAnswer() throws {
         let (_, worktree) = try makeRepo()
-        let resolver = DiffStatResolver()
+        let resolver = DiffStatResolver(git: .hermetic())
         #expect(resolver.diff(for: worktree, base: "") == nil)
         #expect(resolver.diff(for: worktree, base: "no-such-branch") == nil)
         #expect(resolver.diff(for: "/definitely/not/here", base: "main") == nil)
@@ -128,7 +123,7 @@ struct DiffStatResolverTests {
     @Test func answersFromTheCacheUntilItExpires() throws {
         let clock = TestClock()
         let (_, worktree) = try makeRepo()
-        let resolver = DiffStatResolver(now: { clock.now }, ttl: 5)
+        let resolver = DiffStatResolver(git: .hermetic(), now: { clock.now }, ttl: 5)
         #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
         try write("new\n", to: worktree + "/c.txt")
         clock.advance(by: 4)
@@ -142,8 +137,7 @@ struct DiffStatResolverTests {
     @Test func aMergeBaseIsReusedUntilARefItComesFromMoves() throws {
         let clock = TestClock()
         let (repo, worktree) = try makeRepo()
-        let recording = RecordingGitRunner(), commands = Commands(recording)
-        recording.forwards = true
+        let recording = RecordingGitRunner(forwardingTo: .hermetic()), commands = Commands(recording)
         let resolver = DiffStatResolver(git: recording, now: { clock.now }, ttl: 5)
         func expired() -> DiffStat? { commands.reset(); clock.advance(by: 6); return resolver.diff(for: worktree, base: "main") }
         try write("mine\nmine\n", to: worktree + "/mine.txt")
@@ -196,8 +190,7 @@ struct DiffStatResolverTests {
     @Test func aReftableMergeBaseIsRecomputedWhenARefMoves() throws {
         let clock = TestClock()
         let (repo, worktree) = try makeRepo(refFormat: "reftable")
-        let recording = RecordingGitRunner(), commands = Commands(recording)
-        recording.forwards = true
+        let recording = RecordingGitRunner(forwardingTo: .hermetic()), commands = Commands(recording)
         let resolver = DiffStatResolver(git: recording, now: { clock.now }, ttl: 5)
         func expired() -> DiffStat? { commands.reset(); clock.advance(by: 6); return resolver.diff(for: worktree, base: "main") }
         try write("mine\nmine\n", to: worktree + "/mine.txt")
@@ -241,11 +234,11 @@ struct DiffStatResolverTests {
         #expect(DiffStatResolver.UntrackedCap.standard == DiffStatResolver.UntrackedCap(files: 2_000, bytes: 20 << 20))
         let (_, worktree) = try makeRepo()
         for name in ["a", "b", "c", "d", "e"] { try write("x\ny\n", to: worktree + "/\(name).new") }
-        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 10, removed: 0))
-        #expect(DiffStatResolver(untrackedCap: .init(files: 3, bytes: 1 << 20)).diff(for: worktree, base: "main")
+        #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 10, removed: 0))
+        #expect(DiffStatResolver(git: .hermetic(), untrackedCap: .init(files: 3, bytes: 1 << 20)).diff(for: worktree, base: "main")
                 == DiffStat(added: 6, removed: 0))
         // Four bytes a file: two fit in ten, the third would not.
-        #expect(DiffStatResolver(untrackedCap: .init(files: 100, bytes: 10)).diff(for: worktree, base: "main")
+        #expect(DiffStatResolver(git: .hermetic(), untrackedCap: .init(files: 100, bytes: 10)).diff(for: worktree, base: "main")
                 == DiffStat(added: 4, removed: 0))
     }
 
@@ -268,8 +261,7 @@ struct DiffStatResolverTests {
                      createdAt: Date(), windowId: nil)
         }
         let a = task(first), b = task(second)
-        let recording = RecordingGitRunner(), commands = Commands(recording)
-        recording.forwards = true
+        let recording = RecordingGitRunner(forwardingTo: .hermetic()), commands = Commands(recording)
         let resolver = DiffStatResolver(git: recording, now: { Date(timeIntervalSince1970: 0) }, ttl: 5)
         #expect(resolver.diffs(for: [a, b]).count == 2)
         _ = resolver.diffs(for: [a])

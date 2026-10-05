@@ -44,14 +44,15 @@ public enum AgentCommand {
         return parts.joined(separator: " ")
     }
 
-    public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String) throws -> String {
+    public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
+                             git: any GitRunning) throws -> String {
         var parts = invocation(agent: agent, model: model, reasoning: reasoning)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
                 try prompt.write(toFile: dir + "/first-prompt.md", atomically: true, encoding: .utf8)
-                excludeAitermDirectory(worktreePath: worktreePath)
+                excludeAitermDirectory(worktreePath: worktreePath, git: git)
                 parts.append("\"$(cat .aiterm/first-prompt.md)\"")
             } else {
                 parts.append(shellQuote(prompt))
@@ -80,8 +81,8 @@ public enum AgentCommand {
     /// checkout). This must never fail command building, so every step here is best-effort:
     /// a plain (non-repo) temp directory, like the one `testLongPromptGoesToFile` uses, is fine.
     /// The resolution and the append are `Worktrees`' helpers, shared with `Worktrees.create`.
-    private static func excludeAitermDirectory(worktreePath: String) {
-        guard let excludeURL = Worktrees.excludeFile(forWorktreeOrRepo: worktreePath, git: GitRunner()) else { return }
+    private static func excludeAitermDirectory(worktreePath: String, git: any GitRunning) {
+        guard let excludeURL = Worktrees.excludeFile(forWorktreeOrRepo: worktreePath, git: git) else { return }
         try? Worktrees.appendExclude(".aiterm/", to: excludeURL)
     }
 

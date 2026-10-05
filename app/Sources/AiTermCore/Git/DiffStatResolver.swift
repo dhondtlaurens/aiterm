@@ -35,7 +35,7 @@ public final class DiffStatResolver: @unchecked Sendable {
         static let standard = UntrackedCap(files: 2_000, bytes: 20 << 20)
     }
 
-    private let git: GitRunner
+    private let git: any GitRunning
     private let now: @Sendable () -> Date
     private let ttl: TimeInterval
     private let cap: UntrackedCap
@@ -47,11 +47,11 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// stray dump or build artifact that escaped `.gitignore`.
     static let untrackedByteLimit = 1 << 20
 
-    public convenience init(git: GitRunner = GitRunner(), now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5) {
+    public convenience init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5) {
         self.init(git: git, now: now, ttl: ttl, untrackedCap: .standard)
     }
 
-    init(git: GitRunner = GitRunner(), now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5, untrackedCap: UntrackedCap) {
+    init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5, untrackedCap: UntrackedCap) {
         self.git = git; self.now = now; self.ttl = ttl; self.cap = untrackedCap
     }
 
@@ -118,7 +118,7 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// instead — the checkout's own, which holds its HEAD, and the shared one beside
     /// `packed-refs`, which holds the branches. One git call, and `nil` when `worktree` is not a
     /// checkout with a commit.
-    private static func refFiles(_ worktree: String, base: String, git: GitRunner) -> [String]? {
+    private static func refFiles(_ worktree: String, base: String, git: any GitRunning) -> [String]? {
         let names = ["HEAD", "packed-refs", "refs/heads/" + base, "refs/remotes/origin/" + base, "reftable/tables.list"]
         guard let answer = try? git.run(["rev-parse", "--symbolic-full-name", "HEAD"] + names.flatMap { ["--git-path", $0] },
                                         in: worktree) else { return nil }
@@ -138,7 +138,7 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// `origin/<target>`, and a local `main` that has not been pulled in weeks would count work
     /// already merged upstream as the task's own — so when both exist, the later of the two
     /// merge-bases wins.
-    private static func findMergeBase(_ worktree: String, base: String, git: GitRunner) -> String? {
+    private static func findMergeBase(_ worktree: String, base: String, git: any GitRunning) -> String? {
         let found = [base, "origin/" + base].compactMap { ref in
             (try? git.run(["merge-base", ref, "HEAD"], in: worktree)).flatMap { $0.isEmpty ? nil : $0 }
         }

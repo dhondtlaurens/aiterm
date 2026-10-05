@@ -4,6 +4,7 @@ import Foundation
 import Darwin
 #endif
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct AgentCommandTests {
     let wt = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)").path
@@ -22,9 +23,9 @@ import Darwin
     }
 
     @Test func testClaudeAndCodexCommands() throws {
-        #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: "high", prompt: "/plan fix it", worktreePath: wt) == "claude --model opus --effort high '/plan fix it'")
-        #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: nil, worktreePath: wt) == "claude --model opus")
-        #expect(try AgentCommand.build(agent: .codex, model: "gpt-5.6", reasoning: "medium", prompt: "review", worktreePath: wt) == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c model_reasoning_effort=medium 'review'")
+        #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: "high", prompt: "/plan fix it", worktreePath: wt, git: .hermetic()) == "claude --model opus --effort high '/plan fix it'")
+        #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: nil, worktreePath: wt, git: .hermetic()) == "claude --model opus")
+        #expect(try AgentCommand.build(agent: .codex, model: "gpt-5.6", reasoning: "medium", prompt: "review", worktreePath: wt, git: .hermetic()) == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c model_reasoning_effort=medium 'review'")
     }
 
     @Test func grokCommand() {
@@ -36,7 +37,7 @@ import Darwin
 
     @Test func testPiCommandUsesQualifiedModelAndThinking() throws {
         #expect(try AgentCommand.build(agent: .pi, model: "openai-codex/gpt-5.6-sol",
-                                       reasoning: "high", prompt: "review", worktreePath: wt)
+                                       reasoning: "high", prompt: "review", worktreePath: wt, git: .hermetic())
                 == "pi --model openai-codex/gpt-5.6-sol --thinking high 'review'")
         #expect(AgentCommand.previewCommand(agent: .pi, model: "anthropic/claude-sonnet",
                                             reasoning: nil, prompt: nil)
@@ -47,7 +48,7 @@ import Darwin
     /// fails the whole line with "no matches found". A word only shell-safe characters make up is
     /// left as it is, so every command above stays readable.
     @Test func testAWordZshWouldExpandIsQuoted() throws {
-        #expect(try AgentCommand.build(agent: .claude, model: "claude-fable-5-1[1m]", reasoning: "max*", prompt: nil, worktreePath: wt)
+        #expect(try AgentCommand.build(agent: .claude, model: "claude-fable-5-1[1m]", reasoning: "max*", prompt: nil, worktreePath: wt, git: .hermetic())
                 == "claude --model 'claude-fable-5-1[1m]' --effort 'max*'")
         #expect(AgentCommand.previewCommand(agent: .codex, model: "gpt-5.6", reasoning: "x y", prompt: nil)
                 == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c 'model_reasoning_effort=x y'")
@@ -61,7 +62,7 @@ import Darwin
     @Test func testLongPromptGoesToFile() throws {
         try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
         let long = String(repeating: "x", count: 9000)
-        let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: wt)
+        let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: wt, git: .hermetic())
         #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"")
         #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == long)
     }
@@ -73,11 +74,11 @@ import Darwin
     @Test func testACommandTooLongForTheTerminalLineGoesToFile() throws {
         try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
         let fits = String(repeating: "x", count: 900)
-        #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: fits, worktreePath: wt)
+        #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: fits, worktreePath: wt, git: .hermetic())
                 == "claude --model opus '\(fits)'")
         // Short as text, but each `'` is typed as four bytes once it is quoted.
         for prompt in [String(repeating: "x", count: 1100), String(repeating: "it's ", count: 150)] {
-            let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt)
+            let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
             #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"")
             #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == prompt)
             #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: prompt) == cmd)
@@ -90,12 +91,12 @@ import Darwin
     @Test func testAPromptWithControlCharactersGoesToFile() throws {
         try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
         for prompt in ["fix\tit", "one\rtwo", "stop\u{1B}here", "x\u{03}y", "x\u{7F}y"] {
-            let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt)
+            let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
             #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"", "\(prompt.debugDescription)")
             #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == prompt)
             #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: prompt) == cmd)
         }
-        let crlf = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: "one\r\ntwo\n", worktreePath: wt)
+        let crlf = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: "one\r\ntwo\n", worktreePath: wt, git: .hermetic())
         #expect(crlf == "claude --model opus 'one\ntwo\n'")
         #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: "one\r\ntwo") == "claude --model opus 'one\ntwo'")
     }
@@ -104,7 +105,7 @@ import Darwin
     /// exclude file, resolved via `git rev-parse --git-path info/exclude` run in the worktree
     /// (a worktree's `info/exclude` lives in the common dir, not `<worktree>/.git/info/exclude`).
     @Test func testLongPromptExcludesAitermDirectory() throws {
-        let git = GitRunner()
+        let git = GitRunner.hermetic()
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         let repo = Self.realPath(raw)
@@ -112,7 +113,7 @@ import Darwin
         _ = try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
 
         let long = String(repeating: "x", count: 9000)
-        _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: repo)
+        _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: repo, git: .hermetic())
 
         let exclude = try String(contentsOfFile: repo + "/.git/info/exclude", encoding: .utf8)
         #expect(exclude.contains(".aiterm/"))
@@ -125,7 +126,7 @@ import Darwin
     /// lands `.aiterm/` in the main repo's exclude file, and that building twice is idempotent
     /// (the line appears exactly once).
     @Test func testLongPromptExcludesAitermDirectoryInLinkedWorktree() throws {
-        let git = GitRunner()
+        let git = GitRunner.hermetic()
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         let repo = Self.realPath(raw)
@@ -135,8 +136,8 @@ import Darwin
         let linkedPath = try Worktrees.create(repo: repo, slug: "web-1-thing", branch: "feat/web-1-thing", base: "main", git: git)
 
         let long = String(repeating: "x", count: 9000)
-        _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: linkedPath)
-        _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: linkedPath)
+        _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: linkedPath, git: .hermetic())
+        _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: linkedPath, git: .hermetic())
 
         let exclude = try String(contentsOfFile: repo + "/.git/info/exclude", encoding: .utf8)
         #expect(exclude.contains(".aiterm/"))

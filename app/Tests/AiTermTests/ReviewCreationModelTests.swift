@@ -17,7 +17,7 @@ import Foundation
                        defaults: UserDefaults = ScratchDefaults.make(),
                        create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
-                            home: ScratchHome.bare, availableAgents: available ?? [agent], catalogue: catalogue, defaults: defaults,
+                            home: ScratchHome.bare, availableAgents: available ?? [agent], catalogue: catalogue, defaults: defaults, git: .hermetic(),
                             searchMergeRequests: search, createReview: create)
     }
 
@@ -118,7 +118,7 @@ import Foundation
                              agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
                              createdAt: Date(), windowId: nil)
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                    home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(),
+                                    home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
                                     owningTask: { branch, _ in branch == owner.branch ? owner : nil },
                                     searchMergeRequests: { _ in [] }, createReview: { _ in })
         #expect(m.owningTask == nil)
@@ -134,7 +134,7 @@ import Foundation
     @Test func theOwningTaskIsFoundOnceABranchIsPickedNotOnEachRead() {
         var lookups = 0
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                    home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(),
+                                    home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
                                     owningTask: { _, _ in lookups += 1; return nil },
                                     searchMergeRequests: { _ in [] }, createReview: { _ in })
         let before = lookups

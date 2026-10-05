@@ -4,28 +4,17 @@ import Testing
 @testable import AiTermTestSupport
 
 struct RemoteResolverTests {
-    private func makeRepo() throws -> String {
-        let git = GitRunner()
-        let dir = NSTemporaryDirectory() + "rr-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        // git reports /private/var..., Foundation reports /var...; resolve once so the two agree.
-        let repo = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
-        try git.run(["init", "--initial-branch=main", "-q", repo], in: "/")
-        try git.run(["config", "user.email", "t@example.com"], in: repo)
-        try git.run(["config", "user.name", "T"], in: repo)
-        try git.run(["commit", "--allow-empty", "-q", "-m", "init"], in: repo)
-        return repo
-    }
+    private func makeRepo() throws -> String { try GitFixture.makeRepo(prefix: "rr-") }
 
     @Test func followsARemoteAddedAfterTheFirstLookup() throws {
-        let repo = try makeRepo(), git = GitRunner(), resolver = RemoteResolver()
+        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
         #expect(resolver.remote(for: repo) == .remote(nil))
         try git.run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
         #expect(resolver.remote(for: repo) == .remote("git@gitlab.example.com:group/app.git"))
     }
 
     @Test func followsARemoteUrlBeingChanged() throws {
-        let repo = try makeRepo(), git = GitRunner(), resolver = RemoteResolver()
+        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
         try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
         #expect(resolver.remote(for: repo) == .remote("git@example.com:app.git"))
         try git.run(["remote", "set-url", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
@@ -35,7 +24,7 @@ struct RemoteResolverTests {
     @Test func separatesADirectoryThatIsNotARepositoryFromOneWithoutARemote() throws {
         let dir = NSTemporaryDirectory() + "plain-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let resolver = RemoteResolver()
+        let resolver = RemoteResolver(git: .hermetic())
         #expect(resolver.remote(for: dir) == .notARepository)
         #expect(resolver.remote(for: "") == .notARepository)
         #expect(resolver.remote(for: "/definitely/not/here") == .notARepository)
@@ -43,7 +32,7 @@ struct RemoteResolverTests {
     }
 
     @Test func resolvesALinkedWorktreeToTheRepositoryRemote() throws {
-        let repo = try makeRepo(), git = GitRunner(), resolver = RemoteResolver()
+        let repo = try makeRepo(), git = GitRunner.hermetic(), resolver = RemoteResolver(git: .hermetic())
         try git.run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
         let worktree = repo + "/.worktrees/feat"
         try git.run(["worktree", "add", "-q", "-b", "feat/y", worktree], in: repo)
@@ -53,7 +42,7 @@ struct RemoteResolverTests {
     /// The cache is revalidated by the config file's timestamp — the file `git remote add` rewrites
     /// — so a new remote is picked up without running git for every project on every refresh.
     @Test func cachedAnswerIsReusedUntilTheConfigChanges() throws {
-        let repo = try makeRepo(), git = GitRunner()
+        let repo = try makeRepo(), git = GitRunner.hermetic()
         let counting = CountingGitRunner()
         let resolver = RemoteResolver(git: counting)
         #expect(resolver.remote(for: repo) == .remote(nil))
@@ -78,7 +67,7 @@ struct RemoteResolverTests {
         let afterFirst = counting.calls
         #expect(resolver.remote(for: repo) == .notARepository)
         #expect(counting.calls == afterFirst, "a known non-repository must not shell out again")
-        try GitRunner().run(["init", "--initial-branch=main", "-q", repo], in: "/")
+        try GitRunner.hermetic().run(["init", "--initial-branch=main", "-q", repo], in: "/")
         clock.advance(by: 31)
         #expect(resolver.remote(for: repo) == .remote(nil), "a folder that became a repository is re-probed")
     }
@@ -89,7 +78,7 @@ extension RemoteResolverTests {
     /// remote shows up on the next lookup without anything rewriting `config`.
     @Test func aFailedLookupIsNotKeptAsNoRemote() throws {
         let repo = try makeRepo()
-        try GitRunner().run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
+        try GitRunner.hermetic().run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
         let flaky = FlakyGitRunner(), resolver = RemoteResolver(git: flaky)
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .unavailable)
@@ -102,7 +91,7 @@ extension RemoteResolverTests {
     @Test func aFailedReReadKeepsTheLastAnswerAndIsRetried() throws {
         let repo = try makeRepo(), flaky = FlakyGitRunner(), resolver = RemoteResolver(git: flaky)
         #expect(resolver.remote(for: repo) == .remote(nil))
-        try GitRunner().run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
+        try GitRunner.hermetic().run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .remote(nil), "the last answer stands while git cannot be asked")
         flaky.failing = false

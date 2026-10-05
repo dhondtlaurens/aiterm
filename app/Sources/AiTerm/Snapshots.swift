@@ -57,6 +57,8 @@ enum Snapshots {
             return home
         }()
         nonisolated static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { ModelCatalog.models(for: $0, home: Fixture.home) }
+        /// Asked for branches and checkouts of a project that is not on disk: it answers none.
+        nonisolated static let git = GitRunner()
         let controller: AppController
         let project: Project, personal: Project
         let working: TaskItem, other: TaskItem, piTask: TaskItem, grokTask: TaskItem
@@ -325,18 +327,18 @@ enum Snapshots {
         let preference = TaskDraft.preference(for: .claude, state: .empty, catalog: ModelCatalog.models(for: .claude, home: realHome),
                                               defaults: Fixture.defaults)
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: preference.model, reasoning: preference.reasoning)
-        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets,
+        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets,
                            previewTicketsOpen: false),
               to: out.appendingPathComponent("step1-closed.png"))
-        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets),
+        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets),
               to: out.appendingPathComponent("step1-empty.png"))
         draft.apply(ticket: tickets[3])
-        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets),
+        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets),
               to: out.appendingPathComponent("step1-picked.png"))
-        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 2, previewTickets: tickets),
+        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 2, previewTickets: tickets),
               to: out.appendingPathComponent("step2-agent.png"))
         draft.promptText = "/superpowers:brainstorming\nStart with the worker's shutdown path and the queue drain."
-        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 3, previewTickets: tickets),
+        write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 3, previewTickets: tickets),
               to: out.appendingPathComponent("step3-prompt.png"))
         // The completion popup open on the prompt's third line, where it hangs past the field and
         // over the hint, the checkbox and the command preview below it. Hosted only: under
@@ -344,7 +346,7 @@ enum Snapshots {
         if ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_HOSTED"] == "1" {
             var completingDraft = draft
             completingDraft.promptText = "Start with the worker's shutdown path.\nThen the queue drain.\n/s"
-            let completing = TaskCreationModel(project: project, draft: completingDraft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in })
+            let completing = TaskCreationModel(project: project, draft: completingDraft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in })
             let skills = [
                 AgentCompletion(name: "superpowers:brainstorming", kind: .skill, detail: "You MUST use this before any creative work", source: .plugin("superpowers")),
                 AgentCompletion(name: "superpowers:finishing-a-development-branch", kind: .skill, detail: "Use when implementation is complete", source: .plugin("superpowers")),
@@ -376,7 +378,7 @@ enum Snapshots {
         ]
         let reviewDraft = ReviewDraft(mr: nil, agent: .claude, model: draft.model, reasoning: draft.reasoning)
         func reviewModel() -> ReviewCreationModel {
-            ReviewCreationModel(project: project, draft: reviewDraft, home: Fixture.home, catalogue: Fixture.catalogue,
+            ReviewCreationModel(project: project, draft: reviewDraft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git,
                                 searchMergeRequests: { _ in mergeRequests }, createReview: { _ in })
         }
         write(NewReviewSheet(model: reviewModel(), previewStep: 1, previewMergeRequests: mergeRequests),
@@ -389,7 +391,7 @@ enum Snapshots {
         write(NewReviewSheet(model: picked, previewStep: 3, previewMergeRequests: mergeRequests),
               to: out.appendingPathComponent("review-step3.png"))
         // A branch that is already a task's: the sheet says the review opens there.
-        let ownedModel = ReviewCreationModel(project: project, draft: reviewDraft, home: Fixture.home, catalogue: Fixture.catalogue,
+        let ownedModel = ReviewCreationModel(project: project, draft: reviewDraft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git,
                                              owningTask: { branch, _ in branch == working.branch ? working : nil },
                                              searchMergeRequests: { _ in mergeRequests }, createReview: { _ in })
         ownedModel.draft.setTitle(working.title)

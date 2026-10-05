@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 @testable import AiTerm
 
 extension AppControllerTests {
@@ -50,7 +51,7 @@ extension AppControllerTests {
 private struct RemoteFixture {
     let root: URL
     let repo: URL
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     let controller: AppController
     private let stateURL: URL
 

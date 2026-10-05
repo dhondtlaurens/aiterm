@@ -5,25 +5,19 @@ import Testing
 
 struct WorkspaceScanTests {
     private func makeRepo(remote: String) throws -> String {
-        let git = GitRunner.hermetic()
-        let dir = NSTemporaryDirectory() + "ws-" + UUID().uuidString
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        // git reports /private/var..., Foundation reports /var...; resolve once so the two agree.
-        let repo = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
-        try git.run(["init", "--initial-branch=main", "-q", repo], in: "/")
-        try git.run(["-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "--allow-empty", "-q", "-m", "init"], in: repo)
-        try git.run(["remote", "add", "origin", remote], in: repo)
+        let repo = try GitFixture.makeRepo(prefix: "ws-")
+        try GitRunner.hermetic().run(["remote", "add", "origin", remote], in: repo)
         return repo
     }
 
-    private func scan(_ project: Project, git: GitRunner, resolvers: Resolvers) -> WorkspaceScan {
+    private func scan(_ project: Project, git: any GitRunning, resolvers: Resolvers) -> WorkspaceScan {
         WorkspaceScan.run(cwds: [], projects: [project], tasks: [], branches: resolvers.branches, remotes: resolvers.remotes,
                           diffs: DiffStatResolver(git: git), defaultBranches: resolvers.defaultBranches)
     }
 
     private struct Resolvers {
         let branches: BranchResolver, remotes: RemoteResolver, defaultBranches: DefaultBranchResolver
-        init(git: GitRunner) {
+        init(git: any GitRunning) {
             branches = BranchResolver(git: git); remotes = RemoteResolver(git: git); defaultBranches = DefaultBranchResolver(git: git)
         }
     }

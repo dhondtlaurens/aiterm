@@ -24,10 +24,10 @@ public enum RepoRemote: Equatable, Sendable {
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class RemoteResolver: Sendable {
-    private let git: GitRunner
+    private let git: any GitRunning
     private let cache: WatchedFileCache<String?>
 
-    public init(git: GitRunner = GitRunner(), now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
         self.git = git
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }

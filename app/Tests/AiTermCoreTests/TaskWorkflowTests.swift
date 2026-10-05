@@ -1,12 +1,13 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 struct TaskWorkflowTests {
     @Test func removalRetainsUnmergedBranchAndRetryOnlyDeletesBranch() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let git = GitRunner(), workflow = TaskWorkflow()
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
         let result = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: true)
@@ -28,16 +29,36 @@ struct TaskWorkflowTests {
         var (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
         draft.promptText = "line one\tTabbed, so it is read from a file"
-        let created = try await TaskWorkflow().create(draft: draft, project: project)
+        let created = try await TaskWorkflow(git: .hermetic()).create(draft: draft, project: project)
         #expect(created.launchWarning == nil)
         #expect(created.command?.contains(".aiterm/first-prompt.md") == true)
         #expect(FileManager.default.fileExists(atPath: created.task.worktreePath + "/.aiterm/first-prompt.md"))
     }
 
+    /// Every git command of a creation and a removal goes through the runner the workflow was given:
+    /// the checkout, the agent command's `.aiterm/` exclusion, the unlock and the branch deletion.
+    @Test func aWorkflowRunsTheGitItWasGiven() async throws {
+        var (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        draft.promptText = "line one\tTabbed, so it is read from a file"
+        let recording = RecordingGitRunner(forwardingTo: .hermetic())
+        let workflow = TaskWorkflow(git: recording)
+        let created = try await workflow.create(draft: draft, project: project)
+        let creation = recording.calls.map(\.args)
+        #expect(creation.contains { $0.contains("add") && $0.contains("worktree") })
+        #expect(creation.contains { $0.contains("--git-path") })
+        #expect(try await workflow.hasUnsavedWork(task: created.task, project: project) == false)
+        _ = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: false)
+        let all = recording.calls.map(\.args)
+        #expect(all.count > creation.count)
+        #expect(all.contains { $0.starts(with: ["worktree", "remove"]) || $0.contains("remove") })
+        #expect(all.contains { $0.starts(with: ["branch"]) })
+    }
+
     @Test func refusedRemovalPreservesCheckoutAndLock() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let workflow = TaskWorkflow(), git = GitRunner()
+        let workflow = TaskWorkflow(git: .hermetic()), git = GitRunner.hermetic()
         let created = try await workflow.create(draft: draft, project: project)
         let file = created.task.worktreePath + "/important.txt"
         try "work in progress".write(toFile: file, atomically: true, encoding: .utf8)
@@ -55,7 +76,7 @@ struct TaskWorkflowTests {
     @Test func removalFinishesATaskWhoseWorktreeGitHalfRemoved() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let git = GitRunner(), workflow = TaskWorkflow()
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         let path = created.task.worktreePath
         try git.run(["worktree", "unlock", path], in: project.path)
@@ -75,7 +96,7 @@ struct TaskWorkflowTests {
     @Test func removalDeletesABranchMergedIntoItsBaseWhileAnotherBranchIsCheckedOut() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let git = GitRunner(), workflow = TaskWorkflow()
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
         try git.run(["merge", "--ff-only", draft.branch], in: project.path)
@@ -95,7 +116,7 @@ struct TaskWorkflowTests {
     @Test func removalRetainsABranchMissingFromItsBaseWhileAnotherBranchIsCheckedOut() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let git = GitRunner(), workflow = TaskWorkflow()
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
         try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: project.path)
@@ -112,7 +133,7 @@ struct TaskWorkflowTests {
     @Test func deletingAnUnmergedBranchDropsItsCommits() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let git = GitRunner(), workflow = TaskWorkflow()
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
         _ = try await workflow.remove(task: created.task, project: project, deleteBranch: true, force: true)
@@ -127,7 +148,7 @@ struct TaskWorkflowTests {
     @Test func aBranchCheckedOutElsewhereIsRefusedInGitsWords() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }
-        let git = GitRunner(), workflow = TaskWorkflow()
+        let git = GitRunner.hermetic(), workflow = TaskWorkflow(git: .hermetic())
         let created = try await workflow.create(draft: draft, project: project)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "work"], in: created.task.worktreePath)
         try git.run(["merge", "--ff-only", draft.branch], in: project.path)
@@ -150,7 +171,7 @@ struct TaskWorkflowTests {
     @Test func testRemovingAReviewWithoutOriginKeepsItsBranch() async throws {
         let fixture = try ReviewRemovalFixture(withOrigin: false)
         defer { fixture.cleanUp() }
-        let result = try await TaskWorkflow().remove(task: fixture.review, project: fixture.project, deleteBranch: true, force: true)
+        let result = try await TaskWorkflow(git: .hermetic()).remove(task: fixture.review, project: fixture.project, deleteBranch: true, force: true)
         #expect(try fixture.hasLocalBranch())
         #expect(!FileManager.default.fileExists(atPath: fixture.review.worktreePath))
         #expect(result.branchRefusal == nil && result.keptBranch == nil)
@@ -161,14 +182,14 @@ struct TaskWorkflowTests {
     @Test func testRemovingAReviewReleasesItsBranchOnlyWhenPushed() async throws {
         let pushed = try ReviewRemovalFixture(withOrigin: true)
         defer { pushed.cleanUp() }
-        let clean = try await TaskWorkflow().remove(task: pushed.review, project: pushed.project, deleteBranch: false, force: false)
+        let clean = try await TaskWorkflow(git: .hermetic()).remove(task: pushed.review, project: pushed.project, deleteBranch: false, force: false)
         #expect(try !pushed.hasLocalBranch())
         #expect(clean.branchRefusal == nil && clean.keptBranch == nil)
 
         let unpushed = try ReviewRemovalFixture(withOrigin: true)
         defer { unpushed.cleanUp() }
         try unpushed.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "fix"], in: unpushed.review.worktreePath)
-        let kept = try await TaskWorkflow().remove(task: unpushed.review, project: unpushed.project, deleteBranch: true, force: false)
+        let kept = try await TaskWorkflow(git: .hermetic()).remove(task: unpushed.review, project: unpushed.project, deleteBranch: true, force: false)
         #expect(try unpushed.hasLocalBranch())
         #expect(kept.branchRefusal == nil)
         #expect(kept.keptBranch == "Branch feat/mr-branch kept: 1 commit not on origin.")
@@ -177,7 +198,7 @@ struct TaskWorkflowTests {
     private func fixture() throws -> (Project, TaskDraft) {
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
-        let git = GitRunner()
+        let git = GitRunner.hermetic()
         try git.run(["init", "-q", "-b", "main"], in: repo)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init"], in: repo)
         let project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
@@ -192,7 +213,7 @@ struct TaskWorkflowTests {
 /// builds a task's repo, plus the branch and the `Worktrees.checkout` worktree a review needs.
 /// With an origin, the branch is pushed there and exists locally only as the review's checkout.
 private struct ReviewRemovalFixture {
-    let git = GitRunner()
+    let git = GitRunner.hermetic()
     let root: String
     let project: Project
     let review: TaskItem

@@ -81,7 +81,7 @@ final class WatchedFileCache<Value: Sendable>: Sendable {
     /// relative one from an ordinary checkout — the same split `Worktrees.excludeFile` handles.
     /// `nil` when `directory` is not a repository (git's `fatal:`, status 128); thrown when git
     /// could not be asked, which is not that.
-    static func gitPath(_ name: String, in directory: String, git: GitRunner) throws -> String? {
+    static func gitPath(_ name: String, in directory: String, git: any GitRunning) throws -> String? {
         guard let answer = try git.ask(["rev-parse", "--git-path", name], in: directory, none: [128]), !answer.isEmpty else { return nil }
         return FileStamps.absolute(answer, in: directory)
     }

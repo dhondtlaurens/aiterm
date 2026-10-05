@@ -54,16 +54,48 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
     }
 }
 
-/// Not `final`: `BranchResolverTests` subclasses it to count how often git is actually run, which
-/// is the only way to prove the resolver's cache is doing its job.
+/// What runs git for a caller. Production runs the real binary (``GitRunner``); a test hands in one
+/// that counts, records or fails what it is asked, without a class for the tests to subclass.
 ///
-/// Every command has a deadline, because git can wait on something that never answers — a remote,
-/// or an `ssh` asking for a passphrase no one can type — and it is always run on a thread someone
-/// is waiting for. A command that runs out of time throws a `GitError` that says so.
-///
-/// Unchecked only because the class is open to subclassing: its stored properties are immutable
-/// `let`s, and each test subclass guards the counters it adds with a lock.
-public class GitRunner: @unchecked Sendable {
+/// `run(_:in:timeout:environment:)` is the one requirement, and every other way to ask — the
+/// default deadline, `runRemote`, `ask` — is an extension that ends in it, so a conformer sees every
+/// command and none escapes.
+public protocol GitRunning: Sendable {
+    /// Runs git with `args` in `dir`, with `environment` set over the runner's own for this one
+    /// command; its trimmed stdout, or a `GitError`.
+    @discardableResult
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String
+}
+
+extension GitRunning {
+    @discardableResult
+    public func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
+        try run(args, in: dir, timeout: timeout, environment: [:])
+    }
+
+    /// `run` for a command that talks to a remote — `fetch`, `ls-remote` — with the remote
+    /// deadline and the stall guard.
+    @discardableResult
+    public func runRemote(_ args: [String], in dir: String) throws -> String {
+        try run(GitRunner.stallGuard + args, in: dir, timeout: GitRunner.remoteTimeout)
+    }
+
+    /// `run` for a question git can answer "no" to by exiting with a status of its own — `1` for
+    /// `rev-parse --verify --quiet` and `symbolic-ref --quiet`, `2` for `remote get-url` of a remote
+    /// that does not exist, `128` for a `fatal:`: `nil` for one of `none`. Any other failure — a
+    /// timeout, git not starting, a status nothing expects — says nothing about the answer and is
+    /// thrown, so it is never mistaken for one.
+    func ask(_ args: [String], in dir: String, none: Set<Int32>) throws -> String? {
+        do { return try run(args, in: dir) }
+        catch let error as GitError where none.contains(error.code) { return nil }
+    }
+}
+
+/// Runs the git binary. Every command has a deadline, because git can wait on something that never
+/// answers — a remote, or an `ssh` asking for a passphrase no one can type — and it is always run
+/// on a thread someone is waiting for. A command that runs out of time throws a `GitError` that
+/// says so.
+public struct GitRunner: GitRunning {
     /// Reading refs, the index or config: well under a second, even in a large repository.
     public static let localTimeout: TimeInterval = 10
     /// Talking to a remote (`runRemote`).
@@ -86,13 +118,6 @@ public class GitRunner: @unchecked Sendable {
         self.git = git; self.environment = environment
     }
 
-    @discardableResult
-    public func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
-        try run(args, in: dir, timeout: timeout, environment: [:])
-    }
-
-    /// `run` with `extra` set for this one command as well. A subclass that overrides `run` does not
-    /// see these calls.
     @discardableResult
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String]) throws -> String {
         var env = ProcessRunner.inheritedEnvironment.merging(environment) { $1 }.merging(extra) { $1 }
@@ -128,30 +153,11 @@ public class GitRunner: @unchecked Sendable {
         return env
     }
 
-    /// `run` for a command that talks to a remote — `fetch`, `ls-remote` — with the remote
-    /// deadline and the stall guard.
-    @discardableResult
-    public func runRemote(_ args: [String], in dir: String) throws -> String {
-        try run(Self.stallGuard + args, in: dir, timeout: Self.remoteTimeout)
-    }
-
     /// How a person would name what `args` runs: `git fetch`, `git worktree add`, past any `-c`.
     private static func command(_ args: [String]) -> String {
         var rest = args[...]
         while let first = rest.first, first.hasPrefix("-") { rest = rest.dropFirst(first == "-c" ? 2 : 1) }
         let words = rest.prefix(["worktree", "remote"].contains(rest.first) ? 2 : 1)
         return (["git"] + words).joined(separator: " ")
-    }
-}
-
-extension GitRunner {
-    /// `run` for a question git can answer "no" to by exiting with a status of its own — `1` for
-    /// `rev-parse --verify --quiet` and `symbolic-ref --quiet`, `2` for `remote get-url` of a remote
-    /// that does not exist, `128` for a `fatal:`: `nil` for one of `none`. Any other failure — a
-    /// timeout, git not starting, a status nothing expects — says nothing about the answer and is
-    /// thrown, so it is never mistaken for one.
-    func ask(_ args: [String], in dir: String, none: Set<Int32>) throws -> String? {
-        do { return try run(args, in: dir) }
-        catch let error as GitError where none.contains(error.code) { return nil }
     }
 }

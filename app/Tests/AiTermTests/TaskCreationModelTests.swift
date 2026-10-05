@@ -167,7 +167,7 @@ struct TaskCreationModelTests {
             let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil,
                                   addedAt: Date(), collapsed: false, jiraProjects: jiraProjects)
             return TaskCreationModel(project: project, draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil),
-                                     home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(),
+                                     home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
                                      searchIssues: { _ in [] }, createTask: { _ in }).ticketPlaceholder
         }
         #expect(placeholder(linked) == "Search SHOP and PAY by key or title")
@@ -185,14 +185,14 @@ struct TaskCreationModelTests {
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setBranch("fix/login")
         let model = TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, catalogue: ScratchHome.catalogue,
-                                      defaults: ScratchDefaults.make(), searchIssues: { _ in [] }, createTask: { _ in })
+                                      defaults: ScratchDefaults.make(), git: .hermetic(), searchIssues: { _ in [] }, createTask: { _ in })
         #expect(model.worktreeSlug == "login-2")
         #expect(model.worktreeSlug == TaskCreator.unused(draft.worktreeSlug, in: repo))
         model.draft.setBranch("fix/logout")
         #expect(model.worktreeSlug == "logout")
 
         let review = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
-                                         home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(),
+                                         home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
                                          searchMergeRequests: { _ in [] }, createReview: { _ in })
         try FileManager.default.createDirectory(atPath: repo + "/.worktrees/review-card", withIntermediateDirectories: true)
         review.draft.setBranch("feat/card")
@@ -226,7 +226,7 @@ struct TaskCreationModelTests {
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: agent, model: model, reasoning: nil)
         draft.setTitle("Keep this draft")
         return TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, availableAgents: available,
-                                 catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults,
+                                 catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults, git: .hermetic(),
                                  searchIssues: search, createTask: create)
     }
 }
