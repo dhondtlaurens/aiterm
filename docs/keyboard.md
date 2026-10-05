@@ -19,7 +19,7 @@ carries one keyboard shortcut, so a second one hangs on a hidden button in an ov
 | ⌘R | New Review… | The same target and the same rules as New Task…. |
 | ⌘T | New Terminal… | The target project; any provider, a plain folder too. |
 | ⌘+ ⌘− ⌘0 | Zoom In, Zoom Out, Actual Size | The sidebar only — sheets keep Apple's sizes. ⌘= is a hidden alias of ⌘+, as in Safari. Off while a sheet is up. |
-| ⌘B | Backpack Mode | View menu, after the views. Keeps the Mac awake with the lid closed and joins the network chosen in Settings › Backpack, or says in a toast why it can't. Checked while on; never greyed. |
+| ⌘B | Backpack Mode | View menu, after the views. Backpack Mode: opens its sheet at the desk, turns it off in the backpack. Checked while on. |
 | ⌘Q | Quit | Flushes a sidebar move made in the last 150 ms, then takes the daemon down — an orphan would block the next launch's socket. |
 | ⌘Z | The standard Edit menu | Undo, Redo, Cut, Copy, Paste, Delete, Select All. Built by hand: without it no text field in any sheet could be edited normally. |
 
@@ -109,7 +109,7 @@ Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘1 ⌘2 ⌘3 ⌘4 | Agents, Integrations, Interface, Backpack | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
+| ⌘1 ⌘2 ⌘3 | Agents, Integrations, Interface | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
 
 ## Alerts
 

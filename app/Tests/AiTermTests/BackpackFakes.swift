@@ -68,7 +68,7 @@ final class FakeLidSensor: LidSensor, @unchecked Sendable {
     func isClosed() -> Bool? { closed }
 }
 
-/// All five fakes, set up and in range of "Phone" on AC, with their ports and settings.
+/// All six fakes, set up and in range of "Phone" on AC, with their ports and settings.
 struct FakeBackpack {
     let lid = FakeLidSleep()
     let wifi = FakeWiFi()

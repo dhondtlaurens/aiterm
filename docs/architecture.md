@@ -73,14 +73,21 @@ owner each, reached as a property of the controller. Views read the owners direc
 
 ### Backpack Mode
 
-`AiTermCore/Backpack/` decides; `BackpackController` drives it. Five ports, each faked in the
+`AiTermCore/Backpack/` decides; `BackpackController` drives it. Six ports, each faked in the
 tests: lid sleep (`sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by `/etc/sudoers.d/aiterm`,
-which Settings › Backpack installs and removes through an `osascript` admin prompt after `visudo`
+which Settings › Integrations › Mac installs and removes through an `osascript` admin prompt after `visudo`
 checks it), Wi-Fi (CoreWLAN, `networksetup` as the fallback and for the known-network list),
-battery (IOKit), Location (CoreLocation: macOS hides Wi-Fi names without it) and the installer.
+battery (IOKit), Location (CoreLocation: macOS hides Wi-Fi names without it), the installer and the
+lid (`AppleClamshellState` on `IOPMrootDomain`, which `ioreg` shows unprivileged).
 The hotspot's password lives in AiTerm's Keychain item: macOS will not hand another app an iPhone
 hotspot's saved one. Every 5 s it checks the network and the battery; off the network it rejoins
-at once, then after 5, 10, 20 and every 30 s. `backpack.engaged` in UserDefaults is written before
+at once, then after 5, 10, 20 and every 30 s. The check also takes whether any session in the
+workspace is working: after 2 minutes without one the mode turns itself off, and a turn-on with
+nothing working starts the same 2 minutes. On battery at or under 10 % it turns off too (a fixed
+cutoff, `BackpackSettings.cutoff`). Either ending is recorded with its time and cause for the Mac
+row. After off, the Mac leaves the hotspot for the first of its preferred networks that one scan
+finds, never the hotspot; if none is in range it stays put. The Backpack sheet watches the lid and
+closes on an open → closed transition. `backpack.engaged` in UserDefaults is written before
 `disablesleep 1` and cleared only after `disablesleep 0` succeeds: a failed restore is retried on
 every check, a launch that finds the marker puts sleep back, and quit closes the mode first, so no
 turn-on can follow it.

@@ -153,7 +153,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol on a `Palette.controlActive` disc at half its size, in `IntegrationMark`'s family; `tint` for a muted glyph. `size` is points on screen — Settings › Backpack's cards pass `Size.control`, the status bento passes `scale(Size.vendorMark)` |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac row `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -174,32 +174,37 @@ vendor needs both.
 `SheetLayout`, `SheetSubtitle`, `SheetActionRow`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `StatusBento`, `StatusTile`, `StatusLine`, `UsageWindow`, `ContextTile`,
-`UsageTile`, `UsageRing`, `BackpackTile`, `BackpackMark`, `SearchPicker`, `PickerResultRow`,
+`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `MacMode` (with `MacModeLine` and
+`MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `CompletionHint`,
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
-`SettingsSwitch`, `IntegrationMark`, `HarnessSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`,
-`BackpackSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
+`SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
+`InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
 
-**Backpack Mode.** Settings › Backpack (`BackpackSettingsPane`) is three `SettingsCard`s, each with a
-`SymbolMark` — an SF Symbol in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s
-family for things that are not vendors: Mac permissions (`lock.fill`; harness-style check `Badge`s,
-one action named by its state, `ItermSettingsCard`'s numbered steps while something is missing),
-Hotspot (`personalhotspot`; the mode's live status and a `ServiceCard`'s fields) and Battery
-(`battery.75percent`; a neutral `SegmentedControl`, as Sidebar size). Its words —
-the Hotspot card's three steps on the phone and what to do when the Mac loses it — are
-`BackpackPresentation`'s. In the sidebar, `BackpackTile` is the mode's tile in the status bento,
-always there: `BackpackMark` (a `SymbolMark` with `personalhotspot`, muted before setup, the state's
-`StatusMark` on its corner at `Size.statusMarkSmall` ringed in `Palette.badgeSolid` — the spinner
-while it switches, the done dot while on, the needs-input dot when it needs you, none while off),
-`backpack`, then a `SettingsSwitch` (disabled while it switches), or "Set Up…" before setup. The
-state in words, the hotspot's name included, is its tooltip and VoiceOver label
-(`BackpackPresentation.tileHelp` and `tileLabel`, decided by `BackpackTileState`); a right-click
-offers Backpack Settings…; ⌘B still works everywhere. The Backpack toasts wear
-`BackpackPresentation.symbol`, `personalhotspot`.
+**Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
+list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
+tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's row,
+always there. The Mac row is a `SymbolMark` in `.paper` style at `Size.vendorMark` (`macbook` at the
+desk, `iphone` in the backpack), the mode's name — `desk` or `backpack` — in `Palette.muted`, then at
+most one `StatusMark` at `Size.statusMark`, `Space.snug` after the name: the spinner while the mode
+switches, the done dot while it is on, the needs-input dot when it needs you, nothing at the desk. That
+mark is the row's one colour; a desk that Backpack Mode ended by itself adds `· backpack ended 14:32`
+in `Palette.muted`. A click opens the sheet at the desk and turns the mode off in the backpack;
+a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and VoiceOver
+sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
+
+Turning on is `BackpackSheet`, two steps in a `SheetLayout` with a `StepBar` (Hotspot, Connect). Hotspot
+is the known-networks `Select` and a secure `Input` for the password, with the Mac's missing
+permissions above them as `NumberedSteps` and an Allow… button; Connect is disabled until both are
+granted and a hotspot is chosen. Connect shows the phone's three steps and two live checks — a
+`StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
+failed — with Back and Cancel while it works. Once the Mac has joined and is held awake the body
+becomes a `Size.control` accent disc with a checkmark, “Safe to close the lid.”, and Done on ⌘↩;
+the mode stays on. Closing the lid dismisses the sheet. Its words are `BackpackSheetPresentation`'s,
+its state `BackpackSheetModel`'s. The Backpack toasts wear `BackpackController.symbol`, `iphone`.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -245,13 +250,13 @@ the one trigger for every agent; a Codex skill picked there is written as its `$
 `SheetPrimaryButton` is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows, and
 every sheet uses it rather than restating that.
 
-`SettingsView` has four tabs — Agents, Integrations, Interface, Backpack — picked from the tab bar or
-with ⌘1–⌘4, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
+`SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or
+with ⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
 saved service's last test failed (`ServiceTestRecord`), and on Agents otherwise; that is decided
 once, as the sheet opens, and a test answering afterwards never switches the tab.
 
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
-(`ItermSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
+(`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
 a title with optional check chips, a status line in one of three tones (ready, attention, idle)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:
@@ -268,6 +273,14 @@ the first broken link to iTerm2, or one line of `HelpText` when nothing is broke
 is `ItermConnection.status`, and the banner above the sidebar opens with the same words — grey,
 or amber while iTerm2 refuses the connection. It stays a pattern: Settings is its only user and its
 layout is this app's.
+
+Integrations heads its cards in two `SettingsSection`s, Core (iTerm2, then the Mac) and Services (Jira,
+GitLab, GitHub), each title in `Typography.bodyEmphasis` as Interface heads its keyboard section.
+`MacSettingsCard` is a harness card's anatomy for the Mac: `macbook` in a `.paper` `SymbolMark`, the
+chips “Lid sleep” and “Network discovery”, one action named by its state — Allow… while something is
+missing, Remove once both are granted — and, below its rule, `NumberedSteps` for what is missing or one
+line of `HelpText` when nothing is. A missing permission does not move the tab Settings opens on.
+`NumberedSteps` is also the iTerm2 card's mending steps and the Backpack sheet's phone steps.
 
 `SettingsGroup(title:help:rows:)` is a group that connects and tests nothing — Sidebar size,
 Sidebar badges, each keyboard group: the card's box and rule without its mark, status line or
@@ -295,21 +308,14 @@ a `HelpText` line, and an "Add Project…" push button that runs the header's ow
 starts where the heading's does, and its spacing reads `scale`; the button is an AppKit bezel, so
 it steps from `.regular` at ×1 to `.large` above it rather than scaling.
 
-`StatusBento` is the sidebar's foot: live status as an always-open bento of `StatusTile`s — two
-equal columns `Space.base` apart and round, the list's `Space.inset` either side, on
-`Palette.badge` at `Radius.group`. Row one is the selected task's `ContextTile` and `BackpackTile`,
-one line each (`Size.control`); with nothing selected Backpack spans it. Row two is Claude's and
-Codex's `UsageTile`, two lines each (`Size.row`): the mark and first window, then the second. Every
-line is a `StatusLine`, so every tile's words start on one column — the `Size.vendorMark` mark,
-`Space.snug`, then the words. A tile never resizes or reflows; a reading at 80 % or more only turns
-amber. Every window — its label, ring, number and reset (`UsageWindow`) — has one tooltip and one
-VoiceOver label in words (`UsageLine.help`): "Weekly limit, 61 % used, resets Friday 23:33",
-"Context 84 % full".
-
 `UsageRing` is the ladder's first rung working as intended: a progress ring carries no AiTerm type
-and would make a fine primitive, but only the status bento draws one, so it stays a pattern until a
-second file needs it. It is drawn to `StatusMark`'s recipe — same diameter, same `size * 0.15`
-stroke, same round cap — so the sidebar's two round marks read as one family.
+and would make a fine primitive, but only the footer draws one, so it stays a pattern until a second
+file needs it. It is drawn to `StatusMark`'s recipe — same diameter, same `size * 0.15` stroke, same
+round cap — so the sidebar's two round marks read as one family.
+
+Every window in the footer — its label, ring, number and reset — has one tooltip and one VoiceOver
+label in words (`UsageLine.help`): “Weekly limit, 61 % used, resets Friday 23:33”, “Context 84 %
+full”. A reading at 80 % or more only turns amber.
 
 ## The artifact
 

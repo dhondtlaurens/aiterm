@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A round mark for something that is not a vendor: an SF Symbol on a neutral
 /// `Palette.controlActive` disc (`.quiet` style, in `IntegrationMark`'s family), or `Palette.markInk`
-/// on `Palette.markPaper` (`.paper` style, the vendor discs' recipe). Settings › Backpack's cards draw it at
-/// `Size.control`; the sidebar footer's Mac row draws it at `Size.vendorMark`. `size` is
+/// on `Palette.markPaper` (`.paper` style, the vendor discs' recipe). The Mac card in Settings › Integrations
+/// draws it at `Size.control`; the sidebar footer's Mac row draws it at `Size.vendorMark`. `size` is
 /// points on screen: the caller scales the token it passes.
 public struct SymbolMark: View {
     let symbol: String

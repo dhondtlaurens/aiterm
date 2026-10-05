@@ -43,6 +43,10 @@ you do.
   for Claude usage. A backup is kept next to every file it edits; the same card repairs or
   reinstalls them.
 - **A local port** — the helper listens on `127.0.0.1:47821` for those hooks.
+- **Backpack Mode** — nothing until you press **Allow…** on the Mac card in *Settings › Integrations*
+  (or in the Backpack Mode sheet). That installs the sudoers rule `/etc/sudoers.d/aiterm`, which lets
+  AiTerm turn lid sleep off and on with `pmset`, after an admin password prompt; **Remove** on the
+  same card takes it out again.
 - **Worktrees** — one per task, under `<repo>/.worktrees/`.
 - **Its own state and log** — `~/Library/Application Support/AiTerm/`.
 
@@ -54,8 +58,9 @@ The full list is in [docs/architecture.md](docs/architecture.md#what-aiterm-writ
 
 ## Settings
 
-**Agents** — each agent's CLI, default model and reasoning. **Integrations** — the iTerm2
-connection, and Jira, GitLab and GitHub credentials (stored in the Keychain). **Interface** — terminal background, sidebar size,
+**Agents** — each agent's CLI, default model and reasoning. **Integrations** — Core (the
+iTerm2 connection, and the Mac: lid sleep and network discovery for Backpack Mode), then Jira, GitLab and
+GitHub credentials (stored in the Keychain). **Interface** — terminal background, sidebar size,
 badges and keyboard shortcuts.
 
 ## Known gaps

@@ -261,7 +261,7 @@ enum Snapshots {
             VStack(alignment: .leading, spacing: Space.hairline) { sidebarRows() }
                 .padding(.horizontal, Space.inset)
             SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                        rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
+                          rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
         }
         // The rows' 10 pt inset stands in for the List's. The footer is a direct child of the real
         // sidebar and gets its full width — it adds that inset back itself — so it is not padded
@@ -275,7 +275,7 @@ enum Snapshots {
                 VStack(alignment: .leading, spacing: scale(Space.hairline)) { sidebarRows() }
                     .padding(.horizontal, scale(Space.inset))
                 SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
+                              rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
             }
             .frame(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset))
             .fixedSize(horizontal: false, vertical: true)
@@ -285,11 +285,26 @@ enum Snapshots {
         // A task stacking two providers draws only its active tab's provider.
         controller.focus.browse(.task(working.id))
         write(SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                          rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
+                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
             .frame(width: Size.sidebarWidth)
             .background(Palette.sidebar)
             .surface(.sidebar), to: out.appendingPathComponent("sidebar-footer-agents.png"))
         controller.focus.browse(.task(piTask.id))
+        // The Mac row in every mode, for judging the one colour by eye.
+        let phone = "Laurens’s iPhone"
+        let endedAt = Calendar.current.date(bySettingHour: 14, minute: 32, second: 0, of: Date())!
+        let modes: [MacMode] = [.desk(ended: nil), .turningOn, .on, .needsYou(.lostHotspot),
+                                .needsYou(.lowBattery(level: 13)), .turningOff,
+                                .desk(ended: BackpackEnded(at: endedAt, cause: .agentsStopped))]
+        write(VStack(spacing: 0) {
+            ForEach(modes.indices, id: \.self) { index in
+                SidebarFooter(task: nil, rows: [],
+                              mac: MacModePresentation.line(mode: modes[index], hotspot: phone, wifi: "Office-WiFi", calendar: .current))
+            }
+        }
+        .frame(width: Size.sidebarWidth)
+        .background(Palette.sidebar)
+        .surface(.sidebar), to: out.appendingPathComponent("sidebar-footer-mac.png"))
     }
 
     /// Every step of the New Task and New Review sheets, and the New Terminal sheet.
@@ -392,6 +407,31 @@ enum Snapshots {
         write(NewTerminalSheet(project: project, suggestedName: "shell 2", branch: "main", canCreate: true, createTerminal: { _ in }),
               to: out.appendingPathComponent("terminal.png"))
         nameSheets(fixture, to: out)
+        backpackSheets(to: out)
+    }
+
+    /// Backpack Mode's sheet: each step and state, as the proposal drew them.
+    private static func backpackSheets(to out: URL) {
+        let hotspot = "Laurens’s iPhone"
+        let ready = BackpackSetup(sleepRule: true, location: true, network: hotspot)
+        let sheets: [(String, BackpackSetup, BackpackSheetModel.Step, ConnectPhase?, BackpackState)] = [
+            ("hotspot", ready, .hotspot, nil, .off),
+            ("allow", BackpackSetup(sleepRule: false, location: false, network: hotspot), .hotspot, nil, .off),
+            ("connecting", ready, .connect, .keepingAwake, .off),
+            ("not-found", ready, .connect, .notInRange, .off),
+            ("safe", ready, .connect, .safe,
+             .on(BackpackStatus(network: hotspot, joined: true, power: PowerReading(level: 64, onBattery: true)))),
+        ]
+        // `BackpackSheet`'s `.task` does not run in an offscreen render, so the inert controller is
+        // never asked to load or watch the lid.
+        for (name, setup, step, phase, state) in sheets {
+            let backpack = BackpackController.inert()
+            backpack.network = hotspot
+            backpack.preview(state: state, setup: setup, phase: phase)
+            let model = BackpackSheetModel(backpack: backpack)
+            model.step = step
+            write(BackpackSheet(model: model), to: out.appendingPathComponent("backpack-sheet-\(name).png"))
+        }
     }
 
     /// The other `NameSheet` flows, built as `SidebarSheet` builds them: Add divider, and the
