@@ -425,3 +425,18 @@ def test_grok_statusline_absent_fields_are_none():
     assert parse_grok_statusline({"context_window": {"used_percentage": 140}}, now=1).context_percent == 100
     assert parse_grok_statusline({"session_id": {"x": 1}, "model": {"id": 4}, "effort": {"level": []}}, now=1) == (
         StatusLine(None, None, None, None, None, None, None))
+
+
+@pytest.mark.parametrize("parse,payload", [
+    (parse_claude_hook, {**BASE, "hook_event_name": "Stop"}),
+    (parse_claude_hook, {**BASE, "hook_event_name": "SubagentStart", "agent_id": "c1"}),
+    (parse_claude_hook, {**BASE, "hook_event_name": "PostModelSwitch", "to_model": "m"}),
+    (parse_codex_hook, {**BASE, "hook_event_name": "SessionStart"}),
+    (parse_codex_hook, {**BASE, "hook_event_name": "Stop"}),
+    (parse_grok_hook, {"hook_event_name": "UserPromptSubmit", "sessionId": "g", "promptId": "p1"}),
+    (parse_pi_hook, {**PI_BASE, "hook_event_name": "agent_start"}),
+])
+def test_an_event_carries_the_name_its_harness_gave_it(parse, payload):
+    # The resolver binds a Codex thread by which event bound it, from the event rather than the raw body.
+    ev = parse(payload)
+    assert ev is not None and ev.event_name == payload["hook_event_name"]

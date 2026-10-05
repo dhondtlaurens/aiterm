@@ -30,7 +30,7 @@ class HookEvent:
     reasoning: str | None = None
     context_percent: int | None = None
     # The turn the event belongs to (Grok's `promptId`), and whether the event starts it. A report
-    # for another turn is late and is ignored (StatusEngine.apply_state); None applies regardless.
+    # for another turn is late and is ignored (StatusEngine.apply_event); None applies regardless.
     turn_id: str | None = None
     starts_turn: bool = False
     # Where a Claude SubagentStart's child writes its transcript: what the status engine reads when
@@ -38,6 +38,9 @@ class HookEvent:
     subagent_transcript: str | None = None
     # The subagents a Claude Stop's `background_tasks` says are still running; None when it cannot say.
     running_subagents: frozenset[str] | None = None
+    # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
+    # depends on which event bound it (SessionResolver.bind).
+    event_name: str | None = None
 
 
 def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:
@@ -98,24 +101,25 @@ def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     name = _nonempty_string(p.get("hook_event_name"))
     sid, cwd = _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd"))
     if name == "SessionStart":
-        return HookEvent("claude", _session_start(p), _nonempty_string(p.get("model")), sid, cwd)
+        return HookEvent("claude", _session_start(p), _nonempty_string(p.get("model")), sid, cwd, event_name=name)
     if name == "PostModelSwitch":
-        return HookEvent("claude", None, _nonempty_string(p.get("to_model")), sid, cwd)
+        return HookEvent("claude", None, _nonempty_string(p.get("to_model")), sid, cwd, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         if (child := _subagent(name, p)) is None:
             return None
         transcript = _claude_subagent_transcript(p, child[1]) if name == "SubagentStart" else None
-        return HookEvent("claude", child[0], None, sid, cwd, child[1], subagent_transcript=transcript)
+        return HookEvent("claude", child[0], None, sid, cwd, child[1], subagent_transcript=transcript, event_name=name)
     if name == "Stop":
-        return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(p.get("background_tasks")))
+        return HookEvent("claude", "done", None, sid, cwd, running_subagents=_claude_running_subagents(p.get("background_tasks")),
+                         event_name=name)
     if name in SIMPLE_EVENTS:
-        return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd)
+        return HookEvent("claude", SIMPLE_EVENTS[name], None, sid, cwd, event_name=name)
     if name == "Notification":
         nt = _nonempty_string(p.get("notification_type"))
         if nt in NEEDS_INPUT_NOTIFICATIONS:
-            return HookEvent("claude", "needsInput", None, sid, cwd)
+            return HookEvent("claude", "needsInput", None, sid, cwd, event_name=name)
         if nt == "agent_completed":
-            return HookEvent("claude", "done", None, sid, cwd)
+            return HookEvent("claude", "done", None, sid, cwd, event_name=name)
     return None
 
 
@@ -126,12 +130,12 @@ def parse_codex_hook(p: dict[str, Any]) -> HookEvent | None:
     model, sid, cwd = (_nonempty_string(p.get(key)) for key in ("model", "session_id", "cwd"))
     iterm_session_id = _nonempty_string(p.get(ITERM_SESSION_FIELD))
     if name == "SessionStart":
-        return HookEvent("codex", _session_start(p), model, sid, cwd, iterm_session_id=iterm_session_id)
+        return HookEvent("codex", _session_start(p), model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
     if name in {"SubagentStart", "SubagentStop"}:
         child = _subagent(name, p)
-        return HookEvent("codex", child[0], None, sid, cwd, child[1], iterm_session_id) if child else None
+        return HookEvent("codex", child[0], None, sid, cwd, child[1], iterm_session_id, event_name=name) if child else None
     if name in SIMPLE_EVENTS:
-        return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id)
+        return HookEvent("codex", SIMPLE_EVENTS[name], model, sid, cwd, iterm_session_id=iterm_session_id, event_name=name)
     return None
 
 
@@ -182,6 +186,7 @@ def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
         iterm_session_id=_nonempty_string(p.get(ITERM_SESSION_FIELD)),
         reasoning=_nonempty_string(p.get("reasoning")),
         context_percent=_clamped_percent(p.get("context_percent")),
+        event_name=name,
     )
 
 
@@ -260,6 +265,7 @@ def parse_grok_hook(p: dict[str, Any]) -> HookEvent | None:
         iterm_session_id=_nonempty_string(p.get(ITERM_SESSION_FIELD)),
         turn_id=None if child else _nonempty_string(p.get("promptId")),
         starts_turn=name == "UserPromptSubmit",
+        event_name=name,
     )
 
 

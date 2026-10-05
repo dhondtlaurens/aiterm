@@ -6,7 +6,8 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 
 from .claude_subagents import TranscriptTail
-from .models import END_OF_TURN_SURVIVES_CWD_LOSS, SessionInfo, State, Transition
+from .hook_events import HookEvent
+from .models import END_OF_TURN_SURVIVES_CWD_LOSS, SessionInfo, State
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -99,14 +100,14 @@ class StatusEngine:
             turn = self._turns[session_id] = Turn()
         return turn
 
-    def apply_state(self, session_id: str, kind: Transition, subagent_id: str | None = None,
-                    turn_id: str | None = None, starts_turn: bool = False, transcript: str | None = None,
-                    running_subagents: Collection[str] | None = None) -> list[str]:
-        """`turn_id` is the turn the hook reports on, when the harness names one (Grok's `promptId`);
-        `starts_turn` marks the hook that begins it. Grok dispatches a cancelled turn's report off its
-        command loop, so a report can arrive after the next turn has started. `transcript` is where a
-        starting Claude child writes; `running_subagents`, on a Claude Stop, the children still running."""
-        if (s := self.reg.get(session_id)) is None:
+    def apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
+        """What a hook says happened to the session's turn (`ev.kind`; its metadata is
+        `apply_metadata`'s). `ev.turn_id` is the turn it reports on, when the harness names one (Grok's
+        `promptId`), and `ev.starts_turn` marks the hook that begins it: Grok dispatches a cancelled
+        turn's report off its command loop, so a report can arrive after the next turn has started.
+        `ev.subagent_transcript` is where a starting Claude child writes; `ev.running_subagents`, on a
+        Claude Stop, the children still running."""
+        if (kind := ev.kind) is None or (s := self.reg.get(session_id)) is None:
             return []
         turn = self._turn(session_id)
         # The hook's transport still reaches the daemon, so the turn is not orphaned: a pending
@@ -116,15 +117,15 @@ class StatusEngine:
             self.reset_turn(session_id)
             return []
         if kind == "subagentStart":
-            return self.subagent_started(session_id, subagent_id, transcript)
+            return self.subagent_started(session_id, ev.subagent_id, ev.subagent_transcript)
         if kind == "subagentStop":
-            return self.subagent_stopped(session_id, subagent_id)
+            return self.subagent_stopped(session_id, ev.subagent_id)
         if kind == "promptStart":
             return self._prompt_started(session_id)
         if kind == "promptEnd":
             return self._prompt_ended(session_id)
-        if turn_id is not None:
-            if starts_turn:
+        if (turn_id := ev.turn_id) is not None:
+            if ev.starts_turn:
                 turn.turn_id = turn_id
             elif (current := turn.turn_id) != turn_id and (
                     current is not None or (kind == "done" and s.state == "idle")):
@@ -137,7 +138,7 @@ class StatusEngine:
             kind = "done"
         turn.hook_at = self._clock()
         released: list[str] = []
-        if kind == "done" and running_subagents is not None:
+        if kind == "done" and (running_subagents := ev.running_subagents) is not None:
             # A child the Stop no longer lists is gone, SubagentStop or not; the last one lands a
             # completion an earlier turn deferred, before this one lands its own.
             for child_id in [c for c in turn.children if c not in running_subagents]:

@@ -61,10 +61,9 @@ class HookRouter:
         ev = parser(body) if parser else None
         if ev is None:
             return None
-        hook_event = body.get("hook_event_name")
-        sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, hook_event)
+        sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None and await self._tick_for_unplaced():
-            sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, hook_event)
+            sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
             return None
@@ -76,9 +75,8 @@ class HookRouter:
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != self.resolver.resolve_directly(
             ev.agent, ev.session_id, ev.iterm_session_id)
-        if ev.kind is not None and not starts_elsewhere:
-            changed += self.status.apply_state(sid, ev.kind, ev.subagent_id, ev.turn_id, ev.starts_turn,
-                                               ev.subagent_transcript, ev.running_subagents)
+        if not starts_elsewhere:
+            changed += self.status.apply_event(sid, ev)
         await self.publisher.session_changed(changed)
         return None
 
