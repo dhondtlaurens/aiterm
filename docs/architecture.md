@@ -40,9 +40,10 @@ Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  Hoo
   status line is a merge into `~/.grok/config.toml`'s `[ui.status_line]` table, same as the others.
 - **HookServer → StatusEngine** — `/hook/claude` · `/hook/codex` · `/hook/grok` · `/hook/pi` ·
   `/mcp` · `/statusline` · `/statusline/grok`. A post is acknowledged before it is handled, so no
-  agent waits on the daemon — with two exceptions. A Harness Test post carrying `_aiterm_test_id`
-  is answered once handled, which is its proof of delivery, and never changes state. A `/mcp`
-  tool call (Codex's Stop hook) is delivered before its result goes back. The `SessionResolver`
+  agent waits on the daemon — except a `/mcp` tool call (Codex's Stop hook), which is delivered
+  before its result goes back. A Harness Test post carrying `_aiterm_test_id` is answered by the
+  receiver itself, its proof that the route reaches the daemon, and never handed on, so it cannot
+  change state on any route. The `SessionResolver`
   maps a post to a tab (by pid or the tab id the hook carries, then the tab that conversation was
   pinned to, then by directory); the status engine applies its state transition and its metadata
   separately, and keeps the per-session state machine — including subagents, so a row stays

@@ -108,31 +108,28 @@ class HookServer:
                 await self._handle_mcp(writer, payload, headers)
                 return
 
-            daemon_test_id = payload.get("_aiterm_daemon_test_id")
-            if isinstance(daemon_test_id, str) and daemon_test_id:
-                # Reachability is a separate Harness Test layer from lifecycle delivery. Reply
-                # here without invoking the service so the client can distinguish a dead daemon
-                # from a live daemon that failed to acknowledge the correlated status event.
-                await self._reply(writer, 200, json.dumps(
-                    {"ok": True, "daemonTestId": daemon_test_id}, separators=(",", ":")
-                ))
+            if (probe := self._probe_reply(payload)) is not None:
+                await self._reply(writer, 200, probe)
                 return
-
             self._add_iterm_session(payload, headers)
-            test_id = payload.get("_aiterm_test_id")
-            if isinstance(test_id, str) and test_id:
-                # Harness Test needs proof that the daemon handled this exact event, not merely
-                # that a socket accepted it, so correlation posts are the one telemetry path that
-                # waits for delivery before acknowledging.
-                response = await self._deliver(path, payload)
-                await self._reply(writer, 200, json.dumps(response or {}, separators=(",", ":")))
-            else:
-                await self._reply(writer, 200, "{}")
-                await self._deliver(path, payload)
+            await self._reply(writer, 200, "{}")
+            await self._deliver(path, payload)
         except (TimeoutError, asyncio.IncompleteReadError, ConnectionError, ValueError):
             pass
         finally:
             writer.close()
+
+    @staticmethod
+    def _probe_reply(payload: dict[str, Any]) -> str | None:
+        """The answer to a Harness Test probe, which is never delivered: it echoes its id, and so it
+        cannot change state on any route, a status line's included. `_aiterm_daemon_test_id` asks
+        whether the daemon answers at all, so the app can tell a dead daemon from a route that does
+        not reach it; `_aiterm_test_id` asks whether a post on this route reaches it, and the PI
+        extension sends it on a real event's body, which it leaves inert."""
+        for field, key in (("_aiterm_daemon_test_id", "daemonTestId"), ("_aiterm_test_id", "testId")):
+            if isinstance(test_id := payload.get(field), str) and test_id:
+                return json.dumps({"ok": True, key: test_id}, separators=(",", ":"))
+        return None
 
     async def _deliver(self, path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         if self.on_post is None:

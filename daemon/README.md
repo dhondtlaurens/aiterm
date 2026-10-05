@@ -57,9 +57,10 @@ real `Stop` would otherwise race the guess. A real transition that arrives
 first always wins and cancels the pending settle.
 
 Every hook post is telemetry: it is acknowledged with `{}` before the daemon
-handles it, and no response ever carries a hook decision. The one exception
-is a Harness Test correlation post (`_aiterm_test_id`), which is answered only
-once it has been handled.
+handles it, and no response ever carries a hook decision. The exceptions are
+Harness Test's probes (`_aiterm_daemon_test_id`, `_aiterm_test_id`), which the
+receiver answers itself by echoing their id and never hands on, so neither can
+change state on any route.
 
 Every request must carry `X-AiTerm-Hook: 1`; requests without it get a plain
 404, the same as an unknown route, so the receiver never reveals that these

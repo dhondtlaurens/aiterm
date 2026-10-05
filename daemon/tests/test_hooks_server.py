@@ -155,30 +155,20 @@ async def test_pi_route_forwards_the_inherited_iterm_session_id(server):
     assert received == [("/hook/pi", {"hook_event_name": "agent_start", "_aiterm_iterm_session_id": "w0t0p0:pi"})]
 
 
-async def test_pi_integration_probe_waits_for_and_returns_the_handler_acknowledgement():
-    delivered = asyncio.Event()
-
-    async def on_post(path, body):
-        assert path == "/hook/pi" and body["_aiterm_test_id"] == "probe-7"
-        delivered.set()
-        return {"ok": True, "testId": "probe-7"}
-
-    srv = HookServer(port=0, on_post=on_post)
-    await srv.start()
-    try:
-        status, response = await post_json(srv.port, "/hook/pi", {"_aiterm_test_id": "probe-7"})
-        assert status == 200 and response == {"ok": True, "testId": "probe-7"}
-        assert delivered.is_set()
-    finally:
-        await srv.stop()
-
-
-async def test_daemon_probe_is_acknowledged_without_delivering_a_lifecycle_event(server):
+@pytest.mark.parametrize("path", sorted(hooks_server.ROUTES - {"/mcp"}))
+@pytest.mark.parametrize("probe,answer", [
+    ({"_aiterm_daemon_test_id": "daemon-3"}, {"ok": True, "daemonTestId": "daemon-3"}),
+    # The PI extension sends its probe on a real event, which must not count.
+    ({"_aiterm_test_id": "probe-7", "hook_event_name": "agent_start", "session_id": "s"}, {"ok": True, "testId": "probe-7"}),
+])
+async def test_a_probe_is_answered_without_being_delivered(server, path, probe, answer):
     srv, received = server
-    status, response = await post_json(srv.port, "/hook/pi", {"_aiterm_daemon_test_id": "daemon-3"})
-    assert status == 200
-    assert response == {"ok": True, "daemonTestId": "daemon-3"}
-    assert received == []
+    status, response = await post_json(srv.port, path, probe)
+    assert status == 200 and response == answer
+    # A real post sent after it is delivered first: the probe was never handed on.
+    assert await http(srv.port, "POST", path, {"hook_event_name": "Stop"}) == 200
+    await received.delivered(1)
+    assert received == [(path, {"hook_event_name": "Stop"})]
 
 
 @pytest.mark.parametrize("path", ["/hook/claude", "/hook/codex"])

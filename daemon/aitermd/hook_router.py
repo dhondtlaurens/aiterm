@@ -35,11 +35,6 @@ class HookRouter:
         self._last_tick_start = float("-inf")
 
     async def handle_hook(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
-        if path in HOOK_PARSERS and isinstance(
-                test_id := body.get("_aiterm_test_id"), str) and test_id:
-            # The synthetic probe proves the extension reached this daemon. It is intentionally
-            # acknowledged before parsing or session resolution and can never mutate real state.
-            return {"ok": True, "testId": test_id}
         if (statusline := STATUSLINE_PARSERS.get(path)) is not None:
             agent, parse = statusline
             tick = parse(body, int(self.clock()))

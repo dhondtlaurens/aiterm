@@ -55,15 +55,6 @@ def hooks(tmp_path):
     return Hooks(tmp_path)
 
 
-@pytest.mark.parametrize("path", ["/hook/claude", "/hook/codex", "/hook/grok", "/hook/pi"])
-async def test_integration_test_is_acknowledged_without_session_change(path, hooks):
-    hooks.tabs(("s1", "claude", 100))
-    before = [session.to_json() for session in hooks.registry.all()]
-    assert await hooks.post(path, {"_aiterm_test_id": "probe-7"}) == {"ok": True, "testId": "probe-7"}
-    assert [session.to_json() for session in hooks.registry.all()] == before
-    assert hooks.events == []
-
-
 async def test_a_hook_for_no_known_session_changes_nothing(hooks):
     hooks.tabs(("s1", "codex", 101))
     await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/elsewhere"})
