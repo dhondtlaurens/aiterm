@@ -1,13 +1,21 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
 
 @MainActor
 @Suite(.serialized) struct BackpackSheetTests {
-    private func backpack(_ fake: FakeBackpack) -> BackpackController {
+    private func backpack(_ fake: FakeBackpack, retryDelays: [Duration] = [.milliseconds(10)]) -> BackpackController {
         BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
-                           retryDelays: [.milliseconds(10)], toast: { _ in })
+                           retryDelays: retryDelays, toast: { _ in })
+    }
+
+    /// Spins the main actor until `condition` holds or `timeout` passes; whether it held.
+    private func until(_ timeout: TimeInterval = 2, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline { await Task.yield() }
+        return condition()
     }
 
     @Test func itOpensOnHotspotWithTheRememberedOne() async {
@@ -159,6 +167,84 @@ import Testing
         await model.backpack.turnOff()
         while model.backpack.busy { await Task.yield() }
         #expect(model.isOver)
+    }
+
+    // -- the lid closing under the sheet ------------------------------------------------
+
+    /// Step 1: a lid close is a Cancel, and nothing was changed to put back.
+    @Test func aLidCloseOnStepOneCancels() async {
+        let fake = FakeBackpack()
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        await model.lidClosed()?.value
+        #expect(model.step == .hotspot)
+        #expect(!model.backpack.busy && !model.backpack.isOn)
+        #expect(model.backpack.phase == nil)
+        #expect(fake.wifi.joins.isEmpty)
+        #expect(fake.wifi.current == "Home")
+        #expect(fake.lid.calls.isEmpty)
+    }
+
+    /// Step 2, waiting for a hotspot that isn't showing: with the sheet gone nobody is left to
+    /// Cancel, so the wait stops at once — not after its 5 s — and the undo puts the Wi-Fi back.
+    @Test func aLidCloseWhileWaitingForTheHotspotStopsTheRetries() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.failingJoins = ["Phone"]
+        let model = BackpackSheetModel(backpack: backpack(fake, retryDelays: [.seconds(5)]))
+        await model.load()
+        model.connect()
+        #expect(await until { model.backpack.phase == .notInRange })
+        model.lidClosed()
+        #expect(await until(1) { !model.backpack.busy }, "stopped at once, not after the retry's wait")
+        let joins = fake.wifi.joins
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(fake.wifi.joins == joins, "no further joins")
+        #expect(joins == ["Phone", "Home"], "one try at the hotspot, then the undo's rejoin")
+        #expect(!fake.lid.calls.contains(true), "sleep untouched")
+        #expect(!model.backpack.isOn)
+        #expect(model.backpack.phase == nil)
+        #expect(fake.wifi.current == "Home")
+    }
+
+    /// Step 2, a join in flight that then finds no hotspot: no retry follows it.
+    @Test func aLidCloseDuringAJoinThatMissesTheHotspotRetriesNoMore() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.failingJoins = ["Phone"]
+        let release = DispatchSemaphore(value: 0), entered = Mutex(false)
+        // Holds the connect's first join only.
+        fake.wifi.onJoin = { @Sendable in if entered.withLock({ let first = !$0; $0 = true; return first }) { release.wait() } }
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.connect()
+        #expect(await until { entered.withLock { $0 } })
+        model.lidClosed()
+        release.signal()
+        #expect(await until { !model.backpack.busy })
+        let joins = fake.wifi.joins
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(fake.wifi.joins == joins, "no further joins")
+        #expect(joins.filter { $0 == "Phone" }.count == 1)
+        #expect(!fake.lid.calls.contains(true), "sleep untouched")
+        #expect(!model.backpack.isOn)
+    }
+
+    /// Step 2, a join that succeeds while the lid closes: a turn-on in progress keeps going.
+    @Test func aLidCloseDuringASucceedingJoinStillEndsSafe() async {
+        let fake = FakeBackpack()
+        let release = DispatchSemaphore(value: 0)
+        fake.lid.onSet = { @Sendable in if $0 { release.wait() } }
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.connect()
+        #expect(await until { model.backpack.phase == .keepingAwake })
+        model.lidClosed()
+        release.signal()
+        #expect(await until { model.backpack.phase == .safe })
+        #expect(model.backpack.isOn)
+        #expect(!model.backpack.busy)
+        #expect(fake.lid.calls == [true])
     }
 
     @Test func aFailedConnectIsNotOver() async {

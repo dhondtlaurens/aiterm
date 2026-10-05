@@ -120,11 +120,21 @@ final class BackpackSheetModel: Identifiable {
         let backpack = self.backpack
         return Task { await backpack.cancelConnect() }
     }
+
+    /// The lid closed: the sheet goes. On step 1 that is a Cancel, returned; on step 2 the attempt
+    /// under way finishes on its own, but a hotspot not in range is no longer waited for.
+    @discardableResult
+    func lidClosed() -> Task<Void, Never>? {
+        if step == .hotspot { return cancel() }
+        backpack.finishWithoutSheet()
+        return nil
+    }
 }
 
 /// Backpack Mode's sheet, opened by every turn-on: 1 Hotspot, 2 Connect. Step 2 guides the phone and
 /// ends on "Safe to close the lid." with Done. Closing the lid closes it from either step: on step 1
-/// that is a cancel; on step 2 the connect keeps going, and the Mac row shows how it ends.
+/// that is a cancel; on step 2 the attempt under way keeps going, but no retry follows it, and the
+/// Mac row shows how it ends (`BackpackSheetModel.lidClosed()`).
 struct BackpackSheet: View {
     let model: BackpackSheetModel
     @Environment(\.dismiss) private var dismiss
@@ -145,7 +155,7 @@ struct BackpackSheet: View {
         .onChange(of: model.isOver) { _, over in if over { dismiss() } }
         .task {
             for await _ in model.backpack.lidCloses() {
-                if model.step == .hotspot { model.cancel() }
+                model.lidClosed()
                 dismiss()
                 return
             }

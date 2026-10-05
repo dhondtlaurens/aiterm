@@ -59,6 +59,9 @@ final class BackpackController {
     /// Whether any session in the workspace is `.working`: the 5 s check's reason to stay on.
     @ObservationIgnored private let agentsWorking: @MainActor () -> Bool
     @ObservationIgnored private var cancelled = false
+    /// The sheet closed under the connect (the lid): nobody is left to Cancel, so a hotspot not in
+    /// range is no longer waited for. Reset by each connect.
+    @ObservationIgnored private var sheetGone = false
     @ObservationIgnored private var retryWait: Task<Void, Never>?
     /// A connect may have moved the Mac onto the hotspot: it was on another network, or none,
     /// when the connect began. Only then does a Cancel's undo leave the hotspot — a Mac already
@@ -113,7 +116,8 @@ final class BackpackController {
     static let restoreFailed = "Couldn’t turn lid sleep back on: AiTerm keeps trying"
 
     /// The sheet's Connect: saves the hotspot (and a typed password), then turns on, retrying a
-    /// hotspot that isn't showing on `retryDelays` until it shows, a final refusal, Cancel or quit.
+    /// hotspot that isn't showing on `retryDelays` until it shows, a final refusal, Cancel, quit or
+    /// the sheet closing (`finishWithoutSheet()`).
     func connect(network: String, password: String?) async {
         guard !busy, !isOn else { return }
         self.network = network
@@ -122,6 +126,7 @@ final class BackpackController {
         transition = .turningOn
         defer { busy = false; transition = nil }
         cancelled = false
+        sheetGone = false
         ended = nil
         phase = .joining
         let wifi = ports.wifi
@@ -144,14 +149,15 @@ final class BackpackController {
                 startTicking()
                 return
             case .failure(.notInRange):
-                // Cancelled while that join ran: undo now, not after the wait.
-                if cancelled { break attempts }
+                // Cancelled, or the sheet gone, while that join ran: undo now, not after the wait.
+                if cancelled || sheetGone { break attempts }
                 phase = .notInRange
                 let delay = retryDelays[min(attempt, retryDelays.count - 1)]
                 attempt += 1
                 retryWait = Task { try? await Task.sleep(for: delay) }
                 await retryWait?.value
-                if !cancelled { phase = .joining }
+                if cancelled || sheetGone { break attempts }
+                phase = .joining
             case .failure(.quitting):
                 phase = nil
                 return
@@ -179,6 +185,14 @@ final class BackpackController {
         busy = true
         defer { busy = false; transition = nil }
         await undoWhileBusy(leaving: network)
+    }
+
+    /// The sheet closed under a connect — the lid. The attempt under way finishes on its own, but
+    /// one that finds no hotspot ends as a Cancel does, and a wait for the next attempt stops now:
+    /// with the sheet gone nothing would ever stop the retries.
+    func finishWithoutSheet() {
+        sheetGone = true
+        retryWait?.cancel()
     }
 
     /// Off by hand: sleep back, then the best known network in range.
