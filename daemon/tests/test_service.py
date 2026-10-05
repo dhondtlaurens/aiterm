@@ -1542,6 +1542,32 @@ async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stac
     assert (await next_event(r, "session.closed"))["sessionId"] == second
 
 
+
+@pytest.mark.parametrize("part,method", [("windows", "forget_session"), ("status", "reset_turn"), ("resolver", "forget")])
+async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_others_from_it(stack, monkeypatch, caplog, part, method):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "codex", job_pid=301, title="Codex")
+    await svc.tick()
+    for event in ("SessionStart", "SubagentStart"):
+        await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": event, "session_id": "thread-z", "cwd": "/wt",
+                                                          "agent_id": "child", "_aiterm_iterm_session_id": sid})
+    await call(r, w, "sessions.setTitles", {"titles": [{"sessionId": sid, "title": "main"}]}, id_=2)
+    assert svc.status.turn(sid) and svc.resolver._pins and sid in svc.windows._applied_titles
+
+    def broken(session_id):
+        raise RuntimeError("a store that could not forget")
+
+    monkeypatch.setattr(getattr(svc, part), method, broken)
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        await it.close_window(wid)
+        await svc.tick()
+    assert part == "windows" or sid not in svc.windows._applied_titles
+    assert part == "status" or svc.status.turn(sid) is None
+    assert part == "resolver" or not svc.resolver._pins
+    assert any(sid in rec.getMessage() for rec in caplog.records)
+
 async def test_a_failing_step_of_the_status_pass_does_not_cost_the_others(stack, monkeypatch, caplog):
     svc, it, files, r, w = stack
     sid = await _claude_tab_busy(svc, r, w, 951, "c1")

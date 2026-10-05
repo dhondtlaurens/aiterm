@@ -260,8 +260,7 @@ class Service:
                 if opened := self.registry.get(sid):
                     await self.rpc.broadcast(protocol.SESSION_OPENED, opened.to_json())
         for sid in diff.closed:
-            with _logged(f"forgetting closed session {sid}"):
-                self._forget_session(sid)
+            self._forget_session(sid)
             with _logged(f"announcing closed session {sid}"):
                 await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
         windows_after = {s.window_id for s in self.registry.all()}
@@ -371,9 +370,12 @@ class Service:
             return nothing
 
     def _forget_session(self, session_id: str) -> None:
-        self.windows.forget_session(session_id)
-        self.status.reset_turn(session_id)
-        self.resolver.forget(session_id)
+        """Drops what each part keeps of a closed session, each on its own: one that raises keeps
+        only its own state, not the others'."""
+        for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.reset_turn),
+                             ("bindings", self.resolver.forget)):
+            with _logged(f"forgetting the {what} of closed session {session_id}"):
+                forget(session_id)
 
     async def _read_codex_usage(self) -> None:
         # Codex writes its account rate limits into every `token_count` record of its rollout
