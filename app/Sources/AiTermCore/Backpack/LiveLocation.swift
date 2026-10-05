@@ -59,6 +59,7 @@ extension BackpackPorts {
     /// The real ports: `sudo pmset`, CoreWLAN, IOKit, CoreLocation and the admin prompt.
     @MainActor public static func live() -> BackpackPorts {
         BackpackPorts(lidSleep: SudoLidSleep(), wifi: CoreWLANWiFi(), power: IOKitPowerSource(),
-                      location: CoreLocationAccess(), installer: AdminPromptInstaller())
+                      location: CoreLocationAccess(), installer: AdminPromptInstaller(),
+                      lidSensor: IOKitLidSensor())
     }
 }

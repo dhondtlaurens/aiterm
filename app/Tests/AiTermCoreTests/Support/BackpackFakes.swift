@@ -63,12 +63,18 @@ final class FakeInstaller: SleepRuleInstaller, @unchecked Sendable {
     func remove() -> Bool { removes += 1; if succeeds { lid.allowed = false }; return succeeds }
 }
 
+final class FakeLidSensor: LidSensor, @unchecked Sendable {
+    var closed: Bool? = false
+    func isClosed() -> Bool? { closed }
+}
+
 /// All five fakes, set up and in range of "Phone" on AC, with their ports and settings.
 struct FakeBackpack {
     let lid = FakeLidSleep()
     let wifi = FakeWiFi()
     let power = FakePower()
     let location = FakeLocation()
+    let lidSensor = FakeLidSensor()
     let installer: FakeInstaller
     let settings: BackpackSettings
 
@@ -82,6 +88,7 @@ struct FakeBackpack {
     }
 
     var ports: BackpackPorts {
-        BackpackPorts(lidSleep: lid, wifi: wifi, power: power, location: location, installer: installer)
+        BackpackPorts(lidSleep: lid, wifi: wifi, power: power, location: location, installer: installer,
+                      lidSensor: lidSensor)
     }
 }

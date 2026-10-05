@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AiTermCore
 
@@ -11,6 +12,14 @@ import Testing
     @Test func anErrorOrNoNetworksParsesToNone() {
         #expect(CoreWLANWiFi.parsePreferred("en9 is not a Wi-Fi interface.\n").isEmpty)
         #expect(CoreWLANWiFi.parsePreferred("Preferred networks on en0:\n").isEmpty)
+    }
+
+    /// `ioreg -r -k AppleClamshellState` prints `Yes` or `No`; the sensor reads the same property.
+    @Test func theLidSensorParsesTheClamshellProperty() {
+        #expect(IOKitLidSensor.parse(kCFBooleanTrue) == true)
+        #expect(IOKitLidSensor.parse(kCFBooleanFalse) == false)
+        #expect(IOKitLidSensor.parse(nil) == nil)
+        #expect(IOKitLidSensor.parse("Yes" as CFString) == nil, "anything but a boolean reads as no lid")
     }
 
     @Test func theInternalBatteryGivesALevelAndWhetherItRunsOnIt() {

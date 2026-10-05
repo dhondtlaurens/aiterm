@@ -53,6 +53,11 @@ public protocol SleepRuleInstaller: Sendable {
     func remove() -> Bool
 }
 
+/// Whether the lid is closed, read without privileges. Nil on a Mac without a lid.
+public protocol LidSensor: Sendable {
+    func isClosed() -> Bool?
+}
+
 /// Everything Backpack Mode touches outside the app, in one value so a test or a preview passes
 /// fakes, or nothing at all.
 public struct BackpackPorts: Sendable {
@@ -61,23 +66,25 @@ public struct BackpackPorts: Sendable {
     public var power: any PowerSource
     public var location: any LocationAccess
     public var installer: any SleepRuleInstaller
+    public var lidSensor: any LidSensor
 
     public init(lidSleep: any LidSleepControl, wifi: any WiFiControl, power: any PowerSource,
-                location: any LocationAccess, installer: any SleepRuleInstaller) {
+                location: any LocationAccess, installer: any SleepRuleInstaller, lidSensor: any LidSensor) {
         self.lidSleep = lidSleep
         self.wifi = wifi
         self.power = power
         self.location = location
         self.installer = installer
+        self.lidSensor = lidSensor
     }
 
     /// Set up for nothing, no network in range, on AC: what a controller gets unless the app passes
     /// the live ports, so no test or snapshot runs `sudo` or scans Wi-Fi by omission.
     public static let inert = BackpackPorts(lidSleep: InertPort(), wifi: InertPort(), power: InertPort(),
-                                            location: InertPort(), installer: InertPort())
+                                            location: InertPort(), installer: InertPort(), lidSensor: InertPort())
 }
 
-private struct InertPort: LidSleepControl, WiFiControl, PowerSource, LocationAccess, SleepRuleInstaller {
+private struct InertPort: LidSleepControl, WiFiControl, PowerSource, LocationAccess, SleepRuleInstaller, LidSensor {
     func isAllowed() -> Bool { false }
     func setDisabled(_ disabled: Bool) -> Bool { false }
     func knownNetworks() -> [String] { [] }
@@ -90,4 +97,5 @@ private struct InertPort: LidSleepControl, WiFiControl, PowerSource, LocationAcc
     @MainActor func request() async -> Bool { false }
     func install() -> Bool { false }
     func remove() -> Bool { false }
+    func isClosed() -> Bool? { nil }
 }
