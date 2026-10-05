@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -1629,8 +1630,12 @@ async def test_an_off_loop_check_that_hangs_does_not_hold_the_process_open(make_
 
 
 def test_a_daemon_with_a_stuck_worker_thread_still_exits():
+    # The package this checkout is testing, not whichever one the interpreter finds first: the
+    # venv's install can point at an app bundle, and a bare `-c` imports from the current directory.
+    daemon_dir = Path(__file__).resolve().parents[1]
     script = textwrap.dedent("""
         import asyncio, threading
+        import aitermd
         from aitermd.offload import run_detached
 
         async def main():
@@ -1639,6 +1644,9 @@ def test_a_daemon_with_a_stuck_worker_thread_still_exits():
             await asyncio.sleep(0.1)
 
         asyncio.run(main())
+        print(aitermd.__file__)
     """)
-    done = subprocess.run([sys.executable, "-c", script], timeout=20, capture_output=True, text=True)
+    done = subprocess.run([sys.executable, "-c", script], timeout=20, capture_output=True, text=True, cwd=daemon_dir,
+                          env={**os.environ, "PYTHONPATH": str(daemon_dir)})
     assert done.returncode == 0, done.stderr
+    assert Path(done.stdout.strip()).is_relative_to(daemon_dir)
