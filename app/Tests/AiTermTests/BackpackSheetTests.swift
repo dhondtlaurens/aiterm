@@ -23,7 +23,7 @@ import Testing
         fake.settings.password = "saved"
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
-        #expect(model.step == .hotspot)
+        #expect(!model.isConnecting && !model.started)
         #expect(model.network == "Phone")
         #expect(model.password == "saved", "filled in as if typed: the field shows its dots")
         #expect(model.choices == [nil, "Phone", "Home"], "the remembered one first, then the rest in range")
@@ -41,7 +41,7 @@ import Testing
         #expect(model.choices == [nil, "Café", "Home"])
         #expect(model.network == nil, "the remembered hotspot is not showing: nothing is chosen")
         #expect(model.password.isEmpty)
-        #expect(model.hotspotHelp == BackpackSheetPresentation.notShowingYet)
+        #expect(model.hotspotHelp == BackpackSheetPresentation.looking)
         #expect(!model.canConnect)
     }
 
@@ -97,11 +97,11 @@ import Testing
         #expect(model.password == "saved")
         model.choose(nil)
         #expect(model.password.isEmpty)
-        #expect(model.hotspotHelp == BackpackSheetPresentation.notShowingYet)
+        #expect(model.hotspotHelp == BackpackSheetPresentation.looking)
     }
 
     /// Review focus 5: nothing remembered and nothing in range — Connect waits for a hotspot, and
-    /// says how to get one.
+    /// shows it is looking.
     @Test func connectWaitsForAHotspot() async {
         let fake = FakeBackpack()
         fake.settings.network = nil
@@ -110,9 +110,10 @@ import Testing
         await model.load()
         #expect(model.choices == [nil])
         #expect(!model.canConnect)
-        #expect(model.hotspotHelp == "Open Settings › Personal Hotspot on the iPhone, and it shows up here.")
+        #expect(model.hotspotHelp == "Looking for hotspots…")
         model.connect()
-        #expect(model.step == .hotspot)
+        #expect(!model.started && !model.isConnecting)
+        #expect(model.isLooking, "the help line spins while a scan finds nothing")
     }
 
     @Test func connectWaitsForBothPermissions() async {
@@ -126,30 +127,55 @@ import Testing
         #expect(model.canConnect)
     }
 
-    @Test func connectMovesToStepTwoAndEndsSafe() async {
+    /// One sheet: Connect runs in place — the fields hold still and no second Connect is offered —
+    /// and it ends safe.
+    @Test func connectRunsInPlaceAndEndsSafe() async {
         let fake = FakeBackpack()
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         model.connect()
-        #expect(model.step == .connect)
-        while model.backpack.phase != .safe { await Task.yield() }
+        #expect(model.started && model.isConnecting)
+        #expect(!model.canConnect, "the fields hold still while it connects")
+        #expect(await until { model.backpack.phase == .safe })
         #expect(model.backpack.isOn)
+        #expect(model.isSafe && !model.isConnecting)
     }
 
-    @Test func backReturnsToHotspotAndStopsTheConnect() async {
+    /// No Back: a failure leaves the fields live, the person fixes the password, and Connect retries.
+    @Test func aFailureLeavesTheFieldsLiveAndConnectRetries() async {
         let fake = FakeBackpack()
-        fake.wifi.inRange = ["Home"]
-        fake.wifi.joinSucceeds = false
+        fake.wifi.joinSucceeds = false   // in range: a password problem
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
-        // Seen when it was chosen; out of range since.
-        model.choose("Phone")
         model.connect()
-        while fake.wifi.joins.isEmpty { await Task.yield() }
-        model.back()
-        #expect(model.step == .hotspot)
-        while model.backpack.busy { await Task.yield() }
-        #expect(!model.backpack.isOn)
+        #expect(await until { model.backpack.phase == .failed(.joinFailed(network: "Phone")) && !model.isConnecting })
+        #expect(model.canConnect)
+        fake.wifi.joinSucceeds = true
+        model.password = "right"
+        model.connect()
+        #expect(await until { model.backpack.phase == .safe })
+        #expect(fake.wifi.passwords.last == "right")
+    }
+
+    /// Option B's order: the hotspot leads, and the iPhone's steps under it are its help — in full
+    /// while nothing is chosen, receding once a hotspot is.
+    @Test func theIPhoneStepsRecedeOnceAHotspotIsChosen() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = []
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(!model.phoneStepsRecede)
+        fake.wifi.inRange = ["Phone"]
+        await model.refreshNetworks()
+        #expect(model.phoneStepsRecede)
+        #expect(!model.isLooking)
+    }
+
+    @Test func theSheetSaysWhatItDoes() {
+        #expect(BackpackSheetPresentation.subtitle == "Keeps your agents working with the lid closed, online through your iPhone.")
+        #expect(BackpackSheetPresentation.thisMac == "This Mac")
+        #expect(BackpackSheetPresentation.onTheIPhone == "On the iPhone")
+        #expect(BackpackSheetPresentation.looking == "Looking for hotspots…")
     }
 
     @Test func theChecksFollowThePhase() {
@@ -173,7 +199,7 @@ import Testing
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone")
                 == "On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.")
         #expect(BackpackSheetPresentation.title == "Backpack mode")
-        #expect(BackpackSheetPresentation.steps == ["Hotspot", "Connect"])
+        #expect(BackpackSheetPresentation.subtitle.hasSuffix("through your iPhone."))
     }
 
     @Test func theChoicesPutTheRememberedHotspotFirstAndSortTheRest() {
@@ -210,13 +236,14 @@ import Testing
         #expect(model.backpack.phase == nil)
     }
 
-    /// Step 2 is over — the sheet closes — once the mode is off with nothing running: turned off
-    /// under the sheet, or ended by itself. Not in the turn between Connect and the connect starting.
-    @Test func stepTwoIsOverOnceTheModeIsOffAndIdle() async {
+    /// The sheet is over — it closes — once a connect it started has left the mode off with nothing
+    /// running: turned off under the sheet, or ended by itself. Not before Connect, and not in the
+    /// turn between Connect and the connect starting.
+    @Test func theSheetIsOverOnceItsModeIsOffAndIdle() async {
         let fake = FakeBackpack()
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
-        #expect(!model.isOver, "step 1 is never over")
+        #expect(!model.isOver, "nothing started: never over")
         model.connect()
         #expect(!model.isOver, "the connect has not started yet")
         while model.backpack.phase != .safe { await Task.yield() }
@@ -228,13 +255,12 @@ import Testing
 
     // -- the lid closing under the sheet ------------------------------------------------
 
-    /// Step 1: a lid close is a Cancel, and nothing was changed to put back.
-    @Test func aLidCloseOnStepOneCancels() async {
+    /// Before Connect: a lid close is a Cancel, and nothing was changed to put back.
+    @Test func aLidCloseBeforeConnectCancels() async {
         let fake = FakeBackpack()
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         await model.lidClosed()?.value
-        #expect(model.step == .hotspot)
         #expect(!model.backpack.busy && !model.backpack.isOn)
         #expect(model.backpack.phase == nil)
         #expect(fake.wifi.joins.isEmpty)
@@ -242,7 +268,25 @@ import Testing
         #expect(fake.lid.calls.isEmpty)
     }
 
-    /// Step 2, waiting for a hotspot that isn't showing: with the sheet gone nobody is left to
+    /// After a failure, with nothing running: a lid close is a Cancel too, so a failed join that
+    /// left the Mac on no network puts it back on a preferred one.
+    @Test func aLidCloseAfterAFailureCancelsAndPutsTheWiFiBack() async {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Home", "Phone"]
+        fake.wifi.joinSucceeds = false
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.connect()
+        #expect(await until { model.backpack.phase == .failed(.joinFailed(network: "Phone")) && !model.isConnecting })
+        #expect(fake.wifi.current == nil, "the failed associate dropped Home")
+        fake.wifi.joinSucceeds = true
+        await model.lidClosed()?.value
+        #expect(await until { !model.backpack.busy })
+        #expect(fake.wifi.current == "Home")
+        #expect(fake.lid.calls.isEmpty)
+    }
+
+    /// Connecting, waiting for a hotspot that isn't showing: with the sheet gone nobody is left to
     /// Cancel, so the wait stops at once — not after its 5 s — and the undo puts the Wi-Fi back.
     @Test func aLidCloseWhileWaitingForTheHotspotStopsTheRetries() async {
         let fake = FakeBackpack()
@@ -266,7 +310,7 @@ import Testing
         #expect(fake.wifi.current == "Home")
     }
 
-    /// Step 2, a join in flight that then finds no hotspot: no retry follows it.
+    /// Connecting, a join in flight that then finds no hotspot: no retry follows it.
     @Test func aLidCloseDuringAJoinThatMissesTheHotspotRetriesNoMore() async {
         let fake = FakeBackpack()
         fake.wifi.inRange = ["Home"]
@@ -291,7 +335,7 @@ import Testing
         #expect(!model.backpack.isOn)
     }
 
-    /// Step 2, a join that succeeds while the lid closes: a turn-on in progress keeps going.
+    /// Connecting, a join that succeeds while the lid closes: a turn-on in progress keeps going.
     @Test func aLidCloseDuringASucceedingJoinStillEndsSafe() async {
         let fake = FakeBackpack()
         let release = DispatchSemaphore(value: 0)
@@ -316,6 +360,6 @@ import Testing
         model.connect()
         while model.backpack.phase != .failed(.joinFailed(network: "Phone")) { await Task.yield() }
         while model.backpack.busy { await Task.yield() }
-        #expect(!model.isOver, "Back and Cancel stay for a failure")
+        #expect(!model.isOver, "the fields and Connect stay for a failure")
     }
 }

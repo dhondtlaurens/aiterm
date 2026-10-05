@@ -88,7 +88,9 @@ cutoff, `BackpackSettings.cutoff`). Either ending is recorded with its time and 
 row. macOS sleeps on the lid's close, not its state, so an ending with the lid already shut runs
 `pmset sleepnow` (no root needed) and leaves the Wi-Fi to rejoin on wake. After off, the Mac leaves the hotspot — or no network, which a failed join leaves — for the
 first of its preferred networks that one scan finds, never the hotspot; if none is in range it
-stays put. The Backpack sheet watches the lid and closes on an open → closed transition.
+stays put. The Backpack sheet watches the lid and closes on an open → closed transition: with no
+connect running — before Connect, or after a failure — that is a Cancel, which puts back a Wi-Fi a
+failed join dropped; during one the attempt under way finishes, but no retry follows it.
 `backpack.engaged` in UserDefaults is written before `disablesleep 1` and cleared only after
 `disablesleep 0` succeeds: a failed restore is retried on every check, a launch that finds the
 marker puts sleep back, and quit closes the mode first, so no turn-on can follow it.

@@ -196,18 +196,22 @@ in `Palette.muted`. A click opens the sheet at the desk and turns the mode off i
 a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and VoiceOver
 sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 
-Turning on is `BackpackSheet`, two steps in a `SheetLayout` with a `StepBar` (Hotspot, Connect). Hotspot
-is a `Select` of the networks one scan finds now — the remembered hotspot first and chosen once it
-shows up, scanned again every 5 s on this step — and a secure `Input` for the password, filled with
-the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty for any other, with
-the Mac's missing
-permissions above them as `NumberedSteps` and an Allow… button; Connect is disabled until both are
-granted and a hotspot is chosen. Connect shows the phone's three steps and two live checks — a
+Turning on is `BackpackSheet`, one `SheetLayout` with a `SheetSubtitle`, laid out in the order it
+is used. While a permission is missing, “This Mac” leads with `NumberedSteps` and an Allow… button.
+Then Hotspot, a `Select` of the networks one scan finds now — the remembered hotspot first and chosen
+once it shows up, scanned again every 5 s while no connect runs — beside a secure `Input` for the
+password, filled with the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty
+for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
+while nothing is chosen. “On the iPhone” follows as their help: three `NumberedSteps`, `receded`
+(text in `Palette.muted`) once a hotspot is chosen, full again while a connect waits for it.
+Connect (⌘↩) is disabled until both permissions are granted and a hotspot is chosen; it runs in
+place, the fields disabled, Cancel the only action, and two live checks appear under the steps — a
 `StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
-failed — with Back and Cancel while it works. Once the Mac has joined and is held awake the body
-becomes a `Size.control` accent disc with a checkmark, “Safe to close the lid.”, and Done on ⌘↩;
-the mode stays on. Closing the lid dismisses the sheet. Its words are `BackpackSheetPresentation`'s,
-its state `BackpackSheetModel`'s. The Backpack toasts wear `BackpackController.symbol`, `iphone`.
+failed. A failure leaves the fields live and Connect retries; there is no Back. Once the Mac has
+joined and is held awake the body becomes a `Size.control` accent disc with a checkmark, “Safe to
+close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
+Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
+wear `BackpackController.symbol`, `iphone`.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the

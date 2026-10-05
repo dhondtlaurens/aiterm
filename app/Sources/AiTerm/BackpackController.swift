@@ -4,7 +4,7 @@ import AiTermCore
 /// A turn-on or turn-off under way, which the header draws as a spinner.
 enum BackpackTransition: Equatable { case turningOn, turningOff }
 
-/// Where a connect stands: the Backpack sheet's step 2 reads it.
+/// Where a connect stands: the Backpack sheet's checks read it.
 enum ConnectPhase: Equatable {
     case joining
     /// The last join could not see the hotspot; another follows after a delay.
@@ -172,8 +172,8 @@ final class BackpackController {
         await undoWhileBusy(leaving: network)
     }
 
-    /// The sheet's Cancel and Back. During a connect: stop after the attempt under way, then undo.
-    /// After a final refusal: retry a failed sleep restore, and put the Wi-Fi back if the attempt
+    /// The sheet's Cancel, and its lid close with no connect running. During a connect: stop after
+    /// the attempt under way, then undo. After a final refusal: retry a failed sleep restore, and put the Wi-Fi back if the attempt
     /// moved the Mac onto the hotspot. Otherwise nothing changed, and nothing is touched.
     func cancelConnect() async {
         if busy {
@@ -359,8 +359,9 @@ final class BackpackController {
     #if DEBUG
     /// Snapshots draw a state without turning anything on.
     func preview(state: BackpackState, setup: BackpackSetup, transition: BackpackTransition? = nil,
-                 phase: ConnectPhase? = nil, ended: BackpackEnded? = nil) {
+                 phase: ConnectPhase? = nil, ended: BackpackEnded? = nil, busy: Bool = false) {
         self.state = state
+        self.busy = busy
         self.setup = setup
         self.transition = transition
         self.phase = phase

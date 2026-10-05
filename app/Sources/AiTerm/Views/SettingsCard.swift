@@ -183,15 +183,20 @@ struct IntegrationMark: View {
 /// steps, the Mac card's missing permissions and the Backpack sheet's phone steps.
 struct NumberedSteps: View {
     let steps: [String]
+    /// Steps already done, kept as help: the text in `Palette.muted` like the numbers.
+    let receded: Bool
 
-    init(_ steps: [String]) { self.steps = steps }
+    init(_ steps: [String], receded: Bool = false) {
+        self.steps = steps
+        self.receded = receded
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 HStack(alignment: .firstTextBaseline, spacing: Space.base) {
                     Text("\(index + 1)").font(Typography.mono).foregroundStyle(Palette.muted)
-                    Text(step).font(Typography.caption).foregroundStyle(Palette.text)
+                    Text(step).font(Typography.caption).foregroundStyle(receded ? Palette.muted : Palette.text)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }

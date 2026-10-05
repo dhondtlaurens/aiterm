@@ -414,24 +414,27 @@ enum Snapshots {
     private static func backpackSheets(to out: URL) {
         let hotspot = "Laurens’s iPhone"
         let ready = BackpackSetup(sleepRule: true, location: true, network: hotspot)
-        let sheets: [(String, BackpackSetup, BackpackSheetModel.Step, ConnectPhase?, BackpackState)] = [
-            ("hotspot", ready, .hotspot, nil, .off),
-            ("allow", BackpackSetup(sleepRule: false, location: false, network: hotspot), .hotspot, nil, .off),
-            ("connecting", ready, .connect, .keepingAwake, .off),
-            ("not-found", ready, .connect, .notInRange, .off),
-            ("safe", ready, .connect, .safe,
+        // (name, setup, chosen hotspot, Connect pressed, phase, busy, state)
+        let sheets: [(String, BackpackSetup, String?, Bool, ConnectPhase?, Bool, BackpackState)] = [
+            ("hotspot", ready, hotspot, false, nil, false, .off),
+            ("looking", ready, nil, false, nil, false, .off),
+            ("allow", BackpackSetup(sleepRule: false, location: false, network: hotspot), hotspot, false, nil, false, .off),
+            ("connecting", ready, hotspot, true, .keepingAwake, true, .off),
+            ("not-found", ready, hotspot, true, .notInRange, true, .off),
+            ("failed", ready, hotspot, true, .failed(.joinFailed(network: hotspot)), false, .off),
+            ("safe", ready, hotspot, true, .safe, false,
              .on(BackpackStatus(network: hotspot, joined: true, power: PowerReading(level: 64, onBattery: true)))),
         ]
         // `BackpackSheet`'s `.task` does not run in an offscreen render, so the inert controller is
         // never asked to load or watch the lid.
-        for (name, setup, step, phase, state) in sheets {
+        for (name, setup, chosen, started, phase, busy, state) in sheets {
             let backpack = BackpackController.inert()
             backpack.network = hotspot
-            backpack.preview(state: state, setup: setup, phase: phase)
+            backpack.preview(state: state, setup: setup, phase: phase, busy: busy)
             let model = BackpackSheetModel(backpack: backpack)
             // No scan in an offscreen render: the hotspot is chosen as a scan would choose it.
-            model.choose(hotspot)
-            model.step = step
+            model.choose(chosen)
+            if started { model.previewStarted() }
             write(BackpackSheet(model: model), to: out.appendingPathComponent("backpack-sheet-\(name).png"))
         }
     }

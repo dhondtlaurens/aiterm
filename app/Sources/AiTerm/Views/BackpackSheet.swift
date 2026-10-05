@@ -2,7 +2,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// One live check on step 2: a `StatusMark` in a `Size.slot` column, then `Typography.caption`.
+/// One live check under a connect: a `StatusMark` in a `Size.slot` column, then `Typography.caption`.
 struct ConnectCheck: Equatable {
     let text: String
     let mark: TaskStatus
@@ -12,14 +12,18 @@ struct ConnectCheck: Equatable {
 /// The sheet's words, decided apart from the view so a test reads them.
 enum BackpackSheetPresentation {
     static let title = "Backpack mode"
-    static let steps = ["Hotspot", "Connect"]
+    static let subtitle = "Keeps your agents working with the lid closed, online through your iPhone."
+    /// The permissions' heading, shown only while one is missing.
+    static let thisMac = "This Mac"
+    /// The iPhone steps' heading: help for the Hotspot menu, under it.
+    static let onTheIPhone = "On the iPhone"
     static let remembered = "The hotspot you used last, and its password from Keychain."
-    /// In its place while no hotspot is chosen: the iPhone only shows it while Personal Hotspot is
-    /// open, and the menu lists only what is in range. Connect stays disabled, and this says why.
-    static let notShowingYet = "Open Settings › Personal Hotspot on the iPhone, and it shows up here."
+    /// In its place, with a spinner, while no hotspot is chosen: the menu lists only what is in
+    /// range, and the iPhone steps under it say how to make the hotspot show up.
+    static let looking = "Looking for hotspots…"
     /// For a hotspot other than the remembered one: its password is typed, then kept.
     static let newHotspot = "Type its password; it is kept in Keychain once the Mac has joined."
-    /// How often step 1 scans again, so the iPhone's hotspot appears soon after its screen opens.
+    /// How often the sheet scans again, so the iPhone's hotspot appears soon after its screen opens.
     static let rescan: Duration = .seconds(5)
     static let phoneSteps = [
         "Unlock the iPhone and open Settings › Personal Hotspot.",
@@ -74,11 +78,11 @@ enum BackpackSheetPresentation {
 @MainActor
 @Observable
 final class BackpackSheetModel: Identifiable {
-    enum Step: Equatable { case hotspot, connect }
-
     let id = UUID()
     let backpack: BackpackController
-    var step: Step = .hotspot
+    /// Connect was pressed: from then on the checks show, and the sheet closes once the mode is off
+    /// and idle under it (`isOver`).
+    private(set) var started = false
     /// The chosen hotspot; set through `choose(_:)`, which fills or empties the password with it.
     private(set) var network: String?
     /// The field's text: the remembered hotspot's saved password, filled in as if typed, or what the
@@ -119,23 +123,32 @@ final class BackpackSheetModel: Identifiable {
     var choices: [String?] {
         BackpackSheetPresentation.choices(inRange: inRange, remembered: backpack.network, chosen: network)
     }
-    /// Step 1's line under the fields: how to make the hotspot show up, whose password is filled in,
-    /// or that a new one's is typed.
+    /// The line under the fields: that it is looking, whose password is filled in, or that a new
+    /// one's is typed.
     var hotspotHelp: String {
-        guard let network else { return BackpackSheetPresentation.notShowingYet }
+        guard let network else { return BackpackSheetPresentation.looking }
         return network == backpack.network ? BackpackSheetPresentation.remembered : BackpackSheetPresentation.newHotspot
     }
+    /// Nothing chosen: the help line spins.
+    var isLooking: Bool { network == nil }
+    /// The iPhone steps step back once a hotspot is chosen — the iPhone has done its part — but not
+    /// while a connect waits for a hotspot that isn't showing, when they are the help again.
+    var phoneStepsRecede: Bool { network != nil && backpack.phase != .notInRange }
     var missing: [BackpackSetup.Step] { backpack.setup.missingSteps }
-    var canConnect: Bool { missing.isEmpty && network != nil && !backpack.busy }
-    /// Step 2 with nothing left to show: the mode turned off, or ended, under the sheet. A failure
-    /// keeps its phase, and with it Back and Cancel.
+    /// A connect is running: the fields hold still and Cancel is the only action.
+    var isConnecting: Bool { connecting || backpack.busy }
+    var isSafe: Bool { backpack.phase == .safe }
+    /// Also Connect again after a failure: there is no Back, the fields stay live.
+    var canConnect: Bool { missing.isEmpty && network != nil && !isConnecting }
+    /// Nothing left to show once a connect started: the mode turned off, or ended, under the sheet.
+    /// A failure keeps its phase, and with it the fields and Connect.
     var isOver: Bool {
-        step == .connect && !connecting && !backpack.busy && !backpack.isOn && backpack.phase == nil
+        started && !connecting && !backpack.busy && !backpack.isOn && backpack.phase == nil
     }
 
     func connect() {
         guard canConnect, let network else { return }
-        step = .connect
+        started = true
         let typed = password.isEmpty ? nil : password
         connecting = true
         let backpack = self.backpack
@@ -145,10 +158,10 @@ final class BackpackSheetModel: Identifiable {
         }
     }
 
-    func back() {
-        step = .hotspot
-        Task { await backpack.cancelConnect() }
-    }
+    #if DEBUG
+    /// Snapshots draw the sheet after Connect without connecting.
+    func previewStarted() { started = true }
+    #endif
 
     @discardableResult
     func cancel() -> Task<Void, Never> {
@@ -156,45 +169,46 @@ final class BackpackSheetModel: Identifiable {
         return Task { await backpack.cancelConnect() }
     }
 
-    /// The lid closed: the sheet goes. On step 1 that is a Cancel, returned; on step 2 the attempt
-    /// under way finishes on its own, but a hotspot not in range is no longer waited for.
+    /// The lid closed: the sheet goes. With no connect running — before Connect, or after a failure
+    /// — that is a Cancel, returned, which puts back a Wi-Fi a failed join dropped. During a connect
+    /// the attempt under way finishes on its own, but a hotspot not in range is no longer waited for.
     @discardableResult
     func lidClosed() -> Task<Void, Never>? {
-        if step == .hotspot { return cancel() }
+        if !isConnecting { return cancel() }
         backpack.finishWithoutSheet()
         return nil
     }
 }
 
-/// Backpack Mode's sheet, opened by every turn-on: 1 Hotspot, 2 Connect. Step 2 guides the phone and
-/// ends on "Safe to close the lid." with Done. Closing the lid closes it from either step: on step 1
-/// that is a cancel; on step 2 the attempt under way keeps going, but no retry follows it, and the
-/// Mac row shows how it ends (`BackpackSheetModel.lidClosed()`).
+/// Backpack Mode's sheet, opened by every turn-on: one sheet, in the order it is used. "This Mac"'s
+/// permissions while one is missing, then the Hotspot and Password — the remembered one filled in —
+/// with the iPhone's steps under them as their help, receding once a hotspot is chosen. Connect
+/// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid." with
+/// Done; a failure leaves the fields live and Connect retries. Closing the lid closes it: with
+/// nothing running that is a cancel; during a connect the attempt under way keeps going, but no
+/// retry follows it, and the Mac row shows how it ends (`BackpackSheetModel.lidClosed()`).
 struct BackpackSheet: View {
     let model: BackpackSheetModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         SheetLayout(title: BackpackSheetPresentation.title, height: Sheet.height) {
-            StepBar(step: model.step == .hotspot ? 1 : 2, names: BackpackSheetPresentation.steps)
+            SheetSubtitle(BackpackSheetPresentation.subtitle)
         } content: {
-            switch model.step {
-            case .hotspot: hotspot
-            case .connect: connect
-            }
+            if model.isSafe { safe } else { form }
         } footer: {
             footer
         }
         .task {
             await model.load()
-            // Again every few seconds on step 1: the iPhone shows its hotspot only while its Personal
-            // Hotspot screen is open. Not on step 2, where a scan would get in the join's way.
+            // Again every few seconds: the iPhone shows its hotspot only while its Personal Hotspot
+            // screen is open. Not during a connect, where a scan would get in the join's way.
             while !Task.isCancelled {
                 try? await Task.sleep(for: BackpackSheetPresentation.rescan)
-                if model.step == .hotspot, !model.backpack.busy { await model.refreshNetworks() }
+                if !model.isConnecting, !model.isSafe { await model.refreshNetworks() }
             }
         }
-        // Turned off or ended under the sheet: step 2 would show "Joining…" with nothing running.
+        // Turned off or ended under the sheet: it would show "Joining…" with nothing running.
         .onChange(of: model.isOver) { _, over in if over { dismiss() } }
         .task {
             for await _ in model.backpack.lidCloses() {
@@ -205,83 +219,87 @@ struct BackpackSheet: View {
         }
     }
 
-    private var hotspot: some View {
-        VStack(alignment: .leading, spacing: Space.block) {
+    private var form: some View {
+        VStack(alignment: .leading, spacing: Space.section) {
             if !model.missing.isEmpty {
-                NumberedSteps(MacCardPresentation.steps(model.backpack.setup))
-                HStack(spacing: Space.base) {
-                    Button("Allow…") { Task { await model.backpack.setUp() } }.disabled(model.backpack.busy)
-                    HelpText(MacCardPresentation.alsoInSettings)
+                FormField(BackpackSheetPresentation.thisMac) {
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        NumberedSteps(MacCardPresentation.steps(model.backpack.setup))
+                        HStack(spacing: Space.base) {
+                            Button("Allow…") { Task { await model.backpack.setUp() } }.disabled(model.backpack.busy)
+                            HelpText(MacCardPresentation.alsoInSettings)
+                        }
+                    }
                 }
             }
-            HStack(alignment: .top, spacing: Space.gap) {
-                FormField("Hotspot") {
-                    Select(values: model.choices, selection: Binding(get: { model.network }, set: { model.choose($0) }),
-                           label: { $0 ?? "None" })
+            VStack(alignment: .leading, spacing: Space.block) {
+                HStack(alignment: .top, spacing: Space.gap) {
+                    FormField("Hotspot") {
+                        Select(values: model.choices, selection: Binding(get: { model.network }, set: { model.choose($0) }),
+                               label: { $0 ?? "None" })
+                    }
+                    .frame(maxWidth: .infinity)
+                    FormField("Password") {
+                        Input(placeholder: "The hotspot’s password",
+                              text: Binding(get: { model.password }, set: { model.password = $0 }), secure: true,
+                              caretAtEnd: true)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
-                FormField("Password") {
-                    Input(placeholder: "The hotspot’s password",
-                          text: Binding(get: { model.password }, set: { model.password = $0 }), secure: true,
-                          caretAtEnd: true)
+                .disabled(model.isConnecting)
+                HStack(spacing: Space.snug) {
+                    if model.isLooking { StatusMark(status: .working, size: Size.statusMark) }
+                    HelpText(model.hotspotHelp)
                 }
-                .frame(maxWidth: .infinity)
             }
-            HelpText(model.hotspotHelp)
+            FormField(BackpackSheetPresentation.onTheIPhone) {
+                NumberedSteps(BackpackSheetPresentation.phoneSteps, receded: model.phoneStepsRecede)
+            }
+            if model.started, model.isConnecting || model.backpack.phase != nil { checks }
         }
     }
 
-    private var connect: some View {
-        let hotspot = model.network ?? ""
-        return VStack(alignment: .leading, spacing: Space.block) {
-            if model.backpack.phase == .safe {
-                HStack(alignment: .top, spacing: Space.inset) {
-                    ZStack {
-                        Circle().fill(Palette.accent)
-                        Icon(.symbol("checkmark"), size: Size.control / 2, tint: Palette.onAccent)
-                    }
-                    .frame(width: Size.control, height: Size.control)
-                    VStack(alignment: .leading, spacing: Space.tight) {
-                        Text("Safe to close the lid.").font(Typography.title).foregroundStyle(Palette.text)
-                        HelpText(BackpackSheetPresentation.safeHelp(hotspot: hotspot))
-                    }
+    private var safe: some View {
+        VStack(alignment: .leading, spacing: Space.block) {
+            HStack(alignment: .top, spacing: Space.inset) {
+                ZStack {
+                    Circle().fill(Palette.accent)
+                    Icon(.symbol("checkmark"), size: Size.control / 2, tint: Palette.onAccent)
                 }
-            } else {
-                NumberedSteps(BackpackSheetPresentation.phoneSteps)
+                .frame(width: Size.control, height: Size.control)
+                VStack(alignment: .leading, spacing: Space.tight) {
+                    Text("Safe to close the lid.").font(Typography.title).foregroundStyle(Palette.text)
+                    HelpText(BackpackSheetPresentation.safeHelp(hotspot: model.network ?? ""))
+                }
             }
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(BackpackSheetPresentation.checks(phase: model.backpack.phase, hotspot: hotspot), id: \.text) { check in
-                    HStack(spacing: Space.snug) {
-                        StatusMark(status: check.mark, size: Size.statusMark).frame(width: Size.slot)
-                        Text(check.text).font(Typography.caption)
-                            .foregroundStyle(check.warns ? Palette.amber : (check.mark == .idle ? Palette.muted : Palette.text))
-                    }
-                    .frame(height: Size.menuRow)
+            checks
+        }
+    }
+
+    private var checks: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(BackpackSheetPresentation.checks(phase: model.backpack.phase, hotspot: model.network ?? ""), id: \.text) { check in
+                HStack(spacing: Space.snug) {
+                    StatusMark(status: check.mark, size: Size.statusMark).frame(width: Size.slot)
+                    Text(check.text).font(Typography.caption)
+                        .foregroundStyle(check.warns ? Palette.amber : (check.mark == .idle ? Palette.muted : Palette.text))
                 }
+                .frame(height: Size.menuRow)
             }
         }
     }
 
     @ViewBuilder private var footer: some View {
-        switch model.step {
-        case .hotspot:
-            SheetActionRow {
-                EmptyView()
-            } actions: {
-                Button("Cancel") { model.cancel(); dismiss.afterThisEvent() }.keyboardShortcut(.cancelAction)
-                SheetPrimaryButton(title: "Connect", enabled: model.canConnect) { model.connect() }
-            }
-        case .connect where model.backpack.phase == .safe:
-            SheetActionRow {
-                EmptyView()
-            } actions: {
+        SheetActionRow {
+            EmptyView()
+        } actions: {
+            if model.isSafe {
                 SheetPrimaryButton(title: "Done") { dismiss.afterThisEvent() }
-            }
-        case .connect:
-            SheetActionRow {
-                Button("Back") { model.back() }
-            } actions: {
+            } else {
                 Button("Cancel") { model.cancel(); dismiss.afterThisEvent() }.keyboardShortcut(.cancelAction)
+                if !model.isConnecting {
+                    SheetPrimaryButton(title: "Connect", enabled: model.canConnect) { model.connect() }
+                }
             }
         }
     }
