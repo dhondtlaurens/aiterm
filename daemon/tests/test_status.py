@@ -485,6 +485,21 @@ def test_orphaned_grok_session_settles_after_ten_seconds(clock):
     assert reg.get("g1").state == "done"
 
 
+
+def test_a_settled_orphan_still_tells_a_late_report_from_its_own_turn(clock):
+    # The settle forgets what the turn waited on, not which turn it was: an earlier turn's report,
+    # delivered late, stays ignored.
+    eng, reg = _grok_engine(clock)
+    eng.apply_state("g1", "working", turn_id="p1", starts_turn=True)
+    eng.apply_state("g1", "subagentStart", "child")
+    eng.settle_orphans(GONE)
+    clock.now += 10
+    assert eng.settle_orphans(GONE) == ["g1"]
+    turn = eng.turn("g1")
+    assert turn is not None and turn.turn_id == "p1" and not turn.children and turn.cwd_missing_since is None
+    assert eng.apply_state("g1", "needsInput", turn_id="p0") == []
+    assert reg.get("g1").state == "done"
+
 def test_the_window_ignores_the_wall_clock(clock):
     # An NTP step forward must not end a turn early.
     reg = SessionRegistry()

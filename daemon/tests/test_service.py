@@ -963,7 +963,7 @@ async def test_closed_sessions_leave_nothing_behind(stack):
     await it.close_window(wid)
     await svc.tick()
     assert sid not in svc.windows._self_created and sid not in svc.windows._applied_titles
-    assert not svc.status._active_subagents and not svc.status._deferred_done
+    assert svc.status.turn(sid) is None
     assert not svc.resolver._pins and not svc.resolver._codex
     assert not svc.codex_files._paths and not svc.codex_files._missed and not svc.codex_files._context
 
@@ -1111,7 +1111,7 @@ async def test_a_session_start_matched_only_by_directory_resets_no_tab(stack):
     # Another conversation starting in the same directory, before its own session file exists.
     await svc.hook_router.handle_hook("/hook/claude", {"hook_event_name": "SessionStart", "source": "resume", "session_id": "other",
                                                        "cwd": "/wt"})
-    assert svc.status._active_subagents.get(sid)
+    assert (turn := svc.status.turn(sid)) is not None and turn.children
 
 
 async def test_a_moved_session_gets_its_title_applied_again(stack):
