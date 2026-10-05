@@ -51,6 +51,7 @@ struct PaletteDistinctionTests {
         ("sidebar", Palette.sidebar),
         ("rowHover", Palette.rowHover),
         ("rowHoverSolid", Palette.rowHoverSolid),
+        ("badgeSolid", Palette.badgeSolid),
         ("statusChipQuietFill", Palette.statusChipQuietFill),
         ("statusChipQuietStroke", Palette.statusChipQuietStroke),
         ("statusChipAttentionFill", Palette.statusChipAttentionFill),
@@ -197,5 +198,29 @@ struct PaletteDistinctionTests {
                 "rowHoverSolid (\(actualHex)) green channel \(actual.g) is not rowHover composited over sidebar (expected \(expected.g))")
         #expect(abs(actual.b - expected.b) <= 1,
                 "rowHoverSolid (\(actualHex)) blue channel \(actual.b) is not rowHover composited over sidebar (expected \(expected.b))")
+    }
+
+    /// `badgeSolid` is the badge wash made opaque: the ring round Backpack's corner `StatusMark`,
+    /// which has to hide the disc behind it, on a tile painted in `badge`. Measured the way
+    /// `rowHoverSolid` is, against the live composite, never a literal hex.
+    @Test func badgeSolidIsBadgeCompositedOverSidebar() {
+        func components(_ rgba: String) -> (r: Double, g: Double, b: Double, a: Double) {
+            let inner = rgba.trimmingCharacters(in: CharacterSet(charactersIn: "rgba() "))
+            let parts = inner.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            return (parts[0], parts[1], parts[2], parts[3])
+        }
+        func channel(_ hex: String, _ index: Int) -> Int {
+            let start = hex.index(hex.startIndex, offsetBy: 1 + index * 2)
+            return Int(hex[start..<hex.index(start, offsetBy: 2)], radix: 16) ?? 0
+        }
+        let wash = components(ColorProbe.rgba(Palette.badge))
+        let base = components(ColorProbe.rgba(Palette.sidebar))
+        func blended(_ w: Double, _ b: Double) -> Int { Int((w * wash.a + b * (1 - wash.a)).rounded()) }
+        let expected = [blended(wash.r, base.r), blended(wash.g, base.g), blended(wash.b, base.b)]
+        let hex = ColorProbe.hex(Palette.badgeSolid)
+        for index in 0..<3 {
+            #expect(abs(channel(hex, index) - expected[index]) <= 1,
+                    "badgeSolid (\(hex)) channel \(index) is not badge composited over sidebar (expected \(expected[index]))")
+        }
     }
 }
