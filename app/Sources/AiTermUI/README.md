@@ -152,7 +152,8 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `SegmentedControl` | a hand-built segmented control that can carry a logo. `style: .neutral` (a grey selection and the focus ring) or `.accent` (an accent selection on `.surface(.accent)`, no ring — the Settings tab bar); a segment `isSelectable` rejects is dimmed and disabled |
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
-| `SidebarHeading` | `PROJECTS`, a divider's name, the usage footer's CONTEXT and USAGE: micro, uppercase, tracked, secondary ink |
+| `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol on a `Palette.controlActive` disc at half its size, in `IntegrationMark`'s family; `tint` for a muted glyph. `size` is points on screen — Settings › Backpack's cards pass `Size.control`, the status bento passes `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -173,24 +174,32 @@ vendor needs both.
 `SheetLayout`, `SheetSubtitle`, `SheetActionRow`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `UsageFooter`, `UsageRing`, `SearchPicker`, `PickerResultRow`,
+`NativeRowHighlight`, `RowMenuAnchor`, `StatusBento`, `StatusTile`, `StatusLine`, `UsageWindow`, `ContextTile`,
+`UsageTile`, `UsageRing`, `BackpackTile`, `BackpackMark`, `SearchPicker`, `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `CompletionHint`,
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `IntegrationMark`, `HarnessSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`,
-`BackpackSettingsPane`, `SymbolMark`, `BackpackHeaderButton`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
+`BackpackSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
 
 **Backpack Mode.** Settings › Backpack (`BackpackSettingsPane`) is three `SettingsCard`s, each with a
 `SymbolMark` — an SF Symbol in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s
 family for things that are not vendors: Mac permissions (`lock.fill`; harness-style check `Badge`s,
 one action named by its state, `ItermSettingsCard`'s numbered steps while something is missing),
 Hotspot (`personalhotspot`; the mode's live status and a `ServiceCard`'s fields) and Battery
-(`battery.75percent`; a neutral `SegmentedControl`, as Sidebar size). `BackpackHeaderButton` is the
-mode's glyph in the `PROJECTS` header, always there beside the `+` and built like it: `figure.walk` in
-the `+`'s `Palette.muted` while off, `StatusMark`'s spinner while it switches, `Palette.accent` while
-on, `Palette.amber` while it needs the person; a click opens its menu.
+(`battery.75percent`; a neutral `SegmentedControl`, as Sidebar size). Its words —
+the Hotspot card's three steps on the phone and what to do when the Mac loses it — are
+`BackpackPresentation`'s. In the sidebar, `BackpackTile` is the mode's tile in the status bento,
+always there: `BackpackMark` (a `SymbolMark` with `personalhotspot`, muted before setup, the state's
+`StatusMark` on its corner at `Size.statusMarkSmall` ringed in `Palette.badgeSolid` — the spinner
+while it switches, the done dot while on, the needs-input dot when it needs you, none while off),
+`backpack`, then a `SettingsSwitch` (disabled while it switches), or "Set Up…" before setup. The
+state in words, the hotspot's name included, is its tooltip and VoiceOver label
+(`BackpackPresentation.tileHelp` and `tileLabel`, decided by `BackpackTileState`); a right-click
+offers Backpack Settings…; ⌘B still works everywhere. The Backpack toasts wear
+`BackpackPresentation.symbol`, `personalhotspot`.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -286,12 +295,19 @@ a `HelpText` line, and an "Add Project…" push button that runs the header's ow
 starts where the heading's does, and its spacing reads `scale`; the button is an AppKit bezel, so
 it steps from `.regular` at ×1 to `.large` above it rather than scaling.
 
-`UsageFooter` gives every window — its label, ring, number and reset — one tooltip and one
+`StatusBento` is the sidebar's foot: live status as an always-open bento of `StatusTile`s — two
+equal columns `Space.base` apart and round, the list's `Space.inset` either side, on
+`Palette.badge` at `Radius.group`. Row one is the selected task's `ContextTile` and `BackpackTile`,
+one line each (`Size.control`); with nothing selected Backpack spans it. Row two is Claude's and
+Codex's `UsageTile`, two lines each (`Size.row`): the mark and first window, then the second. Every
+line is a `StatusLine`, so every tile's words start on one column — the `Size.vendorMark` mark,
+`Space.snug`, then the words. A tile never resizes or reflows; a reading at 80 % or more only turns
+amber. Every window — its label, ring, number and reset (`UsageWindow`) — has one tooltip and one
 VoiceOver label in words (`UsageLine.help`): "Weekly limit, 61 % used, resets Friday 23:33",
 "Context 84 % full".
 
 `UsageRing` is the ladder's first rung working as intended: a progress ring carries no AiTerm type
-and would make a fine primitive, but only `UsageFooter` draws one, so it stays a pattern until a
+and would make a fine primitive, but only the status bento draws one, so it stays a pattern until a
 second file needs it. It is drawn to `StatusMark`'s recipe — same diameter, same `size * 0.15`
 stroke, same round cap — so the sidebar's two round marks read as one family.
 

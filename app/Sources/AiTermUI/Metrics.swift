@@ -25,9 +25,8 @@ public enum Space {
     public static let base: CGFloat = 8
     /// The one off-rhythm step at this width: a control's own interior padding (a text field and
     /// the command block, horizontally), and, at the same width, the gap between a row's avatar and
-    /// its text (`SidebarView`) and between a footer row's vendor mark and its text
-    /// (`UsageFooter`). Also the sidebar `List`'s own inset, which the usage footer — below the
-    /// list, not in it — adds back to line up with the rows. Off the 8 pt rhythm on purpose — at 8
+    /// its text (`SidebarView`). Also the sidebar `List`'s own inset, which the status bento — below
+    /// the list, not in it — adds back to line up with the rows. Off the 8 pt rhythm on purpose — at 8
     /// the text crowds the field's stroke, at 12 a short value looks lost.
     public static let inset: CGFloat = 10
     /// Two fields side by side; the quiet badges along a sidebar row's subtitle line, which have
