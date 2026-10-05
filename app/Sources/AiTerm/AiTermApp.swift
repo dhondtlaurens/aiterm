@@ -198,7 +198,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func actualSize() { changeInterfaceSize(to: .standard) }
     @objc func showFocusView() { controller.showFocusView() }
     @objc func showListView() { controller.showListView() }
-    @objc func toggleBackpack() { controller.backpack.toggle() }
+    @objc func toggleBackpack() { controller.toggleBackpack() }
 
     private func changeInterfaceSize(to size: InterfaceSize?) {
         if let size { controller.tiling.setInterfaceSize(size) }

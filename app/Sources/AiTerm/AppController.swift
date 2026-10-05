@@ -198,6 +198,7 @@ final class AppController {
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
         backpack = BackpackController(ports: backpackPorts,
                                       settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
+                                      agentsWorking: { link.controller?.live.sessions.contains { $0.state == .working } ?? false },
                                       openLocationSettings: {
                                           NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                                       },
@@ -254,6 +255,13 @@ final class AppController {
         preparingSheet?.cancel()
         focus.cancel()
         helper.shutdown()
+    }
+
+    /// The Mac row's click and ⌘B. Backpack off at once; desk opens the sheet (a later task).
+    /// Ignored while it switches.
+    func toggleBackpack() {
+        guard !backpack.busy else { return }
+        if backpack.isOn { Task { await backpack.turnOff() } }
     }
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say

@@ -7,64 +7,220 @@ import Testing
 @MainActor
 @Suite(.serialized) struct BackpackControllerTests {
     private func controller(_ fake: FakeBackpack, toasts: Recorder = Recorder(),
+                            working: @escaping @MainActor () -> Bool = { true },
+                            now: @escaping @Sendable () -> Date = Date.init,
                             openLocationSettings: @escaping @MainActor () -> Void = {}) -> BackpackController {
         BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
+                           retryDelays: [.milliseconds(10)], now: now, agentsWorking: working,
                            openLocationSettings: openLocationSettings, toast: { toasts.lines.append($0) })
     }
 
     final class Recorder { var lines: [String] = [] }
 
-    @Test func turningOnToastsAndPublishesTheState() async {
+    @Test func aConnectEndsSafeAndOnWithoutAToast() async {
         let fake = FakeBackpack(), toasts = Recorder()
         let backpack = controller(fake, toasts: toasts)
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
+        #expect(backpack.phase == .safe)
         #expect(backpack.isOn)
-        #expect(toasts.lines == ["Backpack Mode on · joined Phone"])
-        await backpack.turnOff()
-        #expect(!backpack.isOn)
-        #expect(fake.lid.calls == [true, false])
-        #expect(toasts.lines.count == 1, "a manual turn-off has no toast")
+        #expect(toasts.lines.isEmpty, "the sheet says it; a toast would say it twice")
     }
 
-    @Test func aRefusalIsAToastAndTheModeStaysOff() async {
-        let fake = FakeBackpack(), toasts = Recorder()
-        fake.wifi.inRange = ["Home"]
-        fake.wifi.joinSucceeds = false
-        let backpack = controller(fake, toasts: toasts)
-        await backpack.turnOn()
-        #expect(!backpack.isOn)
-        #expect(toasts.lines == ["Phone isn’t showing its hotspot: open Personal Hotspot on the iPhone"])
+    @Test func aConnectSavesTheHotspotAndATypedPassword() async {
+        let fake = FakeBackpack()
+        fake.settings.network = "Home"
+        let backpack = controller(fake)
+        await backpack.connect(network: "Phone", password: "hunter2")
+        #expect(fake.settings.network == "Phone")
+        #expect(fake.settings.password == "hunter2")
+        #expect(fake.wifi.passwords == ["hunter2"])
     }
 
-    @Test func aSecondToggleWhileBusyDoesNothing() async {
+    @Test func anEmptyPasswordKeepsTheSavedOne() async {
+        let fake = FakeBackpack()
+        fake.settings.password = "saved"
+        let backpack = controller(fake)
+        await backpack.connect(network: "Phone", password: nil)
+        #expect(fake.wifi.passwords == ["saved"])
+    }
+
+    /// The phase walks joining → keepingAwake → safe; keepingAwake is set from `onJoined`.
+    @Test func thePhaseIsKeepingAwakeOnceJoined() async {
         let fake = FakeBackpack()
         let release = DispatchSemaphore(value: 0)
         fake.lid.onSet = { if $0 { release.wait() } }
         let backpack = controller(fake)
-        let first = Task { await backpack.turnOn() }
-        while !backpack.busy { await Task.yield() }
-        backpack.toggle()
-        await backpack.turnOn()
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while backpack.phase != .keepingAwake { await Task.yield() }
+        #expect(backpack.transition == .turningOn)
         release.signal()
-        await first.value
-        #expect(fake.lid.calls == [true])
+        await run.value
+        #expect(backpack.phase == .safe)
+    }
+
+    @Test func aHotspotOutOfSightIsRetriedUntilItShows() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let backpack = controller(fake)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while fake.wifi.joins.count < 2 { await Task.yield() }
+        #expect(backpack.phase == .notInRange || backpack.phase == .joining)
+        fake.wifi.joinSucceeds = true
+        await run.value
+        #expect(backpack.phase == .safe)
+    }
+
+    @Test func aWrongPasswordIsFinal() async {
+        let fake = FakeBackpack()
+        fake.wifi.joinSucceeds = false   // in range: a password problem
+        let backpack = controller(fake)
+        await backpack.connect(network: "Phone", password: nil)
+        #expect(backpack.phase == .failed(.joinFailed(network: "Phone")))
+        #expect(!backpack.busy && !backpack.isOn)
+    }
+
+    @Test func cancelStopsTheRetriesAndPutsTheWiFiBack() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let backpack = controller(fake)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while fake.wifi.joins.isEmpty { await Task.yield() }
+        await backpack.cancelConnect()
+        await run.value
+        #expect(!backpack.isOn && !backpack.busy)
+        #expect(fake.lid.calls.isEmpty, "sleep was never touched")
+        #expect(backpack.phase == nil)
+    }
+
+    @Test func cancelAfterAJoinLeavesTheHotspot() async {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Home", "Phone"]
+        let release = DispatchSemaphore(value: 0)
+        fake.lid.onSet = { if $0 { release.wait() } }
+        let backpack = controller(fake)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while backpack.phase != .keepingAwake { await Task.yield() }
+        let cancel = Task { await backpack.cancelConnect() }
+        release.signal()
+        await run.value
+        await cancel.value
+        #expect(!backpack.isOn)
+        #expect(fake.wifi.current == "Home")
+        #expect(fake.lid.calls == [true, false])
+    }
+
+    /// Cancel while a join is under way: once it answers, undo at once, not after a retry's wait.
+    @Test func cancelDuringAJoinSkipsTheRetryWait() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let release = DispatchSemaphore(value: 0), entered = Mutex(false)
+        fake.wifi.onJoin = { @Sendable in entered.withLock { $0 = true }; release.wait() }
+        let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
+                                          retryDelays: [.seconds(5)], toast: { _ in })
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while !entered.withLock({ $0 }) { await Task.yield() }
+        await backpack.cancelConnect()
+        let started = Date()
+        release.signal()
+        await run.value
+        #expect(Date().timeIntervalSince(started) < 1, "no wait before the undo")
+        #expect(backpack.phase == nil && !backpack.busy)
         #expect(fake.wifi.joins == ["Phone"])
     }
 
-    /// The header's spinner reads this: set for as long as a turn-on runs, gone once it ends.
-    @Test func aTurnOnShowsAsTurningOnWhileItRuns() async {
+    /// Cancel while a join is under way that then fails for good: Cancel wins, not the refusal.
+    @Test func cancelDuringAJoinThatFailsClearsThePhase() async {
         let fake = FakeBackpack()
-        let release = DispatchSemaphore(value: 0)
-        fake.lid.onSet = { if $0 { release.wait() } }
+        fake.wifi.joinSucceeds = false   // in range: joinFailed
+        let release = DispatchSemaphore(value: 0), entered = Mutex(false)
+        fake.wifi.onJoin = { @Sendable in entered.withLock { $0 = true }; release.wait() }
         let backpack = controller(fake)
-        #expect(backpack.transition == nil)
-        let first = Task { await backpack.turnOn() }
-        while !backpack.busy { await Task.yield() }
-        #expect(backpack.transition == .turningOn)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while !entered.withLock({ $0 }) { await Task.yield() }
+        await backpack.cancelConnect()
         release.signal()
-        await first.value
-        #expect(backpack.transition == nil)
-        #expect(backpack.isOn)
+        await run.value
+        #expect(backpack.phase == nil, "the sheet was cancelled: no failure to show")
+        #expect(!backpack.busy && !backpack.isOn)
+    }
+
+    /// Review focus 3: quit while it waits to retry stops the loop; sleep stays enabled.
+    @Test func quitStopsARetryingConnect() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let backpack = controller(fake)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while fake.wifi.joins.isEmpty { await Task.yield() }
+        backpack.shutdown()
+        await run.value
+        let joins = fake.wifi.joins.count
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(fake.wifi.joins.count == joins, "no retry after quit")
+        #expect(fake.lid.calls.allSatisfy { !$0 })
+    }
+
+    @Test func turningOffRejoinsTheBestNetworkAndClearsThePhase() async {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Phone", "Home"]
+        let backpack = controller(fake)
+        await backpack.connect(network: "Phone", password: nil)
+        await backpack.turnOff()
+        #expect(!backpack.isOn)
+        #expect(fake.wifi.current == "Home")
+        #expect(backpack.phase == nil)
+        #expect(backpack.ended == nil, "a turn-off by hand is not an ending")
+        #expect(backpack.currentNetwork == "Home")
+    }
+
+    @Test func endingItselfIsRememberedWithItsTime() async {
+        let fake = FakeBackpack()
+        let start = Date(timeIntervalSince1970: 1_000)
+        let clock = Mutex(start)
+        let backpack = controller(fake, working: { false }, now: { clock.withLock { $0 } })
+        await backpack.connect(network: "Phone", password: nil)
+        clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
+        await backpack.tick()
+        #expect(backpack.ended == BackpackEnded(at: start.addingTimeInterval(BackpackMode.idleGrace), cause: .agentsStopped))
+        await backpack.connect(network: "Phone", password: nil)
+        #expect(backpack.ended == nil, "the next turn-on clears it")
+    }
+
+    /// Review focus 1: a lid already closed (clamshell with a display) never yields; only a close does.
+    /// Laurens's Mac often runs lid-closed on an external display: the sheet opening must not end it.
+    @Test func aLidAlreadyClosedNeverYields() async {
+        let fake = FakeBackpack()
+        fake.lidSensor.closed = true
+        let backpack = controller(fake)
+        let yields = Mutex(0)
+        let stream = backpack.lidCloses(every: .milliseconds(5))
+        let watch = Task { for await _ in stream { yields.withLock { $0 += 1 } } }
+        try? await Task.sleep(for: .milliseconds(40))
+        #expect(yields.withLock { $0 } == 0, "closed from the start is not a close")
+        fake.lidSensor.closed = false
+        try? await Task.sleep(for: .milliseconds(40))
+        #expect(yields.withLock { $0 } == 0, "an opening is not a close")
+        fake.lidSensor.closed = true
+        let deadline = Date().addingTimeInterval(2)
+        while yields.withLock({ $0 }) == 0, Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        // Long enough for a second, wrong yield to show while the lid stays closed.
+        try? await Task.sleep(for: .milliseconds(40))
+        #expect(yields.withLock { $0 } == 1, "open → closed yields, once")
+        watch.cancel()
+        await watch.value
+    }
+
+    @Test func noLidNeverYields() async {
+        let fake = FakeBackpack()
+        fake.lidSensor.closed = nil
+        let backpack = controller(fake)
+        let watch = Task { () -> Bool in for await _ in backpack.lidCloses(every: .milliseconds(5)) { return true }; return false }
+        try? await Task.sleep(for: .milliseconds(40))
+        watch.cancel()
+        #expect(await watch.value == false)
     }
 
     /// Quit during a turn-on: shutdown waits for it, then puts sleep back, so the Mac never stays
@@ -73,10 +229,10 @@ import Testing
         let fake = FakeBackpack()
         let release = DispatchSemaphore(value: 0)
         let entered = Mutex(false)
-        fake.lid.onSet = { if $0 { entered.withLock { $0 = true }; release.wait() } }
+        fake.lid.onSet = { @Sendable in if $0 { entered.withLock { $0 = true }; release.wait() } }
         let toasts = Recorder()
         let backpack = controller(fake, toasts: toasts)
-        let first = Task { await backpack.turnOn() }
+        let first = Task { await backpack.connect(network: "Phone", password: nil) }
         // Until the turn-on's work is on the queue: `busy` is set a moment before it gets there.
         while !entered.withLock({ $0 }) { await Task.yield() }
         let releaser = Thread { Thread.sleep(forTimeInterval: 0.2); release.signal() }
@@ -86,7 +242,7 @@ import Testing
         #expect(!fake.settings.engaged)
         await first.value
         #expect(!backpack.isOn)
-        #expect(toasts.lines.isEmpty, "no 'on' toast for a mode the quit already turned off")
+        #expect(toasts.lines.isEmpty, "no toast for a mode the quit already turned off")
     }
 
     /// The gap the test above cannot hold open: quit lands after ⌘B set `busy` but before its work
@@ -95,7 +251,7 @@ import Testing
         let fake = FakeBackpack()
         let backpack = controller(fake)
         backpack.shutdown()
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         #expect(!fake.lid.calls.contains(true))
         #expect(!backpack.isOn)
     }
@@ -104,11 +260,12 @@ import Testing
         let fake = FakeBackpack(), toasts = Recorder()
         fake.power.value = PowerReading(level: 40, onBattery: true)
         let backpack = controller(fake, toasts: toasts)
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         fake.power.value = PowerReading(level: 9, onBattery: true)
         await backpack.tick()
         #expect(!backpack.isOn)
-        #expect(toasts.lines == ["Backpack Mode on · joined Phone"], "ending itself is not a toast until Task 6")
+        #expect(backpack.ended?.cause == .batteryLow(level: 9))
+        #expect(toasts.lines.isEmpty, "no turn-on toast, and the ending is remembered for the sheet, not toasted")
     }
 
     @Test func setUpRunsTheMissingStepsAndRefreshes() async {
@@ -135,7 +292,7 @@ import Testing
     @Test func removeSetupTurnsTheModeOffFirst() async {
         let fake = FakeBackpack()
         let backpack = controller(fake)
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         await backpack.removeSetup()
         #expect(!backpack.isOn)
         #expect(fake.lid.calls == [true, false])
@@ -159,7 +316,7 @@ import Testing
     @Test func aFailedTurnOffSaysSoAndKeepsTrying() async {
         let fake = FakeBackpack(), toasts = Recorder()
         let backpack = controller(fake, toasts: toasts)
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         fake.lid.succeeds = false
         await backpack.turnOff()
         #expect(!backpack.isOn)
@@ -174,7 +331,7 @@ import Testing
     @Test func removeSetupRefusesWhileSleepIsStillDisabled() async {
         let fake = FakeBackpack(), toasts = Recorder()
         let backpack = controller(fake, toasts: toasts)
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         fake.lid.succeeds = false
         await backpack.removeSetup()
         #expect(fake.installer.removes == 0)
@@ -185,9 +342,9 @@ import Testing
     @Test func quitDoesNotWaitBehindASlowJoin() async {
         let fake = FakeBackpack()
         let release = DispatchSemaphore(value: 0), entered = Mutex(false)
-        fake.wifi.onJoin = { entered.withLock { $0 = true }; release.wait() }
+        fake.wifi.onJoin = { @Sendable in entered.withLock { $0 = true }; release.wait() }
         let backpack = controller(fake)
-        let first = Task { await backpack.turnOn() }
+        let first = Task { await backpack.connect(network: "Phone", password: nil) }
         while !entered.withLock({ $0 }) { await Task.yield() }
         let started = Date()
         backpack.shutdown()
@@ -202,7 +359,7 @@ import Testing
         let fake = FakeBackpack()
         let backpack = controller(fake)
         #expect(!backpack.setup.isComplete)
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         #expect(backpack.setup.isComplete)
     }
 
@@ -225,7 +382,7 @@ import Testing
 
     @Test func theInertControllerTouchesNothing() async {
         let backpack = BackpackController.inert()
-        await backpack.turnOn()
+        await backpack.connect(network: "Phone", password: nil)
         #expect(!backpack.isOn)
         #expect(await backpack.knownNetworks().isEmpty)
     }
