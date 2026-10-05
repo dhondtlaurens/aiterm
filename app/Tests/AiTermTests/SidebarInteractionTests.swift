@@ -297,7 +297,9 @@ struct SidebarInteractionTests {
         // tracked: a real menu's modal tracking ends a test host's run. The ↓ that highlights its
         // first item needs that tracking, so it is checked in the app.
         let click = try #require(RowMenuAnchor.anchor(for: project.id)?.rightClick)
-        let hit = try #require(host.hitTest(host.convert(click.locationInWindow, from: nil)))
+        // `hitTest` takes its point in the superview's coordinates, and the hosting view is flipped.
+        let frame = try #require(host.superview)
+        let hit = try #require(host.hitTest(frame.convert(click.locationInWindow, from: nil)))
         let menu = try #require(sequence(first: hit, next: \.superview).lazy.compactMap { $0.menu(for: click) }.first,
                                 "the click lands on a row with a menu")
         #expect(Array(menu.items.prefix(3).map(\.title)) == ["New Task…", "New Review…", "New Terminal…"],

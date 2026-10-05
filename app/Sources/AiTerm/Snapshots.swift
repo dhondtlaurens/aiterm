@@ -203,7 +203,7 @@ enum Snapshots {
         controller.state.append(project: acme)
         controller.state.tasks = tasks
         controller.live.sessions = [
-            // The selected task: Claude Code in front, its context the footer's CONTEXT line.
+            // The selected task: Claude Code in front, its context the footer's `ctx` line.
             session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38),
             session("r2", "a1", refactor.id, "codex", "idle", 1, cwd: refactor.worktreePath),
             session("r3", "a2", orphan.id, "grok", "done", 0, cwd: orphan.worktreePath, active: true),

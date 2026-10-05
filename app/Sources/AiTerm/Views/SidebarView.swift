@@ -78,7 +78,13 @@ struct SidebarView: View {
             TimelineView(.everyMinute) { context in
                 SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
                               rows: SidebarModel.usageVendorRows(controller.live.usage, now: context.date, calendar: .current,
-                                                                 claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
+                                                                 claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled),
+                              mac: MacModePresentation.line(
+                                  mode: MacMode(state: controller.backpack.state, transition: controller.backpack.transition,
+                                                ended: controller.backpack.ended),
+                                  hotspot: controller.backpack.network, wifi: controller.backpack.currentNetwork, calendar: .current),
+                              toggleMac: { controller.toggleBackpack() },
+                              openMacSettings: { controller.presentSettings(tab: .integrations) })
             }
         }
         .overlay(alignment: .bottom) { SidebarToast(controller: controller) }
