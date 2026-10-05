@@ -1,6 +1,6 @@
 import Foundation
 import Synchronization
-@testable import AiTermCore
+import AiTermCore
 
 /// A home with nothing in it, for whatever a test builds that reads one. The developer's own
 /// `~/.claude`, `~/.claude.json` and `~/.codex` say nothing about a test: reading them made a

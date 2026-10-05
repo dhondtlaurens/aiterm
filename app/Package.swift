@@ -10,9 +10,9 @@ let package = Package(
         .executableTarget(name: "AiTerm", dependencies: ["AiTermCore", "AiTermUI"], path: "Sources/AiTerm",
                           resources: [.copy("Resources")]),
         // Fakes and fixtures the Core and app tests share: test targets cannot share a source file, so
-        // they live in a library the tests import (`@testable`, so debug builds only: release builds
-        // name the `AiTerm` product, never this one). It stays below the app — what needs `AiTerm`
-        // (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
+        // they live in a library the tests import. It uses only what Core makes public — no
+        // `@testable` — so a plain release build still compiles, and it stays below the app: what
+        // needs `AiTerm` (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
         .target(name: "AiTermTestSupport", dependencies: ["AiTermCore"], path: "Tests/AiTermTestSupport"),
         .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests"),
         .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI"], path: "Tests/AiTermUITests"),

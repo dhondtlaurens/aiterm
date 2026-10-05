@@ -2,7 +2,7 @@ import Foundation
 #if canImport(Darwin)
 import Darwin
 #endif
-@testable import AiTermCore
+import AiTermCore
 
 /// Minimal Unix-socket JSON-lines server for tests. Replies to requests via `handler`; `push` sends an event.
 ///
@@ -34,10 +34,14 @@ final class FakeSocketServer: @unchecked Sendable {
     func start() {
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
         unlink(path)
-        // A test's socket path is always a short, fixed-format temp path; it never needs the
-        // length check `UnixSocketAddress` itself enforces.
-        let address = try! UnixSocketAddress(path: path)
-        _ = address.withSockaddr { bind(listener, $0, $1) }
+        // Core's `UnixSocketAddress` is not public. A test's socket path is always a short,
+        // fixed-format temp path, so it needs none of the length check that type enforces.
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        _ = path.withCString { strncpy(&address.sun_path.0, $0, 103) }
+        _ = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
         listen(listener, 1)
         var ends: [Int32] = [-1, -1]
         // Without the pipe `stop()` could not wake a loop still waiting for a client.

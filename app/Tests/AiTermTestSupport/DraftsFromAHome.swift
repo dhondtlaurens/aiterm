@@ -1,5 +1,5 @@
 import Foundation
-@testable import AiTermCore
+import AiTermCore
 
 // Drafts built from a catalogue read off a home, for tests. The app reads the catalogue off the
 // main actor and hands it to `initial(…catalog:)` (`AppController.prepareSheet`); these read it on

@@ -1,5 +1,5 @@
 import Foundation
-@testable import AiTermCore
+import AiTermCore
 
 /// The rows and tabs a test builds, with every field it does not care about filled in once, here.
 extension TaskItem {
@@ -15,10 +15,15 @@ extension TaskItem {
 }
 
 extension SessionInfo {
-    /// A tab in `window`, tagged with `task` when there is one and working in its worktree.
+    /// A tab in `window`, tagged with `task` when there is one and working in its worktree. Decoded
+    /// from the daemon's wire form, because `SessionInfo` has no public memberwise initializer and
+    /// this library sees only what Core makes public.
     static func stub(_ sessionId: String = "s", window: String, task: TaskItem? = nil, state: SessionState = .idle,
                      agent: SessionAgent = .codex) -> SessionInfo {
-        SessionInfo(sessionId: sessionId, windowId: window, tabIndex: 0, taskId: task?.id.uuidString, projectId: nil,
-                    agent: agent, model: nil, state: state, title: "", cwd: task?.worktreePath ?? "/")
+        var wire: [String: Any] = ["sessionId": sessionId, "windowId": window, "tabIndex": 0, "agent": agent.rawValue,
+                                   "state": state.rawValue, "title": "", "cwd": task?.worktreePath ?? "/"]
+        if let task { wire["taskId"] = task.id.uuidString }
+        // A literal that fails to decode is a mistake in this file, not a case a test handles.
+        return try! JSONDecoder().decode(SessionInfo.self, from: JSONSerialization.data(withJSONObject: wire))
     }
 }
