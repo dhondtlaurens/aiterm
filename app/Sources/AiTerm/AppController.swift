@@ -725,8 +725,9 @@ final class AppController {
     /// a sheet's root view on every state change of the presenting view, and a draft costs a git
     /// call and a read of the agent's model catalogue.
     func presentNewTask(project: Project) {
-        let git = self.git
-        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2) },
+        // The monitor reads each project's default branch on every pass: nothing to ask git for.
+        let git = self.git, known = checkouts.defaultBranch[project.id]
+        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known) },
                      search: jiraSettings) { [unowned self] in
             .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, jira: $2))
         }

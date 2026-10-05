@@ -147,16 +147,25 @@ public enum Worktrees {
     /// The default branch, or `nil` when the repository does not say: no usable `origin/HEAD` and
     /// none of the usual names. Throws when git cannot be asked, which says nothing either way.
     public static func detectDefaultBranch(repo: String, git: any GitRunning) throws -> String? {
-        // The whole name after `origin/`: a default branch can have slashes in it. And only while
-        // origin still has it — a rename on origin leaves the old name in a clone's `origin/HEAD`.
+        // One `for-each-ref` over every ref the answer can come from. It lists only refs that
+        // resolve, which is exactly what is wanted: `origin/HEAD` names a branch only while origin
+        // still has it — a rename on origin leaves the old name in a clone's `origin/HEAD` — and a
+        // usual name counts only if it exists.
         let prefix = "refs/remotes/origin/"
-        if let ref = try git.ask(["symbolic-ref", "--quiet", prefix + "HEAD"], in: repo, none: [1]), ref.hasPrefix(prefix),
-           try commit(ref, repo: repo, git: git) != nil { return String(ref.dropFirst(prefix.count)) }
+        let usual = ["refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"]
+        let listing = try git.run(["for-each-ref", "--format=%(refname) %(symref)", prefix + "HEAD"] + usual, in: repo)
+        var existing = Set<String>(), originHead: String?
+        for line in listing.split(separator: "\n") {
+            // A ref name has no spaces; what follows the first is the symref's target, empty for a plain ref.
+            let fields = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+            existing.insert(String(fields[0]))
+            if fields[0] == prefix + "HEAD", fields.count == 2, fields[1].hasPrefix(prefix) { originHead = String(fields[1]) }
+        }
+        // The whole name after `origin/`: a default branch can have slashes in it.
+        if let originHead { return String(originHead.dropFirst(prefix.count)) }
         // No usable `origin/HEAD` — a clone of an empty repository, a remote added by hand: whichever
         // of the usual names exists, origin's first.
-        for ref in ["refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"]
-        where try commit(ref, repo: repo, git: git) != nil { return String(ref.split(separator: "/").last!) }
-        return nil
+        return usual.first(where: existing.contains).map { String($0.split(separator: "/").last!) }
     }
 
     /// ``detectDefaultBranch(repo:git:)``, or ``fallbackDefaultBranch`` when there is none or git
@@ -265,10 +274,9 @@ public enum Worktrees {
     /// Whether a rebase is stopped in `checkout`: git keeps its state in `rebase-merge` (or, for
     /// the old apply backend, `rebase-apply`) in that checkout's own git directory.
     private static func isRebasing(_ checkout: String, git: any GitRunning) -> Bool {
-        ["rebase-merge", "rebase-apply"].contains { name in
-            (try? git.run(["rev-parse", "--path-format=absolute", "--git-path", name], in: checkout))
-                .map { FileManager.default.fileExists(atPath: $0) } == true
-        }
+        guard let paths = try? git.run(["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge", "--git-path", "rebase-apply"],
+                                       in: checkout) else { return false }
+        return paths.split(separator: "\n").contains { FileManager.default.fileExists(atPath: String($0)) }
     }
 
     /// The default branch, fetched: its name, the local tip and origin's. An explicit refspec, so
@@ -297,13 +305,15 @@ public enum Worktrees {
     /// what `git worktree add` resolves). The repository's default branch is always first, even
     /// when it has not been touched in months.
     public static func branches(repo: String, git: any GitRunning) -> [String] {
-        let locals = lines(try? git.run(["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"], in: repo))
-        let remotes = lines(try? git.run(["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/remotes/origin"], in: repo))
-            .compactMap { ref -> String? in
-                guard ref.hasPrefix("origin/") else { return nil }
-                let name = String(ref.dropFirst("origin/".count))
-                return name == "HEAD" ? nil : name
-            }
+        // One listing of both, newest first within each: the locals are the refs under `refs/heads/`
+        // and the others, `origin`'s.
+        let listing = lines(try? git.run(["for-each-ref", "--format=%(refname)", "--sort=-committerdate", "refs/heads", "refs/remotes/origin"], in: repo))
+        let locals = listing.compactMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }
+        let remotes = listing.compactMap { ref -> String? in
+            guard ref.hasPrefix("refs/remotes/origin/") else { return nil }
+            let name = String(ref.dropFirst("refs/remotes/origin/".count))
+            return name == "HEAD" ? nil : name
+        }
         var out: [String] = [], seen = Set<String>()
         for name in [defaultBranch(repo: repo, git: git)] + locals + remotes where seen.insert(name).inserted { out.append(name) }
         return out
@@ -322,9 +332,10 @@ public enum Worktrees {
     /// safe in `main`. This answers the question the app actually means.
     public static func isMerged(branch: String, into base: String, repo: String, git: any GitRunning) -> Bool {
         guard !base.isEmpty, base != branch else { return false }
+        // A ref that does not exist makes `--is-ancestor` fail like one that is not an ancestor, so
+        // there is nothing to check for first.
         return ["refs/heads/" + base, "refs/remotes/origin/" + base].contains { ref in
-            (try? git.run(["rev-parse", "--verify", "--quiet", ref], in: repo)) != nil
-                && (try? git.run(["merge-base", "--is-ancestor", branch, ref], in: repo)) != nil
+            (try? git.run(["merge-base", "--is-ancestor", branch, ref], in: repo)) != nil
         }
     }
 

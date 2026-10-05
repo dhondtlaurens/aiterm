@@ -24,11 +24,13 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
         self.ticket = ticket; self.baseBranch = baseBranch; self.agent = agent; self.model = model; self.reasoning = reasoning
     }
 
-    /// A draft for `agent`, its model chosen from `catalog` — which the caller has read already.
+    /// A draft for `agent`, its model chosen from `catalog` — which the caller has read already. The
+    /// base branch is `defaultBranch` when the caller knows the project's — the checkout monitor
+    /// reads it on every pass — and git's answer otherwise.
     public static func initial(project: Project, state: AppState, git: any GitRunning, agent: AgentKind,
-                               catalog: [AgentModel], defaults: UserDefaults = .standard) -> TaskDraft {
+                               catalog: [AgentModel], defaultBranch: String? = nil, defaults: UserDefaults = .standard) -> TaskDraft {
         let preference = Self.preference(for: agent, state: state, catalog: catalog, defaults: defaults)
-        return TaskDraft(ticket: nil, baseBranch: Worktrees.defaultBranch(repo: project.path, git: git), agent: agent,
+        return TaskDraft(ticket: nil, baseBranch: defaultBranch ?? Worktrees.defaultBranch(repo: project.path, git: git), agent: agent,
                          model: preference.model, reasoning: preference.reasoning)
     }
 
