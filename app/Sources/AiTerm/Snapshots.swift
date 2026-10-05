@@ -429,6 +429,8 @@ enum Snapshots {
             backpack.network = hotspot
             backpack.preview(state: state, setup: setup, phase: phase)
             let model = BackpackSheetModel(backpack: backpack)
+            // No scan in an offscreen render: the hotspot is chosen as a scan would choose it.
+            model.choose(hotspot)
             model.step = step
             write(BackpackSheet(model: model), to: out.appendingPathComponent("backpack-sheet-\(name).png"))
         }

@@ -516,6 +516,21 @@ import Testing
         let backpack = BackpackController.inert()
         await backpack.connect(network: "Phone", password: nil)
         #expect(!backpack.isOn)
-        #expect(await backpack.knownNetworks().isEmpty)
+        #expect(await backpack.networksInRange().isEmpty)
+        #expect(await backpack.savedPassword() == nil)
+    }
+
+    /// One scan, as names: the sheet lists them, nameless ones dropped.
+    @Test func networksInRangeAreOneScansNames() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home", "", "Phone"]
+        let backpack = controller(fake)
+        #expect(Set(await backpack.networksInRange()) == ["Home", "Phone"])
+    }
+
+    @Test func theSavedPasswordIsReadForTheSheet() async {
+        let fake = FakeBackpack()
+        fake.settings.password = "saved"
+        #expect(await controller(fake).savedPassword() == "saved")
     }
 }

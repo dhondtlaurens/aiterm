@@ -6,10 +6,10 @@ import AiTermCore
 enum MacCardPresentation {
     static func status(_ setup: BackpackSetup) -> SettingsStatus {
         switch (setup.sleepRule, setup.location) {
-        case (true, true): SettingsStatus(.ready, "Ready for Backpack Mode")
-        case (false, true): SettingsStatus(.attention, "Backpack Mode needs lid sleep")
-        case (true, false): SettingsStatus(.attention, "Backpack Mode needs network discovery")
-        case (false, false): SettingsStatus(.attention, "Backpack Mode needs lid sleep and network discovery")
+        case (true, true): SettingsStatus(.ready, "Ready for backpack mode")
+        case (false, true): SettingsStatus(.attention, "Backpack mode needs lid sleep")
+        case (true, false): SettingsStatus(.attention, "Backpack mode needs network discovery")
+        case (false, false): SettingsStatus(.attention, "Backpack mode needs lid sleep and network discovery")
         }
     }
 
@@ -23,7 +23,7 @@ enum MacCardPresentation {
         }
     }
 
-    static let summary = "Backpack Mode keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again."
+    static let summary = "Backpack mode keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again."
 
     /// Under the permission rows the Backpack sheet shows when one is missing.
     static let alsoInSettings = "Also in Settings › Integrations › Mac."

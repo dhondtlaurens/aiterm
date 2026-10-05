@@ -25,7 +25,7 @@ enum MacMode: Equatable {
 
     var isDesk: Bool { if case .desk = self { true } else { false } }
     /// Where the Mac is: on a desk, or in a bag.
-    var name: String { isDesk ? "desk" : "backpack" }
+    var name: String { isDesk ? "desk mode" : "backpack mode" }
     /// The Mac on its own, or the Mac through the iPhone.
     var symbol: String { isDesk ? "macbook" : "iphone" }
     /// The task row's `StatusMark` after the name: the row's one colour. None at the desk.
@@ -58,20 +58,20 @@ enum MacModePresentation {
             case .agentsStopped: "your agents stopped"
             case .batteryLow(let level): "battery at \(level) %"
             }
-            return MacModeLine(mode: mode, note: "· backpack ended \(time)", help: "Backpack Mode ended at \(time): \(why)")
+            return MacModeLine(mode: mode, note: "· backpack mode ended \(time)", help: "Backpack mode ended at \(time): \(why)")
         case .desk(nil):
             let on = wifi.map { $0 == hotspot ? " · still on \($0)" : " · \($0)" } ?? ""
-            return MacModeLine(mode: mode, note: nil, help: "desk\(on) · ⌘B turns on Backpack Mode")
+            return MacModeLine(mode: mode, note: nil, help: "desk mode\(on) · ⌘B turns on backpack mode")
         case .turningOn:
-            return MacModeLine(mode: mode, note: nil, help: "Turning on Backpack Mode · joining \(phone)")
+            return MacModeLine(mode: mode, note: nil, help: "Turning on backpack mode · joining \(phone)")
         case .on:
-            return MacModeLine(mode: mode, note: nil, help: "Backpack Mode on · \(phone) · ends when your agents stop, or at \(cutoff) %")
+            return MacModeLine(mode: mode, note: nil, help: "Backpack mode on · \(phone) · ends when your agents stop, or at \(cutoff) %")
         case .needsYou(.lostHotspot):
-            return MacModeLine(mode: mode, note: nil, help: "Backpack Mode needs you · lost \(phone), open Personal Hotspot on the iPhone")
+            return MacModeLine(mode: mode, note: nil, help: "Backpack mode needs you · lost \(phone), open Personal Hotspot on the iPhone")
         case .needsYou(.lowBattery(let level)):
-            return MacModeLine(mode: mode, note: nil, help: "Backpack Mode needs you · battery at \(level) %, turns off at \(cutoff) %")
+            return MacModeLine(mode: mode, note: nil, help: "Backpack mode needs you · battery at \(level) %, turns off at \(cutoff) %")
         case .turningOff:
-            return MacModeLine(mode: mode, note: nil, help: "Turning off Backpack Mode · rejoining Wi-Fi")
+            return MacModeLine(mode: mode, note: nil, help: "Turning off backpack mode · rejoining Wi-Fi")
         }
     }
 

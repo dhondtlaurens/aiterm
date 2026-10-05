@@ -97,7 +97,7 @@ final class BackpackController {
         get { mode.settings.network }
         set { mode.settings.network = newValue; setup.network = newValue }
     }
-    /// A Keychain read: off the main actor where it can be (`hasPassword()`).
+    /// A Keychain read: off the main actor where it can be (`savedPassword()`).
     var password: String? {
         get { mode.settings.password }
         set { mode.settings.setPassword(newValue) }
@@ -106,10 +106,10 @@ final class BackpackController {
     /// Writes the password to the Keychain; false when it refused.
     func setPassword(_ value: String) -> Bool { mode.settings.setPassword(value) }
 
-    /// Whether a password is saved, read off the main actor for the field's placeholder.
-    func hasPassword() async -> Bool {
+    /// The saved password, read off the main actor: the sheet fills its field with it, as if typed.
+    func savedPassword() async -> String? {
         let settings = mode.settings
-        return await ThreadWork.run { settings.password != nil }
+        return await ThreadWork.run { settings.password }
     }
 
     /// What a failed `disablesleep 0` says; the checks keep trying until it works.
@@ -275,9 +275,11 @@ final class BackpackController {
         await refreshSetupWhileBusy()
     }
 
-    func knownNetworks() async -> [String] {
+    /// What one scan finds now, by name, for the sheet's Hotspot menu. Blocking for seconds, so off
+    /// the main actor.
+    func networksInRange() async -> [String] {
         let wifi = ports.wifi
-        return await ThreadWork.run { wifi.knownNetworks() }
+        return await ThreadWork.run { wifi.networksInRange().filter { !$0.isEmpty } }
     }
 
     /// The 5 s check: the cutoff, the work, and the network.

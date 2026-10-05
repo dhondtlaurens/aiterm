@@ -18,43 +18,101 @@ import Testing
         return condition()
     }
 
-    @Test func itOpensOnHotspotWithTheRememberedOne() async {
+    @Test func itOpensOnTheRememberedHotspotWithItsPasswordFilledIn() async {
         let fake = FakeBackpack()
         fake.settings.password = "saved"
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         #expect(model.step == .hotspot)
         #expect(model.network == "Phone")
-        #expect(model.passwordSaved)
-        #expect(model.password.isEmpty, "the saved one stays in Keychain; the field shows dots")
-        #expect(model.choices == [nil, "Home", "Phone"])
+        #expect(model.password == "saved", "filled in as if typed: the field shows its dots")
+        #expect(model.choices == [nil, "Phone", "Home"], "the remembered one first, then the rest in range")
         #expect(model.hotspotHelp == BackpackSheetPresentation.remembered)
     }
 
-    /// Review focus 5: nothing remembered and nothing known — Connect waits for a hotspot, and
+    /// Only what one scan finds now: a network the Mac knows but cannot see is not offered, and
+    /// neither is a nameless one.
+    @Test func onlyNetworksInRangeAreOffered() async {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Office", "Home", "Phone"]
+        fake.wifi.inRange = ["Home", "Café", ""]
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(model.choices == [nil, "Café", "Home"])
+        #expect(model.network == nil, "the remembered hotspot is not showing: nothing is chosen")
+        #expect(model.password.isEmpty)
+        #expect(model.hotspotHelp == BackpackSheetPresentation.notShowingYet)
+        #expect(!model.canConnect)
+    }
+
+    /// The iPhone shows its hotspot only while Personal Hotspot is open: when it turns up on a later
+    /// scan, it is chosen, and its password filled in.
+    @Test func theRememberedHotspotIsChosenOnceItShowsUp() async {
+        let fake = FakeBackpack()
+        fake.settings.password = "saved"
+        fake.wifi.inRange = ["Home"]
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(model.network == nil)
+        fake.wifi.inRange = ["Home", "Phone"]
+        await model.refreshNetworks()
+        #expect(model.network == "Phone")
+        #expect(model.password == "saved")
+    }
+
+    /// A scan never overrides a choice the person made.
+    @Test func aRefreshKeepsTheChosenHotspot() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.choose("Home")
+        fake.wifi.inRange = ["Home", "Phone"]
+        await model.refreshNetworks()
+        #expect(model.network == "Home")
+    }
+
+    /// A choice that drops out of range stays chosen, and listed, rather than vanishing from the menu.
+    @Test func aChosenHotspotOutOfRangeStaysListed() async {
+        let fake = FakeBackpack()
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        fake.wifi.inRange = ["Home"]
+        await model.refreshNetworks()
+        #expect(model.network == "Phone")
+        #expect(model.choices == [nil, "Phone", "Home"])
+    }
+
+    /// The one saved password belongs to the remembered hotspot: another hotspot starts empty, and
+    /// going back fills it in again.
+    @Test func choosingAnotherHotspotEmptiesThePasswordAndBackRefillsIt() async {
+        let fake = FakeBackpack()
+        fake.settings.password = "saved"
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.choose("Home")
+        #expect(model.password.isEmpty)
+        #expect(model.hotspotHelp == BackpackSheetPresentation.newHotspot)
+        model.choose("Phone")
+        #expect(model.password == "saved")
+        model.choose(nil)
+        #expect(model.password.isEmpty)
+        #expect(model.hotspotHelp == BackpackSheetPresentation.notShowingYet)
+    }
+
+    /// Review focus 5: nothing remembered and nothing in range — Connect waits for a hotspot, and
     /// says how to get one.
     @Test func connectWaitsForAHotspot() async {
         let fake = FakeBackpack()
         fake.settings.network = nil
-        fake.wifi.known = []
+        fake.wifi.inRange = []
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
         #expect(model.choices == [nil])
         #expect(!model.canConnect)
-        #expect(model.hotspotHelp == "Join your iPhone’s hotspot once from the Wi-Fi menu, and it shows up here.")
-        #expect(model.hotspotHelp == BackpackSheetPresentation.noHotspotYet)
+        #expect(model.hotspotHelp == "Open Settings › Personal Hotspot on the iPhone, and it shows up here.")
         model.connect()
         #expect(model.step == .hotspot)
-    }
-
-    /// Known networks but none remembered: there is a hotspot to choose, so the line is the usual one.
-    @Test func aKnownNetworkKeepsTheRememberedLine() async {
-        let fake = FakeBackpack()
-        fake.settings.network = nil
-        let model = BackpackSheetModel(backpack: backpack(fake))
-        await model.load()
-        #expect(model.choices == [nil, "Home", "Phone"])
-        #expect(model.hotspotHelp == BackpackSheetPresentation.remembered)
     }
 
     @Test func connectWaitsForBothPermissions() async {
@@ -84,6 +142,8 @@ import Testing
         fake.wifi.joinSucceeds = false
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
+        // Seen when it was chosen; out of range since.
+        model.choose("Phone")
         model.connect()
         while fake.wifi.joins.isEmpty { await Task.yield() }
         model.back()
@@ -104,23 +164,26 @@ import Testing
         #expect(checks(.failed(.joinFailed(network: phone)))[0]
                 == ConnectCheck(text: "Couldn’t join Laurens’s iPhone: check its password", mark: .idle, warns: true))
         #expect(checks(.failed(.batteryLow(level: 8)))[0]
-                == ConnectCheck(text: "Battery at 8 %: Backpack Mode stays off", mark: .idle, warns: true))
+                == ConnectCheck(text: "Battery at 8 %: backpack mode stays off", mark: .idle, warns: true))
         #expect(checks(.keychainRefused)[0]
                 == ConnectCheck(text: "Couldn’t save the hotspot password in Keychain", mark: .idle, warns: true))
     }
 
     @Test func theSafeStateSaysWhatHappensNext() {
         #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone")
-                == "On Laurens’s iPhone. Backpack Mode ends when your agents stop, or at 10 % battery.")
+                == "On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.")
+        #expect(BackpackSheetPresentation.title == "Backpack mode")
         #expect(BackpackSheetPresentation.steps == ["Hotspot", "Connect"])
     }
 
-    @Test func theChoicesKeepARememberedNetworkTheMacForgot() {
-        #expect(BackpackSheetPresentation.choices(known: ["Home"], current: "Phone") == [nil, "Phone", "Home"])
-        #expect(BackpackSheetPresentation.choices(known: ["Home", "Phone"], current: "Phone") == [nil, "Home", "Phone"])
+    @Test func theChoicesPutTheRememberedHotspotFirstAndSortTheRest() {
+        #expect(BackpackSheetPresentation.choices(inRange: ["home", "Café", "Phone"], remembered: "Phone", chosen: nil)
+                == [nil, "Phone", "Café", "home"])
+        #expect(BackpackSheetPresentation.choices(inRange: ["Home"], remembered: "Phone", chosen: nil) == [nil, "Home"])
+        #expect(BackpackSheetPresentation.choices(inRange: ["Home"], remembered: "Phone", chosen: "Phone") == [nil, "Phone", "Home"])
+        #expect(BackpackSheetPresentation.choices(inRange: ["", "Home", "Home"], remembered: nil, chosen: nil) == [nil, "Home"])
     }
 
-    /// Already tethered to the hotspot when the sheet opens: Cancel leaves the Mac on it.
     @Test func cancelLeavesAMacAlreadyOnTheHotspotThere() async {
         let fake = FakeBackpack()
         fake.wifi.current = "Phone"
@@ -145,26 +208,6 @@ import Testing
         #expect(fake.wifi.joins.isEmpty)
         #expect(fake.wifi.current == "Phone")
         #expect(model.backpack.phase == nil)
-    }
-
-    /// The dots stand for the remembered hotspot's password only: another hotspot needs its own.
-    @Test func theSavedPasswordShowsOnlyForTheRememberedHotspot() async {
-        let fake = FakeBackpack()
-        fake.settings.password = "saved"
-        let model = BackpackSheetModel(backpack: backpack(fake))
-        await model.load()
-        #expect(model.showsSavedPassword)
-        model.network = "Home"
-        #expect(!model.showsSavedPassword)
-        model.network = nil
-        #expect(!model.showsSavedPassword)
-    }
-
-    @Test func noSavedPasswordShowsNoDots() async {
-        let fake = FakeBackpack()
-        let model = BackpackSheetModel(backpack: backpack(fake))
-        await model.load()
-        #expect(!model.showsSavedPassword)
     }
 
     /// Step 2 is over — the sheet closes — once the mode is off with nothing running: turned off
@@ -207,6 +250,8 @@ import Testing
         fake.wifi.failingJoins = ["Phone"]
         let model = BackpackSheetModel(backpack: backpack(fake, retryDelays: [.seconds(5)]))
         await model.load()
+        // Seen when it was chosen; out of range since.
+        model.choose("Phone")
         model.connect()
         #expect(await until { model.backpack.phase == .notInRange })
         model.lidClosed()
@@ -231,6 +276,8 @@ import Testing
         fake.wifi.onJoin = { @Sendable in if entered.withLock({ let first = !$0; $0 = true; return first }) { release.wait() } }
         let model = BackpackSheetModel(backpack: backpack(fake))
         await model.load()
+        // Seen when it was chosen; out of range since.
+        model.choose("Phone")
         model.connect()
         #expect(await until { entered.withLock { $0 } })
         model.lidClosed()

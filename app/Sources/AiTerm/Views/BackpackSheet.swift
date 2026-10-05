@@ -11,11 +11,16 @@ struct ConnectCheck: Equatable {
 
 /// The sheet's words, decided apart from the view so a test reads them.
 enum BackpackSheetPresentation {
-    static let title = "Backpack Mode"
+    static let title = "Backpack mode"
     static let steps = ["Hotspot", "Connect"]
     static let remembered = "The hotspot you used last, and its password from Keychain."
-    /// In its place while there is no hotspot to choose: Connect stays disabled, and this says why.
-    static let noHotspotYet = "Join your iPhone’s hotspot once from the Wi-Fi menu, and it shows up here."
+    /// In its place while no hotspot is chosen: the iPhone only shows it while Personal Hotspot is
+    /// open, and the menu lists only what is in range. Connect stays disabled, and this says why.
+    static let notShowingYet = "Open Settings › Personal Hotspot on the iPhone, and it shows up here."
+    /// For a hotspot other than the remembered one: its password is typed, then kept.
+    static let newHotspot = "Type its password; it is kept in Keychain once the Mac has joined."
+    /// How often step 1 scans again, so the iPhone's hotspot appears soon after its screen opens.
+    static let rescan: Duration = .seconds(5)
     static let phoneSteps = [
         "Unlock the iPhone and open Settings › Personal Hotspot.",
         "Turn on Allow Others to Join.",
@@ -39,9 +44,9 @@ enum BackpackSheetPresentation {
             let text = switch refusal {
             case .notInRange(let network): "\(network) isn’t showing its hotspot yet"
             case .joinFailed(let network): "Couldn’t join \(network): check its password"
-            case .batteryLow(let level): "Battery at \(level) %: Backpack Mode stays off"
-            case .needsSetup: "Backpack Mode needs lid sleep and network discovery"
-            case .quitting: "AiTerm is quitting: Backpack Mode stays off"
+            case .batteryLow(let level): "Battery at \(level) %: backpack mode stays off"
+            case .needsSetup: "Backpack mode needs lid sleep and network discovery"
+            case .quitting: "AiTerm is quitting: backpack mode stays off"
             }
             return [ConnectCheck(text: text, mark: .idle, warns: true), awake]
         case .keychainRefused?:
@@ -50,13 +55,18 @@ enum BackpackSheetPresentation {
     }
 
     static func safeHelp(hotspot: String) -> String {
-        "On \(hotspot). Backpack Mode ends when your agents stop, or at \(BackpackSettings.cutoff) % battery."
+        "On \(hotspot). Backpack mode ends when your agents stop, or at \(BackpackSettings.cutoff) % battery."
     }
 
-    /// "None" first, then the remembered network if the Mac no longer lists it, then the known ones.
-    static func choices(known: [String], current: String?) -> [String?] {
-        let kept = current.map { known.contains($0) ? [] : [$0] } ?? []
-        return [nil] + (kept + known).map(Optional.some)
+    /// "None", then the remembered hotspot when it is in range, then the rest of what is in range
+    /// by name. A chosen network that dropped out of range stays listed, so the menu still holds it.
+    static func choices(inRange: [String], remembered: String?, chosen: String?) -> [String?] {
+        var names = Set(inRange.filter { !$0.isEmpty })
+        if let chosen { names.insert(chosen) }
+        let first = [remembered, chosen].compactMap { $0 }.filter { names.contains($0) }
+        let lead = first.first.map { [$0] } ?? []
+        let rest = names.subtracting(lead).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return [nil] + (lead + rest).map(Optional.some)
     }
 }
 
@@ -69,35 +79,54 @@ final class BackpackSheetModel: Identifiable {
     let id = UUID()
     let backpack: BackpackController
     var step: Step = .hotspot
-    var network: String?
-    /// Empty keeps the saved password: the field shows dots over it.
+    /// The chosen hotspot; set through `choose(_:)`, which fills or empties the password with it.
+    private(set) var network: String?
+    /// The field's text: the remembered hotspot's saved password, filled in as if typed, or what the
+    /// person types. Empty sends none, and the saved one is used.
     var password = ""
-    private(set) var passwordSaved = false
-    private(set) var knownNetworks: [String] = []
+    /// The Keychain's password, read once: it belongs to the remembered hotspot only.
+    private var saved: String?
+    private(set) var inRange: [String] = []
     /// From Connect until the connect it started returns: covers the turn before it sets `busy`.
     private var connecting = false
 
     init(backpack: BackpackController) {
         self.backpack = backpack
-        network = backpack.network
     }
 
-    /// Setup, the known networks and whether a password is saved — off the main actor where they block.
+    /// Setup, the saved password and one scan — off the main actor where they block. The remembered
+    /// hotspot is chosen if the scan sees it.
     func load() async {
         await backpack.refreshSetup()
-        knownNetworks = await backpack.knownNetworks()
-        passwordSaved = await backpack.hasPassword()
+        saved = await backpack.savedPassword()
+        await refreshNetworks()
     }
 
-    var choices: [String?] { BackpackSheetPresentation.choices(known: knownNetworks, current: network) }
-    /// Step 1's line under the fields: how to get a hotspot when there is none to choose.
+    /// Scans again. The remembered hotspot is chosen when it first shows up and nothing else is
+    /// chosen; a choice the person made is never changed.
+    func refreshNetworks() async {
+        inRange = await backpack.networksInRange()
+        if network == nil, let remembered = backpack.network, inRange.contains(remembered) { choose(remembered) }
+    }
+
+    /// The Hotspot menu's pick. The remembered hotspot brings its saved password back into the field;
+    /// any other starts it empty.
+    func choose(_ hotspot: String?) {
+        network = hotspot
+        password = hotspot != nil && hotspot == backpack.network ? (saved ?? "") : ""
+    }
+
+    var choices: [String?] {
+        BackpackSheetPresentation.choices(inRange: inRange, remembered: backpack.network, chosen: network)
+    }
+    /// Step 1's line under the fields: how to make the hotspot show up, whose password is filled in,
+    /// or that a new one's is typed.
     var hotspotHelp: String {
-        choices == [nil] ? BackpackSheetPresentation.noHotspotYet : BackpackSheetPresentation.remembered
+        guard let network else { return BackpackSheetPresentation.notShowingYet }
+        return network == backpack.network ? BackpackSheetPresentation.remembered : BackpackSheetPresentation.newHotspot
     }
     var missing: [BackpackSetup.Step] { backpack.setup.missingSteps }
     var canConnect: Bool { missing.isEmpty && network != nil && !backpack.busy }
-    /// The dots stand for the remembered hotspot's Keychain password, and for no other hotspot's.
-    var showsSavedPassword: Bool { passwordSaved && network != nil && network == backpack.network }
     /// Step 2 with nothing left to show: the mode turned off, or ended, under the sheet. A failure
     /// keeps its phase, and with it Back and Cancel.
     var isOver: Bool {
@@ -156,7 +185,15 @@ struct BackpackSheet: View {
         } footer: {
             footer
         }
-        .task { await model.load() }
+        .task {
+            await model.load()
+            // Again every few seconds on step 1: the iPhone shows its hotspot only while its Personal
+            // Hotspot screen is open. Not on step 2, where a scan would get in the join's way.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: BackpackSheetPresentation.rescan)
+                if model.step == .hotspot, !model.backpack.busy { await model.refreshNetworks() }
+            }
+        }
         // Turned off or ended under the sheet: step 2 would show "Joining…" with nothing running.
         .onChange(of: model.isOver) { _, over in if over { dismiss() } }
         .task {
@@ -179,13 +216,14 @@ struct BackpackSheet: View {
             }
             HStack(alignment: .top, spacing: Space.gap) {
                 FormField("Hotspot") {
-                    Select(values: model.choices, selection: Binding(get: { model.network }, set: { model.network = $0 }),
+                    Select(values: model.choices, selection: Binding(get: { model.network }, set: { model.choose($0) }),
                            label: { $0 ?? "None" })
                 }
                 .frame(maxWidth: .infinity)
                 FormField("Password") {
-                    Input(placeholder: model.showsSavedPassword ? "••••••••••••" : "The hotspot’s password",
-                          text: Binding(get: { model.password }, set: { model.password = $0 }), secure: true)
+                    Input(placeholder: "The hotspot’s password",
+                          text: Binding(get: { model.password }, set: { model.password = $0 }), secure: true,
+                          caretAtEnd: true)
                 }
                 .frame(maxWidth: .infinity)
             }

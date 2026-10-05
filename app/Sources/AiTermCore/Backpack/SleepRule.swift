@@ -11,7 +11,7 @@ public enum SleepRule {
     /// `.`, `_` and `-`, not starting with `-`.
     public static func text(user: String) -> String? {
         guard isSafe(user) else { return nil }
-        return "# Installed by AiTerm for Backpack Mode. Remove with Settings > Backpack > Remove Setup.\n"
+        return "# Installed by AiTerm for backpack mode. Remove with Settings > Integrations > Mac > Remove.\n"
             + "\(user) ALL=(root) NOPASSWD: \(commands.joined(separator: ", "))\n"
     }
 

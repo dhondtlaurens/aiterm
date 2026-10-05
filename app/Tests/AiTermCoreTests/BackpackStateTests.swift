@@ -3,8 +3,8 @@ import Testing
 
 @Suite struct BackpackStateTests {
     @Test func refusalsSayWhyInTheSpecsWords() {
-        #expect(BackpackRefusal.needsSetup.message == "Backpack Mode needs setup: Settings › Integrations › Mac")
-        #expect(BackpackRefusal.batteryLow(level: 8).message == "Battery at 8 %: Backpack Mode stays off")
+        #expect(BackpackRefusal.needsSetup.message == "Backpack mode needs setup: Settings › Integrations › Mac")
+        #expect(BackpackRefusal.batteryLow(level: 8).message == "Battery at 8 %: backpack mode stays off")
         #expect(BackpackRefusal.notInRange(network: "Laurens D’Hondt - iPhone").message
                 == "Laurens D’Hondt - iPhone isn’t showing its hotspot: open Personal Hotspot on the iPhone")
         #expect(BackpackRefusal.joinFailed(network: "Phone").message == "Couldn’t join Phone: check its password")

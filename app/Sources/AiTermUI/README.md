@@ -147,7 +147,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Icon` | every mark, at a size: an SF Symbol (its glyph's own width, in the surface's ink unless tinted), a vendor `Brand` (a `size` square, in its colour unless tinted), or a full-colour artwork that carries its own fallback (`.gitlabTanuki`, `.piBadge`). The one way the app draws a logo — no fill travels as a hex string |
 | `FormField` | a label above its control |
 | `HelpText` | subordinate caption copy under a control, in a `tone`: `.secondary` (the default) or `.warning` — it inks itself, so colour it by tone, never by an outer `foregroundStyle` |
-| `Input` | a plain text field in the house field chrome, with its focus ring; `secure: true` for a token |
+| `Input` | a plain text field in the house field chrome, with its focus ring; `secure: true` for a token; `caretAtEnd: true` puts the insertion point after a value filled in as if typed, where AppKit would select it all on focus (the Backpack sheet's saved password) |
 | `Select` | a real `NSPopUpButton` that fills its column |
 | `SegmentedControl` | a hand-built segmented control that can carry a logo. `style: .neutral` (a grey selection and the focus ring) or `.accent` (an accent selection on `.surface(.accent)`, no ring — the Settings tab bar); a segment `isSelectable` rejects is dimmed and disabled |
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
@@ -188,16 +188,19 @@ vendor needs both.
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
 tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's row,
 always there. The Mac row is a `SymbolMark` in `.paper` style at `Size.vendorMark` (`macbook` at the
-desk, `iphone` in the backpack), the mode's name — `desk` or `backpack` — in `Palette.muted`, then at
+desk, `iphone` in the backpack), the mode's name — `desk mode` or `backpack mode` — in `Palette.muted`, then at
 most one `StatusMark` at `Size.statusMark`, `Space.snug` after the name: the spinner while the mode
 switches, the done dot while it is on, the needs-input dot when it needs you, nothing at the desk. That
-mark is the row's one colour; a desk that Backpack Mode ended by itself adds `· backpack ended 14:32`
+mark is the row's one colour; a desk that Backpack Mode ended by itself adds `· backpack mode ended 14:32`
 in `Palette.muted`. A click opens the sheet at the desk and turns the mode off in the backpack;
 a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and VoiceOver
 sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 
 Turning on is `BackpackSheet`, two steps in a `SheetLayout` with a `StepBar` (Hotspot, Connect). Hotspot
-is the known-networks `Select` and a secure `Input` for the password, with the Mac's missing
+is a `Select` of the networks one scan finds now — the remembered hotspot first and chosen once it
+shows up, scanned again every 5 s on this step — and a secure `Input` for the password, filled with
+the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty for any other, with
+the Mac's missing
 permissions above them as `NumberedSteps` and an Allow… button; Connect is disabled until both are
 granted and a hotspot is chosen. Connect shows the phone's three steps and two live checks — a
 `StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
