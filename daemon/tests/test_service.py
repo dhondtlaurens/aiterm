@@ -1507,24 +1507,40 @@ async def test_one_announcement_failing_does_not_cost_the_rest(stack, monkeypatc
     assert len([e for e in delivered if e[0] == "session.closed"]) == len(gone) - 1
     assert ("window.closed", other) in delivered
     assert {first, second} <= {s.session_id for s in svc.registry.all()}
+    # Each failure is logged as its own step's, and only the two that failed are.
+    logged = [rec.getMessage() for rec in caplog.records if rec.name == "aitermd.service"]
+    assert len(logged) == 2
+    assert any(m.startswith("announcing opened session") for m in logged)
+    assert any(m.startswith("announcing closed session") for m in logged)
 
 
 async def test_a_step_before_the_announcements_failing_does_not_cost_them(stack, monkeypatch, caplog):
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    first = it.windows[wid]["sessions"][0]
+    moved = await it.create_tab(wid, {"aiterm_task": "t1"})
     await it.settle()
+    await svc.tick()
     it.notify_on_create = False
     opened = await it._add_session(wid, "/x", {}, "-zsh", "zsh")
+    # The second tab dragged in front of the first: both keep their ids, but not their tabs' titles.
+    it.sessions[first].tab_index, it.sessions[moved].tab_index = 1, 0
+    forgotten: list[str] = []
 
     def broken(*args):
-        raise RuntimeError("a resolver that could not validate its bindings")
+        forgotten.extend(args)
+        raise RuntimeError("a store that could not keep up")
 
     monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
     monkeypatch.setattr(svc.windows, "forget_title", broken)
     with caplog.at_level("ERROR", logger="aitermd.service"):
         await svc.tick()
-    assert (await next_event(r, "session.opened"))["sessionId"] == opened
-    assert any("snapshot" in rec.getMessage() for rec in caplog.records)
+    while (await next_event(r, "session.opened"))["sessionId"] != opened:
+        pass
+    assert sorted(forgotten) == sorted([first, moved]), "the second moved session is forgotten though the first raised"
+    logged = [rec.getMessage() for rec in caplog.records if rec.name == "aitermd.service"]
+    assert any("bindings after the snapshot" in m for m in logged)
+    assert all(any(f"moved session {sid}" in m for m in logged) for sid in (first, moved))
 
 
 async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stack, monkeypatch, caplog):
