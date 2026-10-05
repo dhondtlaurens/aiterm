@@ -409,6 +409,43 @@ async def test_a_window_or_session_the_cached_hierarchy_lacks_is_looked_for_agai
     assert tree.sessions["s9"].calls == [("text", "pwd\n")]
 
 
+class _FirstTab:
+    """A tab whose current session is in `path`."""
+    def __init__(self, path):
+        self.current_session, self.path = self, path
+
+    async def async_get_variable(self, _name):
+        return self.path
+
+
+class _WindowOf(_Handle):
+    def __init__(self, first_tab_path):
+        super().__init__()
+        self.tabs = [_FirstTab(first_tab_path)]
+
+
+async def test_a_tab_without_an_anchor_opens_where_the_windows_first_tab_is_now(monkeypatch):
+    """The cached hierarchy can be a tick old: its first tab may have closed, or been dragged away, since."""
+    tree = _Tree(sessions=["s9"])
+    tree.sessions["s9"].session_id = "s9"
+    tree.windows["w1"] = _WindowOf("/closed-since")
+    bridge = await _tree_bridge(monkeypatch, tree)
+    tree.appearing = {"w1": _WindowOf("/first-now")}
+    made: list[dict] = []
+
+    async def create_tab(_conn, window=None, profile_customizations=None, **_kw):
+        made.append(profile_customizations)
+        reply = iterm2.api_pb2.ServerOriginatedMessage()
+        reply.create_tab_response.status = iterm2.api_pb2.CreateTabResponse.Status.Value("OK")
+        reply.create_tab_response.window_id, reply.create_tab_response.session_id = window, "s9"
+        return reply
+
+    monkeypatch.setattr(iterm2.rpc, "async_create_tab", create_tab)
+
+    assert await bridge.create_tab("w1", {}) == "s9"
+    assert made[0]["Working Directory"] == json.dumps("/first-now")
+
+
 async def test_a_window_nowhere_in_iterm_is_not_found_after_one_refresh(monkeypatch):
     tree = _Tree(windows=["w1"])
     bridge = await _tree_bridge(monkeypatch, tree)

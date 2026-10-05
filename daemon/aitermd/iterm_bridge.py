@@ -418,8 +418,12 @@ class ItermBridge:
             return found
         return find(await self._app())
 
-    async def _window(self, window_id: str) -> iterm2.Window:
-        w = await self._found(lambda app: app.get_window_by_id(window_id))
+    async def _window(self, window_id: str, fresh: bool = False) -> iterm2.Window:
+        """With `fresh`, the window as the hierarchy has it now rather than as last fetched."""
+        if fresh:
+            w = (await self._app()).get_window_by_id(window_id)
+        else:
+            w = await self._found(lambda app: app.get_window_by_id(window_id))
         if w is None:
             raise KeyError(window_id)
         return w
@@ -469,9 +473,11 @@ class ItermBridge:
         return session.session_id
 
     async def _new_tab(self, window_id: str, cwd: str | None) -> iterm2.Session:
-        win = await self._window(window_id)
+        # With no anchor known yet, the window's first tab gives the directory, so it is read from the
+        # hierarchy as it is now: the cached one can be a tick old, its first tab closed or dragged away since.
+        win = await self._window(window_id, fresh=cwd is None)
         if cwd is None and (first := win.tabs[0].current_session if win.tabs else None):
-            cwd = await first.async_get_variable("path")  # no anchor known yet: the window's first tab
+            cwd = await first.async_get_variable("path")
         prof = iterm2.LocalWriteOnlyProfile()
         prof.set_initial_directory_mode(iterm2.InitialWorkingDirectory.INITIAL_WORKING_DIRECTORY_CUSTOM)
         prof.set_custom_directory(cwd or os.path.expanduser("~"))
