@@ -62,15 +62,16 @@ public enum Size {
     /// to `feat/f…t-side`; here the branch keeps its type, the ticket's prefix and its tail, and a
     /// branch without a ticket beside it nearly fits whole (proposal, 23 Sep 2026).
     public static let sidebarWidth: CGFloat = 420
-    /// The sidebar cannot be narrowed past this. It has to fit a vendor usage row's common case:
-    /// two windows under 100%, the 5-hour one resetting today and the weekly one on a later day.
-    /// Everything at 100% costs a digit per segment and clips — the accepted price of showing clock
-    /// times rather than a countdown.
-    /// `UsageFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth` holds this honest.
+    /// The sidebar cannot be narrowed past this. It has to fit a usage tile's common case in the
+    /// status bento's half-width column: two windows under 100%, the 5-hour one resetting today and
+    /// the weekly one on a later day. A window at 100% costs a digit and may clip its reset — the
+    /// accepted price of showing clock times rather than a countdown.
+    /// `StatusBentoGeometryTests.aUsageTilesCommonCaseFitsAtTheMinimumWidth` holds this honest.
     ///
-    /// Was 395 while each vendor row also carried its `ctx` segment; that moved to the footer's
-    /// task row, which carries nothing else, so the minimum came back to 360.
-    public static let sidebarMinWidth: CGFloat = 360
+    /// Was 395 while each vendor row also carried its `ctx` segment, then 360 while the usage
+    /// footer gave each vendor a full-width row; the bento's two columns need 372 (5 Oct 2026),
+    /// the narrowest width on the 4 pt rhythm at which the tile fits at every `InterfaceScale`.
+    public static let sidebarMinWidth: CGFloat = 372
     /// Every chip: the Jira key, the VS Code badge, `+n`, a status count.
     public static let chip: CGFloat = 16
     /// The click target the sidebar's trailing column is built from.

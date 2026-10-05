@@ -119,36 +119,3 @@ struct UsageFooter: View {
         }
     }
 }
-
-/// The fill beside a telemetry number: a ring that closes clockwise as the window fills.
-///
-/// Deliberately not a primitive — the reuse ladder in `AiTermUI/README.md` promotes a pattern only
-/// once a second file needs it, and this is the footer's alone. It is drawn to `StatusMark`'s
-/// recipe (same diameter, same `size * 0.15` stroke, same round cap) so the two round marks in the
-/// sidebar read as one family rather than as two people's circles.
-struct UsageRing: View {
-    let percent: Int
-    let warning: Bool
-    /// The ring's diameter in points; the caller scales ``Size/statusMark``.
-    let size: CGFloat
-
-    /// How much of the circle to close. Clamped, because the percentage is another process's
-    /// arithmetic and `trim(from:to:)` past 1 wraps back over the ring's own start.
-    static func fill(_ percent: Int) -> CGFloat { min(1, max(0, CGFloat(percent) / 100)) }
-
-    var body: some View {
-        ZStack {
-            Circle().strokeBorder(Palette.spinnerTrack, lineWidth: size * 0.15)
-            Circle()
-                .trim(from: 0, to: Self.fill(percent))
-                .stroke(warning ? Palette.amber : Palette.text,
-                        style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
-                // `trim` starts at three o'clock; a fill reads as rising from the top.
-                .rotationEffect(.degrees(-90))
-                // `strokeBorder` insets by half its width, `stroke` straddles the path — inset the
-                // fill to match, or it paints a hair outside the track it is supposed to fill.
-                .padding(size * 0.15 / 2)
-        }
-        .frame(width: size, height: size)
-    }
-}
