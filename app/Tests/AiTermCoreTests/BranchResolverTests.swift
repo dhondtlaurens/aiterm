@@ -38,6 +38,29 @@ struct BranchResolverTests {
         #expect(resolver.branch(for: repo) == sha)
     }
 
+    /// What `read` asks git when `HEAD` itself does not say: a detached HEAD is `symbolic-ref`'s
+    /// exit 1, and the answer is the short sha; a repository without a commit still names its
+    /// branch. Neither throws. A SHA-256 repository's `HEAD` is 64 hex digits, which `parseHead`
+    /// leaves to git; a reftable one's `HEAD` file is a stub.
+    @Test func headsGitIsAskedAboutResolveWithoutThrowing() throws {
+        let git = GitRunner()
+        let dir = NSTemporaryDirectory() + "br-sha256-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try git.run(["init", "--initial-branch=main", "--object-format=sha256", "-q", dir], in: "/")
+        let repo = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
+        let head = repo + "/.git/HEAD"
+        #expect(try BranchResolver.read(repo, head: head, git: git) == "main", "unborn, HEAD still names its branch")
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
+        try git.run(["checkout", "-q", "--detach"], in: repo)
+        #expect(BranchResolver.parseHead(try String(contentsOfFile: head, encoding: .utf8)) == nil)
+        let sha = try git.run(["rev-parse", "--short", "HEAD"], in: repo)
+        #expect(try BranchResolver.read(repo, head: head, git: git) == sha)
+
+        let unborn = try makeRepo(refFormat: "reftable"), stub = unborn + "/.git/HEAD"
+        try git.run(["update-ref", "-d", "refs/heads/main"], in: unborn)
+        #expect(try BranchResolver.read(unborn, head: stub, git: git) == "main", "no commit yet, and the branch is still named")
+    }
+
     @Test func returnsNilOutsideARepository() throws {
         let dir = NSTemporaryDirectory() + "plain-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)

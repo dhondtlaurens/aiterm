@@ -75,6 +75,22 @@ import Darwin
         #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:fork.git")
     }
 
+    /// A detached HEAD has no upstream and a repository without a commit has no branch to ask: git
+    /// answers 128 to `@{upstream}` for both, which is "no remote here" and not a failure.
+    @Test func remoteUrlOfADetachedOrUnbornRepositoryIsNilNotAnError() throws {
+        try git.run(["checkout", "-q", "--detach"], in: repo)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == nil)
+        _ = try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
+        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:app.git", "detached, it falls through to origin")
+
+        let unborn = repo + "-unborn"
+        defer { try? FileManager.default.removeItem(atPath: unborn) }
+        try git.run(["init", "-q", "-b", "main", unborn], in: "/")
+        #expect(try Worktrees.remoteUrl(repo: unborn, git: git) == nil)
+        _ = try git.run(["remote", "add", "origin", "git@example.com:unborn.git"], in: unborn)
+        #expect(try Worktrees.remoteUrl(repo: unborn, git: git) == "git@example.com:unborn.git")
+    }
+
     /// A default branch git cannot name is `nil`, and the name shown for it is "main"; a git that
     /// times out names nothing, and says so rather than naming "main".
     @Test func aDefaultBranchLookupThatFailsIsNotTheFallback() throws {

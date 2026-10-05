@@ -60,7 +60,7 @@ public final class BranchResolver: Sendable {
     /// it, so it is read directly; only what `parseHead` cannot answer costs a git call. `nil` is
     /// git saying HEAD names nothing (a repository without a commit); a git that cannot be asked
     /// throws.
-    private static func read(_ cwd: String, head: String, git: GitRunner) throws -> String? {
+    static func read(_ cwd: String, head: String, git: GitRunner) throws -> String? {
         if let text = try? String(contentsOfFile: head, encoding: .utf8), let answer = parseHead(text) { return answer }
         if let name = try git.ask(["symbolic-ref", "--short", "--quiet", "HEAD"], in: cwd, none: [1]), !name.isEmpty { return name }
         if let sha = try git.ask(["rev-parse", "--short", "HEAD"], in: cwd, none: [128]), !sha.isEmpty { return sha }
