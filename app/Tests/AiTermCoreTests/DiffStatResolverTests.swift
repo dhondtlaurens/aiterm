@@ -65,14 +65,36 @@ struct DiffStatResolverTests {
         #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
     }
 
-    /// A link to a device never ends and a FIFO waits for a writer: reading either stalled the
-    /// whole checkout monitor. Only a regular file is read.
-    @Test func anUntrackedDeviceOrFifoIsNeitherReadNorWaitedFor() throws {
+    /// A link to a device never ends: reading through it stalled the whole checkout monitor. Only a
+    /// regular file is read, and a link is the one line git counts it as.
+    @Test func anUntrackedLinkToADeviceIsNeitherReadNorWaitedFor() throws {
         let (_, worktree) = try makeRepo()
         try FileManager.default.createSymbolicLink(atPath: worktree + "/zero", withDestinationPath: "/dev/zero")
-        #expect(mkfifo(worktree + "/pipe", 0o600) == 0)
         try write("x\n", to: worktree + "/new.txt")
         #expect(DiffStatResolver(git: .hermetic()).diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+    }
+
+    /// `git ls-files --others` never lists a FIFO, so the listing cannot hand one over; this is the
+    /// defence for one that takes a listed file's place between the `lstat` and the open, which
+    /// would otherwise wait for a writer. It is opened without blocking and then refused.
+    @Test func aFifoThatTookAFilesPlaceIsNotRead() throws {
+        let folder = try GitFixture.folder("fifo-")
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        #expect(mkfifo(folder + "/pipe", 0o600) == 0)
+        #expect(DiffStatResolver.contents(of: folder + "/pipe", size: 4) == nil)
+    }
+
+    /// The caps were checked against the size `lstat` saw: a file that has grown since is skipped
+    /// rather than read in full, however far it grew.
+    @Test func aFileThatGrewSinceItWasMeasuredIsNotRead() throws {
+        let folder = try GitFixture.folder("grown-")
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        try write("a\nb\n", to: folder + "/f")
+        #expect(DiffStatResolver.contents(of: folder + "/f", size: 4) == Data("a\nb\n".utf8))
+        #expect(DiffStatResolver.contents(of: folder + "/f", size: 3) == nil, "one byte past the size is the whole answer")
+        #expect(DiffStatResolver.contents(of: folder + "/f", size: 0) == nil)
+        try write("", to: folder + "/empty")
+        #expect(DiffStatResolver.contents(of: folder + "/empty", size: 0) == nil)
     }
 
     @Test func ignoredAndBinaryFilesDoNotCount() throws {

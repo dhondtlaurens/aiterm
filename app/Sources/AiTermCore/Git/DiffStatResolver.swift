@@ -167,18 +167,24 @@ public final class DiffStatResolver: @unchecked Sendable {
             guard info.st_mode & S_IFMT == S_IFREG, size <= Self.untrackedByteLimit else { continue }
             guard bytes + size <= cap.bytes else { break }
             bytes += size
-            guard let data = Self.contents(of: file), let lines = Self.lineCount(data) else { continue }
+            guard let data = Self.contents(of: file, size: size), let lines = Self.lineCount(data) else { continue }
             total += lines
         }
         return total
     }
 
-    /// What a regular file holds, read without following a link or waiting on a pipe: the path may
-    /// have become either since `lstat` looked at it.
-    private static func contents(of path: String) -> Data? {
+    /// What a regular file of `size` bytes holds, read without following a link or waiting on a
+    /// pipe: the path may have become either since `lstat` looked at it. A file that grew since is
+    /// skipped (`nil`) rather than read in full — the caps were checked against `size`, and one
+    /// more byte than that is enough to know.
+    static func contents(of path: String, size: Int) -> Data? {
         let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard descriptor >= 0 else { return nil }
-        return try? FileHandle(fileDescriptor: descriptor, closeOnDealloc: true).readToEnd()
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              let data = try? file.read(upToCount: size + 1), data.count <= size else { return nil }
+        return data
     }
 
     /// Newlines, plus one for a last line without its own; `nil` for an empty or binary file.
