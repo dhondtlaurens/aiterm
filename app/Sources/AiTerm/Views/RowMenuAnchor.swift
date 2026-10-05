@@ -15,6 +15,9 @@ struct RowMenuAnchor: NSViewRepresentable {
     private static let anchors = NSMapTable<NSUUID, Anchor>.strongToWeakObjects()
 
     final class Anchor: NSView {
+        /// The row it is registered for; a reused row's anchor is registered for another id later.
+        fileprivate(set) var id: UUID?
+
         /// Clicks go through to the row it sits behind.
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -49,7 +52,17 @@ struct RowMenuAnchor: NSViewRepresentable {
 
     /// The anchor behind the row `id` names, while it is on screen.
     static func anchor(for id: UUID) -> Anchor? {
-        anchors.object(forKey: id as NSUUID).flatMap { $0.window == nil ? nil : $0 }
+        anchors.object(forKey: id as NSUUID).flatMap { $0.window == nil || $0.id != id ? nil : $0 }
+    }
+
+    /// Registers `anchor` for `id`, and drops the id it was registered for before, unless another
+    /// anchor has taken that id since.
+    private static func register(_ anchor: Anchor, for id: UUID) {
+        if let old = anchor.id, old != id, anchors.object(forKey: old as NSUUID) === anchor {
+            anchors.removeObject(forKey: old as NSUUID)
+        }
+        anchor.id = id
+        anchors.setObject(anchor, forKey: id as NSUUID)
     }
 
     /// Opens the context menu of the row `id` names, if it is on screen. Whether it was.
@@ -62,12 +75,12 @@ struct RowMenuAnchor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> Anchor {
         let anchor = Anchor(frame: .zero)
-        Self.anchors.setObject(anchor, forKey: id as NSUUID)
+        Self.register(anchor, for: id)
         return anchor
     }
 
     // A reused row can come back for another id.
     func updateNSView(_ anchor: Anchor, context: Context) {
-        Self.anchors.setObject(anchor, forKey: id as NSUUID)
+        Self.register(anchor, for: id)
     }
 }

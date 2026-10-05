@@ -93,7 +93,7 @@ import AiTermCore
 
     @MainActor @Test func completedEmptyCatalogueDoesNotLookLikeItIsStillLoading() {
         let view = AgentStep(availableAgents: [.pi], models: [], catalogueLoaded: true,
-                             agent: .constant(.pi), model: .constant(""), reasoning: .constant(nil),
+                             agent: .pi, model: "", reasoning: .constant(nil),
                              selectAgent: { _ in }, setModel: { _ in })
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 260)
@@ -114,7 +114,7 @@ import AiTermCore
         let current = AgentModel(id: "openai/current", label: "openai / current", detail: nil,
                                  efforts: ["high"], defaultEffort: "high")
         let view = AgentStep(availableAgents: [.pi], models: [current], catalogueLoaded: true,
-                             agent: .constant(.pi), model: .constant(""), reasoning: .constant(nil),
+                             agent: .pi, model: "", reasoning: .constant(nil),
                              selectAgent: { _ in }, setModel: { _ in })
         #expect(view.selectedModel == nil)
         #expect(view.modelChoices.first?.id == "")

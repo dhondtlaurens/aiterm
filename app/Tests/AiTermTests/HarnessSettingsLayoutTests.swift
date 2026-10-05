@@ -146,12 +146,6 @@ import AiTermUI
         #expect(HarnessCardPresentation.action(for: card([cli])) == "Reinstall")
     }
 
-    @Test func piPickerKeepsTheProviderInItsLabel() {
-        let model = AgentModel(id: "anthropic/claude-sonnet", label: "anthropic / claude-sonnet",
-                               detail: nil, efforts: ["medium"], defaultEffort: "medium")
-        #expect(HarnessCardPresentation.modelLabel(model, for: .pi).contains("anthropic"))
-    }
-
     @Test func missingDefaultIsAnExplicitPickerOptionInsteadOfTheFirstCurrentModel() {
         let current = AgentModel(id: "anthropic/current", label: "anthropic / current",
                                  detail: nil, efforts: ["high"], defaultEffort: "high")

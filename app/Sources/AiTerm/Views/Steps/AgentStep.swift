@@ -9,29 +9,31 @@ struct AgentStep: View {
     let availableAgents: Set<AgentKind>
     let models: [AgentModel]
     let catalogueLoaded: Bool
-    @Binding var agent: AgentKind
-    @Binding var model: String
+    let agent: AgentKind
+    let model: String
     @Binding var reasoning: String?
     let selectAgent: (AgentKind) -> Void
     let setModel: (String) -> Void
 
-    /// The step as both sheets use it: every value read from, and written to, the creation model.
+    /// The step as both sheets use it. The agent and the model are read here and changed only through
+    /// `selectAgent` and `setModel`, which keep the draft's dependent fields in step; the reasoning
+    /// level is the one value the step writes itself.
     init<Draft, Item>(model: CreationModel<Draft, Item>) {
         availableAgents = model.availableAgents
         models = model.models
         catalogueLoaded = model.catalogueLoaded
-        _agent = Binding(get: { model.draft.agent }, set: { model.draft.agent = $0 })
-        _model = Binding(get: { model.draft.model }, set: { model.draft.model = $0 })
+        agent = model.draft.agent
+        self.model = model.draft.model
         _reasoning = Binding(get: { model.draft.reasoning }, set: { model.draft.reasoning = $0 })
         selectAgent = { model.selectAgent($0) }
         setModel = { model.draft.setModel($0, catalog: model.models) }
     }
 
     init(availableAgents: Set<AgentKind>, models: [AgentModel], catalogueLoaded: Bool,
-         agent: Binding<AgentKind>, model: Binding<String>, reasoning: Binding<String?>,
+         agent: AgentKind, model: String, reasoning: Binding<String?>,
          selectAgent: @escaping (AgentKind) -> Void, setModel: @escaping (String) -> Void) {
         self.availableAgents = availableAgents; self.models = models; self.catalogueLoaded = catalogueLoaded
-        _agent = agent; _model = model; _reasoning = reasoning
+        self.agent = agent; self.model = model; _reasoning = reasoning
         self.selectAgent = selectAgent; self.setModel = setModel
     }
 

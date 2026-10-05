@@ -34,12 +34,6 @@ enum HarnessCardPresentation {
         return snapshot.health == .ready ? "Reinstall" : "Repair"
     }
 
-    static func modelLabel(_ model: AgentModel, for agent: AgentKind) -> String {
-        guard agent == .pi, !model.label.contains(" / "),
-              let slash = model.id.firstIndex(of: "/") else { return model.label }
-        return "\(model.id[..<slash]) / \(model.id[model.id.index(after: slash)...])"
-    }
-
     static func modelOptions(_ models: [AgentModel], preference: ModelPreference?) -> [AgentModel] {
         guard let preference, !models.contains(where: { $0.id == preference.model }) else { return models }
         let missing = AgentModel(id: "", label: "Unavailable: \(preference.model)", detail: nil,
@@ -109,7 +103,7 @@ struct HarnessSettingsPane: View {
                     FormField("Default model") {
                         Select(values: options,
                                selection: Binding(get: { selected }, set: { model.select($0, for: snapshot.agent) }),
-                               label: { HarnessCardPresentation.modelLabel($0, for: snapshot.agent) },
+                               label: { $0.label },
                                detail: \.detail)
                             .disabled(snapshot.modelsAreStale)
                     }
