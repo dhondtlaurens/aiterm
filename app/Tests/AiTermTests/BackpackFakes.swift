@@ -13,6 +13,9 @@ final class FakeLidSleep: LidSleepControl, @unchecked Sendable {
     var onSet: (Bool) -> Void = { _ in }
     func isAllowed() -> Bool { allowed }
     func setDisabled(_ disabled: Bool) -> Bool { onSet(disabled); calls.append(disabled); return succeeds }
+    /// How many times `sleepNow` was asked.
+    private(set) var sleeps = 0
+    func sleepNow() -> Bool { sleeps += 1; return true }
 }
 
 final class FakeWiFi: WiFiControl, @unchecked Sendable {

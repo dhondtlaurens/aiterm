@@ -20,6 +20,10 @@ public protocol LidSleepControl: Sendable {
     func isAllowed() -> Bool
     /// `pmset -a disablesleep 1` (true) or `0` (false). False when it did not succeed.
     func setDisabled(_ disabled: Bool) -> Bool
+    /// `pmset sleepnow`, which needs no root: sleep at once. macOS sleeps on the lid's close, not
+    /// on its state, so sleep coming back with the lid already shut has to ask. False when it did
+    /// not run.
+    func sleepNow() -> Bool
 }
 
 /// The Wi-Fi interface. Blocking: a scan takes seconds.
@@ -87,6 +91,7 @@ public struct BackpackPorts: Sendable {
 private struct InertPort: LidSleepControl, WiFiControl, PowerSource, LocationAccess, SleepRuleInstaller, LidSensor {
     func isAllowed() -> Bool { false }
     func setDisabled(_ disabled: Bool) -> Bool { false }
+    func sleepNow() -> Bool { false }
     func knownNetworks() -> [String] { [] }
     func currentNetwork() -> String? { nil }
     func isInRange(_ network: String) -> Bool { false }

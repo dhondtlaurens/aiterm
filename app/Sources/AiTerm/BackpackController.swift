@@ -287,11 +287,19 @@ final class BackpackController {
         state = mode.state
         if case .on(let status) = state { power = status.power }
         guard case .ended(let cause)? = outcome else { return }
-        if mode.settings.engaged { toast(Self.restoreFailed) }
+        let restored = !mode.settings.engaged
+        if !restored { toast(Self.restoreFailed) }
         ended = BackpackEnded(at: now(), cause: cause)
         phase = nil
-        transition = .turningOff
         joinedHotspot = false
+        // Sleep is back, but macOS sleeps on the lid's close, not its state: with the lid already
+        // shut — the Mac in a bag — it would stay awake. Ask for sleep; the Wi-Fi rejoins on wake.
+        let lidSleep = ports.lidSleep
+        if restored, ports.lidSensor.isClosed() == true {
+            _ = await worker.run { lidSleep.sleepNow() }
+            return
+        }
+        transition = .turningOff
         let wifi = ports.wifi, hotspot = network ?? ""
         currentNetwork = await worker.run { () -> String? in
             _ = mode.rejoinPreferred(leaving: hotspot)

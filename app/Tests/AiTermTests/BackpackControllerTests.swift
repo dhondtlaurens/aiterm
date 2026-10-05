@@ -277,6 +277,48 @@ import Testing
         #expect(backpack.transition == nil)
         await backpack.connect(network: "Phone", password: nil)
         #expect(backpack.ended == nil, "the next turn-on clears it")
+        #expect(fake.lid.sleeps == 0, "the lid was open: the Mac decides when to sleep")
+    }
+
+    /// macOS sleeps on the lid's close, not on its state: sleep coming back with the lid already
+    /// shut — the Mac in a bag — would leave it awake. So the ending asks for sleep itself, and the
+    /// Wi-Fi rejoins on wake rather than now.
+    @Test(arguments: [false, true])
+    func endingItselfWithTheLidClosedPutsTheMacToSleep(onBatteryCutoff: Bool) async {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Home", "Phone"]
+        let start = Date(timeIntervalSince1970: 1_000)
+        let clock = Mutex(start)
+        // The cutoff ends it with an agent still working; the idle grace needs none working.
+        let backpack = controller(fake, working: { onBatteryCutoff }, now: { clock.withLock { $0 } })
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        if onBatteryCutoff {
+            fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        } else {
+            clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
+        }
+        await backpack.tick()
+        #expect(!backpack.isOn)
+        #expect(fake.lid.calls == [true, false])
+        #expect(fake.lid.sleeps == 1)
+        #expect(fake.wifi.joins == ["Phone"], "no rejoin before sleeping: it happens on wake")
+        #expect(backpack.transition == nil)
+    }
+
+    /// Sleep did not come back: asking for sleep would be pointless, and the restore retries.
+    @Test func aFailedRestoreAtTheEndingNeverAsksForSleep() async {
+        let fake = FakeBackpack(), toasts = Recorder()
+        let start = Date(timeIntervalSince1970: 1_000)
+        let clock = Mutex(start)
+        let backpack = controller(fake, toasts: toasts, working: { false }, now: { clock.withLock { $0 } })
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        fake.lid.succeeds = false
+        clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
+        await backpack.tick()
+        #expect(fake.lid.sleeps == 0)
+        #expect(toasts.lines.last == BackpackController.restoreFailed)
     }
 
     /// Review focus 1: a lid already closed (clamshell with a display) never yields; only a close does.

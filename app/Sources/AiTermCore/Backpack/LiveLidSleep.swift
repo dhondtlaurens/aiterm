@@ -9,6 +9,11 @@ public struct SudoLidSleep: LidSleepControl {
 
     public func setDisabled(_ disabled: Bool) -> Bool { sudo(["-n"] + pmset(disabled ? 1 : 0)) }
 
+    /// No `sudo`: any user may put the Mac to sleep.
+    public func sleepNow() -> Bool {
+        (try? ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/pmset"), ["sleepnow"], timeout: 10))?.status == 0
+    }
+
     private func pmset(_ value: Int) -> [String] { ["/usr/bin/pmset", "-a", "disablesleep", "\(value)"] }
 
     private func sudo(_ arguments: [String]) -> Bool {

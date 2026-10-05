@@ -85,7 +85,8 @@ at once, then after 5, 10, 20 and every 30 s. The check also takes whether any s
 workspace is working: after 2 minutes without one the mode turns itself off, and a turn-on with
 nothing working starts the same 2 minutes. On battery at or under 10 % it turns off too (a fixed
 cutoff, `BackpackSettings.cutoff`). Either ending is recorded with its time and cause for the Mac
-row. After off, the Mac leaves the hotspot — or no network, which a failed join leaves — for the
+row. macOS sleeps on the lid's close, not its state, so an ending with the lid already shut runs
+`pmset sleepnow` (no root needed) and leaves the Wi-Fi to rejoin on wake. After off, the Mac leaves the hotspot — or no network, which a failed join leaves — for the
 first of its preferred networks that one scan finds, never the hotspot; if none is in range it
 stays put. The Backpack sheet watches the lid and closes on an open → closed transition.
 `backpack.engaged` in UserDefaults is written before `disablesleep 1` and cleared only after
