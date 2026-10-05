@@ -60,6 +60,11 @@ final class BackpackController {
     @ObservationIgnored private let agentsWorking: @MainActor () -> Bool
     @ObservationIgnored private var cancelled = false
     @ObservationIgnored private var retryWait: Task<Void, Never>?
+    /// A connect may have moved the Mac onto the hotspot: it was on another network, or none,
+    /// when the connect began. Only then does a Cancel's undo leave the hotspot — a Mac already
+    /// tethered to it stays as it was. Kept across connects until an undo or a turn-off, so a
+    /// retry from the hotspot the last one joined still knows it joined it.
+    @ObservationIgnored private var joinedHotspot = false
 
     init(ports: BackpackPorts, settings: BackpackSettings, tickInterval: Duration = .seconds(5),
          retryDelays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(30)],
@@ -119,6 +124,9 @@ final class BackpackController {
         cancelled = false
         ended = nil
         phase = .joining
+        let wifi = ports.wifi
+        let before = await worker.run { wifi.currentNetwork() }
+        if before != network { joinedHotspot = true }
         var attempt = 0
         let mode = self.mode
         attempts: while !cancelled {
@@ -159,14 +167,15 @@ final class BackpackController {
     }
 
     /// The sheet's Cancel and Back. During a connect: stop after the attempt under way, then undo.
-    /// After a final refusal: put the Wi-Fi back if the attempt left the Mac on the hotspot.
+    /// After a final refusal: retry a failed sleep restore, and put the Wi-Fi back if the attempt
+    /// moved the Mac onto the hotspot. Otherwise nothing changed, and nothing is touched.
     func cancelConnect() async {
         if busy {
             cancelled = true
             retryWait?.cancel()
             return
         }
-        guard !isOn, let network else { phase = nil; return }
+        guard !isOn, mode.settings.engaged || joinedHotspot, let network else { phase = nil; return }
         busy = true
         defer { busy = false; transition = nil }
         await undoWhileBusy(leaving: network)
@@ -180,6 +189,7 @@ final class BackpackController {
         defer { busy = false; transition = nil }
         ticking?.cancel()
         let mode = self.mode, wifi = ports.wifi, hotspot = network ?? ""
+        joinedHotspot = false
         let (restored, current) = await worker.run { () -> (Bool, String?) in
             let restored = mode.turnOff()
             _ = mode.rejoinPreferred(leaving: hotspot)
@@ -194,14 +204,16 @@ final class BackpackController {
         }
     }
 
-    /// Cancel's undo, under `busy`: off if it got that far, then off the hotspot. A failed
-    /// `disablesleep 0` is said and retried by the checks, as in `turnOff()`.
+    /// Cancel's undo, under `busy`: off if it got that far, then off the hotspot if the connect
+    /// put the Mac on it. A failed `disablesleep 0` is said and retried by the checks, as in
+    /// `turnOff()`.
     private func undoWhileBusy(leaving hotspot: String) async {
         transition = .turningOff
-        let mode = self.mode, wifi = ports.wifi
+        let mode = self.mode, wifi = ports.wifi, leave = joinedHotspot
+        joinedHotspot = false
         let (restored, current) = await worker.run { () -> (Bool, String?) in
             let restored = mode.turnOff()
-            _ = mode.rejoinPreferred(leaving: hotspot)
+            if leave { _ = mode.rejoinPreferred(leaving: hotspot) }
             return (restored, wifi.currentNetwork())
         }
         state = mode.state
@@ -265,6 +277,7 @@ final class BackpackController {
         ended = BackpackEnded(at: now(), cause: cause)
         phase = nil
         transition = .turningOff
+        joinedHotspot = false
         let wifi = ports.wifi, hotspot = network ?? ""
         currentNetwork = await worker.run { () -> String? in
             _ = mode.rejoinPreferred(leaving: hotspot)

@@ -111,6 +111,25 @@ import Testing
         #expect(fake.lid.calls == [true, false])
     }
 
+    /// Already on the hotspot when the connect began: Cancel puts sleep back and leaves the Wi-Fi.
+    @Test func cancelLeavesAMacThatWasAlreadyOnTheHotspotThere() async {
+        let fake = FakeBackpack()
+        fake.wifi.current = "Phone"
+        let release = DispatchSemaphore(value: 0)
+        fake.lid.onSet = { @Sendable in if $0 { release.wait() } }
+        let backpack = controller(fake)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while backpack.phase != .keepingAwake { await Task.yield() }
+        let cancel = Task { await backpack.cancelConnect() }
+        release.signal()
+        await run.value
+        await cancel.value
+        #expect(!backpack.isOn)
+        #expect(fake.wifi.joins.isEmpty)
+        #expect(fake.wifi.current == "Phone")
+        #expect(fake.lid.calls == [true, false])
+    }
+
     /// Cancel after `disablesleep 1` ran, and `disablesleep 0` then fails: said, and retried by the
     /// checks, as a turn-off by hand is — never left disabled until the next launch.
     @Test func aFailedRestoreOnCancelSaysSoAndKeepsTrying() async {

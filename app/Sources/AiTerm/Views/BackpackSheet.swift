@@ -72,6 +72,8 @@ final class BackpackSheetModel: Identifiable {
     var password = ""
     private(set) var passwordSaved = false
     private(set) var knownNetworks: [String] = []
+    /// From Connect until the connect it started returns: covers the turn before it sets `busy`.
+    private var connecting = false
 
     init(backpack: BackpackController) {
         self.backpack = backpack
@@ -88,12 +90,24 @@ final class BackpackSheetModel: Identifiable {
     var choices: [String?] { BackpackSheetPresentation.choices(known: knownNetworks, current: network) }
     var missing: [BackpackSetup.Step] { backpack.setup.missingSteps }
     var canConnect: Bool { missing.isEmpty && network != nil && !backpack.busy }
+    /// The dots stand for the remembered hotspot's Keychain password, and for no other hotspot's.
+    var showsSavedPassword: Bool { passwordSaved && network != nil && network == backpack.network }
+    /// Step 2 with nothing left to show: the mode turned off, or ended, under the sheet. A failure
+    /// keeps its phase, and with it Back and Cancel.
+    var isOver: Bool {
+        step == .connect && !connecting && !backpack.busy && !backpack.isOn && backpack.phase == nil
+    }
 
     func connect() {
         guard canConnect, let network else { return }
         step = .connect
         let typed = password.isEmpty ? nil : password
-        Task { await backpack.connect(network: network, password: typed) }
+        connecting = true
+        let backpack = self.backpack
+        Task {
+            await backpack.connect(network: network, password: typed)
+            connecting = false
+        }
     }
 
     func back() {
@@ -101,8 +115,10 @@ final class BackpackSheetModel: Identifiable {
         Task { await backpack.cancelConnect() }
     }
 
-    func cancel() {
-        Task { await backpack.cancelConnect() }
+    @discardableResult
+    func cancel() -> Task<Void, Never> {
+        let backpack = self.backpack
+        return Task { await backpack.cancelConnect() }
     }
 }
 
@@ -125,6 +141,8 @@ struct BackpackSheet: View {
             footer
         }
         .task { await model.load() }
+        // Turned off or ended under the sheet: step 2 would show "Joining…" with nothing running.
+        .onChange(of: model.isOver) { _, over in if over { dismiss() } }
         .task {
             for await _ in model.backpack.lidCloses() {
                 if model.step == .hotspot { model.cancel() }
@@ -150,7 +168,7 @@ struct BackpackSheet: View {
                 }
                 .frame(maxWidth: .infinity)
                 FormField("Password") {
-                    Input(placeholder: model.passwordSaved ? "••••••••••••" : "The hotspot’s password",
+                    Input(placeholder: model.showsSavedPassword ? "••••••••••••" : "The hotspot’s password",
                           text: Binding(get: { model.password }, set: { model.password = $0 }), secure: true)
                 }
                 .frame(maxWidth: .infinity)

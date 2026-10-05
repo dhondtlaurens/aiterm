@@ -8,22 +8,31 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct AppControllerTests {
-    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet nor
-    /// turns anything off (review focus 2). Inert ports: the connect refuses with needsSetup, which
-    /// is enough to hold `busy` for a moment and exercise the guard.
+    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet, nor
+    /// opens another once it is gone, nor turns anything off (review focus 2). The hotspot is out
+    /// of range, so the connect keeps retrying and `busy` holds until the Cancel.
     @Test func toggleWhileConnectingDoesNothing() async {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
-        let controller = AppController(store: StateStore(url: url), preferences: .scratch())
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch(), backpackPorts: fake.ports)
+        let backpack = controller.backpack
         controller.toggleBackpack()
         guard case .backpack(let model)? = controller.sheet else { Issue.record("no sheet"); return }
-        model.network = "Phone"
-        let connecting = Task { await controller.backpack.connect(network: "Phone", password: nil) }
+        let connecting = Task { await backpack.connect(network: "Phone", password: nil) }
+        while !backpack.busy { await Task.yield() }
         controller.toggleBackpack()
         guard case .backpack(let same)? = controller.sheet else { Issue.record("sheet replaced"); return }
         #expect(same === model)
+        controller.sheet = nil
+        controller.toggleBackpack()
+        #expect(controller.sheet == nil, "no sheet while it connects")
+        #expect(backpack.busy && !backpack.isOn)
+        await backpack.cancelConnect()
         await connecting.value
-        #expect(!controller.backpack.isOn)
+        #expect(!backpack.isOn && !backpack.busy)
     }
 
     @Test func failedLoadCannotSaveEmptyState() throws {

@@ -97,4 +97,78 @@ import Testing
         #expect(BackpackSheetPresentation.choices(known: ["Home"], current: "Phone") == [nil, "Phone", "Home"])
         #expect(BackpackSheetPresentation.choices(known: ["Home", "Phone"], current: "Phone") == [nil, "Home", "Phone"])
     }
+
+    /// Already tethered to the hotspot when the sheet opens: Cancel leaves the Mac on it.
+    @Test func cancelLeavesAMacAlreadyOnTheHotspotThere() async {
+        let fake = FakeBackpack()
+        fake.wifi.current = "Phone"
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        await model.cancel().value
+        #expect(fake.wifi.joins.isEmpty)
+        #expect(fake.wifi.current == "Phone")
+        #expect(fake.lid.calls.isEmpty)
+    }
+
+    /// A refusal before any join — the battery — then Cancel: still on the hotspot it started on.
+    @Test func cancelAfterABatteryRefusalLeavesAMacAlreadyOnTheHotspotThere() async {
+        let fake = FakeBackpack()
+        fake.wifi.current = "Phone"
+        fake.power.value = PowerReading(level: 8, onBattery: true)
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.connect()
+        while model.backpack.phase != .failed(.batteryLow(level: 8)) { await Task.yield() }
+        await model.cancel().value
+        #expect(fake.wifi.joins.isEmpty)
+        #expect(fake.wifi.current == "Phone")
+        #expect(model.backpack.phase == nil)
+    }
+
+    /// The dots stand for the remembered hotspot's password only: another hotspot needs its own.
+    @Test func theSavedPasswordShowsOnlyForTheRememberedHotspot() async {
+        let fake = FakeBackpack()
+        fake.settings.password = "saved"
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(model.showsSavedPassword)
+        model.network = "Home"
+        #expect(!model.showsSavedPassword)
+        model.network = nil
+        #expect(!model.showsSavedPassword)
+    }
+
+    @Test func noSavedPasswordShowsNoDots() async {
+        let fake = FakeBackpack()
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(!model.showsSavedPassword)
+    }
+
+    /// Step 2 is over — the sheet closes — once the mode is off with nothing running: turned off
+    /// under the sheet, or ended by itself. Not in the turn between Connect and the connect starting.
+    @Test func stepTwoIsOverOnceTheModeIsOffAndIdle() async {
+        let fake = FakeBackpack()
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(!model.isOver, "step 1 is never over")
+        model.connect()
+        #expect(!model.isOver, "the connect has not started yet")
+        while model.backpack.phase != .safe { await Task.yield() }
+        #expect(!model.isOver)
+        await model.backpack.turnOff()
+        while model.backpack.busy { await Task.yield() }
+        #expect(model.isOver)
+    }
+
+    @Test func aFailedConnectIsNotOver() async {
+        let fake = FakeBackpack()
+        fake.wifi.joinSucceeds = false
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        model.connect()
+        while model.backpack.phase != .failed(.joinFailed(network: "Phone")) { await Task.yield() }
+        while model.backpack.busy { await Task.yield() }
+        #expect(!model.isOver, "Back and Cancel stay for a failure")
+    }
 }
