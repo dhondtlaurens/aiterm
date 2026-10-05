@@ -191,8 +191,7 @@ always there. The Mac row is a `SymbolMark` in `.paper` style at `Size.vendorMar
 desk, `iphone` in the backpack), the mode's name — `desk mode` or `backpack mode` — in `Palette.muted`, then at
 most one `StatusMark` at `Size.statusMark`, `Space.snug` after the name: the spinner while the mode
 switches, the done dot while it is on, the needs-input dot when it needs you, nothing at the desk. That
-mark is the row's one colour; a desk that Backpack Mode ended by itself adds `· backpack mode ended 14:32`
-in `Palette.muted`. A click opens the sheet at the desk and turns the mode off in the backpack;
+mark is the row's one colour. A click opens the sheet at the desk and turns the mode off in the backpack;
 a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and VoiceOver
 sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 

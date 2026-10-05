@@ -26,7 +26,7 @@ struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
     /// The Mac's mode, as one drawn line (spec 2026-10-05). The defaults draw a Mac at its desk.
-    var mac: MacModeLine = MacModePresentation.line(mode: .desk(ended: nil), hotspot: nil, wifi: nil, calendar: .current)
+    var mac: MacModeLine = MacModePresentation.line(mode: .desk, hotspot: nil, wifi: nil)
     /// A click on the Mac's row.
     var toggleMac: () -> Void = {}
     /// A right-click on it opens Mac Settings.
@@ -77,7 +77,6 @@ struct SidebarFooter: View {
             HStack(spacing: scale(Space.snug)) {
                 Text(mac.mode.name).foregroundStyle(Palette.muted)
                 if let mark = mac.mode.mark { StatusMark(status: mark, size: scale(Size.statusMark)) }
-                if let note = mac.note { Text(note).foregroundStyle(Palette.muted) }
             }
             Spacer(minLength: 0)
         }

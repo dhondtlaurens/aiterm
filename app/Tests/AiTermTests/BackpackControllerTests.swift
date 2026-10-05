@@ -259,11 +259,10 @@ import Testing
         #expect(!backpack.isOn)
         #expect(fake.wifi.current == "Home")
         #expect(backpack.phase == nil)
-        #expect(backpack.ended == nil, "a turn-off by hand is not an ending")
         #expect(backpack.currentNetwork == "Home")
     }
 
-    @Test func endingItselfIsRememberedWithItsTime() async {
+    @Test func endingItselfRejoinsTheNetworkTheMacWasOn() async {
         let fake = FakeBackpack()
         let start = Date(timeIntervalSince1970: 1_000)
         let clock = Mutex(start)
@@ -271,12 +270,10 @@ import Testing
         await backpack.connect(network: "Phone", password: nil)
         clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
         await backpack.tick()
-        #expect(backpack.ended == BackpackEnded(at: start.addingTimeInterval(BackpackMode.idleGrace), cause: .agentsStopped))
+        #expect(!backpack.isOn)
         #expect(backpack.phase == nil, "off: the sheet must not read safe")
         #expect(backpack.currentNetwork == "Home", "back on the network the Mac was on")
         #expect(backpack.transition == nil)
-        await backpack.connect(network: "Phone", password: nil)
-        #expect(backpack.ended == nil, "the next turn-on clears it")
         #expect(fake.lid.sleeps == 0, "the lid was open: the Mac decides when to sleep")
     }
 
@@ -396,8 +393,7 @@ import Testing
         fake.power.value = PowerReading(level: 9, onBattery: true)
         await backpack.tick()
         #expect(!backpack.isOn)
-        #expect(backpack.ended?.cause == .batteryLow(level: 9))
-        #expect(toasts.lines.isEmpty, "no turn-on toast, and the ending is remembered for the sheet, not toasted")
+        #expect(toasts.lines.isEmpty, "no turn-on toast, and the ending is not toasted")
     }
 
     @Test func setUpRunsTheMissingStepsAndRefreshes() async {

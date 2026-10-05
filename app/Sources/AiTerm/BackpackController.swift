@@ -18,9 +18,6 @@ enum ConnectPhase: Equatable {
     case keychainRefused
 }
 
-/// The mode turned itself off: when, and why.
-struct BackpackEnded: Equatable { let at: Date; let cause: BackpackEnding }
-
 /// Backpack Mode as the app drives it: `BackpackMode`'s blocking calls run on one serial thread, so a
 /// connect, a turn-off and a tick never overlap, and their outcome is published here on the main
 /// actor for the Backpack sheet, the Mac row and Settings › Integrations.
@@ -40,8 +37,6 @@ final class BackpackController {
     private(set) var transition: BackpackTransition?
     /// Where the last connect stands; nil until one runs, and again after a turn-off or Cancel.
     private(set) var phase: ConnectPhase?
-    /// Set when the mode ends itself; cleared by the next connect.
-    private(set) var ended: BackpackEnded?
     /// The Wi-Fi network the Mac is on, as last read: for the desk tooltip.
     private(set) var currentNetwork: String?
 
@@ -55,7 +50,6 @@ final class BackpackController {
     @ObservationIgnored private let worker = SerialThread(name: "com.laurensdhondt.aiterm.backpack")
     @ObservationIgnored private var ticking: Task<Void, Never>?
     @ObservationIgnored private let retryDelays: [Duration]
-    @ObservationIgnored private let now: @Sendable () -> Date
     /// Whether any session in the workspace is `.working`: the 5 s check's reason to stay on.
     @ObservationIgnored private let agentsWorking: @MainActor () -> Bool
     @ObservationIgnored private var cancelled = false
@@ -79,7 +73,6 @@ final class BackpackController {
         mode = BackpackMode(ports: ports, settings: settings, now: now)
         self.tickInterval = tickInterval
         self.retryDelays = retryDelays
-        self.now = now
         self.agentsWorking = agentsWorking
         self.toast = toast
         setup.network = settings.network
@@ -127,7 +120,6 @@ final class BackpackController {
         defer { busy = false; transition = nil }
         cancelled = false
         sheetGone = false
-        ended = nil
         phase = .joining
         let wifi = ports.wifi
         let before = await worker.run { wifi.currentNetwork() }
@@ -288,10 +280,9 @@ final class BackpackController {
         let outcome: BackpackTick? = await worker.run { mode.tick(agentsWorking: working) }
         state = mode.state
         if case .on(let status) = state { power = status.power }
-        guard case .ended(let cause)? = outcome else { return }
+        guard case .ended? = outcome else { return }
         let restored = !mode.settings.engaged
         if !restored { toast(Self.restoreFailed) }
-        ended = BackpackEnded(at: now(), cause: cause)
         phase = nil
         joinedHotspot = false
         // Sleep is back, but macOS sleeps on the lid's close, not its state: with the lid already
@@ -359,13 +350,12 @@ final class BackpackController {
     #if DEBUG
     /// Snapshots draw a state without turning anything on.
     func preview(state: BackpackState, setup: BackpackSetup, transition: BackpackTransition? = nil,
-                 phase: ConnectPhase? = nil, ended: BackpackEnded? = nil, busy: Bool = false) {
+                 phase: ConnectPhase? = nil, busy: Bool = false) {
         self.state = state
         self.busy = busy
         self.setup = setup
         self.transition = transition
         self.phase = phase
-        self.ended = ended
         if case .on(let status) = state { power = status.power }
     }
     #endif

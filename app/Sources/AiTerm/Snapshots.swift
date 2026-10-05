@@ -292,14 +292,12 @@ enum Snapshots {
         controller.focus.browse(.task(piTask.id))
         // The Mac row in every mode, for judging the one colour by eye.
         let phone = "Laurens’s iPhone"
-        let endedAt = Calendar.current.date(bySettingHour: 14, minute: 32, second: 0, of: Date())!
-        let modes: [MacMode] = [.desk(ended: nil), .turningOn, .on, .needsYou(.lostHotspot),
-                                .needsYou(.lowBattery(level: 13)), .turningOff,
-                                .desk(ended: BackpackEnded(at: endedAt, cause: .agentsStopped))]
+        let modes: [MacMode] = [.desk, .turningOn, .on, .needsYou(.lostHotspot),
+                                .needsYou(.lowBattery(level: 13)), .turningOff]
         write(VStack(spacing: 0) {
             ForEach(modes.indices, id: \.self) { index in
                 SidebarFooter(task: nil, rows: [],
-                              mac: MacModePresentation.line(mode: modes[index], hotspot: phone, wifi: "Office-WiFi", calendar: .current))
+                              mac: MacModePresentation.line(mode: modes[index], hotspot: phone, wifi: "Office-WiFi"))
             }
         }
         .frame(width: Size.sidebarWidth)

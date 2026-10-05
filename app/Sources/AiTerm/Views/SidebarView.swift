@@ -80,9 +80,8 @@ struct SidebarView: View {
                               rows: SidebarModel.usageVendorRows(controller.live.usage, now: context.date, calendar: .current,
                                                                  claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled),
                               mac: MacModePresentation.line(
-                                  mode: MacMode(state: controller.backpack.state, transition: controller.backpack.transition,
-                                                ended: controller.backpack.ended),
-                                  hotspot: controller.backpack.network, wifi: controller.backpack.currentNetwork, calendar: .current),
+                                  mode: MacMode(state: controller.backpack.state, transition: controller.backpack.transition),
+                                  hotspot: controller.backpack.network, wifi: controller.backpack.currentNetwork),
                               toggleMac: { controller.toggleBackpack() },
                               openMacSettings: { controller.presentSettings(tab: .integrations) })
             }
