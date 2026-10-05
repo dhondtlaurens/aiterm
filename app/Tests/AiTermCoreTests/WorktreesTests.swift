@@ -586,9 +586,27 @@ import Darwin
         #expect(try Worktrees.existing(repo: repo, git: git).map(\.lockReason) == [Worktrees.reviewLockReason])
     }
 
+    /// The lock is written by `worktree add` itself (`--lock --reason`): there is no second command
+    /// that can fail or time out with a finished checkout on disk, and no window in which the
+    /// worktree exists unlocked for a `git worktree prune` to take.
+    @Test func aWorktreeIsLockedByTheCommandThatCreatesIt() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let recording = RecordingGitRunner()
+        recording.forwards = true
+        let review = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: recording)
+        let task = try Worktrees.create(repo: repo, slug: "task", branch: "feat/task", base: "main", git: recording)
+
+        #expect(!recording.calls.contains { $0.args.starts(with: ["worktree", "lock"]) }, "no separate lock step")
+        let adds = recording.calls.filter { $0.args.starts(with: ["worktree", "add"]) }.map(\.args)
+        #expect(adds.count == 2)
+        #expect(adds.allSatisfy { $0.contains("--lock") })
+        #expect(Worktrees.lockReason(repo: repo, path: review, git: git) == Worktrees.reviewLockReason)
+        #expect(Worktrees.lockReason(repo: repo, path: task, git: git) == Worktrees.taskLockReason)
+    }
+
     /// Every call that talks to origin gets the remote deadline and the stall guard; a checkout —
-    /// hooks, filters, a `node_modules` to delete — gets the long one, and so does the lock around
-    /// it, whose failure undoes it; the rest are local queries.
+    /// hooks, filters, a `node_modules` to delete — gets the long one, and so does the unlock and
+    /// relock around a removal; the rest are local queries.
     @Test func eachGitCallGetsTheDeadlineForWhatItDoes() throws {
         let repo = try repoWithRemoteOnlyBranch()
         let recording = RecordingGitRunner()

@@ -336,9 +336,8 @@ public enum Worktrees {
         let path = try prepare(repo: repo, slug: slug, git: git)
         let hasOrigin = fetchFromOrigin(base, repo: repo, git: git)
         let start = hasOrigin && (try? git.run(["rev-parse", "--verify", "--quiet", "origin/\(base)"], in: repo)) != nil ? "origin/\(base)" : base
-        try git.run(["worktree", "add", "-b", branch, path, start], in: repo, timeout: GitRunner.checkoutTimeout)
-        do { try git.run(["worktree", "lock", path, "--reason", taskLockReason], in: repo, timeout: GitRunner.checkoutTimeout) }
-        catch { _ = try? git.run(["worktree", "remove", "--force", path], in: repo, timeout: GitRunner.checkoutTimeout); _ = try? git.run(["branch", "-D", branch], in: repo); throw error }
+        try git.run(["worktree", "add", "--lock", "--reason", taskLockReason, "-b", branch, path, start], in: repo,
+                    timeout: GitRunner.checkoutTimeout)
         return path
     }
 
@@ -367,17 +366,11 @@ public enum Worktrees {
         }
         let path = try prepare(repo: repo, slug: slug, git: git)
         let created = local == nil
-        try git.run(["worktree", "add"] + (created ? ["--track", "-b", branch, path, "origin/" + branch] : [path, branch]), in: repo,
+        try git.run(["worktree", "add", "--lock", "--reason", reviewLockReason]
+                    + (created ? ["--track", "-b", branch, path, "origin/" + branch] : [path, branch]), in: repo,
                     timeout: GitRunner.checkoutTimeout)
         // So that a plain `git push` from the review lands on origin's branch.
         if !created, remote != nil { _ = try? git.run(["branch", "--set-upstream-to=origin/" + branch, branch], in: repo) }
-        do { try git.run(["worktree", "lock", path, "--reason", reviewLockReason], in: repo, timeout: GitRunner.checkoutTimeout) }
-        catch {
-            _ = try? git.run(["worktree", "remove", "--force", path], in: repo, timeout: GitRunner.checkoutTimeout)
-            // Only the branch just made, and `-d`: it is origin's commit, so nothing is lost.
-            if created { _ = try? git.run(["branch", "-d", branch], in: repo) }
-            throw error
-        }
         return path
     }
 

@@ -70,8 +70,8 @@ public class GitRunner: @unchecked Sendable {
     public static let remoteTimeout: TimeInterval = 30
     /// `worktree add` and `remove`: a checkout runs hooks and filters (LFS downloads), and a forced
     /// removal deletes whatever the task left, `node_modules` included. Killing either halfway
-    /// leaves a worse mess than waiting. The `lock` and `unlock` around them too: they are quick,
-    /// but tripped the local deadline under load, and a lock that fails undoes the checkout.
+    /// leaves a worse mess than waiting. The `lock` and `unlock` around a removal too: they are
+    /// quick, but tripped the local deadline under load.
     public static let checkoutTimeout: TimeInterval = 300
 
     /// Makes git abandon an HTTP transfer slower than 1 KB/s for 10 s, so a stalled fetch ends
