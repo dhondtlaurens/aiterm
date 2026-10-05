@@ -150,21 +150,35 @@ public final class DiffStatResolver: @unchecked Sendable {
 
     /// Lines in the untracked, non-ignored files, counted the way `git diff` would once they are
     /// added: every newline, plus a final line that lacks one. A NUL byte marks a file as binary,
-    /// which `git diff` would not count either. Stops at `cap`.
+    /// which `git diff` would not count either, and a symlink is the one line it counts. Stops at `cap`.
     private func untrackedLines(_ worktree: String) -> Int {
         guard let listing = try? git.run(["ls-files", "--others", "--exclude-standard", "-z"], in: worktree) else { return 0 }
         var total = 0, bytes = 0
         // Bounded, so a folder that escaped `.gitignore` is not split into every path it holds only
         // for all those past the cap to be dropped.
         for path in listing.split(separator: "\0", maxSplits: cap.files).prefix(cap.files) {
-            let url = URL(fileURLWithPath: worktree).appendingPathComponent(String(path))
-            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.untrackedByteLimit else { continue }
+            let file = worktree + "/" + path
+            var info = stat()
+            guard lstat(file, &info) == 0 else { continue }
+            // Git counts a symlink as one line, its target's path, and never follows it: a link to a
+            // large file would get past the caps, and one to a device would never end.
+            if info.st_mode & S_IFMT == S_IFLNK { total += 1; continue }
+            let size = Int(info.st_size)
+            guard info.st_mode & S_IFMT == S_IFREG, size <= Self.untrackedByteLimit else { continue }
             guard bytes + size <= cap.bytes else { break }
             bytes += size
-            guard let data = try? Data(contentsOf: url), let lines = Self.lineCount(data) else { continue }
+            guard let data = Self.contents(of: file), let lines = Self.lineCount(data) else { continue }
             total += lines
         }
         return total
+    }
+
+    /// What a regular file holds, read without following a link or waiting on a pipe: the path may
+    /// have become either since `lstat` looked at it.
+    private static func contents(of path: String) -> Data? {
+        let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        return try? FileHandle(fileDescriptor: descriptor, closeOnDealloc: true).readToEnd()
     }
 
     /// Newlines, plus one for a last line without its own; `nil` for an empty or binary file.

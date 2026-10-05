@@ -56,6 +56,29 @@ struct DiffStatResolverTests {
         #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0))
     }
 
+    /// Once added, git counts a symlink as one line, its target path. The count must not follow it:
+    /// a link to a long file would count that file, and one to a large file would get past the
+    /// size caps, which look at the link itself.
+    @Test func anUntrackedSymlinkIsOneLineWhateverItPointsAt() throws {
+        let (_, worktree) = try makeRepo()
+        let target = worktree + "-target.txt"
+        defer { try? FileManager.default.removeItem(atPath: target) }
+        try write("a\nb\nc\nd\n", to: target)
+        try FileManager.default.createSymbolicLink(atPath: worktree + "/link", withDestinationPath: target)
+        try FileManager.default.createSymbolicLink(atPath: worktree + "/dangling", withDestinationPath: worktree + "/nothing")
+        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+    }
+
+    /// A link to a device never ends and a FIFO waits for a writer: reading either stalled the
+    /// whole checkout monitor. Only a regular file is read.
+    @Test func anUntrackedDeviceOrFifoIsNeitherReadNorWaitedFor() throws {
+        let (_, worktree) = try makeRepo()
+        try FileManager.default.createSymbolicLink(atPath: worktree + "/zero", withDestinationPath: "/dev/zero")
+        #expect(mkfifo(worktree + "/pipe", 0o600) == 0)
+        try write("x\n", to: worktree + "/new.txt")
+        #expect(DiffStatResolver().diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+    }
+
     @Test func ignoredAndBinaryFilesDoNotCount() throws {
         let (_, worktree) = try makeRepo()
         try write("ignored.log\n", to: worktree + "/.gitignore")
