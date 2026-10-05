@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A heading in the sidebar's own voice — `PROJECTS`, a divider's name, the usage footer's CONTEXT
-/// and USAGE: the micro face, uppercase, tracked out, in secondary ink.
+/// A heading in the sidebar's own voice — `PROJECTS` and a divider's name: the micro face,
+/// uppercase, tracked out, in secondary ink.
 ///
 /// Drawn in the sidebar, so it is drawn at the sidebar's scale: its one token is
 /// `Typography.micro`, which scales by itself. It has no states; it is a label, never a control.

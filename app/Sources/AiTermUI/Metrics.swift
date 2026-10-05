@@ -76,8 +76,7 @@ public enum Size {
     /// The click target the sidebar's trailing column is built from.
     public static let slot: CGFloat = 20
     /// A row in a menu, a dropdown or the completion popup; the sidebar's `PROJECTS` header and a
-    /// `DividerRow`; and a usage footer row and its CONTEXT and USAGE headings. Also the width a
-    /// picker's list toggle answers to clicks in (`SearchPicker`).
+    /// `DividerRow`. Also the width a picker's list toggle answers to clicks in (`SearchPicker`).
     public static let menuRow: CGFloat = 24
     /// A field, a pop-up button, a segmented track, a footer button — `.controlSize(.large)`.
     public static let control: CGFloat = 28
@@ -90,9 +89,9 @@ public enum Size {
     /// A vendor mark in an avatar group, and the provider tile beside a project name. Also an
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18
-    /// A vendor mark outside an avatar group: the usage footer, the agent picker.
+    /// A vendor mark outside an avatar group: the status bento's tiles, the agent picker.
     public static let vendorMark: CGFloat = 16
-    /// A status mark on a row, and the usage footer's ring drawn to its recipe. A row's mark sits in
+    /// A status mark on a row, and the status bento's rings drawn to its recipe. A row's mark sits in
     /// the trailing column, so this is ``trailingGlyph``, declared as an alias; inside a count chip it
     /// is drawn at ``statusMarkSmall``.
     public static let statusMark = trailingGlyph

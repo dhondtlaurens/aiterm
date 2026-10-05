@@ -171,7 +171,7 @@ struct SidebarBanners: View {
 }
 
 /// One line — or a few — above the list, and the links that answer it. Its text starts where the
-/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the usage footer's does below.
+/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the status bento's marks do below.
 /// `detail` follows `text` in `Palette.muted`: what happened, then why.
 ///
 /// Only the leading edge is shared. `trailing` and `vertical` (×1 tokens, scaled here) keep each

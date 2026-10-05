@@ -156,7 +156,7 @@ struct UsageTile: View {
 /// The fill beside a telemetry number: a ring that closes clockwise as the window fills.
 ///
 /// Deliberately not a primitive — the reuse ladder in `AiTermUI/README.md` promotes a pattern only
-/// once a second file needs it, and this is the footer's alone. It is drawn to `StatusMark`'s
+/// once a second file needs it, and this is the bento's alone. It is drawn to `StatusMark`'s
 /// recipe (same diameter, same `size * 0.15` stroke, same round cap) so the two round marks in the
 /// sidebar read as one family rather than as two people's circles.
 struct UsageRing: View {
