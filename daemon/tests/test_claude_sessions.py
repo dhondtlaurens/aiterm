@@ -46,6 +46,16 @@ def test_malformed_file_is_none(tmp_path):
     assert ClaudeSessionFiles(tmp_path).read(7) is None
 
 
+def test_a_pid_that_is_not_a_finite_number_makes_a_file_unreadable_not_the_scan_fail(tmp_path):
+    # json.loads accepts `Infinity`, and int() of it raises OverflowError. pid_for_session parses
+    # every file in the directory, so one such file would otherwise fail every Claude hook.
+    (tmp_path / "7.json").write_text('{"pid": Infinity, "sessionId": "bad"}')
+    write(tmp_path, 8)
+    files = ClaudeSessionFiles(tmp_path)
+    assert files.read(7) is None
+    assert files.pid_for_session("sid-8") == 8
+
+
 def test_pid_for_session_scans_directory(tmp_path):
     write(tmp_path, 1)
     write(tmp_path, 2)

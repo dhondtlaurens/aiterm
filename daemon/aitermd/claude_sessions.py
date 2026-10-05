@@ -57,5 +57,5 @@ class ClaudeSessionFiles:
             d = json.loads(path.read_text())
             return ClaudeSessionFile(int(d["pid"]), str(d["sessionId"]), str(d.get("cwd", "")), str(d.get("status", "")),
                                      written_at)
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, OverflowError):
             return None
