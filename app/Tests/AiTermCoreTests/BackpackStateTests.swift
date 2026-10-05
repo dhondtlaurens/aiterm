@@ -6,7 +6,7 @@ import Testing
         #expect(BackpackRefusal.needsSetup.message == "Backpack Mode needs setup: Settings › Backpack")
         #expect(BackpackRefusal.batteryLow(level: 8).message == "Battery at 8 %: Backpack Mode stays off")
         #expect(BackpackRefusal.notInRange(network: "Laurens D’Hondt - iPhone").message
-                == "Laurens D’Hondt - iPhone isn’t in range: Backpack Mode stays off")
+                == "Laurens D’Hondt - iPhone isn’t showing its hotspot: open Personal Hotspot on the iPhone")
         #expect(BackpackRefusal.joinFailed(network: "Phone").message == "Couldn’t join Phone: check its password in Settings › Backpack")
         #expect(BackpackCopy.turnedOn(network: "Phone") == "Backpack Mode on · joined Phone")
         #expect(BackpackCopy.cutOff(level: 10) == "Battery at 10 %: Backpack Mode turned off")

@@ -71,7 +71,7 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
         switch self {
         case .needsSetup: "Backpack Mode needs setup: Settings › Backpack"
         case .batteryLow(let level): "Battery at \(level) %: Backpack Mode stays off"
-        case .notInRange(let network): "\(network) isn’t in range: Backpack Mode stays off"
+        case .notInRange(let network): "\(network) isn’t showing its hotspot: open Personal Hotspot on the iPhone"
         case .joinFailed(let network): "Couldn’t join \(network): check its password in Settings › Backpack"
         case .quitting: "AiTerm is quitting: Backpack Mode stays off"
         }

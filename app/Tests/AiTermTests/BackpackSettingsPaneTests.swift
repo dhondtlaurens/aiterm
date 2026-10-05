@@ -25,7 +25,7 @@ import Testing
         #expect(BackpackPresentation.hotspot(state: .on(joined), setup: ready) == SettingsStatus(.ready, "On · joined Phone"))
         let away = BackpackStatus(network: "Phone", joined: false, power: .mains, cutoff: 10)
         #expect(BackpackPresentation.hotspot(state: .on(away), setup: ready)
-                == SettingsStatus(.attention, "On · not joined to Phone, rejoining"))
+                == SettingsStatus(.attention, "On · lost Phone: open Personal Hotspot on the iPhone"))
     }
 
     @Test func theBatteryCardSaysTheLevelAndTheSource() {
@@ -39,6 +39,19 @@ import Testing
                 == SettingsStatus(.attention, "13 % · turns off at 10 %"))
     }
 
+    /// 3A: the cards say what the mode is for and what the phone has to do.
+    @Test func theCardsExplainTheModeAndThePhone() {
+        #expect(BackpackPresentation.permissionsSummary
+                == "Backpack Mode keeps the Mac awake with the lid closed and online through your iPhone’s hotspot, until you turn it off or the battery reaches its cutoff. Remove takes the lid-sleep rule out again.")
+        #expect(BackpackPresentation.hotspotSteps == [
+            "Unlock the iPhone and open Settings › Personal Hotspot.",
+            "Turn on Allow Others to Join.",
+            "Stay on that screen until the Mac has joined. Then the phone can lock.",
+        ])
+        #expect(BackpackPresentation.hotspotHelp
+                == "The iPhone only shows its hotspot while that screen is open, so if the Mac loses it, open the screen again. With the same Apple Account on both, macOS can also join it by itself: System Settings › Wi-Fi › Ask to join hotspots › Automatic. Save stores the password in Keychain.")
+    }
+
     @Test func theStepsAreTheMissingOnesInOrder() {
         #expect(BackpackPresentation.steps(setup: BackpackSetup(sleepRule: false, location: false, network: nil)) == [
             "Allow AiTerm to keep the Mac awake with the lid closed. Asks for your Mac’s password once.",
@@ -47,13 +60,13 @@ import Testing
         #expect(BackpackPresentation.steps(setup: ready).isEmpty)
     }
 
-    @Test func theSummaryIsTheGlyphsTooltip() {
+    @Test func theSummaryIsTheTilesTooltip() {
         #expect(BackpackPresentation.summary(BackpackStatus(network: "Phone", joined: true, power: PowerReading(level: 64, onBattery: true), cutoff: 10))
                 == "Backpack Mode is on · Phone · battery 64 %, turns off at 10 %")
         #expect(BackpackPresentation.summary(BackpackStatus(network: "Phone", joined: true, power: .mains, cutoff: 10))
                 == "Backpack Mode is on · Phone")
         #expect(BackpackPresentation.summary(BackpackStatus(network: "Phone", joined: false, power: .mains, cutoff: 10))
-                == "Backpack Mode is on · not joined to Phone")
+                == "Backpack Mode is on · lost Phone: open Personal Hotspot on the iPhone")
     }
 
     /// A chosen network the Mac no longer lists stays pickable, and "none" leads the menu.

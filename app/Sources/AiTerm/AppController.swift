@@ -201,7 +201,7 @@ final class AppController {
                                       openLocationSettings: {
                                           NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                                       },
-                                      toast: { link.controller?.showToast($0, symbol: BackpackHeaderButton.symbol) })
+                                      toast: { link.controller?.showToast($0, symbol: BackpackPresentation.symbol) })
         link.controller = self
     }
 

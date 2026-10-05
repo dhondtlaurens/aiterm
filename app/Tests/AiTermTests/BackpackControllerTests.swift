@@ -33,7 +33,7 @@ import Testing
         let backpack = controller(fake, toasts: toasts)
         await backpack.turnOn()
         #expect(!backpack.isOn)
-        #expect(toasts.lines == ["Phone isn’t in range: Backpack Mode stays off"])
+        #expect(toasts.lines == ["Phone isn’t showing its hotspot: open Personal Hotspot on the iPhone"])
     }
 
     @Test func aSecondToggleWhileBusyDoesNothing() async {
