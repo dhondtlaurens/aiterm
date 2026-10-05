@@ -114,15 +114,19 @@ public struct GitRunner: GitRunning {
     /// Set over the inherited environment for every command. The tests' fixtures use it to run git
     /// without the developer's own configuration.
     let environment: [String: String]
-    public init(git: String = "/usr/bin/git", environment: [String: String] = [:]) {
-        self.git = git; self.environment = environment
+    /// Which inherited variables the runner does not pass on. Nothing, in production. A test run from
+    /// a git hook inherits `GIT_DIR`, `GIT_INDEX_FILE` and the like, which point every command at
+    /// the hook's repository instead of the fixture's; `environment` can only set variables, so the
+    /// tests' runner names what to drop.
+    let ignoresInherited: @Sendable (String) -> Bool
+    public init(git: String = "/usr/bin/git", environment: [String: String] = [:],
+                ignoringInherited: @escaping @Sendable (String) -> Bool = { _ in false }) {
+        self.git = git; self.environment = environment; self.ignoresInherited = ignoringInherited
     }
 
     @discardableResult
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String]) throws -> String {
-        var env = ProcessRunner.inheritedEnvironment.merging(environment) { $1 }.merging(extra) { $1 }
-        env["GIT_OPTIONAL_LOCKS"] = "0"; env["GIT_TERMINAL_PROMPT"] = "0"
-        env = Self.englishMessages(env)
+        let env = commandEnvironment(inheriting: ProcessRunner.inheritedEnvironment, extra: extra)
         // Process.currentDirectoryURL can fall back when a checkout disappeared.
         // Git must itself validate the directory before doing anything to a repository.
         let result = try ProcessRunner.run(URL(fileURLWithPath: git), ["-C", dir] + args, environment: env,
@@ -135,6 +139,15 @@ public struct GitRunner: GitRunning {
             throw GitError(args: args, code: result.status, stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// What git runs with: what is inherited, less what the runner ignores, with the runner's own
+    /// `environment` and then the command's `extra` set over it, and the settings every command
+    /// runs under.
+    func commandEnvironment(inheriting inherited: [String: String], extra: [String: String]) -> [String: String] {
+        var env = inherited.filter { !ignoresInherited($0.key) }.merging(environment) { $1 }.merging(extra) { $1 }
+        env["GIT_OPTIONAL_LOCKS"] = "0"; env["GIT_TERMINAL_PROMPT"] = "0"
+        return Self.englishMessages(env)
     }
 
     /// `env` with git's messages in English. Some callers match git's wording in stderr

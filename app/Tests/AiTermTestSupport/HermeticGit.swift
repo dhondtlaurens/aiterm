@@ -17,8 +17,13 @@ enum HermeticGit {
 }
 
 extension GitRunner {
-    /// A runner for tests: git with ``HermeticGit/environment`` on every command.
-    static func hermetic() -> GitRunner { GitRunner(environment: HermeticGit.environment) }
+    /// A runner for tests: git with ``HermeticGit/environment`` on every command, and no `GIT_*`
+    /// variable of the process's own — a test run from a git hook (a pre-push hook that runs the
+    /// suite) inherits `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_CONFIG_COUNT` and more, which would send
+    /// every fixture's commands to the hook's repository.
+    static func hermetic() -> GitRunner {
+        GitRunner(environment: HermeticGit.environment, ignoringInherited: { $0.hasPrefix("GIT_") })
+    }
 }
 
 extension GitRunning where Self == GitRunner {

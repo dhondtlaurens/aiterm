@@ -78,6 +78,18 @@ import Testing
         #expect(oneCall.contains("AITERM_RUNNER=1") && oneCall.contains("AITERM_CALL=1"))
     }
 
+    /// Production passes on everything it inherits. A runner told to ignore some of it — the tests'
+    /// — drops those, and still sets its own and a call's, which were not inherited.
+    @Test func aRunnerPassesOnWhatItInheritsExceptWhatItIgnores() {
+        let inherited = ["GIT_SSH_COMMAND": "ssh -i key", "PATH": "/usr/bin", "LC_ALL": "C"]
+        #expect(GitRunner().commandEnvironment(inheriting: inherited, extra: [:])["GIT_SSH_COMMAND"] == "ssh -i key")
+        let strict = GitRunner(environment: ["GIT_OWN": "1"], ignoringInherited: { $0.hasPrefix("GIT_") })
+        let env = strict.commandEnvironment(inheriting: inherited, extra: ["GIT_CALL": "1"])
+        #expect(env["GIT_SSH_COMMAND"] == nil)
+        #expect(env["GIT_OWN"] == "1" && env["GIT_CALL"] == "1" && env["PATH"] == "/usr/bin")
+        #expect(env["GIT_OPTIONAL_LOCKS"] == "0" && env["GIT_TERMINAL_PROMPT"] == "0" && env["LC_MESSAGES"] == "C")
+    }
+
     /// git asking a remote that never answers, or an `ssh` waiting on a passphrase no one can
     /// type, must not hold a background thread forever. The timeout fails the command, in words
     /// a toast can show as they are.
