@@ -82,7 +82,7 @@ final class AppController {
     let agents: AgentIntegrations
     /// Every modal question the app asks goes through here, so tests answer them from a script.
     let prompter: Prompter
-    /// Backpack Mode: the menu item, Settings › Backpack and the header glyph read it.
+    /// Backpack Mode: the menu item and the header glyph read it.
     let backpack: BackpackController
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.

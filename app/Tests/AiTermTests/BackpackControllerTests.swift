@@ -100,7 +100,7 @@ import Testing
         #expect(!backpack.isOn)
     }
 
-    @Test func theTickAtTheCutoffTurnsItOffWithAToast() async {
+    @Test func theTickAtTheCutoffTurnsItOff() async {
         let fake = FakeBackpack(), toasts = Recorder()
         fake.power.value = PowerReading(level: 40, onBattery: true)
         let backpack = controller(fake, toasts: toasts)
@@ -108,7 +108,7 @@ import Testing
         fake.power.value = PowerReading(level: 9, onBattery: true)
         await backpack.tick()
         #expect(!backpack.isOn)
-        #expect(toasts.lines.last == "Battery at 9 %: Backpack Mode turned off")
+        #expect(toasts.lines == ["Backpack Mode on · joined Phone"], "ending itself is not a toast until Task 6")
     }
 
     @Test func setUpRunsTheMissingStepsAndRefreshes() async {

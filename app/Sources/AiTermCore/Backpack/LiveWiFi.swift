@@ -34,6 +34,14 @@ public struct CoreWLANWiFi: WiFiControl {
         !scan(network).isEmpty
     }
 
+    /// One scan for every network in range; a scan straight after another fails with `EBUSY`, so it is tried once more.
+    public func networksInRange() -> Set<String> {
+        guard let interface else { return [] }
+        let found = (try? interface.scanForNetworks(withName: nil))
+            ?? { Thread.sleep(forTimeInterval: 1); return (try? interface.scanForNetworks(withName: nil)) ?? [] }()
+        return Set(found.compactMap(\.ssid))
+    }
+
     /// A scan straight after another fails with `EBUSY`, so a failed one is tried once more.
     private func scan(_ network: String) -> Set<CWNetwork> {
         guard let interface else { return [] }

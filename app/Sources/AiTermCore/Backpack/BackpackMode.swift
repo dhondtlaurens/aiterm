@@ -16,6 +16,13 @@ public final class BackpackMode: Sendable {
     private let activePassword = Mutex<String?>(nil)
     /// Off the network: when the next rejoin may be tried, and how many have been since the drop.
     private let rejoin = Mutex<(next: Date?, tries: Int)>((nil, 0))
+    /// When a session was last seen working while on; a turn-on starts it.
+    private let lastWork = Mutex<Date?>(nil)
+
+    /// How long the mode waits after the last working session before it turns itself off: long
+    /// enough to bridge one turn ending and a queued one starting, short enough not to keep a
+    /// finished Mac hot in a bag (spec 2026-10-05).
+    public static let idleGrace: TimeInterval = 120
 
     /// The waits between rejoin attempts: a 5 s check that scanned every time would keep the Wi-Fi
     /// busy for as long as the hotspot is gone.
@@ -36,18 +43,20 @@ public final class BackpackMode: Sendable {
     /// The spec's order: setup, battery, join, marker, then `disablesleep 1`. The first failure
     /// leaves the mode off and nothing changed but, at most, the Wi-Fi network. The join comes
     /// without a scan first: a locked iPhone's hotspot is missing from scans but joins with its
-    /// password; the scan only decides which failure to report.
-    public func turnOn() -> Result<BackpackStatus, BackpackRefusal> {
+    /// password; the scan only decides which failure to report. `onJoined` runs once the Mac is on
+    /// the hotspot, before the marker.
+    public func turnOn(onJoined: @escaping @Sendable () -> Void = {}) -> Result<BackpackStatus, BackpackRefusal> {
         if closed.withLock({ $0 }) { return .failure(.quitting) }
         if case .on(let status) = state { return .success(status) }
         let setup = setup()
         guard setup.isComplete, let network = setup.network else { return .failure(.needsSetup) }
-        let power = ports.power.reading(), cutoff = settings.cutoff
-        if power.onBattery, let level = power.level, level <= cutoff { return .failure(.batteryLow(level: level)) }
+        let power = ports.power.reading()
+        if power.onBattery, let level = power.level, level <= BackpackSettings.cutoff { return .failure(.batteryLow(level: level)) }
         let password = settings.password
         if ports.wifi.currentNetwork() != network, !ports.wifi.join(network, password: password) {
             return .failure(ports.wifi.isInRange(network) ? .joinFailed(network: network) : .notInRange(network: network))
         }
+        onJoined()
         return closed.withLock { isClosed -> Result<BackpackStatus, BackpackRefusal> in
             // Quit may have come while the join ran.
             if isClosed { return .failure(.quitting) }
@@ -56,10 +65,11 @@ public final class BackpackMode: Sendable {
                 settings.engaged = false
                 return .failure(.needsSetup)
             }
-            let status = BackpackStatus(network: network, joined: true, power: power, cutoff: cutoff)
+            let status = BackpackStatus(network: network, joined: true, power: power)
             current.withLock { $0 = .on(status) }
             activePassword.withLock { $0 = password }
             rejoin.withLock { $0 = (nil, 0) }
+            lastWork.withLock { $0 = now() }
             return .success(status)
         }
     }
@@ -102,18 +112,26 @@ public final class BackpackMode: Sendable {
         if ports.lidSleep.setDisabled(false) { settings.engaged = false }
     }
 
-    /// The 5 s check while on: the battery cutoff, then the network. Off it, a rejoin is tried at
-    /// once, then after each of `rejoinDelays`, the last repeating; joined again, that starts over.
-    public func tick() -> BackpackTick {
+    /// The 5 s check while on: the battery cutoff, then the work, then the network. Off the
+    /// network, a rejoin is tried at once, then after each of `rejoinDelays`, the last repeating;
+    /// joined again, that starts over.
+    public func tick(agentsWorking: Bool) -> BackpackTick {
         guard case .on(let old) = state else {
             // Off, but a failed `disablesleep 0` left sleep disabled: try again.
             guard settings.engaged else { return .unchanged }
             return turnOff() ? .changed : .unchanged
         }
         let power = ports.power.reading()
-        if power.onBattery, let level = power.level, level <= old.cutoff {
+        if power.onBattery, let level = power.level, level <= BackpackSettings.cutoff {
             turnOff()
-            return .turnedOff(level: level)
+            return .ended(.batteryLow(level: level))
+        }
+        let time = now()
+        if agentsWorking {
+            lastWork.withLock { $0 = time }
+        } else if let last = lastWork.withLock({ $0 }), time.timeIntervalSince(last) >= Self.idleGrace {
+            turnOff()
+            return .ended(.agentsStopped)
         }
         var joined = ports.wifi.currentNetwork() == old.network
         if !joined, rejoinIsDue() {
@@ -121,9 +139,21 @@ public final class BackpackMode: Sendable {
             if !joined { bookNextRejoin() }
         }
         if joined { rejoin.withLock { $0 = (nil, 0) } }
-        let next = BackpackStatus(network: old.network, joined: joined, power: power, cutoff: old.cutoff)
+        let next = BackpackStatus(network: old.network, joined: joined, power: power)
         guard next != old else { return .unchanged }
         current.withLock { if $0.isOn { $0 = .on(next) } }
         return .changed
+    }
+
+    /// After off: leave `hotspot` for the first of the Mac's preferred networks that one scan finds,
+    /// the hotspot excluded, joined as a known network (no password: it is the Mac's). The network the
+    /// Mac ends up on; nil when none was in range and it stays on the hotspot.
+    public func rejoinPreferred(leaving hotspot: String) -> String? {
+        guard let current = ports.wifi.currentNetwork(), current == hotspot else { return ports.wifi.currentNetwork() }
+        let inRange = ports.wifi.networksInRange()
+        for network in ports.wifi.knownNetworks() where network != hotspot && inRange.contains(network) {
+            if ports.wifi.join(network, password: nil) { return network }
+        }
+        return nil
     }
 }

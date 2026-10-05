@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import AiTermCore
 
 @Suite struct BackpackModeTests {
@@ -11,7 +12,7 @@ import Foundation
         fake.lid.onSet = { if $0 { markerWhenSleepDisabled = fake.settings.engaged } }
         let mode = mode(fake)
         let status = try mode.turnOn().get()
-        #expect(status == BackpackStatus(network: "Phone", joined: true, power: .mains, cutoff: 10))
+        #expect(status == BackpackStatus(network: "Phone", joined: true, power: .mains))
         #expect(fake.wifi.joins == ["Phone"])
         #expect(fake.lid.calls == [true])
         #expect(markerWhenSleepDisabled == true, "the marker is written before disablesleep 1")
@@ -134,7 +135,7 @@ import Foundation
         #expect(!mode.turnOff())
         #expect(fake.settings.engaged && mode.state == .off)
         fake.lid.succeeds = true
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(!fake.settings.engaged)
         #expect(fake.lid.calls == [true, false, false])
     }
@@ -148,9 +149,9 @@ import Foundation
         fake.wifi.current = "Home"
         fake.wifi.joinSucceeds = false
         fake.wifi.onJoin = { clock.advance(by: 60) }
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(fake.wifi.joins.count == 2)
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(fake.wifi.joins.count == 2, "the next attempt waits 5 s from the end of the slow one")
     }
 
@@ -164,7 +165,7 @@ import Foundation
         fake.settings.network = "Other"
         fake.settings.password = "other-password"
         fake.wifi.current = "Home"
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(fake.wifi.joins == ["Phone", "Phone"])
         #expect(fake.wifi.passwords == ["phone-password", "phone-password"])
     }
@@ -192,7 +193,7 @@ import Foundation
         let mode = mode(fake)
         _ = try mode.turnOn().get()
         fake.power.value = PowerReading(level: 10, onBattery: true)
-        #expect(mode.tick() == .turnedOff(level: 10))
+        #expect(mode.tick(agentsWorking: true) == .ended(.batteryLow(level: 10)))
         #expect(mode.state == .off)
         #expect(fake.lid.calls == [true, false])
     }
@@ -201,7 +202,7 @@ import Foundation
         let fake = FakeBackpack()
         let mode = mode(fake)
         _ = try mode.turnOn().get()
-        #expect(mode.tick() == .unchanged)
+        #expect(mode.tick(agentsWorking: true) == .unchanged)
         guard case .on(let status) = mode.state else { Issue.record("expected on"); return }
         #expect(!status.nearCutoff && !status.degraded)
     }
@@ -212,12 +213,12 @@ import Foundation
         _ = try mode.turnOn().get()
         fake.wifi.current = "Home"
         fake.wifi.joinSucceeds = false
-        #expect(mode.tick() == .changed)
+        #expect(mode.tick(agentsWorking: true) == .changed)
         guard case .on(let away) = mode.state else { Issue.record("expected on"); return }
         #expect(!away.joined && away.degraded)
         fake.wifi.joinSucceeds = true
         clock.advance(by: 5)
-        #expect(mode.tick() == .changed)
+        #expect(mode.tick(agentsWorking: true) == .changed)
         guard case .on(let back) = mode.state else { Issue.record("expected on"); return }
         #expect(back.joined && !back.degraded)
         #expect(fake.wifi.joins == ["Phone", "Phone", "Phone"])
@@ -232,27 +233,119 @@ import Foundation
         fake.wifi.current = "Home"
         fake.wifi.joinSucceeds = false
         func attempts() -> Int { fake.wifi.joins.count - 1 }
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(attempts() == 1)
         for (wait, expected) in [(4.0, 1), (1.0, 2), (5.0, 2), (5.0, 3), (19.0, 3), (1.0, 4), (29.0, 4), (1.0, 5), (30.0, 6)] {
             clock.advance(by: wait)
-            _ = mode.tick()
+            _ = mode.tick(agentsWorking: true)
             #expect(attempts() == expected, "after +\(wait) s")
         }
         fake.wifi.joinSucceeds = true
         clock.advance(by: 30)
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(attempts() == 7)
         guard case .on(let back) = mode.state, back.joined else { Issue.record("expected joined"); return }
         fake.wifi.current = "Home"
         fake.wifi.joinSucceeds = false
-        _ = mode.tick()
+        _ = mode.tick(agentsWorking: true)
         #expect(attempts() == 8, "a new drop tries at once")
     }
 
     @Test func theTickWhenOffDoesNothing() {
         let fake = FakeBackpack()
-        #expect(mode(fake).tick() == .unchanged)
+        #expect(mode(fake).tick(agentsWorking: true) == .unchanged)
+    }
+
+    // -- ending with the work -------------------------------------------------------
+
+    @Test func itEndsTwoMinutesAfterTheLastWorkingAgent() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        #expect(mode.tick(agentsWorking: true) == .unchanged)
+        clock.advance(by: 119)
+        #expect(mode.tick(agentsWorking: false) == .unchanged, "the grace counts from the last working tick")
+        clock.advance(by: 1)
+        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+        #expect(!mode.state.isOn)
+        #expect(fake.lid.calls == [true, false])
+    }
+
+    @Test func workResetsTheGrace() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        clock.advance(by: 100)
+        _ = mode.tick(agentsWorking: true)
+        clock.advance(by: 100)
+        #expect(mode.tick(agentsWorking: false) == .unchanged)
+        clock.advance(by: 20)
+        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+    }
+
+    /// Turning on with nothing working lets you start a task on the way out: the same two minutes.
+    @Test func aTurnOnWithNothingWorkingStartsTheGrace() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        clock.advance(by: 120)
+        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+    }
+
+    @Test func theCutoffIsAFixedTenPercent() throws {
+        let fake = FakeBackpack()
+        fake.power.value = PowerReading(level: 11, onBattery: true)
+        let mode = mode(fake)
+        _ = try mode.turnOn().get()
+        fake.power.value = PowerReading(level: 10, onBattery: true)
+        #expect(mode.tick(agentsWorking: true) == .ended(.batteryLow(level: 10)))
+        #expect(BackpackSettings.cutoff == 10)
+    }
+
+    @Test func onJoinedComesBeforeTheMarker() throws {
+        let fake = FakeBackpack()
+        let markerAtJoin = Mutex<Bool?>(nil)
+        let mode = mode(fake)
+        _ = try mode.turnOn(onJoined: { markerAtJoin.withLock { $0 = fake.settings.engaged } }).get()
+        #expect(markerAtJoin.withLock { $0 } == false)
+    }
+
+    // -- rejoining after off -------------------------------------------------------
+
+    @Test func offRejoinsTheFirstPreferredNetworkInRangeNotTheHotspot() {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Phone", "Office", "Home"]
+        fake.wifi.inRange = ["Phone", "Home"]
+        fake.wifi.current = "Phone"
+        #expect(mode(fake).rejoinPreferred(leaving: "Phone") == "Home")
+        #expect(fake.wifi.joins == ["Home"])
+        #expect(fake.wifi.passwords == [nil], "a known network's password is the Mac's, not AiTerm's")
+    }
+
+    @Test func withNoOtherNetworkInRangeItStaysOnTheHotspot() {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Phone", "Office"]
+        fake.wifi.inRange = ["Phone"]
+        fake.wifi.current = "Phone"
+        #expect(mode(fake).rejoinPreferred(leaving: "Phone") == nil)
+        #expect(fake.wifi.joins.isEmpty)
+    }
+
+    @Test func aMacAlreadyOffTheHotspotStaysWhereItIs() {
+        let fake = FakeBackpack()
+        fake.wifi.current = "Home"
+        #expect(mode(fake).rejoinPreferred(leaving: "Phone") == "Home")
+        #expect(fake.wifi.joins.isEmpty)
+    }
+
+    @Test func aFailedJoinTriesTheNextPreferredNetwork() {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Office", "Home"]
+        fake.wifi.inRange = ["Office", "Home"]
+        fake.wifi.current = "Phone"
+        fake.wifi.failingJoins = ["Office"]
+        #expect(mode(fake).rejoinPreferred(leaving: "Phone") == "Home")
+        #expect(fake.wifi.joins == ["Office", "Home"])
     }
 
     @Test func setupReportsEachPart() {

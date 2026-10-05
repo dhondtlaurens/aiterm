@@ -3,10 +3,9 @@ import Foundation
 @testable import AiTermCore
 
 @Suite struct BackpackSettingsTests {
-    @Test func defaultsToNoNetworkTenPercentAndNotEngaged() {
+    @Test func defaultsToNoNetworkAndNotEngaged() {
         let settings = BackpackSettings(defaults: ScratchDefaults.make())
         #expect(settings.network == nil)
-        #expect(settings.cutoff == 10)
         #expect(!settings.engaged)
     }
 
@@ -14,21 +13,17 @@ import Foundation
         let defaults = ScratchDefaults.make()
         let settings = BackpackSettings(defaults: defaults)
         settings.network = "Laurens D’Hondt - iPhone"
-        settings.cutoff = 20
         settings.engaged = true
         let again = BackpackSettings(defaults: defaults)
         #expect(again.network == "Laurens D’Hondt - iPhone")
-        #expect(again.cutoff == 20)
         #expect(again.engaged)
     }
 
-    /// A hand-edited or older value outside the menu reads as the default, and an empty name as none.
-    @Test func anUnknownCutoffOrEmptyNetworkReadsAsTheDefault() {
+    /// An empty name reads as none.
+    @Test func anEmptyNetworkReadsAsNone() {
         let defaults = ScratchDefaults.make()
-        defaults.set(7, forKey: "backpack.batteryCutoff")
         defaults.set("", forKey: "backpack.network")
         let settings = BackpackSettings(defaults: defaults)
-        #expect(settings.cutoff == 10)
         #expect(settings.network == nil)
     }
 
@@ -36,9 +31,7 @@ import Foundation
     @Test func withoutDefaultsTheValuesStayInMemory() {
         let settings = BackpackSettings(defaults: nil)
         settings.network = "Phone"
-        settings.cutoff = 5
         #expect(settings.network == "Phone")
-        #expect(settings.cutoff == 5)
     }
 
     /// The password lives in the secret store, never in defaults; an empty one clears it.
@@ -55,7 +48,7 @@ import Foundation
         #expect(secrets.get("backpack.password") == nil)
     }
 
-    @Test func theCutoffChoicesAreTheSpecs() {
-        #expect(BackpackSettings.cutoffChoices == [5, 10, 15, 20, 25, 30])
+    @Test func theCutoffIsNoLongerAPreference() {
+        #expect(BackpackSettings.cutoff == 10)
     }
 }

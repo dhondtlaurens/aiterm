@@ -28,12 +28,16 @@ final class FakeWiFi: WiFiControl, @unchecked Sendable {
     func knownNetworks() -> [String] { known }
     func currentNetwork() -> String? { current }
     func isInRange(_ network: String) -> Bool { inRange.contains(network) }
+    /// Networks whose join fails even in range, for walking the preferred list.
+    var failingJoins: Set<String> = []
+    func networksInRange() -> Set<String> { inRange }
     func join(_ network: String, password: String?) -> Bool {
         onJoin()
         joins.append(network)
         passwords.append(password)
-        if joinSucceeds { current = network }
-        return joinSucceeds
+        let ok = joinSucceeds && !failingJoins.contains(network)
+        if ok { current = network }
+        return ok
     }
 }
 

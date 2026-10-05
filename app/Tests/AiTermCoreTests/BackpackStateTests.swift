@@ -3,22 +3,20 @@ import Testing
 
 @Suite struct BackpackStateTests {
     @Test func refusalsSayWhyInTheSpecsWords() {
-        #expect(BackpackRefusal.needsSetup.message == "Backpack Mode needs setup: Settings › Backpack")
+        #expect(BackpackRefusal.needsSetup.message == "Backpack Mode needs setup: Settings › Integrations › Mac")
         #expect(BackpackRefusal.batteryLow(level: 8).message == "Battery at 8 %: Backpack Mode stays off")
         #expect(BackpackRefusal.notInRange(network: "Laurens D’Hondt - iPhone").message
                 == "Laurens D’Hondt - iPhone isn’t showing its hotspot: open Personal Hotspot on the iPhone")
-        #expect(BackpackRefusal.joinFailed(network: "Phone").message == "Couldn’t join Phone: check its password in Settings › Backpack")
-        #expect(BackpackCopy.turnedOn(network: "Phone") == "Backpack Mode on · joined Phone")
-        #expect(BackpackCopy.cutOff(level: 10) == "Battery at 10 %: Backpack Mode turned off")
+        #expect(BackpackRefusal.joinFailed(network: "Phone").message == "Couldn’t join Phone: check its password")
     }
 
     @Test func degradedWhenNotJoinedOrWithinFivePointsOfTheCutoffOnBattery() {
-        let fine = BackpackStatus(network: "P", joined: true, power: PowerReading(level: 16, onBattery: true), cutoff: 10)
+        let fine = BackpackStatus(network: "P", joined: true, power: PowerReading(level: 16, onBattery: true))
         #expect(!fine.degraded)
-        #expect(BackpackStatus(network: "P", joined: true, power: PowerReading(level: 15, onBattery: true), cutoff: 10).nearCutoff)
-        #expect(BackpackStatus(network: "P", joined: false, power: .mains, cutoff: 10).degraded)
+        #expect(BackpackStatus(network: "P", joined: true, power: PowerReading(level: 15, onBattery: true)).nearCutoff)
+        #expect(BackpackStatus(network: "P", joined: false, power: .mains).degraded)
         // On AC the battery level never degrades it.
-        #expect(!BackpackStatus(network: "P", joined: true, power: PowerReading(level: 11, onBattery: false), cutoff: 10).degraded)
+        #expect(!BackpackStatus(network: "P", joined: true, power: PowerReading(level: 11, onBattery: false)).degraded)
     }
 
     @Test func setupIsCompleteOnlyWithTheRuleLocationAndANetwork() {

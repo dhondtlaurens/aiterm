@@ -14,7 +14,7 @@ public struct BackpackSetup: Equatable, Sendable {
         self.network = network
     }
 
-    /// The steps Settings › Backpack › Set Up… runs, in order. A missing network is a field, not a step.
+    /// The steps Set Up… runs (Settings › Integrations › Mac), in order. A missing network is a field, not a step.
     public var missingSteps: [Step] {
         (sleepRule ? [] : [.sleepRule]) + (location ? [] : [.location])
     }
@@ -28,20 +28,17 @@ public struct BackpackStatus: Equatable, Sendable {
     /// Whether the Mac is on `network` now.
     public var joined: Bool
     public var power: PowerReading
-    /// The cutoff in force, as it was when the mode turned on.
-    public var cutoff: Int
 
-    public init(network: String, joined: Bool, power: PowerReading, cutoff: Int) {
+    public init(network: String, joined: Bool, power: PowerReading) {
         self.network = network
         self.joined = joined
         self.power = power
-        self.cutoff = cutoff
     }
 
     /// On battery, within 5 points of the cutoff.
     public var nearCutoff: Bool {
         guard power.onBattery, let level = power.level else { return false }
-        return level <= cutoff + 5
+        return level <= BackpackSettings.cutoff + 5
     }
 
     /// Drawn amber: off the chosen network, or close to turning itself off.
@@ -69,25 +66,27 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
 
     public var message: String {
         switch self {
-        case .needsSetup: "Backpack Mode needs setup: Settings › Backpack"
+        case .needsSetup: "Backpack Mode needs setup: Settings › Integrations › Mac"
         case .batteryLow(let level): "Battery at \(level) %: Backpack Mode stays off"
         case .notInRange(let network): "\(network) isn’t showing its hotspot: open Personal Hotspot on the iPhone"
-        case .joinFailed(let network): "Couldn’t join \(network): check its password in Settings › Backpack"
+        case .joinFailed(let network): "Couldn’t join \(network): check its password"
         case .quitting: "AiTerm is quitting: Backpack Mode stays off"
         }
     }
+}
+
+/// Why the mode ended itself.
+public enum BackpackEnding: Equatable, Sendable {
+    /// No session had been working for `BackpackMode.idleGrace`.
+    case agentsStopped
+    /// On battery, at or under `BackpackSettings.cutoff`.
+    case batteryLow(level: Int)
 }
 
 /// What one 5 s check found.
 public enum BackpackTick: Equatable, Sendable {
     case unchanged
     case changed
-    /// The battery reached the cutoff and the mode turned itself off.
-    case turnedOff(level: Int)
-}
-
-/// The toasts that are not refusals.
-public enum BackpackCopy {
-    public static func turnedOn(network: String) -> String { "Backpack Mode on · joined \(network)" }
-    public static func cutOff(level: Int) -> String { "Battery at \(level) %: Backpack Mode turned off" }
+    /// The mode turned itself off.
+    case ended(BackpackEnding)
 }

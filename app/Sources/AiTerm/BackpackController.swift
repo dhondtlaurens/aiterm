@@ -6,7 +6,7 @@ enum BackpackTransition: Equatable { case turningOn, turningOff }
 
 /// Backpack Mode as the app drives it: `BackpackMode`'s blocking calls run on one serial thread, so a
 /// turn-on, a turn-off and a tick never overlap, and their outcome is published here on the main
-/// actor for the menu item, Settings › Backpack and the header glyph.
+/// actor for the menu item and the header glyph.
 @MainActor
 @Observable
 final class BackpackController {
@@ -50,14 +50,10 @@ final class BackpackController {
 
     var isOn: Bool { state.isOn }
 
-    /// Settings › Backpack's two fields, written on Save. A change takes effect at the next turn-on.
+    /// The hotspot and its password, written on Save. A change takes effect at the next turn-on.
     var network: String? {
         get { mode.settings.network }
         set { mode.settings.network = newValue; setup.network = newValue }
-    }
-    var cutoff: Int {
-        get { mode.settings.cutoff }
-        set { mode.settings.cutoff = newValue }
     }
     /// A Keychain read: off the main actor where it can be (`hasPassword()`).
     var password: String? {
@@ -96,7 +92,7 @@ final class BackpackController {
             // A quit that ran while this was in flight has already turned it off again.
             guard state.isOn else { return }
             setup = BackpackSetup(sleepRule: true, location: true, network: status.network)
-            toast(BackpackCopy.turnedOn(network: status.network))
+            toast("Backpack Mode on · joined \(status.network)")
             startTicking()
         case .failure(let refusal):
             toast(refusal.message)
@@ -160,14 +156,14 @@ final class BackpackController {
         return await ThreadWork.run { wifi.knownNetworks() }
     }
 
-    /// The 5 s check: the cutoff, and the network.
+    /// The 5 s check: the cutoff, and the network. (Until the controller reads the sessions, they count as working.)
     func tick() async {
         let mode = self.mode
-        let outcome: BackpackTick? = await worker.run { mode.tick() }
+        let outcome: BackpackTick? = await worker.run { mode.tick(agentsWorking: true) }
         state = mode.state
         if case .on(let status) = state { power = status.power }
-        if case .turnedOff(let level)? = outcome {
-            toast(mode.settings.engaged ? Self.restoreFailed : BackpackCopy.cutOff(level: level))
+        if case .ended? = outcome, mode.settings.engaged {
+            toast(Self.restoreFailed)
         }
     }
 

@@ -29,6 +29,8 @@ public protocol WiFiControl: Sendable {
     /// The network joined now, or nil.
     func currentNetwork() -> String?
     func isInRange(_ network: String) -> Bool
+    /// Every network one scan can see. Blocking: a scan takes seconds.
+    func networksInRange() -> Set<String>
     /// Joins `network` with `password` (nil tries without one). True once joined.
     func join(_ network: String, password: String?) -> Bool
 }
@@ -81,6 +83,7 @@ private struct InertPort: LidSleepControl, WiFiControl, PowerSource, LocationAcc
     func knownNetworks() -> [String] { [] }
     func currentNetwork() -> String? { nil }
     func isInRange(_ network: String) -> Bool { false }
+    func networksInRange() -> Set<String> { [] }
     func join(_ network: String, password: String?) -> Bool { false }
     func reading() -> PowerReading { .mains }
     func isAuthorized() -> Bool { false }
