@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
@@ -15,12 +17,21 @@ class Hooks:
     publishes is recorded in `events`."""
 
     def __init__(self, tmp_path):
+        self.ticks = 0
+        self.on_tick = None
         self.registry, self.usage = SessionRegistry(), UsageStore()
         self.status = StatusEngine(self.registry, lambda: 1000.0)
         self.resolver = SessionResolver(self.registry, ClaudeSessionFiles(tmp_path / "claude-sessions"))
         self.events: list[tuple[str, dict]] = []
         self.router = HookRouter(self.resolver, self.status, self.usage, lambda: 1000.0,
-                                 Publisher(self._record, self.registry, self.usage))
+                                 Publisher(self._record, self.registry, self.usage), tick=self._tick,
+                                 retick_seconds=0.02)
+
+    async def _tick(self):
+        """The service's tick, as far as the router can tell: counted, and running `on_tick` if a test set one."""
+        self.ticks += 1
+        if self.on_tick is not None:
+            await self.on_tick()
 
     async def _record(self, name, payload):
         self.events.append((name, payload))
@@ -238,3 +249,69 @@ async def test_grok_statusline_sets_model_reasoning_and_context(tmp_path):
     assert (s.model, s.reasoning, s.context_percent) == ("grok-4.7", "high", 37)
     # Grok's status line carries no rate limits, so account usage is untouched.
     assert hooks.usage.snapshot() == {"claude": None, "codex": None}
+
+
+async def test_a_hook_from_an_agent_the_tick_has_not_yet_classified_is_retried_against_a_tick(hooks):
+    # window.createTask sends the agent command and ticks at once, while the tab still reads `zsh`;
+    # the agent's SessionStart and first prompt arrive before the next poll classifies it.
+    [sid] = hooks.tabs(("s1", "-zsh", 100))
+
+    async def classifies():
+        hooks.tabs(("s1", "codex", 101))
+
+    hooks.on_tick = classifies
+    await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/wt",
+                                     "model": "gpt-5.6", "_aiterm_iterm_session_id": sid})
+    assert hooks.ticks == 1
+    assert [(name, payload["state"], payload["model"]) for name, payload in hooks.events] == [
+        ("session.changed", "working", "gpt-5.6")]
+
+
+async def test_a_hook_that_the_tick_still_cannot_place_is_dropped_after_one_retry(hooks):
+    hooks.tabs(("s1", "codex", 101))
+    await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/elsewhere"})
+    assert hooks.ticks == 1 and hooks.events == [] and hooks.state("s1") == "idle"
+
+
+async def test_a_burst_of_unplaced_hooks_shares_a_few_ticks(hooks):
+    hooks.tabs(("s1", "codex", 101))
+    release = asyncio.Event()
+
+    async def slow_tick():
+        await release.wait()
+
+    hooks.on_tick = slow_tick
+    posts = [asyncio.ensure_future(hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit",
+                                                              "session_id": f"c{i}", "cwd": "/elsewhere"}))
+             for i in range(25)]
+    await asyncio.sleep(0.1)
+    release.set()
+    await asyncio.wait_for(asyncio.gather(*posts), 2)
+    assert hooks.ticks <= 2, "one tick running and one pending, however many posts wait on them"
+
+
+async def test_a_retry_tick_that_raises_drops_the_hook_without_raising(hooks, caplog):
+    hooks.tabs(("s1", "codex", 101))
+
+    async def broken():
+        raise RuntimeError("iterm2 library bug")
+
+    hooks.on_tick = broken
+    with caplog.at_level("WARNING", logger="aitermd.hook_router"):
+        await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/elsewhere"})
+    assert hooks.events == []
+    assert any("tick" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_a_statusline_post_that_places_nowhere_does_not_trigger_a_tick(hooks):
+    # Statuslines repeat on their own; only the one-off lifecycle hooks are worth a tick.
+    hooks.tabs(("s1", "-zsh", 100))
+    await hooks.post("/statusline", {"session_id": "abc", "model": {"id": "claude-opus-5"}, "cwd": "/nowhere"})
+    assert hooks.ticks == 0
+
+
+async def test_a_hook_that_already_places_triggers_no_tick(hooks):
+    [sid] = hooks.tabs(("s1", "codex", 101))
+    await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/wt",
+                                     "_aiterm_iterm_session_id": sid})
+    assert hooks.ticks == 0

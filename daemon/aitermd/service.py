@@ -14,11 +14,13 @@ from .connection import ItermSupervisor
 from .hook_router import HookRouter
 from .hooks_server import HookServer
 from .iterm_bridge import ItermPort
+from .offload import run_detached
 from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, param, require_iterm
 from .rpc_server import RpcServer
-from .sessions import SessionRegistry
+from .models import SessionInfo
+from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, path_is_missing
 from .usage import UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
@@ -53,7 +55,7 @@ class Service:
         self.usage = UsageStore()
         self.resolver = SessionResolver(self.registry, claude_files)
         self.publisher = Publisher(rpc.broadcast, self.registry, self.usage)
-        self.hook_router = HookRouter(self.resolver, self.status, self.usage, clock, self.publisher)
+        self.hook_router = HookRouter(self.resolver, self.status, self.usage, clock, self.publisher, tick=self.tick)
         self.hooks.on_post = self.hook_router.handle_hook
         self.windows = WindowManager(iterm, self.registry, self.tick)
         self.supervisor.on_connected = self.windows.forget_titles
@@ -214,6 +216,23 @@ class Service:
         windows_before = {s.window_id for s in self.registry.all()}
         positions_before = {s.session_id: (s.window_id, s.tab_index) for s in self.registry.all()}
         diff = self.registry.apply_snapshot(await self.iterm.snapshot())
+        # A session.changed from the snapshot diff is deliberately *not* broadcast as it is found:
+        # the status pass can change the same session again in this very tick (its state, its
+        # model, the agent's cwd), and two events for one tick make a client redraw twice and,
+        # worse, make "the next session.changed" ambiguous. Held back and merged into `changed`, it
+        # is re-rendered from the registry once, at the end -- in a `finally`: the registry already
+        # holds the snapshot, so a tick that raised without publishing would leave the next one
+        # diffing nothing, and the app stale for that session until something else moved it.
+        changed = list(diff.changed)
+        try:
+            await self._after_snapshot(diff, windows_before, positions_before, changed)
+        finally:
+            await self.publisher.session_changed(changed)
+
+    async def _after_snapshot(self, diff: SnapshotDiff, windows_before: set[str],
+                              positions_before: dict[str, tuple[str, int]], changed: list[str]) -> None:
+        """Announces what the snapshot opened and closed, then reads the corroborating signals, each
+        step guarded so one that raises costs only its own changes. Appends to `changed` as it goes."""
         # A session moved to another tab or window keeps its id but not its tab's title.
         for s in self.registry.all():
             if positions_before.get(s.session_id, (s.window_id, s.tab_index)) != (s.window_id, s.tab_index):
@@ -227,35 +246,45 @@ class Service:
         for sid in diff.closed:
             self._forget_session(sid)
             await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
-        # A session.changed from the snapshot diff is deliberately *not* broadcast here:
-        # the status pass below can change the same session again in this very tick (its
-        # state, its model, the agent's cwd), and two events for one tick make a client
-        # redraw twice and, worse, make "the next session.changed" ambiguous. Held back
-        # and merged into `changed`, it is re-rendered from the registry once, at the end.
-        changed = list(diff.changed)
         windows_after = {s.window_id for s in self.registry.all()}
         for wid in windows_before - windows_after:
             await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
         threads: set[str] = set()
         for s in self.registry.all():
-            if s.agent == "claude" and s.job_pid and (f := self.claude_files.read(s.job_pid)):
-                changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
-                # The file's cwd is the agent's own, and it follows it into a worktree;
-                # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
-                changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
-            elif s.agent == "codex":
-                changed += self.status.apply_codex_title(s.session_id, s.title)
-                if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
-                    threads.add(thread_id)
-                    if (context := self.codex_files.context_percent(thread_id)) is not None:
-                        changed += self.status.apply_metadata(s.session_id, context=context)
-            elif s.agent == "shell" and s.state != "idle":
-                changed += self.status.agent_exited(s.session_id)
-        if self.codex_files is not None:
-            self.codex_files.retain(threads)
-        changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
-        changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
-        await self.publisher.session_changed(changed)
+            try:
+                self._corroborate(s, threads, changed)
+            except Exception:  # noqa: BLE001 - another process's file must not stop the other tabs
+                log.exception("corroborating session %s failed", s.session_id)
+        try:
+            if self.codex_files is not None:
+                self.codex_files.retain(threads)
+        except Exception:  # noqa: BLE001
+            log.exception("retaining the Codex rollouts failed")
+        try:
+            changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
+        except Exception:  # noqa: BLE001
+            log.exception("settling orphaned sessions failed")
+        try:
+            changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
+        except Exception:  # noqa: BLE001
+            log.exception("releasing dead subagents failed")
+
+    def _corroborate(self, s: SessionInfo, threads: set[str], changed: list[str]) -> None:
+        """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
+        not, and to `threads` the Codex thread it runs. A step that raises keeps the changes before it."""
+        if s.agent == "claude" and s.job_pid and (f := self.claude_files.read(s.job_pid)):
+            changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
+            # The file's cwd is the agent's own, and it follows it into a worktree;
+            # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
+            changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
+        elif s.agent == "codex":
+            changed += self.status.apply_codex_title(s.session_id, s.title)
+            if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
+                threads.add(thread_id)
+                if (context := self.codex_files.context_percent(thread_id)) is not None:
+                    changed += self.status.apply_metadata(s.session_id, context=context)
+        elif s.agent == "shell" and s.state != "idle":
+            changed += self.status.agent_exited(s.session_id)
 
     async def _missing_paths(self, paths: set[str]) -> frozenset[str]:
         """Which of `paths` are gone. A check that cannot answer finds nothing missing: a directory
@@ -275,17 +304,31 @@ class Service:
 
     async def _off_loop(self, name: str, work: Callable[[], T], nothing: T) -> T:
         """`work`, run on a worker thread. It answers `nothing` if it has not finished within
-        OFF_LOOP_CHECK_SECONDS, or if the run an earlier tick started is still stuck."""
+        OFF_LOOP_CHECK_SECONDS, if it raises, or if the run an earlier tick started is still stuck."""
         running = self._checks.get(name)
         if running is not None and not running.done():
             return nothing
-        check: asyncio.Future[T] = asyncio.ensure_future(asyncio.to_thread(work))
+        gave_up = False
+
+        def consume(done: asyncio.Future[T]) -> None:
+            # Retrieved here, so a run that fails after its tick stopped waiting is not reported by
+            # asyncio as "exception was never retrieved" when the future is collected.
+            if not done.cancelled() and (error := done.exception()) is not None and gave_up:
+                log.warning("%s failed after its tick stopped waiting for it", name, exc_info=error)
+
+        check = run_detached(work)
+        check.add_done_callback(consume)
         self._checks[name] = check
-        try:
-            # Shielded: a timeout leaves the thread's future pending until the thread returns.
-            return await asyncio.wait_for(asyncio.shield(check), OFF_LOOP_CHECK_SECONDS)
-        except TimeoutError:
+        # Waited on, not awaited: a timeout must leave the worker's future pending until its thread returns.
+        done, _ = await asyncio.wait({check}, timeout=OFF_LOOP_CHECK_SECONDS)
+        if not done:
+            gave_up = True
             log.warning("%s took over %.0f s", name, OFF_LOOP_CHECK_SECONDS)
+            return nothing
+        try:
+            return check.result()
+        except Exception:  # noqa: BLE001 - a check that cannot answer finds nothing, as documented
+            log.exception("%s failed", name)
             return nothing
 
     def _forget_session(self, session_id: str) -> None:

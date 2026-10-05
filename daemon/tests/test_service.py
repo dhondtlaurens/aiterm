@@ -1,7 +1,11 @@
 # daemon/tests/test_service.py
 import asyncio
+import gc
 import json
 import os
+import subprocess
+import sys
+import textwrap
 import threading
 
 import pytest
@@ -1339,3 +1343,174 @@ async def test_a_directory_check_that_hangs_finds_nothing_missing(make_service, 
     finally:
         release.set()
         w.close()
+
+
+async def test_the_first_hooks_of_an_agent_launched_after_the_last_poll_are_not_lost(stack):
+    # window.createTask ticks right after sending the command, while the tab still reads as a shell;
+    # the agent's first prompt then arrives before the next poll has seen it start.
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await svc.tick()
+    assert svc.registry.get(sid).agent == "shell"
+    await it.user_runs(sid, "codex", job_pid=77)
+    assert svc.registry.get(sid).agent == "shell", "the registry has not yet seen the agent start"
+    assert await post_hook(svc.hooks.port, "/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1",
+                                                           "cwd": "/wt", "model": "gpt-5.6",
+                                                           "_aiterm_iterm_session_id": f"w0t0p0:{sid}"}) == 200
+    await wait_until(lambda: svc.registry.get(sid).state == "working")
+    assert svc.registry.get(sid).agent == "codex" and svc.registry.get(sid).model == "gpt-5.6"
+
+
+async def _claude_tab_busy(svc, r, w, pid, session, user_tab_of=None):
+    """A Claude tab whose session file says `busy`, found by a tick: its row is working."""
+    if user_tab_of is None:
+        wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+        sid = svc.iterm.windows[wid]["sessions"][0]
+    else:
+        sid = await svc.iterm.user_opens_tab(user_tab_of)
+    await svc.iterm.user_runs(sid, "claude", job_pid=pid)
+    svc.claude_files.root.mkdir(parents=True, exist_ok=True)
+    (svc.claude_files.root / f"{pid}.json").write_text(json.dumps(
+        {"pid": pid, "sessionId": session, "cwd": "/wt", "status": "busy", "updatedAt": 1}))
+    return sid
+
+
+async def _published_until(r, matches):
+    while True:
+        payload = await next_event(r, "session.changed")
+        if matches(payload):
+            return payload
+
+
+async def test_a_tick_that_raises_after_the_snapshot_still_publishes_what_the_snapshot_changed(stack, monkeypatch):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await svc.tick()
+    await it.user_runs(sid, "claude", job_pid=5)
+
+    def broken():
+        raise RuntimeError("a corroborator nobody guarded")
+
+    monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
+    with pytest.raises(RuntimeError):
+        await svc.tick()
+    # The registry already holds the new agent, so the next tick would diff nothing: the app must hear of it now.
+    payload = await asyncio.wait_for(_published_until(r, lambda p: p["sessionId"] == sid and p["agent"] == "claude"), 2)
+    assert payload["state"] == "idle"
+
+
+async def test_a_failing_step_of_the_status_pass_does_not_cost_the_others(stack, monkeypatch, caplog):
+    svc, it, files, r, w = stack
+    sid = await _claude_tab_busy(svc, r, w, 951, "c1")
+
+    def broken(paths):
+        raise RuntimeError("transcript layout nobody expected")
+
+    monkeypatch.setattr(svc.status, "release_dead_subagents", lambda tails: broken(tails))
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        await svc.tick()
+    assert svc.registry.get(sid).state == "working"
+    await asyncio.wait_for(_published_until(r, lambda p: p["sessionId"] == sid and p["state"] == "working"), 2)
+    assert any("subagent" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_one_sessions_failing_corroboration_does_not_stop_the_others(stack, monkeypatch, caplog):
+    svc, it, files, r, w = stack
+    first = await _claude_tab_busy(svc, r, w, 952, "c1")
+    wid = svc.registry.get(first).window_id
+    second = await _claude_tab_busy(svc, r, w, 953, "c2", user_tab_of=wid)
+    real = svc.status.apply_claude_file_status
+
+    def apply(session_id, *args):
+        if session_id == first:
+            raise OverflowError("cannot convert float infinity to integer")
+        return real(session_id, *args)
+
+    monkeypatch.setattr(svc.status, "apply_claude_file_status", apply)
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        await svc.tick()
+    assert svc.registry.get(second).state == "working"
+    assert any(first in rec.getMessage() for rec in caplog.records)
+
+
+async def test_a_directory_check_that_raises_finds_nothing_missing(make_service):
+    def broken(path):
+        raise PermissionError(path)
+
+    svc = make_service(path_missing=broken)
+    await svc.start()
+    r, w = await asyncio.open_unix_connection(svc.rpc.path)
+    try:
+        sid = await _grok_tab_working_in(svc, r, w, "/wt")
+        await svc.tick()
+        assert svc.registry.get(sid).state == "working"
+    finally:
+        w.close()
+
+
+async def test_an_off_loop_check_that_raises_answers_what_it_was_given_for_nothing(make_service, caplog):
+    svc = make_service()
+
+    def broken():
+        raise ValueError("boom")
+
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        assert await svc._off_loop("a check", broken, "nothing") == "nothing"
+    assert any("a check" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_an_off_loop_check_that_fails_after_the_tick_gave_up_on_it_is_not_left_unretrieved(make_service, monkeypatch, caplog):
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)
+    svc = make_service()
+    release, handled = threading.Event(), []
+    asyncio.get_running_loop().set_exception_handler(lambda loop, context: handled.append(context))
+
+    def late_failure():
+        release.wait(5)
+        raise ValueError("too late for anyone")
+
+    with caplog.at_level("WARNING", logger="aitermd.service"):
+        assert await svc._off_loop("a check", late_failure, "nothing") == "nothing"
+        release.set()
+        await wait_until(lambda: svc._checks["a check"].done())
+        await asyncio.sleep(0.01)
+    svc._checks.clear()
+    gc.collect()
+    await asyncio.sleep(0.01)
+    assert handled == [], "Future exception was never retrieved"
+    assert any("too late for anyone" in str(rec.exc_info[1]) for rec in caplog.records if rec.exc_info)
+
+
+async def test_an_off_loop_check_that_hangs_does_not_hold_the_process_open(make_service, monkeypatch):
+    # asyncio.run joins the default executor on exit, and a stat stuck on a dead mount never returns.
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)
+    svc = make_service()
+    release, threads = threading.Event(), []
+
+    def hung():
+        threads.append(threading.current_thread())
+        release.wait(5)
+
+    try:
+        await svc._off_loop("a check", hung, None)
+        assert threads[0].daemon, "a non-daemon worker is joined when the interpreter exits"
+    finally:
+        release.set()
+
+
+def test_a_daemon_with_a_stuck_worker_thread_still_exits():
+    script = textwrap.dedent("""
+        import asyncio, threading
+        from aitermd.offload import run_detached
+
+        async def main():
+            stuck = threading.Event()
+            run_detached(lambda: stuck.wait())
+            await asyncio.sleep(0.1)
+
+        asyncio.run(main())
+    """)
+    done = subprocess.run([sys.executable, "-c", script], timeout=20, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr

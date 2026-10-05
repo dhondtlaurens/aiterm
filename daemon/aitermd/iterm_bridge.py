@@ -16,6 +16,7 @@ from typing import Any, ParamSpec, Protocol, TypeVar
 import iterm2
 
 from .models import PROJECT_TAG, TASK_TAG, TITLE_TAG, Frame, RawSession
+from .offload import run_detached
 
 log = logging.getLogger(__name__)
 VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}")
@@ -283,7 +284,7 @@ class ItermBridge:
         # Asked for here, not by the library, so a refusal comes back with its reason. With a
         # cookie already in the environment the library then makes no AppleScript request itself.
         # osascript can take seconds, or wait on a permission dialog: keep it off the event loop.
-        await asyncio.to_thread(request_cookie)
+        await run_detached(request_cookie)
         try:
             conn = await iterm2.Connection.async_create()
         except Exception as exc:  # the library raises several types here
@@ -316,7 +317,7 @@ class ItermBridge:
         if self._watch_task is not None:
             self._watch_task.cancel()
         self._watch_task = asyncio.get_running_loop().create_task(self._watch(conn))
-        return await asyncio.to_thread(installed_version)
+        return await run_detached(installed_version)
 
     def _forget_app(self) -> None:
         # The library's App singleton is bound to the connection that built it, and only

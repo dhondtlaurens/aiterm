@@ -94,6 +94,18 @@ cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` �
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
 the end of the turn) and the braille spinner glyph at the head of an iTerm2 tab title.
 
+A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
+command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and
+first prompt find no tab running that agent. A hook that places nowhere therefore asks for one tick
+and is placed again against it, once; if it still places nowhere it is dropped. The ack has already
+gone out, so no agent waits on this. Hooks that arrive before that tick starts share it, and no more
+than one runs and one waits, at least a second apart, so a flood from an agent outside iTerm2 costs
+about one tick a second. Statusline posts are not retried: the next one carries the same data.
+
+A tick publishes what it changed even if a step of it raises, and each corroborating step (a
+session's file, the orphan check, the subagent transcripts) is guarded on its own: one that fails is
+logged and costs only its own changes.
+
 Both lag the hooks, so neither may override a newer one:
 
 - **Claude's session file** counts only if it was written after the last hook that set the state
@@ -191,7 +203,9 @@ a TCC-protected folder, `EIO`, a stale or unreachable network mount — proves n
 directory counts as present. The stats run on a worker thread, and a tick waits a second for them:
 a check that takes longer, or one still stuck from an earlier tick, finds nothing missing, so a
 hung mount stalls neither the daemon nor the hook acks Grok's gates wait on. The 10 seconds are
-timed on the monotonic clock, which an NTP step does not move.
+timed on the monotonic clock, which an NTP step does not move. A check that raises answers the
+same as one that cannot answer, and its thread is a daemon thread, so one stuck on a dead mount
+cannot hold the daemon open after it quits.
 
 The rule is skipped for harnesses whose real end-of-turn signal survives a removed cwd —
 `END_OF_TURN_SURVIVES_CWD_LOSS = {claude, codex, pi}`, derived from the `HARNESSES` table in

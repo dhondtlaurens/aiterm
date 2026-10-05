@@ -1,7 +1,8 @@
 """Agent hook posts, turned into status and usage changes."""
 from __future__ import annotations
+import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS
@@ -12,6 +13,10 @@ from .status import StatusEngine
 from .usage import UsageStore
 
 log = logging.getLogger(__name__)
+# The least time between two ticks that unplaced hooks ask for. A hook from an agent outside iTerm2
+# (another terminal, an editor) never places however often it is retried, so without a floor each
+# of its posts would cost a tick.
+RETICK_SECONDS = 1.0
 
 
 class HookRouter:
@@ -19,8 +24,15 @@ class HookRouter:
     usage store, and publishes what changed. Knows nothing of HTTP or of iTerm2."""
 
     def __init__(self, resolver: SessionResolver, status: StatusEngine, usage: UsageStore,
-                 clock: Callable[[], float], publisher: Publisher):
+                 clock: Callable[[], float], publisher: Publisher,
+                 tick: Callable[[], Awaitable[None]] | None = None, retick_seconds: float = RETICK_SECONDS):
         self.resolver, self.status, self.usage, self.clock, self.publisher = resolver, status, usage, clock, publisher
+        # `tick` re-reads iTerm2 into the registry: the service's own, which already shares one pass
+        # between callers that ask together.
+        self._tick, self._retick_seconds = tick, retick_seconds
+        # The tick the next unplaced hook will wait for, until it starts reading; and when the last began.
+        self._pending_tick: asyncio.Task[bool] | None = None
+        self._last_tick_start = float("-inf")
 
     async def handle_hook(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         if path in HOOK_PARSERS and isinstance(
@@ -49,7 +61,10 @@ class HookRouter:
         ev = parser(body) if parser else None
         if ev is None:
             return None
-        sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, body.get("hook_event_name"))
+        hook_event = body.get("hook_event_name")
+        sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, hook_event)
+        if sid is None and await self._tick_for_unplaced():
+            sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, hook_event)
         if sid is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
             return None
@@ -66,6 +81,34 @@ class HookRouter:
                                                ev.subagent_transcript, ev.running_subagents)
         await self.publisher.session_changed(changed)
         return None
+
+    async def _tick_for_unplaced(self) -> bool:
+        """Waits for a tick that began after the caller's post arrived, so that a tab the registry
+        still classifies as `shell` (an agent's first hooks come before the poll that sees it start)
+        is read again. Every post that arrives before that tick starts shares it, and one that
+        arrives while it runs shares the next, which waits out `retick_seconds` since this one began:
+        at most one running and one waiting, however many posts come. False if there is no tick to
+        wait for or it failed, and the post is then dropped as before."""
+        if self._tick is None:
+            return False
+        if (task := self._pending_tick) is None:
+            task = self._pending_tick = asyncio.get_running_loop().create_task(self._paced_tick(self._tick))
+        return await asyncio.shield(task)
+
+    async def _paced_tick(self, tick: Callable[[], Awaitable[None]]) -> bool:
+        loop = asyncio.get_running_loop()
+        try:
+            if (wait := self._last_tick_start + self._retick_seconds - loop.time()) > 0:
+                await asyncio.sleep(wait)
+        finally:
+            # From here a post that arrives is not covered by this tick, which has begun to read.
+            self._pending_tick, self._last_tick_start = None, loop.time()
+        try:
+            await tick()
+        except Exception:  # noqa: BLE001 - a failed tick must not break the hook; the poll retries itself
+            log.warning("tick for an unplaced hook failed", exc_info=True)
+            return False
+        return True
 
     def _resolve_post(self, agent: AgentKind, session_id: str | None, cwd: str | None,
                       iterm_session_id: str | None = None, hook_event: str | None = None) -> str | None:
