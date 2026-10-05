@@ -1,6 +1,9 @@
 import asyncio
+import json
 import os
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
@@ -78,3 +81,31 @@ async def make_service(tmp_path, sock_dir):
     yield make
     for svc in built:
         await svc.stop()
+
+
+class _Collector(BaseHTTPRequestHandler):
+    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler's naming
+        body = self.rfile.read(int(self.headers.get("content-length", 0) or 0))
+        self.server.received.append((self.path, dict(self.headers), json.loads(body or b"{}")))
+        self.send_response(200)
+        self.send_header("content-length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, *_):
+        pass
+
+
+@pytest.fixture
+def daemon():
+    """A stand-in for the daemon's hook port that records every POST in `.received` as (path,
+    headers, body). It polls for shutdown every 10 ms: `serve_forever` defaults to 0.5 s, which
+    `shutdown()` waits out and which was half the suite's wall time."""
+    server = HTTPServer(("127.0.0.1", 0), _Collector)
+    server.received = []
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+    thread.join()

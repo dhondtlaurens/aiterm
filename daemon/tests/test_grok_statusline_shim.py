@@ -4,9 +4,7 @@ import json
 import os
 import signal
 import subprocess
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -14,28 +12,6 @@ import pytest
 SHIM = Path(__file__).resolve().parents[2] / "hooks" / "grok-statusline-shim.sh"
 HOOK_PORT = 47821  # AiTermPaths.hookPort
 PAYLOAD = {"session_id": "g-1", "context_window": {"used_percentage": 37}}
-
-
-class _Collector(BaseHTTPRequestHandler):
-    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler's naming
-        body = self.rfile.read(int(self.headers.get("content-length", 0) or 0))
-        self.server.received.append((self.path, dict(self.headers), json.loads(body or b"{}")))
-        self.send_response(200)
-        self.send_header("content-length", "2")
-        self.end_headers()
-        self.wfile.write(b"{}")
-
-    def log_message(self, *_):
-        pass
-
-
-@pytest.fixture
-def daemon():
-    server = HTTPServer(("127.0.0.1", 0), _Collector)
-    server.received = []
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield server
-    server.shutdown()
 
 
 @pytest.fixture
