@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
@@ -272,6 +273,120 @@ struct DiffStatResolverTests {
         #expect(DiffStatResolver.lineCount(Data([0x61, 0x00, 0x0A])) == nil)
     }
 
+    /// Sets a file's modification time, to the nanosecond.
+    private func setModified(_ path: String, to time: timespec) {
+        var info = stat()
+        #expect(lstat(path, &info) == 0)
+        var times = [info.st_atimespec, time]
+        #expect(utimensat(AT_FDCWD, path, &times, 0) == 0)
+    }
+
+    /// An untracked file is counted once: what its lines came to is kept against its `lstat`. The
+    /// proof is a file rewritten in place to a different count at the size and modification time it
+    /// had — only a re-read would see it — and then a change to either, which is seen.
+    @Test func anUntrackedFileWhoseStatIsUnchangedIsNotReadAgain() throws {
+        let clock = TestClock()
+        let (_, worktree) = try makeRepo()
+        let file = worktree + "/new.txt"
+        try write("a\nb\n", to: file)
+        var before = stat()
+        #expect(lstat(file, &before) == 0)
+        let resolver = DiffStatResolver(git: .hermetic(), now: { clock.now }, ttl: 5)
+        func expired() -> DiffStat? { clock.advance(by: 6); return resolver.diff(for: worktree, base: "main") }
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+        let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: file))
+        try handle.write(contentsOf: Data("a\n\n\n".utf8))
+        try handle.close()
+        setModified(file, to: before.st_mtimespec)
+        #expect(expired() == DiffStat(added: 2, removed: 0), "the same stat, so the count that was kept")
+        setModified(file, to: timespec(tv_sec: before.st_mtimespec.tv_sec + 2, tv_nsec: before.st_mtimespec.tv_nsec))
+        #expect(expired() == DiffStat(added: 3, removed: 0), "a new modification time is read again")
+        try write("a\n\n\n\n\n", to: file)
+        setModified(file, to: timespec(tv_sec: before.st_mtimespec.tv_sec + 2, tv_nsec: before.st_mtimespec.tv_nsec))
+        #expect(expired() == DiffStat(added: 5, removed: 0), "and so is a new size")
+    }
+
+    /// The caps stop the count in the same place whether the files were read or remembered.
+    @Test func theCapsApplyToRememberedFilesToo() throws {
+        let clock = TestClock()
+        let (_, worktree) = try makeRepo()
+        for name in ["a", "b", "c", "d", "e"] { try write("x\ny\n", to: worktree + "/\(name).new") }
+        let resolver = DiffStatResolver(git: .hermetic(), now: { clock.now }, ttl: 5, untrackedCap: .init(files: 100, bytes: 10))
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 4, removed: 0))
+        clock.advance(by: 6)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 4, removed: 0))
+    }
+
+    /// A file that is not listed any more is forgotten, and counted afresh if it comes back.
+    @Test func aFileThatLeftTheListingIsCountedAgainWhenItReturns() throws {
+        let clock = TestClock()
+        let (_, worktree) = try makeRepo()
+        let file = worktree + "/new.txt"
+        try write("a\nb\n", to: file)
+        var before = stat()
+        #expect(lstat(file, &before) == 0)
+        let resolver = DiffStatResolver(git: .hermetic(), now: { clock.now }, ttl: 5)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+        clock.advance(by: 6)
+        try FileManager.default.removeItem(atPath: file)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
+        // Back with the size and time it had, and a count of its own: it was forgotten, not remembered.
+        try write("a\n\n\n", to: file)
+        setModified(file, to: before.st_mtimespec)
+        clock.advance(by: 6)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0))
+    }
+
+    /// Git running out of time says nothing about the diff: the last one stands rather than the badge
+    /// going blank for a ttl, and the checkout is left alone for the backoff instead of costing its
+    /// deadline on every pass.
+    @Test func aGitThatRanOutOfTimeLeavesTheLastDiffAndIsLeftAlone() throws {
+        let clock = TestClock()
+        let (_, worktree) = try makeRepo()
+        try write("x\n", to: worktree + "/new.txt")
+        let flaky = FlakyGitRunner(), resolver = DiffStatResolver(git: flaky, now: { clock.now }, ttl: 5)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 1, removed: 0))
+        try write("y\nz\n", to: worktree + "/more.txt")
+        flaky.failing = true
+        clock.advance(by: 6)
+        let calls = flaky.calls
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 1, removed: 0), "the last known diff stands")
+        #expect(flaky.calls > calls)
+        let asked = flaky.calls
+        flaky.failing = false
+        clock.advance(by: 6)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 1, removed: 0))
+        #expect(flaky.calls == asked, "within the backoff git is not asked")
+        clock.advance(by: TimedOut.backoff)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 3, removed: 0), "and after it, it is")
+    }
+
+    /// With no diff known yet a timeout is no answer either: nothing is stored, so the first ask
+    /// after the backoff finds the diff.
+    @Test func aFirstTimeoutIsNotKeptAsNoDiff() throws {
+        let clock = TestClock()
+        let (_, worktree) = try makeRepo()
+        let flaky = FlakyGitRunner(), resolver = DiffStatResolver(git: flaky, now: { clock.now }, ttl: 5)
+        flaky.failing = true
+        #expect(resolver.diff(for: worktree, base: "main") == nil)
+        flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
+    }
+
+    /// A merge-base that timed out is not the merge-base: kept as "none" it would hide the diff until
+    /// one of the refs moved.
+    @Test func aMergeBaseThatTimedOutIsNotKept() throws {
+        let clock = TestClock()
+        let (_, worktree) = try makeRepo()
+        let runner = TimesOut(command: "merge-base"), resolver = DiffStatResolver(git: runner, now: { clock.now }, ttl: 5)
+        runner.failing = true
+        #expect(resolver.diff(for: worktree, base: "main") == nil)
+        runner.failing = false
+        clock.advance(by: TimedOut.backoff)
+        #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 0, removed: 0))
+    }
+
     /// A pass over the tasks drops what it holds for any task no longer among them.
     @Test func forgetsTasksThatAreNoLongerPassedIn() throws {
         let (repo, first) = try makeRepo()
@@ -302,4 +417,22 @@ private final class Commands {
     init(_ runner: RecordingGitRunner) { self.runner = runner }
     func reset() { mark = runner.calls.count }
     var since: [String] { runner.calls.dropFirst(mark).map { $0.args.first ?? "" } }
+}
+
+/// A git whose one kind of command times out while `failing` is set, and runs for real otherwise.
+private final class TimesOut: GitRunning {
+    private let command: String
+    private let inner: any GitRunning = GitRunner.hermetic()
+    private let state = Mutex(false)
+    init(command: String) { self.command = command }
+
+    var failing: Bool {
+        get { state.withLock { $0 } }
+        set { state.withLock { $0 = newValue } }
+    }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.first == command, failing { throw GitError(args: args, code: 15, stderr: "git \(command) timed out after \(timeout) s") }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
 }
