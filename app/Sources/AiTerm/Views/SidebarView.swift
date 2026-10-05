@@ -2,6 +2,23 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
+/// The instant and calendar the usage footer reads its reset times against. Unset, the footer uses
+/// the wall clock and the user's calendar; the snapshot harness pins both so the labels it draws
+/// do not move with the time of day, the weekday or the machine's time zone.
+struct FooterClock {
+    var now: Date
+    var calendar: Calendar
+}
+
+private struct FooterClockKey: EnvironmentKey { static let defaultValue: FooterClock? = nil }
+
+extension EnvironmentValues {
+    var footerClock: FooterClock? {
+        get { self[FooterClockKey.self] }
+        set { self[FooterClockKey.self] = newValue }
+    }
+}
+
 struct SidebarView: View {
     /// Every view below reads the controller directly: with Observation each one re-renders for the
     /// properties it read, not for every change. So the toast and the sheet are views of their own —
@@ -9,6 +26,7 @@ struct SidebarView: View {
     let controller: AppController
     /// The row that starts hovered, for tests and snapshots that draw one.
     var hovered: UUID?
+    @Environment(\.footerClock) private var footerClock
 
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
@@ -77,7 +95,8 @@ struct SidebarView: View {
             // when the usage changes.
             TimelineView(.everyMinute) { context in
                 UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: context.date, calendar: .current,
+                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: footerClock?.now ?? context.date,
+                                                               calendar: footerClock?.calendar ?? .current,
                                                                claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
             }
         }

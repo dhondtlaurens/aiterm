@@ -10,6 +10,17 @@ import AiTermCore
 /// runs the debug build, so a release build carries none of this.
 @MainActor
 enum Snapshots {
+    /// The one instant every image is drawn at, and the calendar it is read in. Fixture times and
+    /// the footer's "now" come from here, never the wall clock, so two runs — an hour or a month
+    /// apart, on any machine — draw the same labels. Midday UTC on a Wednesday: a reset two hours
+    /// on shares the day, one three days on is a Saturday.
+    static let clock: FooterClock = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.locale = Locale(identifier: "en_GB")
+        return FooterClock(now: Date(timeIntervalSince1970: 1_773_230_400), calendar: calendar)  // 2026-03-11 12:00 UTC
+    }()
+
     static func runIfRequested() -> Bool {
         guard let dir = ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_DIR"] else { return false }
         let out = URL(fileURLWithPath: dir)
@@ -57,31 +68,31 @@ enum Snapshots {
             // badges; `dotfiles` below is linked to none, which is the other half of that rule.
             let site = URL(string: "https://example.atlassian.net")!
             let project = Project(id: UUID(), name: "acme-storefront", path: FileManager.default.currentDirectoryPath,
-                                  provider: .gitlab, remoteUrl: "git@gitlab.example/acme/storefront.git", addedAt: Date(), collapsed: false,
+                                  provider: .gitlab, remoteUrl: "git@gitlab.example/acme/storefront.git", addedAt: Snapshots.clock.now, collapsed: false,
                                   jiraProjects: [JiraProjectRef(id: "10001", key: "SHOP", name: "Storefront", siteURL: site),
                                                  JiraProjectRef(id: "10002", key: "PAY", name: "Payments", siteURL: site)])
             let working = TaskItem(id: UUID(), projectId: project.id, title: "Add Apple Pay to the checkout flow",
                                    branch: "feat/pay-214-apple-pay", worktreePath: "/r/.worktrees/x", baseBranch: "main",
                                    jira: JiraRef(key: "PAY-214", summary: "Apple Pay", url: "https://example/PAY-214"),
                                    agent: .claude, model: "opus", reasoning: "high", firstPrompt: nil, appendTicket: true,
-                                   createdAt: Date(), windowId: "w1")
+                                   createdAt: Snapshots.clock.now, windowId: "w1")
             let other = TaskItem(id: UUID(), projectId: project.id, title: "Cut product page load time in half",
                                  branch: "perf/shop-1088-product-page", worktreePath: "/r/.worktrees/y", baseBranch: "develop",
                                  jira: JiraRef(key: "SHOP-1088", summary: "Product page speed", url: "https://example/SHOP-1088"),
                                  agent: .codex, model: "gpt-5.6", reasoning: "medium", firstPrompt: nil, appendTicket: true,
-                                 createdAt: Date(), windowId: "w2")
+                                 createdAt: Snapshots.clock.now, windowId: "w2")
             let piTask = TaskItem(id: UUID(), projectId: project.id, title: "Fix rounding in cart totals",
                                   branch: "fix/cart-total-rounding", worktreePath: "/r/.worktrees/pi", baseBranch: "main",
                                   jira: nil, agent: .pi, model: "openai-codex/gpt-5.6-sol", reasoning: "high",
-                                  firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w5")
+                                  firstPrompt: nil, appendTicket: false, createdAt: Snapshots.clock.now, windowId: "w5")
             let grokTask = TaskItem(id: UUID(), projectId: project.id, title: "Write the release notes for v2.4",
                                     branch: "docs/release-notes-2-4", worktreePath: "/r/.worktrees/grok", baseBranch: "main",
                                     jira: nil, agent: .grok, model: "grok-4.7", reasoning: "high",
-                                    firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w6")
-            let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Dev server", windowId: "w3", createdAt: Date())
+                                    firstPrompt: nil, appendTicket: false, createdAt: Snapshots.clock.now, windowId: "w6")
+            let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Dev server", windowId: "w3", createdAt: Snapshots.clock.now)
             // A second project under a divider, so the sidebar snapshot carries a `DividerRow`.
             let personal = Project(id: UUID(), name: "dotfiles", path: FileManager.default.currentDirectoryPath,
-                                   provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: true)
+                                   provider: .git, remoteUrl: nil, addedAt: Snapshots.clock.now, collapsed: true)
             let rule = SidebarDivider(id: UUID(), name: "Personal")
             // What every checkout pass reports. The images are drawn before the pass the sessions
             // below start has finished, so the monitor is handed the same values directly too.
@@ -120,9 +131,9 @@ enum Snapshots {
             controller.checkouts.seedSnapshotFixture(onDisk)
             // Resets are relative to the render so the footer shows both of its shapes: a bare `HH:mm`
             // for a window clearing today, and a weekday-prefixed one for a window clearing later.
-            let soon = Int(Date().addingTimeInterval(2 * 3600).timeIntervalSince1970)
-            let later = Int(Date().addingTimeInterval(3 * 86_400).timeIntervalSince1970)
-            let fresh = Int(Date().timeIntervalSince1970)
+            let soon = Int(Snapshots.clock.now.addingTimeInterval(2 * 3600).timeIntervalSince1970)
+            let later = Int(Snapshots.clock.now.addingTimeInterval(3 * 86_400).timeIntervalSince1970)
+            let fresh = Int(Snapshots.clock.now.timeIntervalSince1970)
             controller.live.usage = (try? JSONDecoder().decode(UsageSnapshot.self, from: Data("""
             {"claude":{"fiveHour":{"usedPercent":42,"resetsAt":\(soon)},"sevenDay":{"usedPercent":61,"resetsAt":\(later)},"spend":null,"plan":"Max","updatedAt":\(fresh)},
              "codex":{"fiveHour":{"usedPercent":88,"resetsAt":\(soon)},"sevenDay":null,"spend":null,"plan":"Pro","updatedAt":\(fresh)}}
@@ -162,7 +173,7 @@ enum Snapshots {
         let ml = JiraProjectRef(id: "10001", key: "ML", name: "Machine Learning", siteURL: site)
         let web = JiraProjectRef(id: "10002", key: "WEB", name: "Website", siteURL: site)
         func project(_ name: String, _ provider: Provider, jira: [JiraProjectRef] = []) -> Project {
-            Project(id: UUID(), name: name, path: here, provider: provider, remoteUrl: nil, addedAt: Date(),
+            Project(id: UUID(), name: name, path: here, provider: provider, remoteUrl: nil, addedAt: clock.now,
                     collapsed: false, jiraProjects: jira)
         }
         let models: [AgentKind: String] = [.claude: "opus", .codex: "gpt-5.6", .pi: "openai-codex/gpt-5.6-sol", .grok: "grok-4.7"]
@@ -172,7 +183,7 @@ enum Snapshots {
                      baseBranch: "main", jira: jira.map { JiraRef(key: $0, summary: title, url: "https://example/\($0)") },
                      kind: review == nil ? .task : .review, mr: review,
                      agent: agent, model: models[agent] ?? "", reasoning: "high", firstPrompt: nil, appendTicket: jira != nil,
-                     createdAt: Date(), windowId: window)
+                     createdAt: clock.now, windowId: window)
         }
         let home = project("laurensdhondt", .none)
         let aiterm = project("aiterm", .github)
@@ -212,9 +223,9 @@ enum Snapshots {
             session("r6", "m2", release.id, "claude", "idle", 1, cwd: release.worktreePath),
         ].compactMap { $0 }
         controller.checkouts.seedSnapshotFixture(onDisk)
-        let soon = Int(Date().addingTimeInterval(2 * 3600).timeIntervalSince1970)
-        let later = Int(Date().addingTimeInterval(3 * 86_400).timeIntervalSince1970)
-        let fresh = Int(Date().timeIntervalSince1970)
+        let soon = Int(clock.now.addingTimeInterval(2 * 3600).timeIntervalSince1970)
+        let later = Int(clock.now.addingTimeInterval(3 * 86_400).timeIntervalSince1970)
+        let fresh = Int(clock.now.timeIntervalSince1970)
         controller.live.usage = (try? JSONDecoder().decode(UsageSnapshot.self, from: Data("""
         {"claude":{"fiveHour":{"usedPercent":42,"resetsAt":\(soon)},"sevenDay":{"usedPercent":61,"resetsAt":\(later)},"spend":null,"plan":"Max","updatedAt":\(fresh)},
          "codex":{"fiveHour":null,"sevenDay":{"usedPercent":17,"resetsAt":\(later)},"spend":null,"plan":"Pro","updatedAt":\(fresh)}}
@@ -262,7 +273,7 @@ enum Snapshots {
                 .padding(.horizontal, Space.inset)
             Spacer()
             UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                        rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
+                        rows: SidebarModel.usageVendorRows(controller.live.usage, now: clock.now, calendar: clock.calendar))
         }
         // The rows' 10 pt inset stands in for the List's. The footer is a direct child of the real
         // sidebar and gets its full width — it adds that inset back itself — so it is not padded
@@ -279,7 +290,7 @@ enum Snapshots {
                 VStack(alignment: .leading, spacing: scale(Space.hairline)) { sidebarRows() }
                     .padding(.horizontal, scale(Space.inset))
                 UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
+                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: clock.now, calendar: clock.calendar))
             }
             .frame(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset))
             .fixedSize(horizontal: false, vertical: true)
@@ -289,7 +300,7 @@ enum Snapshots {
         // A task stacking two providers draws only its active tab's provider.
         controller.focus.browse(.task(working.id))
         write(UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                          rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
+                          rows: SidebarModel.usageVendorRows(controller.live.usage, now: clock.now, calendar: clock.calendar))
             .frame(width: Size.sidebarWidth)
             .background(Palette.sidebar), to: out.appendingPathComponent("usage-footer-agents.png"))
         controller.focus.browse(.task(piTask.id))
@@ -404,7 +415,7 @@ enum Snapshots {
         let divider = AppController.RenameTarget.divider(SidebarDivider(id: UUID(), name: "Clients"))
         let task = AppController.RenameTarget.task(fixture.working)
         let terminal = AppController.RenameTarget.terminal(TerminalItem(id: UUID(), projectId: fixture.project.id, name: "shell",
-                                                                        windowId: "w", createdAt: Date()))
+                                                                        windowId: "w", createdAt: clock.now))
         for (target, file) in [(divider, "name-rename-divider.png"), (task, "name-rename-task.png"),
                                (terminal, "name-rename-terminal.png")] {
             write(NameSheet.rename(target, canSubmit: true, submit: { _ in }), to: out.appendingPathComponent(file))
@@ -486,10 +497,10 @@ enum Snapshots {
         // status, so the header's count chips have all four to draw.
         let idle = TaskItem(id: UUID(), projectId: project.id, title: "Rename the settings pane", branch: "chore/settings",
                             worktreePath: "/r/.worktrees/z", baseBranch: "main", jira: nil, agent: .claude, model: "opus",
-                            reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+                            reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: clock.now, windowId: nil)
         let done = TaskItem(id: UUID(), projectId: project.id, title: "Ship the usage footer", branch: "feat/usage-footer",
                             worktreePath: "/r/.worktrees/w", baseBranch: "main", jira: nil, agent: .claude, model: "opus",
-                            reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w4")
+                            reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: clock.now, windowId: "w4")
         controller.state.tasks = [working, other, idle, done]
         controller.live.sessions += [session("s6", "w4", done.id, "claude", "done", 0)].compactMap { $0 }
         controller.state.projects[0].collapsed = true
@@ -601,7 +612,7 @@ enum Snapshots {
 
     private static func write(_ view: some View, to url: URL) {
         if ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_HOSTED"] == "1" {
-            let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark))
+            let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark).environment(\.footerClock, clock))
             let size = host.fittingSize
             host.frame = CGRect(origin: .zero, size: size)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -628,7 +639,8 @@ enum Snapshots {
             window.orderOut(nil)
             return
         }
-        let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark).environment(\.snapshotRendering, true))
+        let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark).environment(\.snapshotRendering, true)
+            .environment(\.footerClock, clock))
         renderer.scale = 2
         // `colorScheme` reaches SwiftUI; an AppKit colour resolves against the drawing appearance,
         // which is the app's only while `Appearance.apply` has run. Pinned here, the images are
