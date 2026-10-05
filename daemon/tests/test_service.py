@@ -658,6 +658,64 @@ async def test_tab_create_race_with_notification_during_create_is_not_redirected
     assert not any(text.startswith(" cd ") for text in sent_for_sid)
 
 
+async def test_daemon_created_tab_is_not_redirected_when_iterm_announces_it_by_default(stack):
+    # The same race as above, with nothing hand-built: FakeIterm announces a tab the daemon creates
+    # while the create is still awaiting, as the library does, so an agent command is never raced
+    # by a `cd` redirect on the default path.
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = (await call(r, w, "tab.create", {"windowId": wid, "agentCommand": "claude"}, id_=2))["result"]["sessionId"]
+    await it.settle()
+    assert [text for (s, text) in it.sent if s == sid] == [" claude\n"]
+    assert it.sessions[sid].user_vars == {"aiterm_task": "t1"}
+
+
+async def test_a_window_the_daemon_created_is_in_the_registry_once_its_announcement_is_handled(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    await it.settle()
+    assert {s.window_id for s in svc.registry.all()} == {wid}
+    assert not it.sent
+
+
+async def test_a_window_closed_in_iterm_is_announced_and_leaves_the_registry(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    await it.settle()
+    await it.close_window(wid)
+    await it.settle()
+    assert not svc.registry.all()
+    assert (await next_event(r, "window.closed"))["windowId"] == wid
+
+
+async def test_a_tab_renumbered_by_a_close_gets_its_title_applied_again(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    first = it.windows[wid]["sessions"][0]
+    second = (await call(r, w, "tab.create", {"windowId": wid}, id_=2))["result"]["sessionId"]
+    await it.settle()
+    titles = {"titles": [{"sessionId": first, "title": "a"}, {"sessionId": second, "title": "b"}]}
+    assert (await call(r, w, "sessions.setTitles", titles, id_=3))["result"] == {"changed": 2}
+    await it.user_closes_session(first)
+    await svc.tick()
+    only_second = {"titles": [{"sessionId": second, "title": "b"}]}
+    assert (await call(r, w, "sessions.setTitles", only_second, id_=4))["result"] == {"changed": 1}
+
+
+async def test_closing_a_pane_leaves_the_other_tabs_titles_alone(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    first = it.windows[wid]["sessions"][0]
+    second = (await call(r, w, "tab.create", {"windowId": wid}, id_=2))["result"]["sessionId"]
+    pane = await it.add_pane(wid, tab_index=0)
+    await it.settle()
+    titles = {"titles": [{"sessionId": first, "title": "a"}, {"sessionId": second, "title": "b"}]}
+    assert (await call(r, w, "sessions.setTitles", titles, id_=3))["result"] == {"changed": 2}
+    await it.user_closes_session(pane)
+    await svc.tick()
+    assert (await call(r, w, "sessions.setTitles", titles, id_=4))["result"] == {"changed": 0}
+
+
 async def test_user_tab_in_other_window_is_redirected_during_unrelated_create(stack):
     # The global _PENDING_WINDOW gate this replaced blocked the tag+redirect
     # for *every* window while any window.createTask/createTerminal call was
