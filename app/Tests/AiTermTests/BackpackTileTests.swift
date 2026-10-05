@@ -81,4 +81,12 @@ struct BackpackTileTests {
     @Test func theModesGlyphIsThePersonalHotspot() {
         #expect(BackpackPresentation.symbol == "personalhotspot")
     }
+
+    /// The header is about projects again: nothing in the app still names the old glyph's type.
+    @Test func theHeaderNoLongerCarriesBackpack() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/AiTerm/Views/SidebarRows.swift"), encoding: .utf8)
+        #expect(!source.contains("Backpack"))
+    }
 }

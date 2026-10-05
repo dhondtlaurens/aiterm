@@ -72,13 +72,15 @@ struct SidebarView: View {
                     RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(id) } }
                 })
             }
-            // The rows depend on the clock — a window that has reset is dropped, and a reset time
+            // The usage tiles depend on the clock — a window that has reset is dropped, and a reset time
             // gains its weekday across midnight — so they are recomputed on the minute, not only
             // when the usage changes.
             TimelineView(.everyMinute) { context in
-                UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
+                StatusBento(task: controller.live.usageRow(for: controller.focus.selection),
                             rows: SidebarModel.usageVendorRows(controller.live.usage, now: context.date, calendar: .current,
-                                                               claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
+                                                               claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled),
+                            backpack: controller.backpack,
+                            openBackpackSettings: { controller.presentSettings(tab: .backpack) })
             }
         }
         .overlay(alignment: .bottom) { SidebarToast(controller: controller) }
