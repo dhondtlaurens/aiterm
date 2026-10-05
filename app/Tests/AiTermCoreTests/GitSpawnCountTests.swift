@@ -50,18 +50,25 @@ struct GitSpawnCountTests {
         let workspace: Workspace
         let branches: BranchResolver, remotes: RemoteResolver, diffs: DiffStatResolver, defaults: DefaultBranchResolver
 
+        let stalls: StallGuardedGit
+
+        /// Built as the checkout monitor builds them: over a guard that gives up on a project once git
+        /// has timed out in it.
         init(_ workspace: Workspace, runner: any GitRunning) {
             self.workspace = workspace
             let clock = self.clock, now: @Sendable () -> Date = { clock.now }
-            let probe = RepositoryProbe(git: runner, now: now)
-            branches = BranchResolver(git: runner, now: now, probe: probe)
-            remotes = RemoteResolver(git: runner, now: now, probe: probe)
-            diffs = DiffStatResolver(git: runner, now: now, ttl: 5)
-            defaults = DefaultBranchResolver(git: runner, now: now, probe: probe)
+            let guarded = StallGuardedGit(runner, now: now)
+            stalls = guarded
+            let probe = RepositoryProbe(git: guarded, now: now)
+            branches = BranchResolver(git: guarded, now: now, probe: probe)
+            remotes = RemoteResolver(git: guarded, now: now, probe: probe)
+            diffs = DiffStatResolver(git: guarded, now: now, ttl: 5)
+            defaults = DefaultBranchResolver(git: guarded, now: now, probe: probe)
         }
 
         func pass() -> WorkspaceScan {
-            WorkspaceScan.run(cwds: workspace.cwds, projects: workspace.projects, tasks: workspace.tasks,
+            stalls.scope(projects: workspace.projects, tasks: workspace.tasks)
+            return WorkspaceScan.run(cwds: workspace.cwds, projects: workspace.projects, tasks: workspace.tasks,
                               branches: branches, remotes: remotes, diffs: diffs, defaultBranches: defaults)
         }
     }
@@ -141,24 +148,48 @@ struct GitSpawnCountTests {
     }
 
     /// A project on a dead mount: every git there waits out its whole deadline, ten seconds. Before
-    /// the shared probe and the backoff, every pass paid it nine times over — each resolver for the
-    /// project, its three tabs, its three diffs — so a pass could take a minute and a half, forever.
-    /// Now the first pass pays it for each directory once (seven times) and the passes after, until
-    /// the backoff is over, not at all.
-    @Test func aHungMountIsPaidForOnceAndThenLeftAlone() throws {
+    /// the guard every pass paid it seven times over — the project's probe, its three tabs and its
+    /// three diffs — and before the shared probe and the backoff nine times, on every pass. Now the
+    /// first command to time out stalls the project: the rest of its work in that pass, and every
+    /// pass for thirty seconds, fails at once. A pass costs one timeout, and the other project is
+    /// read as usual.
+    @Test func aHungMountCostsOneTimeoutAndHoldsUpNoOtherProject() throws {
         let workspace = try makeWorkspace()
         let hung = HungMount(under: workspace.projects[0].path)
         let passes = Passes(workspace, runner: hung)
-        _ = passes.pass()
-        #expect(hung.timeouts == 7, "the project's probe, its three tabs' and its three diffs'")
         let first = passes.pass()
-        passes.clock.advance(by: 2)
-        _ = passes.pass()
-        #expect(hung.timeouts == 7, "the next passes within the backoff do not wait for it again")
-        #expect(first.diffByTask.count == 3, "the other project is unaffected")
+        #expect(hung.timeouts == 1, "the first command to time out stalls the whole project")
+        #expect(first.diffByTask.count == 3, "the other project's diffs are read")
+        let healthy = workspace.tasks.filter { $0.projectId == workspace.projects[1].id }
+        try "one\nmore\n".write(toFile: healthy[0].worktreePath + "/more.txt", atomically: true, encoding: .utf8)
+        passes.clock.advance(by: 6)
+        let second = passes.pass()
+        #expect(hung.timeouts == 1, "within the backoff the hung project is not asked")
+        #expect(second.diffByTask[healthy[0].id] == DiffStat(added: 4, removed: 0), "the other project keeps updating")
         passes.clock.advance(by: TimedOut.backoff)
         _ = passes.pass()
-        #expect(hung.timeouts == 14, "once the backoff is over it is asked again, once each")
+        #expect(hung.timeouts == 2, "once the backoff is over it is asked again, once")
+    }
+
+    /// What was known of a project that hangs stands, and nothing is stored in its place.
+    @Test func aProjectThatHangsKeepsWhatWasKnownOfIt() throws {
+        let workspace = try makeWorkspace()
+        let hung = HungMount(under: workspace.projects[0].path)
+        hung.hanging = false
+        let passes = Passes(workspace, runner: hung)
+        let before = passes.pass()
+        #expect(before.diffByTask.count == 6 && before.projectBranch.count == 2 && before.remotes.count == 2)
+        hung.hanging = true
+        passes.clock.advance(by: 6)
+        let during = passes.pass()
+        #expect(hung.timeouts == 1)
+        #expect(during.diffByTask == before.diffByTask, "the diffs stand")
+        #expect(during.projectBranch == before.projectBranch && during.defaultBranch == before.defaultBranch)
+        #expect(during.remotes == before.remotes)
+        hung.hanging = false
+        passes.clock.advance(by: TimedOut.backoff)
+        #expect(passes.pass().diffByTask == before.diffByTask, "and once it answers again it is read as usual")
+        #expect(hung.timeouts == 1)
     }
 }
 
@@ -168,11 +199,17 @@ private final class HungMount: GitRunning {
     private let folder: String
     private let inner: any GitRunning = GitRunner.hermetic()
     private let count = Mutex(0)
+    private let hangs = Mutex(true)
     var timeouts: Int { count.withLock { $0 } }
+    /// Whether the mount is down. It is, to begin with.
+    var hanging: Bool {
+        get { hangs.withLock { $0 } }
+        set { hangs.withLock { $0 = newValue } }
+    }
     init(under folder: String) { self.folder = folder }
 
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
-        guard dir == folder || dir.hasPrefix(folder + "/") else { return try inner.run(args, in: dir, timeout: timeout, environment: environment) }
+        guard hanging, dir == folder || dir.hasPrefix(folder + "/") else { return try inner.run(args, in: dir, timeout: timeout, environment: environment) }
         count.withLock { $0 += 1 }
         throw GitError(args: args, code: 15, stderr: "git \(args.first ?? "") timed out after \(timeout) s")
     }

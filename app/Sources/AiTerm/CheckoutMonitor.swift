@@ -49,6 +49,7 @@ final class CheckoutMonitor {
     private let remotes: RemoteResolver
     private let diffs: DiffStatResolver
     private let defaultBranches: DefaultBranchResolver
+    private let stalls: StallGuardedGit
     private let live: LiveSessions
     /// The saved workspace a pass reads, and where what it finds for that workspace goes: remotes
     /// to adopt, tasks whose checkout is gone, the tab titles to send. `removalInFlight` says which
@@ -68,10 +69,12 @@ final class CheckoutMonitor {
         self.live = live
         self.scan = scan
         self.pollInterval = pollInterval
-        // One probe for the three, so a directory's files are looked up once, not once each.
-        let probe = RepositoryProbe(git: git)
-        branches = BranchResolver(git: git, probe: probe); remotes = RemoteResolver(git: git, probe: probe)
-        diffs = DiffStatResolver(git: git); defaultBranches = DefaultBranchResolver(git: git, probe: probe)
+        // A pass runs git through a guard that gives up on a project once one of its commands times out.
+        // One probe for the three resolvers, so a directory's files are looked up once, not once each.
+        let guarded = StallGuardedGit(git), probe = RepositoryProbe(git: guarded)
+        stalls = guarded
+        branches = BranchResolver(git: guarded, probe: probe); remotes = RemoteResolver(git: guarded, probe: probe)
+        diffs = DiffStatResolver(git: guarded); defaultBranches = DefaultBranchResolver(git: guarded, probe: probe)
         self.workspace = workspace
         self.removalInFlight = removalInFlight
         self.onRemotes = onRemotes
@@ -136,6 +139,7 @@ final class CheckoutMonitor {
                 let inputs = ScanInputs(workspace: workspace(), cwds: live.sessions.map(\.effectiveCwd))
                 let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scan = self.scan
                 let defaultBranches = self.defaultBranches
+                stalls.scope(projects: inputs.projects, tasks: inputs.tasks)
                 let scanned = try? await BackgroundWork.run {
                     scan(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
                 }
