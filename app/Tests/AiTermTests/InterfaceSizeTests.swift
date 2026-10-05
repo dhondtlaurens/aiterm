@@ -16,34 +16,34 @@ struct InterfaceSizeTests {
     /// The sidebar keeps its proportion to its content: at the minimum it moves to the new
     /// minimum, wider it grows by the same factor.
     @Test func theSidebarScalesWithItsContent() {
-        #expect(SidebarTiling.sidebarWidth(372, from: .standard, to: .large, limit: 5000) == 428)
-        #expect(SidebarTiling.sidebarWidth(428, from: .large, to: .standard, limit: 5000) == 372)
+        #expect(SidebarTiling.sidebarWidth(360, from: .standard, to: .large, limit: 5000) == 414)
+        #expect(SidebarTiling.sidebarWidth(414, from: .large, to: .standard, limit: 5000) == 360)
         #expect(SidebarTiling.sidebarWidth(500, from: .standard, to: .extraLarge, limit: 5000) == 650)
     }
 
     /// Never below the new minimum, even from a frame an older build saved narrower; never past the
     /// screen's edge — but the minimum wins over the edge, as `window.minSize` would.
     @Test func theSidebarWidthIsClamped() {
-        #expect(SidebarTiling.sidebarWidth(300, from: .standard, to: .standard, limit: 5000) == 372)
+        #expect(SidebarTiling.sidebarWidth(300, from: .standard, to: .standard, limit: 5000) == 360)
         #expect(SidebarTiling.sidebarWidth(900, from: .standard, to: .extraLarge, limit: 1000) == 1000)
-        #expect(SidebarTiling.sidebarWidth(372, from: .standard, to: .extraLarge, limit: 400) == 484)
+        #expect(SidebarTiling.sidebarWidth(360, from: .standard, to: .extraLarge, limit: 400) == 468)
     }
 
     @Test func settingASizeResizesTheSidebarWindow() throws {
         let controller = try controller()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 372, height: 600), styleMask: [.titled, .resizable],
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 600), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 372, height: 400)
+        window.minSize = NSSize(width: 360, height: 400)
         controller.tiling.sidebarWindow = window
         controller.tiling.setInterfaceSize(.extraLarge)
         #expect(controller.preferences.interfaceSize == .extraLarge)
-        #expect(window.frame.width == 484)
-        #expect(window.minSize.width == 484)
-        #expect(controller.state.sidebarFrame?.width == 484)
+        #expect(window.frame.width == 468)
+        #expect(window.minSize.width == 468)
+        #expect(controller.state.sidebarFrame?.width == 468)
         controller.tiling.setInterfaceSize(.standard)
-        #expect(window.frame.width == 372)
-        #expect(window.minSize.width == 372)
+        #expect(window.frame.width == 360)
+        #expect(window.minSize.width == 360)
     }
 
     @Test func zoomItemsAreDisabledAtTheEnds() throws {
