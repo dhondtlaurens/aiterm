@@ -39,7 +39,7 @@ extension AppController {
     convenience init(store: StateStore? = nil, preferences: InterfacePreferences, prompter: Prompter = ModalPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
                      activateIterm: @escaping @MainActor () -> Void = {}, peekDelay: Duration = .zero,
-                     checkoutPollInterval: Duration = .seconds(2),
+                     checkoutPollInterval: Duration = .seconds(2), git: GitRunner = GitRunner(),
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      }) {
@@ -47,6 +47,6 @@ extension AppController {
         self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: ScratchHome.bare,
                   bundledResourcesURL: nil, locateAgents: { nil }, jiraSettings: { nil }, gitLabSettings: { nil }, gitHubSettings: { nil },
                   prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, peekDelay: peekDelay,
-                  checkoutPollInterval: checkoutPollInterval, scan: scan)
+                  checkoutPollInterval: checkoutPollInterval, git: git, scan: scan)
     }
 }

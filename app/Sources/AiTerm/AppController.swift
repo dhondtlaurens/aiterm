@@ -88,7 +88,7 @@ final class AppController {
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
-    let git = GitRunner()
+    let git: GitRunner
     /// The home whose agent configuration the sheets read — models, skills, commands. The
     /// person's own in the app; a test's is a bare directory of its own.
     private let harnessHome: URL
@@ -151,11 +151,13 @@ final class AppController {
          activateIterm: @escaping @MainActor () -> Void = {},
          peekDelay: Duration = .milliseconds(120),
          checkoutPollInterval: Duration = .seconds(2),
+         git: GitRunner = GitRunner(),
          scan: @escaping CheckoutMonitor.Scanner = { WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6) }) {
         let link = ControllerLink()
         self.store = store
         self.preferences = preferences
         self.harnessHome = harnessHome
+        self.git = git
         self.jiraSettings = jiraSettings
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
@@ -378,11 +380,15 @@ final class AppController {
         let agent = state.lastAgentByProject[project.id] ?? .claude
         let remembered = state.lastModelByAgent[agent]
         let imports = try? await BackgroundWork.run {
-            (try Worktrees.existing(repo: project.path, git: git), Worktrees.defaultBranch(repo: project.path, git: git),
+            (try Worktrees.existing(repo: project.path, git: git), try Worktrees.detectDefaultBranch(repo: project.path, git: git),
              ModelSettings.resolve(for: agent, catalog: ModelCatalog.models(for: agent, home: home), remembered: remembered))
         }
+        // A default branch git could not be asked for throws above, and nothing is offered: the offer is
+        // made only when the project is added, so it is not made at all rather than saving "main" into
+        // every imported task for a timeout. A repository with no default branch to name is another matter.
         guard canChangeWorkspace, state.project(id: project.id) != nil,
-              let (found, base, preference) = imports, !found.isEmpty else { return }
+              let (found, detected, preference) = imports, !found.isEmpty else { return }
+        let base = detected ?? Worktrees.fallbackDefaultBranch
         let answer = prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
                                               detail: "Adds existing worktrees as tasks without starting agents.",
                                               buttons: ["Import", "Skip"], escape: 1))

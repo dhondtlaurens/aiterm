@@ -731,6 +731,26 @@ import Testing
         #expect(controller.state.tasks.filter { $0.kind == .review }.allSatisfy { !AppController.offersBranchDeletion(for: $0) })
     }
 
+    /// The base branch of an imported worktree is what git said the default branch is. When git
+    /// could not be asked (a timeout under load), writing "main" into every task would keep a
+    /// transient failure in the saved state for good, so nothing is offered and nothing is imported.
+    @Test func importingWorktreesIsNotOfferedWhenTheDefaultBranchCannotBeRead() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let prompter = ScriptedPrompter(answering: "Import")
+        let flaky = DefaultBranchFailingGit()
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                        prompter: prompter, git: flaky)
+        try controller.loadWorkspace()
+        let repo = try Self.repoWithATaskAndAReviewWorktree(git: controller.git)
+        defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
+
+        await controller.addProject(path: repo)
+        #expect(controller.state.projects.count == 1, "the project itself is added")
+        #expect(prompter.asked.isEmpty)
+        #expect(controller.state.tasks.isEmpty, "no task is saved with a guessed base branch")
+    }
+
     /// A repository holding one worktree of each kind, made by the same calls the app makes: a
     /// task's through `Worktrees.create` and a review's through `Worktrees.checkout`.
     /// Resolved with POSIX `realpath(3)`, as `WorktreesTests` does: git reports the physical path
@@ -1187,4 +1207,12 @@ private final class ScanCounter: Sendable {
     private let passes = Mutex(0)
     var count: Int { passes.withLock { $0 } }
     func increment() { passes.withLock { $0 += 1 } }
+}
+
+/// A git that times out whenever it is asked for the default branch's name, as it does under load.
+private final class DefaultBranchFailingGit: GitRunner, @unchecked Sendable {
+    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
+        if args.contains("symbolic-ref") { throw GitError(args: args, code: 15, stderr: "git timed out after \(timeout) s") }
+        return try super.run(args, in: dir, timeout: timeout)
+    }
 }
