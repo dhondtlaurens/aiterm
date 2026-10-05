@@ -822,9 +822,11 @@ async def test_a_reconnect_leaves_one_handler_per_notification(real_registration
     bridge = await _reconnected(conns)
     handlers = iterm2.notifications._get_handlers()
 
-    new_session = handlers[(None, iterm2.api_pb2.NOTIFY_ON_NEW_SESSION)]
-    assert new_session.count(bridge._on_new) == 1
-    assert [h.__self__ for h in new_session if h != bridge._on_new] == [iterm2.app.App.instance]
+    assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_NEW_SESSION)] == [bridge._on_new]
+    assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_TERMINATE_SESSION)] == [bridge._on_closed]
+    assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_FOCUS_CHANGE)] == [bridge._on_focus]
+    # The live App keeps the handler that updates its tree from the notification itself.
+    assert [h.__self__ for h in handlers[(None, iterm2.api_pb2.NOTIFY_ON_LAYOUT_CHANGE)]] == [iterm2.app.App.instance]
 
 
 async def test_after_a_reconnect_a_notification_reaches_the_bridge_once_and_the_live_app(real_registration):
@@ -847,13 +849,38 @@ async def test_after_a_reconnect_a_notification_reaches_the_bridge_once_and_the_
     await iterm2.notifications._async_dispatch_helper(conns[1], focus)
     assert activated == ["w1"]
 
-    requests.clear()
     new = iterm2.api_pb2.ServerOriginatedMessage()
     new.notification.new_session_notification.session_id = "s9"
-    # A dead App's handler would refresh over its closed socket and abort the rest of the list.
     await iterm2.notifications._async_dispatch_helper(conns[1], new)
     assert opened == ["s9"]
-    assert requests and all(conn is conns[1] for conn in requests), "the live App refreshed over the live connection"
+
+    requests.clear()
+    layout = iterm2.api_pb2.ServerOriginatedMessage()
+    layout.notification.layout_changed_notification.list_sessions_response.SetInParent()
+    # A dead App's handler would ask over its closed socket and abort the rest of the list.
+    await iterm2.notifications._async_dispatch_helper(conns[1], layout)
+    assert requests and all(conn is conns[1] for conn in requests), "the live App asked over the live connection"
+
+
+@pytest.mark.parametrize("notification,field,value", [
+    ("new_session_notification", "session_id", "s9"),
+    ("terminate_session_notification", "session_id", "s9"),
+    # A Cmd+T's focus change can be dispatched before its new-session notification.
+    ("focus_changed_notification", "selected_tab", "tab-not-listed-yet"),
+    ("focus_changed_notification", "session", "session-not-listed-yet"),
+])
+async def test_only_the_bridge_refreshes_the_hierarchy_when_iterm2_announces_a_change(real_registration, notification, field, value):
+    """`App.async_refresh` returns at once while another is in flight: a refresh the App started
+    itself, outside `_refresh_lock`, would hand the bridge's own the tree from before the change."""
+    conns, requests = real_registration
+    await ItermBridge().connect()
+    requests.clear()
+    message = iterm2.api_pb2.ServerOriginatedMessage()
+    setattr(getattr(message.notification, notification), field, value)
+
+    await iterm2.notifications._async_dispatch_helper(conns[0], message)
+
+    assert requests == []
 
 
 async def test_a_failed_setup_leaves_no_handler_behind(real_registration, monkeypatch):

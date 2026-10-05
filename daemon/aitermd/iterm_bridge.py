@@ -201,6 +201,28 @@ def _drop_notification_handlers(bridge: object) -> None:
                 del handlers[key]
 
 
+def _drop_app_refresh_handlers(app: iterm2.App) -> None:
+    """Removes the App's own handlers that refresh the hierarchy, so only the bridge refreshes it,
+    under `_refresh_lock`: the App refreshes itself on every new and terminated session, and when
+    focus moves to a tab or session it does not know yet. `App.async_refresh` returns at once, the
+    tree untouched, while another is in flight, so a Cmd+T whose focus change is dispatched before
+    its new-session notification would hand `session_info` the tree from before the tab, and the tab
+    would never be tagged. Each also cost three requests. The layout-change handler stays: it updates
+    the tree from the notification itself, which keeps the cached hierarchy `_found` reads current.
+    The focus the App tracks between refreshes goes stale, and nothing here reads it: `_placed` reads
+    the focus a refresh has just fetched. `_get_handlers` and `_async_focus_change` are private:
+    verified against iterm2 2.23 (pinned), and nothing is removed if either has moved."""
+    with contextlib.suppress(AttributeError):
+        refreshing = {app.async_refresh, app._async_focus_change}
+        handlers = iterm2.notifications._get_handlers()
+        for key, registered in list(handlers.items()):
+            # A new list, not an edit in place: a dispatch may be iterating the old one.
+            if kept := [handler for handler in registered if handler not in refreshing]:
+                handlers[key] = kept
+            else:
+                del handlers[key]
+
+
 async def _get_app(conn: iterm2.Connection) -> iterm2.App:
     app = await iterm2.async_get_app(conn)
     if app is None:
@@ -273,7 +295,8 @@ class ItermBridge:
         self._watch_task: asyncio.Task | None = None
         self._refresh_lock = asyncio.Lock()
         # The hierarchy as `_app` last fetched it. The library keeps it current from iTerm2's
-        # notifications, so a command that needs one window or session by id looks there first.
+        # layout-change notifications, so a command that needs one window or session by id looks
+        # there first.
         self._tree: iterm2.App | None = None
         # Whether iTerm2 takes a session's variables in one request; off for good after a refusal.
         self._batched_reads = True
@@ -336,7 +359,7 @@ class ItermBridge:
         # Under the lock `_app` takes: a notification handler asking for the app meanwhile would
         # otherwise build a second one.
         async with self._refresh_lock:
-            await _get_app(conn)
+            _drop_app_refresh_handlers(await _get_app(conn))
 
     def is_connected(self) -> bool:
         return self._conn is not None
