@@ -277,5 +277,5 @@ repository's own branch, because that is where the shells were. The rows looked 
 uniformly wrong — the worst kind of bug in a status display.
 
 **A turn that ended too early** — A foreground `Stop` arrives while background subagents are still
-running. Marking the row done there made it go quiet mid-work; the deferred-done set holds the
+running. Marking the row done there made it go quiet mid-work; the turn's deferred done holds the
 change until the last child reports back.
