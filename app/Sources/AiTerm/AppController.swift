@@ -127,7 +127,7 @@ final class AppController {
     @ObservationIgnored private var changingTerminals: [UUID: TerminalChange] = [:]
     private enum TerminalChange { case reopening, closing }
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
-    @ObservationIgnored private var preparingSheet: Task<Void, Never>?
+    @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
     /// `harnessHome` and `bundledResourcesURL` have no defaults: the app passes the person's home
     /// and its bundle, and anything else that builds a controller says which it means, so none
@@ -436,7 +436,7 @@ final class AppController {
     /// The sheet that edits the project's linked Jira projects, opened on the list as it is now.
     func presentJiraProjects(for project: Project) {
         guard canChangeWorkspace, let current = state.project(id: project.id) else { return }
-        sheet = .jiraProjects(current)
+        present(.jiraProjects(current))
     }
 
     /// Replaces the project's linked Jira projects with `jiraProjects`, each once, in their order.
@@ -615,7 +615,7 @@ final class AppController {
     // -- dividers and renames -------------------------------------------------------
     func presentNewDivider() {
         guard canChangeWorkspace else { return }
-        sheet = .newDivider
+        present(.newDivider)
     }
 
     /// A divider is pure workspace state: no daemon call, no window, nothing to undo but the label.
@@ -633,12 +633,12 @@ final class AppController {
 
     func presentRename(divider: SidebarDivider) {
         guard canChangeWorkspace else { return }
-        sheet = .rename(.divider(divider))
+        present(.rename(.divider(divider)))
     }
 
     func presentRename(task: TaskItem) {
         guard canChangeWorkspace else { return }
-        sheet = .rename(.task(task))
+        present(.rename(.task(task)))
     }
 
     /// An empty name is a real choice for a divider — the row draws a plain rule.
@@ -661,7 +661,7 @@ final class AppController {
 
     func presentRename(terminal: TerminalItem) {
         guard canChangeWorkspace, let current = state.terminal(id: terminal.id) else { return }
-        sheet = .rename(.terminal(current))
+        present(.rename(.terminal(current)))
     }
 
     /// The row's name, and the one its window is opened with on Reopen. Nothing in iTerm2 changes:
@@ -677,6 +677,17 @@ final class AppController {
     }
 
     // -- sheets ---------------------------------------------------------------------
+    /// Puts `kind` in the sheet slot straight away, and ends any preparation still on its way to
+    /// the slot: New Task, New Review, New Terminal and Settings read something off the main actor
+    /// first, and the menu stays enabled meanwhile, so what the person opened since is the sheet
+    /// they are typing into. The preparations check the slot is empty as they finish too, for a
+    /// sheet put there by other means.
+    private func present(_ kind: SheetKind) {
+        preparingSheet?.cancel()
+        preparingSheet = nil
+        sheet = kind
+    }
+
     /// Settings opens on the saved connections, read off the main actor: two Keychain items and
     /// UserDefaults, which can take a moment, and a Keychain that asks for access longer still.
     /// Off behind another sheet, as the zoom and view items are: Settings would replace it, and a
@@ -733,7 +744,7 @@ final class AppController {
                 let catalog = ModelCatalog.models(for: agent, home: home)
                 return (draft: build(state, agent, catalog), catalog: catalog, search: resolve())
             }
-            guard !Task.isCancelled, canChangeWorkspace, let prepared,
+            guard !Task.isCancelled, canChangeWorkspace, sheet == nil, let prepared,
                   self.state.project(id: project.id) != nil else { return }
             sheet = makeSheet(prepared.draft, prepared.catalog, prepared.search)
         }
@@ -797,7 +808,7 @@ final class AppController {
         guard FileManager.default.fileExists(atPath: owner.worktreePath) else {
             throw ActionUnavailable("“\(owner.title)” has this branch, but its worktree is missing at \(owner.worktreePath). Restore it or remove the task.")
         }
-        guard let daemon = helper.daemon else { throw ActionUnavailable("Disconnected. Try again once AiTerm reconnects.") }
+        guard let daemon = helper.daemon else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
         guard changingTasks.insert(owner.id).inserted else { throw ActionUnavailable("“\(owner.title)” is busy. Try again in a moment.") }
         defer { changingTasks.remove(owner.id) }
         openingTaskWindows.insert(owner.projectId)
@@ -907,8 +918,9 @@ final class AppController {
     @discardableResult
     func reopen(task: TaskItem) -> Task<Void, Never>? {
         guard canChangeWorkspace else { return nil }
-        guard let daemon = helper.daemon, let current = state.task(id: task.id),
-              current.windowId == nil, changingTasks.insert(task.id).inserted else { return nil }
+        guard let current = state.task(id: task.id), current.windowId == nil else { return nil }
+        guard let daemon = helper.daemon else { report(.disconnected("Reopen Window again")); return nil }
+        guard changingTasks.insert(task.id).inserted else { return nil }
         guard FileManager.default.fileExists(atPath: current.worktreePath) else {
             changingTasks.remove(task.id)
             report("Worktree missing at \(current.worktreePath). Restore it or use Remove \(current.kindName).")
@@ -1217,7 +1229,7 @@ final class AppController {
         let git = self.git
         preparingSheet = Task {
             let branch = try? await BackgroundWork.run { try git.run(["symbolic-ref", "--short", "HEAD"], in: project.path) }
-            guard !Task.isCancelled, canChangeWorkspace, state.project(id: project.id) != nil else { return }
+            guard !Task.isCancelled, canChangeWorkspace, sheet == nil, state.project(id: project.id) != nil else { return }
             sheet = .newTerminal(project, name: TerminalItem.suggestedName(existing: state.terminals.filter { $0.projectId == project.id }), branch: branch ?? "")
         }
     }
@@ -1225,7 +1237,7 @@ final class AppController {
     @discardableResult
     func newTerminal(project: Project, name: String) -> Task<Void, Never>? {
         guard canChangeWorkspace else { return nil }
-        guard let daemon = helper.daemon else { report("Disconnected. Try creating the terminal once AiTerm reconnects."); return nil }
+        guard let daemon = helper.daemon else { report(.disconnected("creating the terminal")); return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty ? TerminalItem.suggestedName(existing: state.terminals.filter { $0.projectId == project.id }) : trimmed
         creatingTerminals.insert(project.id)
@@ -1259,8 +1271,9 @@ final class AppController {
     @discardableResult
     func reopen(terminal: TerminalItem, project: Project) -> Task<Void, Never>? {
         guard canChangeWorkspace else { return nil }
-        guard let daemon = helper.daemon, let current = state.terminal(id: terminal.id), current.windowId == nil,
-              changingTerminals[terminal.id] == nil else { return nil }
+        guard let current = state.terminal(id: terminal.id), current.windowId == nil else { return nil }
+        guard let daemon = helper.daemon else { report(.disconnected("Reopen Window again")); return nil }
+        guard changingTerminals[terminal.id] == nil else { return nil }
         changingTerminals[terminal.id] = .reopening
         return Task {
             defer { changingTerminals[terminal.id] = nil }
@@ -1296,7 +1309,7 @@ final class AppController {
             defer { changingTerminals[terminal.id] = nil }
             guard canChangeWorkspace else { return }
             if let wid = state.terminal(id: terminal.id)?.windowId {
-                guard let daemon = helper.daemon else { report("Disconnected. Try Remove Terminal again once AiTerm reconnects."); return }
+                guard let daemon = helper.daemon else { report(.disconnected("Remove Terminal again")); return }
                 do { try await closeWindow(wid, with: daemon) }
                 catch { report(OperationIssue(title: "Couldn’t close the terminal.", error: error)); return }
             }

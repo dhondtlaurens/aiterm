@@ -378,6 +378,127 @@ extension AppControllerTests {
         #expect(server.requests("interface.setMatchItermBackground").map { $0.params["matchItermBackground"] as? Bool } == [true])
     }
 
+    /// New Task, New Review, New Terminal and Settings each read something off the main actor
+    /// before they open. A sheet the person opens in that gap — the menu is still enabled — is
+    /// the one they are typing into: the late one is dropped, not put over it.
+    enum SlowSheet: CaseIterable { case newTask, newReview, newTerminal, settings }
+
+    @Test(arguments: SlowSheet.allCases) func aSheetOpenedWhileAnotherPreparesIsNotReplacedByIt(_ slow: SlowSheet) async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        switch slow {
+        case .newTask: controller.presentNewTask(project: fixture.project)
+        case .newReview: controller.presentNewReview(project: fixture.project)
+        case .newTerminal: controller.presentNewTerminal(project: fixture.project)
+        case .settings: controller.presentSettings()
+        }
+        let preparing = try #require(controller.preparingSheet)
+
+        controller.presentNewDivider()
+        await preparing.value
+
+        #expect(controller.sheet?.id == "divider-new", "⌘N then ⌘D leaves the divider sheet up")
+    }
+
+    /// The same for a sheet the controller did not open itself: whatever fills the slot first keeps it.
+    @Test(arguments: SlowSheet.allCases) func aPreparedSheetNeverReplacesOneAlreadyUp(_ slow: SlowSheet) async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        switch slow {
+        case .newTask: controller.presentNewTask(project: fixture.project)
+        case .newReview: controller.presentNewReview(project: fixture.project)
+        case .newTerminal: controller.presentNewTerminal(project: fixture.project)
+        case .settings: controller.presentSettings()
+        }
+        let preparing = try #require(controller.preparingSheet)
+
+        controller.sheet = .newDivider
+        await preparing.value
+
+        #expect(controller.sheet?.id == "divider-new")
+    }
+
+    /// Opening another sheet by any route cancels the preparation, so nothing is left to finish.
+    @Test func everySheetPresenterCancelsAPendingPreparation() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let task = try fixture.addTask(windowId: nil)
+        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
+        controller.state.terminals = [terminal]
+        let presenters: [(String, () -> Void)] = [
+            ("divider", { controller.presentNewDivider() }),
+            ("rename divider", { controller.presentRename(divider: SidebarDivider(id: UUID(), name: "D")) }),
+            ("rename task", { controller.presentRename(task: task) }),
+            ("rename terminal", { controller.presentRename(terminal: terminal) }),
+            ("jira projects", { controller.presentJiraProjects(for: fixture.project) }),
+        ]
+        for (name, present) in presenters {
+            controller.sheet = nil
+            controller.presentNewTask(project: fixture.project)
+            let preparing = try #require(controller.preparingSheet)
+            present()
+            await preparing.value
+            #expect(preparing.isCancelled, "\(name) cancels the preparation")
+            #expect(controller.sheet?.id.hasPrefix("task-") == false, "\(name) is not replaced by New Task")
+            #expect(controller.sheet != nil, "\(name) opened its own sheet")
+        }
+    }
+
+    /// Reopen Window stays on the menu while the daemon is away, so it says why nothing happens.
+    @Test func reopeningATaskWhileDisconnectedSaysSo() throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let task = try fixture.addTask(windowId: nil)
+
+        #expect(fixture.controller.reopen(task: task) == nil)
+
+        #expect(fixture.controller.issue == .disconnected("Reopen Window again"))
+        #expect(fixture.controller.issue?.title == "Disconnected. Try Reopen Window again once AiTerm reconnects.")
+    }
+
+    /// The refusal leaves the row unlocked: once the daemon is back, the same click goes through.
+    @Test func aReopenRefusedWhileDisconnectedDoesNotLockTheRow() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let task = try fixture.addTask(windowId: nil)
+        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
+        fixture.controller.state.terminals = [terminal]
+        #expect(fixture.controller.reopen(task: task) == nil)
+        #expect(fixture.controller.reopen(terminal: terminal, project: fixture.project) == nil)
+
+        fixture.controller.helper.setDaemonClient(server)
+        await fixture.controller.reopen(task: task)?.value
+        await fixture.controller.reopen(terminal: terminal, project: fixture.project)?.value
+
+        #expect(fixture.controller.state.tasks.first?.windowId == "reopened")
+        #expect(fixture.controller.state.terminals.first?.windowId == "terminal-window")
+    }
+
+    @Test func reopeningATerminalWhileDisconnectedSaysSo() throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
+        fixture.controller.state.terminals = [terminal]
+
+        #expect(fixture.controller.reopen(terminal: terminal, project: fixture.project) == nil)
+
+        #expect(fixture.controller.issue == .disconnected("Reopen Window again"))
+    }
+
+    /// A stale click — the row already has its window — is ignored whether or not the daemon is there.
+    @Test func reopeningARowThatHasItsWindowStaysSilentWhileDisconnected() throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let task = try fixture.addTask(windowId: "alive")
+
+        #expect(fixture.controller.reopen(task: task) == nil)
+        #expect(fixture.controller.issue == nil)
+    }
+
     /// The row can go while its window opens. The window is then closed, not left behind unowned.
     @Test func aWindowOpenedForATaskThatWentMeanwhileIsClosed() async throws {
         let fixture = try RaceFixture()

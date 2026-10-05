@@ -59,6 +59,12 @@ struct OperationIssue: Equatable {
         error is GitError ? GitError.sentence(of: error) : error.localizedDescription
     }
 
+    /// The one sentence for an action that needs the daemon when there is none: `action` finishes
+    /// "Try …", as the person would say it once AiTerm has reconnected.
+    static func disconnected(_ action: String) -> OperationIssue {
+        OperationIssue(title: "Disconnected. Try \(action) once AiTerm reconnects.")
+    }
+
     /// A removed task's branch that git would not delete. Only `.notMerged` offers Delete: `-D`
     /// answers commits the base lacks, not a refusal for any other reason.
     static func branchKept(_ branch: String, of task: UUID, because refusal: TaskWorkflow.BranchRefusal) -> OperationIssue {
