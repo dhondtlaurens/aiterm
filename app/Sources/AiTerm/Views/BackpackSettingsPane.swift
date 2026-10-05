@@ -63,25 +63,6 @@ enum BackpackPresentation {
     }
 }
 
-/// A Settings card's round mark for something that is not a vendor: an SF Symbol on a neutral
-/// disc, in the family of `IntegrationMark`.
-struct SymbolMark: View {
-    let symbol: String
-    let size: CGFloat
-    /// The glyph's optical size inside a `Size.control` disc. A symbol's ink box is not a logo's, so
-    /// `LogoFit` does not apply, and no `Size` step fits.
-    private static let glyphRatio: CGFloat = 0.5
-
-    var body: some View {
-        ZStack {
-            Circle().fill(Palette.controlActive)
-            Icon(.symbol(symbol), size: size * Self.glyphRatio, tint: Palette.text)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
 /// Settings › Backpack: Mac permissions, Hotspot and Battery, each a `SettingsCard` like the other
 /// tabs'. Allow… and Remove act at once, as a harness card's Install does; the fields wait for Save.
 struct BackpackSettingsPane: View {

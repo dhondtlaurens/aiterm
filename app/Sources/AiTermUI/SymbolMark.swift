@@ -1,0 +1,29 @@
+import SwiftUI
+
+/// A round mark for something that is not a vendor: an SF Symbol on a neutral
+/// `Palette.controlActive` disc, in `IntegrationMark`'s family. Settings › Backpack's cards draw it at
+/// `Size.control`; the sidebar's status bento draws Backpack's at `Size.vendorMark`. `size` is
+/// points on screen: the caller scales the token it passes.
+public struct SymbolMark: View {
+    let symbol: String
+    let size: CGFloat
+    let tint: Color
+    /// The glyph's optical size inside the disc. A symbol's ink box is not a logo's, so `LogoFit`
+    /// does not apply, and no `Size` step fits.
+    private static let glyphRatio: CGFloat = 0.5
+
+    public init(symbol: String, size: CGFloat, tint: Color = Palette.text) {
+        self.symbol = symbol
+        self.size = size
+        self.tint = tint
+    }
+
+    public var body: some View {
+        ZStack {
+            Circle().fill(Palette.controlActive)
+            Icon(.symbol(symbol), size: size * Self.glyphRatio, tint: tint)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
