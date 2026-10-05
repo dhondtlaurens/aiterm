@@ -21,12 +21,19 @@ public final class DefaultBranchResolver: Sendable {
                                "refs/heads/main", "refs/heads/master", "packed-refs", "reftable/tables.list", "config"]
 
     private let git: any GitRunning
+    private let probe: RepositoryProbe
     private let cache: WatchedFileCache<String>
 
-    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
+    /// Resolvers given the same `probe` ask git where a directory's files are once between them.
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
+                probe: RepositoryProbe? = nil) {
         self.git = git
+        self.probe = probe ?? RepositoryProbe(git: git, now: now, negativeTTL: negativeTTL)
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
+
+    /// Forgets every project directory not in `live`.
+    public func retain(only live: Set<String>) { cache.retain(only: live) }
 
     /// The default branch of the repository `repo` is in — ``Worktrees/fallbackDefaultBranch`` when
     /// it does not say — or `nil` when it is not a git checkout, or git could not be asked and nothing
@@ -34,9 +41,9 @@ public final class DefaultBranchResolver: Sendable {
     /// until the next lookup.
     public func defaultBranch(for repo: String) -> String? {
         guard !repo.isEmpty else { return nil }
-        let git = self.git
+        let git = self.git, probe = self.probe
         do {
-            switch try cache.answer(for: repo, locate: { try Self.locate($0, git: git) },
+            switch try cache.answer(for: repo, locate: { try probe.locations(of: $0).map(Self.watched) },
                                     read: { repo, _ in try Worktrees.detectDefaultBranch(repo: repo, git: git) ?? Worktrees.fallbackDefaultBranch }) {
             case .notARepository: return nil
             case .found(let branch): return branch
@@ -44,9 +51,7 @@ public final class DefaultBranchResolver: Sendable {
         } catch { return nil }
     }
 
-    private static func locate(_ repo: String, git: any GitRunning) throws -> [String]? {
-        guard let common = try git.ask(["rev-parse", "--git-common-dir"], in: repo, none: [128]), !common.isEmpty else { return nil }
-        let directory = FileStamps.absolute(common, in: repo)
-        return refs.map { directory + "/" + $0 }
+    private static func watched(_ found: RepositoryProbe.Locations) -> [String] {
+        refs.map { found.commonDirectory + "/" + $0 }
     }
 }

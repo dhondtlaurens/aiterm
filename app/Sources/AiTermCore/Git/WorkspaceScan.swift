@@ -40,6 +40,12 @@ public struct WorkspaceScan: Equatable, Sendable {
     public static func run(cwds: [String], projects: [Project], tasks: [TaskItem],
                            branches: BranchResolver, remotes: RemoteResolver,
                            diffs: DiffStatResolver, defaultBranches: DefaultBranchResolver) -> WorkspaceScan {
+        // The resolvers keep what they learn per directory; a directory no tab or project is in any
+        // more — a worktree removed, a tab that wandered off — is forgotten rather than kept for good.
+        let projectDirectories = Set(projects.map(\.path))
+        branches.retain(only: projectDirectories.union(cwds))
+        remotes.retain(only: projectDirectories)
+        defaultBranches.retain(only: projectDirectories)
         let missing = Set(tasks.filter { !FileManager.default.fileExists(atPath: $0.worktreePath) }.map(\.id))
         let projectPaths = Dictionary(projects.map { ($0.id, $0.path) }, uniquingKeysWith: { first, _ in first })
         var projectBranch: [UUID: String] = [:], found: [UUID: Remote] = [:], defaultBranch: [UUID: String] = [:]

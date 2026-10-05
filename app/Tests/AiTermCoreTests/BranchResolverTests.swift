@@ -123,10 +123,12 @@ extension BranchResolverTests {
     /// Failing to find `HEAD` is not "not a repository", which would be remembered for the negative
     /// window and leave the row without a branch.
     @Test func aFailedLookupIsNotKeptAsNotARepository() throws {
-        let repo = try makeRepo(), flaky = FlakyGitRunner(), resolver = BranchResolver(git: flaky)
+        let repo = try makeRepo(), flaky = FlakyGitRunner(), clock = TestClock()
+        let resolver = BranchResolver(git: flaky, now: { clock.now })
         flaky.failing = true
         #expect(resolver.branch(for: repo) == nil)
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.branch(for: repo) == "main")
     }
 
@@ -134,12 +136,13 @@ extension BranchResolverTests {
     /// keeps the branch it had rather than caching "none" until HEAD moves again.
     @Test func aFailedReadKeepsTheLastBranchAndIsRetried() throws {
         let repo = try makeRepo(refFormat: "reftable"), git = GitRunner.hermetic()
-        let flaky = FlakyGitRunner(), resolver = BranchResolver(git: flaky)
+        let flaky = FlakyGitRunner(), clock = TestClock(), resolver = BranchResolver(git: flaky, now: { clock.now })
         #expect(resolver.branch(for: repo) == "main")
         try git.run(["checkout", "-q", "-b", "feat/x"], in: repo)
         flaky.failing = true
         #expect(resolver.branch(for: repo) == "main", "the last answer stands while git cannot be asked")
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.branch(for: repo) == "feat/x")
     }
 }

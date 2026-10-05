@@ -25,21 +25,28 @@ public enum RepoRemote: Equatable, Sendable {
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class RemoteResolver: Sendable {
     private let git: any GitRunning
+    private let probe: RepositoryProbe
     private let cache: WatchedFileCache<String?>
 
-    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30) {
+    /// Resolvers given the same `probe` ask git where a directory's files are once between them.
+    public init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, negativeTTL: TimeInterval = 30,
+                probe: RepositoryProbe? = nil) {
         self.git = git
+        self.probe = probe ?? RepositoryProbe(git: git, now: now, negativeTTL: negativeTTL)
         self.cache = WatchedFileCache(now: now, negativeTTL: negativeTTL)
     }
+
+    /// Forgets every project directory not in `live`.
+    public func retain(only live: Set<String>) { cache.retain(only: live) }
 
     /// The remote configured in `repo`, `.notARepository` when that is not a git checkout, and
     /// `.unavailable` when git could not be asked and nothing was known before. A failure is never
     /// kept; one after an answer leaves that answer standing until the next lookup.
     public func remote(for repo: String) -> RepoRemote {
         guard !repo.isEmpty else { return .notARepository }
-        let git = self.git
+        let git = self.git, probe = self.probe
         do {
-            switch try cache.answer(for: repo, locate: { try WatchedFileCache<String?>.gitPath("config", in: $0, git: git).map { [$0] } },
+            switch try cache.answer(for: repo, locate: { try probe.locations(of: $0).map { [$0.config] } },
                                     read: { repo, _ in try Worktrees.remoteUrl(repo: repo, git: git) }) {
             case .notARepository: return .notARepository
             case .found(let remote): return .remote(remote)

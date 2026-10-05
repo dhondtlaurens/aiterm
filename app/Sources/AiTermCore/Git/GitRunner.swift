@@ -30,6 +30,10 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
         return " " + items.prefix(3).joined(separator: ", ") + (items.count > 3 ? " and \(items.count - 3) more" : "")
     }
 
+    /// Git ran out of time (see ``GitRunner``): a hung mount or a machine under load, which says
+    /// nothing about what was asked, unlike a status git answers with.
+    public var timedOut: Bool { stderr.contains("timed out after") }
+
     /// `git worktree remove` refusing a checkout with uncommitted or untracked files — the one
     /// refusal that `--force` answers, after asking.
     public var refusedForUnsavedWork: Bool {

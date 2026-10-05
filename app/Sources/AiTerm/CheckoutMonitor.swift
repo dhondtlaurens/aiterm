@@ -68,8 +68,10 @@ final class CheckoutMonitor {
         self.live = live
         self.scan = scan
         self.pollInterval = pollInterval
-        branches = BranchResolver(git: git); remotes = RemoteResolver(git: git)
-        diffs = DiffStatResolver(git: git); defaultBranches = DefaultBranchResolver(git: git)
+        // One probe for the three, so a directory's files are looked up once, not once each.
+        let probe = RepositoryProbe(git: git)
+        branches = BranchResolver(git: git, probe: probe); remotes = RemoteResolver(git: git, probe: probe)
+        diffs = DiffStatResolver(git: git); defaultBranches = DefaultBranchResolver(git: git, probe: probe)
         self.workspace = workspace
         self.removalInFlight = removalInFlight
         self.onRemotes = onRemotes

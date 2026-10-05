@@ -113,10 +113,11 @@ extension DefaultBranchResolverTests {
     /// on the next lookup, rather than the fallback standing until a ref moves.
     @Test func aFailedLookupIsNotKept() throws {
         let checkout = try clone(try makeRepo(branch: "develop"))
-        let flaky = FlakyGitRunner(), resolver = DefaultBranchResolver(git: flaky)
+        let flaky = FlakyGitRunner(), clock = TestClock(), resolver = DefaultBranchResolver(git: flaky, now: { clock.now })
         flaky.failing = true
         #expect(resolver.defaultBranch(for: checkout) == nil)
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.defaultBranch(for: checkout) == "develop")
     }
 
@@ -124,13 +125,14 @@ extension DefaultBranchResolverTests {
     /// meanwhile is read as soon as it can.
     @Test func theLastAnswerStandsWhileGitCannotBeAsked() throws {
         let checkout = try clone(try makeRepo(branch: "develop"))
-        let flaky = FlakyGitRunner(), resolver = DefaultBranchResolver(git: flaky)
+        let flaky = FlakyGitRunner(), clock = TestClock(), resolver = DefaultBranchResolver(git: flaky, now: { clock.now })
         #expect(resolver.defaultBranch(for: checkout) == "develop")
         try git.run(["branch", "-q", "main"], in: checkout)
         try git.run(["remote", "set-head", "origin", "-d"], in: checkout)
         flaky.failing = true
         #expect(resolver.defaultBranch(for: checkout) == "develop")
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.defaultBranch(for: checkout) == "main", "origin/HEAD is gone, so the usual names decide: local main")
     }
 }

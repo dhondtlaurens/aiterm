@@ -79,32 +79,35 @@ extension RemoteResolverTests {
     @Test func aFailedLookupIsNotKeptAsNoRemote() throws {
         let repo = try makeRepo()
         try GitRunner.hermetic().run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: repo)
-        let flaky = FlakyGitRunner(), resolver = RemoteResolver(git: flaky)
+        let flaky = FlakyGitRunner(), clock = TestClock(), resolver = RemoteResolver(git: flaky, now: { clock.now })
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .unavailable)
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.remote(for: repo) == .remote("git@gitlab.example.com:group/app.git"))
     }
 
     /// The same when only the read fails, `config` having been located: nothing is stored for the
     /// failed read, and the last answer stands meanwhile.
     @Test func aFailedReReadKeepsTheLastAnswerAndIsRetried() throws {
-        let repo = try makeRepo(), flaky = FlakyGitRunner(), resolver = RemoteResolver(git: flaky)
+        let repo = try makeRepo(), flaky = FlakyGitRunner(), clock = TestClock(), resolver = RemoteResolver(git: flaky, now: { clock.now })
         #expect(resolver.remote(for: repo) == .remote(nil))
         try GitRunner.hermetic().run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .remote(nil), "the last answer stands while git cannot be asked")
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.remote(for: repo) == .remote("git@example.com:app.git"), "the failed re-read is retried, not remembered")
     }
 
     /// A failure while a folder is first looked up is not "this is not a repository" either,
     /// which would be remembered for the negative window.
     @Test func aFailedLookupOfARepositoryIsNotKeptAsNotOne() throws {
-        let repo = try makeRepo(), flaky = FlakyGitRunner(), resolver = RemoteResolver(git: flaky)
+        let repo = try makeRepo(), flaky = FlakyGitRunner(), clock = TestClock(), resolver = RemoteResolver(git: flaky, now: { clock.now })
         flaky.failing = true
         #expect(resolver.remote(for: repo) == .unavailable)
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(resolver.remote(for: repo) == .remote(nil))
     }
 }

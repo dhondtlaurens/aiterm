@@ -17,8 +17,10 @@ struct WorkspaceScanTests {
 
     private struct Resolvers {
         let branches: BranchResolver, remotes: RemoteResolver, defaultBranches: DefaultBranchResolver
-        init(git: any GitRunning) {
-            branches = BranchResolver(git: git); remotes = RemoteResolver(git: git); defaultBranches = DefaultBranchResolver(git: git)
+        init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init) {
+            let probe = RepositoryProbe(git: git, now: now)
+            branches = BranchResolver(git: git, now: now, probe: probe); remotes = RemoteResolver(git: git, now: now, probe: probe)
+            defaultBranches = DefaultBranchResolver(git: git, now: now, probe: probe)
         }
     }
 
@@ -29,12 +31,13 @@ struct WorkspaceScanTests {
         let url = "git@gitlab.example.com:group/app.git"
         let repo = try makeRepo(remote: url)
         let project = Project(id: UUID(), name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date(), collapsed: false)
-        let flaky = FlakyGitRunner(), resolvers = Resolvers(git: flaky)
+        let flaky = FlakyGitRunner(), clock = TestClock(), resolvers = Resolvers(git: flaky, now: { clock.now })
         flaky.failing = true
         let failed = scan(project, git: flaky, resolvers: resolvers)
         #expect(failed.remotes.isEmpty)
         #expect(failed.defaultBranch.isEmpty)
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         let recovered = scan(project, git: flaky, resolvers: resolvers)
         #expect(recovered.remotes[project.id]?.url == url)
         #expect(recovered.defaultBranch[project.id] == "main")
@@ -45,12 +48,35 @@ struct WorkspaceScanTests {
         let url = "git@gitlab.example.com:group/app.git"
         let repo = try makeRepo(remote: url)
         let project = Project(id: UUID(), name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date(), collapsed: false)
-        let flaky = FlakyGitRunner(), resolvers = Resolvers(git: flaky)
+        let flaky = FlakyGitRunner(), clock = TestClock(), resolvers = Resolvers(git: flaky, now: { clock.now })
         #expect(scan(project, git: flaky, resolvers: resolvers).remotes[project.id]?.url == url)
         try GitRunner.hermetic().run(["remote", "set-url", "origin", "git@gitlab.example.com:group/moved.git"], in: repo)
         flaky.failing = true
         #expect(scan(project, git: flaky, resolvers: resolvers).remotes[project.id]?.url == url)
         flaky.failing = false
+        clock.advance(by: TimedOut.backoff)
         #expect(scan(project, git: flaky, resolvers: resolvers).remotes[project.id]?.url == "git@gitlab.example.com:group/moved.git")
+    }
+
+    /// A pass keeps what the resolvers learned only for the directories it names: a tab that has left
+    /// a directory — a worktree removed, a `cd` elsewhere — no longer holds it in memory, and the
+    /// directory is looked at afresh if a tab comes back. A project's own is kept throughout.
+    @Test func aPassForgetsADirectoryNoTabIsInAnyMore() throws {
+        let url = "git@gitlab.example.com:group/app.git"
+        let repo = try makeRepo(remote: url), elsewhere = try GitFixture.makeRepo(prefix: "ws-tab-")
+        let project = Project(id: UUID(), name: "app", path: repo, provider: .gitlab, remoteUrl: url, addedAt: Date(), collapsed: false)
+        let recording = RecordingGitRunner(forwardingTo: .hermetic()), resolvers = Resolvers(git: recording)
+        let diffs = DiffStatResolver(git: recording)
+        func pass(_ cwds: [String]) {
+            _ = WorkspaceScan.run(cwds: cwds, projects: [project], tasks: [], branches: resolvers.branches, remotes: resolvers.remotes,
+                                  diffs: diffs, defaultBranches: resolvers.defaultBranches)
+        }
+        pass([elsewhere])
+        let known = recording.calls.count
+        pass([elsewhere])
+        #expect(recording.calls.count == known, "everything is cached")
+        pass([])
+        pass([elsewhere])
+        #expect(recording.calls.count == known + 1, "the tab's directory was forgotten, and the project's was not")
     }
 }
