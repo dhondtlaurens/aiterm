@@ -97,9 +97,7 @@ public class GitRunner: @unchecked Sendable {
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String]) throws -> String {
         var env = ProcessRunner.inheritedEnvironment.merging(environment) { $1 }.merging(extra) { $1 }
         env["GIT_OPTIONAL_LOCKS"] = "0"; env["GIT_TERMINAL_PROMPT"] = "0"
-        // Some callers match git's English wording in stderr (`GitError.refusedForUnsavedWork`, "not
-        // fully merged"), and a translated git — Homebrew's, under a nl or fr locale — would not say it.
-        env["LC_ALL"] = "C"; env["LANGUAGE"] = "C"
+        env = Self.englishMessages(env)
         // Process.currentDirectoryURL can fall back when a checkout disappeared.
         // Git must itself validate the directory before doing anything to a repository.
         let result = try ProcessRunner.run(URL(fileURLWithPath: git), ["-C", dir] + args, environment: env,
@@ -112,6 +110,22 @@ public class GitRunner: @unchecked Sendable {
             throw GitError(args: args, code: result.status, stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `env` with git's messages in English. Some callers match git's wording in stderr
+    /// (`GitError.refusedForUnsavedWork`, "not fully merged"), and a translated git — Homebrew's,
+    /// under a nl or fr locale — would not say it.
+    ///
+    /// Only the messages: `LC_ALL=C` would override `LC_CTYPE` as well, for the hooks, filters and
+    /// credential helpers git starts. So an inherited `LC_ALL` is dropped, its value moved to
+    /// `LC_CTYPE` unless that is set, and `LC_MESSAGES` is `C`. `LANGUAGE` is dropped: gettext
+    /// ignores it once `LC_MESSAGES` is `C`, but a git that did not would still honour it.
+    static func englishMessages(_ env: [String: String]) -> [String: String] {
+        var env = env
+        if let all = env.removeValue(forKey: "LC_ALL"), env["LC_CTYPE"] == nil { env["LC_CTYPE"] = all }
+        env["LC_MESSAGES"] = "C"
+        env.removeValue(forKey: "LANGUAGE")
+        return env
     }
 
     /// `run` for a command that talks to a remote — `fetch`, `ls-remote` — with the remote

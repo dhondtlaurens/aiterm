@@ -24,18 +24,34 @@ import Testing
     }
 
     /// The app matches git's own wording in stderr (`modified or untracked files`, `not fully
-    /// merged`), so git speaks English whatever locale the person, the runner or a call asks for.
+    /// merged`), so git's messages are English whatever locale the person, the runner or a call asks
+    /// for — as the C library resolves it, which is what gettext asks.
     @Test func gitAlwaysSpeaksEnglish() throws {
-        let (plain, directory) = try fakeGit("/usr/bin/env")
+        let (plain, directory) = try fakeGit("/usr/bin/env | /usr/bin/grep -E '^(LC_|LANG)'; /usr/bin/locale")
         defer { try? FileManager.default.removeItem(atPath: directory) }
-        let dutch = ["LC_ALL": "nl_NL.UTF-8", "LANGUAGE": "nl"]
+        let dutch = ["LC_ALL": "nl_NL.UTF-8", "LANGUAGE": "nl", "LC_MESSAGES": "fr_FR.UTF-8"]
         let git = GitRunner(git: plain.git, environment: dutch)
-        for env in [try git.run(["status"], in: directory),
-                    try git.run(["status"], in: directory, timeout: GitRunner.localTimeout, environment: dutch)] {
-            let lines = env.split(separator: "\n")
-            #expect(lines.contains("LC_ALL=C") && lines.contains("LANGUAGE=C"))
-            #expect(!lines.contains { $0.contains("nl_NL") })
+        for output in [try git.run(["status"], in: directory),
+                       try git.run(["status"], in: directory, timeout: GitRunner.localTimeout, environment: dutch)] {
+            let lines = output.split(separator: "\n")
+            #expect(lines.contains("LC_MESSAGES=C"))
+            #expect(lines.contains(#"LC_MESSAGES="C""#))
+            #expect(!lines.contains("LC_ALL=nl_NL.UTF-8") && !lines.contains("LANGUAGE=nl"))
+            #expect(!lines.contains { $0.contains("fr_FR") })
         }
+    }
+
+    /// Only the messages are forced. An `LC_ALL` is dropped — it would override the character type
+    /// the hooks, filters and credential helpers git starts read — and its value kept as that
+    /// character type unless there is one already; `LANGUAGE` is dropped, which gettext ignores
+    /// once `LC_MESSAGES` is `C`.
+    @Test func onlyGitsMessagesAreForcedToEnglish() {
+        let moved = GitRunner.englishMessages(["LC_ALL": "nl_NL.UTF-8", "LANGUAGE": "nl", "LC_MESSAGES": "fr_FR.UTF-8", "LANG": "nl_BE.UTF-8"])
+        #expect(moved == ["LC_CTYPE": "nl_NL.UTF-8", "LC_MESSAGES": "C", "LANG": "nl_BE.UTF-8"])
+        let own = GitRunner.englishMessages(["LC_ALL": "nl_NL.UTF-8", "LC_CTYPE": "en_US.UTF-8"])
+        #expect(own == ["LC_CTYPE": "en_US.UTF-8", "LC_MESSAGES": "C"])
+        #expect(GitRunner.englishMessages(["LC_CTYPE": "C.UTF-8"]) == ["LC_CTYPE": "C.UTF-8", "LC_MESSAGES": "C"])
+        #expect(GitRunner.englishMessages([:]) == ["LC_MESSAGES": "C"])
     }
 
     /// The runner's own environment goes on every command, and a call's goes on that one only.
