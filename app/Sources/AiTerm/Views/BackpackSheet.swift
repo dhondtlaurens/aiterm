@@ -14,6 +14,8 @@ enum BackpackSheetPresentation {
     static let title = "Backpack Mode"
     static let steps = ["Hotspot", "Connect"]
     static let remembered = "The hotspot you used last, and its password from Keychain."
+    /// In its place while there is no hotspot to choose: Connect stays disabled, and this says why.
+    static let noHotspotYet = "Join your iPhone’s hotspot once from the Wi-Fi menu, and it shows up here."
     static let phoneSteps = [
         "Unlock the iPhone and open Settings › Personal Hotspot.",
         "Turn on Allow Others to Join.",
@@ -88,6 +90,10 @@ final class BackpackSheetModel: Identifiable {
     }
 
     var choices: [String?] { BackpackSheetPresentation.choices(known: knownNetworks, current: network) }
+    /// Step 1's line under the fields: how to get a hotspot when there is none to choose.
+    var hotspotHelp: String {
+        choices == [nil] ? BackpackSheetPresentation.noHotspotYet : BackpackSheetPresentation.remembered
+    }
     var missing: [BackpackSetup.Step] { backpack.setup.missingSteps }
     var canConnect: Bool { missing.isEmpty && network != nil && !backpack.busy }
     /// The dots stand for the remembered hotspot's Keychain password, and for no other hotspot's.
@@ -183,7 +189,7 @@ struct BackpackSheet: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            HelpText(BackpackSheetPresentation.remembered)
+            HelpText(model.hotspotHelp)
         }
     }
 

@@ -28,9 +28,11 @@ import Testing
         #expect(model.passwordSaved)
         #expect(model.password.isEmpty, "the saved one stays in Keychain; the field shows dots")
         #expect(model.choices == [nil, "Home", "Phone"])
+        #expect(model.hotspotHelp == BackpackSheetPresentation.remembered)
     }
 
-    /// Review focus 5: nothing remembered and nothing known — Connect waits for a hotspot.
+    /// Review focus 5: nothing remembered and nothing known — Connect waits for a hotspot, and
+    /// says how to get one.
     @Test func connectWaitsForAHotspot() async {
         let fake = FakeBackpack()
         fake.settings.network = nil
@@ -39,8 +41,20 @@ import Testing
         await model.load()
         #expect(model.choices == [nil])
         #expect(!model.canConnect)
+        #expect(model.hotspotHelp == "Join your iPhone’s hotspot once from the Wi-Fi menu, and it shows up here.")
+        #expect(model.hotspotHelp == BackpackSheetPresentation.noHotspotYet)
         model.connect()
         #expect(model.step == .hotspot)
+    }
+
+    /// Known networks but none remembered: there is a hotspot to choose, so the line is the usual one.
+    @Test func aKnownNetworkKeepsTheRememberedLine() async {
+        let fake = FakeBackpack()
+        fake.settings.network = nil
+        let model = BackpackSheetModel(backpack: backpack(fake))
+        await model.load()
+        #expect(model.choices == [nil, "Home", "Phone"])
+        #expect(model.hotspotHelp == BackpackSheetPresentation.remembered)
     }
 
     @Test func connectWaitsForBothPermissions() async {
