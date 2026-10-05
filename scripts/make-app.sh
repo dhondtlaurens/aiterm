@@ -28,8 +28,14 @@ cp "$ROOT/hooks/pi-aiterm-status.ts" "$OUT/Contents/Resources/hooks/"
 chmod +x "$OUT/Contents/Resources/hooks/claude-statusline-shim.sh"
 cp "$ROOT/hooks/grok-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
 chmod +x "$OUT/Contents/Resources/hooks/grok-statusline-shim.sh"
-# Dev builds are ad-hoc. Releases pass SIGN_IDENTITY="AiTerm Release": a stable identity keeps
-# macOS's iTerm2 automation permission across updates, and is what an update is verified against.
-codesign --force --deep --sign "${SIGN_IDENTITY:--}" "$OUT"
+# Signed with "AiTerm Release" whenever that certificate is in the keychain, dev builds included: a
+# stable identity keeps macOS's iTerm2 automation permission and the Keychain's "Always Allow"
+# across rebuilds and updates, and is what an update is verified against. Without the certificate
+# a build is ad-hoc, which macOS sees as a new app every time. SIGN_IDENTITY overrides both.
+if [[ -z "${SIGN_IDENTITY:-}" ]]; then
+    SIGN_IDENTITY=-
+    security find-identity -p codesigning | grep -q '"AiTerm Release"' && SIGN_IDENTITY="AiTerm Release"
+fi
+codesign --force --deep --sign "$SIGN_IDENTITY" "$OUT"
 codesign --verify --deep --strict "$OUT"
 echo "built $OUT"
