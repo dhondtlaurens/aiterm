@@ -23,6 +23,29 @@ import Foundation
         }
     }
 
+    /// Two heuristics over-match: a `git.` host name, and a path of more than two segments. Hosts
+    /// known not to be GitLab are ruled out first, whatever their name or path looks like.
+    @Test func knownHostsThatAreNotGitLabAreNot() throws {
+        let repo = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
+        try Data().write(to: URL(fileURLWithPath: repo + "/.gitlab-ci.yml"))
+        for url in ["git@ssh.dev.azure.com:v3/org/project/repo",
+                    "https://org@dev.azure.com/org/project/_git/repo",
+                    "https://org.visualstudio.com/project/_git/repo",
+                    "org@vs-ssh.visualstudio.com:v3/org/project/repo",
+                    "git@bitbucket.org:team/repo.git",
+                    "https://git.sr.ht/~user/repo",
+                    "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git",
+                    "https://git.savannah.gnu.org/git/emacs.git",
+                    "https://codeberg.org/user/repo.git"] {
+            #expect(ProviderDetector.detect(remoteUrl: url, repoPath: nil).provider == .git, "\(url)")
+            #expect(ProviderDetector.detect(remoteUrl: url, repoPath: repo).provider == .git, "\(url) with a CI file beside it")
+        }
+        // The heuristics still stand for hosts nothing is known about.
+        #expect(ProviderDetector.detect(remoteUrl: "git@git.example.net:web/acme-web.git", repoPath: nil).provider == .gitlab)
+        #expect(ProviderDetector.detect(remoteUrl: "https://code.example.com/a/b/c.git", repoPath: nil).provider == .gitlab)
+    }
+
     @Test func testLocalRepoWithoutRemoteIsGitAndNonRepoIsNone() throws {
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
