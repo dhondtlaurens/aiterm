@@ -29,10 +29,11 @@ import Synchronization
     }
 
     @Test func theSeparateItemsOfEarlierVersionsMoveIntoOne() {
-        let items = FakeKeychainItems(["jira.token": "j", "gitlab.token": "g", "github.token": "h"])
+        let items = FakeKeychainItems(["jira.token": "j", "gitlab.token": "g", "github.token": "h", "backpack.password": "b"])
         let keychain = Keychain(items: items)
         #expect(keychain.get("jira.token") == "j")
         #expect(keychain.get("github.token") == "h")
+        #expect(keychain.get("backpack.password") == "b")
         #expect(items.accounts == [Keychain.account])
         #expect(Keychain(items: items).get("gitlab.token") == "g")
     }

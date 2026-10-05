@@ -63,7 +63,7 @@ struct SystemKeychainItems: KeychainItems {
 }
 
 /// Every AiTerm secret, kept as one JSON object in one Keychain item. macOS asks for access per
-/// item, so one item is one prompt where a token each was one per token. The item is read once per
+/// item, so one item is one prompt where an item per secret was one per secret. The item is read once per
 /// process and kept: `shared` is the one the app uses, so every reader after the first, on any
 /// thread, is answered from memory, and readers that arrive together wait for that first read
 /// instead of each asking.
@@ -72,7 +72,7 @@ public final class Keychain: SecretStore, Sendable {
     static let account = "secrets"
     /// Earlier versions kept each token in an item of its own. They move into the one item the
     /// first time it is missing, and go once it holds them.
-    static let separateAccounts = ["jira.token", "gitlab.token", "github.token"]
+    static let separateAccounts = ["jira.token", "gitlab.token", "github.token", "backpack.password"]
 
     private let items: any KeychainItems
     /// `nil` until the item has been read. A refused read leaves it `nil`, so a later call asks again.

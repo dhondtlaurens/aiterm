@@ -35,7 +35,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
                                                     .first?.activate()
                                             },
                                             backpackPorts: .live(),
-                                            backpackSecrets: Keychain()))
+                                            backpackSecrets: Keychain.shared))
     }
     init(controller: AppController) {
         self.controller = controller
