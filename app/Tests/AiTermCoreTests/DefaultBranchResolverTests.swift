@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The default branch the project menu's "Pull main" names, read on every refresh pass.
 final class DefaultBranchResolverTests {
@@ -59,7 +60,7 @@ final class DefaultBranchResolverTests {
     /// `stat` per ref rather than a git call — and `git remote set-head` is picked up all the same.
     @Test func cachedAnswerIsReusedUntilOriginsHeadMoves() throws {
         let origin = try makeRepo(branch: "main"), checkout = try clone(origin)
-        let counting = DefaultBranchCountingGitRunner(environment: GitRunner.hermeticEnvironment)
+        let counting = CountingGitRunner()
         let resolver = DefaultBranchResolver(git: counting)
         #expect(resolver.defaultBranch(for: checkout) == "main")
         let afterFirst = counting.calls
@@ -98,7 +99,7 @@ final class DefaultBranchResolverTests {
     /// plain directory cannot run git on every pass.
     @Test func negativeAnswersAreCachedAndReprobedAfterTheirWindow() throws {
         let repo = try folder("later-")
-        let counting = DefaultBranchCountingGitRunner(environment: GitRunner.hermeticEnvironment)
+        let counting = CountingGitRunner()
         let clock = TestClock()
         let resolver = DefaultBranchResolver(git: counting, now: { clock.now }, negativeTTL: 30)
         #expect(resolver.defaultBranch(for: repo) == nil)
@@ -136,19 +137,5 @@ extension DefaultBranchResolverTests {
         #expect(resolver.defaultBranch(for: checkout) == "develop")
         flaky.failing = false
         #expect(resolver.defaultBranch(for: checkout) == "main", "origin/HEAD is gone, so the usual names decide: local main")
-    }
-}
-
-/// A `GitRunner` that counts how often it is actually asked to run something.
-///
-/// Unchecked because its stored `var`s are mutable: every access holds `lock`.
-private final class DefaultBranchCountingGitRunner: GitRunner, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _calls = 0
-    var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
-
-    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
-        lock.lock(); _calls += 1; lock.unlock()
-        return try super.run(args, in: dir, timeout: timeout)
     }
 }

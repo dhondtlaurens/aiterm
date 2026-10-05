@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite(.serialized) struct AppearanceTests {

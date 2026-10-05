@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// Wraps an `AsyncStream<DaemonEvent>.AsyncIterator` in a reference type so it can be shared with
 /// the deadline-racing `Task` in `nextEvent(_:timeoutSeconds:)` below without re-deriving a fresh

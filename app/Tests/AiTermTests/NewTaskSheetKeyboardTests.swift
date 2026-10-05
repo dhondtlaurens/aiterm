@@ -4,6 +4,7 @@ import AiTermUI
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite(.serialized) struct NewTaskSheetKeyboardTests {

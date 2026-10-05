@@ -5,6 +5,7 @@ import Synchronization
 import Darwin
 #endif
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct WorktreesTests {
     let git = GitRunner()

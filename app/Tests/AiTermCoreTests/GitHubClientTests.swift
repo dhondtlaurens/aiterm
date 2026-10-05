@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct GitHubClientTests {
     let config = GitHubConfig(token: "ghp_tok")

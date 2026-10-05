@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct GitRunnerTests {
     /// A stand-in for git: a script whose body is `script`, in a directory of its own.
@@ -76,22 +77,5 @@ import Testing
         #expect(try fake.runRemote(["ls-remote", "origin"], in: directory)
                 == "-C \(directory) -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote origin")
         #expect(GitRunner.localTimeout == 10 && GitRunner.remoteTimeout == 30)
-    }
-}
-
-/// A `GitRunner` that records what it was asked to run, and with what deadline, and runs nothing.
-///
-/// Unchecked because `_calls` is mutable, and held under `lock`; `forwards` is set before any run.
-final class RecordingGitRunner: GitRunner, @unchecked Sendable {
-    struct Call: Equatable { var args: [String]; var timeout: TimeInterval }
-    private let lock = NSLock()
-    private var _calls: [Call] = []
-    var calls: [Call] { lock.withLock { _calls } }
-    /// Runs every call for real, after recording it, when set.
-    var forwards = false
-
-    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
-        lock.withLock { _calls.append(Call(args: args, timeout: timeout)) }
-        return forwards ? try super.run(args, in: dir, timeout: timeout) : ""
     }
 }

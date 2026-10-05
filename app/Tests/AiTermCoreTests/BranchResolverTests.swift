@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 struct BranchResolverTests {
     private func makeRepo(refFormat: String = "files") throws -> String {
@@ -149,19 +150,5 @@ extension BranchResolverTests {
         #expect(resolver.branch(for: repo) == "main", "the last answer stands while git cannot be asked")
         flaky.failing = false
         #expect(resolver.branch(for: repo) == "feat/x")
-    }
-}
-
-/// A `GitRunner` that counts how often it is actually asked to run something.
-///
-/// Unchecked because its stored `var`s are mutable: every access holds `lock`.
-private final class CountingGitRunner: GitRunner, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _calls = 0
-    var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
-
-    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
-        lock.lock(); _calls += 1; lock.unlock()
-        return try super.run(args, in: dir, timeout: timeout)
     }
 }

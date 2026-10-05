@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 struct InterfacePreferencesTests {

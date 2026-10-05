@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct GitLabClientTests {
     let config = GitLabConfig(hostURL: URL(string: "https://git.example.net")!, token: "tok")

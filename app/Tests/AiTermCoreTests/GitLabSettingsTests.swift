@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct GitLabSettingsTests {
     @Test func testSaveAndLoadSplitSecretFromDefaults() {

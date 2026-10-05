@@ -4,6 +4,7 @@ import Darwin
 #endif
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The helper every daemon-client test talks to. Tests run in parallel, and a descriptor a stopped
 /// server let go is the next `socket()` anyone makes: its accept loop must never accept on it.

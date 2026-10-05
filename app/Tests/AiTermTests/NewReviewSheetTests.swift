@@ -4,6 +4,7 @@ import AiTermUI
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @Suite @MainActor struct NewReviewSheetTests {
     /// Step 1 needs both a name and a branch. Unlike a task, a review derives neither — there is

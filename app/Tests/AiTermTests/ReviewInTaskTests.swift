@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// A review of a branch that is already a task's opens in that task: a tab in its window running
 /// the reviewer, and nothing on disk. Git would refuse a second worktree on the branch anyway, and

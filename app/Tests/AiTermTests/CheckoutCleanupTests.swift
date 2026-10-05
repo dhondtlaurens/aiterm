@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 extension AppControllerTests {
     /// A checkout removed outside AiTerm while its window is open: the row and its badge stay until
@@ -411,7 +412,7 @@ private struct CheckoutFixture {
     let task: TaskItem
     let controller: AppController
 
-    init(windowOpen: Bool, prompter: Prompter = ModalPrompter(), pollInterval: Duration = .seconds(2)) throws {
+    init(windowOpen: Bool, prompter: Prompter = ScriptedPrompter(), pollInterval: Duration = .seconds(2)) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         repo = root.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)

@@ -82,5 +82,7 @@ swift_test() {
 
 # One host per test target, so that is what the run must report; pinning its test count instead
 # would churn on every test added. No test raises a real modal alert — the app's questions go
-# through a `Prompter` that tests script — so every test runs in this one pass.
+# through a `Prompter` that tests script, and the test controller's default one fails the test on a
+# question nobody scripted — so every test runs in this one pass. (AiTermTestSupport is a library,
+# not a test target: it adds no host.)
 swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")" ''

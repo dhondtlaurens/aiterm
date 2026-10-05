@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// Choosing a row or creating a terminal ends with iTerm2 frontmost, so the person can type at
 /// once: the daemon only raises the window inside iTerm2, and the app itself is brought forward

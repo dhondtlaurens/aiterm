@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 struct WorkspaceScanTests {
     private func makeRepo(remote: String) throws -> String {

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct GitLabReleaseSourceTests {
     let host = URL(string: "https://git.example.net")!

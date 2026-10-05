@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// Work the controller awaits — a daemon reply, git, a modal question — lets anything else run
 /// meanwhile. Each test here makes something happen in that gap and checks the work that resumes

@@ -4,6 +4,7 @@ import Foundation
 import Darwin
 #endif
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct TaskCreatorTests {
     let git = GitRunner()

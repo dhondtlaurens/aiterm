@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// A monitor over a scripted scanner: each pass reports the next of `passes`, or the last one again.
 @MainActor

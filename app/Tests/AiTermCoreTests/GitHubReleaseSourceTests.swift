@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct GitHubReleaseSourceTests {
     let listURL = "https://api.github.com/repos/octocat/hello/releases?per_page=20"

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 struct RemoteResolverTests {
     private func makeRepo() throws -> String {
@@ -53,7 +54,7 @@ struct RemoteResolverTests {
     /// — so a new remote is picked up without running git for every project on every refresh.
     @Test func cachedAnswerIsReusedUntilTheConfigChanges() throws {
         let repo = try makeRepo(), git = GitRunner()
-        let counting = RemoteCountingGitRunner()
+        let counting = CountingGitRunner()
         let resolver = RemoteResolver(git: counting)
         #expect(resolver.remote(for: repo) == .remote(nil))
         let afterFirst = counting.calls
@@ -70,7 +71,7 @@ struct RemoteResolverTests {
         let dir = NSTemporaryDirectory() + "later-" + UUID().uuidString
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let repo = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
-        let counting = RemoteCountingGitRunner()
+        let counting = CountingGitRunner()
         let clock = TestClock()
         let resolver = RemoteResolver(git: counting, now: { clock.now }, negativeTTL: 30)
         #expect(resolver.remote(for: repo) == .notARepository)
@@ -116,19 +117,5 @@ extension RemoteResolverTests {
         #expect(resolver.remote(for: repo) == .unavailable)
         flaky.failing = false
         #expect(resolver.remote(for: repo) == .remote(nil))
-    }
-}
-
-/// A `GitRunner` that counts how often it is actually asked to run something.
-///
-/// Unchecked because its stored `var`s are mutable: every access holds `lock`.
-private final class RemoteCountingGitRunner: GitRunner, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _calls = 0
-    var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
-
-    override func run(_ args: [String], in dir: String, timeout: TimeInterval = GitRunner.localTimeout) throws -> String {
-        lock.lock(); _calls += 1; lock.unlock()
-        return try super.run(args, in: dir, timeout: timeout)
     }
 }

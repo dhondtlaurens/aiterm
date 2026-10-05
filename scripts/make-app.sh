@@ -9,7 +9,9 @@ PY="${PYTHON:-python3}"
 # version is validated there too.
 "$PY" -c 'import sys; assert sys.version_info >= (3, 11), sys.version' || { echo "python3 >= 3.11 required"; exit 1; }
 
-(cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build -c release 2>&1 | grep -v libSwiftScan | tail -1)
+# `--product AiTerm`: a plain release build also builds AiTermTestSupport, which `@testable import`s Core
+# and so only builds with testability, as a debug build has.
+(cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build -c release --product AiTerm 2>&1 | grep -v libSwiftScan | tail -1)
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources/daemon" "$OUT/Contents/Resources/hooks"
 cp "$ROOT/app/.build/release/AiTerm" "$OUT/Contents/MacOS/AiTerm"

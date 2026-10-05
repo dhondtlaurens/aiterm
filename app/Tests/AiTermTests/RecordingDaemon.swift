@@ -1,5 +1,6 @@
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// A daemon that records every request, under the method `DaemonClient` would send it as, and
 /// answers the window and tab calls the controller makes; the second window of a kind gets `-2`

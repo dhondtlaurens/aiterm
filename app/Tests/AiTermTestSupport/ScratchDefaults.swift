@@ -7,8 +7,6 @@ import Synchronization
 /// writes it back there, if only as an empty dictionary, even after `removePersistentDomain` and a
 /// deleted file. The folder goes when the test process exits — at exit rather than per test, since a
 /// domain is often handed to an object that outlives the test's own scope.
-///
-/// `AiTermCoreTests` has the same helper: test targets cannot share a source file.
 enum ScratchDefaults {
     static func make() -> UserDefaults {
         let path = folder.appendingPathComponent(UUID().uuidString).path

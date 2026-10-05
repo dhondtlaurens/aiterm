@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite struct HarnessSettingsModelTests {

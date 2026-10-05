@@ -1,5 +1,6 @@
 import Foundation
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 extension InterfacePreferences {
     /// Preferences over a domain of their own (``ScratchDefaults``), so a test starts from the

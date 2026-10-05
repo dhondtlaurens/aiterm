@@ -18,18 +18,10 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
         branchName.trimmingCharacters(in: .whitespaces).isEmpty ? "" : TaskCreator.worktreeSlug(branch: branch)
     }
 
-    /// A draft with no ticket and no title yet. `initial(project:state:git:)` is the one a sheet
+    /// A draft with no ticket and no title yet. `initial(project:state:git:agent:catalog:)` is the one a sheet
     /// opens with; this one is for a caller that knows the base branch without asking git.
     public init(ticket: JiraTicket?, baseBranch: String, agent: AgentKind, model: String, reasoning: String?) {
         self.ticket = ticket; self.baseBranch = baseBranch; self.agent = agent; self.model = model; self.reasoning = reasoning
-    }
-
-    public static func initial(project: Project, state: AppState, git: GitRunner,
-                               home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                               defaults: UserDefaults = .standard) -> TaskDraft {
-        let agent = state.lastAgentByProject[project.id] ?? .claude
-        return initial(project: project, state: state, git: git, agent: agent,
-                       catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)
     }
 
     /// A draft for `agent`, its model chosen from `catalog` — which the caller has read already.

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 struct DiffStatResolverTests {
     private let git = GitRunner()

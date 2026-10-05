@@ -3,6 +3,7 @@ import Synchronization
 import Testing
 import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The Integrations tab's logic, off the view: what Save stores and refuses, and when each card's
 /// connection is tested. Keychain writes go to a `MemorySecretStore`; the testers are stand-ins.

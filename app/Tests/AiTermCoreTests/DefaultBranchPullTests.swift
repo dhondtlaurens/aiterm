@@ -4,6 +4,7 @@ import Foundation
 import Darwin
 #endif
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// "Pull main": the project's default branch brought to origin's, fast-forward only, wherever
 /// it is checked out — or nowhere.

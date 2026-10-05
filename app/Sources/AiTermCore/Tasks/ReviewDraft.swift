@@ -13,13 +13,6 @@ public struct ReviewDraft: AgentDraft, Equatable, Sendable {
         self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning
     }
 
-    public static func initial(project: Project, state: AppState,
-                               home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                               defaults: UserDefaults = .standard) -> ReviewDraft {
-        let agent = state.lastAgentByProject[project.id] ?? .claude
-        return initial(state: state, agent: agent, catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)
-    }
-
     /// A draft for `agent`, its model chosen from `catalog` — which the caller has read already.
     public static func initial(state: AppState, agent: AgentKind, catalog: [AgentModel],
                                defaults: UserDefaults = .standard) -> ReviewDraft {

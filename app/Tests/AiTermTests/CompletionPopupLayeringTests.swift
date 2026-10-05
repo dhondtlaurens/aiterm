@@ -4,6 +4,7 @@ import AiTermUI
 import AiTermCore
 import Testing
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The completion popup hangs out of the prompt field, over the hint, the checkbox and the command
 /// preview below it. It has to draw over all of them, on a fill of its own: it used to sit under

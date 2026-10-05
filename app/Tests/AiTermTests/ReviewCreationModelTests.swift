@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import AiTerm
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite @MainActor struct ReviewCreationModelTests {
     let project = Project(id: UUID(), name: "acme-web", path: "/tmp/p", provider: .gitlab,
@@ -147,7 +148,7 @@ import Foundation
 
     @Test func testCreateRefusesAnUnavailableAgent() async {
         let m = model()
-        m.draft.setAgent(.codex, state: AppState.empty)
+        m.draft.setAgent(.codex, state: AppState.empty, home: ScratchHome.bare, defaults: ScratchDefaults.make())
         m.draft.setTitle("Review")
         #expect(await m.create() == false)
     }

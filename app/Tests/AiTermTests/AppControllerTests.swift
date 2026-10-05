@@ -5,6 +5,7 @@ import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite(.serialized) struct AppControllerTests {
@@ -891,13 +892,13 @@ import Testing
         let scans = ScanCounter(), pythonLookups = ScanCounter()
         // A bundle, so the helper looks for Python, through a lookup that runs no login shell.
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
-                                       harnessHome: dir, bundledResourcesURL: dir, locateAgents: { nil },
-                                       findPython: { pythonLookups.increment(); return nil },
+                                       harnessHome: dir, bundledResourcesURL: dir,
                                        scan: { _, _, _, _, _, _, _ in
                                            scans.increment()
                                            return WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
                                                                 removedTasks: [], remotes: [:])
-                                       })
+                                       },
+                                       findPython: { pythonLookups.increment(); return nil })
         try controller.loadWorkspace()
 
         controller.start()
@@ -1199,6 +1200,21 @@ extension AppControllerTests {
         await controller.agents.probeStatusLine()
         let command = support.appendingPathComponent("statusline-original.cmd")
         #expect(try String(contentsOf: command, encoding: .utf8) == "my-statusline")
+    }
+
+    /// A test that builds a controller and never scripts its prompter must fail when the app asks a
+    /// question, not open a modal `NSAlert` that blocks the run: the default answers nothing.
+    @Test func aTestControllerFailsAnUnexpectedQuestionRatherThanAskingModally() {
+        let controller = AppController(preferences: .scratch())
+        let prompter = controller.prompter as? ScriptedPrompter
+        #expect(prompter != nil, "the test initializer's prompter is scripted, not modal")
+
+        var answer: AlertAnswer?
+        withKnownIssue("the prompter was not told to expect a question") {
+            answer = controller.prompter.ask(AlertPrompt(message: "Remove task?", buttons: ["Remove", "Cancel"], escape: 1))
+        }
+        #expect(answer?.button == 1, "it answers with the button ⎋ gives")
+        #expect(prompter?.asked.map(\.message) == ["Remove task?"])
     }
 }
 

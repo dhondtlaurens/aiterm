@@ -11,25 +11,11 @@ public protocol AgentDraft {
 
 public extension AgentDraft {
     /// The model a draft opens with for `agent`: the saved app-wide default, else the last model
-    /// used with that agent, else the catalogue's first (see `ModelSettings.resolve`).
-    static func preference(for agent: AgentKind, state: AppState,
-                           home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                           defaults: UserDefaults = .standard) -> ModelPreference {
-        preference(for: agent, state: state, catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)
-    }
-
-    /// `preference` against a catalogue the caller has already read.
+    /// used with that agent, else the catalogue's first (see `ModelSettings.resolve`), the catalogue
+    /// being one the caller has already read.
     static func preference(for agent: AgentKind, state: AppState, catalog: [AgentModel],
                            defaults: UserDefaults = .standard) -> ModelPreference {
         ModelSettings.resolve(for: agent, catalog: catalog, remembered: state.lastModelByAgent[agent], defaults: defaults)
-    }
-
-    mutating func setAgent(_ a: AgentKind, state: AppState, home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                           defaults: UserDefaults = .standard) {
-        agent = a
-        let preference = Self.preference(for: a, state: state, home: home, defaults: defaults)
-        model = preference.model
-        reasoning = preference.reasoning
     }
 
     /// Switching model can change which reasoning levels exist (Codex publishes them per model), so

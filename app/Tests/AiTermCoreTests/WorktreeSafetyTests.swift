@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// What `Worktrees` must not do to work that is not its own: a branch someone is rebasing, a
 /// folder under `.worktrees/` that git no longer knows.

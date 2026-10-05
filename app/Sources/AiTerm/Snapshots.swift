@@ -104,10 +104,9 @@ enum Snapshots {
                 diffByTask: [working.id: DiffStat(added: 148, removed: 12), other.id: DiffStat(added: 3, removed: 0),
                              piTask.id: DiffStat(added: 7, removed: 2)])
             let store = StateStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-snapshots-\(UUID().uuidString).json"))
-            let controller = AppController(store: store, preferences: InterfacePreferences(defaults: Self.defaults),
-                                           harnessHome: Self.home, bundledResourcesURL: Bundle.main.resourceURL,
-                                           locateAgents: { nil },
-                                           scan: { _, _, _, _, _, _, _ in onDisk })
+            let controller = AppController.live(store: store, preferences: InterfacePreferences(defaults: Self.defaults),
+                                                harnessHome: Self.home, locateAgents: { nil }, setBadge: { _ in }, activateIterm: {},
+                                                scan: { _, _, _, _, _, _, _ in onDisk })
             controller.state.append(project: project)
             controller.state.append(divider: rule)
             controller.state.append(project: personal)
@@ -204,9 +203,9 @@ enum Snapshots {
             diffByTask: [refactor.id: DiffStat(added: 212, removed: 148), orphan.id: DiffStat(added: 18, removed: 6),
                          quantize.id: DiffStat(added: 96, removed: 31)])
         let store = StateStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-readme-\(UUID().uuidString).json"))
-        let controller = AppController(store: store, preferences: InterfacePreferences(defaults: Fixture.defaults),
-                                       harnessHome: Fixture.home, bundledResourcesURL: Bundle.main.resourceURL,
-                                       locateAgents: { nil }, scan: { _, _, _, _, _, _, _ in onDisk })
+        let controller = AppController.live(store: store, preferences: InterfacePreferences(defaults: Fixture.defaults),
+                                            harnessHome: Fixture.home, locateAgents: { nil }, setBadge: { _ in }, activateIterm: {},
+                                            scan: { _, _, _, _, _, _, _ in onDisk })
         controller.state.append(project: home)
         controller.state.append(divider: SidebarDivider(id: UUID(), name: "Personal"))
         controller.state.append(project: aiterm)
@@ -320,7 +319,11 @@ enum Snapshots {
 
         // Built rather than `TaskDraft.initial`, which asks git for the base branch of whatever
         // directory the renderer runs in.
-        let preference = TaskDraft.preference(for: .claude, state: .empty, defaults: Fixture.defaults)
+        // The model it opens on is the first of the real home's catalogue, as it has always been drawn
+        // here (`Fixture.catalogue` would draw the bare home's, and move the agent step's pixels).
+        let realHome = FileManager.default.homeDirectoryForCurrentUser
+        let preference = TaskDraft.preference(for: .claude, state: .empty, catalog: ModelCatalog.models(for: .claude, home: realHome),
+                                              defaults: Fixture.defaults)
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: preference.model, reasoning: preference.reasoning)
         write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets,
                            previewTicketsOpen: false),

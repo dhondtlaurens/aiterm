@@ -24,16 +24,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     private(set) lazy var updates = UpdateController.live(prompter: controller.prompter)
 
     override convenience init() {
-        self.init(controller: AppController(preferences: InterfacePreferences(defaults: .standard),
-                                            harnessHome: FileManager.default.homeDirectoryForCurrentUser,
-                                            bundledResourcesURL: Bundle.main.resourceURL,
-                                            setBadge: { NSApplication.shared.dockTile.badgeLabel = $0 },
-                                            // AiTerm is frontmost when a row is chosen, so macOS lets
-                                            // it hand activation to iTerm2.
-                                            activateIterm: {
-                                                NSRunningApplication.runningApplications(withBundleIdentifier: ItermPreferences.bundleIdentifier)
-                                                    .first?.activate()
-                                            }))
+        self.init(controller: .live())
     }
     init(controller: AppController) {
         self.controller = controller

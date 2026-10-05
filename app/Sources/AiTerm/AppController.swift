@@ -132,27 +132,28 @@ final class AppController {
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
-    /// `harnessHome` and `bundledResourcesURL` have no defaults: the app passes the person's home
-    /// and its bundle, and anything else that builds a controller says which it means, so none
-    /// reads the developer's own `~/.claude` or `~/.codex` by leaving them out. `peekDelay` is
-    /// `RowFocus`'s; a test passes none, and awaits the peek instead. `checkoutPollInterval` is the
-    /// pause between the checkout monitor's passes.
-    init(store: StateStore = StateStore(url: StateStore.defaultURL),
+    /// Nothing here has a default: every dependency that reaches outside the process — the state
+    /// file, the Keychain, a login shell, the person's home, the modal alerts — is named by whoever
+    /// builds a controller. The app builds one with `live()`, the snapshots with `live` too and a few
+    /// of its own, and a test with the convenience initializer in its target, whose defaults touch
+    /// none of them. `peekDelay` is `RowFocus`'s; a test passes none, and awaits the peek instead.
+    /// `checkoutPollInterval` is the pause between the checkout monitor's passes.
+    init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
          bundledResourcesURL: URL?,
-         locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { AgentAvailability.installed() },
-         findPython: @escaping @Sendable () -> URL? = { PythonLocator.find() },
-         jiraSettings: @escaping @Sendable () -> JiraConfig? = { JiraSettings.load() },
-         gitLabSettings: @escaping @Sendable () -> GitLabConfig? = { GitLabSettings.load() },
-         gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { GitHubSettings.load() },
-         prompter: Prompter = ModalPrompter(),
-         setBadge: @escaping @MainActor (String?) -> Void = { _ in },
-         activateIterm: @escaping @MainActor () -> Void = {},
-         peekDelay: Duration = .milliseconds(120),
-         checkoutPollInterval: Duration = .seconds(2),
-         git: GitRunner = GitRunner(),
-         scan: @escaping CheckoutMonitor.Scanner = { WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6) }) {
+         locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
+         findPython: @escaping @Sendable () -> URL?,
+         jiraSettings: @escaping @Sendable () -> JiraConfig?,
+         gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
+         gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
+         prompter: Prompter,
+         setBadge: @escaping @MainActor (String?) -> Void,
+         activateIterm: @escaping @MainActor () -> Void,
+         peekDelay: Duration,
+         checkoutPollInterval: Duration,
+         git: GitRunner,
+         scan: @escaping CheckoutMonitor.Scanner) {
         let link = ControllerLink()
         self.store = store
         self.preferences = preferences
@@ -1413,5 +1414,33 @@ final class AppController {
         if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return confirmRemove(task: task) }
         if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { return close(terminal: terminal) }
         return nil
+    }
+}
+
+extension AppController {
+    /// The real wiring: the person's `state.json`, `~/.claude` and `~/.codex`, the app's bundle, the
+    /// Keychain and a login shell for what they hold, modal alerts for questions, the Dock badge,
+    /// and iTerm2 handed focus — AiTerm is frontmost when a row is chosen, so macOS lets it hand
+    /// activation over. A caller that renders rather than runs (the snapshots) names what it
+    /// replaces; everything else is what the app does.
+    static func live(store: StateStore = StateStore(url: StateStore.defaultURL),
+                     preferences: InterfacePreferences = InterfacePreferences(defaults: .standard),
+                     harnessHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                     bundledResourcesURL: URL? = Bundle.main.resourceURL,
+                     locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { AgentAvailability.installed() },
+                     setBadge: @escaping @MainActor (String?) -> Void = { NSApplication.shared.dockTile.badgeLabel = $0 },
+                     activateIterm: @escaping @MainActor () -> Void = {
+                         NSRunningApplication.runningApplications(withBundleIdentifier: ItermPreferences.bundleIdentifier)
+                             .first?.activate()
+                     },
+                     scan: @escaping CheckoutMonitor.Scanner = {
+                         WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
+                     }) -> AppController {
+        AppController(store: store, preferences: preferences, harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL,
+                      locateAgents: locateAgents, findPython: { PythonLocator.find() },
+                      jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
+                      gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
+                      activateIterm: activateIterm, peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
+                      git: GitRunner(), scan: scan)
     }
 }
