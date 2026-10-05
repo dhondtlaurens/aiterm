@@ -263,6 +263,7 @@ struct SidebarSheet: View {
                                  setInterfaceSize: { controller.tiling.setInterfaceSize($0) },
                                  initialTab: tab,
                                  backpack: controller.backpack)
+                case .backpack(let model): BackpackSheet(model: model)
             }
         }
         .interfaceScale(.standard)

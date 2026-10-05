@@ -8,6 +8,24 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct AppControllerTests {
+    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet nor
+    /// turns anything off (review focus 2). Inert ports: the connect refuses with needsSetup, which
+    /// is enough to hold `busy` for a moment and exercise the guard.
+    @Test func toggleWhileConnectingDoesNothing() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch())
+        controller.toggleBackpack()
+        guard case .backpack(let model)? = controller.sheet else { Issue.record("no sheet"); return }
+        model.network = "Phone"
+        let connecting = Task { await controller.backpack.connect(network: "Phone", password: nil) }
+        controller.toggleBackpack()
+        guard case .backpack(let same)? = controller.sheet else { Issue.record("sheet replaced"); return }
+        #expect(same === model)
+        await connecting.value
+        #expect(!controller.backpack.isOn)
+    }
+
     @Test func failedLoadCannotSaveEmptyState() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

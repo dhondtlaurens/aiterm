@@ -57,6 +57,8 @@ extension AppController {
         case newDivider, rename(RenameTarget)
         /// Settings opens on the saved credentials, read from the Keychain once when it is presented.
         case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, tab: SettingsTab?)
+        /// Backpack Mode's sheet: its model is built once, as New Task's is.
+        case backpack(BackpackSheetModel)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -66,6 +68,7 @@ extension AppController {
             case .newDivider: return "divider-new"
             case .rename(let target): return "rename-\(target.id)"
             case .settings: return "settings"
+            case .backpack: return "backpack"
             }
         }
     }
@@ -86,7 +89,7 @@ extension AppController.SheetKind {
         switch self {
         case .newTask(let model): return model
         case .newReview(let model): return model
-        case .jiraProjects, .newTerminal, .newDivider, .rename, .settings: return nil
+        case .jiraProjects, .newTerminal, .newDivider, .rename, .settings, .backpack: return nil
         }
     }
 }

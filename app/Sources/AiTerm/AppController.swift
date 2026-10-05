@@ -257,11 +257,15 @@ final class AppController {
         helper.shutdown()
     }
 
-    /// The Mac row's click and ⌘B. Backpack off at once; desk opens the sheet (a later task).
-    /// Ignored while it switches.
+    /// The Mac row's click and ⌘B. Backpack off at once; desk opens the sheet, unless another one
+    /// is up. Ignored while it switches.
     func toggleBackpack() {
         guard !backpack.busy else { return }
-        if backpack.isOn { Task { await backpack.turnOff() } }
+        if backpack.isOn {
+            Task { await backpack.turnOff() }
+        } else if sheet == nil {
+            sheet = .backpack(BackpackSheetModel(backpack: backpack))
+        }
     }
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
