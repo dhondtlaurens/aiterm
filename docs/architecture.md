@@ -67,7 +67,7 @@ owner each, reached as a property of the controller. Views read the owners direc
 | `SidebarTiling` | `tiling` | the sidebar window, its saved frame, and the terminal windows tiled beside it |
 | `RowFocus` | `focus` | the selected row — a project header, a task or a terminal — and the request that brings its window forward — a click, Return, a peek — each returned as its `Task` |
 | `LiveSessions` | `live` | every tab the daemon reports, usage, and each row's last context fill |
-| `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and every 2 s |
+| `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and 2 s after the last pass ends |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the titles already sent |
 
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
@@ -209,8 +209,8 @@ the remaining step. Force-removing checkout changes does not force-delete unmerg
 Agent Stop hooks and shell-command text never authorize cleanup. Use **Remove Task…** only
 when all work is finished; legacy cleanup events also leave the task and its window intact.
 
-AiTerm checks saved checkout paths every two seconds, independently of agent hooks and
-session changes. When a checkout has been deleted externally, its task row is removed and
+AiTerm checks saved checkout paths two seconds after the previous check ends, independently of
+agent hooks and session changes. When a checkout has been deleted externally, its task row is removed and
 its window is closed through the connected daemon; any remaining Git branch is preserved.
 If closing the window fails or the daemon is unavailable, the task stays until closure can
 be confirmed, and AiTerm retries automatically.

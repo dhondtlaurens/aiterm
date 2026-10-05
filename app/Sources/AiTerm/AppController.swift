@@ -132,7 +132,8 @@ final class AppController {
     /// `harnessHome` and `bundledResourcesURL` have no defaults: the app passes the person's home
     /// and its bundle, and anything else that builds a controller says which it means, so none
     /// reads the developer's own `~/.claude` or `~/.codex` by leaving them out. `peekDelay` is
-    /// `RowFocus`'s; a test passes none, and awaits the peek instead.
+    /// `RowFocus`'s; a test passes none, and awaits the peek instead. `checkoutPollInterval` is the
+    /// pause between the checkout monitor's passes.
     init(store: StateStore = StateStore(url: StateStore.defaultURL),
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -146,6 +147,7 @@ final class AppController {
          setBadge: @escaping @MainActor (String?) -> Void = { _ in },
          activateIterm: @escaping @MainActor () -> Void = {},
          peekDelay: Duration = .milliseconds(120),
+         checkoutPollInterval: Duration = .seconds(2),
          scan: @escaping CheckoutMonitor.Scanner = { WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6) }) {
         let link = ControllerLink()
         self.store = store
@@ -178,7 +180,7 @@ final class AppController {
         let live = LiveSessions(workspace: { link.controller?.state ?? .empty },
                                 sessionsChanged: { link.controller?.sessionsChanged($0) })
         self.live = live
-        checkouts = CheckoutMonitor(live: live, scan: scan, workspace: { link.controller?.state ?? .empty },
+        checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, workspace: { link.controller?.state ?? .empty },
             removalInFlight: { id in
                 guard let controller = link.controller else { return false }
                 return controller.changingTasks.contains(id) && controller.removals[id]?.awaitsRetry != true

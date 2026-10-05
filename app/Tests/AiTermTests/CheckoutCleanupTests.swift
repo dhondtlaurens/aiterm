@@ -314,7 +314,7 @@ extension AppControllerTests {
     }
 
     @Test func checkoutMonitorDetectsDeletionWithoutSessionChangesAndStopsOnShutdown() async throws {
-        let fixture = try CheckoutFixture(windowOpen: true)
+        let fixture = try CheckoutFixture(windowOpen: true, pollInterval: .milliseconds(50))
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -338,7 +338,7 @@ extension AppControllerTests {
         // Let the removal's trailing branch refresh finish before restoring a task.
         try await Task.sleep(for: .milliseconds(100))
         controller.state.tasks = [fixture.task]
-        try await Task.sleep(for: .milliseconds(2200))
+        try await Task.sleep(for: .milliseconds(250)) // Five poll intervals: a poll that outlived shutdown would have run.
         #expect(controller.state.tasks == [fixture.task])
     }
 
@@ -411,7 +411,7 @@ private struct CheckoutFixture {
     let task: TaskItem
     let controller: AppController
 
-    init(windowOpen: Bool, prompter: Prompter = ModalPrompter()) throws {
+    init(windowOpen: Bool, prompter: Prompter = ModalPrompter(), pollInterval: Duration = .seconds(2)) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         repo = root.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
@@ -425,7 +425,8 @@ private struct CheckoutFixture {
                         worktreePath: checkout, baseBranch: "main", jira: nil, agent: .codex,
                         model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
                         createdAt: Date(timeIntervalSince1970: 0), windowId: windowOpen ? "alive" : nil)
-        controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter)
+        controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
+                                checkoutPollInterval: pollInterval)
         try controller.loadWorkspace()
         controller.state.projects = [project]
         controller.state.tasks = [task]

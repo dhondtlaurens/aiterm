@@ -22,8 +22,12 @@ final class CheckoutMonitor {
     private(set) var defaultBranch: [UUID: String] = [:]
     /// The pass in flight, if any; tests await it, or check that nothing started one.
     @ObservationIgnored private(set) var refreshTask: Task<Void, Never>?
-    /// Set by every `refresh()`, so a request that arrives mid-pass gets a pass of its own.
-    @ObservationIgnored private var dirty = false
+    /// The title sync in flight, if any; tests await it. A pass hands its titles to it rather than
+    /// awaiting the daemon, so a refresh never queues behind the round trip.
+    @ObservationIgnored private(set) var titleSync: Task<Void, Never>?
+    /// The titles of the latest pass that ended while a sync was out, sent when it returns. Passes
+    /// that end meanwhile replace it: only the newest titles are worth sending.
+    @ObservationIgnored private var pendingTitles: (titles: [SessionTitle], sessions: [SessionInfo])?
     /// Which `refresh` pass is the current one: a pass `stop()` cancelled must not clear the
     /// `refreshTask` of one started after it.
     @ObservationIgnored private var refreshGeneration = 0
@@ -36,6 +40,8 @@ final class CheckoutMonitor {
                                    _ branches: BranchResolver, _ remotes: RemoteResolver, _ diffs: DiffStatResolver,
                                    _ defaultBranches: DefaultBranchResolver) -> WorkspaceScan
     private let scan: Scanner
+    /// The pause between one pass ending and the next starting.
+    private let pollInterval: Duration
     private let branches = BranchResolver()
     private let remotes = RemoteResolver()
     private let diffs = DiffStatResolver()
@@ -50,7 +56,7 @@ final class CheckoutMonitor {
     private let onRemovedTasks: @MainActor ([TaskItem]) -> Void
     private let onTitles: @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void
 
-    init(live: LiveSessions, scan: @escaping Scanner,
+    init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2),
          workspace: @escaping @MainActor () -> AppState,
          removalInFlight: @escaping @MainActor (UUID) -> Bool,
          onRemotes: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void,
@@ -58,6 +64,7 @@ final class CheckoutMonitor {
          onTitles: @escaping @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void) {
         self.live = live
         self.scan = scan
+        self.pollInterval = pollInterval
         self.workspace = workspace
         self.removalInFlight = removalInFlight
         self.onRemotes = onRemotes
@@ -66,13 +73,16 @@ final class CheckoutMonitor {
     }
 
     /// Polls the saved checkouts until `stop()`, even when neither the agent nor the daemon sends
-    /// an event.
+    /// an event. The interval is the pause after a pass ends, not the time between starts, so a pass
+    /// that outlasts it is followed by a pause rather than by another pass at once.
     func startMonitoring() {
         guard monitor == nil else { return }
+        let interval = pollInterval
         monitor = Task { [weak self] in
-            while !Task.isCancelled, self != nil {
-                self?.refresh()
-                do { try await Task.sleep(for: .seconds(2)) }
+            while !Task.isCancelled {
+                guard let pass = self?.refresh() else { break }
+                await pass.value
+                do { try await Task.sleep(for: interval) }
                 catch { break }
             }
         }
@@ -85,6 +95,7 @@ final class CheckoutMonitor {
         monitor = nil
         refreshTask?.cancel()
         refreshTask = nil
+        pendingTitles = nil
     }
 
     /// A change to the tabs can move a row's branch — an agent that entered a worktree shows up as
@@ -93,31 +104,33 @@ final class CheckoutMonitor {
         if sessionGate.admits(sessions) { refresh() }
     }
 
-    /// A dirty flag guarantees a trailing pass; results from obsolete inputs are
-    /// discarded rather than briefly restoring a branch the user already left.
+    /// A request that arrives while a pass is out joins it. The pass is not obsolete for that: it is
+    /// dropped, and read again, only if what it reads — the tabs' directories, the projects, the
+    /// tasks — differs when it ends from what it started with, rather than briefly restoring a
+    /// branch the user already left. A request that changes nothing the pass reads, like the
+    /// poll's tick, leaves it be, or a pass slower than the tick would never be applied.
     @discardableResult
     func refresh() -> Task<Void, Never> {
-        dirty = true
         if let refreshTask { return refreshTask }
         refreshGeneration += 1
         let generation = refreshGeneration
         let task = Task {
             defer { if refreshGeneration == generation { refreshTask = nil } }
-            // A cancelled pass leaves `dirty` alone: a pass started after `stop()` is owed it.
-            while dirty, !Task.isCancelled {
-                dirty = false
-                let state = workspace()
-                let cwds = live.sessions.map(\.effectiveCwd), projects = state.projects, tasks = state.tasks
+            while !Task.isCancelled {
+                let inputs = ScanInputs(workspace: workspace(), cwds: live.sessions.map(\.effectiveCwd))
                 let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scan = self.scan
                 let defaultBranches = self.defaultBranches
-                let scanned = try? await BackgroundWork.run { scan(cwds, projects, tasks, branches, remotes, diffs, defaultBranches) }
-                guard !Task.isCancelled else { return }
-                guard !dirty, let scan = scanned else { continue }
+                let scanned = try? await BackgroundWork.run {
+                    scan(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
+                }
+                guard !Task.isCancelled, let scan = scanned else { return }
+                guard inputs == ScanInputs(workspace: workspace(), cwds: live.sessions.map(\.effectiveCwd)) else { continue }
                 applyScan(scan)
                 onRemotes(scan.remotes)
                 onRemovedTasks(scan.removedTasks)
                 retainDiffsDuringRemoval(scan)
-                await syncTitles(scan)
+                syncTitles(scan)
+                return
             }
         }
         refreshTask = task
@@ -159,11 +172,32 @@ final class CheckoutMonitor {
         if diffByTask != next { diffByTask = next }
     }
 
-    /// The titles read the tabs as they are after the pass, which can have moved while it ran.
-    private func syncTitles(_ scan: WorkspaceScan) async {
+    /// The titles read the tabs as they are after the pass, which can have moved while it ran. One
+    /// sync is out at a time; the titles of a pass that ends meanwhile wait behind it.
+    private func syncTitles(_ scan: WorkspaceScan) {
         let sessions = live.sessions
         let titles = SidebarModel.sessionTitles(state: workspace(), sessions: sessions, branchByCwd: scan.branchByCwd,
                                                 projectBranch: scan.projectBranch)
-        await onTitles(titles, sessions)
+        pendingTitles = (titles, sessions)
+        guard titleSync == nil else { return }
+        titleSync = Task {
+            while let next = pendingTitles {
+                pendingTitles = nil
+                await onTitles(next.titles, next.sessions)
+            }
+            titleSync = nil
+        }
+    }
+}
+
+/// What a pass reads from the app: the directories of the open tabs and the saved workspace's
+/// projects and tasks. A pass whose inputs differ at its end read a workspace that has since moved.
+private struct ScanInputs: Equatable {
+    let cwds: [String], projects: [Project], tasks: [TaskItem]
+
+    @MainActor init(workspace: AppState, cwds: [String]) {
+        self.cwds = cwds
+        projects = workspace.projects
+        tasks = workspace.tasks
     }
 }
