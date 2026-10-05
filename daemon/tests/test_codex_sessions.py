@@ -2,6 +2,8 @@ import json
 import os
 from datetime import datetime
 
+import pytest
+
 from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
 
 
@@ -189,3 +191,48 @@ def test_a_thread_without_a_rollout_is_not_searched_for_across_the_tree_every_ti
     assert files.context_percent("new") is None
     write_rollout(root, "new", [token_count(7, 100)], day=datetime.now().strftime("%Y/%m/%d"))
     assert files.context_percent("new") == 7
+
+
+def test_a_rollout_is_scanned_for_token_counts_without_parsing_every_line(tmp_path, monkeypatch):
+    """Most of a rollout is messages and tool output, and one with no `token_count` at all is read
+    in full on every poll while Codex writes to it: its lines are looked for as bytes, and only a
+    candidate is parsed."""
+    import json as json_module
+
+    from aitermd import codex_sessions
+
+    real_loads = json_module.loads
+
+    root = tmp_path / "sessions"
+    chatter = {"type": "response_item", "payload": {"type": "message", "content": "hello"}}
+    write_rollout(root, "thread-1", [token_count(42, 100), *[chatter] * 50])
+    parsed = []
+
+    def counting_loads(line, *args, **kwargs):
+        parsed.append(line)
+        return real_loads(line, *args, **kwargs)
+
+    monkeypatch.setattr(codex_sessions.json, "loads", counting_loads)
+
+    assert CodexSessionFiles(root).context_percent("thread-1") == 42
+    assert len(parsed) == 1
+
+
+def test_a_line_that_mentions_token_count_without_being_one_is_still_skipped(tmp_path):
+    root = tmp_path / "sessions"
+    quoting = {"type": "response_item", "payload": {"type": "message", "content": 'grep "token_count" rollout.jsonl'}}
+    write_rollout(root, "thread-1", [token_count(42, 100), quoting])
+
+    assert CodexSessionFiles(root).context_percent("thread-1") == 42
+
+
+@pytest.mark.parametrize("block_size", [1, 2, 3, 7, 16, 64, 4096])
+def test_matching_lines_are_found_whichever_block_they_straddle(tmp_path, block_size):
+    lines = [b"plain one", b'{"a": "token_count", "n": 1}', b"", b"x" * 40, b'"token_count"', b"tail", b'{"token_count": 2}']
+    for ending in (b"\n", b""):
+        path = tmp_path / f"rollout-{block_size}-{len(ending)}.jsonl"
+        path.write_bytes(b"\n".join(lines) + ending)
+
+        found = list(CodexSessionFiles._lines_reverse(path, b'"token_count"', block_size))
+
+        assert found == [lines[6], lines[4], lines[1]]

@@ -102,6 +102,17 @@ gone out, so no agent waits on this. Hooks that arrive before that tick starts s
 than one runs and one waits, at least a second apart, so a flood from an agent outside iTerm2 costs
 about one tick a second. Statusline posts are not retried: the next one carries the same data.
 
+The tab title is read for that spinner and for nothing else, so a title that changes while nothing
+else does is not a change to announce: a working Codex tab turns its spinner glyph on almost every
+tick, and each of those would have been a `session.changed` that the app decodes and discards. The
+daemon keeps the newest title in its registry, where the status engine reads it, and every
+`session.changed` and snapshot still carries it, so an older app that decodes the field keeps working.
+
+A Codex rollout grows without bound and is read on every tick it changes (context fill, rate
+limits), so it is read on a worker thread, as the orphan and subagent checks are, and only the lines
+that contain a `token_count` are parsed. A read that does not answer within a second costs that
+tick its Codex numbers, not the daemon its hook acks.
+
 A tick publishes what it changed even if a step of it raises, and each corroborating step (a
 session's file, the orphan check, the subagent transcripts) is guarded on its own: one that fails is
 logged and costs only its own changes.

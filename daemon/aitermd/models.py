@@ -139,7 +139,10 @@ class SessionInfo:
     agent: AgentKind
     model: str | None
     state: State
-    title: str
+    # The tab's process title, which only the status engine reads (a Codex spinner). Left out of
+    # equality: a spinner turns on almost every poll, and clients do not use it, so a title-only
+    # difference is not a change to announce.
+    title: str = field(compare=False)
     cwd: str
     job_pid: int | None
     reasoning: str | None = None

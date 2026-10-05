@@ -54,6 +54,8 @@ class SessionRegistry:
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
+            else:
+                old.title = info.title  # not part of the comparison, but the status engine reads it
         for sid in list(self._sessions):
             if sid not in seen:
                 del self._sessions[sid]

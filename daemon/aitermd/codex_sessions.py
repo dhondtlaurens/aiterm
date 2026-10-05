@@ -16,6 +16,9 @@ from .usage import finite_number
 LIST_SECONDS = 30.0
 RECENT_KEPT = 8
 
+# What every `token_count` record contains, so a line without it can be skipped unparsed.
+_TOKEN_COUNT = b'"token_count"'
+
 Stamp = tuple[Path, int, int]  # path, st_mtime_ns, st_size
 
 
@@ -142,7 +145,9 @@ class CodexSessionFiles:
     @classmethod
     def _token_counts(cls, path: Path) -> Iterator[tuple[dict[str, Any], dict[str, Any]]]:
         """Every `token_count` event of a rollout, newest first, with the record that carries it."""
-        for line in cls._lines_reverse(path):
+        # Most of a rollout is messages and tool output: parsing them to find that they are not
+        # token counts made a rollout with none cost tens of milliseconds a megabyte.
+        for line in cls._lines_reverse(path, _TOKEN_COUNT):
             try:
                 record = json.loads(line)
             except (UnicodeDecodeError, ValueError):
@@ -154,7 +159,9 @@ class CodexSessionFiles:
                 yield record, payload
 
     @staticmethod
-    def _lines_reverse(path: Path, block_size: int = 64 * 1024) -> Iterator[bytes]:
+    def _lines_reverse(path: Path, containing: bytes = b"", block_size: int = 64 * 1024) -> Iterator[bytes]:
+        """The lines of `path` that contain `containing`, last first. A block holding none is not
+        even split into lines."""
         try:
             with path.open("rb") as stream:
                 stream.seek(0, 2)
@@ -164,12 +171,18 @@ class CodexSessionFiles:
                     size = min(block_size, position)
                     position -= size
                     stream.seek(position)
-                    parts = (stream.read(size) + remainder).split(b"\n")
-                    remainder = parts[0]
-                    for line in reversed(parts[1:]):
-                        if line:
+                    block = stream.read(size) + remainder
+                    start = block.find(b"\n") + 1  # the first line may continue into the block before
+                    if start == 0:
+                        remainder = block
+                        continue
+                    remainder = block[:start - 1]
+                    if containing not in block[start:]:
+                        continue
+                    for line in reversed(block[start:].split(b"\n")):
+                        if line and containing in line:
                             yield line
-                if remainder:
+                if remainder and containing in remainder:
                     yield remainder
         except OSError:
             return

@@ -272,6 +272,9 @@ class ItermBridge:
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._watch_task: asyncio.Task | None = None
         self._refresh_lock = asyncio.Lock()
+        # The hierarchy as `_app` last fetched it. The library keeps it current from iTerm2's
+        # notifications, so a command that needs one window or session by id looks there first.
+        self._tree: iterm2.App | None = None
         # Whether iTerm2 takes a session's variables in one request; off for good after a refusal.
         self._batched_reads = True
         # The original profile is retained only for a live session. The Interface toggle changes
@@ -320,6 +323,7 @@ class ItermBridge:
         return await run_detached(installed_version)
 
     def _forget_app(self) -> None:
+        self._tree = None
         # The library's App singleton is bound to the connection that built it, and only
         # `Connection.run()`'s disconnect callbacks reset it -- which this daemon never uses.
         iterm2.app.invalidate_app()
@@ -398,20 +402,31 @@ class ItermBridge:
         return self._conn
 
     async def _app(self) -> iterm2.App:
-        # Every call refreshes the whole hierarchy over the socket: a batch fetches it once. One at
+        # Every call refreshes the whole hierarchy over the socket (three requests): a batch fetches
+        # it once, and a command that needs one object by id asks `_found` instead. One at
         # a time: `App.async_refresh` returns at once, the tree untouched, while another is in
         # flight, so a new-session handler overlapping a tick would read a tree without its session.
         async with self._refresh_lock:
-            return await _get_app(self._require())
+            self._tree = await _get_app(self._require())
+            return self._tree
+
+    async def _found(self, find: Callable[[iterm2.App], T | None]) -> T | None:
+        """What `find` gets from the hierarchy as last fetched, and only when it finds nothing there
+        the hierarchy as it is now: the window or tab it wants may be one iTerm2 has not announced yet."""
+        self._require()
+        if (tree := self._tree) is not None and (found := find(tree)) is not None:
+            return found
+        return find(await self._app())
 
     async def _window(self, window_id: str) -> iterm2.Window:
-        w = (await self._app()).get_window_by_id(window_id)
+        w = await self._found(lambda app: app.get_window_by_id(window_id))
         if w is None:
             raise KeyError(window_id)
         return w
 
     async def _session(self, session_id: str, app: iterm2.App | None = None) -> iterm2.Session:
-        s = (app or await self._app()).get_session_by_id(session_id)
+        """With `app`, the session in that hierarchy: a batch has fetched it already."""
+        s = app.get_session_by_id(session_id) if app is not None else await self._found(lambda tree: tree.get_session_by_id(session_id))
         if s is None:
             raise KeyError(session_id)
         return s
@@ -531,10 +546,17 @@ class ItermBridge:
         would also recolour terminals AiTerm does not own, and would persist after the preference
         was switched back off.
         """
-        app = await self._app()
+        # Looked up in the cached hierarchy; the first session it lacks fetches a fresh one, which
+        # the rest, found or not, are then looked up in: a tab closed meanwhile is not looked for
+        # again by each.
+        app, fresh = self._tree, False
         for session_id in session_ids:
             try:
-                session = await self._session(session_id, app)
+                if (session := app.get_session_by_id(session_id) if app is not None else None) is None and not fresh:
+                    app, fresh = await self._app(), True
+                    session = app.get_session_by_id(session_id)
+                if session is None:
+                    raise KeyError(session_id)
                 if enabled:
                     if session_id not in self._background_restore_profiles:
                         self._background_restore_profiles[session_id] = await session.async_get_profile()

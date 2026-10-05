@@ -128,7 +128,7 @@ def test_context_survives_the_next_iterm_snapshot():
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x")])
     reg.set_context("a", 42)
 
-    assert reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x", title="busy")]).changed == ["a"]
+    assert reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/y")]).changed == ["a"]
 
     assert reg.get("a").context_percent == 42
     assert reg.get("a").to_json()["contextPercent"] == 42
@@ -183,3 +183,26 @@ def test_the_same_agent_under_a_new_process_starts_without_the_old_metadata():
     reg.apply_snapshot([raw(sid="a", cmd="claude", pid=300, cwd="/repo")])
 
     assert (reg.get("a").agent_cwd, reg.get("a").model) == (None, None)
+
+
+def test_a_title_only_change_is_no_change_but_the_registry_keeps_the_new_title():
+    """A Codex spinner turns on almost every poll. Clients do not read the title, so announcing
+    each turn only has them decode and discard it; the status engine, which does, reads it from
+    the registry."""
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="s1", cmd="codex", title="⠋ repo")])
+
+    diff = reg.apply_snapshot([raw(sid="s1", cmd="codex", title="⠙ repo")])
+
+    assert (diff.opened, diff.changed, diff.closed, diff.replaced) == ([], [], [], [])
+    assert reg.get("s1").title == "⠙ repo"
+
+
+def test_a_title_change_alongside_another_change_is_still_announced_with_the_new_title():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="s1", cmd="codex", title="⠋ repo", cwd="/a")])
+
+    diff = reg.apply_snapshot([raw(sid="s1", cmd="codex", title="⠙ repo", cwd="/b")])
+
+    assert diff.changed == ["s1"]
+    assert reg.get("s1").title == "⠙ repo" and reg.get("s1").to_json()["title"] == "⠙ repo"

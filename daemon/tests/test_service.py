@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,17 @@ async def next_event(r, name):
         msg = json.loads(await asyncio.wait_for(r.readline(), 2))
         if msg.get("event") == name:
             return msg["payload"]
+
+
+async def drain_events(r) -> list[dict]:
+    """Every message already on its way to the app."""
+    messages: list[dict] = []
+    while True:
+        try:
+            line = await asyncio.wait_for(r.readline(), 0.2)
+        except TimeoutError:
+            return messages
+        messages.append(json.loads(line))
 
 
 async def post_hook(port, path, body):
@@ -1650,3 +1662,82 @@ def test_a_daemon_with_a_stuck_worker_thread_still_exits():
                           env={**os.environ, "PYTHONPATH": str(daemon_dir)})
     assert done.returncode == 0, done.stderr
     assert Path(done.stdout.strip()).is_relative_to(daemon_dir)
+
+
+async def test_a_title_only_change_is_not_broadcast_yet_still_drives_a_codex_turn(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "codex", job_pid=401, title="Codex")
+    await svc.tick()
+    assert svc.registry.get(sid).state == "idle"
+    await drain_events(r)
+
+    await it.user_runs(sid, "codex", job_pid=401, title="⠋ Codex")
+    await svc.tick()
+    await it.user_runs(sid, "codex", job_pid=401, title="⠙ Codex")
+    await svc.tick()
+
+    assert svc.registry.get(sid).title == "⠙ Codex"
+    assert svc.registry.get(sid).state == "working", "the spinner is read from the registry"
+    changes = [e["payload"] for e in await drain_events(r) if e.get("event") == "session.changed"]
+    assert [c["state"] for c in changes] == ["working"], "the state change is announced once; the later glyph is not"
+
+
+async def test_codex_rollouts_are_read_off_the_event_loop(stack):
+    svc, it, files, r, w = stack
+    reader: dict[str, set[int]] = {}
+
+    class Recording(CodexSessionFiles):
+        def _note(self, what):
+            reader.setdefault(what, set()).add(threading.get_ident())
+
+        def context_percent(self, session_id):
+            self._note("context")
+            return super().context_percent(session_id)
+
+        def rate_limits(self):
+            self._note("limits")
+            return super().rate_limits()
+
+        def retain(self, session_ids):
+            self._note("retain")
+            super().retain(session_ids)
+
+    svc.codex_files = Recording(files.root.parent / "codex-sessions")
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "codex", job_pid=402, title="Codex")
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-off",
+                                                      "cwd": "/wt", "_aiterm_iterm_session_id": sid})
+    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-off.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(json.dumps({"type": "event_msg", "payload": {"type": "token_count", "info": {
+        "last_token_usage": {"total_tokens": 50}, "model_context_window": 100}}}) + "\n")
+
+    await svc.tick()
+
+    assert svc.registry.get(sid).context_percent == 50
+    assert set(reader) == {"context", "limits", "retain"}
+    assert threading.get_ident() not in set().union(*reader.values())
+
+
+async def test_a_codex_rollout_read_that_hangs_costs_the_tick_its_deadline_not_the_loop(stack, monkeypatch):
+    svc, it, files, r, w = stack
+    monkeypatch.setattr(service, "OFF_LOOP_CHECK_SECONDS", 0.05)
+    release = threading.Event()
+
+    class Hung(CodexSessionFiles):
+        def rate_limits(self):
+            release.wait(5)
+            return None
+
+    svc.codex_files = Hung(files.root.parent / "codex-sessions")
+    started = time.monotonic()
+    try:
+        await svc.tick()
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+    assert elapsed < 1, "the tick gave up on the read at its deadline instead of waiting for it"

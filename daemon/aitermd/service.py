@@ -40,7 +40,7 @@ def _logged(step: str) -> Iterator[None]:
 
 POLL_SECONDS = 2.0
 # How long a tick waits for a check it runs on a worker thread: the orphan directories, the subagent
-# transcripts.
+# transcripts, the Codex rollouts.
 OFF_LOOP_CHECK_SECONDS = 1.0
 
 T = TypeVar("T")
@@ -268,22 +268,22 @@ class Service:
         for wid in windows_before - windows_after:
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
-        threads: set[str] = set()
+        threads: dict[str, str] = {}
         for s in self.registry.all():
             # Another process's file must not stop the other tabs.
             with _logged(f"corroborating session {s.session_id}"):
                 self._corroborate(s, threads, changed)
-        with _logged("retaining the Codex rollouts"):
-            if self.codex_files is not None:
-                self.codex_files.retain(threads)
+        with _logged("reading the Codex rollouts"):
+            changed += await self._apply_codex_contexts(threads)
         with _logged("settling orphaned sessions"):
             changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
         with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
 
-    def _corroborate(self, s: SessionInfo, threads: set[str], changed: list[str]) -> None:
+    def _corroborate(self, s: SessionInfo, threads: dict[str, str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
-        not, and to `threads` the Codex thread it runs. A step that raises keeps the changes before it."""
+        not, and to `threads` the Codex thread it runs, by session. A step that raises keeps the
+        changes before it. The Codex rollout is not read here: see `_apply_codex_contexts`."""
         if s.agent == "claude" and s.job_pid and (f := self.claude_files.read(s.job_pid)):
             changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
             # The file's cwd is the agent's own, and it follows it into a worktree;
@@ -292,11 +292,34 @@ class Service:
         elif s.agent == "codex":
             changed += self.status.apply_codex_title(s.session_id, s.title)
             if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
-                threads.add(thread_id)
-                if (context := self.codex_files.context_percent(thread_id)) is not None:
-                    changed += self.status.apply_metadata(s.session_id, context=context)
+                threads[s.session_id] = thread_id
         elif s.agent == "shell" and s.state != "idle":
             changed += self.status.agent_exited(s.session_id)
+
+    async def _apply_codex_contexts(self, threads: dict[str, str]) -> list[str]:
+        """The sessions whose context fill their Codex rollout changed, and the rollouts' cache pruned
+        to the threads still running. A rollout grows without bound and a hung mount can stall its
+        read, so it is read on a worker thread: everything that touches the cache runs there."""
+        if (files := self.codex_files) is None:
+            return []
+
+        def read() -> dict[str, int | None]:
+            contexts: dict[str, int | None] = {}
+            for thread_id in set(threads.values()):
+                try:  # another process's file: one that cannot be read costs only its own thread
+                    contexts[thread_id] = files.context_percent(thread_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("reading the Codex rollout of thread %s failed", thread_id)
+            files.retain(set(threads.values()))
+            return contexts
+
+        none: dict[str, int | None] = {}
+        contexts = await self._off_loop("the Codex rollout read", read, none)
+        changed: list[str] = []
+        for session_id, thread_id in threads.items():
+            if (context := contexts.get(thread_id)) is not None:
+                changed += self.status.apply_metadata(session_id, context=context)
+        return changed
 
     async def _missing_paths(self, paths: set[str]) -> frozenset[str]:
         """Which of `paths` are gone. A check that cannot answer finds nothing missing: a directory
@@ -353,7 +376,11 @@ class Service:
         # file, so the number arrives the way Claude's does -- as data the agent already emits --
         # with no subprocess to spawn, time out or kill. Account-wide, hence once per tick rather
         # than per session, and before the iTerm2 check: the feed does not depend on the terminal.
-        if self.codex_files is None or (found := self.codex_files.rate_limits()) is None:
+        if self.codex_files is None:
+            return
+        # On a worker thread, with the contexts: a rollout without a `token_count` is read to its start.
+        found = await self._off_loop("the Codex rollout read", self.codex_files.rate_limits, None)
+        if found is None:
             return
         limits, written_at = found
         usage = parse_codex_rate_limits(limits, written_at if written_at is not None else int(self.clock()))

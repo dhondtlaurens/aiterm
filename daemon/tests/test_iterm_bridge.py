@@ -18,6 +18,7 @@ from websockets.http11 import Response
 
 from aitermd import iterm_bridge
 from aitermd.iterm_bridge import ItermAuthFailed, ItermBridge, ItermUnavailable, VARIABLES, request_cookie
+from aitermd.models import Frame
 
 T = TypeVar("T")
 
@@ -324,6 +325,129 @@ async def test_a_batch_of_titles_fetches_the_app_once(monkeypatch):
     assert applied == ["s0", "s1", "s2"]
     assert app.fetches == 1
     assert app.sessions["s1"].tab.variables == [("user.aiterm_title", "b")]
+
+
+class _Handle:
+    """A window or session that records what it was asked."""
+    def __init__(self):
+        self.calls: list[tuple[str, object]] = []
+
+    async def async_activate(self):
+        self.calls.append(("activate", None))
+
+    async def async_set_frame(self, frame):
+        self.calls.append(("frame", frame))
+
+    async def async_close(self, force=False):
+        self.calls.append(("close", force))
+
+    async def async_send_text(self, text):
+        self.calls.append(("text", text))
+
+    async def async_set_variable(self, name, value):
+        self.calls.append(("variable", (name, value)))
+
+
+class _Tree(_CountingApp):
+    """A hierarchy that changes as iTerm2's does: `appearing` is what the next fetch finds."""
+    def __init__(self, windows=(), sessions=()):
+        super().__init__({name: _Handle() for name in sessions})
+        self.windows = {name: _Handle() for name in windows}
+        self.appearing: dict[str, _Handle] = {}
+
+    async def get(self, _conn):
+        self.fetches += 1
+        for name, handle in self.appearing.items():
+            (self.windows if name.startswith("w") else self.sessions)[name] = handle
+        self.appearing = {}
+        return self
+
+    def get_window_by_id(self, window_id):
+        return self.windows.get(window_id)
+
+
+async def _tree_bridge(monkeypatch, tree: _Tree) -> ItermBridge:
+    """A bridge that has fetched `tree` once, the way its connection setup does."""
+    monkeypatch.setattr(iterm2, "async_get_app", tree.get)
+    bridge = ItermBridge()
+    bridge._conn = object()  # type: ignore[assignment]
+    await bridge._app()
+    assert tree.fetches == 1
+    return bridge
+
+
+async def test_commands_on_a_known_window_or_session_do_not_fetch_the_hierarchy_again(monkeypatch):
+    """Each fetch is three round trips: re-tiling K windows paid 3K of them before its own K."""
+    tree = _Tree(windows=["w1", "w2"], sessions=["s1"])
+    bridge = await _tree_bridge(monkeypatch, tree)
+
+    await bridge.activate_window("w1")
+    await bridge.set_frame("w1", Frame(1, 2, 3, 4))
+    await bridge.set_frame("w2", Frame(1, 2, 3, 4))
+    await bridge.send_text("s1", "ls\n")
+    await bridge.set_session_tags("s1", {"aiterm_task": "t"})
+    await bridge.set_aiterm_background(["s1"], False)
+    await bridge.close_window("w2")
+
+    assert tree.fetches == 1
+    assert [call for call, _ in tree.windows["w1"].calls] == ["activate", "frame"]
+    assert tree.windows["w2"].calls[-1] == ("close", True)
+    assert tree.sessions["s1"].calls == [("text", "ls\n"), ("variable", ("user.aiterm_task", "t"))]
+
+
+async def test_a_window_or_session_the_cached_hierarchy_lacks_is_looked_for_again_once(monkeypatch):
+    """Cmd+T and a new window are announced after the command that needs them can already arrive."""
+    tree = _Tree(windows=["w1"])
+    bridge = await _tree_bridge(monkeypatch, tree)
+    tree.appearing = {"w2": _Handle(), "s9": _Handle()}
+
+    await bridge.activate_window("w2")
+    await bridge.send_text("s9", "pwd\n")
+
+    assert tree.fetches == 2, "one refresh for the miss, none once the hierarchy has both"
+    assert tree.windows["w2"].calls == [("activate", None)]
+    assert tree.sessions["s9"].calls == [("text", "pwd\n")]
+
+
+async def test_a_window_nowhere_in_iterm_is_not_found_after_one_refresh(monkeypatch):
+    tree = _Tree(windows=["w1"])
+    bridge = await _tree_bridge(monkeypatch, tree)
+
+    with pytest.raises(KeyError):
+        await bridge.activate_window("gone")
+
+    assert tree.fetches == 2
+
+
+async def test_a_background_for_several_missing_sessions_refreshes_once(monkeypatch):
+    tree = _Tree(sessions=["s1"])
+    bridge = await _tree_bridge(monkeypatch, tree)
+
+    await bridge.set_aiterm_background(["gone1", "s1", "gone2", "gone3"], False)
+
+    assert tree.fetches == 2
+
+
+async def test_a_snapshot_or_session_info_still_fetches_the_hierarchy_every_time(monkeypatch):
+    tree = _Tree()
+    bridge = await _tree_bridge(monkeypatch, tree)
+    tree.terminal_windows = []
+
+    await bridge.snapshot()
+    await bridge.snapshot()
+    await bridge.session_info("s1")
+
+    assert tree.fetches == 4
+
+
+async def test_a_new_connection_does_not_reuse_the_old_hierarchy(monkeypatch):
+    tree = _Tree(windows=["w1"])
+    bridge = await _tree_bridge(monkeypatch, tree)
+    bridge._forget_app()
+
+    await bridge.activate_window("w1")
+
+    assert tree.fetches == 2
 
 
 async def test_aiterm_background_is_session_scoped_and_restorable(monkeypatch):
