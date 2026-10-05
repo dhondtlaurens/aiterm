@@ -65,6 +65,8 @@ struct StatusTile<Content: View>: View {
 
 /// One line of a tile: its mark in a `Size.vendorMark` column, `Space.snug`, then the words, so every
 /// tile's words start on one column. A line with no mark passes `Color.clear` and keeps the column.
+/// No trailing spacer: `StatusTile` aligns its lines leading, and a line whose words carry their own
+/// `Spacer` (Backpack's) must push its control to the edge, not share the room with a second one.
 struct StatusLine<Mark: View, Words: View>: View {
     let mark: Mark
     let words: Words
@@ -79,7 +81,6 @@ struct StatusLine<Mark: View, Words: View>: View {
         HStack(spacing: scale(Space.snug)) {
             mark.frame(width: scale(Size.vendorMark), height: scale(Size.vendorMark))
             words
-            Spacer(minLength: 0)
         }
         .font(Typography.mono)
         .monospacedDigit()

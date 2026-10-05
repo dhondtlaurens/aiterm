@@ -157,6 +157,27 @@ import Testing
         #expect(try gapIsGround(UsageTaskRow(agent: .claude, context: context)))
         #expect(try !gapIsGround(nil))
     }
+
+    /// Backpack's control sits at the tile's trailing edge, `Space.base` in, however wide the tile:
+    /// "Set Up…" before setup, the switch after. Not floating in the free space after `backpack`.
+    @Test(arguments: [false, true], [166.0, 240.0])
+    func backpacksControlSitsAtTheTrailingEdge(setUp: Bool, width: CGFloat) throws {
+        let backpack = BackpackController.inert()
+        backpack.preview(state: .off, setup: BackpackSetup(sleepRule: setUp, location: setUp, network: "iPhone"))
+        let host = host(BackpackTile(backpack: backpack, openSettings: {}), width: width)
+        let bitmap = try bitmap(host)
+        let pxPerPt = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        let fill = try #require(bitmap.colorAt(x: Int((width - 3) * pxPerPt), y: bitmap.pixelsHigh / 2))
+        let top = Int(Radius.group * pxPerPt), bottom = bitmap.pixelsHigh - top
+        var trailing: CGFloat = 0
+        scan: for px in stride(from: Int((width - 2) * pxPerPt), through: 0, by: -1) {
+            for py in top..<bottom where bitmap.colorAt(x: px, y: py).map({
+                abs($0.redComponent - fill.redComponent) > 0.06 || abs($0.blueComponent - fill.blueComponent) > 0.06
+            }) == true { trailing = CGFloat(px) / pxPerPt; break scan }
+        }
+        #expect(abs(trailing - (width - Space.base)) < 2,
+                "the control's ink ends at \(trailing) pt of a \(width) pt tile; it should end at \(width - Space.base)")
+    }
 }
 
 private extension Int { var cgFloat: CGFloat { CGFloat(self) } }
