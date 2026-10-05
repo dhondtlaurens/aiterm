@@ -26,8 +26,10 @@ enum HarnessCardPresentation {
 
     /// The card's one action, named for what it will do here; every label runs the same install.
     /// Install while the CLI or the driver is missing, Repair while a check is amber, Reinstall
-    /// over a card that is Ready.
-    static func action(for snapshot: HarnessSnapshot) -> String {
+    /// over a card that is Ready. No action while the only amber check is one Install cannot fix:
+    /// the button would run, write nothing and leave the card as it was.
+    static func action(for snapshot: HarnessSnapshot) -> String? {
+        if snapshot.installChangesNothing { return nil }
         if snapshot.health == .unavailable || snapshot.integrationState == .missing { return "Install" }
         return snapshot.health == .ready ? "Reinstall" : "Repair"
     }
@@ -83,12 +85,15 @@ struct HarnessSettingsPane: View {
         if model.running.contains(snapshot.agent) {
             ProgressView().controlSize(.small)
         }
-        // On every card, so a working driver can be overwritten on purpose and a missing CLI
-        // installed. Disabled only where the file is not AiTerm's to replace.
-        Button(HarnessCardPresentation.action(for: snapshot)) { Task { await model.install(snapshot.agent) } }
-            .disabled(model.running.contains(snapshot.agent) || !snapshot.canInstall)
-            .help(snapshot.health == .unavailable
-                  ? "Runs \(CLIInstaller.command(for: snapshot.agent)), then installs AiTerm’s driver." : "")
+        // On every card but one whose only warning Install cannot fix, so a working driver can be
+        // overwritten on purpose and a missing CLI installed. Disabled only where the file is not
+        // AiTerm's to replace.
+        if let action = HarnessCardPresentation.action(for: snapshot) {
+            Button(action) { Task { await model.install(snapshot.agent) } }
+                .disabled(model.running.contains(snapshot.agent) || !snapshot.canInstall)
+                .help(snapshot.health == .unavailable
+                      ? "Runs \(CLIInstaller.command(for: snapshot.agent)), then installs AiTerm’s driver." : "")
+        }
     }
 
     @ViewBuilder

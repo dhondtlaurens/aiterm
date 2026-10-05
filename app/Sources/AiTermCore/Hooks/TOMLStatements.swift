@@ -156,10 +156,19 @@ enum TOMLStatements {
 
     /// Split only at top-level newlines. A table-looking line inside a multiline string or
     /// array is data, never a table to edit. Keep comments in `text`, but out of `code`.
-    static func statements(_ text: String) -> [Statement] {
+    static func statements(_ text: String) -> [Statement] { scan(text).statements }
+
+    /// Whether every bracket and brace outside a string or comment closes what it opened, and no
+    /// string is left open. Otherwise `statements` has lost its place: a stray `]` takes the depth
+    /// below zero and the rest of the file reads as one statement, hiding every later header.
+    /// Codex and Grok both reject such a file, so an editor has no business appending to it.
+    static func isBalanced(_ text: String) -> Bool { scan(text).balanced }
+
+    private static func scan(_ text: String) -> (statements: [Statement], balanced: Bool) {
         let chars = Array(text)
         var result: [Statement] = [], raw = "", code = ""
         var quote: Character?, multiline = false, escaped = false, comment = false, depth = 0, i = 0
+        var balanced = true
         func emit() {
             result.append(Statement(text: raw, code: code.trimmingCharacters(in: .whitespacesAndNewlines)))
             raw = ""; code = ""
@@ -198,12 +207,15 @@ enum TOMLStatements {
                         i += 2
                     }
                 } else if c == "[" || c == "{" { depth += 1 }
-                else if c == "]" || c == "}" { depth -= 1 }
+                else if c == "]" || c == "}" {
+                    depth -= 1
+                    if depth < 0 { balanced = false }
+                }
                 else if c.isNewline && depth == 0 { emit() }
             }
             i += 1
         }
         if !raw.isEmpty { emit() }
-        return result
+        return (result, balanced && depth == 0 && quote == nil)
     }
 }

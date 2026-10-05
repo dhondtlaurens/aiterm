@@ -47,10 +47,32 @@ public enum HookInstaller {
         return (try? JSONSerialization.jsonObject(with: json)) as? [String: Any]
     }
 
+    /// The key whose shape the merge cannot work with, when there is one: `hooks` that is not an
+    /// object, one of AiTerm's events that is not an array of objects (a single malformed element
+    /// fails the cast for the whole array, so a merge would drop Emdash's valid entries beside it),
+    /// or a `statusLine` that is not an object. Rewriting any of them would be silent data loss;
+    /// the file is refused instead, as Codex's is for `hooks.Stop = [...]`. Events AiTerm does not
+    /// manage are never looked at.
+    static func unmergeableClaudeKey(_ settings: [String: Any]) -> String? {
+        if let value = settings["hooks"] {
+            guard let hooks = value as? [String: Any] else { return "hooks" }
+            if let event = claudeEvents.first(where: { event in hooks[event].map { $0 as? [[String: Any]] == nil } ?? false }) {
+                return "hooks.\(event)"
+            }
+        }
+        if let line = settings["statusLine"], line as? [String: Any] == nil { return "statusLine" }
+        return nil
+    }
+
+    static func claudeRefusal(key: String) -> HarnessDriverError {
+        .refused(path: "~/" + ClaudeDriver.settingsPath, reason: "sets \(key) in a form AiTerm cannot merge")
+    }
+
     static func mergeClaudeSettings(_ json: Data?, hookURL: String, shimPath: String) throws -> (Data, originalStatusLine: [String: Any]?) {
         guard var obj = claudeSettings(json) else {
             throw HarnessDriverError.refused(path: "~/" + ClaudeDriver.settingsPath, reason: "is not a JSON object")
         }
+        if let key = unmergeableClaudeKey(obj) { throw claudeRefusal(key: key) }
         var hooks = obj["hooks"] as? [String: Any] ?? [:]
         for event in retiredClaudeEvents {
             guard let entries = hooks[event] as? [[String: Any]] else { continue }
@@ -92,7 +114,13 @@ public enum HookInstaller {
             original = current
         }
         if currentCommand != shimPath {
-            obj["statusLine"] = ["type": "command", "command": shimPath, "padding": current?["padding"] ?? 0]
+            // Only `type` and `command` are ours: the user's `padding`, and whatever a newer Claude
+            // Code adds, ride along to the shim.
+            var line = current ?? [:]
+            line["type"] = "command"
+            line["command"] = shimPath
+            if line["padding"] == nil { line["padding"] = 0 }
+            obj["statusLine"] = line
         }
         return (try JSONSerialization.data(withJSONObject: obj, options: jsonOptions), original)
     }
@@ -151,10 +179,15 @@ public enum HookInstaller {
         return block + codexEnd
     }
 
-    /// Exactly the hooks and status line a merge writes, and nothing retired left behind.
-    static func claudeHooksAreInstalled(_ settings: [String: Any], daemonPort: Int, shimPath: String) -> Bool {
+    /// Exactly the hooks and status line a merge writes, and nothing retired left behind. The
+    /// status line counts as current when it names this bundle's shim, or another copy of the shim
+    /// that still runs — what the footer would call a working feed. A path that runs nothing, a
+    /// moved or deleted bundle, is outdated: Repair repoints it.
+    static func claudeHooksAreInstalled(_ settings: [String: Any], daemonPort: Int, shimPath: String,
+                                        isRunnable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> Bool {
         guard let hooks = settings["hooks"] as? [String: Any],
-              let command = statusLineCommand(settings), isOurShim(command, shimPath: shimPath) else { return false }
+              let command = statusLineCommand(settings),
+              command == shimPath || (isOurShim(command, shimPath: shimPath) && isRunnable(command)) else { return false }
         let hookURL = "http://127.0.0.1:\(daemonPort)/hook/claude"
         // A retired hook still in place is an outdated install: repairing it is what removes it.
         let retiredRemain = retiredClaudeEvents.contains { (hooks[$0] as? [[String: Any]])?.contains(where: holdsOwnedHook) == true }

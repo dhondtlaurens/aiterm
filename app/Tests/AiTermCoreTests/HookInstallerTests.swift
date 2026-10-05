@@ -651,4 +651,143 @@ import Foundation
         try driver.install()
         #expect(driver.state == .current)
     }
+
+    // MARK: - The Claude card tells the truth about the status line
+
+    /// The footer asks whether Claude Code can run the status line; the card asks whether it is
+    /// this bundle's. A path that was this bundle's once and runs nothing now agrees with neither,
+    /// so the card has to offer the Repair that repoints it.
+    @Test func aStatusLineNamingAShimThatNoLongerRunsIsOutdatedNotCurrent() throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gone = "/old/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh"
+        let now = "/new/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh"
+        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: gone).install()
+        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: gone).state == .current)
+
+        let moved = ClaudeDriver(home: home, daemonPort: 47821, shimPath: now)
+        #expect(moved.state == .outdated)
+        try moved.install()
+        #expect(moved.state == .current, "Repair repoints it")
+    }
+
+    /// A shim that still runs from another place is a working feed: the card agrees with the footer.
+    @Test func aStatusLineNamingAnotherShimThatStillRunsStaysCurrent() throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let elsewhere = home.appendingPathComponent("claude-statusline-shim.sh")
+        try "#!/bin/zsh\nexit 0\n".write(to: elsewhere, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: elsewhere.path)
+        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: elsewhere.path).install()
+        #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "/new/AiTerm.app/hooks/claude-statusline-shim.sh").state == .current)
+    }
+
+    // MARK: - CH-11: the Claude merge refuses what it cannot merge
+
+    private func refusal(_ settings: String, key: String) throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let file = home.appendingPathComponent(".claude/settings.json")
+        try settings.write(to: file, atomically: true, encoding: .utf8)
+        let driver = ClaudeDriver(home: home, daemonPort: 47821, shimPath: "/Applications/AiTerm.app/shim.sh")
+        let reason = "sets \(key) in a form AiTerm cannot merge"
+
+        #expect(driver.probe() == DriverProbe(state: .unreadable, explanation: "~/.claude/settings.json \(reason)."))
+        #expect(throws: HarnessDriverError.refused(path: "~/.claude/settings.json", reason: reason)) { try driver.install() }
+        #expect(try String(contentsOf: file, encoding: .utf8) == settings, "refused means untouched")
+        #expect(!FileManager.default.fileExists(atPath: file.appendingPathExtension("aiterm-backup").path))
+    }
+
+    @Test func aHooksValueThatIsNotAnObjectIsRefusedNotReplaced() throws {
+        try refusal(#"{"hooks": ["something"], "model": "opus"}"#, key: "hooks")
+    }
+
+    @Test func anEventThatIsNotAnArrayOfObjectsIsRefusedNotReplaced() throws {
+        try refusal(#"{"hooks": {"Stop": "echo done"}}"#, key: "hooks.Stop")
+    }
+
+    /// One malformed element used to void the whole array, Emdash's valid entries with it.
+    @Test func aMalformedElementBesideEmdashsEntryIsRefusedNotDropped() throws {
+        try refusal(#"{"hooks": {"Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "/e/hook.sh", "_emdash": true}]}, 7]}}"#,
+                    key: "hooks.Notification")
+    }
+
+    @Test func aStatusLineThatIsNotAnObjectIsRefusedNotReplaced() throws {
+        try refusal(#"{"statusLine": "~/bin/line.sh"}"#, key: "statusLine")
+    }
+
+    @Test func anEventAiTermDoesNotManageIsNeverARefusal() throws {
+        let (data, _) = try HookInstaller.mergeClaudeSettings(
+            Data(#"{"hooks": {"PostToolUse": "whatever"}}"#.utf8), hookURL: "u", shimPath: "s")
+        let hooks = try #require((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["hooks"] as? [String: Any])
+        #expect(hooks["PostToolUse"] as? String == "whatever")
+    }
+
+    /// Only `type` and `command` are ours to set; whatever else the user or a newer Claude Code
+    /// put on the status line stays, whether it was theirs or our shim at an old path.
+    @Test func repointingTheStatusLineKeepsItsOtherKeys() throws {
+        let theirs = #"{"statusLine": {"type": "command", "command": "/u/line.py", "padding": 3, "refreshInterval": 5}}"#
+        let (data, original) = try HookInstaller.mergeClaudeSettings(Data(theirs.utf8), hookURL: "u", shimPath: "/n/shim.sh")
+        let line = try #require((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["statusLine"] as? [String: Any])
+        #expect(line["command"] as? String == "/n/shim.sh" && line["type"] as? String == "command")
+        #expect(line["padding"] as? Int == 3 && line["refreshInterval"] as? Int == 5)
+        #expect(original?["command"] as? String == "/u/line.py")
+
+        let moved = #"{"statusLine": {"type": "command", "command": "/old/claude-statusline-shim.sh", "refreshInterval": 5}}"#
+        let (again, none) = try HookInstaller.mergeClaudeSettings(Data(moved.utf8), hookURL: "u", shimPath: "/n/claude-statusline-shim.sh")
+        let repointed = try #require((try JSONSerialization.jsonObject(with: again) as? [String: Any])?["statusLine"] as? [String: Any])
+        #expect(repointed["refreshInterval"] as? Int == 5 && repointed["padding"] as? Int == 0)
+        #expect(none == nil)
+    }
+
+    // MARK: - CH-12: TOML gaps
+
+    @Test(arguments: [
+        ("[hooks.Stop.hooks]\ntype = \"command\"\n", "hooks.Stop"),
+        ("[hooks.Stop.x]\na = 1\n", "hooks.Stop"),
+        ("[[hooks.SessionStart.hooks]]\ntype = \"command\"\n", "hooks.SessionStart"),
+    ])
+    func aSubTableThatImpliesTheEventIsATableIsRefused(text: String, key: String) throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appendingPathComponent(".codex/config.toml")
+        try text.write(to: config, atomically: true, encoding: .utf8)
+        let driver = CodexDriver(home: home, daemonPort: 47821)
+        #expect(CodexHookConfig.conflict(in: text) == key)
+        #expect(throws: HarnessDriverError.refused(path: "~/.codex/config.toml", reason: "sets \(key) in a form AiTerm cannot merge")) {
+            try driver.install()
+        }
+        #expect(try String(contentsOf: config, encoding: .utf8) == text)
+    }
+
+    @Test func aSubTableAfterItsArrayParentIsNoConflict() {
+        #expect(CodexHookConfig.conflict(in: "[[hooks.Stop]]\nmatcher = \"\"\n[hooks.Stop.x]\na = 1\n[[hooks.Stop.hooks]]\n") == nil)
+        #expect(CodexHookConfig.conflict(in: "[hooks.PreToolUse.x]\na = 1\n") == nil, "an event AiTerm does not manage")
+    }
+
+    @Test(arguments: ["[a]\nx = 1]\n", "[a]\nx = [1, 2\n", "x = { a = 1 \n[b]\n", "x = 1 }\n"])
+    func unbalancedTOMLIsRefusedByBothTOMLDrivers(text: String) throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let codex = home.appendingPathComponent(".codex/config.toml")
+        try text.write(to: codex, atomically: true, encoding: .utf8)
+        #expect(CodexDriver(home: home, daemonPort: 47821).probe()
+                == DriverProbe(state: .unreadable, explanation: "~/.codex/config.toml cannot be parsed."))
+        #expect(throws: HarnessDriverError.refused(path: "~/.codex/config.toml", reason: "cannot be parsed")) {
+            try CodexDriver(home: home, daemonPort: 47821).install()
+        }
+        #expect(try String(contentsOf: codex, encoding: .utf8) == text)
+
+        let grokHome = try temporaryHome(); defer { try? FileManager.default.removeItem(at: grokHome) }
+        let grok = grokHome.appendingPathComponent(".grok/config.toml")
+        try FileManager.default.createDirectory(at: grok.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: grok, atomically: true, encoding: .utf8)
+        let driver = GrokDriver(home: grokHome, daemonPort: 47821, shimPath: "/A/grok-statusline-shim.sh")
+        #expect(driver.probe() == DriverProbe(state: .unreadable, explanation: "~/.grok/config.toml cannot be parsed."))
+        #expect(throws: HarnessDriverError.refused(path: "~/.grok/config.toml", reason: "cannot be parsed")) { try driver.install() }
+        #expect(try String(contentsOf: grok, encoding: .utf8) == text)
+        #expect(!FileManager.default.fileExists(atPath: GrokHooksFile.url(home: grokHome).path), "nothing written first")
+    }
+
+    @Test func bracketsInStringsAndCommentsAreBalanced() {
+        #expect(TOMLStatements.isBalanced("a = \"]\"\nb = '['\n# ] [ {\nc = [ [1], {x = 2} ]\n[t]\n[[u]]\nd = \"\"\"]\n\"\"\"\n"))
+        #expect(!TOMLStatements.isBalanced("a = 1]\n"))
+        #expect(!TOMLStatements.isBalanced("a = [1\n"))
+        #expect(!TOMLStatements.isBalanced("a = \"open\n"))
+    }
 }

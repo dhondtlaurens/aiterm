@@ -22,12 +22,16 @@ public struct HarnessCheck: Equatable, Sendable {
     public var label: String
     public var passed: Bool
     public var explanation: String?
+    /// Whether Install can put this check right when it fails. Grok's Context check cannot: a
+    /// status line AiTerm must not touch stays as it is however many times Install runs.
+    public var repairable: Bool
 
-    public init(id: String, label: String, passed: Bool, explanation: String?) {
+    public init(id: String, label: String, passed: Bool, explanation: String?, repairable: Bool = true) {
         self.id = id
         self.label = label
         self.passed = passed
         self.explanation = explanation
+        self.repairable = repairable
     }
 }
 
@@ -65,6 +69,14 @@ public struct HarnessSnapshot: Equatable, Sendable {
 }
 
 public extension HarnessSnapshot {
+    /// A current driver whose only failed checks are ones Install cannot fix: running it would
+    /// write nothing and the card would come back as amber as before.
+    var installChangesNothing: Bool {
+        guard health != .unavailable, integrationState == .current else { return false }
+        let failed = checks.filter { !$0.passed }
+        return !failed.isEmpty && failed.allSatisfy { !$0.repairable }
+    }
+
     static func reduce(agent: AgentKind, cliAvailable: Bool,
                        integrationState: HarnessIntegrationState,
                        models: [AgentModel], modelsAreStale: Bool = false,

@@ -24,7 +24,11 @@ struct GrokDriver: HarnessDriver {
         case .refused: state = .unreadable
         case .present(let data): state = GrokHooksFile.state(of: data, daemonPort: daemonPort)
         }
-        return Reading(hooks: contents, hooksState: state, config: config.readText())
+        var text = config.readText()
+        // A stray bracket would let the editor read the rest of the file as one statement, and
+        // append a second `[ui.status_line]` beside the real one. Grok rejects such a file anyway.
+        if case .present(let present) = text, !TOMLStatements.isBalanced(present) { text = .refused("cannot be parsed") }
+        return Reading(hooks: contents, hooksState: state, config: text)
     }
 
     /// A hooks file AiTerm must not touch, or a config it cannot read, comes first — Install
@@ -46,7 +50,7 @@ struct GrokDriver: HarnessDriver {
     }
 
     private static func contextCheck(_ explanation: String) -> HarnessCheck {
-        HarnessCheck(id: "context", label: "Context", passed: false, explanation: explanation)
+        HarnessCheck(id: "context", label: "Context", passed: false, explanation: explanation, repairable: false)
     }
 
     /// Validates both halves before writing either: never the hooks file written with the status

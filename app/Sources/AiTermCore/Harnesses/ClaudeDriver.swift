@@ -17,6 +17,9 @@ struct ClaudeDriver: HarnessDriver {
         case .refused(let reason): return .refused(file, reason)
         case .present(let data):
             guard let object = HookInstaller.claudeSettings(data) else { return .refused(file, "is not a JSON object") }
+            if let key = HookInstaller.unmergeableClaudeKey(object) {
+                return .refused(file, "sets \(key) in a form AiTerm cannot merge")
+            }
             if HookInstaller.claudeHooksAreInstalled(object, daemonPort: daemonPort, shimPath: shimPath) {
                 return DriverProbe(.current)
             }

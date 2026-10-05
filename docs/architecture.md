@@ -160,7 +160,9 @@ it is leaving behind.
 **Agent configuration** — Eight Claude events and six Codex events, plus the status-line command.
 Merge-only, marked as AiTerm's, with `.aiterm-backup` beside each file. A file that already holds
 the right hooks is not rewritten; a symlinked file stays a link and its target is merged; a link
-to nothing is refused rather than replaced. The agent's card in Settings › Agents re-runs the same installer — Install, Repair or Reinstall, by its state. Grok's
+to nothing is refused rather than replaced, as is a file that sets `hooks`, one of our events or
+`statusLine` in a form the merge cannot extend (Claude), or that does not parse (Codex, Grok). A Claude
+status line counts as current only when it names this bundle's shim or a copy that still runs. The agent's card in Settings › Agents re-runs the same installer — Install, Repair or Reinstall, by its state. Grok's
 eight events go to a file AiTerm owns outright, `~/.grok/hooks/aiterm.json`, written atomically
 rather than merged; only its status line merges into `~/.grok/config.toml`'s `[ui.status_line]`
 table, saving a foreign command to `grok-statusline-original.cmd` first. The PI extension goes to

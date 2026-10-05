@@ -42,6 +42,7 @@ import Testing
         #expect(probe.state == .current)
         let check = try #require(probe.checks.first)
         #expect(check.id == "context" && !check.passed)
+        #expect(!check.repairable, "Install writes nothing here, so Repair must not be offered for it")
         #expect(check.explanation == "Grok’s built-in status line is on, so AiTerm cannot read context.")
     }
 

@@ -129,6 +129,23 @@ import AiTermUI
         #expect(HarnessCardPresentation.action(for: cardSnapshot(.pi, health: .ready, integration: .current)) == "Reinstall")
     }
 
+    /// Grok's built-in status line leaves the card amber with nothing for Install to write, so the
+    /// card names no action; a card with anything Install can change keeps its Repair.
+    @Test func aCardWhoseOnlyWarningIsOneInstallCannotFixOffersNoAction() {
+        func card(_ checks: [HarnessCheck]) -> HarnessSnapshot {
+            HarnessSnapshot.reduce(agent: .grok, cliAvailable: true, integrationState: .current,
+                                   models: [AgentModel(id: "m", label: "M", detail: nil, efforts: [], defaultEffort: nil)],
+                                   checks: checks)
+        }
+        let cli = HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil)
+        let context = HarnessCheck(id: "context", label: "Context", passed: false, explanation: "built-in", repairable: false)
+        let delivery = HarnessCheck(id: "delivery", label: "Delivery", passed: false, explanation: "no event arrived")
+
+        #expect(HarnessCardPresentation.action(for: card([cli, context])) == nil)
+        #expect(HarnessCardPresentation.action(for: card([cli, context, delivery])) == "Repair")
+        #expect(HarnessCardPresentation.action(for: card([cli])) == "Reinstall")
+    }
+
     @Test func piPickerKeepsTheProviderInItsLabel() {
         let model = AgentModel(id: "anthropic/claude-sonnet", label: "anthropic / claude-sonnet",
                                detail: nil, efforts: ["medium"], defaultEffort: "medium")

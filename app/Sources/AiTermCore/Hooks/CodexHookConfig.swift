@@ -11,13 +11,16 @@ enum CodexHookConfig {
 
     /// The key that makes the merge impossible: an event of ours, or `hooks` itself, already set
     /// by an inline or dotted assignment (`hooks.Stop = […]`, `Stop = […]` under `[hooks]`,
-    /// `hooks = {…}`) or as a plain `[hooks.Stop]` table. TOML forbids extending either with
-    /// `[[hooks.Stop]]`, so appending AiTerm's block would make Codex refuse the whole file.
+    /// `hooks = {…}`), as a plain `[hooks.Stop]` table, or as a table a deeper header implies
+    /// (`[hooks.Stop.x]` with no `[[hooks.Stop]]` before it). TOML forbids extending any of them
+    /// with `[[hooks.Stop]]`, so appending AiTerm's block would make Codex refuse the whole file.
     static func conflict(in text: String) -> String? {
         let events = Set(HookInstaller.codexEvents)
+        var arrayParents: Set<String> = []
         for table in TOMLStatements.tables(text) {
-            if !table.array, table.path.count == 2, table.path[0] == "hooks", events.contains(table.path[1]) {
-                return "hooks.\(table.path[1])"
+            if table.path.count >= 2, table.path[0] == "hooks", events.contains(table.path[1]) {
+                if table.array, table.path.count == 2 { arrayParents.insert(table.path[1]) }
+                else if table.path.count == 2 || !arrayParents.contains(table.path[1]) { return "hooks.\(table.path[1])" }
             }
             // Keys inside `[[hooks.<event>]]` and its children are that entry's own fields.
             guard table.path.count < 2 else { continue }

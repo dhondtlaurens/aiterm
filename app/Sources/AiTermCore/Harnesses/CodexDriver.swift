@@ -40,6 +40,7 @@ struct CodexDriver: HarnessDriver {
 
     /// Why AiTerm's `[[hooks.<event>]]` tables cannot be appended, when they cannot.
     private static func unmergeable(_ text: String) -> String? {
-        CodexHookConfig.conflict(in: text).map { "sets \($0) in a form AiTerm cannot merge" }
+        if !TOMLStatements.isBalanced(text) { return "cannot be parsed" }
+        return CodexHookConfig.conflict(in: text).map { "sets \($0) in a form AiTerm cannot merge" }
     }
 }

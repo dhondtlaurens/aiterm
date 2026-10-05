@@ -240,7 +240,8 @@ Settings tests every card when it opens (and a service again once its fields sto
 the answer replaces that card's status line rather than landing in the sheet footer. A harness
 card's one action is named by the card's state and runs the same code whatever it says: Install
 while the CLI or the driver is missing, Repair while a check is amber, Reinstall when the card is
-Ready. Over a missing CLI it runs the vendor's own installer and then the driver; over a present
+Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
+is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the vendor's own installer and then the driver; over a present
 one it writes the driver whether or not it is already installed, so it can be overwritten. A Jira,
 GitLab or GitHub card holding saved credentials trails a Disconnect, which empties its fields and marks the
 service for removal: Save removes the saved site or host and the Keychain token, Cancel keeps
