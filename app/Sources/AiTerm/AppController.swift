@@ -701,7 +701,7 @@ final class AppController {
     }
 
     // -- sheets ---------------------------------------------------------------------
-    /// Settings opens on the saved connections, read off the main actor: two Keychain items and
+    /// Settings opens on the saved connections, read off the main actor: the Keychain and
     /// UserDefaults, which can take a moment, and a Keychain that asks for access longer still.
     /// Off behind another sheet, as the zoom and view items are: Settings would replace it, and a
     /// New Task draft with it.

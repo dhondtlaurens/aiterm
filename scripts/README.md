@@ -13,7 +13,7 @@ Environment overrides:
 |---|---|---|
 | `SWIFT` | `~/.swiftly/bin/swift` | Swift 6.4+ toolchain. `scripts/swift.sh` rejects an incompatible override. |
 | `PYTHON` | `python3` on `PATH` | Interpreter used for the `pip install --target` vendoring; must be ≥ 3.11. |
-| `SIGN_IDENTITY` | `-` (ad-hoc) | Code-signing identity. `release.sh` passes `AiTerm Release`. |
+| `SIGN_IDENTITY` | `AiTerm Release` when that certificate is in the keychain, else `-` (ad-hoc) | Code-signing identity. A stable one keeps the iTerm2 automation permission and the Keychain's "Always Allow" across rebuilds; `-` forces ad-hoc. |
 | `AITERM_RELEASE` | unset | `1` builds a release. Otherwise the bundle gets `AiTermDevBuild` in its Info.plist: a DEV pill on the Dock icon, and no self-update. `release.sh` sets it and refuses a bundle that still carries the key. |
 
 ## `run-dev.sh`

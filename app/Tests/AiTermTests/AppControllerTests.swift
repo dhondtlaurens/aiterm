@@ -1176,8 +1176,8 @@ extension AppControllerTests {
         #expect(model.completions.all.contains { $0.name == "only-in-this-home" })
     }
 
-    /// Settings opens on the saved connections, read off the main actor: two Keychain items, and
-    /// a Keychain that asks for access would hold the whole app on it.
+    /// Settings opens on the saved connections, read off the main actor: a
+    /// Keychain that asks for access would hold the whole app on it.
     @Test func settingsReadsTheSavedConnectionsOffTheMainActor() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
