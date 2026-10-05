@@ -606,7 +606,9 @@ final class AppController {
         else if state.terminals.contains(where: { $0.projectId == project.id && changingTerminals[$0.id] != nil }) {
             busy = "One of its terminals is still opening or closing its window."
         }
-        else if !changingTasks.isEmpty { busy = "A task is still being changed." }
+        else if state.tasks.contains(where: { $0.projectId == project.id && changingTasks.contains($0.id) }) {
+            busy = "A task is still being changed."
+        }
         else { return false }
         prompter.ask(AlertPrompt(message: "“\(project.name)” can’t be removed yet", detail: busy + " Try again in a moment."))
         return true
@@ -929,16 +931,27 @@ final class AppController {
         return Task {
             defer { changingTasks.remove(task.id) }
             guard canChangeWorkspace else { return }
-            do { try await openWindow(for: current, command: nil, with: daemon) }
-            catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
+            do {
+                try await openWindow(for: current, command: nil, with: daemon)
+                // "Kept; choose Reopen Window" was asking for exactly this.
+                clearStoppedNote(of: task.id)
+            } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
     }
 
     // -- the banner ------------------------------------------------------------------
     /// Shows `issue` above the list, in place of whatever was there — unless it is about a task or
-    /// project that has gone while the work it reports was running.
+    /// project that has gone while the work it reports was running, or it offers nothing while a
+    /// question with answers is still up: a background failure must not take "Branch X kept" and
+    /// its Keep or Delete from someone who has not answered yet. The toast cannot carry it (it is
+    /// the completion toast, a checkmark and all), so the dropped report is logged.
     func report(_ issue: OperationIssue) {
         guard !issue.isStale(in: state) else { return }
+        if issue.actions.isEmpty, self.issue?.actions.isEmpty == false {
+            NSLog("AiTerm: not shown, a question is waiting: \(issue.title) \(issue.reason ?? "")")
+            return
+        }
+        if let shown = self.issue, shown.subject != issue.subject { clearStoppedNote(of: shown) }
         self.issue = issue
     }
     /// A failure with nothing to offer but Dismiss.
@@ -947,8 +960,18 @@ final class AppController {
     /// Dismissed, a removal that stopped with nothing deleted is just a task again. One that got
     /// past its worktree still waits on a retry, and its row keeps saying so.
     func dismissIssue() {
-        if let id = issue?.subject, case .stopped(_, worktreeRemoved: false)? = removals[id] { removals[id] = nil }
+        if let issue { clearStoppedNote(of: issue) }
         issue = nil
+    }
+
+    /// The row's "Not removed" note for the task `issue` is about, if that removal stopped with
+    /// nothing deleted. The note is the banner's twin: when the banner goes, the task is a task again.
+    private func clearStoppedNote(of issue: OperationIssue) {
+        if let id = issue.subject { clearStoppedNote(of: id) }
+    }
+
+    private func clearStoppedNote(of id: UUID) {
+        if case .stopped(_, worktreeRemoved: false)? = removals[id] { removals[id] = nil }
     }
 
     /// Answers the banner. Keeping loses nothing and just finishes the removal; deleting drops

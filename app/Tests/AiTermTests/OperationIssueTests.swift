@@ -79,7 +79,7 @@ extension AppControllerTests {
         #expect(fixture.controller.removals[task.id]?.awaitsRetry == true)
     }
 
-    /// Another report takes the banner's slot; the row keeps its note, and the kept branch its answer.
+    /// A report that cannot outrank the question leaves it up; the row keeps its note, and the kept branch its answer.
     @Test func aLaterReportLeavesTheRowWaitingOnItsRetry() async throws {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -90,6 +90,114 @@ extension AppControllerTests {
 
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.removals.isEmpty)
+    }
+
+    /// A background report with nothing to offer — an activation that failed, a send that did not
+    /// go — does not take the banner from a question that still waits on its answer.
+    @Test func aReportWithNoActionsLeavesAPendingQuestionShowing() async throws {
+        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let question = fixture.controller.issue
+        #expect(question?.actions.isEmpty == false)
+
+        fixture.controller.report("Couldn’t show the window.")
+        fixture.controller.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Nope.", subject: task.id))
+
+        #expect(fixture.controller.issue == question)
+    }
+
+    /// Anything else still replaces: no question, another question, or a plain message over one.
+    @Test func aNewerReportReplacesWhatItDoesNotOutrank() async throws {
+        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let rebase = OperationIssue(title: "Couldn’t pull the default branch.", actions: [.rebaseDefault(fixture.project.id)])
+
+        controller.report(rebase)
+        #expect(controller.issue == rebase, "a question replaces a question")
+        controller.dismissIssue()
+        controller.report("First.")
+        controller.report("Second.")
+        #expect(controller.issue == OperationIssue(title: "Second."), "a message replaces a message")
+        #expect(controller.removals[task.id]?.awaitsRetry == true, "the row's retry never rode on the banner")
+    }
+
+    /// A removal that stopped with nothing deleted says so on its row only while its banner is up.
+    /// Once another report takes the banner the row is a task again, not an amber note for good.
+    @Test func aReportThatReplacesAnIssueClearsItsTasksStoppedNote() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let task = try fixture.addTask(windowId: nil)
+        controller.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
+        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
+
+        controller.report("Something else.")
+
+        #expect(controller.issue?.title == "Something else.")
+        #expect(controller.removals[task.id] == nil)
+    }
+
+    /// The removal that fails again reports the same task: its new note must not go with its old banner.
+    @Test func aRepeatedFailureForTheSameTaskKeepsItsNewNote() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let task = try fixture.addTask(windowId: nil)
+        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
+        let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
+        controller.seedSnapshotRemoval(note, of: task.id)
+
+        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Still busy.", subject: task.id))
+
+        #expect(controller.issue?.reason == "Still busy.")
+        #expect(controller.removals[task.id] == note)
+    }
+
+    /// A report that is dropped replaces nothing, so the row's note stays: it is still true.
+    @Test func aDroppedReportLeavesAStoppedNoteBe() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let task = try fixture.addTask(windowId: nil)
+        let note = TaskRemoval.stopped(note: "Not removed", worktreeRemoved: false)
+        controller.seedSnapshotRemoval(note, of: task.id)
+        controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
+
+        controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
+
+        #expect(controller.removals[task.id] == note)
+    }
+
+    /// Reopening is doing what "Kept; choose Reopen Window" said, so the note has done its job.
+    @Test func reopeningATaskClearsItsKeptNote() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        controller.seedSnapshotRemoval(.stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false), of: task.id)
+
+        await controller.reopen(task: task)?.value
+
+        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
+        #expect(controller.removals[task.id] == nil)
+    }
+
+    /// A reopen that fails changed nothing about why the removal stopped.
+    @Test func aFailedReopenKeepsTheNote() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(RecordingDaemon(failing: ["window.createTask": "temporary_failure"]))
+        let task = try fixture.addTask(windowId: nil)
+        let note = TaskRemoval.stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false)
+        controller.seedSnapshotRemoval(note, of: task.id)
+
+        await controller.reopen(task: task)?.value
+
+        #expect(controller.state.task(id: task.id)?.windowId == nil)
+        #expect(controller.removals[task.id] == note)
     }
 
     /// The row can go by other ways than its removal's; the banner about it and its note go too.

@@ -74,6 +74,30 @@ extension AppControllerTests {
         #expect(controller.state.terminals.isEmpty)
     }
 
+    /// Only work in the project holds it. A task being removed in "Repo" is no reason to refuse
+    /// "Other"; it is a reason to refuse "Repo".
+    @Test func aProjectIsNotHeldByAnotherProjectsTaskBeingChanged() async throws {
+        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Cancel", "OK"))
+        let server = RecordingDaemon(holding: "window.close")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
+                            remoteUrl: nil, addedAt: Date(), collapsed: false)
+        controller.state.projects.append(other)
+        let task = try fixture.addTask(windowId: "alive")
+
+        let removal = controller.confirmRemove(task: task)
+        try await server.received("window.close")
+        controller.confirmRemove(project: other)
+        controller.confirmRemove(project: fixture.project)
+
+        #expect(fixture.prompter.asked.map(\.message).suffix(2) == ["Remove project “Other”?", "“Repo” can’t be removed yet"])
+        #expect(fixture.prompter.asked.last?.detail.hasPrefix("A task is still being changed.") == true)
+        server.release()
+        await removal?.value
+    }
+
     /// The project can still go while the window opens — a restored backup replaces the whole
     /// workspace. The window is then closed rather than adopted by a row nothing can save.
     @Test func aTerminalWhoseProjectWentWhileItOpenedIsClosed() async throws {
