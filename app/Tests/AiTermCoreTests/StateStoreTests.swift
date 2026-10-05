@@ -191,4 +191,45 @@ import Foundation
         #expect(try store.load() == loaded)
         #expect(String(decoding: try Data(contentsOf: url), as: UTF8.self).contains("\"items\""))
     }
+
+    /// `state.json` is shared by every build on the machine, so an older build meets values a newer
+    /// one wrote: an agent and a task kind it has no case for, and a sidebar row of a kind it has
+    /// never heard of. It opens the workspace, shows what it understands, and a save writes the
+    /// rest back as it came.
+    @Test func aWorkspaceFromANewerBuildLoadsAndSurvivesAResave() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StateStore(url: dir.appendingPathComponent("state.json"))
+        let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git,
+                              remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
+        let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
+                            worktreePath: "/tmp/repo/.worktrees/work", baseBranch: "main", jira: nil,
+                            agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
+                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
+        var known = AppState.empty
+        known.projects = [project]; known.tasks = [task]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(known)) as? [String: Any])
+        let folder: [String: Any] = ["kind": "folder", "folder": [
+            "id": UUID().uuidString, "name": "Clients", "count": 3, "ratio": 1.5, "open": true,
+            "tags": ["a", "b"], "parent": NSNull(), "nested": ["deep": [1, 2]]]]
+        json["items"] = try #require(json["items"] as? [Any]) + [folder]
+        var tasks = try #require(json["tasks"] as? [[String: Any]])
+        tasks[0]["agent"] = "gemini"; tasks[0]["kind"] = "spike"
+        json["tasks"] = tasks
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json).write(to: store.url)
+
+        let loaded = try store.load()
+        #expect(loaded.projects == [project])
+        #expect(loaded.items.count == 2 && loaded.items[0].project == project)
+        #expect(loaded.tasks.first?.agent == .claude && loaded.tasks.first?.kind == .task)
+
+        try store.save(loaded)
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: store.url)) as? NSDictionary)
+        #expect((saved["items"] as? NSArray)?.lastObject as? NSDictionary == folder as NSDictionary)
+        let savedTask = try #require((saved["tasks"] as? [NSDictionary])?.first)
+        #expect(savedTask["agent"] as? String == "gemini" && savedTask["kind"] as? String == "spike")
+        #expect(try store.load() == loaded)
+    }
 }

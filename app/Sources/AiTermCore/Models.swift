@@ -144,17 +144,64 @@ public struct SidebarDivider: Codable, Identifiable, Equatable, Sendable {
     public init(id: UUID, name: String) { self.id = id; self.name = name }
 }
 
+/// Any JSON value, kept as read so a row this build does not understand can be written back as it
+/// came. Integers stay integers: a number routed through `Double` would not survive a resave.
+indirect enum StoredJSON: Codable, Equatable, Sendable {
+    case null, bool(Bool), int(Int), double(Double), string(String), array([StoredJSON]), object([String: StoredJSON])
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Int.self) { self = .int(v) }
+        else if let v = try? c.decode(Double.self) { self = .double(v) }
+        else if let v = try? c.decode(String.self) { self = .string(v) }
+        else if let v = try? c.decode([StoredJSON].self) { self = .array(v) }
+        else { self = .object(try c.decode([String: StoredJSON].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null: try c.encodeNil()
+        case .bool(let v): try c.encode(v)
+        case .int(let v): try c.encode(v)
+        case .double(let v): try c.encode(v)
+        case .string(let v): try c.encode(v)
+        case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        }
+    }
+}
+
+/// A sidebar row of a kind only a newer build knows, held as it was read. It is not drawn and no
+/// action reaches it, but it stays in `AppState.items` where it was, so a save writes it back.
+public struct UnknownSidebarItem: Equatable, Sendable {
+    /// Per load: the row has no id this build can read, and nothing looks it up.
+    public let id = UUID()
+    let raw: StoredJSON
+    public static func == (a: Self, b: Self) -> Bool { a.raw == b.raw }
+}
+
 /// One row of the sidebar's top level. `AppState.items` is the order the sidebar is drawn in.
+///
+/// `.unknown` is a kind a newer build added. Like `Provider`, it lets an older build open the
+/// workspace instead of refusing it, but a row cannot be defaulted into something else, so it is
+/// kept whole, left undrawn, and written back unchanged.
 public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
     case project(Project)
     case divider(SidebarDivider)
+    case unknown(UnknownSidebarItem)
 
     public var id: UUID {
         switch self {
         case .project(let p): return p.id
         case .divider(let d): return d.id
+        case .unknown(let u): return u.id
         }
     }
+    /// Whether the sidebar draws it, and so whether a move can land beside it.
+    public var isDrawn: Bool { if case .unknown = self { return false } else { return true } }
     public var project: Project? { if case .project(let p) = self { return p } else { return nil } }
     public var divider: SidebarDivider? { if case .divider(let d) = self { return d } else { return nil } }
 
@@ -165,9 +212,10 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        switch try c.decode(Kind.self, forKey: .kind) {
+        switch Kind(rawValue: try c.decode(String.self, forKey: .kind)) {
         case .project: self = .project(try c.decode(Project.self, forKey: .project))
         case .divider: self = .divider(try c.decode(SidebarDivider.self, forKey: .divider))
+        case nil: self = .unknown(UnknownSidebarItem(raw: try decoder.singleValueContainer().decode(StoredJSON.self)))
         }
     }
 
@@ -176,6 +224,7 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
         switch self {
         case .project(let p): try c.encode(Kind.project, forKey: .kind); try c.encode(p, forKey: .project)
         case .divider(let d): try c.encode(Kind.divider, forKey: .kind); try c.encode(d, forKey: .divider)
+        case .unknown(let u): try u.raw.encode(to: encoder)
         }
     }
 }
@@ -186,9 +235,13 @@ public struct JiraRef: Codable, Equatable, Sendable {
 }
 
 /// Which of the two branch-shaped flows made this item. `nil` is everything saved before reviews
-/// existed and means the same as `.task`; only `== .review` is ever tested.
+/// existed and means the same as `.task`; only `== .review` is ever tested. A raw value this build
+/// does not know decodes as `.task`, like `Provider`; `TaskItem` keeps the raw value for the resave.
 public enum TaskKind: String, Codable, Equatable, Sendable {
     case task, review
+    public init(from decoder: Decoder) throws {
+        self = TaskKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .task
+    }
 
     /// The kind as copy names it — "Remove Review…", "Review removed." — capitalised, as a menu
     /// item has it; a sentence lowercases it.
@@ -207,9 +260,18 @@ public extension MergeRequestRef {
 
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String
-    public var jira: JiraRef?, kind: TaskKind?, mr: MergeRequestRef?
-    public var agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool
+    public var jira: JiraRef?, mr: MergeRequestRef?
+    /// Assigning one drops `unrecognizedKind`: the new value is what is saved from then on.
+    public var kind: TaskKind? { didSet { unrecognizedKind = nil } }
+    /// Assigning one drops `unrecognizedAgent`, as for `kind`.
+    public var agent: AgentKind { didSet { unrecognizedAgent = nil } }
+    public var model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool
     public var createdAt: Date, windowId: String?
+    /// The raw `kind` and `agent` a newer build saved, when this build has no case for them. The
+    /// task reads as a `.task` and a `.claude` task meanwhile, and a save writes the raw values
+    /// back, so a downgrade and a later upgrade lose nothing. Nothing launches from a saved
+    /// `agent`: a task's tabs are started by the daemon from the draft, at creation.
+    public private(set) var unrecognizedKind: String?, unrecognizedAgent: String?
     public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind? = nil, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
         self.jira = jira; self.kind = kind; self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning; self.firstPrompt = firstPrompt; self.appendTicket = appendTicket
@@ -218,6 +280,58 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     /// "Task" or "Review": what the row's menu, its alerts and its banners call it.
     public var kindName: String { (kind ?? .task).displayName }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
+        case reasoning, firstPrompt, appendTicket, createdAt, windowId
+    }
+
+    /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
+    /// the whole workspace load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        projectId = try c.decode(UUID.self, forKey: .projectId)
+        title = try c.decode(String.self, forKey: .title)
+        branch = try c.decode(String.self, forKey: .branch)
+        worktreePath = try c.decode(String.self, forKey: .worktreePath)
+        baseBranch = try c.decode(String.self, forKey: .baseBranch)
+        jira = try c.decodeIfPresent(JiraRef.self, forKey: .jira)
+        let rawKind = try c.decodeIfPresent(String.self, forKey: .kind)
+        kind = rawKind.map { TaskKind(rawValue: $0) ?? .task }
+        unrecognizedKind = rawKind.flatMap { TaskKind(rawValue: $0) == nil ? $0 : nil }
+        mr = try c.decodeIfPresent(MergeRequestRef.self, forKey: .mr)
+        let rawAgent = try c.decode(String.self, forKey: .agent)
+        agent = AgentKind(rawValue: rawAgent) ?? .claude
+        unrecognizedAgent = AgentKind(rawValue: rawAgent) == nil ? rawAgent : nil
+        model = try c.decode(String.self, forKey: .model)
+        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
+        firstPrompt = try c.decodeIfPresent(String.self, forKey: .firstPrompt)
+        appendTicket = try c.decode(Bool.self, forKey: .appendTicket)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        windowId = try c.decodeIfPresent(String.self, forKey: .windowId)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(projectId, forKey: .projectId)
+        try c.encode(title, forKey: .title)
+        try c.encode(branch, forKey: .branch)
+        try c.encode(worktreePath, forKey: .worktreePath)
+        try c.encode(baseBranch, forKey: .baseBranch)
+        try c.encodeIfPresent(jira, forKey: .jira)
+        if let unrecognizedKind { try c.encode(unrecognizedKind, forKey: .kind) }
+        else { try c.encodeIfPresent(kind, forKey: .kind) }
+        try c.encodeIfPresent(mr, forKey: .mr)
+        try c.encode(unrecognizedAgent ?? agent.rawValue, forKey: .agent)
+        try c.encode(model, forKey: .model)
+        try c.encodeIfPresent(reasoning, forKey: .reasoning)
+        try c.encodeIfPresent(firstPrompt, forKey: .firstPrompt)
+        try c.encode(appendTicket, forKey: .appendTicket)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(windowId, forKey: .windowId)
+    }
 }
 
 public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
@@ -269,7 +383,7 @@ public struct AppState: Codable, Equatable, Sendable {
             var rebuilt: [SidebarItem] = []
             for item in items {
                 switch item {
-                case .divider: rebuilt.append(item)
+                case .divider, .unknown: rebuilt.append(item)
                 case .project: if let next = incoming.popFirst() { rebuilt.append(.project(next)) }
                 }
             }
@@ -302,22 +416,28 @@ public struct AppState: Codable, Equatable, Sendable {
         items[i] = .divider(d)
     }
 
-    /// Whether `move` would do anything: the first item has no "up", the last no "down".
+    /// Whether `move` would do anything: the first drawn item has no "up", the last no "down".
     public func canMove(id: UUID, _ step: MoveStep) -> Bool { neighbour(of: id, step) != nil }
 
-    /// Swaps an item with its neighbour in the combined list, so a project directly below a divider
-    /// moves above it on one press without reordering the projects around it.
+    /// Moves an item past its drawn neighbour in the combined list, so a project directly below a
+    /// divider moves above it on one press without reordering the projects around it. A row an
+    /// older build cannot draw is stepped over, and stays where it was relative to the rest.
     @discardableResult
     public mutating func move(id: UUID, _ step: MoveStep) -> Bool {
         guard let i = items.firstIndex(where: { $0.id == id }), let n = neighbour(of: id, step) else { return false }
-        items.swapAt(i, n)
+        items.insert(items.remove(at: i), at: n)
         return true
     }
 
     private func neighbour(of id: UUID, _ step: MoveStep) -> Int? {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return nil }
-        let n = step == .up ? i - 1 : i + 1
-        return items.indices.contains(n) ? n : nil
+        let direction = step == .up ? -1 : 1
+        var n = i + direction
+        while items.indices.contains(n) {
+            if items[n].isDrawn { return n }
+            n += direction
+        }
+        return nil
     }
 
     private enum CodingKeys: String, CodingKey {

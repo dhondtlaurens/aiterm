@@ -16,6 +16,63 @@ import Foundation
         #expect(String(decoding: try JSONEncoder().encode(Provider.github), as: UTF8.self) == #""github""#)
     }
 
+    @Test func anUnknownTaskKindReadsAsATaskAndIsWrittenBackAsSaved() throws {
+        var task = TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
+                            jira: nil, kind: .review, agent: .codex, model: "m", reasoning: nil, firstPrompt: nil,
+                            appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
+        func decoded(agent: String, kind: String?) throws -> TaskItem {
+            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+            var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(task)) as? [String: Any])
+            json["agent"] = agent; json["kind"] = kind
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(TaskItem.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        func raw(_ task: TaskItem, _ key: String) throws -> String? {
+            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+            return (try JSONSerialization.jsonObject(with: encoder.encode(task)) as? [String: Any])?[key] as? String
+        }
+        var future = try decoded(agent: "gemini", kind: "spike")
+        #expect(future.kind == .task && future.kindName == "Task" && future.agent == .claude)
+        #expect(try raw(future, "kind") == "spike" && raw(future, "agent") == "gemini")
+        // Choosing a value of this build's own replaces the saved one.
+        future.agent = .grok; future.kind = .review
+        #expect(try raw(future, "kind") == "review" && raw(future, "agent") == "grok")
+        // Known values, and a missing kind, are untouched.
+        #expect(try decoded(agent: "pi", kind: "review").kind == .review)
+        let plain = try decoded(agent: "pi", kind: nil)
+        #expect(plain.kind == nil && plain.agent == .pi && plain.unrecognizedAgent == nil)
+        task.kind = nil
+        #expect(try raw(task, "kind") == nil)
+    }
+
+    @Test func anUnknownSidebarItemKeepsItsPlaceAndIsNeverDrawnOrCounted() throws {
+        let a = Project(id: UUID(), name: "A", path: "/a", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
+        let b = Project(id: UUID(), name: "B", path: "/b", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
+        var state = AppState.empty
+        state.append(project: a)
+        state.items.append(try JSONDecoder().decode(SidebarItem.self, from: Data(#"{"kind":"folder","folder":{"n":1}}"#.utf8)))
+        state.append(project: b)
+        let hidden = state.items[1].id
+
+        #expect(state.projects == [a, b])
+        #expect(state.canMove(id: a.id, .down) && !state.canMove(id: a.id, .up))
+        #expect(!state.canMove(id: b.id, .down) && state.canMove(id: b.id, .up))
+        let moved = state.move(id: b.id, .up)
+        #expect(moved)
+        #expect(state.items.map(\.id) == [b.id, a.id, hidden])
+        state.projects = [a, b]
+        #expect(state.items.map(\.id) == [a.id, b.id, hidden], "the project setter refills project slots only")
+
+        let entries = SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
+        #expect(entries.map(\.id) == [a.id, b.id])
+        guard case .project(let first) = entries[0], case .project(let last) = entries[1] else { Issue.record("expected projects"); return }
+        #expect(!first.canMoveUp && first.canMoveDown && last.canMoveUp && !last.canMoveDown)
+
+        let again = try JSONDecoder().decode(AppState.self, from: JSONEncoder().encode(state))
+        #expect(again == state)
+        #expect(!again.items[2].isDrawn)
+    }
+
     @Test func testAppStateRoundTripsThroughJSON() throws {
         let p = Project(id: UUID(), name: "acme-web", path: "/Users/me/Sites/acme-web", provider: .gitlab, remoteUrl: "git@git.example.net:web/acme-web.git", addedAt: Date(timeIntervalSince1970: 1), collapsed: false,
                         jiraProjects: [JiraProjectRef(id: "10001", key: "SHOP", name: "Storefront", siteURL: URL(string: "https://example.atlassian.net")!),
@@ -45,15 +102,17 @@ import Foundation
         #expect(back.lastModelByAgent == [.codex: "gpt-5.6"])
     }
 
-    /// A task's agent is what its window runs: that one is not guessed at.
-    @Test func testATaskForAnUnknownAgentStillFailsToLoad() throws {
+    /// A task's agent from a newer build no longer fails the load: the task reads as a Claude task
+    /// and keeps the saved name for the next save (see `anUnknownTaskKindReadsAsATask…`).
+    @Test func testATaskForAnUnknownAgentLoadsAndKeepsItsSavedName() throws {
         var state = AppState.empty
         state.tasks = [TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main", jira: nil,
                                 agent: .pi, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
                                 createdAt: Date(timeIntervalSince1970: 1), windowId: nil)]
         let json = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
             .replacingOccurrences(of: "\"pi\"", with: "\"someday\"")
-        #expect(throws: DecodingError.self) { try JSONDecoder().decode(AppState.self, from: Data(json.utf8)) }
+        let back = try JSONDecoder().decode(AppState.self, from: Data(json.utf8))
+        #expect(back.tasks.first?.agent == .claude && back.tasks.first?.unrecognizedAgent == "someday")
     }
 
     @Test func testProjectFromAnOlderStateFileDecodesWithoutAJiraProject() throws {

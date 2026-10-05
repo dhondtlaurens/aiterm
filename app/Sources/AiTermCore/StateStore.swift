@@ -70,7 +70,9 @@ public final class StateStore {
     private func validate(_ state: AppState) throws {
         let projects = Set(state.projects.map(\.id))
         // One id set across the whole sidebar: a divider must not collide with a project either.
-        guard Set(state.items.map(\.id)).count == state.items.count,
+        // Rows an older build cannot draw take a fresh id on every load, so they cannot collide.
+        let drawn = state.items.filter(\.isDrawn)
+        guard Set(drawn.map(\.id)).count == drawn.count,
               Set(state.tasks.map(\.id)).count == state.tasks.count,
               Set(state.terminals.map(\.id)).count == state.terminals.count,
               state.tasks.allSatisfy({ projects.contains($0.projectId) }),
