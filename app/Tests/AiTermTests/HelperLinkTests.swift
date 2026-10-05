@@ -16,9 +16,10 @@ struct HelperLinkTests {
                                   agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
     private let title = SessionTitle(sessionId: "s", title: "feat/a")
 
-    /// Each title costs the daemon three iTerm2 calls, so one it already has in that place is not
-    /// sent again. A tab moved to another slot, a new iTerm2 connection or a new client has lost it.
-    @Test func aTitleIsSentAgainOnlyOnceTheDaemonHasLostIt() async {
+    /// The daemon alone knows which titles iTerm2 has: it skips one already applied, forgets a
+    /// tab's when the tab moves and all of them when iTerm2 reconnects. So every pass sends the
+    /// whole list, whatever was sent before, and the app has nothing to infer or to get wrong.
+    @Test func everyPassSendsItsTitlesAndTheDaemonDecidesWhichToApply() async {
         let daemon = RecordingDaemon()
         let link = link()
         link.setDaemonClient(daemon)
@@ -26,35 +27,30 @@ struct HelperLinkTests {
 
         await link.sendTitles([title], placedIn: [tab])
         await link.sendTitles([title], placedIn: [tab])
-        #expect(sends() == 1)
+        #expect(sends() == 2)
         var moved = tab
         moved.tabIndex = 1
         await link.sendTitles([title], placedIn: [moved])
-        #expect(sends() == 2)
-        link.handle(.itermConnected("3.7.2"))
-        await link.sendTitles([title], placedIn: [moved])
         #expect(sends() == 3)
-        link.setDaemonClient(daemon)
+        link.handle(.itermConnected("3.7.2"))
         await link.sendTitles([title], placedIn: [moved])
         #expect(sends() == 4)
         await link.sendTitles([], placedIn: [])
         #expect(sends() == 4, "no titles, nothing to send")
     }
 
-    /// A send still out when the daemon changed was applied by the old one: recording it would keep
-    /// the new daemon from ever being sent those titles.
-    @Test func aTitleSentToADaemonReplacedMeanwhileIsSentToTheNewOne() async throws {
-        let old = RecordingDaemon(holding: "sessions.setTitles"), new = RecordingDaemon()
+    /// A pass that ends with no daemon attached has nowhere to send, and the next one after it does.
+    @Test func titlesGoToTheDaemonAttachedWhenThePassEnds() async {
+        let first = RecordingDaemon(), second = RecordingDaemon()
         let link = link()
-        link.setDaemonClient(old)
-        let sending = Task { await link.sendTitles([title], placedIn: [tab]) }
-        try await old.received("sessions.setTitles")
-        link.setDaemonClient(new)
-        old.release()
-        await sending.value
-
         await link.sendTitles([title], placedIn: [tab])
-        #expect(new.requests("sessions.setTitles").count == 1)
+        link.setDaemonClient(first)
+        await link.sendTitles([title], placedIn: [tab])
+        link.setDaemonClient(second)
+        await link.sendTitles([title], placedIn: [tab])
+
+        #expect(first.requests("sessions.setTitles").count == 1)
+        #expect(second.requests("sessions.setTitles").count == 1)
     }
 
     /// A bundle without the helper is known at once: finding Python first is a login shell for
@@ -70,7 +66,7 @@ struct HelperLinkTests {
         #expect(lookups.withLock { $0 } == 0)
     }
 
-    /// A send that failed applied nothing, so the next pass tries again.
+    /// A send that failed applied nothing, and the next pass sends again as it does after any.
     @Test func aTitleTheDaemonRefusedIsSentAgain() async {
         let daemon = RecordingDaemon(failing: ["sessions.setTitles": "temporary_failure"])
         let link = link()

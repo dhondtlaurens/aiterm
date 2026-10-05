@@ -18,16 +18,6 @@ final class HelperLink {
     @ObservationIgnored private var running = false
     /// Set when a client attaches, cleared by the first snapshot it delivers — the bootstrap one.
     @ObservationIgnored private var awaitingAttachSnapshot = false
-    /// What the connected daemon last applied, so an unchanged set is not re-sent every pass: each
-    /// title costs the daemon three iTerm2 calls. Each is kept with its tab's position, because a tab
-    /// moved to another window or slot loses its title and must get it again. Cleared with the connection.
-    @ObservationIgnored private var sentTitles: [SentTitle]? {
-        didSet { if sentTitles == nil { titlesGeneration += 1 } }
-    }
-    /// Moves on each time `sentTitles` is cleared — a new client, a new iTerm2 connection — so a
-    /// send that was out meanwhile, answered by what was there before, records nothing.
-    @ObservationIgnored private var titlesGeneration = 0
-    private struct SentTitle: Equatable { let title: SessionTitle, windowId: String?, tabIndex: Int? }
 
     private let socketPath: String
     /// The bundle's resources, where the daemon's package is.
@@ -94,7 +84,6 @@ final class HelperLink {
 
     func setDaemonClient(_ client: (any DaemonCommands)?) {
         daemon = client
-        sentTitles = nil // A new daemon, or the same one after a reconnect, has applied nothing yet.
         // The iTerm2 background waits for the attach snapshot: the daemon can apply it only with
         // iTerm2 connected, and says so there — or later, with `.itermConnected`.
         awaitingAttachSnapshot = client != nil
@@ -134,7 +123,6 @@ final class HelperLink {
             awaitingAttachSnapshot = false
             if snapshot.connected { sendItermBackground() }
         case .itermConnected:
-            sentTitles = nil
             sendItermBackground()
         default: break
         }
@@ -172,18 +160,13 @@ final class HelperLink {
         }
     }
 
-    /// Each tab's title, sent after a checkout pass unless the daemon already has it in that place.
-    func sendTitles(_ titles: [SessionTitle], placedIn sessions: [SessionInfo]) async {
-        let tabs = Dictionary(sessions.map { ($0.sessionId, $0) }, uniquingKeysWith: { first, _ in first })
-        let placed = titles.map { title in
-            let tab = tabs[title.sessionId]
-            return SentTitle(title: title, windowId: tab?.windowId, tabIndex: tab?.tabIndex)
-        }
-        if let daemon, !titles.isEmpty, placed != sentTitles {
-            let generation = titlesGeneration
-            let applied = (try? await daemon.setSessionTitles(titles)) != nil
-            guard generation == titlesGeneration else { return }
-            sentTitles = applied ? placed : nil
-        }
+    /// Each tab's title, sent after every checkout pass. The daemon alone remembers which it has
+    /// applied: it applies only what differs from what it last set, and forgets a tab's title when
+    /// the tab moves and all of them when iTerm2 reconnects — events this side would only have to
+    /// infer, and could miss. An unchanged list costs one local request.
+    /// The tabs' positions the caller still passes are no longer read.
+    func sendTitles(_ titles: [SessionTitle], placedIn _: [SessionInfo]) async {
+        guard let daemon, !titles.isEmpty else { return }
+        _ = try? await daemon.setSessionTitles(titles)
     }
 }
