@@ -35,6 +35,23 @@ import Testing
         #expect(!backpack.isOn && !backpack.busy)
     }
 
+    /// The mode ended itself and is rejoining Wi-Fi: no `busy`, but it switches, so a click does
+    /// nothing. Once the rejoin is over the click opens the sheet again.
+    @Test func toggleWhileTheSelfEndingRejoinRunsDoesNothing() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
+        let fake = FakeBackpack()
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch(), backpackPorts: fake.ports)
+        let setup = BackpackSetup(sleepRule: true, location: true, network: "Phone")
+        controller.backpack.preview(state: .off, setup: setup, transition: .turningOff)
+        #expect(!controller.backpack.busy)
+        controller.toggleBackpack()
+        #expect(controller.sheet == nil, "no sheet while it switches")
+        controller.backpack.preview(state: .off, setup: setup, transition: nil)
+        controller.toggleBackpack()
+        guard case .backpack? = controller.sheet else { Issue.record("no sheet once it has switched"); return }
+    }
+
     @Test func failedLoadCannotSaveEmptyState() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

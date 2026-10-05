@@ -258,9 +258,10 @@ final class AppController {
     }
 
     /// The Mac row's click and ⌘B. Backpack off at once; desk opens the sheet, unless another one
-    /// is up. Ignored while it switches.
+    /// is up. Ignored while it switches — a connect or turn-off, or the rejoin after the mode ended
+    /// itself, which runs without `busy`.
     func toggleBackpack() {
-        guard !backpack.busy else { return }
+        guard !backpack.busy, backpack.transition == nil else { return }
         if backpack.isOn {
             Task { await backpack.turnOff() }
         } else if sheet == nil {
