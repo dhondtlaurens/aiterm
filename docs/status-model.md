@@ -92,7 +92,8 @@ HTTP on the Claude route can never be counted as Claude.
 Hooks are the primary source; two corroborating ones run on the daemon's tick so a missed post
 cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` → working, `waiting`
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
-the end of the turn) and the braille spinner glyph at the head of an iTerm2 tab title.
+the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Which
+harness has which is its `corroboration` in the `HARNESSES` table; Grok Build and PI have neither.
 
 A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
 command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and

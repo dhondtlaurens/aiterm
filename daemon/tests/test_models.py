@@ -1,6 +1,6 @@
 import pytest
 from aitermd.models import (
-    AGENT_BINARIES, END_OF_TURN_SURVIVES_CWD_LOSS, TAB_ID_FROM_HEADER, Frame, SessionInfo, Usage, UsageWindow,
+    AGENT_BINARIES, END_OF_TURN_SURVIVES_CWD_LOSS, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, Usage, UsageWindow,
     classify_agent,
 )
 
@@ -10,7 +10,12 @@ def test_the_harness_table_derives_what_each_agent_is():
     # Grok's end of turn travels only on hooks spawned in the session's cwd.
     assert END_OF_TURN_SURVIVES_CWD_LOSS == {"claude", "codex", "pi"}
     # Claude's posts are placed by the agent's pid, everyone else's by the tab the header names.
-    assert TAB_ID_FROM_HEADER == {"codex", "grok", "pi"}
+    assert {a: h.placement for a, h in HARNESS_BY_AGENT.items()} == {
+        "claude": "pid_file", "codex": "header", "grok": "header", "pi": "header"}
+    # Grok and PI have no tick signal: what their hooks say stands.
+    assert {a: h.corroboration for a, h in HARNESS_BY_AGENT.items()} == {
+        "claude": "claude_file", "codex": "codex_title", "grok": None, "pi": None}
+    assert USAGE_VENDORS == ("claude", "codex")
 
 
 def test_frame_from_json():

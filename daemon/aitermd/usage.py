@@ -3,7 +3,7 @@ import math
 from dataclasses import replace
 from typing import Any
 
-from .models import Usage, UsageWindow
+from .models import USAGE_VENDORS, Usage, UsageWindow
 
 FIVE_HOUR_MINS, WEEK_MINS = 300, 10080
 # How far `updatedAt` may advance before an otherwise unchanged `Usage` is news again. The
@@ -14,7 +14,8 @@ HEARTBEAT_SECONDS = 60
 
 class UsageStore:
     def __init__(self) -> None:
-        self._usage: dict[str, Usage | None] = {"claude": None, "codex": None}
+        # Every vendor is in the snapshot, a None until it first reports.
+        self._usage: dict[str, Usage | None] = dict.fromkeys(USAGE_VENDORS)
         # What the clients were last told, per vendor: the reference for "is this news?", which
         # the latest stored value cannot be once a quiet minute has been absorbed into it.
         self._announced: dict[str, Usage] = {}

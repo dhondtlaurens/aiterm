@@ -20,7 +20,7 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, param, require_iterm
 from .rpc_server import RpcServer
-from .models import SessionInfo
+from .models import HARNESS_BY_AGENT, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, path_is_missing
 from .usage import UsageStore, parse_codex_rate_limits
@@ -284,17 +284,21 @@ class Service:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
         not, and to `threads` the Codex thread it runs, by session. A step that raises keeps the
         changes before it. The Codex rollout is not read here: see `_apply_codex_contexts`."""
-        if s.agent == "claude" and s.job_pid and (f := self.claude_files.read(s.job_pid)):
-            changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
-            # The file's cwd is the agent's own, and it follows it into a worktree;
-            # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
-            changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
-        elif s.agent == "codex":
+        if s.agent == "shell":
+            if s.state != "idle":
+                changed += self.status.agent_exited(s.session_id)
+            return
+        corroboration = HARNESS_BY_AGENT[s.agent].corroboration
+        if corroboration == "claude_file":
+            if s.job_pid and (f := self.claude_files.read(s.job_pid)):
+                changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
+                # The file's cwd is the agent's own, and it follows it into a worktree;
+                # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
+                changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
+        elif corroboration == "codex_title":
             changed += self.status.apply_codex_title(s.session_id, s.title)
             if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
                 threads[s.session_id] = thread_id
-        elif s.agent == "shell" and s.state != "idle":
-            changed += self.status.agent_exited(s.session_id)
 
     async def _apply_codex_contexts(self, threads: dict[str, str]) -> list[str]:
         """The sessions whose context fill their Codex rollout changed, and the rollouts' cache pruned

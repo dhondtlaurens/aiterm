@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .claude_sessions import ClaudeSessionFiles
-from .models import TAB_ID_FROM_HEADER, AgentKind
+from .models import HARNESS_BY_AGENT, AgentKind
 from .sessions import SessionRegistry
 
 
@@ -44,10 +44,12 @@ class SessionResolver:
                          iterm_session_id: str | None = None) -> str | None:
         """The tab a post came from, by evidence rather than inference: the agent's own pid (Claude)
         or the tab id the hook carries (Codex, Grok, PI). A pin or a directory match can be stale."""
-        if agent == "claude":
+        if (harness := HARNESS_BY_AGENT.get(agent)) is None:
+            return None
+        if harness.placement == "pid_file":
             if session_id and (pid := self.claude_files.pid_for_session(session_id)) and (s := self.registry.by_job_pid(pid)):
                 return s.session_id
-        elif agent in TAB_ID_FROM_HEADER and iterm_session_id:
+        elif iterm_session_id:
             # $ITERM_SESSION_ID includes a pane prefix (`w1t0p0:<uuid>`), while iTerm2's Python API
             # reports only the suffix as the session id.
             s = self.registry.get(iterm_session_id.rpartition(":")[2])

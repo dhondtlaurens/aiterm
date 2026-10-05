@@ -25,9 +25,17 @@ class Harness:
     hook_route: str
     # Another process title the CLI runs under, matched in full against the case-folded basename.
     title_pattern: re.Pattern[str] | None = None
-    # Whether its hook posts carry the tab they came from, in X-AiTerm-iTerm-Session. Claude's
-    # travel over HTTP from the agent itself, and are placed by its pid instead.
-    tab_id_from_header: bool = True
+    # How a hook post is placed on the tab it came from (SessionResolver.resolve_directly): by the tab
+    # id it carries in X-AiTerm-iTerm-Session, or -- Claude's, which travel over HTTP from the agent
+    # itself -- by the pid the agent's own session file names.
+    placement: Literal["header", "pid_file"] = "header"
+    # What the daemon's tick reads beside the hooks, so a missed post cannot strand a row
+    # (Service._corroborate): Claude's own session file, or the spinner in a Codex tab's title --
+    # with the context fill in its rollout. None: the hooks alone.
+    corroboration: Literal["claude_file", "codex_title"] | None = None
+    # Whether it reports the account's rate limits, which the usage footer shows: Claude in its
+    # status line, Codex in its rollout.
+    reports_usage: bool = False
     # Whether its end-of-turn signal reaches the daemon without a process spawned in the session's
     # cwd. A harness without one is settled by the daemon once its cwd vanishes
     # (StatusEngine.settle_orphans), and gets one only when its driver meets that bar.
@@ -38,10 +46,10 @@ class Harness:
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
-    Harness("claude", "/hook/claude", tab_id_from_header=False, end_of_turn_survives_cwd_loss=True,
-            statusline_route="/statusline"),
+    Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file", end_of_turn_survives_cwd_loss=True,
+            statusline_route="/statusline", reports_usage=True),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", end_of_turn_survives_cwd_loss=True),
+    Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True),
     # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
     # process may be titled with the resolved name: versioned since 1.0.44
     # (`grok-1.0.44-macos-aarch64`), and naming the architecture (`grok-macos-x86_64`).
@@ -51,11 +59,12 @@ HARNESSES: tuple[Harness, ...] = (
     Harness("pi", "/hook/pi", end_of_turn_survives_cwd_loss=True),
 )
 
-AGENT_BINARIES: frozenset[AgentKind] = frozenset(h.agent for h in HARNESSES)
+HARNESS_BY_AGENT: dict[AgentKind, Harness] = {h.agent: h for h in HARNESSES}
+AGENT_BINARIES: frozenset[AgentKind] = frozenset(HARNESS_BY_AGENT)
 AGENT_TITLE_PATTERNS: tuple[tuple[re.Pattern[str], AgentKind], ...] = tuple(
     (h.title_pattern, h.agent) for h in HARNESSES if h.title_pattern)
 END_OF_TURN_SURVIVES_CWD_LOSS: frozenset[AgentKind] = frozenset(h.agent for h in HARNESSES if h.end_of_turn_survives_cwd_loss)
-TAB_ID_FROM_HEADER: frozenset[AgentKind] = frozenset(h.agent for h in HARNESSES if h.tab_id_from_header)
+USAGE_VENDORS: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.reports_usage)
 # The payload field the hook server puts X-AiTerm-iTerm-Session in, and discards from a body: a
 # trusted private field, which only the header may set.
 ITERM_SESSION_FIELD = "_aiterm_iterm_session_id"
