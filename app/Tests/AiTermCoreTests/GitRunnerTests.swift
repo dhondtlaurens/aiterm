@@ -22,6 +22,21 @@ import Testing
         #expect(env.contains("GIT_TERMINAL_PROMPT=0"))
     }
 
+    /// The app matches git's own wording in stderr (`modified or untracked files`, `not fully
+    /// merged`), so git speaks English whatever locale the person, the runner or a call asks for.
+    @Test func gitAlwaysSpeaksEnglish() throws {
+        let (plain, directory) = try fakeGit("/usr/bin/env")
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let dutch = ["LC_ALL": "nl_NL.UTF-8", "LANGUAGE": "nl"]
+        let git = GitRunner(git: plain.git, environment: dutch)
+        for env in [try git.run(["status"], in: directory),
+                    try git.run(["status"], in: directory, timeout: GitRunner.localTimeout, environment: dutch)] {
+            let lines = env.split(separator: "\n")
+            #expect(lines.contains("LC_ALL=C") && lines.contains("LANGUAGE=C"))
+            #expect(!lines.contains { $0.contains("nl_NL") })
+        }
+    }
+
     /// The runner's own environment goes on every command, and a call's goes on that one only.
     @Test func environmentIsSetForEveryCommandAndACallsForThatOne() throws {
         let (plain, directory) = try fakeGit("/usr/bin/env")

@@ -97,6 +97,9 @@ public class GitRunner: @unchecked Sendable {
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment extra: [String: String]) throws -> String {
         var env = ProcessRunner.inheritedEnvironment.merging(environment) { $1 }.merging(extra) { $1 }
         env["GIT_OPTIONAL_LOCKS"] = "0"; env["GIT_TERMINAL_PROMPT"] = "0"
+        // Some callers match git's English wording in stderr (`GitError.refusedForUnsavedWork`, "not
+        // fully merged"), and a translated git — Homebrew's, under a nl or fr locale — would not say it.
+        env["LC_ALL"] = "C"; env["LANGUAGE"] = "C"
         // Process.currentDirectoryURL can fall back when a checkout disappeared.
         // Git must itself validate the directory before doing anything to a repository.
         let result = try ProcessRunner.run(URL(fileURLWithPath: git), ["-C", dir] + args, environment: env,
