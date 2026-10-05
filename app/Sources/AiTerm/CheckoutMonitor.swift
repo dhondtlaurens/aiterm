@@ -28,6 +28,9 @@ final class CheckoutMonitor {
     /// The titles of the latest pass that ended while a sync was out, sent when it returns. Passes
     /// that end meanwhile replace it: only the newest titles are worth sending.
     @ObservationIgnored private var pendingTitles: (titles: [SessionTitle], sessions: [SessionInfo])?
+    /// Set by a `refresh()` that joins a pass in flight: its caller changed the disk just before
+    /// asking, and the pass may have looked before, so one more follows the pass once it is applied.
+    @ObservationIgnored private var trailingPassOwed = false
     /// Which `refresh` pass is the current one: a pass `stop()` cancelled must not clear the
     /// `refreshTask` of one started after it.
     @ObservationIgnored private var refreshGeneration = 0
@@ -80,7 +83,7 @@ final class CheckoutMonitor {
         let interval = pollInterval
         monitor = Task { [weak self] in
             while !Task.isCancelled {
-                guard let pass = self?.refresh() else { break }
+                guard let pass = self?.startPass(owesTrailing: false) else { break }
                 await pass.value
                 do { try await Task.sleep(for: interval) }
                 catch { break }
@@ -104,19 +107,28 @@ final class CheckoutMonitor {
         if sessionGate.admits(sessions) { refresh() }
     }
 
-    /// A request that arrives while a pass is out joins it. The pass is not obsolete for that: it is
-    /// dropped, and read again, only if what it reads — the tabs' directories, the projects, the
-    /// tasks — differs when it ends from what it started with, rather than briefly restoring a
-    /// branch the user already left. A request that changes nothing the pass reads, like the
-    /// poll's tick, leaves it be, or a pass slower than the tick would never be applied.
+    /// A request that arrives while a pass is out joins it, and the pass is not obsolete for that:
+    /// it is dropped, and read again, only if what it reads — the tabs' directories, the projects,
+    /// the tasks — differs when it ends from what it started with, rather than briefly restoring a
+    /// branch the user already left. Its answer is applied, and then a pass of the request's own
+    /// follows, because callers ask right after changing the disk (a worktree removed or created)
+    /// and the pass may have looked first. Only the poll's tick (`startPass(owesTrailing:)`) joins
+    /// without that, since it awaits the pass anyway; a tick that discarded or repeated the pass in
+    /// flight would never let a pass slower than the interval be applied.
     @discardableResult
-    func refresh() -> Task<Void, Never> {
-        if let refreshTask { return refreshTask }
+    func refresh() -> Task<Void, Never> { startPass(owesTrailing: true) }
+
+    private func startPass(owesTrailing: Bool) -> Task<Void, Never> {
+        if let refreshTask {
+            if owesTrailing { trailingPassOwed = true }
+            return refreshTask
+        }
         refreshGeneration += 1
         let generation = refreshGeneration
         let task = Task {
             defer { if refreshGeneration == generation { refreshTask = nil } }
             while !Task.isCancelled {
+                trailingPassOwed = false
                 let inputs = ScanInputs(workspace: workspace(), cwds: live.sessions.map(\.effectiveCwd))
                 let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scan = self.scan
                 let defaultBranches = self.defaultBranches
@@ -130,7 +142,7 @@ final class CheckoutMonitor {
                 onRemovedTasks(scan.removedTasks)
                 retainDiffsDuringRemoval(scan)
                 syncTitles(scan)
-                return
+                if !trailingPassOwed { return }
             }
         }
         refreshTask = task

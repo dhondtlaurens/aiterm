@@ -67,15 +67,17 @@ struct CheckoutMonitorTests {
     }
 
     /// A refresh that arrives while a pass is out changes none of what the pass reads, so the pass
-    /// is not obsolete: its answer is applied, and no second pass is run to replace it.
-    @Test func aRefreshWithUnchangedInputsDoesNotDiscardThePassInFlight() async throws {
+    /// is not obsolete and its answer is applied. The caller changed the disk just before asking,
+    /// though, and the pass may have looked first: a pass of its own follows.
+    @Test func aRefreshWithUnchangedInputsKeepsThePassInFlightAndOwesAnother() async throws {
         var state = AppState.empty
         state.append(project: project)
         let scans = ScanLog(holding: true)
+        var remotes = 0
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("first"), result("second")]), workspace: { state },
                                       removalInFlight: { _ in false },
-                                      onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
+                                      onRemotes: { _ in remotes += 1 }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
         let pass = monitor.refresh()
         try await waitForPass(1, of: scans)
@@ -83,8 +85,9 @@ struct CheckoutMonitorTests {
         scans.release()
         await pass.value
 
-        #expect(monitor.branchByCwd == ["/repo": "main"])
-        #expect(scans.started == 1)
+        #expect(remotes == 2) // The first answer was applied, not dropped, and the second followed it.
+        #expect(scans.started == 2)
+        #expect(monitor.branchByCwd == ["/repo": "second"])
     }
 
     /// The tick that livelocked the monitor: a pass longer than the interval used to be thrown away
