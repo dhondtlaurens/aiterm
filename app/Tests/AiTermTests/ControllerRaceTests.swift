@@ -77,7 +77,7 @@ extension AppControllerTests {
     /// Only work in the project holds it. A task being removed in "Repo" is no reason to refuse
     /// "Other"; it is a reason to refuse "Repo".
     @Test func aProjectIsNotHeldByAnotherProjectsTaskBeingChanged() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Cancel", "OK"))
+        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Remove", "Remove", "OK"))
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -94,6 +94,8 @@ extension AppControllerTests {
 
         #expect(fixture.prompter.asked.map(\.message).suffix(2) == ["Remove project “Other”?", "“Repo” can’t be removed yet"])
         #expect(fixture.prompter.asked.last?.detail.hasPrefix("A task is still being changed.") == true)
+        #expect(controller.state.project(id: other.id) == nil, "Other went; Repo stayed")
+        #expect(controller.state.projects == [fixture.project])
         server.release()
         await removal?.value
     }

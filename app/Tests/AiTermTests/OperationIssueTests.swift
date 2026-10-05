@@ -154,8 +154,8 @@ extension AppControllerTests {
         #expect(controller.removals[task.id] == note)
     }
 
-    /// A report that is dropped replaces nothing, so the row's note stays: it is still true.
-    @Test func aDroppedReportLeavesAStoppedNoteBe() async throws {
+    /// A report held back replaces nothing, so the row's note stays while it waits: it is still true.
+    @Test func aHeldBackReportLeavesAStoppedNoteBe() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -167,6 +167,57 @@ extension AppControllerTests {
         controller.report(OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id))
 
         #expect(controller.removals[task.id] == note)
+    }
+
+    /// What a click failed with while a question was up is not lost: it takes the banner when the
+    /// question goes, and its row note then goes with it by the usual rule.
+    @Test func aHeldBackReportAppearsOnceTheQuestionIsDismissed() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        let task = try fixture.addTask(windowId: nil)
+        controller.seedSnapshotRemoval(.stopped(note: "Not removed", worktreeRemoved: false), of: task.id)
+        controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)]))
+        let failure = OperationIssue(title: "Couldn’t remove the task.", reason: "Busy.", subject: task.id)
+        controller.report(failure)
+
+        controller.dismissIssue()
+        #expect(controller.issue == failure)
+        #expect(controller.removals[task.id] != nil, "its note stays while its banner shows")
+
+        controller.dismissIssue()
+        #expect(controller.issue == nil)
+        #expect(controller.removals[task.id] == nil)
+    }
+
+    @Test func theNewestHeldBackReportIsTheOneShown() async throws {
+        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+
+        fixture.controller.report("First.")
+        fixture.controller.report("Second.")
+        await fixture.controller.perform(.keepBranch(task.id))?.value
+
+        #expect(fixture.controller.issue == OperationIssue(title: "Second."))
+        fixture.controller.dismissIssue()
+        #expect(fixture.controller.issue == nil, "only the newest was kept")
+    }
+
+    /// A held-back report about a row that has gone meanwhile is not worth showing.
+    @Test func aHeldBackReportForARowThatWentIsDropped() async throws {
+        let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let other = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Other", branch: "feat/other",
+                             worktreePath: fixture.root.path + "/other", baseBranch: "main", jira: nil, agent: .codex,
+                             model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
+                             createdAt: Date(timeIntervalSince1970: 0), windowId: "w")
+        fixture.controller.state.tasks.append(other)
+        fixture.controller.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
+
+        fixture.controller.state.tasks.removeAll { $0.id == other.id }
+        await fixture.controller.perform(.keepBranch(task.id))?.value
+
+        #expect(fixture.controller.issue == nil)
     }
 
     /// Reopening is doing what "Kept; choose Reopen Window" said, so the note has done its job.
@@ -182,6 +233,20 @@ extension AppControllerTests {
 
         #expect(controller.state.task(id: task.id)?.windowId == "reopened")
         #expect(controller.removals[task.id] == nil)
+    }
+
+    /// And so is the banner that said the task was kept.
+    @Test func reopeningATaskTakesDownTheBannerAboutIt() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        controller.report(OperationIssue(title: "Task kept. Its window had already closed.", subject: task.id))
+
+        await controller.reopen(task: task)?.value
+
+        #expect(controller.issue == nil)
     }
 
     /// A reopen that fails changed nothing about why the removal stopped.

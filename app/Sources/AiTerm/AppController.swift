@@ -63,6 +63,9 @@ final class AppController {
     /// The failed operation the banner above the list shows. Set through `report`, cleared by
     /// `dismissIssue`, by an action that answers it, or once the task or project it names is gone.
     private(set) var issue: OperationIssue?
+    /// The latest report that had nothing to offer while `issue` held a question: it waits here, and
+    /// takes the banner once the question is answered or dismissed. Not drawn, so not observed.
+    @ObservationIgnored private var deferredIssue: OperationIssue?
     private(set) var toastState = ToastState()
 
     /// The helper process, the connection to it and how far it reaches iTerm2.
@@ -309,7 +312,8 @@ final class AppController {
     /// a restored backup or a removal — in this one place: the banner about it, and its removal's
     /// entry. Runs on every write to `state`, so it writes only what changed.
     private func pruneForgottenRows() {
-        if let issue, issue.isStale(in: state) { self.issue = nil }
+        if deferredIssue?.isStale(in: state) == true { deferredIssue = nil }
+        if let issue, issue.isStale(in: state) { clearIssue() }
         guard !removals.isEmpty else { return }
         let kept = removals.filter { state.task(id: $0.key) != nil }
         if kept.count != removals.count { removals = kept }
@@ -470,7 +474,7 @@ final class AppController {
     private func rebaseDefault(project: Project) -> Task<Void, Never>? {
         let rebase = changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.rebaseDefaultBranch(of: project).summary },
                                          failure: { OperationIssue(title: "Couldn’t rebase the default branch.", error: $0) })
-        if rebase != nil { issue = nil }
+        if rebase != nil { clearIssue() }
         return rebase
     }
 
@@ -937,6 +941,8 @@ final class AppController {
                 try await openWindow(for: current, command: nil, with: daemon)
                 // "Kept; choose Reopen Window" was asking for exactly this.
                 clearStoppedNote(of: task.id)
+                if issue?.subject == task.id { clearIssue() }
+                if deferredIssue?.subject == task.id { deferredIssue = nil }
             } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
     }
@@ -945,12 +951,14 @@ final class AppController {
     /// Shows `issue` above the list, in place of whatever was there — unless it is about a task or
     /// project that has gone while the work it reports was running, or it offers nothing while a
     /// question with answers is still up: a background failure must not take "Branch X kept" and
-    /// its Keep or Delete from someone who has not answered yet. The toast cannot carry it (it is
-    /// the completion toast, a checkmark and all), so the dropped report is logged.
+    /// its Keep or Delete from someone who has not answered yet. It waits (the newest one) until
+    /// the question is gone, and is logged meanwhile. The toast cannot carry it: it is the
+    /// completion toast, a checkmark and all.
     func report(_ issue: OperationIssue) {
         guard !issue.isStale(in: state) else { return }
         if issue.actions.isEmpty, self.issue?.actions.isEmpty == false {
-            NSLog("AiTerm: not shown, a question is waiting: \(issue.title) \(issue.reason ?? "")")
+            NSLog("AiTerm: held back, a question is waiting: \(issue.title) \(issue.reason ?? "")")
+            deferredIssue = issue
             return
         }
         if let shown = self.issue, shown.subject != issue.subject { clearStoppedNote(of: shown) }
@@ -963,7 +971,15 @@ final class AppController {
     /// past its worktree still waits on a retry, and its row keeps saying so.
     func dismissIssue() {
         if let issue { clearStoppedNote(of: issue) }
+        clearIssue()
+    }
+
+    /// Takes the banner down, and puts up what was held back behind it, if its row is still there.
+    private func clearIssue() {
         issue = nil
+        guard let held = deferredIssue else { return }
+        deferredIssue = nil
+        if !held.isStale(in: state) { issue = held }
     }
 
     /// The row's "Not removed" note for the task `issue` is about, if that removal stopped with
@@ -985,7 +1001,7 @@ final class AppController {
         switch action {
         case .keepBranch(let id):
             guard let (task, project) = heldForRetry(id) else { return nil }
-            issue = nil
+            clearIssue()
             return remove(task, from: project, deleteBranch: false)
         case .deleteBranch(let id):
             guard let shown = state.task(id: id) else { return nil }
@@ -996,7 +1012,7 @@ final class AppController {
                 buttons: ["Delete Branch", "Cancel"], defaultDeletes: true))
             // The alert is a reentrancy point: act on the task as it is once it is answered.
             guard answer.confirmed, let (task, project) = heldForRetry(id) else { return nil }
-            issue = nil
+            clearIssue()
             return remove(task, from: project, deleteBranch: true) { [taskWorkflow] in
                 try await taskWorkflow.deleteUnmergedBranch(of: task, in: project)
             }
