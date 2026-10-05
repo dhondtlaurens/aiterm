@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The one 1 pt rule: `Palette.border` on a filled rectangle, the same stroke as every control's
-/// outline. The sidebar's rules (either side of a `DividerRow`'s name, the status bento's scroll edge), the
+/// outline. The sidebar's rules (either side of a `DividerRow`'s name, the sidebar footer's scroll edge), the
 /// step bar's connectors and a sheet's section breaks — its header's and footer's edges, under a
 /// Settings card's header, between the Interface tab's rows — all draw it.
 ///

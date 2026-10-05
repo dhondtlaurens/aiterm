@@ -72,15 +72,13 @@ struct SidebarView: View {
                     RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(id) } }
                 })
             }
-            // The usage tiles depend on the clock — a window that has reset is dropped, and a reset time
+            // The rows depend on the clock — a window that has reset is dropped, and a reset time
             // gains its weekday across midnight — so they are recomputed on the minute, not only
             // when the usage changes.
             TimelineView(.everyMinute) { context in
-                StatusBento(task: controller.live.usageRow(for: controller.focus.selection),
-                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: context.date, calendar: .current,
-                                                               claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled),
-                            backpack: controller.backpack,
-                            openBackpackSettings: { controller.presentSettings(tab: .backpack) })
+                SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
+                              rows: SidebarModel.usageVendorRows(controller.live.usage, now: context.date, calendar: .current,
+                                                                 claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
             }
         }
         .overlay(alignment: .bottom) { SidebarToast(controller: controller) }
@@ -171,7 +169,7 @@ struct SidebarBanners: View {
 }
 
 /// One line — or a few — above the list, and the links that answer it. Its text starts where the
-/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the status bento's marks do below.
+/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the sidebar footer's marks do below.
 /// `detail` follows `text` in `Palette.muted`: what happened, then why.
 ///
 /// Only the leading edge is shared. `trailing` and `vertical` (×1 tokens, scaled here) keep each

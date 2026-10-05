@@ -36,42 +36,6 @@ enum BackpackPresentation {
 
     static let hotspotHelp = "The iPhone only shows its hotspot while that screen is open, so if the Mac loses it, open the screen again. With the same Apple Account on both, macOS can also join it by itself: System Settings › Wi-Fi › Ask to join hotspots › Automatic. Save stores the password in Keychain."
 
-    /// Backpack's tile's tooltip: its state in full, the hotspot's name included.
-    static func tileHelp(_ tile: BackpackTileState, state: BackpackState, setup: BackpackSetup) -> String {
-        switch tile {
-        case .setup:
-            return BackpackRefusal.needsSetup.message
-        case .off:
-            return menuLine(state: state, setup: setup)
-        case .turningOn:
-            guard let network = setup.network else { return "Turning on Backpack Mode" }
-            return "Turning on Backpack Mode · joining \(network)"
-        case .turningOff:
-            return "Turning off Backpack Mode"
-        case .nearCutoff:
-            guard case .on(let status) = state, let level = status.power.level else { return menuLine(state: state, setup: setup) }
-            return "Battery at \(level) %: Backpack Mode turns off at \(status.cutoff) %"
-        case .on, .lostHotspot:
-            return menuLine(state: state, setup: setup)
-        }
-    }
-
-    /// What VoiceOver reads for the tile's control: the switch's title, or the setup button's.
-    static func tileLabel(_ tile: BackpackTileState, state: BackpackState) -> String {
-        switch tile {
-        case .setup: return "Set Up Backpack Mode"
-        case .off, .on: return "Backpack Mode"
-        case .turningOn: return "Backpack Mode, turning on"
-        case .turningOff: return "Backpack Mode, turning off"
-        case .nearCutoff:
-            guard case .on(let status) = state, let level = status.power.level else { return "Backpack Mode, needs you" }
-            return "Backpack Mode, needs you: battery at \(level) %, turns off at \(status.cutoff) %"
-        case .lostHotspot:
-            guard case .on(let status) = state else { return "Backpack Mode, needs you" }
-            return "Backpack Mode, needs you: lost \(status.network), open Personal Hotspot on the iPhone"
-        }
-    }
-
     static let permissionsSummary = "Backpack Mode keeps the Mac awake with the lid closed and online through your iPhone’s hotspot, until you turn it off or the battery reaches its cutoff. Remove takes the lid-sleep rule out again."
 
     /// Hotspot's status line: the mode's own, beside the network it names.

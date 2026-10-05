@@ -184,25 +184,6 @@ public enum Palette {
         return Color(nsColor: blended)
     }()
 
-    /// The opaque colour of a status tile's ground: `badge` composited over `sidebar`. A
-    /// `StatusMark` sitting on the corner of Backpack's mark is ringed in it, so the dot reads
-    /// apart from the disc it overlaps; a translucent ring would show the disc through. Composited
-    /// by hand in sRGB and resolved once under `.darkAqua`, for the reasons `rowHoverSolid` gives.
-    public static let badgeSolid: Color = {
-        let appearance = NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()
-        var blended = NSColor(sidebar)
-        appearance.performAsCurrentDrawingAppearance {
-            let top = NSColor(badge).usingColorSpace(.sRGB) ?? NSColor(badge)
-            let base = NSColor(sidebar).usingColorSpace(.sRGB) ?? NSColor(sidebar)
-            let alpha = top.alphaComponent
-            blended = NSColor(
-                srgbRed: top.redComponent * alpha + base.redComponent * (1 - alpha),
-                green: top.greenComponent * alpha + base.greenComponent * (1 - alpha),
-                blue: top.blueComponent * alpha + base.blueComponent * (1 - alpha),
-                alpha: 1)
-        }
-        return Color(nsColor: blended)
-    }()
     /// A collapsed project's status-count chips (`StatusCountChips`): a fill and a stroke per
     /// status family, each a wash of that family's colour. The three pairs strengthen with urgency —
     /// idle and working in `muted`, needs-input in `amber`, done in `accent` — a deliberate

@@ -260,11 +260,10 @@ enum Snapshots {
             // them stays the outer stack's.
             VStack(alignment: .leading, spacing: Space.hairline) { sidebarRows() }
                 .padding(.horizontal, Space.inset)
-            StatusBento(task: controller.live.usageRow(for: controller.focus.selection),
-                        rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current),
-                        backpack: controller.backpack, openBackpackSettings: {})
+            SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
+                        rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
         }
-        // The rows' 10 pt inset stands in for the List's. The bento is a direct child of the real
+        // The rows' 10 pt inset stands in for the List's. The footer is a direct child of the real
         // sidebar and gets its full width — it adds that inset back itself — so it is not padded
         // here, and the frame carries the inset on top of `sidebarWidth`.
         .frame(width: Size.sidebarWidth + 20)
@@ -275,9 +274,8 @@ enum Snapshots {
             write(VStack(alignment: .leading, spacing: scale(Space.hairline)) {
                 VStack(alignment: .leading, spacing: scale(Space.hairline)) { sidebarRows() }
                     .padding(.horizontal, scale(Space.inset))
-                StatusBento(task: controller.live.usageRow(for: controller.focus.selection),
-                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current),
-                            backpack: controller.backpack, openBackpackSettings: {})
+                SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
+                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
             }
             .frame(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset))
             .fixedSize(horizontal: false, vertical: true)
@@ -286,35 +284,12 @@ enum Snapshots {
         }
         // A task stacking two providers draws only its active tab's provider.
         controller.focus.browse(.task(working.id))
-        write(StatusBento(task: controller.live.usageRow(for: controller.focus.selection),
-                          rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current),
-                          backpack: controller.backpack, openBackpackSettings: {})
+        write(SidebarFooter(task: controller.live.usageRow(for: controller.focus.selection),
+                          rows: SidebarModel.usageVendorRows(controller.live.usage, now: Date(), calendar: .current))
             .frame(width: Size.sidebarWidth)
             .background(Palette.sidebar)
-            .surface(.sidebar), to: out.appendingPathComponent("status-bento-agents.png"))
+            .surface(.sidebar), to: out.appendingPathComponent("sidebar-footer-agents.png"))
         controller.focus.browse(.task(piTask.id))
-        // Backpack's tile in every state, one under the next, for judging the corner mark by eye.
-        let ready = BackpackSetup(sleepRule: true, location: true, network: "My iPhone")
-        let unready = BackpackSetup(sleepRule: false, location: false, network: nil)
-        let fine = BackpackStatus(network: "My iPhone", joined: true, power: PowerReading(level: 64, onBattery: true), cutoff: 20)
-        let states: [(BackpackState, BackpackSetup, BackpackTransition?)] = [
-            (.off, unready, nil), (.off, ready, nil), (.off, ready, .turningOn), (.on(fine), ready, nil),
-            (.on(BackpackStatus(network: "My iPhone", joined: true, power: PowerReading(level: 23, onBattery: true), cutoff: 20)), ready, nil),
-            (.on(BackpackStatus(network: "My iPhone", joined: false, power: .mains, cutoff: 20)), ready, nil),
-            (.on(fine), ready, .turningOff),
-        ]
-        let backpacks = states.map { state, setup, transition -> BackpackController in
-            let backpack = BackpackController.inert()
-            backpack.preview(state: state, setup: setup, transition: transition)
-            return backpack
-        }
-        write(VStack(spacing: Space.base) {
-            ForEach(backpacks.indices, id: \.self) { BackpackTile(backpack: backpacks[$0], openSettings: {}) }
-        }
-        .padding(Space.inset)
-        .frame(width: (Size.sidebarMinWidth - 2 * Space.inset - Space.base) / 2 + 2 * Space.inset)
-        .background(Palette.sidebar)
-        .surface(.sidebar), to: out.appendingPathComponent("backpack-tile.png"))
     }
 
     /// Every step of the New Task and New Review sheets, and the New Terminal sheet.
