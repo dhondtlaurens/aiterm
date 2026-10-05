@@ -80,10 +80,11 @@ import Testing
         #expect(!backpack.busy && !backpack.isOn)
     }
 
+    /// The failed joins dropped "Home": the undo joins it again.
     @Test func cancelStopsTheRetriesAndPutsTheWiFiBack() async {
         let fake = FakeBackpack()
         fake.wifi.inRange = ["Home"]
-        fake.wifi.joinSucceeds = false
+        fake.wifi.failingJoins = ["Phone"]
         let backpack = controller(fake)
         let run = Task { await backpack.connect(network: "Phone", password: nil) }
         while fake.wifi.joins.isEmpty { await Task.yield() }
@@ -92,6 +93,25 @@ import Testing
         #expect(!backpack.isOn && !backpack.busy)
         #expect(fake.lid.calls.isEmpty, "sleep was never touched")
         #expect(backpack.phase == nil)
+        #expect(fake.wifi.current == "Home")
+        #expect(fake.wifi.joins.last == "Home")
+        #expect(backpack.currentNetwork == "Home")
+    }
+
+    /// Started on "Home", the join failed for good and dropped it: Cancel brings the Mac back
+    /// onto a preferred network, not leaves it on none.
+    @Test func cancelAfterAFailedJoinPutsTheMacBackOnAPreferredNetwork() async {
+        let fake = FakeBackpack()
+        fake.wifi.failingJoins = ["Phone"]   // in range: joinFailed
+        let backpack = controller(fake)
+        await backpack.connect(network: "Phone", password: nil)
+        #expect(backpack.phase == .failed(.joinFailed(network: "Phone")))
+        #expect(fake.wifi.current == nil)
+        await backpack.cancelConnect()
+        #expect(fake.wifi.current == "Home")
+        #expect(backpack.currentNetwork == "Home")
+        #expect(backpack.phase == nil && !backpack.busy)
+        #expect(fake.lid.calls.isEmpty, "sleep was never touched")
     }
 
     @Test func cancelAfterAJoinLeavesTheHotspot() async {
@@ -180,9 +200,10 @@ import Testing
     @Test func cancelDuringAJoinSkipsTheRetryWait() async {
         let fake = FakeBackpack()
         fake.wifi.inRange = ["Home"]
-        fake.wifi.joinSucceeds = false
+        fake.wifi.failingJoins = ["Phone"]
         let release = DispatchSemaphore(value: 0), entered = Mutex(false)
-        fake.wifi.onJoin = { @Sendable in entered.withLock { $0 = true }; release.wait() }
+        // Holds the connect's join only: the undo's join of "Home" runs straight through.
+        fake.wifi.onJoin = { @Sendable in if entered.withLock({ let first = !$0; $0 = true; return first }) { release.wait() } }
         let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
                                           retryDelays: [.seconds(5)], toast: { _ in })
         let run = Task { await backpack.connect(network: "Phone", password: nil) }
@@ -193,7 +214,7 @@ import Testing
         await run.value
         #expect(Date().timeIntervalSince(started) < 1, "no wait before the undo")
         #expect(backpack.phase == nil && !backpack.busy)
-        #expect(fake.wifi.joins == ["Phone"])
+        #expect(fake.wifi.joins == ["Phone", "Home"], "no retry of the hotspot; the undo puts the dropped network back")
     }
 
     /// Cancel while a join is under way that then fails for good: Cancel wins, not the refusal.
@@ -201,7 +222,8 @@ import Testing
         let fake = FakeBackpack()
         fake.wifi.joinSucceeds = false   // in range: joinFailed
         let release = DispatchSemaphore(value: 0), entered = Mutex(false)
-        fake.wifi.onJoin = { @Sendable in entered.withLock { $0 = true }; release.wait() }
+        // Holds the connect's join only: the undo's join of "Home" runs straight through.
+        fake.wifi.onJoin = { @Sendable in if entered.withLock({ let first = !$0; $0 = true; return first }) { release.wait() } }
         let backpack = controller(fake)
         let run = Task { await backpack.connect(network: "Phone", password: nil) }
         while !entered.withLock({ $0 }) { await Task.yield() }

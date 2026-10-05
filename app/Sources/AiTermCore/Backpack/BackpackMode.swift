@@ -145,11 +145,12 @@ public final class BackpackMode: Sendable {
         return .changed
     }
 
-    /// After off: leave `hotspot` for the first of the Mac's preferred networks that one scan finds,
-    /// the hotspot excluded, joined as a known network (no password: it is the Mac's). The network the
-    /// Mac ends up on; nil when none was in range and it stays on the hotspot.
+    /// After off: leave `hotspot` — or no network at all, which a failed join leaves — for the first
+    /// of the Mac's preferred networks that one scan finds, the hotspot excluded, joined as a known
+    /// network (no password: it is the Mac's). A Mac on some other network stays there. The network
+    /// the Mac ends up on; nil when none was in range and it stays where it was.
     public func rejoinPreferred(leaving hotspot: String) -> String? {
-        guard let current = ports.wifi.currentNetwork(), current == hotspot else { return ports.wifi.currentNetwork() }
+        if let current = ports.wifi.currentNetwork(), current != hotspot { return current }
         let inRange = ports.wifi.networksInRange()
         for network in ports.wifi.knownNetworks() where network != hotspot && inRange.contains(network) {
             if ports.wifi.join(network, password: nil) { return network }

@@ -338,6 +338,17 @@ import Synchronization
         #expect(fake.wifi.joins.isEmpty)
     }
 
+    /// A failed associate drops the network the Mac was on: off, it walks the list as from the hotspot.
+    @Test func aMacOnNoNetworkJoinsTheFirstPreferredOneInRange() {
+        let fake = FakeBackpack()
+        fake.wifi.known = ["Phone", "Office", "Home"]
+        fake.wifi.inRange = ["Phone", "Home"]
+        fake.wifi.current = nil
+        #expect(mode(fake).rejoinPreferred(leaving: "Phone") == "Home")
+        #expect(fake.wifi.joins == ["Home"])
+        #expect(fake.wifi.current == "Home")
+    }
+
     @Test func aFailedJoinTriesTheNextPreferredNetwork() {
         let fake = FakeBackpack()
         fake.wifi.known = ["Office", "Home"]

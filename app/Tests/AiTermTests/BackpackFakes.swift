@@ -36,7 +36,8 @@ final class FakeWiFi: WiFiControl, @unchecked Sendable {
         joins.append(network)
         passwords.append(password)
         let ok = joinSucceeds && !failingJoins.contains(network)
-        if ok { current = network }
+        // A failed associate drops the network the Mac was on, as macOS does.
+        current = ok ? network : nil
         return ok
     }
 }
