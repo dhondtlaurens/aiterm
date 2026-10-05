@@ -87,11 +87,10 @@ nothing working starts the same 2 minutes. On battery at or under 10 % it turns 
 cutoff, `BackpackSettings.cutoff`). Either ending is recorded with its time and cause for the Mac
 row. After off, the Mac leaves the hotspot — or no network, which a failed join leaves — for the
 first of its preferred networks that one scan finds, never the hotspot; if none is in range it
-stays put. The Backpack sheet watches the lid and
-closes on an open → closed transition. `backpack.engaged` in UserDefaults is written before
-`disablesleep 1` and cleared only after `disablesleep 0` succeeds: a failed restore is retried on
-every check, a launch that finds the marker puts sleep back, and quit closes the mode first, so no
-turn-on can follow it.
+stays put. The Backpack sheet watches the lid and closes on an open → closed transition.
+`backpack.engaged` in UserDefaults is written before `disablesleep 1` and cleared only after
+`disablesleep 0` succeeds: a failed restore is retried on every check, a launch that finds the
+marker puts sleep back, and quit closes the mode first, so no turn-on can follow it.
 
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
 socket; the app's tests record it in process instead.
