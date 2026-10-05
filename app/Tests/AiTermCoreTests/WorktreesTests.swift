@@ -321,6 +321,35 @@ import Darwin
         #expect(try git.run(["worktree", "list", "--porcelain"], in: repo).contains("locked"))
     }
 
+    /// A `--single-branch` clone's `remote.origin.fetch` covers only its own branch, so `git fetch
+    /// origin <branch>` brings the commits but leaves `refs/remotes/origin/<branch>` unwritten.
+    /// Without that ref, a branch origin has reads as one it lacks, and a base is a stale one.
+    private func singleBranchCloneOfRepoWithAnotherBranch() throws -> (clone: String, remote: String) {
+        let repo = try repoWithRemoteOnlyBranch()
+        let remote = (try git.run(["remote", "get-url", "origin"], in: repo))
+        let root = (repo as NSString).deletingLastPathComponent
+        let clone = root + "/single"
+        _ = try git.run(["clone", "-q", "--single-branch", "-b", "main", remote, clone], in: root)
+        #expect(try git.run(["config", "--get-all", "remote.origin.fetch"], in: clone) == "+refs/heads/main:refs/remotes/origin/main")
+        return (clone, remote)
+    }
+
+    @Test func aReviewOfABranchOnlyOriginHasWorksInASingleBranchClone() throws {
+        let (clone, _) = try singleBranchCloneOfRepoWithAnotherBranch()
+        let path = try Worktrees.checkout(repo: clone, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/mr-branch")
+        // `--track` refuses a tracking ref the clone's fetch config does not cover, so the review's
+        // push target is written directly.
+        #expect(try git.run(["config", "branch.feat/mr-branch.remote"], in: clone) == "origin")
+        #expect(try git.run(["config", "branch.feat/mr-branch.merge"], in: clone) == "refs/heads/feat/mr-branch")
+    }
+
+    @Test func aTaskCanStartFromABranchOnlyOriginHasInASingleBranchClone() throws {
+        let (clone, remote) = try singleBranchCloneOfRepoWithAnotherBranch()
+        let path = try Worktrees.create(repo: clone, slug: "task", branch: "feat/task", base: "feat/mr-branch", git: git)
+        #expect(try git.run(["rev-parse", "HEAD"], in: path) == (try git.run(["rev-parse", "feat/mr-branch"], in: remote)))
+    }
+
     /// Git lets a branch live in one worktree. A branch that is an AiTerm task's never gets here —
     /// its review opens in the task — so whatever still has it is refused with where it is.
     @Test func testCheckoutRefusesABranchCheckedOutElsewhereAndCreatesNothing() throws {

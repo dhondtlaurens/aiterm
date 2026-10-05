@@ -367,10 +367,15 @@ public enum Worktrees {
         let path = try prepare(repo: repo, slug: slug, git: git)
         let created = local == nil
         try git.run(["worktree", "add", "--lock", "--reason", reviewLockReason]
-                    + (created ? ["--track", "-b", branch, path, "origin/" + branch] : [path, branch]), in: repo,
+                    + (created ? ["-b", branch, path, "origin/" + branch] : [path, branch]), in: repo,
                     timeout: GitRunner.checkoutTimeout)
-        // So that a plain `git push` from the review lands on origin's branch.
-        if !created, remote != nil { _ = try? git.run(["branch", "--set-upstream-to=origin/" + branch, branch], in: repo) }
+        // So that a plain `git push` from the review lands on origin's branch. Written as config
+        // rather than asked of `--track` or `--set-upstream-to`, which refuse an `origin/<branch>`
+        // that `remote.origin.fetch` does not cover — a single-branch clone's.
+        if created || remote != nil {
+            _ = try? git.run(["config", "branch.\(branch).remote", "origin"], in: repo)
+            _ = try? git.run(["config", "branch.\(branch).merge", "refs/heads/" + branch], in: repo)
+        }
         return path
     }
 
@@ -467,11 +472,13 @@ public enum Worktrees {
     }
 
     /// Best-effort fetch of `ref` so a new worktree starts from the remote's latest; `false` when
-    /// the repository has no `origin` at all.
+    /// the repository has no `origin` at all. An explicit, forced refspec, as the other fetches
+    /// here: `git fetch origin <ref>` updates `refs/remotes/origin/<ref>` only when
+    /// `remote.origin.fetch` covers it, which a single-branch or shallow clone's does not.
     @discardableResult
     private static func fetchFromOrigin(_ ref: String, repo: String, git: GitRunner) -> Bool {
         guard (try? git.run(["remote", "get-url", "origin"], in: repo)) != nil else { return false }
-        _ = try? git.runRemote(["fetch", "--quiet", "origin", ref], in: repo)
+        _ = try? git.runRemote(["fetch", "--quiet", "origin", "+refs/heads/\(ref):refs/remotes/origin/\(ref)"], in: repo)
         return true
     }
 
