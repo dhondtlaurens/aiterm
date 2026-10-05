@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any, TypeVar
 
 from . import protocol
@@ -26,6 +27,17 @@ from .usage import UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
 
 log = logging.getLogger(__name__)
+
+
+@contextmanager
+def _logged(step: str) -> Iterator[None]:
+    """Runs a step that must not stop the ones after it: a failure is logged and the caller carries on."""
+    try:
+        yield
+    except Exception:  # noqa: BLE001 - the steps after it are independent of it
+        log.exception("%s failed", step)
+
+
 POLL_SECONDS = 2.0
 # How long a tick waits for a check it runs on a worker thread: the orphan directories, the subagent
 # transcripts.
@@ -236,38 +248,38 @@ class Service:
         # A session moved to another tab or window keeps its id but not its tab's title.
         for s in self.registry.all():
             if positions_before.get(s.session_id, (s.window_id, s.tab_index)) != (s.window_id, s.tab_index):
-                self.windows.forget_title(s.session_id)
-        self.resolver.snapshot_applied()
+                with _logged(f"forgetting the title of moved session {s.session_id}"):
+                    self.windows.forget_title(s.session_id)
+        with _logged("validating the bindings after the snapshot"):
+            self.resolver.snapshot_applied()
         for sid in diff.replaced:
-            self.status.reset_turn(sid)
+            with _logged(f"resetting the turn of replaced session {sid}"):
+                self.status.reset_turn(sid)
         for sid in diff.opened:
-            if opened := self.registry.get(sid):
-                await self.rpc.broadcast(protocol.SESSION_OPENED, opened.to_json())
+            with _logged(f"announcing opened session {sid}"):
+                if opened := self.registry.get(sid):
+                    await self.rpc.broadcast(protocol.SESSION_OPENED, opened.to_json())
         for sid in diff.closed:
-            self._forget_session(sid)
-            await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
+            with _logged(f"forgetting closed session {sid}"):
+                self._forget_session(sid)
+            with _logged(f"announcing closed session {sid}"):
+                await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
         windows_after = {s.window_id for s in self.registry.all()}
         for wid in windows_before - windows_after:
-            await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
+            with _logged(f"announcing closed window {wid}"):
+                await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
         threads: set[str] = set()
         for s in self.registry.all():
-            try:
+            # Another process's file must not stop the other tabs.
+            with _logged(f"corroborating session {s.session_id}"):
                 self._corroborate(s, threads, changed)
-            except Exception:  # noqa: BLE001 - another process's file must not stop the other tabs
-                log.exception("corroborating session %s failed", s.session_id)
-        try:
+        with _logged("retaining the Codex rollouts"):
             if self.codex_files is not None:
                 self.codex_files.retain(threads)
-        except Exception:  # noqa: BLE001
-            log.exception("retaining the Codex rollouts failed")
-        try:
+        with _logged("settling orphaned sessions"):
             changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
-        except Exception:  # noqa: BLE001
-            log.exception("settling orphaned sessions failed")
-        try:
+        with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
-        except Exception:  # noqa: BLE001
-            log.exception("releasing dead subagents failed")
 
     def _corroborate(self, s: SessionInfo, threads: set[str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have

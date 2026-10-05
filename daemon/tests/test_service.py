@@ -1448,15 +1448,85 @@ async def test_a_tick_that_raises_after_the_snapshot_still_publishes_what_the_sn
     await svc.tick()
     await it.user_runs(sid, "claude", job_pid=5)
 
+    class Abort(BaseException):
+        """Not an Exception, so no step's guard swallows it, as with a cancelled tick."""
+
     def broken():
-        raise RuntimeError("a corroborator nobody guarded")
+        raise Abort
 
     monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(Abort):
         await svc.tick()
     # The registry already holds the new agent, so the next tick would diff nothing: the app must hear of it now.
     payload = await asyncio.wait_for(_published_until(r, lambda p: p["sessionId"] == sid and p["agent"] == "claude"), 2)
     assert payload["state"] == "idle"
+
+
+async def test_one_announcement_failing_does_not_cost_the_rest(stack, monkeypatch, caplog):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    other = (await call(r, w, "window.createTask", {"taskId": "t2", "cwd": "/wt2", "title": "y", "frame": FRAME}))["result"]["windowId"]
+    await it.create_tab(other, {"aiterm_task": "t2"})
+    await it.settle()
+    await svc.tick()
+    # Two sessions open in one window while two close and a whole window goes, all seen by one tick.
+    it.notify_on_create = False
+    first = await it._add_session(wid, "/x", {}, "-zsh", "zsh")
+    second = await it._add_session(wid, "/x", {}, "-zsh", "zsh")
+    gone = list(it.windows[other]["sessions"])
+    await it.close_window(other)
+    delivered: list[tuple[str, str]] = []
+    failed: set[str] = set()
+    real = svc.rpc.broadcast
+
+    async def broadcast(event, payload):
+        if event in ("session.opened", "session.closed") and event not in failed:
+            failed.add(event)
+            raise ConnectionError("a client that went away mid-write")
+        delivered.append((event, payload.get("sessionId") or payload.get("windowId")))
+        await real(event, payload)
+
+    monkeypatch.setattr(svc.rpc, "broadcast", broadcast)
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        await svc.tick()
+    assert failed == {"session.opened", "session.closed"}
+    assert len([e for e in delivered if e[0] == "session.opened"]) == 1
+    assert len([e for e in delivered if e[0] == "session.closed"]) == len(gone) - 1
+    assert ("window.closed", other) in delivered
+    assert {first, second} <= {s.session_id for s in svc.registry.all()}
+
+
+async def test_a_step_before_the_announcements_failing_does_not_cost_them(stack, monkeypatch, caplog):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    await it.settle()
+    it.notify_on_create = False
+    opened = await it._add_session(wid, "/x", {}, "-zsh", "zsh")
+
+    def broken(*args):
+        raise RuntimeError("a resolver that could not validate its bindings")
+
+    monkeypatch.setattr(svc.resolver, "snapshot_applied", broken)
+    monkeypatch.setattr(svc.windows, "forget_title", broken)
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        await svc.tick()
+    assert (await next_event(r, "session.opened"))["sessionId"] == opened
+    assert any("snapshot" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stack, monkeypatch, caplog):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    second = (await call(r, w, "tab.create", {"windowId": wid}, id_=2))["result"]["sessionId"]
+    await it.settle()
+
+    def broken(session_id):
+        raise RuntimeError("a store that could not forget")
+
+    monkeypatch.setattr(svc.status, "reset_turn", broken)
+    with caplog.at_level("ERROR", logger="aitermd.service"):
+        await it.user_closes_session(second)  # the tick its notification starts
+    assert (await next_event(r, "session.closed"))["sessionId"] == second
 
 
 async def test_a_failing_step_of_the_status_pass_does_not_cost_the_others(stack, monkeypatch, caplog):
