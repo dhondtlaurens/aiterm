@@ -6,10 +6,9 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case agents = "Agents"
     case integrations = "Integrations"
     case interface = "Interface"
-    case backpack = "Backpack"
     var id: Self { self }
 
-    /// ⌘1–⌘4 pick the tabs in the order the tab bar draws them.
+    /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
     var key: KeyEquivalent {
         KeyEquivalent(Character(String(Self.allCases.firstIndex(of: self)! + 1)))
     }
@@ -80,19 +79,8 @@ struct SettingsView: View {
     private var itermEnvironment: ItermEnvironment? { get { _itermEnvironment.wrappedValue } nonmutating set { _itermEnvironment.wrappedValue = newValue } }
     var _itermTesting = State<Bool>(initialValue: false)
     private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
-    /// Backpack Mode: its state and setup live; its fields are held here until Save.
+    /// Backpack Mode: the Mac card shows its setup live.
     let backpack: BackpackController
-    var _backpackNetwork: State<String?>
-    private var backpackNetwork: String? { get { _backpackNetwork.wrappedValue } nonmutating set { _backpackNetwork.wrappedValue = newValue } }
-    var _backpackCutoff: State<Int>
-    private var backpackCutoff: Int { get { _backpackCutoff.wrappedValue } nonmutating set { _backpackCutoff.wrappedValue = newValue } }
-    /// Opens empty, so opening Settings reads no secret; empty on Save keeps the saved one.
-    var _backpackPassword = State<String>(initialValue: "")
-    private var backpackPassword: String { get { _backpackPassword.wrappedValue } nonmutating set { _backpackPassword.wrappedValue = newValue } }
-    var _backpackPasswordSaved = State<Bool>(initialValue: false)
-    private var backpackPasswordSaved: Bool { get { _backpackPasswordSaved.wrappedValue } nonmutating set { _backpackPasswordSaved.wrappedValue = newValue } }
-    var _knownNetworks = State<[String]>(initialValue: [])
-    private var knownNetworks: [String] { get { _knownNetworks.wrappedValue } nonmutating set { _knownNetworks.wrappedValue = newValue } }
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,
          itermConnection: @escaping () -> ItermConnection,
@@ -118,8 +106,6 @@ struct SettingsView: View {
         _interfaceSize = State(initialValue: preferences.interfaceSize)
         openingSize = preferences.interfaceSize
         self.backpack = backpack
-        _backpackNetwork = State(initialValue: backpack.network)
-        _backpackCutoff = State(initialValue: backpack.cutoff)
     }
 
     var body: some View {
@@ -135,7 +121,7 @@ struct SettingsView: View {
                 SheetPrimaryButton(title: "Save") { if save() { dismiss.afterThisEvent() } }
             }
         }
-        // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
+        // ⌘1–⌘3, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
         // not buttons of their own.
         .background {
             ForEach(SettingsTab.allCases) { item in
@@ -150,8 +136,6 @@ struct SettingsView: View {
             integrations.testConfigured()
             await harnessModel.load()
             await backpack.refreshSetup()
-            knownNetworks = await backpack.knownNetworks()
-            backpackPasswordSaved = await backpack.hasPassword()
         }
     }
 
@@ -164,10 +148,6 @@ struct SettingsView: View {
                 InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,
                                       badgeDetails: _badgeDetails.projectedValue,
                                       interfaceSize: Binding(get: { interfaceSize }, set: { pickInterfaceSize($0) }))
-            case .backpack:
-                BackpackSettingsPane(backpack: backpack, network: _backpackNetwork.projectedValue,
-                                     password: _backpackPassword.projectedValue, passwordSaved: backpackPasswordSaved,
-                                     cutoff: _backpackCutoff.projectedValue, knownNetworks: knownNetworks)
             }
         }
     }
@@ -187,41 +167,47 @@ struct SettingsView: View {
         }
     }
 
-    /// iTerm2 first: AiTerm does nothing without it, while Jira, GitLab and GitHub are optional.
+    /// Core first — what AiTerm needs from this machine: iTerm2, then the Mac Backpack Mode keeps
+    /// awake — then the optional services.
     private var integrationSettings: some View {
-        VStack(alignment: .leading, spacing: Space.block) {
-            ItermSettingsCard(card: ItermCardPresentation.card(for: itermConnection(), environment: itermEnvironment,
-                                                               testing: itermTesting))
-            ServiceCard(title: "Jira", service: .jira, connection: integrations.jira) { fields in
-                VStack(alignment: .leading, spacing: Space.block) {
-                    FormField("Site URL") { Input(placeholder: "https://yourcompany.atlassian.net", text: fields.site) }
-                    HStack(alignment: .top, spacing: Space.gap) {
-                        FormField("Email") { Input(placeholder: "you@company.com", text: fields.email) }
-                            .frame(maxWidth: .infinity)
-                        FormField("API token") { Input(placeholder: "Atlassian API token", text: fields.token, secure: true) }
-                            .frame(maxWidth: .infinity)
-                    }
-                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
-                }
+        VStack(alignment: .leading, spacing: Space.section) {
+            SettingsSection("Core") {
+                ItermSettingsCard(card: ItermCardPresentation.card(for: itermConnection(), environment: itermEnvironment,
+                                                                   testing: itermTesting))
+                MacSettingsCard(backpack: backpack)
             }
-            ServiceCard(title: "GitLab", service: .gitlab, connection: integrations.gitLab) { fields in
-                VStack(alignment: .leading, spacing: Space.block) {
-                    HStack(alignment: .top, spacing: Space.gap) {
-                        FormField("Host URL") { Input(placeholder: "https://gitlab.com", text: fields.host) }
-                            .frame(maxWidth: .infinity)
-                        FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
-                            .frame(maxWidth: .infinity)
+            SettingsSection("Services") {
+                ServiceCard(title: "Jira", service: .jira, connection: integrations.jira) { fields in
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        FormField("Site URL") { Input(placeholder: "https://yourcompany.atlassian.net", text: fields.site) }
+                        HStack(alignment: .top, spacing: Space.gap) {
+                            FormField("Email") { Input(placeholder: "you@company.com", text: fields.email) }
+                                .frame(maxWidth: .infinity)
+                            FormField("API token") { Input(placeholder: "Atlassian API token", text: fields.token, secure: true) }
+                                .frame(maxWidth: .infinity)
+                        }
+                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
-                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                 }
-            }
-            ServiceCard(title: "GitHub", service: .github, connection: integrations.gitHub) { fields in
-                VStack(alignment: .leading, spacing: Space.block) {
-                    FormField("Access token") {
-                        Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
+                ServiceCard(title: "GitLab", service: .gitlab, connection: integrations.gitLab) { fields in
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        HStack(alignment: .top, spacing: Space.gap) {
+                            FormField("Host URL") { Input(placeholder: "https://gitlab.com", text: fields.host) }
+                                .frame(maxWidth: .infinity)
+                            FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
+                                .frame(maxWidth: .infinity)
+                        }
+                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
-                    HelpText("Needs read access to pull requests.")
-                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                }
+                ServiceCard(title: "GitHub", service: .github, connection: integrations.gitHub) { fields in
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        FormField("Access token") {
+                            Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
+                        }
+                        HelpText("Needs read access to pull requests.")
+                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                    }
                 }
             }
         }
@@ -237,9 +223,6 @@ struct SettingsView: View {
     /// save can still be cancelled without changing the models used by new tasks.
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
-        if let failure = Self.storeBackpack(network: backpackNetwork, cutoff: backpackCutoff, password: backpackPassword, in: backpack) {
-            tab = .backpack; result = failure; return false
-        }
         saveInterface()
         harnessModel.save()
         return true
@@ -262,15 +245,6 @@ struct SettingsView: View {
         setMatchItermBackground(matchItermBackground)
         preferences.badgeDetails = badgeDetails
         setInterfaceSize(interfaceSize)
-    }
-
-    /// Backpack's fields take effect at the next turn-on. A typed password goes to the Keychain;
-    /// an empty field leaves the saved one alone. The failure to show, or nil.
-    static func storeBackpack(network: String?, cutoff: Int, password: String, in backpack: BackpackController) -> String? {
-        backpack.network = network
-        backpack.cutoff = cutoff
-        if !password.isEmpty, !backpack.setPassword(password) { return "Couldn’t save the hotspot password in Keychain." }
-        return nil
     }
 
     /// The card follows `itermConnection` on its own; the test only refreshes it and the parts of

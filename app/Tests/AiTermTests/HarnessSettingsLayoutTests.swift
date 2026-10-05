@@ -8,7 +8,7 @@ import AiTermUI
 @MainActor
 @Suite struct HarnessSettingsLayoutTests {
     @Test func settingsTabsAndCardsStayInHarnessOrder() {
-        #expect(SettingsTab.allCases == [.agents, .integrations, .interface, .backpack])
+        #expect(SettingsTab.allCases == [.agents, .integrations, .interface])
         #expect(SettingsTab.agents.rawValue == "Agents")
         #expect(SettingsTab.interface.rawValue == "Interface")
         #expect(HarnessCardPresentation.agents == [.claude, .codex, .grok, .pi])
@@ -40,7 +40,7 @@ import AiTermUI
     }
 
     @Test func commandDigitsPickTheTabsInOrder() {
-        #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3", "4"])
+        #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3"])
     }
 
     @Test func aCardDrawsItsMarkAndActionsAtTheControlHeight() {

@@ -98,6 +98,6 @@ import Testing
         #expect(KeyBinding(action: "Switch", keys: ["⌘", "⇥"]).spokenKeys == "Command Tab")
         #expect(KeyBinding(action: "Settings", keys: ["⌘", ","]).spokenKeys == "Command ,")
         #expect(KeyBinding(action: "Fold", keys: ["←", "→"]).spokenKeys == "Left Arrow Right Arrow")
-        #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–4"]).spokenKeys == "Command 1 to 4")
+        #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–3"]).spokenKeys == "Command 1 to 3")
     }
 }

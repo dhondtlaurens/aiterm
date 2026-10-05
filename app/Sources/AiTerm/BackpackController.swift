@@ -10,6 +10,9 @@ enum BackpackTransition: Equatable { case turningOn, turningOff }
 @MainActor
 @Observable
 final class BackpackController {
+    /// The glyph on every Backpack toast: the mode's own, the iPhone it runs through.
+    static let symbol = "iphone"
+
     private(set) var state: BackpackState = .off
     private(set) var setup = BackpackSetup(sleepRule: false, location: false, network: nil)
     /// The battery as last read: with setup, and on every check while on.
