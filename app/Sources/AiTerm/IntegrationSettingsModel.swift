@@ -197,40 +197,73 @@ final class IntegrationSettingsModel: ObservableObject {
         if gitHub.fields.isConfigured { gitHub.runTest() }
     }
 
+    /// One card's change, checked and not yet made.
+    private struct PendingWrite {
+        /// Writes the change to the store; `false` when the store refused it.
+        let write: () -> Bool
+        /// Puts the store back as the card opened it, for a later card's write failing.
+        let undo: () -> Void
+        /// Notes the new saved config and the last test that goes with it.
+        let commit: () -> Void
+        let failure: String
+    }
+
+    /// What Save would do for one card: store what is typed, remove what Disconnect left blank, or
+    /// nothing. Throws the card's message while its fields cannot make a connection; nothing is
+    /// written here. `saved` and `failed` are where the card's config and last test answer are kept.
+    private func pending<Fields: ServiceFields>(
+        _ card: ServiceConnection<Fields>, saved: ReferenceWritableKeyPath<IntegrationSettingsModel, Fields.Config?>,
+        failed: ReferenceWritableKeyPath<ServiceTestRecord, Bool>,
+        write: @escaping (Fields.Config?) -> Bool, saveFailure: String, removeFailure: String
+    ) throws -> PendingWrite? {
+        let before = self[keyPath: saved]
+        if card.fields.hasInput {
+            guard let config = card.fields.config else { throw SaveFailure(message: card.invalidURL) }
+            let testFailed = card.test?.failed == true
+            return PendingWrite(write: { write(config) }, undo: { _ = write(before) },
+                                commit: { [self] in self[keyPath: saved] = config; record[keyPath: failed] = testFailed },
+                                failure: saveFailure)
+        }
+        guard card.disconnecting else { return nil }
+        return PendingWrite(write: { write(nil) }, undo: { _ = write(before) },
+                            commit: { [self] in self[keyPath: saved] = nil; record[keyPath: failed] = false },
+                            failure: removeFailure)
+    }
+
+    private struct SaveFailure: Error { let message: String }
+
     /// Stores every service with anything typed, Jira first, and removes every service
-    /// disconnected and left blank. `nil` when all of it was done; else what stopped it, for the
-    /// sheet's footer. Both are optional, so blank fields store nothing.
+    /// disconnected and left blank. All or nothing: every card is checked before the first write,
+    /// so a card that cannot save leaves the others as they were, and a write the Keychain refuses
+    /// puts back the ones made before it. `nil` when all of it was done; else what stopped it, for
+    /// the sheet's footer. Both are optional, so blank fields store nothing.
     func save() -> String? {
-        if jira.fields.hasInput {
-            guard let config = jira.fields.config else { return jira.invalidURL }
-            guard JiraSettings.save(config, store: store, defaults: defaults) else { return "Couldn’t save the API token to the Keychain" }
-            savedJira = config
-            record.jiraFailed = jira.test?.failed == true
-        } else if jira.disconnecting {
-            guard JiraSettings.save(nil, store: store, defaults: defaults) else { return "Couldn’t remove the API token from the Keychain" }
-            savedJira = nil
-            record.jiraFailed = false
+        let writes: [PendingWrite]
+        do {
+            writes = [
+                try pending(jira, saved: \.savedJira, failed: \.jiraFailed,
+                            write: { JiraSettings.save($0, store: self.store, defaults: self.defaults) },
+                            saveFailure: "Couldn’t save the API token to the Keychain",
+                            removeFailure: "Couldn’t remove the API token from the Keychain"),
+                try pending(gitLab, saved: \.savedGitLab, failed: \.gitLabFailed,
+                            write: { GitLabSettings.save($0, store: self.store, defaults: self.defaults) },
+                            saveFailure: "Couldn’t save the GitLab token to the Keychain",
+                            removeFailure: "Couldn’t remove the GitLab token from the Keychain"),
+                try pending(gitHub, saved: \.savedGitHub, failed: \.gitHubFailed,
+                            write: { GitHubSettings.save($0, store: self.store) },
+                            saveFailure: "Couldn’t save the GitHub token to the Keychain",
+                            removeFailure: "Couldn’t remove the GitHub token from the Keychain"),
+            ].compactMap { $0 }
+        } catch let failure as SaveFailure {
+            return failure.message
+        } catch {
+            return error.localizedDescription
         }
-        if gitLab.fields.hasInput {
-            guard let config = gitLab.fields.config else { return gitLab.invalidURL }
-            guard GitLabSettings.save(config, store: store, defaults: defaults) else { return "Couldn’t save the GitLab token to the Keychain" }
-            savedGitLab = config
-            record.gitLabFailed = gitLab.test?.failed == true
-        } else if gitLab.disconnecting {
-            guard GitLabSettings.save(nil, store: store, defaults: defaults) else { return "Couldn’t remove the GitLab token from the Keychain" }
-            savedGitLab = nil
-            record.gitLabFailed = false
+        for (index, change) in writes.enumerated() where !change.write() {
+            writes[..<index].reversed().forEach { $0.undo() }
+            return change.failure
         }
-        if gitHub.fields.isConfigured {
-            guard let config = gitHub.fields.config else { return gitHub.invalidURL }
-            guard GitHubSettings.save(config, store: store) else { return "Couldn’t save the GitHub token to the Keychain" }
-            savedGitHub = config
-            record.gitHubFailed = gitHub.test?.failed == true
-        } else if gitHub.disconnecting {
-            guard GitHubSettings.save(nil, store: store) else { return "Couldn’t remove the GitHub token from the Keychain" }
-            savedGitHub = nil
-            record.gitHubFailed = false
-        }
+        writes.forEach { $0.commit() }
         return nil
     }
 }

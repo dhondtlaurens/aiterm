@@ -244,7 +244,8 @@ Ready. Over a missing CLI it runs the vendor's own installer and then the driver
 one it writes the driver whether or not it is already installed, so it can be overwritten. A Jira,
 GitLab or GitHub card holding saved credentials trails a Disconnect, which empties its fields and marks the
 service for removal: Save removes the saved site or host and the Keychain token, Cancel keeps
-everything. The iTerm2 card has no fields: below its divider it lists the numbered steps that mend
+everything. Save is all or nothing: it checks every card before it writes any, so a card that cannot
+save (a mistyped URL) leaves the others, Disconnects included, undone and the sheet open. The iTerm2 card has no fields: below its divider it lists the numbered steps that mend
 the first broken link to iTerm2, or one line of `HelpText` when nothing is broken. Its status line
 is `ItermConnection.status`, and the banner above the sidebar opens with the same words — grey,
 or amber while iTerm2 refuses the connection. It stays a pattern: Settings is its only user and its
