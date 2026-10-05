@@ -177,27 +177,17 @@ import Darwin
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.apply(ticket: JiraTicket(key: "WEB-1", summary: "Thing", description: "Do it", issueType: "Task", status: nil, url: "https://x/browse/WEB-1"))
         d.promptText = "/plan"
-        var receivedPath: String?
-        let task = try TaskCreator.create(draft: d, project: project) { path in receivedPath = path; return "claude --model opus '/plan'" }
-        #expect(task.worktreePath == repo + "/.worktrees/web-1-thing"); #expect(receivedPath == task.worktreePath)
+        let task = try TaskCreator.create(draft: d, project: project)
+        #expect(task.worktreePath == repo + "/.worktrees/web-1-thing")
         #expect(task.branch == "feat/web-1-thing"); #expect(task.jira?.key == "WEB-1"); #expect(task.title == "Thing")
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/.git"))
         #expect(task.windowId == nil)
     }
 
-    @Test func testCreateRollsBackWhenCommandPreparationFails() throws {
-        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
-        d.apply(ticket: nil); d.setTitle("Free task")
-        struct Boom: Error {}
-        #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) { _ in throw Boom() } }
-        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/free-task"))
-        #expect(throws: (any Error).self) { try git.run(["rev-parse", "--verify", "feat/free-task"], in: repo) }
-    }
-
     @Test func testBranchWithoutAsciiStillGetsItsOwnWorktreeDirectory() throws {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("x"); d.setBranch("feat/日本語")
-        let task = try TaskCreator.create(draft: d, project: project) { _ in nil }
+        let task = try TaskCreator.create(draft: d, project: project)
         let worktreesDir = repo + "/.worktrees/"
         #expect(task.worktreePath.hasPrefix(worktreesDir))
         #expect(task.worktreePath.count > worktreesDir.count, "the slug must never be empty: \(task.worktreePath)")
@@ -211,7 +201,7 @@ import Darwin
         for type in ["feat", "fix", "chore"] {
             var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
             d.setTitle("Login"); d.setBranch("\(type)/login")
-            paths.append(try TaskCreator.create(draft: d, project: project) { _ in nil }.worktreePath)
+            paths.append(try TaskCreator.create(draft: d, project: project).worktreePath)
         }
         #expect(paths == ["login", "login-2", "login-3"].map { repo + "/.worktrees/" + $0 })
     }
@@ -239,12 +229,10 @@ import Darwin
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.apply(mr: Self.mergeRequest)
         d.promptText = "/code-review"
-        var receivedPath: String?
-        let task = try TaskCreator.createReview(draft: d, project: project) { path in receivedPath = path; return "claude '/code-review'" }
+        let task = try TaskCreator.createReview(draft: d, project: project)
 
         #expect(task.kind == .review, "a review must be recognisable as one; nothing else distinguishes it")
         #expect(task.worktreePath == repo + "/.worktrees/review-mr-branch")
-        #expect(receivedPath == task.worktreePath)
         #expect(task.branch == "feat/mr-branch")
         #expect(task.title == "Add gift card")
         #expect(task.mr == MergeRequestRef(iid: 4, title: "Add gift card", url: "https://gitlab/x/-/merge_requests/4"))
@@ -264,7 +252,7 @@ import Darwin
             try git.run(["branch", branch], in: repo)
             var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
             d.setTitle("Card"); d.setBranch(branch)
-            paths.append(try TaskCreator.createReview(draft: d, project: project) { _ in nil }.worktreePath)
+            paths.append(try TaskCreator.createReview(draft: d, project: project).worktreePath)
         }
         #expect(paths == ["review-card", "review-card-2"].map { repo + "/.worktrees/" + $0 })
     }
@@ -274,69 +262,30 @@ import Darwin
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.setTitle("Look at Sam's branch")
         d.setBranch("feat/teammate-work")
-        let task = try TaskCreator.createReview(draft: d, project: project) { _ in nil }
+        let task = try TaskCreator.createReview(draft: d, project: project)
         #expect(task.kind == .review)
         #expect(task.mr == nil)
         #expect(task.baseBranch == "", "no merge request means nothing to land on")
         #expect(task.firstPrompt == nil)
     }
 
-    /// `create` unwinds a failed prepare with `git branch -D`. For a review that would destroy the
-    /// merge request's branch, so the unwind removes the worktree and only the worktree.
-    @Test func testCreateReviewUnwindsTheWorktreeAndNeverTheBranch() throws {
-        try git.run(["branch", "feat/mr-branch"], in: repo)
-        var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
-        d.apply(mr: Self.mergeRequest)
-        struct Boom: Error {}
-        #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) { _ in throw Boom() } }
-        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
-        #expect(try git.run(["rev-parse", "--verify", "feat/mr-branch"], in: repo) != "",
-                "the merge request's branch survives a failed review")
-    }
-
-    /// The unwind takes back only what the failed create made. A local branch that was already
-    /// there stays even when all of it is on origin — releasing it would lose nothing, but it was
-    /// not the create's to take. One the checkout made from origin is released.
-    @Test func testCreateReviewUnwindReleasesOnlyABranchItCreated() throws {
-        try git.run(["branch", "feat/mr-branch"], in: repo)
-        let remote = repo + "-remote.git"
-        defer { try? FileManager.default.removeItem(atPath: remote) }
-        try git.run(["init", "-q", "--bare", remote], in: repo)
-        try git.run(["remote", "add", "origin", remote], in: repo)
-        try git.run(["push", "-q", "origin", "main", "feat/mr-branch"], in: repo)
-        var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
-        d.apply(mr: Self.mergeRequest)
-        struct Boom: Error {}
-        func hasLocalBranch() throws -> Bool {
-            try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/feat/mr-branch"], in: repo).isEmpty == false
-        }
-
-        #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) { _ in throw Boom() } }
-        #expect(try hasLocalBranch(), "it was there before the create")
-
-        try git.run(["branch", "-q", "-D", "feat/mr-branch"], in: repo)
-        #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) { _ in throw Boom() } }
-        #expect(try !hasLocalBranch(), "the checkout made it, so the unwind takes it back")
-        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
-    }
-
     @Test func testCreateReviewRejectsAnEmptyOrInvalidBranchBeforeTouchingGit() throws {
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.setTitle("Review")
-        let blank = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) { _ in nil } }
+        let blank = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) }
         #expect(blank as? TaskCreator.Failure == .invalidBranch(""))
         d.setBranch("bad..name")
-        let bad = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) { _ in nil } }
+        let bad = #expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) }
         #expect(bad as? TaskCreator.Failure == .invalidBranch("bad..name"))
         d.setTitle("   ")
-        #expect((#expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) { _ in nil } })
+        #expect((#expect(throws: (any Error).self) { try TaskCreator.createReview(draft: d, project: project) })
                 as? TaskCreator.Failure == .emptyTitle)
     }
 
     @Test func testInvalidBranchIsRejectedBeforeTouchingGit() {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("x"); d.setBranch("bad..name")
-        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) { _ in nil } }
+        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) }
         #expect(e as? TaskCreator.Failure == .invalidBranch("feat/bad..name"))
     }
 
@@ -344,7 +293,7 @@ import Darwin
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("No model")
         d.setModel("", catalog: [])
-        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) { _ in nil } }
+        let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project) }
         #expect(e as? TaskCreator.Failure == .emptyModel)
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/no-model"))
     }

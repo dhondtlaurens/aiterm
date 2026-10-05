@@ -118,37 +118,24 @@ public enum TaskCreator {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    public static func create(draft: TaskDraft, project: Project, git: GitRunner = GitRunner(), prepareCommand: (String) throws -> String?) throws -> TaskItem {
+    public static func create(draft: TaskDraft, project: Project, git: GitRunner = GitRunner()) throws -> TaskItem {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard Worktrees.validateBranch(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
         let slug = unused(worktreeSlug(branch: draft.branch), in: project.path)
         let path = try Worktrees.create(repo: project.path, slug: slug, branch: draft.branch, base: draft.baseBranch, git: git)
-        do { _ = try prepareCommand(path) }
-        catch { _ = try? Worktrees.remove(repo: project.path, path: path, deleteBranch: draft.branch, force: true, git: git); throw error }
         return TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
                         jira: draft.ticket.map { JiraRef(key: $0.key, summary: $0.summary, url: $0.url) }, agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
                         firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket, createdAt: Date(), windowId: nil)
     }
 
-    public static func createReview(draft: ReviewDraft, project: Project, git: GitRunner = GitRunner(),
-                                    prepareCommand: (String) throws -> String?) throws -> TaskItem {
+    public static func createReview(draft: ReviewDraft, project: Project, git: GitRunner = GitRunner()) throws -> TaskItem {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,
               Worktrees.validateBranch(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
         let slug = unused(reviewSlug(branch: draft.branch), in: project.path)
-        let hadBranch = (try? git.run(["rev-parse", "--verify", "--quiet", "refs/heads/" + draft.branch], in: project.path)) != nil
         let path = try Worktrees.checkout(repo: project.path, slug: slug, branch: draft.branch, git: git)
-        do { _ = try prepareCommand(path) }
-        // Unlike `create`, the unwind never deletes the branch outright: it is the merge request's.
-        // Only a local copy the checkout itself just made from origin is taken back, and by the rule a
-        // removed review's is; one that was already there is not the create's to take.
-        catch {
-            _ = try? Worktrees.remove(repo: project.path, path: path, deleteBranch: nil, force: true, git: git)
-            if !hadBranch { _ = Worktrees.releaseReviewBranch(repo: project.path, branch: draft.branch, target: draft.mr?.targetBranch ?? "", git: git) }
-            throw error
-        }
         return TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
                         baseBranch: draft.mr?.targetBranch ?? "", jira: nil, kind: .review,
                         mr: draft.mr.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },

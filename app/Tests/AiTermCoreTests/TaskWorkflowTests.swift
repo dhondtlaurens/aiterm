@@ -21,6 +21,19 @@ struct TaskWorkflowTests {
         #expect(again.branchRefusal == nil)
     }
 
+    /// The command is built from the finished checkout, after the task exists: what it carries is
+    /// the worktree's own `.aiterm` prompt file, and a command that could not be built would be a
+    /// launch warning on a task that is still created.
+    @Test func creatingATaskBuildsItsCommandFromTheFinishedCheckout() async throws {
+        var (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        draft.promptText = "line one\tTabbed, so it is read from a file"
+        let created = try await TaskWorkflow().create(draft: draft, project: project)
+        #expect(created.launchWarning == nil)
+        #expect(created.command?.contains(".aiterm/first-prompt.md") == true)
+        #expect(FileManager.default.fileExists(atPath: created.task.worktreePath + "/.aiterm/first-prompt.md"))
+    }
+
     @Test func refusedRemovalPreservesCheckoutAndLock() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }

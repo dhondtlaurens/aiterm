@@ -29,18 +29,14 @@ public struct TaskWorkflow: Sendable {
 
     public func create(draft: TaskDraft, project: Project) async throws -> Created {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
-        return try await checkOut(draft, prompt: prompt) { git, prepare in
-            try TaskCreator.create(draft: draft, project: project, git: git, prepareCommand: prepare)
-        }
+        return try await checkOut(draft, prompt: prompt) { try TaskCreator.create(draft: draft, project: project, git: $0) }
     }
 
     public func createReview(draft: ReviewDraft, project: Project) async throws -> Created {
         // No ticket: a review's prompt is whatever was typed, and step 3 offers no "include
         // details" checkbox.
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
-        return try await checkOut(draft, prompt: prompt) { git, prepare in
-            try TaskCreator.createReview(draft: draft, project: project, git: git, prepareCommand: prepare)
-        }
+        return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, git: $0) }
     }
 
     /// The reviewer's command for a review that opens in `task`, which already has the branch
@@ -54,20 +50,19 @@ public struct TaskWorkflow: Sendable {
         }
     }
 
-    /// Makes the checkout, then the agent command for it. A command that cannot be prepared is a
+    /// Makes the checkout, then the agent command for it. A command that cannot be built is a
     /// launch warning, never a failure: it must not discard a real checkout.
     private func checkOut(_ draft: some AgentDraft & Sendable, prompt: String?,
-                          _ make: @escaping @Sendable (GitRunner, (String) throws -> String?) throws -> TaskItem) async throws -> Created {
+                          _ make: @escaping @Sendable (GitRunner) throws -> TaskItem) async throws -> Created {
         try await BackgroundWork.run(on: Self.queue) {
-            var command: String?, warning: String?
-            let task = try make(GitRunner()) { path in
-                do {
-                    command = try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                                                     prompt: prompt, worktreePath: path)
-                } catch { warning = error.localizedDescription }
-                return command
+            let task = try make(GitRunner())
+            do {
+                let command = try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
+                                                     prompt: prompt, worktreePath: task.worktreePath)
+                return Created(task: task, command: command, launchWarning: nil)
+            } catch {
+                return Created(task: task, command: nil, launchWarning: error.localizedDescription)
             }
-            return Created(task: task, command: command, launchWarning: warning)
         }
     }
 
