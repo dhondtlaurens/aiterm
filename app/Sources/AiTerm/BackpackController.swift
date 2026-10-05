@@ -121,7 +121,7 @@ final class BackpackController {
         phase = .joining
         var attempt = 0
         let mode = self.mode
-        while !cancelled {
+        attempts: while !cancelled {
             let joined: @Sendable () -> Void = { Task { @MainActor [weak self] in
                 if self?.phase == .joining { self?.phase = .keepingAwake }
             } }
@@ -129,7 +129,7 @@ final class BackpackController {
             state = mode.state
             switch result {
             case .success(let status):
-                if cancelled { break }
+                if cancelled { break attempts }
                 setup = BackpackSetup(sleepRule: true, location: true, network: status.network)
                 currentNetwork = status.network
                 phase = .safe
@@ -137,7 +137,7 @@ final class BackpackController {
                 return
             case .failure(.notInRange):
                 // Cancelled while that join ran: undo now, not after the wait.
-                if cancelled { break }
+                if cancelled { break attempts }
                 phase = .notInRange
                 let delay = retryDelays[min(attempt, retryDelays.count - 1)]
                 attempt += 1
@@ -149,7 +149,7 @@ final class BackpackController {
                 return
             case .failure(let refusal):
                 // Cancel wins over a refusal it came before: undo, and show no failure.
-                if cancelled { break }
+                if cancelled { break attempts }
                 phase = .failed(refusal)
                 if refusal == .needsSetup { await refreshSetupWhileBusy() }
                 return
@@ -179,28 +179,38 @@ final class BackpackController {
         transition = .turningOff
         defer { busy = false; transition = nil }
         ticking?.cancel()
-        let mode = self.mode, hotspot = network ?? ""
-        let (restored, joined) = await worker.run { (mode.turnOff(), mode.rejoinPreferred(leaving: hotspot)) }
+        let mode = self.mode, wifi = ports.wifi, hotspot = network ?? ""
+        let (restored, current) = await worker.run { () -> (Bool, String?) in
+            let restored = mode.turnOff()
+            _ = mode.rejoinPreferred(leaving: hotspot)
+            return (restored, wifi.currentNetwork())
+        }
         state = mode.state
         phase = nil
-        currentNetwork = joined ?? hotspot
+        currentNetwork = current
         if !restored {
             toast(Self.restoreFailed)
             startTicking()
         }
     }
 
-    /// Cancel's undo, under `busy`: off if it got that far, then off the hotspot.
+    /// Cancel's undo, under `busy`: off if it got that far, then off the hotspot. A failed
+    /// `disablesleep 0` is said and retried by the checks, as in `turnOff()`.
     private func undoWhileBusy(leaving hotspot: String) async {
         transition = .turningOff
-        let mode = self.mode
-        let joined = await worker.run { () -> String? in
-            mode.turnOff()
-            return mode.rejoinPreferred(leaving: hotspot)
+        let mode = self.mode, wifi = ports.wifi
+        let (restored, current) = await worker.run { () -> (Bool, String?) in
+            let restored = mode.turnOff()
+            _ = mode.rejoinPreferred(leaving: hotspot)
+            return (restored, wifi.currentNetwork())
         }
         state = mode.state
         phase = nil
-        currentNetwork = joined
+        currentNetwork = current
+        if !restored {
+            toast(Self.restoreFailed)
+            startTicking()
+        }
     }
 
     func refreshSetup() async {
@@ -253,10 +263,15 @@ final class BackpackController {
         guard case .ended(let cause)? = outcome else { return }
         if mode.settings.engaged { toast(Self.restoreFailed) }
         ended = BackpackEnded(at: now(), cause: cause)
+        phase = nil
         transition = .turningOff
-        let hotspot = network ?? ""
-        currentNetwork = await worker.run { mode.rejoinPreferred(leaving: hotspot) }
-        transition = nil
+        let wifi = ports.wifi, hotspot = network ?? ""
+        currentNetwork = await worker.run { () -> String? in
+            _ = mode.rejoinPreferred(leaving: hotspot)
+            return wifi.currentNetwork()
+        }
+        // Not a connect's `.turningOn` that started during the rejoin.
+        if transition == .turningOff { transition = nil }
     }
 
     /// Yields each time the lid goes from open to closed. A lid already closed when this starts —

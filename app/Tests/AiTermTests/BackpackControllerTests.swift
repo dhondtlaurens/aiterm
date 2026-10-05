@@ -111,6 +111,52 @@ import Testing
         #expect(fake.lid.calls == [true, false])
     }
 
+    /// Cancel after `disablesleep 1` ran, and `disablesleep 0` then fails: said, and retried by the
+    /// checks, as a turn-off by hand is — never left disabled until the next launch.
+    @Test func aFailedRestoreOnCancelSaysSoAndKeepsTrying() async {
+        let fake = FakeBackpack(), toasts = Recorder()
+        let release = DispatchSemaphore(value: 0)
+        let lid = fake.lid
+        // `disablesleep 1` succeeds once released; the `disablesleep 0` after it fails.
+        lid.onSet = { @Sendable disabled in if disabled { release.wait() } else { lid.succeeds = false } }
+        // Checks every 10 ms: the retry has to come from them, not from the test.
+        let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .milliseconds(10),
+                                          retryDelays: [.milliseconds(10)], agentsWorking: { true },
+                                          toast: { toasts.lines.append($0) })
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while backpack.phase != .keepingAwake { await Task.yield() }
+        let cancel = Task { await backpack.cancelConnect() }
+        release.signal()
+        await run.value
+        await cancel.value
+        #expect(!backpack.isOn)
+        #expect(toasts.lines == [BackpackController.restoreFailed])
+        #expect(fake.settings.engaged)
+        lid.onSet = { _ in }
+        lid.succeeds = true
+        let deadline = Date().addingTimeInterval(2)
+        while fake.settings.engaged, Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(!fake.settings.engaged, "the checks put sleep back")
+        backpack.shutdown()
+    }
+
+    /// No other known network in range: the Mac stays on the hotspot, and the tooltip says so.
+    @Test func anUndoWithNowhereToGoReportsTheHotspot() async {
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Phone"]
+        let release = DispatchSemaphore(value: 0)
+        fake.lid.onSet = { @Sendable in if $0 { release.wait() } }
+        let backpack = controller(fake)
+        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+        while backpack.phase != .keepingAwake { await Task.yield() }
+        let cancel = Task { await backpack.cancelConnect() }
+        release.signal()
+        await run.value
+        await cancel.value
+        #expect(fake.wifi.current == "Phone")
+        #expect(backpack.currentNetwork == "Phone")
+    }
+
     /// Cancel while a join is under way: once it answers, undo at once, not after a retry's wait.
     @Test func cancelDuringAJoinSkipsTheRetryWait() async {
         let fake = FakeBackpack()
@@ -185,6 +231,9 @@ import Testing
         clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
         await backpack.tick()
         #expect(backpack.ended == BackpackEnded(at: start.addingTimeInterval(BackpackMode.idleGrace), cause: .agentsStopped))
+        #expect(backpack.phase == nil, "off: the sheet must not read safe")
+        #expect(backpack.currentNetwork == "Home", "back on the network the Mac was on")
+        #expect(backpack.transition == nil)
         await backpack.connect(network: "Phone", password: nil)
         #expect(backpack.ended == nil, "the next turn-on clears it")
     }
