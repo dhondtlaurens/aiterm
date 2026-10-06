@@ -155,13 +155,13 @@ final class CheckoutMonitor {
             while !Task.isCancelled {
                 trailingPassOwed = false
                 let inputs = ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd))
-                let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scan = self.scan
+                let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scanner = self.scan
                 let defaultBranches = self.defaultBranches
                 stalls.scope(projects: inputs.projects, tasks: inputs.tasks)
-                let scanned = try? await BackgroundWork.run {
-                    scan(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
+                let scan = await BackgroundWork.run {
+                    scanner(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
                 }
-                guard !Task.isCancelled, let scan = scanned else { return }
+                guard !Task.isCancelled else { return }
                 guard inputs == ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd)) else { continue }
                 let branchesMoved = applyScan(scan)
                 for hook in remotesHooks { hook(scan.remotes) }

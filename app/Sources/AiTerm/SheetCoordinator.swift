@@ -108,8 +108,8 @@ final class SheetCoordinator {
         preparingSheet?.cancel()
         let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
         preparingSheet = Task {
-            let saved = try? await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
-            guard !Task.isCancelled, let saved, canPresentSettings else { return }
+            let saved = await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
+            guard !Task.isCancelled, canPresentSettings else { return }
             sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub)
         }
     }
@@ -177,14 +177,13 @@ final class SheetCoordinator {
         let state = self.state, available = agents.availableAgents, catalogue = agents.catalogue
         let agent = AgentAvailability.agent(preferring: state.lastAgentByProject[project.id] ?? .claude, available: available)
         preparingSheet = Task {
-            let prepared = try? await BackgroundWork.run {
-                let read = Result { try catalogue.models(for: agent) }
-                let catalog = (try? read.get()) ?? []
-                var failure: String?
-                if case .failure(let error) = read { failure = error.localizedDescription }
+            let prepared = await BackgroundWork.run {
+                // A catalogue that cannot be read opens the sheet with no models, saying why.
+                var catalog: [AgentModel] = [], failure: String?
+                do { catalog = try catalogue.models(for: agent) } catch { failure = error.localizedDescription }
                 return (draft: build(state, agent, catalog), catalog: catalog, failure: failure, search: resolve())
             }
-            guard !Task.isCancelled, canChangeWorkspace, sheet == nil, let prepared,
+            guard !Task.isCancelled, canChangeWorkspace, sheet == nil,
                   self.state.project(id: project.id) != nil else { return }
             sheet = makeSheet(prepared.draft, prepared.catalog, prepared.failure, prepared.search)
         }

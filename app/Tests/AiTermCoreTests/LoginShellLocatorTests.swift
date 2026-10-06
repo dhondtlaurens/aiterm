@@ -38,7 +38,7 @@ import Testing
             async let python = BackgroundWork.run { PythonLocator.find(locator: locator, validate: { _ in true }) }
             #expect(await eventually { locator.callersWaiting == 1 })
             shell.open()
-            let (available, interpreter) = try await (agents, python)
+            let (available, interpreter) = await (agents, python)
             #expect(available == Set(installed))
             #expect(interpreter?.path == "/usr/bin/python3")
             #expect(shell.spawns == 1, "the launch's two lookups")

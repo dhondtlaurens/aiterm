@@ -203,7 +203,7 @@ final class CreationModel<Kind: CreationKind> {
         nonisolated(unsafe) let defaults = self.defaults
         let handed = initialCatalogue?.agent == agent ? initialCatalogue : nil
         initialCatalogue = nil
-        let catalogue = try? await BackgroundWork.run {
+        let catalogue = await BackgroundWork.run {
             var models = handed?.models ?? [], failure = handed?.failure
             if handed == nil {
                 do { models = try catalogueProvider(agent) } catch { failure = error.localizedDescription }
@@ -212,7 +212,7 @@ final class CreationModel<Kind: CreationKind> {
                     completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home),
                     resolution: ModelSettings.resolution(for: agent, catalog: models, remembered: remembered, defaults: defaults))
         }
-        guard !Task.isCancelled, generation == catalogueGeneration, agent == draft.agent, let catalogue else { return }
+        guard !Task.isCancelled, generation == catalogueGeneration, agent == draft.agent else { return }
         models = catalogue.models
         catalogueFailure = catalogue.failure
         catalogueLoaded = true
@@ -235,9 +235,9 @@ final class CreationModel<Kind: CreationKind> {
     func loadBranches() async {
         let path = project.path
         let git = git
-        let found = try? await BackgroundWork.run { Repository(path, git: git).branches() }
+        let found = await BackgroundWork.run { Repository(path, git: git).branches() }
         guard !Task.isCancelled else { return }
-        branches = found ?? []
+        branches = found
     }
 
     func cancelSearch() {

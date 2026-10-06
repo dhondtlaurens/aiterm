@@ -63,9 +63,9 @@ final class HelperLink {
         }
         let findPython = self.findPython
         startup = Task {
-            let found = try? await BackgroundWork.run { findPython() }
+            let found = await BackgroundWork.run { findPython() }
             guard !Task.isCancelled, running else { return }
-            guard let python = found ?? nil else {
+            guard let python = found else {
                 itermConnection = .pythonMissing
                 return
             }

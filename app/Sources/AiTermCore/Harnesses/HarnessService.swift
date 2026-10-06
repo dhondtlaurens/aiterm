@@ -58,7 +58,7 @@ public actor HarnessService {
     private func probe(_ agent: AgentKind, reusingCatalogueOf earlier: HarnessSnapshot?) async -> HarnessSnapshot {
         let runner = self.runner
         let name = agent.harness.executable
-        guard let executable = try? await BackgroundWork.run({ runner.locate(name) }),
+        guard let executable = await BackgroundWork.run({ runner.locate(name) }),
               LoginShell.isExecutableFile(executable) else {
             return .reduce(agent: agent, cliAvailable: false, integrationState: .notChecked,
                                     models: [], checks: [HarnessCheck(.cli, passed: false,
@@ -95,8 +95,7 @@ public actor HarnessService {
     /// unavailable card that would hide every action — over the last list read, if there is one.
     private func readCatalogue(_ agent: AgentKind, executable: String) async -> Catalogue {
         let catalogue = self.catalogue
-        let reading = (try? await BackgroundWork.run { catalogue.read(agent, executable: executable, refreshing: true) })
-            ?? ModelCatalogue.Reading(models: [], failure: .unavailable)
+        let reading = await BackgroundWork.run { catalogue.read(agent, executable: executable, refreshing: true) }
         return Catalogue(models: reading.models, stale: reading.stale,
                          check: reading.explanation.map { HarnessCheck(.models, passed: false, explanation: $0) })
     }

@@ -15,7 +15,7 @@ enum ItermCookie {
     /// Blocks until iTerm2 answers, which the first time waits on macOS's Automation prompt, so it
     /// runs off the main thread.
     static func request() async -> ItermCookieAnswer {
-        (try? await BackgroundWork.run { requestNow() }) ?? .refused("the cookie request couldn’t run")
+        await BackgroundWork.run { requestNow() }
     }
 
     private static func requestNow() -> ItermCookieAnswer {

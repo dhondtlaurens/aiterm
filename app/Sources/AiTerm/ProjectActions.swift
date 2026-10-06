@@ -123,7 +123,7 @@ final class ProjectActions {
     // -- Jira -----------------------------------------------------------------------------
     /// The connection is a Keychain read, so it is made off the main actor.
     func loadJiraProjects() async throws -> [JiraProjectRef] {
-        guard let config = try await BackgroundWork.run(jiraSettings) else {
+        guard let config = await BackgroundWork.run(jiraSettings) else {
             throw ActionUnavailable("Connect Jira in Settings › Integrations to choose a Jira project.")
         }
         return try await JiraClient(config: config).projects()

@@ -352,7 +352,7 @@ extension HarnessDiagnosticsTests {
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner, resources: resources)
 
         let pi = Task { await service.probe(.pi) }
-        _ = try await BackgroundWork.run { started.wait(timeout: .now() + 5) }
+        _ = await BackgroundWork.run { started.wait(timeout: .now() + 5) }
         let clock = ContinuousClock(), begun = clock.now
         _ = await service.probe(.codex)
         let waited = clock.now - begun
@@ -383,7 +383,7 @@ extension HarnessDiagnosticsTests {
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner, resources: resources)
 
         let older = Task { await service.probe(.pi) }
-        _ = try await BackgroundWork.run { started.wait(timeout: .now() + 5) }
+        _ = await BackgroundWork.run { started.wait(timeout: .now() + 5) }
         let newer = await service.probe(.pi)
         release.signal()
         _ = await older.value

@@ -86,7 +86,7 @@ public struct HarnessTestClient: Sendable {
         guard daemon.passed else { return HarnessTestResult(checks: [daemon, skippedDeliveryCheck()]) }
         // Both launch processes, which the cooperative pool must not wait on.
         let runner = self.runner
-        guard let executable = try? await BackgroundWork.run({ runner.locate(Harness.pi.executable) }) else {
+        guard let executable = await BackgroundWork.run({ runner.locate(Harness.pi.executable) }) else {
             return HarnessTestResult(checks: [daemon, deliveryCheck(passed: false, explanation: "PI CLI is unavailable.")])
         }
         let id = UUID().uuidString

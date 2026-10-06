@@ -56,12 +56,12 @@ final class AgentIntegrations {
     /// second, and the status line is a read of Claude's settings that need not wait for it.
     func probe() async {
         let locate = locateAgents
-        async let agents = try? BackgroundWork.run { locate() }
+        async let agents = BackgroundWork.run { locate() }
         async let statusLine: Void = probeStatusLine()
         let (installed, _) = await (agents, statusLine)
         guard !Task.isCancelled else { return }
         // Unknown when the login shell failed: every agent stays offered rather than none.
-        if let installed = installed ?? nil { availableAgents = installed }
+        if let installed { availableAgents = installed }
     }
 
     /// The status line's launch probe: first the upgrade of an old record of the user's own status
@@ -81,7 +81,7 @@ final class AgentIntegrations {
         let shim = resources[.claude], home = harnessHome
         statusLineReadsStarted += 1
         let read = statusLineReadsStarted
-        let installed = try? await BackgroundWork.run {
+        let installed = await BackgroundWork.run {
             if migrating {
                 do { try StatusLineOriginal.migrate(home: home) }
                 catch { NSLog("AiTerm: could not migrate the saved status line: \(error.localizedDescription)") }
@@ -97,7 +97,7 @@ final class AgentIntegrations {
         }
         guard !Task.isCancelled, read > statusLineReadsApplied else { return }
         statusLineReadsApplied = read
-        claudeStatusLineInstalled = installed ?? false
+        claudeStatusLineInstalled = installed
     }
 
     /// Retained across Settings presentations, and its service with it, so the last-known-good PI
