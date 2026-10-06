@@ -12,8 +12,8 @@ AiTerm.app  ──JSON-RPC over a Unix socket──>  aitermd  ──iTerm2 Pyth
 ```
 
 - **AiTerm.app** — Swift 6.4 in the Swift 6 language mode, SwiftUI + AppKit, macOS 26.
-  `SidebarView` renders, `AppController` keeps the saved workspace and the workflows, and six
-  owners hold the live state (below). `DaemonSupervisor` starts the daemon and restarts it with
+  `SidebarView` renders; `AppController` builds the owners that hold the state and do the work
+  (below) and forwards to them. `DaemonSupervisor` starts the daemon and restarts it with
   backoff — or *adopts* one an earlier run left behind.
 - **aitermd** — Python ≥ 3.11, vendored into the bundle. One asyncio process: the RPC server, the
   iTerm2 bridge, the hook server and the status engine. It quits a minute after the last app
@@ -59,12 +59,22 @@ Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  Hoo
 
 ## Inside the app
 
-`AppController` keeps what is saved and what the person is doing: the workspace, the sheets,
-toasts, and every project, task, terminal and review workflow. The live state has one
-owner each, reached as a property of the controller. Views read the owners directly.
+`AppController` is the composition root that builds the owners and forwards to them. Each owner
+is built after the owners it calls, which it is handed in its initializer, and is reached as a
+property of the controller; views read the owners directly. The controller keeps only the Dock
+badge, and the order the workspace's change hooks run in.
 
 | Owner | On the controller | What it holds |
 |---|---|---|
+| `WorkspaceStore` | `workspace` | the projects, dividers, tasks and terminals, and the one way they change, `mutate`, which runs the change hooks once and saves, coalesced and off the main actor |
+| `WorkInFlight` (Core) | `work` | the work under way on each project, task and terminal: what one waits for before it starts, and what a project's removal waits for |
+| `Notices` | `notices` | the banner above the list and the completion toast, and which report wins the banner |
+| `SheetCoordinator` | `sheets` | the one sheet slot, every way into it, the preparation on its way to it, and the creation sheets' models |
+| `ProjectActions` | `projects` | every edit that is the workspace's alone — projects, dividers, names, Jira links — and the default branch's pull |
+| `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened and reopened |
+| `TerminalActions` | `terminals` | a project's terminals: a new one, a reopened window, one closed |
+| `TaskRemover` | `remover` | the person's Remove and its retries, the closing of a task whose worktree went, and what each left its row saying |
+| `WindowReconciler` | `windows` | the helper's reports kept in step with the workspace: a window iTerm2 raised or no longer has |
 | `InterfacePreferences` | `preferences` | the Interface tab's settings, saved on every write |
 | `AgentIntegrations` | `agents` | which agent CLIs the login shell finds, the Claude status-line shim, the Settings harness model |
 | `SidebarTiling` | `tiling` | the sidebar window, its saved frame, and the terminal windows tiled beside it |
@@ -73,6 +83,18 @@ owner each, reached as a property of the controller. Views read the owners direc
 | `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and 2 s after the last pass ends |
 | `SidebarProjection` | `rows` | the sidebar's rows, derived from the workspace, `live.rowSessions` and the checkouts only when one of them changes what a row draws; the list, the Dock badge, Focus View and List View all read them |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the tab titles it sends after each checkout pass |
+
+A change to the workspace runs its hooks once, in this order: the owners' own, added as each was
+built — `RowFocus`'s, which drops a selection whose row went, and each `PerRow`'s, which drops only
+cells no row reads — then `live.pruneContexts`, `notices.dropStale`, the rows derived again with the
+Dock badge recounted, and last `remover.pruneRemovals`, so a task on its way out is not counted
+between its row going and its removal entry going.
+
+Saves wait for the next coalesced write, except where a step must be on disk before the next one:
+a removal saves its task windowless before it asks for the window to close, so a removal that stops
+or an app that dies leaves a row to retry after a relaunch, and saves the row's going before it says
+"removed". A new task is saved before its window opens, a new project before its worktrees are
+offered, and the workspace at quit.
 
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
 socket; the app's tests record it in process instead.
