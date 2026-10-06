@@ -98,12 +98,16 @@ extension Repository {
     /// there is someone else's: git refuses this one, and theirs is not aborted. What it does is
     /// pinned on the command line, since config can change each part of it: no autostash (see
     /// `pullDefaultBranch`), merges dropped, and no other branch moved along with the commits.
+    ///
+    /// A check git cannot answer never counts as "no rebase", since the abort would then be
+    /// theirs: before the rebase it stops this one from starting, with git's failure, and after
+    /// it the rebase is left as it stopped, with the failure the rebase already has.
     private func rebase(_ branch: String, onto remote: String, in checkout: String) throws {
-        let underWay = isRebasing(checkout)
+        let underWay = try isRebasing(checkout)
         let pinned = ["--no-autostash", "--no-update-refs", "--no-rebase-merges"]
         do { try git.run(["rebase", "--quiet"] + pinned + [remote, branch], in: checkout, timeout: GitRunner.checkoutTimeout) }
         catch {
-            guard !underWay, isRebasing(checkout) else { throw error }
+            guard !underWay, (try? isRebasing(checkout)) == true else { throw error }
             Log.git.attempt("Aborting the conflicted rebase of \(branch) in \(checkout)") {
                 try git.run(["rebase", "--abort"], in: checkout, timeout: GitRunner.checkoutTimeout)
             }
@@ -112,11 +116,11 @@ extension Repository {
     }
 
     /// Whether a rebase is stopped in `checkout`: git keeps its state in `rebase-merge` (or, for
-    /// the old apply backend, `rebase-apply`) in that checkout's own git directory. A git that
-    /// cannot say is read as no rebase: the caller then throws the failure it already has.
-    private func isRebasing(_ checkout: String) -> Bool {
-        guard let paths = try? git.run(["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge", "--git-path", "rebase-apply"],
-                                       in: checkout) else { return false }
+    /// the old apply backend, `rebase-apply`) in that checkout's own git directory. Thrown when git
+    /// cannot say.
+    private func isRebasing(_ checkout: String) throws -> Bool {
+        let paths = try git.run(["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge", "--git-path", "rebase-apply"],
+                                in: checkout)
         return paths.split(separator: "\n").contains { FileManager.default.fileExists(atPath: String($0)) }
     }
 

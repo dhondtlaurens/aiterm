@@ -39,20 +39,28 @@ final class RecordingGitRunner: GitRunning {
 
 /// Times out every command that starts with one of `commands` — `["merge-base"]`, `["remote",
 /// "get-url"]` — as git killed at its deadline does, and runs the rest. `code` is the status the
-/// timed-out command reports: SIGTERM's, unless a test needs one that is also an answer.
+/// timed-out command reports: SIGTERM's, unless a test needs one that is also an answer. `times`
+/// limits it to the first that many matching commands, for a git that is slow only for a moment;
+/// the ones after run.
 final class TimingOutGitRunner: GitRunning {
     private let inner: any GitRunning
     private let commands: [[String]]
     private let code: Int32
+    private let remaining: Mutex<Int>
 
-    init(_ commands: [String]..., code: Int32 = 15, inner: any GitRunning = GitRunner.hermetic()) {
+    init(_ commands: [String]..., code: Int32 = 15, times: Int = .max, inner: any GitRunning = GitRunner.hermetic()) {
         self.commands = commands
         self.code = code
+        remaining = Mutex(times)
         self.inner = inner
     }
 
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
-        if commands.contains(where: { args.starts(with: $0) }) {
+        if commands.contains(where: { args.starts(with: $0) }), remaining.withLock({ left in
+            guard left > 0 else { return false }
+            left -= 1
+            return true
+        }) {
             throw GitError(args: args, code: code, stderr: "git \(args.first ?? "") timed out after \(timeout) s", timedOut: true)
         }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)

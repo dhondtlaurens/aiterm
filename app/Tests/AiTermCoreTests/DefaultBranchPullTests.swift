@@ -253,6 +253,21 @@ import Darwin
         #expect(throws: Never.self) { try git.run(["rebase", "--abort"], in: repo) }
     }
 
+    /// A git too slow to say whether a rebase is under way before ours starts is no answer, not a
+    /// no: read as a no, ours ran, git refused it for the rebase already there, and the check after
+    /// the failure, answering now, took that rebase for ours and aborted the person's work.
+    @Test func testLeavesARebaseAlreadyUnderWayAloneWhenGitCannotSaySoAtFirst() throws {
+        try change("file.txt", to: "mine\n", in: repo)
+        try change("file.txt", to: "theirs\n", in: other)
+        _ = try git.run(["push", "-q", "origin", "main"], in: other)
+        _ = try git.run(["fetch", "-q", "origin"], in: repo)
+        #expect(throws: GitError.self) { try git.run(["rebase", "origin/main"], in: repo) }
+        _ = try git.run(["checkout", "-q", "-f", "main"], in: repo)
+        let slowAtFirst = TimingOutGitRunner(["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"], times: 1)
+        #expect { try Repository(repo, git: slowAtFirst).rebaseDefaultBranch() } throws: { ($0 as? GitError)?.timedOut == true }
+        #expect(throws: Never.self) { try git.run(["rebase", "--abort"], in: repo) }
+    }
+
     /// Git refuses to overwrite uncommitted changes; the branch stays where it was with them.
     @Test func testRefusesToOverwriteUncommittedChanges() throws {
         try "theirs\n".write(toFile: other + "/file.txt", atomically: true, encoding: .utf8)
