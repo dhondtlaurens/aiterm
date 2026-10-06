@@ -258,18 +258,19 @@ the answer replaces that card's status line rather than landing in the sheet foo
 card's one action is named by the card's state and runs the same code whatever it says: Install
 while the CLI or the driver is missing, Repair while a check is amber, Reinstall when the card is
 Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
-is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the vendor's own installer and then the driver; over a present
-one it writes the driver whether or not it is already installed, so it can be overwritten. A Jira,
-GitLab or GitHub card holding saved credentials trails a Disconnect, which empties its fields and marks the
-service for removal: Save removes the saved site or host and the Keychain token, Cancel keeps
-everything. Save is all or nothing: it checks every card before it writes any, so while one card
-cannot save (a mistyped URL) nothing is written at all — a Disconnect or a new connection on
-another card is not applied either — and the sheet stays open saying why. A write the Keychain
-refuses puts back the ones this Save made before it, and the footer names any service the Keychain
-would not let it put back. The iTerm2 card has no fields: below its divider it lists the numbered steps that mend
-the first broken link to iTerm2, or one line of `HelpText` when nothing is broken. Its status line
-is `ItermConnection.status`, and the banner above the sidebar opens with the same words — grey,
-or amber while iTerm2 refuses the connection. It stays a pattern: Settings is its only user and its
+is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the
+vendor's own installer and then the driver; over a present one it writes the driver whether or not
+it is already installed, so it can be overwritten. A Jira, GitLab or GitHub card holding saved
+credentials trails a Disconnect, which empties its fields and marks the service for removal: Save
+removes the saved site or host and the Keychain token, Cancel keeps everything. Save is all or
+nothing: it checks every card before it writes any, so while one card cannot save (a mistyped URL)
+nothing is written at all — a Disconnect or a new connection on another card is not applied either —
+and the sheet stays open saying why. A write the Keychain refuses puts back the ones this Save made
+before it, and the footer names any service the Keychain would not let it put back. The iTerm2 card
+has no fields: below its divider it lists the numbered steps that mend the first broken link to
+iTerm2, or one line of `HelpText` when nothing is broken. Its status line is
+`ItermConnection.status`, and the banner above the sidebar opens with the same words — grey, or
+amber while iTerm2 refuses the connection. It stays a pattern: Settings is its only user and its
 layout is this app's.
 
 `SettingsGroup(title:help:rows:)` is a group that connects and tests nothing — Sidebar size,
