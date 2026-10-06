@@ -66,7 +66,7 @@ struct SettingsView: View {
     // which this machine does not have; these are the storage and accessors the macro would make.
     /// The Integrations tab's fields and tests, kept from the first `init` of a presentation and
     /// made from the connections Settings was opened with.
-    var _integrations: State<IntegrationSettingsModel>
+    private var _integrations: State<IntegrationSettingsModel>
     private var integrations: IntegrationSettingsModel { _integrations.wrappedValue }
     var _tab = State<SettingsTab>(initialValue: .agents)
     private var tab: SettingsTab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
@@ -76,11 +76,11 @@ struct SettingsView: View {
     private var badgeDetails: BadgeDetails { get { _badgeDetails.wrappedValue } nonmutating set { _badgeDetails.wrappedValue = newValue } }
     var _interfaceSize: State<InterfaceSize>
     private var interfaceSize: InterfaceSize { get { _interfaceSize.wrappedValue } nonmutating set { _interfaceSize.wrappedValue = newValue } }
-    var _result = State<String?>(initialValue: nil)
+    private var _result = State<String?>(initialValue: nil)
     private var result: String? { get { _result.wrappedValue } nonmutating set { _result.wrappedValue = newValue } }
     private var _itermEnvironment = State<ItermEnvironment?>(initialValue: nil)
     private var itermEnvironment: ItermEnvironment? { get { _itermEnvironment.wrappedValue } nonmutating set { _itermEnvironment.wrappedValue = newValue } }
-    var _itermTesting = State<Bool>(initialValue: false)
+    private var _itermTesting = State<Bool>(initialValue: false)
     private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,

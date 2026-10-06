@@ -27,6 +27,29 @@ struct SidebarView: View {
     /// frame and remembered choices no row draws.
     let controller: AppController
 
+    /// One entry's rows, in the order the list draws them: a divider, or a project's header and —
+    /// open — its terminals, then its tasks. The snapshots stack the same rows, since
+    /// `ImageRenderer` cannot draw a `List`, so they cannot show another order.
+    @ViewBuilder static func rows(of entry: SidebarEntry, in rows: SidebarProjection, controller: AppController) -> some View {
+        switch entry {
+        case .divider(let divider):
+            DividerRow(entry: divider, controller: controller).selectionDisabled()
+        case .project(let section):
+            // On the arrow path, as a Finder outline's folders are; a divider is not.
+            ProjectHeaderRow(section: section, controller: controller).tag(section.project.id)
+            if !section.collapsed {
+                ForEach(section.terminals) { row in
+                    TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
+                        .tag(row.id)
+                }
+                ForEach(section.tasks) { row in
+                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
+                        .tag(row.id)
+                }
+            }
+        }
+    }
+
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
         let rows = controller.rows
@@ -38,25 +61,7 @@ struct SidebarView: View {
                     if !rows.hasProjects {
                         SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
                     }
-                    ForEach(rows.entries) { entry in
-                        switch entry {
-                        case .divider(let divider):
-                            DividerRow(entry: divider, controller: controller).selectionDisabled()
-                        case .project(let section):
-                            // On the arrow path, as a Finder outline's folders are; a divider is not.
-                            ProjectHeaderRow(section: section, controller: controller).tag(section.project.id)
-                            if !section.collapsed {
-                                ForEach(section.terminals) { row in
-                                    TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
-                                        .tag(row.id)
-                                }
-                                ForEach(section.tasks) { row in
-                                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
-                                        .tag(row.id)
-                                }
-                            }
-                        }
-                    }
+                    ForEach(rows.entries) { Self.rows(of: $0, in: rows, controller: controller) }
                     .listRowSeparator(.hidden)
                 }
                 .listStyle(.sidebar)

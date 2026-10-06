@@ -81,7 +81,7 @@ enum SheetSnapshots {
 
     private static func taskModel(_ draft: TaskDraft) -> TaskCreationModel {
         let model = TaskCreationModel(project: Fixture().project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue,
-                                      git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in })
+                                      defaults: Fixture.defaults, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in })
         model.results = tickets
         return model
     }
@@ -108,11 +108,22 @@ enum SheetSnapshots {
             completions.anchor = CGPoint(x: Space.snug, y: 64)
             completions.fieldWidth = Sheet.width - 2 * Space.margin
         }
-        // Opened as the sheet appears, after the editor is made — setting its text moves the caret,
-        // which closes the popup — and that is what `ImageRenderer` draws. Hosted, opened again
-        // late: the sheet's catalogue load, which runs on appear, closes it once more.
-        return NewTaskSheet(model: model).seeded(step: 3)
-            .onAppear { open(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { open() } }
+        return CompletingSheet(model: model, open: open)
+    }
+
+    /// New Task on its prompt step with the popup opened as the sheet appears, after the editor is
+    /// made — setting its text moves the caret, which closes the popup — and that is what
+    /// `ImageRenderer` draws. Hosted, opened again once the sheet's catalogue load, which runs on
+    /// appear and closes the popup, has landed: a view of its own, so its body reads the flag.
+    private struct CompletingSheet: View {
+        let model: TaskCreationModel
+        let open: () -> Void
+
+        var body: some View {
+            NewTaskSheet(model: model).seeded(step: 3)
+                .onAppear(perform: open)
+                .onChange(of: model.catalogueLoaded) { _, loaded in if loaded { open() } }
+        }
     }
 
     /// New Review on `step`, its merge request search answered with `mergeRequests`, and `prepare`
@@ -121,8 +132,8 @@ enum SheetSnapshots {
                                     prepare: (ReviewCreationModel) -> Void = { _ in }) -> NewReviewSheet {
         let task = draft()
         let model = ReviewCreationModel(project: Fixture().project, draft: ReviewDraft(mr: nil, agent: .claude, model: task.model, reasoning: task.reasoning),
-                                        home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git,
-                                        owningTask: { branch, _ in branch == owner?.branch ? owner : nil },
+                                        home: Fixture.home, catalogue: Fixture.catalogue, defaults: Fixture.defaults,
+                                        git: Fixture.git, owningTask: { branch, _ in branch == owner?.branch ? owner : nil },
                                         searchMergeRequests: { _ in mergeRequests }, createReview: { _ in })
         model.results = mergeRequests
         prepare(model)

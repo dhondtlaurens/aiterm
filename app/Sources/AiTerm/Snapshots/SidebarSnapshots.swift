@@ -83,7 +83,7 @@ enum SidebarSnapshots {
                 controller.workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed = true } }
                 return VStack(alignment: .leading, spacing: Space.hairline) {
                     SidebarHeader(controller: controller)
-                    ProjectHeaderRow(section: controller.rows.sections[0], controller: controller)
+                    SidebarView.rows(of: controller.rows.entries[0], in: controller.rows, controller: controller)
                     Spacer()
                 }
                 .padding(.horizontal, Space.inset)
@@ -107,8 +107,8 @@ enum SidebarSnapshots {
             // row with its note — unselected, and selected, where the note yields its amber.
             removal("sidebar-removal.png", selecting: nil),
             removal("sidebar-removal-selected.png", selecting: \.other),
-            // A project header on the arrow path, selected: open over its terminal row, and folded
-            // with its count chips.
+            // A project header on the arrow path, selected: open over its rows, and folded with its
+            // count chips.
             selectedHeader("sidebar-header-selected.png", collapsed: false),
             selectedHeader("sidebar-header-selected-collapsed.png", collapsed: true),
             // No project yet: the block under `PROJECTS`, at ×1 and at the largest size.
@@ -117,28 +117,12 @@ enum SidebarSnapshots {
         ]
     }
 
-    /// The rows `SidebarView`'s list draws, from the same projection, stacked by hand:
-    /// `ImageRenderer` never materialises a `List`. A project's tasks come before its terminals
-    /// here, as these images have always drawn them; the list puts the terminals first.
+    /// The rows `SidebarView`'s list draws, from its own `rows(of:in:controller:)`, stacked:
+    /// `ImageRenderer` never materialises a `List`.
     @ViewBuilder private static func listRows(_ controller: AppController) -> some View {
         let rows = controller.rows
         SidebarHeader(controller: controller)
-        ForEach(rows.entries) { entry in
-            switch entry {
-            case .divider(let divider):
-                DividerRow(entry: divider, controller: controller)
-            case .project(let section):
-                ProjectHeaderRow(section: section, controller: controller)
-                if !section.collapsed {
-                    ForEach(section.tasks) { row in
-                        TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
-                    }
-                    ForEach(section.terminals) { row in
-                        TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
-                    }
-                }
-            }
-        }
+        ForEach(rows.entries) { SidebarView.rows(of: $0, in: rows, controller: controller) }
     }
 
     /// The usage footer for the selected row.
@@ -164,7 +148,8 @@ enum SidebarSnapshots {
     }
 
     /// The fixture's tasks mid-removal — two removing, one closing, and one whose removal kept its
-    /// branch — with `selecting` selected, or the PI task.
+    /// branch — with `selecting` selected, or the PI task. Only the task rows, in the projection's
+    /// order: the project's header and terminal have nothing to say about a removal.
     private static func removal(_ file: String, selecting: KeyPath<Fixture, TaskItem>?) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller()
@@ -191,14 +176,8 @@ enum SidebarSnapshots {
             let fixture = Fixture(), controller = fixture.controller()
             controller.focus.browse(.project(fixture.project.id))
             controller.workspace.mutate { $0.updateProject(id: fixture.project.id) { $0.collapsed = collapsed } }
-            let rows = controller.rows, section = rows.sections[0]
             return VStack(alignment: .leading, spacing: Space.hairline) {
-                ProjectHeaderRow(section: section, controller: controller)
-                if !section.collapsed {
-                    ForEach(section.terminals) { row in
-                        TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
-                    }
-                }
+                SidebarView.rows(of: controller.rows.entries[0], in: controller.rows, controller: controller)
             }
             .padding(.horizontal, Space.inset).padding(.vertical, Space.tight)
             .frame(width: Size.sidebarWidth + 20)
