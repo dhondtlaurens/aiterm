@@ -45,8 +45,8 @@ import Testing
         #expect(try JSONDecoder().decode(DaemonSnapshot.self, from: Data(asking.utf8)).itermCookieRequest == 3)
         let older = #"{"protocolVersion":1,"connected":false,"sessions":[],"usage":{"claude":null,"codex":null}}"#
         #expect(try JSONDecoder().decode(DaemonSnapshot.self, from: Data(older.utf8)).itermCookieRequest == nil)
-        let payload = try JSONDecoder().decode(AnyCodableBox.self, from: Data(#"{"requestId":4}"#.utf8))
-        #expect(DaemonClient.decodeEvent("iterm.cookieRequested", payload) == .itermCookieRequested(4))
+        let line = Data(#"{"event":"iterm.cookieRequested","payload":{"requestId":4}}"#.utf8)
+        #expect(DaemonClient.decodeEvent("iterm.cookieRequested", from: line) == .itermCookieRequested(4))
     }
 
     @Test func eachCookieAnswerEncodesOnlyItsOwnFields() throws {
@@ -60,8 +60,8 @@ import Testing
     }
 
     @Test func authFailedEventDecodesItsReason() throws {
-        let payload = try JSONDecoder().decode(AnyCodableBox.self, from: Data(#"{"reason":"execution error: Not authorized to send Apple events to iTerm2. (-1743)"}"#.utf8))
-        #expect(DaemonClient.decodeEvent("iterm.auth_failed", payload) == .itermAuthFailed(Self.refused))
+        let line = Data(#"{"event":"iterm.auth_failed","payload":{"reason":"execution error: Not authorized to send Apple events to iTerm2. (-1743)"}}"#.utf8)
+        #expect(DaemonClient.decodeEvent("iterm.auth_failed", from: line) == .itermAuthFailed(Self.refused))
     }
 
     @Test func bannerWarnsWhileITerm2RefusesAndOtherwiseOnlyWaits() {

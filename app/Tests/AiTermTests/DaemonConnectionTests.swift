@@ -103,6 +103,41 @@ while True:
         #expect(activeClients == count)
     }
 
+    /// A11: iTerm2 connecting asks the helper for a fresh snapshot, whose reply comes back through
+    /// the event stream. Waiting for it before reading on held every event behind it — a closed
+    /// window, a session's status — for as long as the helper took, up to the request timeout.
+    @Test func eventsAfterItermConnectsDoNotWaitForItsSnapshot() async throws {
+        let server = try await PythonSocketServer.start(script: """
+import json,socket,sys,time
+s=socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1]);s.listen()
+c,_=s.accept()
+snapshots=0
+with c:
+ f=c.makefile('rb')
+ for line in f:
+  m=json.loads(line)
+  if m['method']!='workspace.snapshot': continue
+  snapshots+=1
+  if snapshots==1:
+   result={'protocolVersion':1,'connected':False,'sessions':[],'usage':{'claude':None,'codex':None}}
+   c.sendall((json.dumps({'id':m['id'],'result':result})+'\\n').encode())
+   c.sendall((json.dumps({'event':'iterm.connected','payload':{'version':'3.7.2'}})+'\\n').encode())
+  else:
+   # The snapshot asked for on iterm.connected is never answered; the event after it must arrive.
+   c.sendall((json.dumps({'event':'window.closed','payload':{'windowId':'w1'}})+'\\n').encode())
+""")
+        defer { server.stop() }
+        var events: [DaemonEvent] = []
+        let connection = DaemonConnection(socketPath: server.path, onClient: { _ in }, onStatus: { _ in },
+                                          onEvent: { events.append($0) })
+        connection.start()
+        defer { connection.stop() }
+        await eventually { events.contains(.windowClosed("w1")) }
+
+        #expect(events.contains(.itermConnected("3.7.2")))
+    }
+
     /// C4: a snapshot this app's `Decodable`s cannot parse at all (as opposed to one carrying an
     /// unknown enum raw value, which decodes tolerantly) is a daemon this app cannot fully speak
     /// to — the same `.helperMismatch` as an explicit protocol-version refusal, not a retryable

@@ -28,11 +28,14 @@ final class DaemonConnection {
         self.backoff = backoff
     }
 
+    /// The retry loop holds this connection for as long as it runs, so releasing the connection
+    /// does not end it: `stop()` does.
     func start() {
         guard lifetime == nil else { return }
-        lifetime = Task { [weak self] in await self?.run() }
+        lifetime = Task { await self.run() }
     }
 
+    /// Ends the retry loop and the client it has. Every owner calls it; nothing else will.
     func stop() {
         lifetime?.cancel()
         lifetime = nil
@@ -76,9 +79,10 @@ final class DaemonConnection {
                     if case .itermDisconnected = event { onStatus(.itermReconnecting) }
                     if case .itermAuthFailed(let reason) = event { onStatus(.refused(reason)) }
                     if case .itermConnected = event {
-                        _ = try await connection.snapshot()
-                        onEvent(event)
-                        continue
+                        // The iTerm2 that just connected, read afresh. Its reply comes back through
+                        // this stream as `.snapshot`, so the events behind this one do not wait for
+                        // it. One that fails drops the client, and this loop reconnects.
+                        Task { do { _ = try await connection.snapshot() } catch { connection.disconnect() } }
                     }
                     onEvent(event)
                 }

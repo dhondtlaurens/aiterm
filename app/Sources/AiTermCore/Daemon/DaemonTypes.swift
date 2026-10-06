@@ -89,45 +89,12 @@ public enum DaemonEvent: Equatable, Sendable {
     case usageChanged(UsageSnapshot), unknown(String)
 }
 
-struct RawMessage: Decodable {
-    var id: Int?, result: AnyCodableBox?, error: DaemonErrorBody?, event: String?, payload: AnyCodableBox?
-    /// Not on the wire: `DaemonClient.dispatch(_:)` fills this in for a `workspace.snapshot` reply
-    /// it already decoded to yield as a `.snapshot` event, so `request(_:params:as:)` can hand that
-    /// same value back to `snapshot()`'s caller instead of decoding `result` a second time.
-    var decodedSnapshot: DaemonSnapshot? = nil
-}
+/// What routes a line from the daemon: a reply's `id` and `error`, or an event's name. The rest of
+/// the line is decoded from the same bytes, once, into the type its route names (`Reply`,
+/// `EventPayload`), with no untyped tree in between.
+struct Header: Decodable { var id: Int?, event: String?, error: DaemonErrorBody? }
 struct DaemonErrorBody: Decodable { var code: String, message: String }
-
-/// Keeps the raw JSON bytes of a subtree so it can be decoded later into a concrete type.
-struct AnyCodableBox: Decodable {
-    let data: Data
-    init(from decoder: Decoder) throws {
-        let value = try decoder.singleValueContainer().decode(JSONValue.self)
-        data = try JSONEncoder().encode(value)
-    }
-    func decode<T: Decodable>(_ type: T.Type) throws -> T { try JSONDecoder().decode(T.self, from: data) }
-}
-
-indirect enum JSONValue: Codable {
-    case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
-    init(from d: Decoder) throws {
-        let c = try d.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
-        else if let n = try? c.decode(Double.self) { self = .number(n) }
-        else if let s = try? c.decode(String.self) { self = .string(s) }
-        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
-        else { self = .object(try c.decode([String: JSONValue].self)) }
-    }
-    func encode(to e: Encoder) throws {
-        var c = e.singleValueContainer()
-        switch self {
-        case .null: try c.encodeNil()
-        case .bool(let b): try c.encode(b)
-        case .number(let n): try c.encode(n)
-        case .string(let s): try c.encode(s)
-        case .array(let a): try c.encode(a)
-        case .object(let o): try c.encode(o)
-        }
-    }
-}
+/// A reply's `result`, as the request's own type.
+struct Reply<Value: Decodable>: Decodable { var result: Value }
+/// An event's `payload`, as the type its name says.
+struct EventPayload<Value: Decodable>: Decodable { var payload: Value }

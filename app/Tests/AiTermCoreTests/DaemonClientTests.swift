@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -248,8 +249,86 @@ final class DaemonClientTests {
 
     @Test func missingEventPayloadsNeverCrash() {
         for name in ["window.activated", "window.closed", "session.opened", "session.changed", "session.closed", "usage.changed"] {
-            #expect(DaemonClient.decodeEvent(name, nil) == .unknown(name))
+            #expect(DaemonClient.decodeEvent(name, from: Data(#"{"event":"\#(name)"}"#.utf8)) == .unknown(name))
         }
+        #expect(DaemonClient.decodeEvent("iterm.disconnected", from: Data(#"{"event":"iterm.disconnected"}"#.utf8)) == .itermDisconnected)
+    }
+
+    /// The reader searches only the bytes each read adds and carries an unfinished line over: a line
+    /// that arrives a few bytes at a time, and a read holding one line and the start of the next,
+    /// each come out whole and in order.
+    @MainActor @Test func linesSplitAcrossReadsArriveWholeAndInOrder() async throws {
+        let server = try await PythonSocketServer.start(script: """
+import json,socket,sys,time
+s=socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1]);s.listen()
+c,_=s.accept()
+line=lambda w:(json.dumps({'event':'window.closed','payload':{'windowId':w}})+'\\n').encode()
+a,b,d=line('a'),line('b'),line('c')
+for i in range(0,len(a),3):
+ c.sendall(a[i:i+3]);time.sleep(0.002)
+c.sendall(b+d[:10]);time.sleep(0.02);c.sendall(d[10:])
+time.sleep(5)
+""")
+        defer { server.stop() }
+        let client = DaemonClient(socketPath: server.path)
+        defer { client.disconnect() }
+        try client.connect()
+        let box = EventBox(client.events)
+        for windowId in ["a", "b", "c"] {
+            guard case .event(let event) = await nextEvent(box) else { Issue.record("timed out waiting for window \(windowId)"); return }
+            #expect(event == .windowClosed(windowId))
+        }
+    }
+
+    /// A payload is decoded straight into its type from the line's bytes: no number passes through
+    /// `Double` on the way, which could not hold an integer above 2^53 exactly.
+    @Test func eventIntegersArriveExactly() async throws {
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        let box = EventBox(client.events)
+        let large = (1 << 53) + 1
+        server.push(event: "iterm.cookieRequested", payload: ["requestId": large])
+        guard case .event(let event) = await nextEvent(box) else { Issue.record("timed out waiting for the event"); return }
+        #expect(event == .itermCookieRequested(large))
+    }
+
+    /// CS-6: a daemon whose loop is stuck keeps its socket open and its process alive, so neither
+    /// the reader nor the supervisor notices. It answers each request on its own, so a slow request
+    /// never delays another's reply: two timeouts with no reply between them are a helper that is
+    /// not answering at all, and the connection is dropped so its owner reconnects to a fresh one.
+    @Test func consecutiveTimeoutsDropTheConnection() async throws {
+        client = DaemonClient(socketPath: server.path, requestTimeout: 0.05)
+        server.handler = { _ in nil }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        let box = EventBox(client.events)
+        for _ in 0..<2 {
+            do { _ = try await client.request("iterm.status", as: DaemonClient.Empty.self); Issue.record("Expected a timeout") }
+            catch let error as DaemonError { #expect(error.code == "timeout") }
+        }
+        guard case .event(let end) = await nextEvent(box) else { Issue.record("a wedged helper kept its connection"); return }
+        #expect(end == nil)
+    }
+
+    /// One reply between two timeouts is a helper that is answering: only an unbroken run counts.
+    @Test func aReplyBetweenTimeoutsKeepsTheConnection() async throws {
+        client = DaemonClient(socketPath: server.path, requestTimeout: 0.05)
+        let answering = Mutex(false)
+        server.handler = { req in answering.withLock { $0 } ? ["id": req["id"]!, "result": [:]] : nil }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        func timeOut() async {
+            do { _ = try await client.request("iterm.status", as: DaemonClient.Empty.self); Issue.record("Expected a timeout") }
+            catch { #expect((error as? DaemonError)?.code == "timeout") }
+        }
+        await timeOut()
+        answering.withLock { $0 = true }
+        _ = try await client.request("iterm.status", as: DaemonClient.Empty.self)
+        answering.withLock { $0 = false }
+        await timeOut()
+        answering.withLock { $0 = true }
+        _ = try await client.request("iterm.status", as: DaemonClient.Empty.self)
     }
 
     @Test func snapshotAppearsInWireOrderAsAnEventBarrier() async throws {
