@@ -21,7 +21,8 @@ public final class BackpackMode: Sendable {
 
     /// How long the mode waits after the last working session before it turns itself off: long
     /// enough to bridge one turn ending and a queued one starting, short enough not to keep a
-    /// finished Mac hot in a bag (spec 2026-10-05).
+    /// finished Mac hot in a bag (spec 2026-10-05). An open lid holds it: the person is at the Mac,
+    /// and the wait counts from when they shut it.
     public static let idleGrace: TimeInterval = 120
 
     /// The waits between rejoin attempts: a 5 s check that scanned every time would keep the Wi-Fi
@@ -112,9 +113,9 @@ public final class BackpackMode: Sendable {
         if ports.lidSleep.setDisabled(false) { settings.engaged = false }
     }
 
-    /// The 5 s check while on: the battery cutoff, then the work, then the network. Off the
-    /// network, a rejoin is tried at once, then after each of `rejoinDelays`, the last repeating;
-    /// joined again, that starts over.
+    /// The 5 s check while on: the battery cutoff, then the work — an open lid counting as work —
+    /// then the network. Off the network, a rejoin is tried at once, then after each of
+    /// `rejoinDelays`, the last repeating; joined again, that starts over.
     public func tick(agentsWorking: Bool) -> BackpackTick {
         guard case .on(let old) = state else {
             // Off, but a failed `disablesleep 0` left sleep disabled: try again.
@@ -127,7 +128,7 @@ public final class BackpackMode: Sendable {
             return .ended(.batteryLow(level: level))
         }
         let time = now()
-        if agentsWorking {
+        if agentsWorking || ports.lidSensor.isClosed() == false {
             lastWork.withLock { $0 = time }
         } else if let last = lastWork.withLock({ $0 }), time.timeIntervalSince(last) >= Self.idleGrace {
             turnOff()

@@ -74,7 +74,7 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
 
 /// Why the mode ended itself.
 public enum BackpackEnding: Equatable, Sendable {
-    /// No session had been working for `BackpackMode.idleGrace`.
+    /// No session had been working, with the lid shut, for `BackpackMode.idleGrace`.
     case agentsStopped
     /// On battery, at or under `BackpackSettings.cutoff`.
     case batteryLow(level: Int)

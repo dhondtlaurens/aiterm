@@ -261,6 +261,7 @@ import Synchronization
 
     @Test func itEndsTwoMinutesAfterTheLastWorkingAgent() throws {
         let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = true
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
         _ = try mode.turnOn().get()
         #expect(mode.tick(agentsWorking: true) == .unchanged)
@@ -274,6 +275,7 @@ import Synchronization
 
     @Test func workResetsTheGrace() throws {
         let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = true
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
         _ = try mode.turnOn().get()
         clock.advance(by: 100)
@@ -287,10 +289,46 @@ import Synchronization
     /// Turning on with nothing working lets you start a task on the way out: the same two minutes.
     @Test func aTurnOnWithNothingWorkingStartsTheGrace() throws {
         let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = true
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
         _ = try mode.turnOn().get()
         clock.advance(by: 120)
         #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+    }
+
+    /// An open lid is the person at the Mac: nothing working never ends it then, and the grace
+    /// counts from the last check that saw the lid open.
+    @Test func anOpenLidHoldsTheGrace() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        clock.advance(by: 600)
+        #expect(mode.tick(agentsWorking: false) == .unchanged)
+        #expect(mode.state.isOn)
+        fake.lidSensor.closed = true
+        clock.advance(by: 119)
+        #expect(mode.tick(agentsWorking: false) == .unchanged)
+        clock.advance(by: 1)
+        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+    }
+
+    /// A Mac without a lid has no open lid to hold it: the grace runs as with the lid shut.
+    @Test func noLidLeavesTheGraceRunning() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = nil
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        _ = try mode.turnOn().get()
+        clock.advance(by: 120)
+        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
+    }
+
+    /// The battery cutoff is not the person's to hold: it ends the mode with the lid open too.
+    @Test func anOpenLidStillEndsAtTheCutoff() throws {
+        let fake = FakeBackpack()
+        let mode = mode(fake)
+        _ = try mode.turnOn().get()
+        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        #expect(mode.tick(agentsWorking: false) == .ended(.batteryLow(level: BackpackSettings.cutoff)))
     }
 
     @Test func theCutoffIsAFixedTenPercent() throws {

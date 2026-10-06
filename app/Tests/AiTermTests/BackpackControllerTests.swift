@@ -263,13 +263,12 @@ import Testing
         #expect(backpack.currentNetwork == "Home")
     }
 
+    /// With the lid open only the battery cutoff ends it: an open lid holds the idle grace.
     @Test func endingItselfRejoinsTheNetworkTheMacWasOn() async {
         let fake = FakeBackpack()
-        let start = Date(timeIntervalSince1970: 1_000)
-        let clock = Mutex(start)
-        let backpack = controller(fake, working: { false }, now: { clock.withLock { $0 } })
+        let backpack = controller(fake, working: { false })
         await backpack.connect(network: "Phone", password: nil)
-        clock.withLock { $0 = start.addingTimeInterval(BackpackMode.idleGrace) }
+        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
         await backpack.tick()
         #expect(!backpack.isOn)
         #expect(backpack.phase == nil, "off: the sheet must not read safe")
