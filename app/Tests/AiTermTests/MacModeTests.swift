@@ -27,22 +27,25 @@ struct MacModeTests {
         #expect(MacMode(state: on(level: 12, battery: false), transition: nil) == .on)
     }
 
-    @Test func theNameAndGlyphFollowTheMode() {
-        #expect(MacMode.desk.name == "desk mode")
-        #expect(MacMode.desk.symbol == "macbook")
-        for mode in [MacMode.turningOn, .on, .needsYou(.lostHotspot), .turningOff] {
-            #expect(mode.name == "backpack mode")
-            #expect(mode.symbol == "iphone")
-        }
+    /// At the desk there is no line: the readings row is the Mac's row. In the backpack the words
+    /// say the state (proposal 2A and 3A, 6 Oct 2026).
+    @Test func theLineSaysTheStateAndTheDeskHasNone() {
+        #expect(MacMode.desk.words == nil)
+        #expect(MacMode.turningOn.words == "backpack turning on…")
+        #expect(MacMode.on.words == "backpack enabled")
+        #expect(MacMode.needsYou(.lostHotspot).words == "backpack needs you")
+        #expect(MacMode.needsYou(.lowBattery(level: 13)).words == "backpack needs you")
+        #expect(MacMode.turningOff.words == "backpack turning off…")
     }
 
-    /// Only the mark after `backpack` takes colour; desk has none.
-    @Test func theMarkIsTheOnlyColour() {
-        #expect(MacMode.desk.mark == nil)
-        #expect(MacMode.turningOn.mark == .working)
-        #expect(MacMode.on.mark == .done)
-        #expect(MacMode.needsYou(.lostHotspot).mark == .needsInput)
-        #expect(MacMode.turningOff.mark == .working)
+    /// The line speaks a Settings card's tone, never a task's `StatusMark`: green on, amber when it
+    /// needs you, muted while it switches.
+    @Test func theToneIsASettingsTone() {
+        #expect(MacMode.desk.tone == nil)
+        #expect(MacMode.turningOn.tone == .idle)
+        #expect(MacMode.on.tone == .ready)
+        #expect(MacMode.needsYou(.lostHotspot).tone == .attention)
+        #expect(MacMode.turningOff.tone == .idle)
     }
 
     @Test func theWordsSayTheStateInFull() {

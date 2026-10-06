@@ -160,7 +160,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac row `scale(Size.vendorMark)` |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -181,7 +181,7 @@ vendor needs both.
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `MacMode` (with `MacModeLine` and
+`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `CompletionHint`,
@@ -194,14 +194,21 @@ vendor needs both.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
-tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's row,
-always there. The Mac row is a `SymbolMark` in `.paper` style at `Size.vendorMark` (`macbook` at the
-desk, `iphone` in the backpack), the mode's name — `desk mode` or `backpack mode` — in `Palette.muted`, then at
-most one `StatusMark` at `Size.statusMark`, `Space.snug` after the name: the spinner while the mode
-switches, the done dot while it is on, the needs-input dot when it needs you, nothing at the desk. That
-mark is the row's one colour. A click opens the sheet at the desk and turns the mode off in the backpack;
-a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and VoiceOver
-sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
+tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's rows,
+always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark` in
+`.paper` style at `Size.vendorMark` with `macbook`: `cpu ◔ 23% · ram ◔ 61%`, and `bat ◔ 64%` while the
+Mac runs on its battery, drawn by the same renderer as `ctx` and the vendor windows. `MachineMonitor`
+samples them every 5 s through a `MachineSensor` — Mach host statistics, `thermalState` and the
+memory-pressure sysctl, in-process — and `MachineReadings` turns two samples and the battery into
+`UsageLine`s. A reading turns amber only on macOS's own warning: the CPU when the Mac throttles for
+heat, memory under pressure, the battery within five points of Backpack Mode's cutoff. While the mode
+is on or switching, a second row follows: a `ToneDot` at `Size.statusMarkSmall`, centred in the marks'
+column, then the words in its `SettingsTone` — `backpack turning on…` and `backpack turning off…` idle,
+`backpack enabled` ready, `backpack needs you` attention. That is the one colour in the footer that is
+not ink or amber, and a Settings card's voice: the task list keeps `StatusMark` to itself. At the desk
+there is no such row. A click on either Mac row opens the sheet at the desk and turns the mode off in
+the backpack; a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and
+VoiceOver sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 
 Turning on is `BackpackSheet`, one `SheetLayout` with a `SheetSubtitle`, laid out in the order it
 is used. While a permission is missing, “This Mac” leads with `NumberedSteps` and an Allow… button.
@@ -285,7 +292,7 @@ once, as the sheet opens, and a test answering afterwards never switches the tab
 
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
 (`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
-a title with optional check chips, a status line in one of three tones (ready, attention, idle)
+a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneDot` — the dot the footer's backpack line draws too)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:
 Settings tests every card when it opens (and a service again once its fields stop changing), and
@@ -349,7 +356,8 @@ round cap — so the sidebar's two round marks read as one family.
 
 Every window in the footer — its label, ring, number and reset — has one tooltip and one VoiceOver
 label in words (`UsageLine.help`): “Weekly limit, 61 % used, resets Friday 23:33”, “Context 84 %
-full”. A reading at 80 % or more only turns amber.
+full”, “CPU 87 % busy, slowed by heat”. A vendor's or the context's reading turns amber at 80 % or
+more; the Mac's, on macOS's warnings above.
 
 ## The artifact
 

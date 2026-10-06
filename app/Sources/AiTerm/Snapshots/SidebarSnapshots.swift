@@ -3,7 +3,7 @@ import AiTermUI
 import AiTermCore
 
 #if DEBUG
-/// The sidebar's rows at every size, its footer and the Mac's row in every mode, the marks, and
+/// The sidebar's rows at every size, its footer and the Mac's rows in every mode, the marks, and
 /// the sidebar's other states: a folded project, its banners, rows on their way out, a selected
 /// header, and no project at all.
 @MainActor
@@ -27,13 +27,15 @@ enum SidebarSnapshots {
                 controller.focus.browse(.task(fixture.working.id))
                 return footer(controller).frame(width: Size.sidebarWidth).background(Palette.sidebar).surface(.sidebar)
             },
-            // The Mac's row in every mode, for judging its one colour by eye.
+            // The Mac's rows in every mode — its readings, and the backpack line's one colour — with
+            // macOS's warnings on the last, for judging the inks by eye.
             Snapshot("sidebar-footer-mac.png") {
                 let modes: [MacMode] = [.desk, .turningOn, .on, .needsYou(.lostHotspot), .needsYou(.lowBattery(level: 13)), .turningOff]
                 return VStack(spacing: 0) {
                     ForEach(modes.indices, id: \.self) { index in
-                        SidebarFooter(task: nil, rows: [],
-                                      mac: MacModePresentation.line(mode: modes[index], hotspot: "Laurens’s iPhone", wifi: "Office-WiFi"))
+                        let mode = modes[index]
+                        SidebarFooter(task: nil, rows: [], machine: machine(mode),
+                                      mac: MacModePresentation.line(mode: mode, hotspot: "Laurens’s iPhone", wifi: "Office-WiFi"))
                     }
                 }
                 .frame(width: Size.sidebarWidth)
@@ -126,7 +128,22 @@ enum SidebarSnapshots {
     private static func footer(_ controller: AppController) -> SidebarFooter {
         SidebarFooter(task: controller.rows.usageRow(for: controller.focus.selection),
                       rows: SidebarModel.usageVendorRows(controller.live.usage, now: Snapshots.clock.now,
-                                                         calendar: Snapshots.clock.calendar))
+                                                         calendar: Snapshots.clock.calendar),
+                      machine: machine(.desk))
+    }
+
+    /// The Mac's readings a snapshot draws, fixed: on mains at the desk; on battery in the bag, and
+    /// throttled, swapping and near the cutoff once it needs you for the battery.
+    private static func machine(_ mode: MacMode) -> [UsageLine] {
+        switch mode {
+        case .desk: [UsageLine(window: .cpu, percent: 23, warning: false), UsageLine(window: .ram, percent: 61, warning: false)]
+        case .needsYou(.lowBattery(let level)):
+            [UsageLine(window: .cpu, percent: 87, warning: true), UsageLine(window: .ram, percent: 78, warning: true),
+             UsageLine(window: .battery, percent: level, warning: true)]
+        default:
+            [UsageLine(window: .cpu, percent: 23, warning: false), UsageLine(window: .ram, percent: 61, warning: false),
+             UsageLine(window: .battery, percent: 64, warning: false)]
+        }
     }
 
     /// The rows the list draws, inset as the List insets them, over the footer, which is a direct

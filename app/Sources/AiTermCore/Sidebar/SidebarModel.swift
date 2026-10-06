@@ -110,31 +110,39 @@ public enum SidebarEntry: Equatable, Identifiable, Sendable {
         }
     }
 }
-/// One segment of a usage footer row: `wk ◔ 84% Mon 21:00`. The ring beside the number is drawn
-/// from `percent`, so there is no rendered bar to carry. `reset` is nil for a window that never
-/// clears — the context fill, which is emptied by compaction rather than by the clock.
-/// `resetInFull` is the same time with its weekday spelt out, for `help`.
+/// One segment of a footer row: `wk ◔ 84% Mon 21:00`. The ring beside the number is drawn from
+/// `percent`, so there is no rendered bar to carry. `reset` is nil for a reading that never clears —
+/// the context fill, which is emptied by compaction rather than by the clock, and the Mac's own
+/// readings, which are now. `resetInFull` is the same time with its weekday spelt out, for `help`.
 public struct UsageLine: Equatable, Sendable {
-    /// What a segment measures: a conversation's context fill, or one of a vendor's account
-    /// windows. The footer prints `shortLabel`; the tooltip and VoiceOver say `name`.
+    /// What a segment measures: a conversation's context fill, one of a vendor's account windows, or
+    /// one of the Mac's readings (`MachineReadings`). The footer prints `shortLabel`; the tooltip
+    /// and VoiceOver say `name`.
     public enum Window: Equatable, Sendable {
         case context, weekly, fiveHour
+        case cpu, ram, battery
 
-        /// The glyphs before the ring: `ctx`, `wk`, `5h`.
+        /// The glyphs before the ring: `ctx`, `wk`, `5h`, `cpu`, `ram`, `bat`.
         public var shortLabel: String {
             switch self {
             case .context: "ctx"
             case .weekly: "wk"
             case .fiveHour: "5h"
+            case .cpu: "cpu"
+            case .ram: "ram"
+            case .battery: "bat"
             }
         }
 
-        /// The window in words: "Context", "Weekly limit", "5-hour limit".
+        /// The window in words: "Context", "Weekly limit", "5-hour limit", "CPU", "Memory", "Battery".
         public var name: String {
             switch self {
             case .context: "Context"
             case .weekly: "Weekly limit"
             case .fiveHour: "5-hour limit"
+            case .cpu: "CPU"
+            case .ram: "Memory"
+            case .battery: "Battery"
             }
         }
     }
@@ -142,13 +150,26 @@ public struct UsageLine: Equatable, Sendable {
     public var window: Window; public var percent: Int; public var reset: String?; public var warning: Bool
     public var resetInFull: String? = nil
 
+    public init(window: Window, percent: Int, reset: String? = nil, warning: Bool, resetInFull: String? = nil) {
+        self.window = window
+        self.percent = percent
+        self.reset = reset
+        self.warning = warning
+        self.resetInFull = resetInFull
+    }
+
     /// The segment in words — its tooltip and its VoiceOver label: "Weekly limit, 61 % used, resets
-    /// Friday 23:33", or "Context 84 % full".
+    /// Friday 23:33", "Context 84 % full", or "CPU 87 % busy, slowed by heat". A Mac reading's
+    /// amber names the warning macOS raised, since the number alone does not say why it is amber.
     public var help: String {
         switch window {
         case .context: return "\(window.name) \(percent) % full"
         case .weekly, .fiveHour:
             return "\(window.name), \(percent) % used" + ((resetInFull ?? reset).map { ", resets \($0)" } ?? "")
+        case .cpu: return "\(window.name) \(percent) % busy" + (warning ? ", slowed by heat" : "")
+        case .ram: return "\(window.name) \(percent) % used" + (warning ? ", under pressure" : "")
+        case .battery:
+            return "\(window.name) \(percent) %" + (warning ? ", backpack mode turns off at \(BackpackSettings.cutoff) %" : "")
         }
     }
 }

@@ -12,6 +12,13 @@ public struct PowerReading: Equatable, Sendable {
 
     /// On AC with no battery reading: what a desktop Mac, and the inert port, report.
     public static let mains = PowerReading(level: nil, onBattery: false)
+
+    /// On battery, within 5 points of Backpack Mode's cutoff: the mode is about to end itself, and
+    /// the footer's `bat` turns amber.
+    public var nearCutoff: Bool {
+        guard onBattery, let level else { return false }
+        return level <= BackpackSettings.cutoff + 5
+    }
 }
 
 /// Lid and idle sleep, through `pmset disablesleep`, which needs root.

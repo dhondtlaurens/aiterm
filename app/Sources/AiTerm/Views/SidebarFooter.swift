@@ -3,9 +3,12 @@ import AiTermUI
 import AiTermCore
 
 /// The sidebar's foot, on the list's grid: SYSTEM, then USAGE, split by a rule. SYSTEM is the
-/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill — and
-/// (spec 2026-10-05) the Mac's mode. USAGE is one row per vendor with its account windows:
-/// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected SYSTEM holds the Mac's row alone.
+/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill — then
+/// the Mac (proposal 1A · 2A · 3A, 6 Oct 2026): its readings, `cpu ◔ 23% · ram ◔ 61%` and `bat` on
+/// battery, under its `macbook` mark, and while Backpack Mode is on or switching, a line in a
+/// `SettingsTone` — `● backpack enabled`. At the desk there is no such line: the readings row is the
+/// Mac's row, and its click is ⌘B. USAGE is one row per vendor with its account windows:
+/// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected SYSTEM holds the Mac alone.
 ///
 /// It sits on the list's grid rather than its own (proposal A, 23 Sep 2026): the headings are the
 /// `PROJECTS` header's treatment, the rows are ``Size/menuRow`` like the header and `DividerRow`,
@@ -14,34 +17,39 @@ import AiTermCore
 /// `Space.base` below, so the rule between them reads like the scroll-edge hairline above both.
 ///
 /// Every window shows when it clears, so the row answers "how much is left, and until when?"
-/// without being hovered. `ctx` is the exception and carries no clock: a conversation's context is
-/// emptied by compaction, not by a reset time. Paying for the clock times in width rather than in a
-/// wider fill keeps the numbers glanceable; ``Size/sidebarMinWidth`` is sized to the resulting common
-/// case.
+/// without being hovered. `ctx` and the Mac's readings are the exception and carry no clock: a
+/// conversation's context is emptied by compaction, not by a reset time, and the Mac's are now.
+/// Paying for the clock times in width rather than in a wider fill keeps the numbers glanceable;
+/// ``Size/sidebarMinWidth`` is sized to the resulting common case.
 ///
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
-/// warning threshold, whatever the agent is doing: an idle vendor's last reading is still its
-/// reading, and a dimmed ring beside a bright one reads as a different kind of mark.
+/// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
+/// doing: an idle vendor's last reading is still its reading, and a dimmed ring beside a bright one
+/// reads as a different kind of mark. The backpack line is the one other colour.
 struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
+    /// The Mac's readings, in their order (`MachineMonitor`). Empty, the row draws its mark alone.
+    var machine: [UsageLine] = []
     /// The Mac's mode, as one drawn line (spec 2026-10-05). The defaults draw a Mac at its desk.
     var mac: MacModeLine = MacModePresentation.line(mode: .desk, hotspot: nil, wifi: nil)
-    /// A click on the Mac's row.
+    /// A click on the Mac's rows.
     var toggleMac: () -> Void = {}
-    /// A right-click on it opens Mac Settings.
+    /// A right-click on them opens Mac Settings.
     var openMacSettings: () -> Void = {}
     @Environment(\.interfaceScale) private var scale
 
-    /// The first group's heading. It holds more than the context now, so the context row names its
+    /// The first group's heading. It holds more than the context, so the context row names its
     /// gauge with `ctx`.
     static let systemHeading = "System"
+    /// The Mac's mark on its readings row, as the Mac card draws it.
+    static let macSymbol = "macbook"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             group(Self.systemHeading) {
                 if let task {
-                    telemetryRow(task.agent) {
+                    telemetryRow(mark: vendorMark(task.agent)) {
                         if let context = task.context {
                             usageWindows([context])
                         } else if task.agent != .shell {
@@ -50,12 +58,13 @@ struct SidebarFooter: View {
                         }
                     }
                 }
-                macRow
+                macReadings
+                backpackLine
             }
             Hairline()
             group("Usage") {
                 ForEach(rows, id: \.vendor) { row in
-                    telemetryRow(row.vendor.session) {
+                    telemetryRow(mark: vendorMark(row.vendor.session)) {
                         if let note = row.note {
                             Text(note).foregroundStyle(Self.noteInk(row))
                         } else {
@@ -69,29 +78,48 @@ struct SidebarFooter: View {
         .overlay(alignment: .top) { Hairline() }
     }
 
-    /// The Mac's mode: its mark on the vendor marks' column, the name in `Palette.muted`, then the
-    /// one `StatusMark`, `Space.snug` after it. A click toggles; a right-click opens Settings.
-    private var macRow: some View {
-        HStack(alignment: .center, spacing: scale(Space.inset)) {
-            SymbolMark(symbol: mac.mode.symbol, size: scale(Size.vendorMark), style: .paper)
-            HStack(spacing: scale(Space.snug)) {
-                Text(mac.mode.name).foregroundStyle(Palette.muted)
-                if let mark = mac.mode.mark { StatusMark(status: mark, size: scale(Size.statusMark)) }
+    /// The Mac's readings under its mark, read out as one element: its readings in words, then the
+    /// mode. Before the first sample it is still the Mac's button, so it says "Mac".
+    private var macReadings: some View {
+        macControl(
+            telemetryRow(mark: SymbolMark(symbol: Self.macSymbol, size: scale(Size.vendorMark), style: .paper)) {
+                usageWindows(machine)
             }
-            Spacer(minLength: 0)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.readingsLabel(machine))
+            .accessibilityHint(mac.help)
+        )
+    }
+
+    /// The readings row's VoiceOver label: each reading's words, or "Mac" while there are none.
+    static func readingsLabel(_ machine: [UsageLine]) -> String {
+        machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
+    }
+
+    /// While Backpack Mode is on or switching: its `ToneDot` centred in the marks' column, then its
+    /// words in the same tone. Nothing at the desk.
+    @ViewBuilder private var backpackLine: some View {
+        if let tone = mac.mode.tone, let words = mac.mode.words {
+            macControl(
+                telemetryRow(mark: ToneDot(tone: tone, size: scale(Size.statusMarkSmall)).frame(width: scale(Size.vendorMark))) {
+                    Text(words).foregroundStyle(tone.color)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(mac.help)
+            )
         }
-        .font(Typography.mono)
-        .monospacedDigit()
-        .lineLimit(1)
-        .frame(height: scale(Size.menuRow), alignment: .leading)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: toggleMac)
-        .contextMenu { Button("Mac Settings…", action: openMacSettings) }
-        .help(mac.help)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(mac.help)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(.default, toggleMac)
+    }
+
+    /// What makes a row the Mac's: a click is ⌘B, a right-click offers Mac Settings…, and the mode's
+    /// sentence is its tooltip wherever a reading's own does not cover it.
+    private func macControl(_ row: some View) -> some View {
+        row
+            .contentShape(Rectangle())
+            .onTapGesture(perform: toggleMac)
+            .contextMenu { Button("Mac Settings…", action: openMacSettings) }
+            .help(mac.help)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, toggleMac)
     }
 
     /// Amber, like the iTerm2 banner's warning, for a feed that is broken; a quiet one's note recedes.
@@ -113,10 +141,13 @@ struct SidebarFooter: View {
         .padding(.bottom, scale(Space.base))
     }
 
-    /// One footer line: a vendor mark, then its readings in the telemetry's mono face.
-    private func telemetryRow(_ agent: SessionAgent, @ViewBuilder readings: () -> some View) -> some View {
+    private func vendorMark(_ agent: SessionAgent) -> VendorMark { VendorMark(agent: agent, size: scale(Size.vendorMark)) }
+
+    /// One footer line: a mark in the ``Size/vendorMark`` column, then its readings in the
+    /// telemetry's mono face.
+    private func telemetryRow(mark: some View, @ViewBuilder readings: () -> some View) -> some View {
         HStack(alignment: .center, spacing: scale(Space.inset)) {
-            VendorMark(agent: agent, size: scale(Size.vendorMark))
+            mark
             readings()
             Spacer(minLength: 0)
         }

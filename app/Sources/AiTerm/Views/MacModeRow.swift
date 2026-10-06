@@ -6,7 +6,9 @@ import AiTermCore
 /// one that will turn the mode off.
 enum BackpackNeed: Equatable { case lostHotspot, lowBattery(level: Int) }
 
-/// The Mac's row in SYSTEM, decided apart from the view so a test reads it (spec 2026-10-05).
+/// The Mac's mode in SYSTEM, decided apart from the view so a test reads it (spec 2026-10-05;
+/// proposal 2A and 3A, 6 Oct 2026). At the desk it draws no line of its own — the Mac's readings
+/// row is its row — and in the backpack a `ToneDot` and its words.
 enum MacMode: Equatable {
     case desk
     case turningOn, on, needsYou(BackpackNeed), turningOff
@@ -23,18 +25,25 @@ enum MacMode: Equatable {
         }
     }
 
-    var isDesk: Bool { if case .desk = self { true } else { false } }
-    /// Where the Mac is: on a desk, or in a bag.
-    var name: String { isDesk ? "desk mode" : "backpack mode" }
-    /// The Mac on its own, or the Mac through the iPhone.
-    var symbol: String { isDesk ? "macbook" : "iphone" }
-    /// The task row's `StatusMark` after the name: the row's one colour. None at the desk.
-    var mark: TaskStatus? {
+    /// The backpack line's words; nil at the desk, which draws no line.
+    var words: String? {
         switch self {
         case .desk: nil
-        case .turningOn, .turningOff: .working
-        case .on: .done
-        case .needsYou: .needsInput
+        case .turningOn: "backpack turning on…"
+        case .on: "backpack enabled"
+        case .needsYou: "backpack needs you"
+        case .turningOff: "backpack turning off…"
+        }
+    }
+
+    /// The line's colour, its dot's and its words': ready while on, attention when it needs you,
+    /// idle while it switches. Nil at the desk.
+    var tone: SettingsTone? {
+        switch self {
+        case .desk: nil
+        case .turningOn, .turningOff: .idle
+        case .on: .ready
+        case .needsYou: .attention
         }
     }
 }

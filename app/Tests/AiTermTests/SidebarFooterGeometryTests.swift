@@ -21,6 +21,14 @@ struct SidebarFooterGeometryTests {
         #expect(context.help == "Context 84 % full")
     }
 
+    /// The Mac's readings row is read as its readings in words; before the first sample, as the Mac.
+    @Test func theMacsReadingsAreReadInWords() {
+        #expect(SidebarFooter.readingsLabel([]) == "Mac")
+        #expect(SidebarFooter.readingsLabel([UsageLine(window: .cpu, percent: 23, warning: false),
+                                             UsageLine(window: .ram, percent: 78, warning: true)])
+                == "CPU 23 % busy, Memory 78 % used, under pressure")
+    }
+
     /// A note's ink follows the row's `warning`, never its wording: the same words on a row that
     /// is not a warning stay muted.
     @Test func aNoteIsAmberOnlyWhenTheRowIsAWarning() {
@@ -29,9 +37,10 @@ struct SidebarFooterGeometryTests {
         #expect(SidebarFooter.noteInk(UsageVendorRow(vendor: .codex, lines: [], note: "Reconnecting", warning: true)) == Palette.amber)
     }
 
-    private func host(_ rows: [UsageVendorRow], task: UsageTaskRow? = nil,
+    private func host(_ rows: [UsageVendorRow], task: UsageTaskRow? = nil, machine: [UsageLine] = [], mode: MacMode = .desk,
                       width: CGFloat = Size.sidebarMinWidth, scale: InterfaceScale = .standard) -> NSHostingView<AnyView> {
-        let view = AnyView(SidebarFooter(task: task, rows: rows)
+        let mac = MacModePresentation.line(mode: mode, hotspot: "Laurens’s iPhone", wifi: "Office-WiFi")
+        let view = AnyView(SidebarFooter(task: task, rows: rows, machine: machine, mac: mac)
             .interfaceScale(scale)
             .frame(width: width, alignment: .leading)
             .background(Color.black))
@@ -50,7 +59,7 @@ struct SidebarFooterGeometryTests {
             UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil),
             UsageVendorRow(vendor: .codex, lines: [week, fiveHour], note: nil),
         ]
-        // SYSTEM's heading and the Mac row, the rule, then USAGE's heading and two providers.
+        // SYSTEM's heading and the Mac's readings, the rule, then USAGE's heading and two providers.
         let expected = (Space.tight + Size.menuRow * 2 + Space.base) + 1 + (Space.tight + Size.menuRow * 3 + Space.base)
         #expect(abs(host(rows).fittingSize.height - expected) < 0.5)
     }
@@ -63,7 +72,7 @@ struct SidebarFooterGeometryTests {
         ]
         let task = UsageTaskRow(agent: .claude, context: context)
         let usage = Space.tight + Size.menuRow * 3 + Space.base
-        // SYSTEM's heading, the context row and the Mac row, then the rule.
+        // SYSTEM's heading, the context row and the Mac's readings, then the rule.
         let expected = usage + Space.tight + Size.menuRow * 3 + Space.base + 1
         #expect(abs(host(rows, task: task).fittingSize.height - expected) < 0.5)
     }
@@ -185,12 +194,38 @@ extension SidebarFooterGeometryTests {
         #expect(SidebarFooter.systemHeading == "System")
     }
 
-    /// SYSTEM is always there now: with nothing selected it still holds the Mac's row, one
-    /// `Size.menuRow` line in the group's padding, then the rule and USAGE.
-    @Test func withNothingSelectedSystemHoldsTheMacRow() {
+    /// SYSTEM is always there: with nothing selected it still holds the Mac's readings, one
+    /// `Size.menuRow` line in the group's padding, then the rule and USAGE. At the desk that is all
+    /// the Mac draws (proposal 3A).
+    @Test func withNothingSelectedSystemHoldsTheMacsReadings() {
         let rows = [UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil)]
         let usage = Space.tight + Size.menuRow * 2 + Space.base
         let system = Space.tight + Size.menuRow * 2 + Space.base
         #expect(abs(host(rows).fittingSize.height - (system + 1 + usage)) < 0.5)
+    }
+
+    /// In the backpack, and while it switches, the mode's line adds one row under the readings.
+    @Test(arguments: [MacMode.turningOn, .on, .needsYou(.lostHotspot), .turningOff])
+    func theBackpackLineAddsOneRow(mode: MacMode) {
+        let usage = Space.tight + Size.menuRow + Space.base
+        let system = Space.tight + Size.menuRow * 3 + Space.base
+        #expect(abs(host([], mode: mode).fittingSize.height - (system + 1 + usage)) < 0.5)
+    }
+
+    /// The readings row at its widest — three readings, each at 100 % — paints inside the sidebar's
+    /// minimum at every interface size rather than truncating (proposal 1A's width budget).
+    @Test(arguments: InterfaceScale.all)
+    func theMacsReadingsFitTheMinimumSidebarWidth(scale: InterfaceScale) throws {
+        let machine = [UsageLine(window: .cpu, percent: 100, warning: true), UsageLine(window: .ram, percent: 100, warning: true),
+                       UsageLine(window: .battery, percent: 100, warning: false)]
+        // Under SYSTEM's heading, the readings row alone.
+        let top = Int((scale(Space.tight) + scale(Size.menuRow)).rounded(.up))
+        let band = top..<(top + Int(scale(Size.menuRow)))
+        let natural = try paintedWidth(host([], machine: machine, width: 900, scale: scale), band: band)
+        let minimum = scale(Size.sidebarMinWidth)
+        let atMinimum = try paintedWidth(host([], machine: machine, width: minimum, scale: scale), band: band)
+        #expect(natural > scale(Size.vendorMark) * 4, "the row painted its readings, not its mark alone")
+        #expect(abs(atMinimum - natural) < 1,
+                "at ×\(scale.factor) the readings paint \(natural) pt unconstrained but only \(atMinimum) pt at the \(minimum) pt minimum")
     }
 }

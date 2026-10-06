@@ -186,7 +186,7 @@ final class BackpackSheetModel: Identifiable {
 /// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid." with
 /// Done; a failure leaves the fields live and Connect retries. Closing the lid closes it: with
 /// nothing running that is a cancel; during a connect the attempt under way keeps going, but no
-/// retry follows it, and the Mac row shows how it ends (`BackpackSheetModel.lidClosed()`).
+/// retry follows it, and the footer's backpack line shows how it ends (`BackpackSheetModel.lidClosed()`).
 struct BackpackSheet: View {
     let model: BackpackSheetModel
     @Environment(\.dismiss) private var dismiss

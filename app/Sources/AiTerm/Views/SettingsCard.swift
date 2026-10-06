@@ -1,21 +1,6 @@
 import SwiftUI
 import AiTermUI
 
-/// The three states every Settings card speaks, whether it describes a harness or a service.
-enum SettingsTone: Equatable {
-    case ready
-    case attention
-    case idle
-
-    var color: Color {
-        switch self {
-        case .ready: Palette.green
-        case .attention: Palette.amber
-        case .idle: Palette.muted
-        }
-    }
-}
-
 /// A card's status line: a tone and one sentence. A test result replaces it in place, so the
 /// answer lands beside the thing that was tested rather than in the sheet's footer.
 struct SettingsStatus: Equatable {
@@ -80,8 +65,7 @@ struct SettingsCard<Mark: View, Chips: View, Actions: View, Content: View>: View
                     chips
                 }
                 HStack(spacing: Space.tight) {
-                    Circle().fill(status.tone.color)
-                        .frame(width: Size.statusMarkSmall, height: Size.statusMarkSmall)
+                    ToneDot(tone: status.tone, size: Size.statusMarkSmall)
                     Text(status.text).font(Typography.help).foregroundStyle(status.tone.color)
                         .lineLimit(1).truncationMode(.tail)
                         .help(status.text)

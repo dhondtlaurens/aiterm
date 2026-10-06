@@ -123,13 +123,14 @@ struct Fixture {
 
     /// A controller with nothing in it yet, over a store nothing loads — so, like every fixture
     /// controller, its workspace reads as not yet loaded — whose checkout passes report `scan`, and
-    /// whose Backpack Mode runs over the inert ports: at its desk, touching no Wi-Fi or Location.
+    /// whose Backpack Mode runs over the inert ports: at its desk, touching no Wi-Fi or Location —
+    /// and which reads no load off this Mac.
     static func emptyController(scan: WorkspaceScan = WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
                                                                     removedTasks: [], remotes: [:])) -> AppController {
         let store = StateStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-snapshots-\(UUID().uuidString).json"))
         return AppController.live(store: store, preferences: preferences, harnessHome: home, locateAgents: { nil },
                                   setBadge: { _ in }, activateIterm: {}, backpackPorts: .inert,
-                                  scan: { _, _, _, _, _, _, _ in scan })
+                                  machineSensor: InertMachineSensor(), scan: { _, _, _, _, _, _, _ in scan })
     }
 
     /// `SessionInfo`'s memberwise initialiser is internal to AiTermCore, so the fixtures come in

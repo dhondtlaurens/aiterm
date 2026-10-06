@@ -36,10 +36,7 @@ public struct BackpackStatus: Equatable, Sendable {
     }
 
     /// On battery, within 5 points of the cutoff.
-    public var nearCutoff: Bool {
-        guard power.onBattery, let level = power.level else { return false }
-        return level <= BackpackSettings.cutoff + 5
-    }
+    public var nearCutoff: Bool { power.nearCutoff }
 
     /// Drawn amber: off the chosen network, or close to turning itself off.
     public var degraded: Bool { !joined || nearCutoff }

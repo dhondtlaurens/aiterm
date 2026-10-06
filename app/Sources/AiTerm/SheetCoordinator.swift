@@ -94,7 +94,7 @@ final class SheetCoordinator {
     }
 
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
-    /// another sheet: ⌘B and the Mac row reach it while one may be up, and it refuses rather than
+    /// another sheet: ⌘B and the footer's Mac rows reach it while one may be up, and it refuses rather than
     /// take that sheet's place, as Settings does.
     func presentBackpack(_ backpack: BackpackController) {
         guard sheet == nil else { return }

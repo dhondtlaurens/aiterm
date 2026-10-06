@@ -20,7 +20,7 @@ enum ConnectPhase: Equatable {
 
 /// Backpack Mode as the app drives it: `BackpackMode`'s blocking calls run on one serial thread, so a
 /// connect, a turn-off and a tick never overlap, and their outcome is published here on the main
-/// actor for the Backpack sheet, the Mac row and Settings › Integrations.
+/// actor for the Backpack sheet, the footer's Mac rows and Settings › Integrations.
 @MainActor
 @Observable
 final class BackpackController {
