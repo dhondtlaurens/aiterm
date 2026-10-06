@@ -185,15 +185,37 @@ with c:
         #expect(Array(attempts.prefix(3)) == [0, 0, 0])
     }
 
+    /// Task 38 review: after a connection that ended as a mismatch, the next one's snapshot is not
+    /// shown until that connection has held — each retry at a helper that will end the same way
+    /// would otherwise flash "Connected to iTerm2" between two "from another version"s.
+    @Test func aMismatchedHelperIsNotShownConnectedAgainUntilAConnectionHolds() async throws {
+        let (_, states) = try await retries(steadyAfter: .seconds(5))
+        #expect(states == [.connected(version: nil), .helperMismatch], "got \(states)")
+    }
+
+    /// The connection after a mismatch that does hold is shown, once it has held.
+    @Test func aConnectionThatHoldsAfterAMismatchIsShownOnceItHas() async throws {
+        let (_, states) = try await retries(steadyAfter: .milliseconds(200), unreadableConnections: 1) { states in
+            states.count >= 3
+        }
+        #expect(states == [.connected(version: nil), .helperMismatch, .connected(version: nil)], "got \(states)")
+    }
+
     /// The backoff's first attempts, and every status said, against a helper that answers each
-    /// connection's snapshot and then sends a `session.changed` this app cannot read.
-    private func retries(steadyAfter: Duration) async throws -> (attempts: [Int], states: [ItermConnection]) {
+    /// connection's snapshot and then, on the first `unreadableConnections` of them, sends a
+    /// `session.changed` this app cannot read; by default every one does, and the wait is for
+    /// three attempts.
+    private func retries(steadyAfter: Duration, unreadableConnections: Int = .max,
+                         until done: (_ states: [ItermConnection]) -> Bool = { _ in false })
+        async throws -> (attempts: [Int], states: [ItermConnection]) {
         let server = try await PythonSocketServer.start(script: """
 import json,socket,sys
 s=socket.socket(socket.AF_UNIX)
 s.bind(sys.argv[1]);s.listen()
+unreadable=int(sys.argv[2])
+count=0
 while True:
- c,_=s.accept()
+ c,_=s.accept();count+=1
  with c:
   f=c.makefile('rb')
   for line in f:
@@ -201,9 +223,9 @@ while True:
    result={'protocolVersion':1,'connected':True,'sessions':[],'usage':{'claude':None,'codex':None}}
    c.sendall((json.dumps({'id':m['id'],'result':result})+'\\n').encode())
    # session.changed without the session it is about: a shape this app cannot read.
-   c.sendall((json.dumps({'event':'session.changed','payload':{'sessionId':'s1'}})+'\\n').encode())
+   if count<=unreadable: c.sendall((json.dumps({'event':'session.changed','payload':{'sessionId':'s1'}})+'\\n').encode())
   f.close()
-""")
+""", arguments: [String(min(unreadableConnections, Int(Int32.max)))])
         defer { server.stop() }
         var states: [ItermConnection] = []
         let attempts = Attempts()
@@ -212,7 +234,7 @@ while True:
                                           backoff: { attempts.record($0); return 0.01 }, steadyAfter: steadyAfter)
         connection.start()
         defer { connection.stop() }
-        await eventually { attempts.all.count >= 3 }
+        await eventually { attempts.all.count >= 3 || done(states) }
         return (attempts.all, states)
     }
 

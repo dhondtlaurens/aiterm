@@ -6,6 +6,11 @@ import os
 /// app goes on without is found again: one the person must act on is also said in a banner, an
 /// alert or a toast, and this keeps what that sentence leaves out — git's own words, the helper's
 /// raw message. The helper process keeps its own log, `aitermd.log`.
+///
+/// Every value is logged `.public`, by design: a line that reads `<private>` in Console.app is no
+/// use to the person trying to find out what went wrong. So a caller never puts in one what must
+/// not be read there — a token or password, the text of a prompt, a remote's URL (which can carry
+/// a token): it names the project by its path, the request by its method, the branch by its name.
 public enum Log {
     public static let subsystem = "com.laurensdhondt.aiterm"
     /// The socket to the helper: requests that failed, events that could not be read, reconnects.

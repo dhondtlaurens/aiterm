@@ -397,6 +397,11 @@ public final class DaemonClient: Sendable {
         }
         do { return try await exchange(id: id, method: method, data: data, as: type, ordered: ordered, isLivenessCheck: isLivenessCheck) }
         catch let error as DaemonError { throw Self.logged(error, method) }
+        catch let error as DecodingError {
+            // A reply this app cannot read: the caller says only that the request failed.
+            Log.daemon.error("\(method.rawValue, privacy: .public)'s reply could not be read: \(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     /// Every request that fails, with the helper's own words, which the person never reads
