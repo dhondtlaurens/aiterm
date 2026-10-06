@@ -11,8 +11,6 @@ struct HelperLinkTests {
                    notices: notices ?? .aboutNoRows())
     }
 
-    private let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: UUID().uuidString, projectId: nil,
-                                  agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
     private let title = SessionTitle(sessionId: "s", title: "feat/a")
 
     /// The daemon alone knows which titles iTerm2 has: it skips one already applied, forgets a
@@ -24,29 +22,22 @@ struct HelperLinkTests {
         link.setDaemonClient(daemon)
         func sends() -> Int { daemon.requests("sessions.setTitles").count }
 
-        await link.sendTitles([title], placedIn: [tab])
-        await link.sendTitles([title], placedIn: [tab])
+        await link.sendTitles([title])
+        await link.sendTitles([title])
         #expect(sends() == 2)
-        var moved = tab
-        moved.tabIndex = 1
-        await link.sendTitles([title], placedIn: [moved])
-        #expect(sends() == 3)
-        link.handle(.itermConnected("3.7.2"))
-        await link.sendTitles([title], placedIn: [moved])
-        #expect(sends() == 4)
-        await link.sendTitles([], placedIn: [])
-        #expect(sends() == 4, "no titles, nothing to send")
+        await link.sendTitles([])
+        #expect(sends() == 2, "no titles, nothing to send")
     }
 
     /// A pass that ends with no daemon attached has nowhere to send, and the next one after it does.
     @Test func titlesGoToTheDaemonAttachedWhenThePassEnds() async {
         let first = RecordingDaemon(), second = RecordingDaemon()
         let link = link()
-        await link.sendTitles([title], placedIn: [tab])
+        await link.sendTitles([title])
         link.setDaemonClient(first)
-        await link.sendTitles([title], placedIn: [tab])
+        await link.sendTitles([title])
         link.setDaemonClient(second)
-        await link.sendTitles([title], placedIn: [tab])
+        await link.sendTitles([title])
 
         #expect(first.requests("sessions.setTitles").count == 1)
         #expect(second.requests("sessions.setTitles").count == 1)
@@ -71,8 +62,8 @@ struct HelperLinkTests {
         let link = link()
         link.setDaemonClient(daemon)
 
-        await link.sendTitles([title], placedIn: [tab])
-        await link.sendTitles([title], placedIn: [tab])
+        await link.sendTitles([title])
+        await link.sendTitles([title])
 
         #expect(daemon.requests("sessions.setTitles").count == 2)
     }

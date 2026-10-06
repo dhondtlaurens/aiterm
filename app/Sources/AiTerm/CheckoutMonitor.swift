@@ -33,7 +33,7 @@ final class CheckoutMonitor {
     @ObservationIgnored private(set) var titleSync: Task<Void, Never>?
     /// The titles of the latest pass that ended while a sync was out, sent when it returns. Passes
     /// that end meanwhile replace it: only the newest titles are worth sending.
-    @ObservationIgnored private var pendingTitles: (titles: [SessionTitle], sessions: [SessionInfo])?
+    @ObservationIgnored private var pendingTitles: [SessionTitle]?
     /// Set by a `refresh()` that joins a pass in flight: its caller changed the disk just before
     /// asking, and the pass may have looked before, so one more follows the pass once it is applied.
     @ObservationIgnored private var trailingPassOwed = false
@@ -64,7 +64,7 @@ final class CheckoutMonitor {
     private let removalInFlight: @MainActor (UUID) -> Bool
     private let onRemotes: @MainActor ([UUID: WorkspaceScan.Remote]) -> Void
     private let onRemovedTasks: @MainActor ([TaskItem]) -> Void
-    private let onTitles: @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void
+    private let onTitles: @MainActor ([SessionTitle]) async -> Void
     /// Who hears that a map the sidebar's rows are drawn from — `branchByCwd`, `projectBranch`,
     /// `diffByTask` — changed: once for each pass or call that changed any of them.
     private let rowsChanged: @MainActor () -> Void
@@ -74,7 +74,7 @@ final class CheckoutMonitor {
          removalInFlight: @escaping @MainActor (UUID) -> Bool,
          onRemotes: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void,
          onRemovedTasks: @escaping @MainActor ([TaskItem]) -> Void,
-         onTitles: @escaping @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void,
+         onTitles: @escaping @MainActor ([SessionTitle]) async -> Void,
          rowsChanged: @escaping @MainActor () -> Void = {}) {
         self.live = live
         self.scan = scan
@@ -220,15 +220,13 @@ final class CheckoutMonitor {
     /// The titles read the tabs as they are after the pass, which can have moved while it ran. One
     /// sync is out at a time; the titles of a pass that ends meanwhile wait behind it.
     private func syncTitles(_ scan: WorkspaceScan) {
-        let sessions = live.sessions
-        let titles = SidebarModel.sessionTitles(state: workspace.state, sessions: sessions, branchByCwd: scan.branchByCwd,
-                                                projectBranch: scan.projectBranch)
-        pendingTitles = (titles, sessions)
+        pendingTitles = SidebarModel.sessionTitles(state: workspace.state, sessions: live.sessions, branchByCwd: scan.branchByCwd,
+                                                   projectBranch: scan.projectBranch)
         guard titleSync == nil else { return }
         titleSync = Task {
             while let next = pendingTitles {
                 pendingTitles = nil
-                await onTitles(next.titles, next.sessions)
+                await onTitles(next)
             }
             titleSync = nil
         }

@@ -165,8 +165,7 @@ final class HelperLink {
     /// applied: it applies only what differs from what it last set, and forgets a tab's title when
     /// the tab moves and all of them when iTerm2 reconnects — events this side would only have to
     /// infer, and could miss. An unchanged list costs one local request.
-    /// The tabs' positions the caller still passes are no longer read.
-    func sendTitles(_ titles: [SessionTitle], placedIn _: [SessionInfo]) async {
+    func sendTitles(_ titles: [SessionTitle]) async {
         guard let daemon, !titles.isEmpty else { return }
         _ = try? await daemon.setSessionTitles(titles)
     }

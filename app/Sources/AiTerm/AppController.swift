@@ -142,7 +142,7 @@ final class AppController {
             removalInFlight: { link.controller?.remover.removalInFlight($0) == true },
             onRemotes: { link.controller?.applyRemotes($0) },
             onRemovedTasks: { link.controller?.remover.forgetRemovedCheckouts($0) },
-            onTitles: { await helper.sendTitles($0, placedIn: $1) },
+            onTitles: { await helper.sendTitles($0) },
             rowsChanged: { link.controller?.refreshRows() })
         self.checkouts = checkouts
         rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
