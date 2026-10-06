@@ -1198,7 +1198,7 @@ extension AppControllerTests {
     /// The footer's "not installed" is read from the harness home the controller was given — in a
     /// test a temporary one — not from the developer's own `~/.claude`. Both answers are checked, so
     /// reading the real home fails whichever state it is in.
-    @Test func theStatusLineProbeReadsTheHarnessHome() throws {
+    @Test func theStatusLineProbeReadsTheHarnessHome() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home"), resources = root.appendingPathComponent("resources")
@@ -1209,13 +1209,13 @@ extension AppControllerTests {
         let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
                                        harnessHome: home, bundledResourcesURL: resources)
 
-        controller.agents.refreshStatusLineState()
+        await controller.agents.refreshStatusLineState()
         #expect(!controller.agents.claudeStatusLineInstalled, "this home has no Claude settings at all")
 
         let settings = home.appendingPathComponent(".claude/settings.json")
         try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"statusLine":{"type":"command","command":"\#(shim.path)"}}"#.utf8).write(to: settings)
-        controller.agents.refreshStatusLineState()
+        await controller.agents.refreshStatusLineState()
         #expect(controller.agents.claudeStatusLineInstalled)
     }
 

@@ -31,7 +31,9 @@ final class AgentIntegrations {
     /// agent Settings has just installed.
     private let availableAgentsChanged: @MainActor (Set<AgentKind>) -> Void
     private let harnessHome: URL
-    private let bundledResourcesURL: URL?
+    /// What the drivers install from the bundle, looked up once: the Settings service installs
+    /// them, and the footer's probe asks whether Claude Code still runs this bundle's shim.
+    private let resources: HarnessResources
     /// Which agent CLIs the login shell finds, nil when it could not tell.
     private let locateAgents: @Sendable () -> Set<AgentKind>?
     @ObservationIgnored private var retainedHarnessSettings: HarnessSettingsModel?
@@ -40,24 +42,18 @@ final class AgentIntegrations {
          rememberedModels: @escaping @MainActor () -> [AgentKind: String],
          availableAgentsChanged: @escaping @MainActor (Set<AgentKind>) -> Void) {
         self.harnessHome = harnessHome
-        self.bundledResourcesURL = bundledResourcesURL
+        resources = .bundled(resourceURL: bundledResourcesURL)
         catalogue = ModelCatalogue(home: harnessHome, runner: .live)
         self.locateAgents = locateAgents
         self.rememberedModels = rememberedModels
         self.availableAgentsChanged = availableAgentsChanged
     }
 
-    /// Bundle lookups are optional because `swift run`, damaged copies and translocated apps do
-    /// not necessarily contain installable resources. Settings reports that state instead of
-    /// persisting a path that cannot work after launch.
-    var shimURL: URL? { bundledHook(named: "claude-statusline-shim.sh") }
-
-    /// A hook script in the bundle, if it is there and can be run.
-    private func bundledHook(named name: String) -> URL? {
-        guard let candidate = bundledResourcesURL?.appendingPathComponent("hooks").appendingPathComponent(name),
-              FileManager.default.isExecutableFile(atPath: candidate.path) else { return nil }
-        return candidate
-    }
+    /// Claude Code's status-line shim in the bundle, if it is there and can be run. Bundle lookups
+    /// are optional because `swift run`, damaged copies and translocated apps do not necessarily
+    /// contain installable resources. Settings reports that state instead of persisting a path
+    /// that cannot work after launch.
+    var shimURL: URL? { resources[.claude].map(URL.init(fileURLWithPath:)) }
 
     /// The launch probes, together: the CLI lookup is a login shell costing the better part of a
     /// second, and the status line is a read of Claude's settings that need not wait for it.
@@ -71,15 +67,28 @@ final class AgentIntegrations {
         if let installed = installed ?? nil { availableAgents = installed }
     }
 
-    /// The status line's launch probe, off the main actor: first the upgrade of an old record of
-    /// the user's own status line, which the shim would otherwise stop showing, then the read.
+    /// The status line's launch probe: first the upgrade of an old record of the user's own status
+    /// line, which the shim would otherwise stop showing, then the read.
     /// Internal, not private, for `theLaunchProbeMigratesAnOldStatusLineRecord`.
-    func probeStatusLine() async {
-        let shim = shimURL?.path, home = harnessHome
+    func probeStatusLine() async { await readStatusLine(migratingFirst: true) }
+
+    /// Re-reads whether the shim is still Claude Code's status line, after a Claude install, so the
+    /// footer stays honest when another tool edits Claude's settings. Internal, not private, for
+    /// `theStatusLineProbeReadsTheHarnessHome`.
+    func refreshStatusLineState() async { await readStatusLine(migratingFirst: false) }
+
+    /// Off the main actor, both: `settings.json` is the user's file, of any size, and parsing it
+    /// must not hold up the app.
+    private func readStatusLine(migratingFirst migrating: Bool) async {
+        let shim = resources[.claude], home = harnessHome
         let installed = try? await BackgroundWork.run {
-            do { try StatusLineOriginal.migrate(home: home) }
-            catch { NSLog("AiTerm: could not migrate the saved status line: \(error.localizedDescription)") }
-            return Self.statusLineIsInstalled(shimPath: shim, home: home)
+            if migrating {
+                do { try StatusLineOriginal.migrate(home: home) }
+                catch { NSLog("AiTerm: could not migrate the saved status line: \(error.localizedDescription)") }
+            }
+            // The harness home this was given, never the default: in a test that is a temporary
+            // directory, and the developer's own `~/.claude` says nothing about it.
+            return shim.map { ClaudeSettings.statusLineIsInstalled(home: home, shimPath: $0) } ?? false
         }
         guard !Task.isCancelled else { return }
         claudeStatusLineInstalled = installed ?? false
@@ -91,27 +100,14 @@ final class AgentIntegrations {
     func harnessSettingsModel() -> HarnessSettingsModel {
         if let retainedHarnessSettings { return retainedHarnessSettings }
         let service = HarnessService(
-            home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue,
-            resources: .bundled(resourceURL: bundledResourcesURL))
+            home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue, resources: resources)
         let settings = HarnessSettingsModel(
             service: service, rememberedModels: { [weak self] in self?.rememberedModels() ?? [:] },
             integrationChanged: { [weak self] agent in
-                if agent == .claude { self?.refreshStatusLineState() }
+                if agent == .claude { Task { await self?.refreshStatusLineState() } }
             },
             cliInstalled: { [weak self] agent in self?.availableAgents.insert(agent) })
         retainedHarnessSettings = settings
         return settings
-    }
-
-    /// Read-only detection keeps the footer honest when another tool edits Claude's settings.
-    /// Internal, not private, for `theStatusLineProbeReadsTheHarnessHome`.
-    func refreshStatusLineState() {
-        claudeStatusLineInstalled = Self.statusLineIsInstalled(shimPath: shimURL?.path, home: harnessHome)
-    }
-
-    /// Both probes read the harness home this was given, never the default: in a test that is a
-    /// temporary directory, and the developer's own `~/.claude` says nothing about it.
-    nonisolated private static func statusLineIsInstalled(shimPath: String?, home: URL) -> Bool {
-        shimPath.map { ClaudeSettings.statusLineIsInstalled(home: home, shimPath: $0) } ?? false
     }
 }
