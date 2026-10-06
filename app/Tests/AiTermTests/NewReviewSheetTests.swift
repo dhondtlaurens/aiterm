@@ -291,6 +291,24 @@ import AiTermCore
         #expect(self.field("Describe the review", in: h.host) != nil)
     }
 
+    /// The prompt's completion popup is a list too: on step 3, ⎋ closes only the popup, and the
+    /// next one steps back. The footer's hidden ⎋ button hears the key before the text view does,
+    /// so the popup is the footer's to close (docs/keyboard.md).
+    @Test func escapeClosesTheCompletionPopupBeforeSteppingBack() throws {
+        let h = harness(step: 3, title: "Review it", branch: "main", mrOpen: false)
+        defer { h.window.orderOut(nil) }
+        h.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
+        settle(h.host)
+        #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "step 3: Prompt")
+
+        pressEscape(h)
+        #expect(!h.model.completions.isOpen, "⎋ closed the popup")
+        #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "and only the popup: step 3 is still up")
+
+        pressEscape(h)
+        #expect(descendants(of: NSTextView.self, in: h.host).isEmpty, "the next ⎋ went back to step 2")
+    }
+
     /// The primary button answers ⌘↩ only, the keycaps it shows; a plain ↩ leaves step 1 up.
     @Test func plainReturnDoesNotPressThePrimaryButton() throws {
         let h = harness(title: "Review it", branch: "main", mrOpen: false, createFails: true)

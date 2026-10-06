@@ -112,8 +112,9 @@ struct SheetPrimaryButton: View {
 /// ⎋ is a hidden button of its own, not Cancel's key: an open list closes first — a button's key
 /// equivalent would beat the field's own ⎋, and in every other app that list is a window of its own,
 /// so closing the whole sheet is not what the key means there — and *clicking* Cancel still cancels.
-/// `closeList` closes one and says whether there was one to close; a sheet with no lists needs
-/// nothing, and ⎋ is Cancel. `cancel` guards itself when it must, as Back does while a create runs.
+/// `closeList` closes one and says whether there was one to close — a picker's results, or the
+/// prompt editor's completion popup, whose own ⎋ the hidden button hears first; a sheet with no
+/// lists needs nothing, and ⎋ is Cancel. `cancel` guards itself when it must, as Back does while a create runs.
 ///
 /// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
 struct SheetFooter<Status: View>: View {

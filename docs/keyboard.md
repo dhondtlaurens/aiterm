@@ -67,7 +67,7 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 |---|---|---|
 | ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. |
 | ↩ | Nothing sheet-wide | It picks the highlighted result in an open dropdown, and inserts a newline in the prompt editor. It does not press the primary button. |
-| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
+| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; on the prompt step, the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
 
 ## A picker's list
 

@@ -48,7 +48,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
         } footer: {
             CreationFooter(step: step, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
-                           closeList: closeOpenPicker, back: back, advance: advance)
+                           closeList: closeOpenList, back: back, advance: advance)
         }
         .task { await model.search(text: "") }
         .task(id: model.draft.agent) { await model.loadAgentCatalogue() }
@@ -56,9 +56,15 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
         .onDisappear { model.cancelSearch() }
     }
 
-    /// The pickers live on step 1, so only there can ⎋ have a list to close; on a later step a
-    /// list left open is out of sight, and the key goes straight to Back.
-    private func closeOpenPicker() -> Bool {
+    /// The list ⎋ closes, if one is open where it can be seen: the pickers on step 1, the prompt's
+    /// completion popup on step 3. A picker list left open on a later step is out of sight, so the
+    /// key goes straight to Back there. The popup is the footer's to close, not the text view's:
+    /// the footer's hidden ⎋ button hears the key first.
+    private func closeOpenList() -> Bool {
+        if step == 3, model.completions.isOpen {
+            model.completions.close()
+            return true
+        }
         guard step == 1, let open = pickers.first(where: { $0.wrappedValue }) else { return false }
         open.wrappedValue = false
         return true
