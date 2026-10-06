@@ -207,11 +207,14 @@ def _drop_app_refresh_handlers(app: iterm2.App) -> None:
     focus moves to a tab or session it does not know yet. `App.async_refresh` returns at once, the
     tree untouched, while another is in flight, so a Cmd+T whose focus change is dispatched before
     its new-session notification would hand `session_info` the tree from before the tab, and the tab
-    would never be tagged. Each also cost three requests. The layout-change handler stays: it updates
-    the tree from the notification itself, which keeps the cached hierarchy `_found` reads current.
-    The focus the App tracks between refreshes goes stale, and nothing here reads it: `_placed` reads
-    the focus a refresh has just fetched. `_get_handlers` and `_async_focus_change` are private:
-    verified against iterm2 2.23 (pinned), and nothing is removed if either has moved."""
+    would never be tagged. Each also cost three requests. What keeps the cached hierarchy `_found`
+    reads current is then the bridge's own refreshes, each under the lock: the `session_info` and
+    tick a new session prompts, the tick a terminated one prompts, the service's poll, and `_found`'s
+    own refresh on a miss. The layout-change handler stays, as it costs no request: it edits the tree
+    from the notification itself. The focus the App tracks between refreshes goes stale, and nothing
+    here reads it: `_placed` reads the focus a refresh has just fetched. `_get_handlers` and
+    `_async_focus_change` are private: verified against iterm2 2.23 (pinned), and nothing is removed
+    if either has moved."""
     with contextlib.suppress(AttributeError):
         refreshing = {app.async_refresh, app._async_focus_change}
         handlers = iterm2.notifications._get_handlers()
@@ -294,9 +297,10 @@ class ItermBridge:
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._watch_task: asyncio.Task | None = None
         self._refresh_lock = asyncio.Lock()
-        # The hierarchy as `_app` last fetched it. The library keeps it current from iTerm2's
-        # layout-change notifications, so a command that needs one window or session by id looks
-        # there first.
+        # The hierarchy as `_app` last fetched it, so a command that needs one window or session by
+        # id looks there first. It is as fresh as the bridge's last refresh: a new or terminated
+        # session prompts one, the service's poll makes one every two seconds, and `_found` makes
+        # one when it misses (see `_drop_app_refresh_handlers`).
         self._tree: iterm2.App | None = None
         # Whether iTerm2 takes a session's variables in one request; off for good after a refusal.
         self._batched_reads = True

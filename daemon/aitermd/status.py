@@ -92,7 +92,8 @@ class StatusEngine:
         self._turns: dict[str, Turn] = {}
 
     def turn(self, session_id: str) -> Turn | None:
-        """What the engine remembers of the session's turn, if anything."""
+        """What the engine remembers of the session's turn, if anything: a view for inspection, by a
+        test or a diagnosis, and not to be changed through. The engine's own methods change it."""
         return self._turns.get(session_id)
 
     def _turn(self, session_id: str) -> Turn:

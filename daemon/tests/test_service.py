@@ -1558,10 +1558,10 @@ async def test_a_session_that_cannot_be_forgotten_is_still_announced_closed(stac
     assert (await next_event(r, "session.closed"))["sessionId"] == second
 
 
-
 @pytest.mark.parametrize("part,method", [("windows", "forget_session"), ("status", "reset_turn"), ("resolver", "forget")])
 async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_others_from_it(stack, monkeypatch, caplog, part, method):
     svc, it, files, r, w = stack
+    what = {"windows": "window state", "status": "turn", "resolver": "bindings"}[part]
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
     sid = it.windows[wid]["sessions"][0]
     await it.user_runs(sid, "codex", job_pid=301, title="Codex")
@@ -1582,7 +1582,8 @@ async def test_a_part_that_cannot_forget_a_closed_session_does_not_keep_the_othe
     assert part == "windows" or sid not in svc.windows._applied_titles
     assert part == "status" or svc.status.turn(sid) is None
     assert part == "resolver" or not svc.resolver._pins
-    assert any(sid in rec.getMessage() for rec in caplog.records)
+    assert f"forgetting the {what} of closed session {sid} failed" in [rec.getMessage() for rec in caplog.records]
+
 
 async def test_a_failing_step_of_the_status_pass_does_not_cost_the_others(stack, monkeypatch, caplog):
     svc, it, files, r, w = stack
