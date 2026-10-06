@@ -28,28 +28,49 @@ import Testing
     /// `eval "$(tool init)"`, `ssh` under git — so the deadline must not wait for their EOF.
     /// What was read by then is still returned.
     @Test func aTimeoutReturnsWhileAGrandchildHoldsThePipes() throws {
-        let started = Date(), timeout: TimeInterval = 0.5
-        let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "sleep 30 & echo $!; sleep 60"], timeout: timeout)
-        defer { Int32(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)).map { _ = kill($0, SIGKILL) } }
+        // The grandchild's pid, said once it runs: that is when the run shows something.
+        let run = try runUntilStarted("sleep 30 & echo $!; sleep 60", timeout: 0.5,
+                                      started: { Int32($0.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) != nil },
+                                      cleanUp: { Int32($0.stdout.trimmingCharacters(in: .whitespacesAndNewlines)).map { _ = kill($0, SIGKILL) } })
         // The deadline, then at most `drainGrace` for the pipes, then slack for a loaded machine:
         // the grandchild holds them for thirty seconds, so the bound still tells the two apart.
-        #expect(Date().timeIntervalSince(started) < timeout + ProcessRunner.drainGrace + 1.5)
-        #expect(result.timedOut)
-        #expect(Int32(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) != nil)
+        #expect(run.took < run.timeout + ProcessRunner.drainGrace + 1.5)
+        #expect(run.result.timedOut)
     }
 
     /// `terminate()` signals the child's whole process group, so the grandchild above dies with it;
     /// one that ignores SIGTERM does not, and the SIGKILL that follows reaches only the child.
     @Test func aTimeoutReturnsWhileAGrandchildIgnoringTerminateHoldsThePipes() throws {
-        let started = Date()
-        let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"),
-                                           ["-c", "echo $$; (trap '' TERM; exec sleep 30) & sleep 60"], timeout: 0.2)
-        defer { Int32(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)).map { _ = killpg($0, SIGKILL) } }
+        // The child's pid, then the grandchild's word that it ignores SIGTERM.
+        let run = try runUntilStarted("echo $$; (trap '' TERM; echo trapped; exec sleep 30) & sleep 60", timeout: 0.2,
+                                      started: { $0.stdout.contains("trapped") },
+                                      cleanUp: { output in
+                                          output.stdout.split(separator: "\n").first.flatMap { Int32($0) }.map { _ = killpg($0, SIGKILL) }
+                                      })
         // Slack for the grandchild's pipes: `drainGrace` is the deliberate wait, plus room for the
         // rest of the run around it, rather than a bare `< 2` that was flaky at ~0.6s of margin.
-        #expect(Date().timeIntervalSince(started) < ProcessRunner.drainGrace + 1.5)
-        #expect(result.timedOut)
-        #expect(Int32(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) != nil)
+        #expect(run.took < run.timeout + ProcessRunner.drainGrace + 1.5)
+        #expect(run.result.timedOut)
+    }
+
+    /// `script` run by `/bin/sh` with `timeout`, and run again with twice the time while its
+    /// output does not show it `started` what the test is about: on a loaded machine a deadline
+    /// this short can stop `/bin/sh` before that, and such a run shows nothing either way. What
+    /// each run left behind is cleaned up; `took` is the wall time of the run returned.
+    private func runUntilStarted(_ script: String, timeout initial: TimeInterval,
+                                 started: (ProcessOutput) -> Bool, cleanUp: (ProcessOutput) -> Void,
+                                 sourceLocation: SourceLocation = #_sourceLocation)
+        throws -> (result: ProcessOutput, timeout: TimeInterval, took: TimeInterval) {
+        var timeout = initial
+        while true {
+            let began = Date()
+            let result = try ProcessRunner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", script], timeout: timeout)
+            let took = Date().timeIntervalSince(began)
+            cleanUp(result)
+            if started(result) { return (result, timeout, took) }
+            try #require(timeout < TestDeadline.seconds, "the script never got started before its deadline", sourceLocation: sourceLocation)
+            timeout *= 2
+        }
     }
 
     /// A child that finished is not waited on for the grandchild it left on its pipes, with or
