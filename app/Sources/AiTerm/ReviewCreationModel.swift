@@ -85,31 +85,17 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
     /// `gitLab`, `gitHub` and `remote` are the connections and the project's remote as they stood
     /// when the sheet was prepared: Keychain reads and a look at the checkout, too slow for every
     /// keystroke on the main actor, so a connection changed in Settings meanwhile applies from the
-    /// next sheet. Only a GitHub remote searches GitHub; everything else is GitLab's as before,
-    /// including a self-hosted GitLab the detector could only call plain git.
+    /// next sheet. Which host is searched is Core's to say (`MergeRequestSearch`); why none can be
+    /// is the sheet's search error, on every search.
     static func searcher(gitLab: GitLabConfig?, gitHub: GitHubConfig? = nil, remote: RemoteInfo) -> @MainActor (String) async throws -> [MergeRequest] {
-        { text in
-            if remote.provider == .github {
-                guard let config = gitHub else {
-                    throw ActionUnavailable("Connect GitHub in Settings › Integrations, or pick a branch instead.")
-                }
-                guard !remote.path.isEmpty else {
-                    throw ActionUnavailable("Couldn’t read a GitHub repository from this repository’s remote.")
-                }
-                return try await GitHubClient(config: config).pullRequests(repo: remote.path, search: text)
+        let source = Result(catching: { () throws(MergeRequestSearch.Unavailable) -> any MergeRequestSearching in
+            try MergeRequestSearch.source(for: remote, gitLab: gitLab, gitHub: gitHub)
+        })
+        return { text in
+            switch source {
+            case .success(let search): return try await search.mergeRequests(search: text)
+            case .failure(let unavailable): throw ActionUnavailable(unavailable.message)
             }
-            guard let config = gitLab else {
-                throw ActionUnavailable("Connect GitLab in Settings › Integrations, or pick a branch instead.")
-            }
-            // One GitLab host is configured. A project whose remote points elsewhere says so
-            // rather than listing another project's merge requests.
-            guard let host = remote.host, host == config.hostURL.host?.lowercased() else {
-                throw ActionUnavailable("This project’s remote is \(remote.host ?? "not a GitLab host"); GitLab is configured for \(config.hostURL.host ?? "another host").")
-            }
-            guard !remote.path.isEmpty else {
-                throw ActionUnavailable("Couldn’t read a GitLab project path from this repository’s remote.")
-            }
-            return try await GitLabClient(config: config).mergeRequests(project: remote.path, search: text)
         }
     }
 
@@ -159,5 +145,18 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return branches }
         return branches.filter { $0.range(of: q, options: .caseInsensitive) != nil }
+    }
+}
+
+extension MergeRequestSearch.Unavailable {
+    /// What the sheet says in place of merge requests.
+    var message: String {
+        switch self {
+        case .notConnected(let host): "Connect \(host.name) in Settings › Integrations, or pick a branch instead."
+        case .noRepositoryPath(.gitHub): "Couldn’t read a GitHub repository from this repository’s remote."
+        case .noRepositoryPath(.gitLab): "Couldn’t read a GitLab project path from this repository’s remote."
+        case .otherGitLabHost(let remote, let configured):
+            "This project’s remote is \(remote ?? "not a GitLab host"); GitLab is configured for \(configured ?? "another host")."
+        }
     }
 }

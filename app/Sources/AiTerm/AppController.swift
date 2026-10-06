@@ -791,7 +791,7 @@ final class AppController {
                             owningTask: { [weak self] branch, checkouts in
                                 self?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
                             },
-                            codeHost: remote.provider == .github ? .gitHub : .gitLab,
+                            codeHost: MergeRequestSearch.host(for: remote),
                             searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                             createReview: { [weak self] draft in
                                 guard let self else { throw CancellationError() }
