@@ -350,17 +350,16 @@ extension AppControllerTests {
     /// while the sidebar — and further passes — go on, and no second confirmation piles up behind
     /// it. Once it answers, the task is closed as it would have been.
     @Test func aConfirmationThatNeverAnswersLeavesTheMainActorFree() async throws {
-        let fixture = try CheckoutFixture(windowOpen: true)
-        defer { fixture.cleanUp() }
-        let controller = fixture.controller
-        let server = RecordingDaemon()
         let answer = DispatchSemaphore(value: 0), asked = Mutex(0)
-        defer { answer.signal(); controller.shutdown() }
-        controller.remover.confirmsRemoval = { _, _ in
+        let fixture = try CheckoutFixture(windowOpen: true, confirmsRemoval: { _, _ in
             asked.withLock { $0 += 1 }
             answer.wait()
             return true
-        }
+        })
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon()
+        defer { answer.signal(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
 
@@ -377,6 +376,37 @@ extension AppControllerTests {
         await controller.remover.waitForRemoval(of: fixture.task.id)
         #expect(server.closedWindowIds == ["alive"])
         #expect(controller.state.tasks.isEmpty)
+    }
+
+    /// A confirmation is not work on the task: the person's Remove goes ahead while one hangs, and
+    /// the confirmation that answers after it finds nothing left to close.
+    @Test func thePersonsRemoveRunsWhileAConfirmationHangs() async throws {
+        let answer = DispatchSemaphore(value: 0), asked = Mutex(0)
+        let fixture = try CheckoutFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"),
+                                          confirmsRemoval: { _, _ in
+                                              asked.withLock { $0 += 1 }
+                                              answer.wait()
+                                              return true
+                                          })
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon()
+        defer { answer.signal(); controller.shutdown() }
+        controller.helper.setDaemonClient(server)
+
+        // As a pass that saw the checkout away hands it over; the checkout is still there.
+        controller.remover.forgetRemovedCheckouts([fixture.task])
+        await eventually { asked.withLock { $0 } == 1 }
+        await controller.confirmRemove(task: fixture.task)?.value
+        #expect(controller.state.tasks.isEmpty)
+        #expect(server.closedWindowIds == ["alive"])
+        #expect(!FileManager.default.fileExists(atPath: fixture.task.worktreePath))
+        #expect(controller.toastState.toast?.message == "Task removed.")
+
+        answer.signal()
+        await controller.remover.waitForRemoval(of: fixture.task.id)
+        #expect(server.closedWindowIds == ["alive"], "the late confirmation closes nothing more")
+        #expect(controller.toastState.toast?.message == "Task removed.")
     }
 
     @Test func checkoutMonitorDetectsDeletionWithoutSessionChangesAndStopsOnShutdown() async throws {
@@ -466,7 +496,8 @@ private struct CheckoutFixture {
     let task: TaskItem
     let controller: AppController
 
-    init(windowOpen: Bool, prompter: Prompter = ScriptedPrompter(), pollInterval: Duration = .seconds(2)) throws {
+    init(windowOpen: Bool, prompter: Prompter = ScriptedPrompter(), pollInterval: Duration = .seconds(2),
+         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval) throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         repo = root.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
@@ -481,7 +512,7 @@ private struct CheckoutFixture {
                         model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
                         createdAt: Date(timeIntervalSince1970: 0), windowId: windowOpen ? "alive" : nil)
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
-                                checkoutPollInterval: pollInterval)
+                                checkoutPollInterval: pollInterval, confirmsRemoval: confirmsRemoval)
         try controller.loadWorkspace()
         controller.workspace.mutate { state in
             state.items = [.project(project)]

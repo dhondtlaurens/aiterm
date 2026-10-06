@@ -43,8 +43,8 @@ extension AppController {
     ///
     /// Questions go to a ``ScriptedPrompter`` that answers none, so one a test did not expect fails
     /// it ("Unexpected prompt") rather than opening a modal `NSAlert` that blocks the run. A test
-    /// that expects one passes its own. The lookups come last, after `scan`, which is also what
-    /// tells this initializer from the designated one.
+    /// that expects one passes its own. The lookups come last, after `scan` and `confirmsRemoval`,
+    /// which is also what tells this initializer from the designated one.
     convenience init(store: StateStore? = nil, preferences: InterfacePreferences,
                      harnessHome: URL = ScratchHome.bare, bundledResourcesURL: URL? = nil,
                      prompter: Prompter = ScriptedPrompter(),
@@ -54,6 +54,7 @@ extension AppController {
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      },
+                     confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
                      locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { nil },
                      findPython: @escaping @Sendable () -> URL? = { nil },
                      jiraSettings: @escaping @Sendable () -> JiraConfig? = { nil },
@@ -64,6 +65,7 @@ extension AppController {
                   bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                   prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, peekDelay: peekDelay,
-                  checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, git: git, scan: scan)
+                  checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, git: git, scan: scan,
+                  confirmsRemoval: confirmsRemoval)
     }
 }

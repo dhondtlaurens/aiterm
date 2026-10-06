@@ -91,16 +91,8 @@ final class WorkInFlight {
         projects[id]?.values.contains(operation) == true
     }
 
-    /// The projects `operation` is running on.
-    func projects(running operation: ProjectOperation) -> Set<UUID> {
-        Set(projects.filter { $0.value.values.contains(operation) }.keys)
-    }
-
     /// What is running on task `id`, if anything.
     func operation(onTask id: UUID) -> TaskOperation? { tasks[id]?.operation }
-
-    /// The tasks with work running on them, and what each is.
-    var taskOperations: [UUID: TaskOperation] { tasks.mapValues(\.operation) }
 
     /// What is running on terminal `id`, if anything.
     func operation(onTerminal id: UUID) -> TerminalOperation? { terminals[id]?.operation }

@@ -19,12 +19,12 @@ extension AppControllerTests {
         try fixture.git.run(["push", "-q", "origin", "main"], in: other)
 
         let pull = fixture.controller.pullDefault(project: fixture.project)
-        #expect(fixture.controller.changingDefaultBranch == [fixture.project.id])
+        #expect(fixture.controller.isChangingDefaultBranch(fixture.project.id))
         #expect(fixture.controller.pullDefault(project: fixture.project) == nil, "one pull at a time")
         await pull?.value
 
         #expect(fixture.controller.toastState.toast?.message == "main updated with 1 new commit.")
-        #expect(fixture.controller.changingDefaultBranch.isEmpty)
+        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
         #expect(fixture.controller.issue == nil)
         #expect(try fixture.git.run(["rev-parse", "main"], in: fixture.repo.path) == fixture.git.run(["rev-parse", "main"], in: other))
     }
@@ -56,7 +56,7 @@ extension AppControllerTests {
         #expect(fixture.controller.issue == OperationIssue(title: "Couldn’t pull the default branch.",
                                                            reason: "This project has no origin to pull from."))
         #expect(fixture.controller.toastState.toast == nil)
-        #expect(fixture.controller.changingDefaultBranch.isEmpty)
+        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
     }
 
     /// Diverged, the banner says by how much and offers the rebase; the rebase says what it left.
@@ -86,11 +86,11 @@ extension AppControllerTests {
 
         let rebase = fixture.controller.perform(.rebaseDefault(fixture.project.id))
         #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.changingDefaultBranch == [fixture.project.id], "the menu's Pull main waits for it")
+        #expect(fixture.controller.isChangingDefaultBranch(fixture.project.id), "the menu's Pull main waits for it")
         await rebase?.value
 
         #expect(fixture.controller.toastState.toast?.message == "main rebased onto origin: 1 commit ahead, not pushed.")
-        #expect(fixture.controller.changingDefaultBranch.isEmpty)
+        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
         #expect(try fixture.git.run(["rev-parse", "main~1"], in: repo) == fixture.git.run(["rev-parse", "main"], in: other))
     }
 
@@ -133,7 +133,7 @@ extension AppControllerTests {
         #expect(fixture.controller.issue == OperationIssue(
             title: "Couldn’t rebase the default branch.",
             reason: "Rebasing “main” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand."))
-        #expect(fixture.controller.changingDefaultBranch.isEmpty)
+        #expect(!fixture.controller.isChangingDefaultBranch(fixture.project.id))
     }
 
     /// A project removed while its pull runs gets neither a toast nor a banner.

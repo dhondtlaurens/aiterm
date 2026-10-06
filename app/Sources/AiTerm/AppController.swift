@@ -75,9 +75,7 @@ final class AppController {
     /// Whether each project's default branch is being pulled or rebased, observed row by row: the
     /// project's Pull greys while either runs.
     private let defaultBranchRows: PerRow<Bool>
-    /// The projects whose default branch is being pulled or rebased. Not observed: a project's menu
-    /// reads its own, `isChangingDefaultBranch(_:)`.
-    var changingDefaultBranch: Set<UUID> { work.projects(running: .changingDefaultBranch) }
+    /// Whether the project's default branch is being pulled or rebased, as its menu reads it.
     func isChangingDefaultBranch(_ projectId: UUID) -> Bool { defaultBranchRows[projectId] }
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
@@ -88,7 +86,8 @@ final class AppController {
     /// of its own, and a test with the convenience initializer in its target, whose defaults touch
     /// none of them. `peekDelay` is `RowFocus`'s; a test passes none, and awaits the peek instead.
     /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
-    /// how long a completion toast stays up.
+    /// how long a completion toast stays up; `confirmsRemoval` is the last look at a checkout the
+    /// monitor found gone (`TaskRemover`).
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -105,7 +104,8 @@ final class AppController {
          checkoutPollInterval: Duration,
          toastLifetime: Duration,
          git: any GitRunning,
-         scan: @escaping CheckoutMonitor.Scanner) {
+         scan: @escaping CheckoutMonitor.Scanner,
+         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval) {
         let link = ControllerLink()
         let workspace = WorkspaceStore(file: store)
         self.workspace = workspace
@@ -148,7 +148,7 @@ final class AppController {
         rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
         remover = TaskRemover(workspace: workspace, work: work, workflow: taskWorkflow, notices: notices, prompter: prompter,
                               checkouts: checkouts, live: live, focus: focus, daemon: { helper.daemon },
-                              removalsChanged: { link.controller?.updateDockBadge() })
+                              confirmsRemoval: confirmsRemoval, removalsChanged: { link.controller?.updateDockBadge() })
         let defaultBranchRows = PerRow<Bool>(default: false, workspace: workspace)
         self.defaultBranchRows = defaultBranchRows
         // Unowned: the ledger holds the hook.
@@ -1078,6 +1078,6 @@ extension AppController {
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
                       activateIterm: activateIterm, peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
-                      toastLifetime: .seconds(10), git: GitRunner(), scan: scan)
+                      toastLifetime: .seconds(10), git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
     }
 }

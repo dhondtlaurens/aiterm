@@ -75,7 +75,7 @@ struct WorkInFlightTests {
         work.end(removing)
         work.end(removing)
         let pull = try #require(work.begin(.changingDefaultBranch, onProject: project))
-        #expect(work.projects(running: .changingDefaultBranch) == [project])
+        #expect(work.isRunning(.changingDefaultBranch, onProject: project))
         work.end(pull)
         #expect(heard.values == [.task(task), .task(task), .task(task), .project(project), .project(project)])
     }

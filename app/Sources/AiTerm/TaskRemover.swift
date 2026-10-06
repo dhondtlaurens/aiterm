@@ -36,6 +36,11 @@ final class TaskRemover {
     /// What each task's row says about its removal: the work running on it, or else what its last
     /// removal left. Kept whole for whatever reads it whole — the Dock badge, the checkout monitor,
     /// the tests — and mirrored row by row into `rows`, which the rows read.
+    ///
+    /// An entry can outlive its row for a moment: a removal forgets the row and then ends its work,
+    /// so the task reads `.removing` or `.closing` here until the token ends. That is what keeps the
+    /// Dock badge from counting the task once more in between; `pruneRemovals` drops only what a
+    /// removal left, never the work running.
     private(set) var removals: [UUID: TaskRemoval] = [:]
     /// What the last removal of a task left its row saying once it ended: why it stopped, or that
     /// its window is still to close. An entry goes with its task, or when a new removal starts.
@@ -52,11 +57,8 @@ final class TaskRemover {
     /// so passes over a mount that has stopped answering do not pile up threads stuck on it.
     private var confirmations: [UUID: Task<Void, Never>] = [:]
     /// Whether a task's checkout is gone for good, asked off the main actor just before the cleanup
-    /// acts on it. The disk's answer (`WorkspaceScan.checkoutRemovalIsConfirmed`); a test stands in a
-    /// mount that never answers.
-    var confirmsRemoval: @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool = {
-        WorkspaceScan.checkoutRemovalIsConfirmed($0, projectPath: $1)
-    }
+    /// acts on it.
+    private let confirmsRemoval: ConfirmsRemoval
 
     private let workspace: WorkspaceStore
     private let work: WorkInFlight
@@ -70,9 +72,16 @@ final class TaskRemover {
     /// Told whenever a row's removal changes: a task on its way out is not counted on the Dock.
     private let removalsChanged: @MainActor () -> Void
 
+    /// Whether a task's checkout — at `projectPath`'s project, if it still has one — is gone for good.
+    typealias ConfirmsRemoval = @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool
+
+    /// The disk's answer to `ConfirmsRemoval`, which a test replaces with a mount that never answers.
+    static let diskConfirmsRemoval: ConfirmsRemoval = { WorkspaceScan.checkoutRemovalIsConfirmed($0, projectPath: $1) }
+
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
          checkouts: CheckoutMonitor, live: LiveSessions, focus: RowFocus,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?,
+         confirmsRemoval: @escaping ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
          removalsChanged: @escaping @MainActor () -> Void) {
         self.workspace = workspace
         self.work = work
@@ -83,6 +92,7 @@ final class TaskRemover {
         self.live = live
         self.focus = focus
         self.daemon = daemon
+        self.confirmsRemoval = confirmsRemoval
         self.removalsChanged = removalsChanged
         rows = PerRow(default: nil, workspace: workspace)
         work.onChange { [weak self] subject in
