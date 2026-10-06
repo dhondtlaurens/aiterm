@@ -32,9 +32,11 @@ enum Logos {
 
     /// What an image is cached under: the whole of what it was built from, so two marks can never
     /// share an entry. A brand is its name, since a body asks for its mark each time it runs and
-    /// hashing a path of kilobytes is what a path key would cost every time.
+    /// hashing a path of kilobytes is what a path key would cost every time. The path's length rides
+    /// along, which costs nothing: two brands given one name by mistake are still two entries
+    /// unless their paths are the same size too, and `LogosTests` pins every brand's name apart.
     private enum Key: Hashable {
-        case brand(name: String, fill: String)
+        case brand(name: String, pathLength: Int, fill: String)
         case document(String)
     }
 
@@ -46,7 +48,7 @@ enum Logos {
     /// path: only Grok's mark needs it, whose inner cut renders filled under SVG's default nonzero
     /// winding rule.
     @MainActor static func image(brand: Brand, fill: String) -> NSImage? {
-        image(for: .brand(name: brand.name, fill: fill)) {
+        image(for: .brand(name: brand.name, pathLength: brand.path.utf8.count, fill: fill)) {
             let rule = brand.evenOdd ? #" fill-rule="evenodd""# : ""
             return #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="\#(fill)"\#(rule) d="\#(brand.path)"/></svg>"#
         }

@@ -54,22 +54,56 @@ struct StatusMark: View {
 ///
 /// The turn starts at `StatusMark.spinnerRotation(at:)` and lasts one `spinDuration`, so it stays
 /// in step with that clock for as long as it runs: a row that comes back, or a second row that
-/// starts later, still shows the phase every other arc shows.
+/// starts later, still shows the phase every other arc shows. The seed is state, taken once: the
+/// arc is built again whenever its mark's body runs (a hover or a selection changes the surface),
+/// and a seed taken each time would move the arc off the clock with every one.
+///
+/// A list recycles a row's cell: the view leaves its window and comes back with its state kept and
+/// its animation possibly dropped, which would leave a still arc. So an arc that appears a second
+/// time is replaced by a new one, which seeds from the clock and starts its own turn. Replacing it
+/// rather than rewinding it: a value set back and set forward again in one update never animates
+/// from where it was set back to.
 private struct SpinnerArc: View {
     let size: CGFloat
     let color: Color
-    /// Where the clock puts the arc as the view is made, which is within a frame of when it appears.
-    private let start = StatusMark.spinnerRotation(at: Date())
     // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
     // which the pinned toolchain does not need; this is the storage the macro would generate.
+    var _generation = State(initialValue: 0)
+    var _appeared = State(initialValue: false)
+    private var generation: Int {
+        get { _generation.wrappedValue }
+        nonmutating set { _generation.wrappedValue = newValue }
+    }
+    private var appeared: Bool {
+        get { _appeared.wrappedValue }
+        nonmutating set { _appeared.wrappedValue = newValue }
+    }
+
+    var body: some View {
+        TurningArc(size: size, color: color)
+            .id(generation)
+            .onAppear {
+                if appeared { generation += 1 }
+                appeared = true
+            }
+    }
+}
+
+private struct TurningArc: View {
+    let size: CGFloat
+    let color: Color
+    var _start = State(initialValue: StatusMark.spinnerRotation(at: Date()))
     var _turning = State(initialValue: false)
+    private var start: Double { _start.wrappedValue }
     private var turning: Bool {
         get { _turning.wrappedValue }
         nonmutating set { _turning.wrappedValue = newValue }
     }
 
     var body: some View {
+        #if DEBUG
         let _ = StatusMark.arcEvaluations += 1
+        #endif
         Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
             .rotationEffect(.degrees(start + (turning ? 360 : 0)))
             .onAppear {
@@ -80,8 +114,10 @@ private struct SpinnerArc: View {
     }
 }
 
+#if DEBUG
 extension StatusMark {
     /// How many times a spinning arc's `body` has run, which a test reads to show that the turn is
-    /// SwiftUI's to interpolate rather than a body re-run per frame.
+    /// SwiftUI's to interpolate rather than a body re-run per frame. Debug builds only.
     @MainActor static var arcEvaluations = 0
 }
+#endif

@@ -32,4 +32,12 @@ struct LogosTests {
         #expect(Icon.hexString(Palette.markInk) == "#000000")
         #expect(Icon.hexString(Palette.markPaper) == "#FFFFFF")
     }
+
+    /// Two brands wrongly given one name are not drawn as each other while their paths differ in size.
+    @Test func brandsSharingANameButNotAPathAreCachedApart() {
+        let first = Logos.image(brand: Brand("same", 0xFFFFFF, path: "M0 0h24v24H0z", fallbackSymbol: "circle"), fill: "#FFFFFF")
+        let second = Logos.image(brand: Brand("same", 0xFFFFFF, path: "M0 0h2v2H0z", fallbackSymbol: "circle"), fill: "#FFFFFF")
+        #expect(first != nil && second != nil)
+        #expect(first !== second)
+    }
 }
