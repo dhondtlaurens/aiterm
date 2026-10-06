@@ -2,26 +2,37 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BROKEN_SWIFT="$ROOT/scripts/fixtures/swift-6.3.sh"
+# A toolchain that reports whatever version AITERM_FIXTURE_SWIFT_VERSION names.
+OTHER_SWIFT="$ROOT/scripts/fixtures/swift-version.sh"
 GOOD_SWIFT="$HOME/.swiftly/bin/swift"
 PINNED_VERSION="$(sed -nE 's/^([0-9]+\.[0-9]+).*/\1/p' "$ROOT/.swift-version")"
 
-[[ -x "$BROKEN_SWIFT" ]] || { print -u2 "missing fixture: $BROKEN_SWIFT"; exit 1; }
+[[ -x "$OTHER_SWIFT" ]] || { print -u2 "missing fixture: $OTHER_SWIFT"; exit 1; }
 [[ -x "$GOOD_SWIFT" ]] || { print -u2 "missing fixture: $GOOD_SWIFT"; exit 1; }
 [[ -n "$PINNED_VERSION" ]] || { print -u2 "missing major.minor version in $ROOT/.swift-version"; exit 1; }
+# A release either side of the pin: neither is the toolchain the release is built with.
+pinned_major="${PINNED_VERSION%%.*}" pinned_minor="${PINNED_VERSION#*.}"
+if (( pinned_minor > 0 )); then
+    OLDER_VERSION="$pinned_major.$(( pinned_minor - 1 ))"
+else
+    OLDER_VERSION="$(( pinned_major - 1 )).10"
+fi
+NEWER_VERSION="$pinned_major.$(( pinned_minor + 1 ))"
 
 bad_output="$(mktemp)"
 aggregate_output=""
 trap 'rm -f "$bad_output" "$aggregate_output"' EXIT
-if SWIFT="$BROKEN_SWIFT" "$ROOT/scripts/swift.sh" --version >"$bad_output" 2>&1; then
-    print -u2 "expected Swift 6.3 to be rejected"
-    exit 1
-fi
-grep -Fq "AiTerm requires Swift 6.4 or newer" "$bad_output" || {
-    print -u2 "expected the compatible-toolchain diagnostic"
-    sed -n '1,20p' "$bad_output" >&2
-    exit 1
-}
+for other in "$OLDER_VERSION" "$NEWER_VERSION"; do
+    if AITERM_FIXTURE_SWIFT_VERSION="$other" SWIFT="$OTHER_SWIFT" "$ROOT/scripts/swift.sh" --version >"$bad_output" 2>&1; then
+        print -u2 "expected Swift $other to be rejected"
+        exit 1
+    fi
+    grep -Fq "AiTerm requires Swift $PINNED_VERSION. Found: $other" "$bad_output" || {
+        print -u2 "expected the pinned-toolchain diagnostic for Swift $other"
+        sed -n '1,20p' "$bad_output" >&2
+        exit 1
+    }
+done
 
 good_output="$(SWIFT="$GOOD_SWIFT" "$ROOT/scripts/swift.sh" --version)"
 [[ "$good_output" == *"Swift version $PINNED_VERSION"* ]] || {
@@ -53,11 +64,11 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE:-0}" == "1" ]]; then
 fi
 
 aggregate_output="$(mktemp)"
-if SWIFT="$BROKEN_SWIFT" PYTEST=false "$ROOT/scripts/test.sh" >"$aggregate_output" 2>&1; then
-    print -u2 "expected the aggregate command to reject Swift 6.3"
+if AITERM_FIXTURE_SWIFT_VERSION="$OLDER_VERSION" SWIFT="$OTHER_SWIFT" PYTEST=false "$ROOT/scripts/test.sh" >"$aggregate_output" 2>&1; then
+    print -u2 "expected the aggregate command to reject Swift $OLDER_VERSION"
     exit 1
 fi
-grep -Fq "AiTerm requires Swift 6.4 or newer" "$aggregate_output" || {
+grep -Fq "AiTerm requires Swift $PINNED_VERSION. Found: $OLDER_VERSION" "$aggregate_output" || {
     print -u2 "expected the aggregate command to stop at the toolchain guard"
     sed -n '1,20p' "$aggregate_output" >&2
     exit 1

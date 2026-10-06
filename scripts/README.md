@@ -7,11 +7,15 @@ status-line shim and PI status extension are bundle resources).
 
     scripts/make-app.sh
 
+It shows only the Swift build's last line; on a failure it prints the last 50 lines of the build's
+log, where the compiler's diagnostics are, and keeps the whole of it in
+`build/swift-build-release.log` (`snapshots.sh` likewise, in `build/swift-build-debug.log`).
+
 Environment overrides:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SWIFT` | `~/.swiftly/bin/swift` | Swift 6.4+ toolchain. `scripts/swift.sh` rejects an incompatible override. |
+| `SWIFT` | `~/.swiftly/bin/swift` | A Swift toolchain of the version `.swift-version` pins. `scripts/swift.sh` rejects any other. |
 | `PYTHON` | `python3` on `PATH` | Interpreter used for the `pip install --target` vendoring; must be ≥ 3.11. |
 | `SIGN_IDENTITY` | `-` (ad-hoc) | Code-signing identity. `release.sh` passes `AiTerm Release`. |
 | `AITERM_RELEASE` | unset | `1` builds a release. Otherwise the bundle gets `AiTermDevBuild` in its Info.plist: a DEV pill on the Dock icon, and no self-update. `release.sh` sets it and refuses a bundle that still carries the key. |
@@ -55,18 +59,23 @@ number of `v*` tags — see `docs/releasing.md`) into the built bundle only, wra
 ## `swift.sh`
 
 The shared Swift launcher for AiTerm’s build, snapshot, and test commands. It defaults to Swiftly’s
-selected toolchain and refuses any compiler older than Swift 6.4 before invoking Swift Package
-Manager. The repository’s `.swift-version` pins the selected release to 6.4.0. Set
-`SWIFT=/path/to/swift` only for a complete Swift 6.4+ toolchain.
+selected toolchain and, before invoking Swift Package Manager, refuses any compiler whose
+major.minor is not the one the repository’s `.swift-version` pins (6.4.0, so any Swift 6.4): an
+older one cannot build the package, and a newer one could build what the release toolchain cannot.
+Set `SWIFT=/path/to/swift` only for a complete toolchain of that version.
 
 ## `test.sh`
 
 Runs the daemon and app suites through the supported toolchain:
 
-    scripts/test.sh
+    scripts/test.sh                                          # everything: what a commit needs
+    scripts/test.sh daemon                                   # the daemon's tests and lint only
+    scripts/test.sh swift                                    # the Swift tests only
+    scripts/test.sh swift -- --filter DesignRulesTests       # one suite; anything after -- goes to swift test
 
-The command runs the portable toolchain guard before either suite, so a toolchain downgrade fails
-fast instead of producing opaque compiler errors. On its first run, it creates `daemon/.venv` and
+The command runs the portable toolchain guard before the Swift suites (and, by default, before the
+daemon's), so a toolchain of the wrong version fails fast instead of producing opaque compiler
+errors. On its first run, it creates `daemon/.venv` and
 installs the daemon package with its test and lint dependencies (the `dev` extra). Set
 `PYTHON=/path/to/python3` to use a specific Python 3.11+ interpreter, or `PYTEST=/path/to/pytest`
 to use an existing test runner.
@@ -81,8 +90,10 @@ installs the `dev` extra.
 The Swift suites run in one `swift test` pass. No test raises a real modal alert — the app's
 questions go through a `Prompter` that tests script. `swift test` exits 0 on a run that never
 finished, so the pass counts as green only if every test target's host printed swift-testing's
-closing "Test run with N tests … passed" line. On a failure the logs are kept, and the script
-prints where.
+closing "Test run with N tests … passed" line. A run narrowed with arguments after `--` reaches
+hosts that cannot be known beforehand, so it is green when at least one host finished and every
+one that did passed; a filter that matches nothing fails. On a failure the logs are kept, and the
+script prints where.
 
 Runtime Python versions are pinned in `daemon/pyproject.toml`; the bundle installs that package
 directly so development and release do not maintain different dependency lists.

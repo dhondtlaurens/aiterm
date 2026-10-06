@@ -1,6 +1,6 @@
 #!/bin/zsh
 # scripts/make-app.sh — builds AiTerm.app into build/.
-# Requires: Swift 6.4+ (managed by Swiftly by default) and python3 >= 3.11 on PATH.
+# Requires: the Swift `.swift-version` pins (managed by Swiftly by default) and python3 >= 3.11 on PATH.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/build/AiTerm.app"
@@ -10,8 +10,16 @@ PY="${PYTHON:-python3}"
 "$PY" -c 'import sys; assert sys.version_info >= (3, 11), sys.version' || { echo "python3 >= 3.11 required"; exit 1; }
 
 # `--product AiTerm`: the app alone. A plain release build works too, but would also build
-# AiTermTestSupport, which a release has no use for.
-(cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build -c release --product AiTerm 2>&1 | grep -v libSwiftScan | tail -1)
+# AiTermTestSupport, which a release has no use for. The log is kept: on success only its last line
+# is shown, on a failure its last 50, where the compiler's diagnostics are.
+mkdir -p "$ROOT/build"
+BUILD_LOG="$ROOT/build/swift-build-release.log"
+if ! (cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build -c release --product AiTerm >"$BUILD_LOG" 2>&1); then
+    tail -50 "$BUILD_LOG" >&2
+    print -u2 "swift build failed; the whole log is $BUILD_LOG"
+    exit 1
+fi
+grep -v libSwiftScan "$BUILD_LOG" | tail -1
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources/daemon" "$OUT/Contents/Resources/hooks"
 cp "$ROOT/app/.build/release/AiTerm" "$OUT/Contents/MacOS/AiTerm"

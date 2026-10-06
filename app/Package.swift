@@ -7,8 +7,10 @@ let package = Package(
     targets: [
         .target(name: "AiTermCore", path: "Sources/AiTermCore"),
         .target(name: "AiTermUI", path: "Sources/AiTermUI", exclude: ["README.md"]),
+        // Resources/ is not a SwiftPM resource: no code reads a resource bundle, and make-app.sh copies
+        // the Info.plist and the icon from it into AiTerm.app itself.
         .executableTarget(name: "AiTerm", dependencies: ["AiTermCore", "AiTermUI"], path: "Sources/AiTerm",
-                          resources: [.copy("Resources")]),
+                          exclude: ["Resources"]),
         // Fakes and fixtures the Core and app tests share: test targets cannot share a source file, so
         // they live in a library the tests import. It uses only what Core makes public — no
         // `@testable` — so a plain release build still compiles, and it stays below the app: what

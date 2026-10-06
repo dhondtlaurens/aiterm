@@ -5,6 +5,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ID="com.laurensdhondt.aiterm"
+# AiTermPaths.socketPath, which the app starts the daemon with: change one, change the other.
 SOCKET="$HOME/Library/Application Support/AiTerm/aitermd.sock"
 
 die() { print -u2 "run-dev: $*"; exit 1; }

@@ -6,5 +6,13 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/build/snapshots}"
-(cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build 2>&1 | grep -v libSwiftScan | tail -1)
+# The log is kept: on success only its last line is shown, on a failure its last 50.
+mkdir -p "$ROOT/build"
+BUILD_LOG="$ROOT/build/swift-build-debug.log"
+if ! (cd "$ROOT/app" && "$ROOT/scripts/swift.sh" build >"$BUILD_LOG" 2>&1); then
+    tail -50 "$BUILD_LOG" >&2
+    print -u2 "swift build failed; the whole log is $BUILD_LOG"
+    exit 1
+fi
+grep -v libSwiftScan "$BUILD_LOG" | tail -1
 AITERM_SNAPSHOT_DIR="$OUT" "$ROOT/app/.build/debug/AiTerm"
