@@ -43,7 +43,7 @@ enum HarnessCardPresentation {
 }
 
 struct HarnessSettingsPane: View {
-    @ObservedObject var model: HarnessSettingsModel
+    let model: HarnessSettingsModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {

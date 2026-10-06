@@ -13,12 +13,14 @@ extension HarnessService: HarnessServicing {}
 
 /// Owns the asynchronous, process-backed state behind the Agents Settings tab. The view only
 /// renders snapshots and starts these actions; configuration reads and writes stay on the service
-/// actor and never become incidental SwiftUI work.
+/// actor and never become incidental SwiftUI work. Only `HarnessSettingsPane` reads it, so a probe
+/// or test landing redraws the Agents tab and not the rest of Settings.
 @MainActor
-final class HarnessSettingsModel: ObservableObject {
-    @Published private(set) var snapshots: [AgentKind: HarnessSnapshot] = [:]
-    @Published private(set) var preferences: [AgentKind: ModelPreference] = [:]
-    @Published private(set) var running: Set<AgentKind> = []
+@Observable
+final class HarnessSettingsModel {
+    private(set) var snapshots: [AgentKind: HarnessSnapshot] = [:]
+    private(set) var preferences: [AgentKind: ModelPreference] = [:]
+    private(set) var running: Set<AgentKind> = []
 
     private let service: any HarnessServicing
     /// The last model used with each agent, read whenever a card resolves its default: the model
@@ -29,10 +31,10 @@ final class HarnessSettingsModel: ObservableObject {
     private let integrationChanged: @MainActor (AgentKind) -> Void
     /// Internal, not private, for `anOpenCreationSheetOffersACLISettingsInstalled`.
     let cliInstalled: @MainActor (AgentKind) -> Void
-    private var loaded: Set<AgentKind> = []
+    @ObservationIgnored private var loaded: Set<AgentKind> = []
     /// The agents whose default the person picked since the card last read the saved one. Only
     /// these are saved: every other card shows a resolved default, and saving it would pin it.
-    private var picked: Set<AgentKind> = []
+    @ObservationIgnored private var picked: Set<AgentKind> = []
 
     /// `cliInstalled` hears of an Install that put a missing CLI on the `PATH`, so the New Task and
     /// New Review sheets offer that agent without a relaunch.

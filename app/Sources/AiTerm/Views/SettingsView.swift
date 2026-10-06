@@ -53,10 +53,9 @@ struct SettingsView: View {
     let setInterfaceSize: (InterfaceSize) -> Void
     /// The size the sheet opened on, which Cancel restores.
     private let openingSize: InterfaceSize
-    @ObservedObject var harnessModel: HarnessSettingsModel
-    /// The Integrations tab's fields and tests, made once per presentation from the connections
-    /// Settings was opened with.
-    @StateObject private var integrations: IntegrationSettingsModel
+    /// Handed to the Agents tab, which is its one observer: this view only starts its load and
+    /// its save, so a probe landing redraws that tab and not the whole sheet.
+    let harnessModel: HarnessSettingsModel
     /// The live state of the chain to iTerm2. A closure rather than a value so this view's own body
     /// reads the controller, and the card follows a reconnect while Settings is open.
     let itermConnection: () -> ItermConnection
@@ -65,6 +64,10 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
     // which this machine does not have; these are the storage and accessors the macro would make.
+    /// The Integrations tab's fields and tests, kept from the first `init` of a presentation and
+    /// made from the connections Settings was opened with.
+    var _integrations: State<IntegrationSettingsModel>
+    private var integrations: IntegrationSettingsModel { _integrations.wrappedValue }
     var _tab = State<SettingsTab>(initialValue: .agents)
     private var tab: SettingsTab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
     var _matchItermBackground: State<Bool>
@@ -91,8 +94,8 @@ struct SettingsView: View {
         _tab = State(initialValue: initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
-        _integrations = StateObject(wrappedValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
-                                                                           record: testRecord))
+        _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
+                                                                     record: testRecord))
         self.itermConnection = itermConnection
         self.checkIterm = checkIterm
         self.preferences = preferences
@@ -249,12 +252,12 @@ struct SettingsView: View {
 
 /// A service's Settings card — Jira, GitLab or GitHub: its mark, its connection's status line, a trailing
 /// Disconnect while it holds saved credentials, and the fields `content` lays out from the
-/// connection's own binding. It observes the connection, so an edit or a test answer redraws this
-/// card and not the sheet.
+/// connection's own binding. It alone reads the connection, so an edit or a test answer redraws
+/// this card and not the sheet.
 struct ServiceCard<Fields: ServiceFields, Content: View>: View {
     let title: String
     let service: IntegrationMark.Service
-    @ObservedObject var connection: ServiceConnection<Fields>
+    @Bindable var connection: ServiceConnection<Fields>
     @ViewBuilder let content: (Binding<Fields>) -> Content
 
     var body: some View {

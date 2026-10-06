@@ -40,6 +40,20 @@ import AiTermUI
         #expect(open(.connected(version: "3.7.2")) == .integrations)
     }
 
+    /// Settings only hands the harness model to the Agents pane, the one view that reads it: a
+    /// probe or a picker landing there redraws that pane, never the whole sheet and its other tabs.
+    @Test func settingsLeavesTheHarnessModelToTheAgentsPane() {
+        let harness = HarnessSettingsModel.preview()
+        let settings = SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: harness,
+                                    itermConnection: { .connected(version: "3.7.2") },
+                                    checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
+                                    preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
+                                    initialTab: .agents, testRecord: ServiceTestRecord())
+        #expect(!invalidates({ _ = settings.body }, by: { harness.selectReasoning("low", for: .claude) }))
+        #expect(invalidates({ _ = harness.preferences }, by: { harness.selectReasoning("medium", for: .claude) }),
+                "the write the sheet ignored is one its pane sees")
+    }
+
     @Test func commandDigitsPickTheTabsInOrder() {
         #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3"])
     }

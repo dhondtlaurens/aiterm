@@ -80,23 +80,24 @@ extension ConnectionTest {
 /// One service's card: its fields and the answer of its last connection test. The test runs when
 /// Settings opens and again once the fields stop changing; there is no Test button.
 @MainActor
-final class ServiceConnection<Fields: ServiceFields>: ObservableObject {
+@Observable
+final class ServiceConnection<Fields: ServiceFields> {
     /// An edit clears the card's answer and, once typing pauses for `retestDelay`, tests again.
-    @Published var fields: Fields {
+    var fields: Fields {
         didSet { if fields != oldValue { edited() } }
     }
-    @Published private(set) var test: ConnectionTest?
+    private(set) var test: ConnectionTest?
     /// Disconnect was pressed: Save removes the saved credentials unless new ones are typed in.
-    @Published private(set) var disconnecting = false
+    private(set) var disconnecting = false
     /// Settings opened on credentials saved earlier — what Disconnect removes.
     let isSaved: Bool
     /// What the card says when the URL has no host.
     let invalidURL: String
     /// Hears every answer a test lands, with the fields it was for.
-    var answered: ((Fields.Config, ConnectionTest) -> Void)?
+    @ObservationIgnored var answered: ((Fields.Config, ConnectionTest) -> Void)?
     private let connect: @Sendable (Fields.Config) async throws -> String
     private let retestDelay: Duration
-    private var retest: Task<Void, Never>?
+    @ObservationIgnored private var retest: Task<Void, Never>?
 
     init(fields: Fields, isSaved: Bool, invalidURL: String, retestDelay: Duration,
          connect: @escaping @Sendable (Fields.Config) async throws -> String) {
@@ -146,9 +147,10 @@ final class ServiceConnection<Fields: ServiceFields>: ObservableObject {
 
 /// Owns the Integrations tab: the Jira, GitLab and GitHub fields as typed, each card's connection test,
 /// and the Keychain writes Save makes. The view renders the connections and starts these actions,
-/// as `HarnessSettingsModel` does for the Agents tab.
+/// as `HarnessSettingsModel` does for the Agents tab. Nothing here is drawn but the cards, which
+/// each card observes for itself, so this needs no observing of its own.
 @MainActor
-final class IntegrationSettingsModel: ObservableObject {
+final class IntegrationSettingsModel {
     let jira: ServiceConnection<JiraFields>
     let gitLab: ServiceConnection<GitLabFields>
     let gitHub: ServiceConnection<GitHubFields>
