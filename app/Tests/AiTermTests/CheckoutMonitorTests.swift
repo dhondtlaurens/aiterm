@@ -92,18 +92,24 @@ struct CheckoutMonitorTests {
 
     /// The tick that livelocked the monitor: a pass longer than the interval used to be thrown away
     /// by the next tick, over and over, so nothing it found was ever shown.
-    @Test func aPassSlowerThanThePollIntervalStillAppliesItsResult() async throws {
+    ///
+    /// It waits for the pass to be applied rather than for a deadline. Each step of a pass is a turn
+    /// of the main actor, and under the parallel runner the hosted-view tests hold the main thread
+    /// for seconds at a time, so the steps alone took most of a 10 s wait and sometimes all of it. A
+    /// monitor that never applies the pass hangs here instead, until the time limit fails it.
+    @Test(.timeLimit(.minutes(1))) func aPassSlowerThanThePollIntervalStillAppliesItsResult() async throws {
         var state = AppState.empty
         state.append(project: project)
         let scans = ScanLog(delay: 0.15)
+        let (applied, passApplied) = AsyncStream.makeStream(of: Void.self)
         let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), pollInterval: .milliseconds(10),
                                       git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
-                                      onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
+                                      onRemotes: { _ in passApplied.yield() }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
         defer { monitor.stop() }
 
         monitor.startMonitoring()
-        await eventually { !monitor.branchByCwd.isEmpty }
+        for await _ in applied { break }
 
         #expect(monitor.branchByCwd == ["/repo": "main"])
     }

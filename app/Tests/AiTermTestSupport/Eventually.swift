@@ -31,4 +31,23 @@ func eventually(describing what: @autoclosure () -> String = "the condition", ti
     }
     return true
 }
+
+/// `eventually` for a synchronous test that waits on threads it started: the wait blocks the test's
+/// own thread rather than suspending, so neither it nor what it waits for needs another worker of
+/// Swift's cooperative pool — which the parallel runner can keep busy with blocking tests for longer
+/// than any deadline. Not for async code, where it would park a worker itself.
+@available(*, noasync, message: "Blocks its thread; await `eventually` instead.")
+@discardableResult
+func blockUntil(describing what: @autoclosure () -> String = "the condition", timeout: TimeInterval = TestDeadline.seconds,
+                sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        if Date() >= deadline {
+            Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
+            return false
+        }
+        Thread.sleep(forTimeInterval: 0.005)
+    }
+    return true
+}
 #endif

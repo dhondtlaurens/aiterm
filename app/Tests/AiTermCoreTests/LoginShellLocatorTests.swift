@@ -62,20 +62,29 @@ import Testing
     }
 
     /// Callers who ask while the shell runs wait for it rather than starting their own.
-    @Test func concurrentCallersShareOneShell() async throws {
+    ///
+    /// The callers are threads, and the test waits on its own thread: nothing here needs a worker
+    /// of Swift's cooperative pool once the test has started. Under the parallel runner every worker
+    /// can sit in a blocking test (`UpdateStagerTests`' `hdiutil`, git) for longer than the
+    /// deadline, and lookups started from tasks then reached the shell only after it had passed.
+    @Test func concurrentCallersShareOneShell() {
         let shell = CountingShell(Self.output([.claude, .codex]), gated: true)
         let locator = LoginShellLocator(shell: shell.run)
         let names = ["claude", "codex", "grok", "pi", "claude", "codex"]
-        let lookups = Task {
-            try await withThrowingTaskGroup(of: String?.self) { group in
-                for name in names { group.addTask { try await BackgroundWork.run { locator.locate(name) } } }
-                return try await group.reduce(into: [String?]()) { $0.append($1) }
+        let found = Mutex<[String?]>([])
+        let answered = DispatchGroup()
+        for name in names {
+            answered.enter()
+            Thread.detachNewThread {
+                let path = locator.locate(name)
+                found.withLock { $0.append(path) }
+                answered.leave()
             }
         }
-        #expect(await eventually { locator.callersWaiting == names.count - 1 })
+        blockUntil(describing: "the other callers to join the shell") { locator.callersWaiting == names.count - 1 }
         shell.open()
-        let found = try await lookups.value
-        #expect(found.compactMap { $0 }.count == 4)
+        #expect(answered.wait(timeout: .now() + TestDeadline.seconds) == .success)
+        #expect(found.withLock { $0 }.compactMap { $0 }.count == 4)
         #expect(shell.spawns == 1)
     }
 
