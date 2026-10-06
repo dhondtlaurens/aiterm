@@ -1,10 +1,47 @@
 import Foundation
 
-/// A lossless view of TOML statements, used only to remove tables we own. In particular, a
-/// marker comment is not a boundary: Codex can move hooks out of it and approval records into it.
-/// Strings, comments, multiline values and unrelated tables retain their original bytes.
+/// What AiTerm merges into Codex's `config.toml` — command hooks for its lifecycle events and an
+/// MCP server for `Stop` — and how it recognises its own tables there. `CodexDriver` reads and
+/// writes the file.
+///
+/// The merge works on a lossless view of TOML statements, used only to remove tables we own. In
+/// particular, a marker comment is not a boundary: Codex can move hooks out of it and approval
+/// records into it. Strings, comments, multiline values and unrelated tables retain their original
+/// bytes.
 enum CodexHookConfig {
-    static func hasOwnedEntries(_ text: String) -> Bool {
+    static let events = ["SessionStart", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop", "PermissionRequest"]
+    static let begin = "# >>> aiterm hooks >>>", end = "# <<< aiterm hooks <<<"
+
+    /// The canonical driver tables, with markers for humans reading the file.
+    static func block(hookURL: String) -> String {
+        var block = begin + "\n"
+        // Codex starts command hooks in the session cwd. A merge workflow can remove that cwd
+        // before Stop fires, making curl fail to spawn with ENOENT. Keep the final lifecycle event
+        // on a persistent MCP connection instead; the other events remain lightweight async posts.
+        block += "[mcp_servers.aiterm_hooks]\n"
+        block += "url = \"\(hookURL)/mcp\"\nenabled = true\nrequired = false\nenabled_tools = [\"post_codex_hook\"]\n\n"
+        block += "[mcp_servers.aiterm_hooks.http_headers]\nX-AiTerm-Hook = \"1\"\n\n"
+        block += "[mcp_servers.aiterm_hooks.env_http_headers]\nX-AiTerm-iTerm-Session = \"ITERM_SESSION_ID\"\n\n"
+        for event in events {
+            block += "[[hooks.\(event)]]\nmatcher = \"\"\n[[hooks.\(event).hooks]]\n"
+            if event == "Stop" {
+                block += "type = \"mcp_tool\"\nserver = \"aiterm_hooks\"\ntool = \"post_codex_hook\"\n"
+                block += "input = { session_id = \"${session_id}\", cwd = \"${cwd}\", hook_event_name = \"${hook_event_name}\", model = \"${model}\", turn_id = \"${turn_id}\", stop_hook_active = \"${stop_hook_active}\", last_assistant_message = \"${last_assistant_message}\" }\n"
+                block += "timeout = 5\n\n"
+            } else {
+                block += "type = \"command\"\ncommand = 'curl -s -m 2 -X POST -H \"Content-Type: application/json\" -H \"X-AiTerm-Hook: 1\" -H \"X-AiTerm-iTerm-Session: $ITERM_SESSION_ID\" -H \"Expect:\" --data-binary @- \(hookURL)/hook/codex'\ntimeout = 5\nasync = true\n\n"
+            }
+        }
+        return block + end
+    }
+
+    /// Exactly the tables a merge writes, so a merge would change nothing.
+    static func isInstalled(_ text: String, daemonPort: Int) -> Bool {
+        merge(text, hookURL: "http://127.0.0.1:\(daemonPort)") == text
+    }
+
+    /// Recognise owned tables even after Codex moves them away from the marker comments.
+    static func isOwned(_ text: String) -> Bool {
         let parsed = TOMLStatements.tables(text)
         return parsed.contains(where: \.owned) || parsed.contains { $0.statements.contains(where: \.marker) }
     }
@@ -15,7 +52,7 @@ enum CodexHookConfig {
     /// (`[hooks.Stop.x]` with no `[[hooks.Stop]]` before it). TOML forbids extending any of them
     /// with `[[hooks.Stop]]`, so appending AiTerm's block would make Codex refuse the whole file.
     static func conflict(in text: String) -> String? {
-        let events = Set(HookInstaller.codexEvents)
+        let events = Set(Self.events)
         var arrayParents: Set<String> = []
         for table in TOMLStatements.tables(text) {
             if table.path.count >= 2, table.path[0] == "hooks", events.contains(table.path[1]) {
@@ -33,16 +70,19 @@ enum CodexHookConfig {
         return nil
     }
 
-    static func merge(_ text: String, hookURL: String) -> String {
+    /// Codex rewrites TOML tables independently of comments, so markers alone cannot delimit
+    /// ownership. Reconcile the actual hook tables, including entries moved outside the markers.
+    static func merge(_ toml: String?, hookURL: String) -> String {
+        let text = toml ?? ""
         let parsed = TOMLStatements.tables(text)
-        let block = HookInstaller.codexBlock(hookURL: hookURL)
+        let block = Self.block(hookURL: hookURL)
         let markers = parsed.flatMap(\.statements).filter(\.marker)
         // Keep a pristine managed block in place, including on a port change. Do not use this
         // shortcut when there are moved/duplicated hooks or foreign content inside the markers.
         if markers.count == 2, let range = blockRange(in: text),
            let oldURL = parsed.first(where: { $0.path == ["mcp_servers", "aiterm_hooks"] })?.values["url"],
            oldURL.hasSuffix("/mcp"),
-           text[range] == HookInstaller.codexBlock(hookURL: String(oldURL.dropLast(4))) {
+           text[range] == Self.block(hookURL: String(oldURL.dropLast(4))) {
             let outside = String(text[..<range.lowerBound]) + String(text[range.upperBound...])
             if !TOMLStatements.tables(outside).contains(where: \.owned) {
                 var result = text; result.replaceSubrange(range, with: block); return result
@@ -87,9 +127,9 @@ enum CodexHookConfig {
         for statement in TOMLStatements.statements(text) {
             let end = text.index(offset, offsetBy: statement.text.count)
             if statement.marker {
-                if statement.text.trimmingCharacters(in: .whitespacesAndNewlines) == HookInstaller.codexBegin {
+                if statement.text.trimmingCharacters(in: .whitespacesAndNewlines) == Self.begin {
                     begin = offset
-                } else if let begin, let marker = text.range(of: HookInstaller.codexEnd, range: offset..<end) {
+                } else if let begin, let marker = text.range(of: Self.end, range: offset..<end) {
                     return begin..<marker.upperBound
                 }
             }
@@ -101,7 +141,7 @@ enum CodexHookConfig {
 
 private extension TOMLStatements.Statement {
     var marker: Bool {
-        code.isEmpty && [HookInstaller.codexBegin, HookInstaller.codexEnd].contains(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        code.isEmpty && [CodexHookConfig.begin, CodexHookConfig.end].contains(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 

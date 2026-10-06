@@ -77,7 +77,7 @@ final class AgentIntegrations {
     func probeStatusLine() async {
         let shim = shimURL?.path, home = harnessHome
         let installed = try? await BackgroundWork.run {
-            do { try HookInstaller.migrateOriginalStatusLine(home: home) }
+            do { try StatusLineOriginal.migrate(home: home) }
             catch { NSLog("AiTerm: could not migrate the saved status line: \(error.localizedDescription)") }
             return Self.statusLineIsInstalled(shimPath: shim, home: home)
         }
@@ -112,6 +112,6 @@ final class AgentIntegrations {
     /// Both probes read the harness home this was given, never the default: in a test that is a
     /// temporary directory, and the developer's own `~/.claude` says nothing about it.
     nonisolated private static func statusLineIsInstalled(shimPath: String?, home: URL) -> Bool {
-        shimPath.map { HookInstaller.claudeStatusLineIsInstalled(home: home, shimPath: $0) } ?? false
+        shimPath.map { ClaudeSettings.statusLineIsInstalled(home: home, shimPath: $0) } ?? false
     }
 }

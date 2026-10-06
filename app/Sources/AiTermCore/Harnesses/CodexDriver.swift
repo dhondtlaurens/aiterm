@@ -16,8 +16,8 @@ struct CodexDriver: HarnessDriver {
         case .refused(let reason): return .refused(file, reason)
         case .present(let text):
             if let reason = Self.unmergeable(text) { return .refused(file, reason) }
-            if HookInstaller.codexHooksAreInstalled(text, daemonPort: daemonPort) { return DriverProbe(.current) }
-            return DriverProbe(HookInstaller.codexHooksAreOwned(text) ? .outdated : .missing)
+            if CodexHookConfig.isInstalled(text, daemonPort: daemonPort) { return DriverProbe(.current) }
+            return DriverProbe(CodexHookConfig.isOwned(text) ? .outdated : .missing)
         }
     }
 
@@ -30,7 +30,7 @@ struct CodexDriver: HarnessDriver {
         case .present(let contents): text = contents
         }
         if let text, let reason = Self.unmergeable(text) { throw file.refusal(reason) }
-        let merged = HookInstaller.mergeCodexConfig(text, hookURL: "http://127.0.0.1:\(daemonPort)")
+        let merged = CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:\(daemonPort)")
         guard merged != text else { return }
         try file.backUp()
         try file.write(Data(merged.utf8))

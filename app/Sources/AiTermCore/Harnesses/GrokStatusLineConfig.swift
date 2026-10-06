@@ -109,11 +109,11 @@ enum GrokStatusLineConfig {
         guard let merged = merge(text, shimPath: shimPath) else { return }
         if let replaced = merged.replaced {
             try fileManager.createDirectory(at: original.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try HookInstaller.saveOriginalCommand(replaced, to: original)
-        } else if before == .missing, fileManager.fileExists(atPath: original.path) {
+            try StatusLineOriginal.save(replaced, to: original)
+        } else if before == .missing {
             // The user removed (or never had) their own status line — do not revive a stale
             // saved command on repair. Kept for `.outdated` (a moved bundle) below.
-            try fileManager.removeItem(at: original)
+            try StatusLineOriginal.remove(original)
         }
         try file.backUp()
         try file.write(Data(merged.text.utf8))

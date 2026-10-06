@@ -11,7 +11,7 @@ import Foundation
 public enum BundleLocation {
     /// Matched on the path rather than through `SecTranslocateIsTranslocatedURL`, so the rule is
     /// testable without a translocated bundle to hand. Best effort by design: if Apple ever moves
-    /// the mount point this stops warning, and `HookInstaller.claudeStatusLineIsInstalled` still
+    /// the mount point this stops warning, and `ClaudeSettings.statusLineIsInstalled` still
     /// reports the broken feed, because it checks whether the command can actually be run.
     public static func isTranslocated(_ path: String) -> Bool { path.contains("/AppTranslocation/") }
 

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import AiTermCore
 
-@Suite struct HookInstallerTests {
+@Suite struct HookConfigTests {
     let emdashSettings = """
     {"statusLine": {"type": "command", "command": "/Users/me/.claude/statusline/statusline.py", "padding": 1},
      "hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/me/.emdash/hook.sh", "_emdash": true}]}]},
@@ -11,7 +11,7 @@ import Foundation
 
     @Test func testClaudeMergeKeepsForeignEntriesWrapsStatusLineAndIsIdempotent() throws {
         let url = "http://127.0.0.1:47821/hook/claude"
-        let (once, original) = try HookInstaller.mergeClaudeSettings(Data(emdashSettings.utf8), hookURL: url, shimPath: "/Applications/AiTerm.app/shim.sh")
+        let (once, original) = try ClaudeSettings.merge(Data(emdashSettings.utf8), hookURL: url, shimPath: "/Applications/AiTerm.app/shim.sh")
         let obj = try JSONSerialization.jsonObject(with: once) as! [String: Any]
         let hooks = obj["hooks"] as! [String: [[String: Any]]]
         #expect(hooks["Stop"]!.count == 2, "Emdash entry kept, ours added")
@@ -25,13 +25,13 @@ import Foundation
         #expect((obj["statusLine"] as! [String: Any])["padding"] as? Int == 1)
         #expect(original?["command"] as? String == "/Users/me/.claude/statusline/statusline.py")
         #expect(obj["model"] as? String == "opus")
-        let (twice, originalAgain) = try HookInstaller.mergeClaudeSettings(once, hookURL: url, shimPath: "/Applications/AiTerm.app/shim.sh")
+        let (twice, originalAgain) = try ClaudeSettings.merge(once, hookURL: url, shimPath: "/Applications/AiTerm.app/shim.sh")
         #expect(try JSONSerialization.jsonObject(with: twice) as! NSDictionary == obj as NSDictionary)
         #expect(originalAgain == nil, "shim already installed: nothing to save")
     }
 
     @Test func testClaudeMergeFromEmptyFile() throws {
-        let (data, original) = try HookInstaller.mergeClaudeSettings(nil, hookURL: "u", shimPath: "s")
+        let (data, original) = try ClaudeSettings.merge(nil, hookURL: "u", shimPath: "s")
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         #expect((obj["hooks"] as! [String: Any]).count == 8)
         #expect(original == nil)
@@ -56,7 +56,7 @@ import Foundation
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
         #expect(!FileManager.default.fileExists(atPath: original.path))
         #expect(!FileManager.default.fileExists(atPath: command.path))
-        #expect(HookInstaller.claudeStatusLineIsInstalled(try Data(contentsOf: settings), shimPath: shim, isRunnable: { _ in true }))
+        #expect(ClaudeSettings.statusLineIsInstalled(try Data(contentsOf: settings), shimPath: shim, isRunnable: { _ in true }))
     }
 
     /// AiTerm once installed `PreToolUse` as a synchronous Bash hook. A merge takes out only our
@@ -69,14 +69,14 @@ import Foundation
             ["matcher": "Bash", "hooks": [ours]],
             ["matcher": "Bash", "hooks": [ours, foreign]],
         ]]])
-        let (merged, _) = try HookInstaller.mergeClaudeSettings(old, hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: "s")
+        let (merged, _) = try ClaudeSettings.merge(old, hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: "s")
         let hooks = (try JSONSerialization.jsonObject(with: merged) as! [String: Any])["hooks"] as! [String: Any]
         let preTool = hooks["PreToolUse"] as! [[String: Any]]
         #expect(preTool.count == 1)
         #expect((preTool[0]["hooks"] as! [[String: Any]]).map { $0["command"] as? String } == ["/usr/local/bin/guard.sh"])
 
         let onlyOurs = try JSONSerialization.data(withJSONObject: ["hooks": ["PreToolUse": [["matcher": "Bash", "hooks": [ours]]]]])
-        let (cleaned, _) = try HookInstaller.mergeClaudeSettings(onlyOurs, hookURL: "u", shimPath: "s")
+        let (cleaned, _) = try ClaudeSettings.merge(onlyOurs, hookURL: "u", shimPath: "s")
         #expect(((try JSONSerialization.jsonObject(with: cleaned) as! [String: Any])["hooks"] as! [String: Any])["PreToolUse"] == nil)
 
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-home-\(UUID())")
@@ -98,7 +98,7 @@ import Foundation
 
     @Test func testLegacyOwnedHeaderIsRenamedWithoutDuplicatingHooks() throws {
         let old = Data(#"{"hooks":{"Stop":[{"hooks":[{"_aiterm":true,"type":"http","headers":{"X-AIterm-Hook":"1"}}]},{"hooks":[{"type":"http","headers":{"X-AIterm-Hook":"foreign"}}]}]}}"#.utf8)
-        let (merged, _) = try HookInstaller.mergeClaudeSettings(old, hookURL: "u", shimPath: "s")
+        let (merged, _) = try ClaudeSettings.merge(old, hookURL: "u", shimPath: "s")
         let obj = try JSONSerialization.jsonObject(with: merged) as! [String: Any]
         let stops = (obj["hooks"] as! [String: [[String: Any]]])["Stop"]!
         #expect(stops.count == 2)
@@ -110,7 +110,7 @@ import Foundation
 
     @Test func testCodexMergeAppendsOnceAndReplacesOwnBlock() {
         let base = "model = \"gpt-5.6\"\n\n[[hooks.SessionStart]]\nmatcher = \"^startup$\"\n[[hooks.SessionStart.hooks]]\ntype = \"command\"\ncommand = 'python3 ~/.codex/hooks/emdash.py'\n"
-        let once = HookInstaller.mergeCodexConfig(base, hookURL: "http://127.0.0.1:47821")
+        let once = CodexHookConfig.merge(base, hookURL: "http://127.0.0.1:47821")
         #expect(once.hasPrefix(base))
         #expect(once.components(separatedBy: "# >>> aiterm hooks >>>").count == 2)
         #expect(once.contains("[[hooks.PermissionRequest]]") && once.contains("/hook/codex"))
@@ -125,7 +125,7 @@ import Foundation
         #expect(stop.contains("type = \"mcp_tool\""))
         #expect(stop.contains("tool = \"post_codex_hook\""))
         #expect(stop.contains("hook_event_name = \"${hook_event_name}\""))
-        let twice = HookInstaller.mergeCodexConfig(once, hookURL: "http://127.0.0.1:9999")
+        let twice = CodexHookConfig.merge(once, hookURL: "http://127.0.0.1:9999")
         #expect(twice.components(separatedBy: "# >>> aiterm hooks >>>").count == 2)
         #expect(twice.contains(":9999/hook/codex") && twice.contains(":9999/mcp") && !twice.contains(":47821"))
         #expect(twice.contains("emdash.py"))
@@ -179,21 +179,21 @@ import Foundation
         tool = "post_codex_hook"
         # <<< aiterm hooks <<<
         """
-        let result = HookInstaller.mergeCodexConfig(moved, hookURL: "http://127.0.0.1:47821")
+        let result = CodexHookConfig.merge(moved, hookURL: "http://127.0.0.1:47821")
         #expect(!result.contains(":1/hook/codex"))
         #expect(result.contains("command = 'keep-me'"))
         #expect(result.contains("[hooks.state.\"config:session_start:0:1\"]\ntrusted_hash = \"sha256:keep-me\""))
         #expect(result.components(separatedBy: "[[hooks.SessionStart]]").count - 1 == 2)
         #expect(result.components(separatedBy: "[[hooks.Stop]]").count - 1 == 1)
-        #expect(HookInstaller.mergeCodexConfig(result, hookURL: "http://127.0.0.1:47821") == result)
+        #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
     }
 
     @Test func codexRepairRemovesDuplicateBlocksAndHooksWithMissingMarkers() throws {
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let config = home.appendingPathComponent(".codex/config.toml")
-        let block = HookInstaller.mergeCodexConfig(nil, hookURL: "http://127.0.0.1:47821")
-        for input in [block + block, block.replacingOccurrences(of: HookInstaller.codexEnd, with: ""),
-                      block.replacingOccurrences(of: HookInstaller.codexBegin, with: "")] {
+        let block = CodexHookConfig.merge(nil, hookURL: "http://127.0.0.1:47821")
+        for input in [block + block, block.replacingOccurrences(of: CodexHookConfig.end, with: ""),
+                      block.replacingOccurrences(of: CodexHookConfig.begin, with: "")] {
             try input.write(to: config, atomically: true, encoding: .utf8)
             #expect(CodexDriver(home: home, daemonPort: 47821).state != .current)
             try CodexDriver(home: home, daemonPort: 47821).install()
@@ -223,19 +223,19 @@ import Foundation
         [profiles.keep]
         model = "keep-me"
         """ + "\n"
-        let result = HookInstaller.mergeCodexConfig(foreign, hookURL: "http://127.0.0.1:47821")
+        let result = CodexHookConfig.merge(foreign, hookURL: "http://127.0.0.1:47821")
         #expect(result.hasPrefix(foreign))
-        #expect(HookInstaller.mergeCodexConfig(result, hookURL: "http://127.0.0.1:47821") == result)
+        #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
     }
 
     @Test func codexRepairAcceptsCRLFAndMultilineStringsEndingInQuotes() {
-        let block = HookInstaller.mergeCodexConfig(nil, hookURL: "http://127.0.0.1:1")
+        let block = CodexHookConfig.merge(nil, hookURL: "http://127.0.0.1:1")
         for input in [block.replacingOccurrences(of: "\n", with: "\r\n"),
                       "description = \"\"\"hello\"\"\"\"\n" + block] {
-            let result = HookInstaller.mergeCodexConfig(input, hookURL: "http://127.0.0.1:47821")
+            let result = CodexHookConfig.merge(input, hookURL: "http://127.0.0.1:47821")
             #expect(!result.contains(":1/mcp"))
             #expect(result.components(separatedBy: "[[hooks.Stop]]").count - 1 == 1)
-            #expect(HookInstaller.mergeCodexConfig(result, hookURL: "http://127.0.0.1:47821") == result)
+            #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
         }
     }
 
@@ -256,34 +256,34 @@ import Foundation
         type = "command"
         command = "keep-command"
         """
-        let result = HookInstaller.mergeCodexConfig(input, hookURL: "http://127.0.0.1:47821")
+        let result = CodexHookConfig.merge(input, hookURL: "http://127.0.0.1:47821")
         #expect(result.contains("[[hooks.Stop]]\nmatcher = \"keep-matcher\""))
         #expect(result.contains("command = \"keep-command\""))
         #expect(result.contains("[profiles.fast]\nmodel = \"keep-model\""))
         #expect(result.contains("# Keep this profile explanation."))
         #expect(!result.contains("old-input"))
         #expect(result.components(separatedBy: "[[hooks.Stop]]").count - 1 == 2)
-        #expect(HookInstaller.mergeCodexConfig(result, hookURL: "http://127.0.0.1:47821") == result)
+        #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
     }
 
     // MARK: - T9-1 fix 1: an unreadable/non-object settings.json must never be silently replaced
 
     @Test func testClaudeMergeThrowsOnUnparsableSettingsInsteadOfReplacingIt() {
         let malformedError = #expect(throws: (any Error).self) {
-            _ = try HookInstaller.mergeClaudeSettings(Data("{nope".utf8), hookURL: "u", shimPath: "s")
+            _ = try ClaudeSettings.merge(Data("{nope".utf8), hookURL: "u", shimPath: "s")
         }
         #expect(malformedError is HarnessDriverError, "malformed JSON must raise a typed error, not fall back to an empty object")
 
         let nonObjectError = #expect(throws: (any Error).self) {
-            _ = try HookInstaller.mergeClaudeSettings(Data("[]".utf8), hookURL: "u", shimPath: "s")
+            _ = try ClaudeSettings.merge(Data("[]".utf8), hookURL: "u", shimPath: "s")
         }
         #expect(nonObjectError is HarnessDriverError, "a JSON array is not a settings object and must raise a typed error")
     }
 
     @Test func testClaudeMergeFromEmptyDataStillStartsEmpty() throws {
-        let (data, original) = try HookInstaller.mergeClaudeSettings(Data(), hookURL: "u", shimPath: "s")
+        let (data, original) = try ClaudeSettings.merge(Data(), hookURL: "u", shimPath: "s")
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect((obj["hooks"] as! [String: Any]).count == HookInstaller.claudeEvents.count, "empty (as opposed to malformed) settings data still merges from an empty object")
+        #expect((obj["hooks"] as! [String: Any]).count == ClaudeSettings.events.count, "empty (as opposed to malformed) settings data still merges from an empty object")
         #expect(original == nil)
     }
 
@@ -294,7 +294,7 @@ import Foundation
         {"statusLine": {"type": "command", "command": "/old/AIterm.app/Contents/Resources/claude-statusline-shim.sh", "padding": 2}}
         """
         let newShimPath = "/new/AiTerm.app/Contents/Resources/claude-statusline-shim.sh"
-        let (data, original) = try HookInstaller.mergeClaudeSettings(Data(settingsWithOldShimPath.utf8), hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: newShimPath)
+        let (data, original) = try ClaudeSettings.merge(Data(settingsWithOldShimPath.utf8), hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: newShimPath)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         #expect((obj["statusLine"] as! [String: Any])["command"] as? String == newShimPath, "the moved bundle's shim path must be repointed to the new location")
         #expect((obj["statusLine"] as! [String: Any])["padding"] as? Int == 2, "padding from the old shim entry is preserved")
@@ -304,22 +304,22 @@ import Foundation
     // MARK: - T9-1 fix 3: Codex marker handling must never trap and must never eat user content
 
     @Test func testCodexMergeHandlesEndMarkerBeforeBeginWithoutCrashingAndKeepsUserContent() {
-        let corrupted = "keep-me = true\n" + HookInstaller.codexEnd + "\n" + HookInstaller.codexBegin + "\n" + "trailing-line = true\n"
-        let merged = HookInstaller.mergeCodexConfig(corrupted, hookURL: "http://127.0.0.1:47821")
+        let corrupted = "keep-me = true\n" + CodexHookConfig.end + "\n" + CodexHookConfig.begin + "\n" + "trailing-line = true\n"
+        let merged = CodexHookConfig.merge(corrupted, hookURL: "http://127.0.0.1:47821")
         #expect(merged.contains("keep-me = true"), "non-marker user content before the markers must survive")
         #expect(merged.contains("trailing-line = true"), "non-marker user content after the markers must survive")
-        #expect(merged.components(separatedBy: HookInstaller.codexBegin).count == 2, "exactly one well-formed block, not two")
-        #expect(merged.components(separatedBy: HookInstaller.codexEnd).count == 2, "exactly one well-formed block, not two")
+        #expect(merged.components(separatedBy: CodexHookConfig.begin).count == 2, "exactly one well-formed block, not two")
+        #expect(merged.components(separatedBy: CodexHookConfig.end).count == 2, "exactly one well-formed block, not two")
         #expect(merged.contains("[[hooks.PermissionRequest]]") && merged.contains("/hook/codex"))
     }
 
     @Test func testCodexMergeStripsOrphanBeginMarkerAndKeepsUserContent() {
-        let corrupted = "keep-me = true\n" + HookInstaller.codexBegin + "\n" + "trailing-line = true\n"
-        let merged = HookInstaller.mergeCodexConfig(corrupted, hookURL: "http://127.0.0.1:47821")
+        let corrupted = "keep-me = true\n" + CodexHookConfig.begin + "\n" + "trailing-line = true\n"
+        let merged = CodexHookConfig.merge(corrupted, hookURL: "http://127.0.0.1:47821")
         #expect(merged.contains("keep-me = true"), "non-marker user content before the orphan marker must survive")
         #expect(merged.contains("trailing-line = true"), "non-marker user content after the orphan marker must survive")
-        #expect(merged.components(separatedBy: HookInstaller.codexBegin).count == 2, "exactly one well-formed block, not two")
-        #expect(merged.components(separatedBy: HookInstaller.codexEnd).count == 2, "exactly one well-formed block, not two")
+        #expect(merged.components(separatedBy: CodexHookConfig.begin).count == 2, "exactly one well-formed block, not two")
+        #expect(merged.components(separatedBy: CodexHookConfig.end).count == 2, "exactly one well-formed block, not two")
     }
 
     // MARK: - T9-1 fix 4: write statusline-original.json before settings.json so a crash in between can't lose it
@@ -358,13 +358,13 @@ import Foundation
     @Test func testAMissingOrForeignStatusLineIsDetected() {
         let shim = "/Applications/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh"
         let ours = Data(#"{"statusLine":{"type":"command","command":"\#(shim)"}}"#.utf8)
-        #expect(HookInstaller.claudeStatusLineIsInstalled(ours, shimPath: shim, isRunnable: { _ in true }))
-        #expect(!HookInstaller.claudeStatusLineIsInstalled(Data(#"{"hooks":{}}"#.utf8), shimPath: shim),
+        #expect(ClaudeSettings.statusLineIsInstalled(ours, shimPath: shim, isRunnable: { _ in true }))
+        #expect(!ClaudeSettings.statusLineIsInstalled(Data(#"{"hooks":{}}"#.utf8), shimPath: shim),
                 "statusLine deleted outright — the usage feed is dead and the footer must say so")
-        #expect(!HookInstaller.claudeStatusLineIsInstalled(Data(#"{"statusLine":{"type":"command","command":"/Users/me/.claude/statusline/statusline.py"}}"#.utf8), shimPath: shim),
+        #expect(!ClaudeSettings.statusLineIsInstalled(Data(#"{"statusLine":{"type":"command","command":"/Users/me/.claude/statusline/statusline.py"}}"#.utf8), shimPath: shim),
                 "someone else's status line is not ours")
-        #expect(!HookInstaller.claudeStatusLineIsInstalled(nil, shimPath: shim))
-        #expect(!HookInstaller.claudeStatusLineIsInstalled(Data("not json".utf8), shimPath: shim))
+        #expect(!ClaudeSettings.statusLineIsInstalled(nil, shimPath: shim))
+        #expect(!ClaudeSettings.statusLineIsInstalled(Data("not json".utf8), shimPath: shim))
     }
 
     /// The bundle can move (a rebuild into another directory, a drag to /Applications) without the
@@ -380,9 +380,9 @@ import Foundation
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: moved.path)
         let settings = Data(#"{"statusLine":{"type":"command","command":"\#(moved.path)"}}"#.utf8)
         let shim = "/Applications/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh"
-        #expect(HookInstaller.claudeStatusLineIsInstalled(settings, shimPath: shim))
+        #expect(ClaudeSettings.statusLineIsInstalled(settings, shimPath: shim))
         try FileManager.default.removeItem(at: moved)
-        #expect(!HookInstaller.claudeStatusLineIsInstalled(settings, shimPath: shim),
+        #expect(!ClaudeSettings.statusLineIsInstalled(settings, shimPath: shim),
                 "a command Claude Code can only fail to exec is not an installed status line")
     }
 
@@ -392,7 +392,7 @@ import Foundation
     /// because the filename still matched.
     @Test func testATranslocatedStatusLineCommandIsReportedAsDisconnected() {
         let gone = "/private/var/folders/t8/251d/T/AppTranslocation/729DBBB2-661E/d/AiTerm 2.app/Contents/Resources/hooks/claude-statusline-shim.sh"
-        #expect(!HookInstaller.claudeStatusLineIsInstalled(
+        #expect(!ClaudeSettings.statusLineIsInstalled(
             Data(#"{"statusLine":{"type":"command","command":"\#(gone)"}}"#.utf8),
             shimPath: "/Applications/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh"))
     }
@@ -472,7 +472,7 @@ import Foundation
         #expect(try fm.destinationOfSymbolicLink(atPath: claudeLink.path) == claudeTarget.path)
         #expect(try fm.destinationOfSymbolicLink(atPath: codexLink.path) == codexTarget.path)
         #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "/Applications/AiTerm.app/shim.sh").state == .current)
-        #expect(try String(contentsOf: codexTarget, encoding: .utf8).contains(HookInstaller.codexBegin))
+        #expect(try String(contentsOf: codexTarget, encoding: .utf8).contains(CodexHookConfig.begin))
         // The backup is a copy of what the link pointed at, not a second link to the merged file.
         for (link, original) in [(claudeLink, Data(emdashSettings.utf8)), (codexLink, Data("model = \"foreign\"\n".utf8))] {
             let backup = link.appendingPathExtension("aiterm-backup")
@@ -508,7 +508,7 @@ import Foundation
 
     /// `JSONSerialization` escapes `/` by default, so every path in the user's file came back as `\/`.
     @Test func mergedSettingsKeepSlashesUnescaped() throws {
-        let (merged, _) = try HookInstaller.mergeClaudeSettings(Data(emdashSettings.utf8), hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: "/Applications/AiTerm.app/shim.sh")
+        let (merged, _) = try ClaudeSettings.merge(Data(emdashSettings.utf8), hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: "/Applications/AiTerm.app/shim.sh")
         let text = try #require(String(data: merged, encoding: .utf8))
         #expect(text.contains(#""/Users/me/.emdash/hook.sh""#))
         #expect(!text.contains(#"\/"#))
@@ -520,7 +520,7 @@ import Foundation
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let shim = "/Applications/AiTerm.app/shim.sh"
         let settings = home.appendingPathComponent(".claude/settings.json")
-        let (merged, _) = try HookInstaller.mergeClaudeSettings(nil, hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: shim)
+        let (merged, _) = try ClaudeSettings.merge(nil, hookURL: "http://127.0.0.1:47821/hook/claude", shimPath: shim)
         var obj = try JSONSerialization.jsonObject(with: merged) as! [String: Any]
         obj["model"] = "opus"
         let compact = try JSONSerialization.data(withJSONObject: obj)
@@ -563,7 +563,7 @@ import Foundation
     @Test func codexContentAfterTheBlockNeitherOutdatesNorMovesIt() throws {
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let config = home.appendingPathComponent(".codex/config.toml")
-        let installed = HookInstaller.mergeCodexConfig("model = \"gpt-5.6\"\n", hookURL: "http://127.0.0.1:47821")
+        let installed = CodexHookConfig.merge("model = \"gpt-5.6\"\n", hookURL: "http://127.0.0.1:47821")
         let text = installed + "\n[profiles.fast]\nmodel = \"gpt-5.6-mini\"\n"
         try text.write(to: config, atomically: true, encoding: .utf8)
 
@@ -572,7 +572,7 @@ import Foundation
         #expect(try String(contentsOf: config, encoding: .utf8) == text)
 
         #expect(CodexDriver(home: home, daemonPort: 9999).state != .current)
-        let repaired = HookInstaller.mergeCodexConfig(text, hookURL: "http://127.0.0.1:9999")
+        let repaired = CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:9999")
         #expect(repaired == text.replacingOccurrences(of: "127.0.0.1:47821", with: "127.0.0.1:9999"))
     }
 
@@ -603,16 +603,16 @@ import Foundation
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
         let support = home.appendingPathComponent("Library/Application Support/AiTerm")
         let command = support.appendingPathComponent("statusline-original.cmd")
-        try HookInstaller.migrateOriginalStatusLine(home: home)
+        try StatusLineOriginal.migrate(home: home)
         #expect(!FileManager.default.fileExists(atPath: command.path), "no record, nothing to write")
 
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         try Data(#"{"type":"command","command":"~/bin/my status.sh --short"}"#.utf8).write(to: support.appendingPathComponent("statusline-original.json"))
-        try HookInstaller.migrateOriginalStatusLine(home: home)
+        try StatusLineOriginal.migrate(home: home)
         #expect(try String(contentsOf: command, encoding: .utf8) == "~/bin/my status.sh --short")
 
         try Data("edited".utf8).write(to: command)
-        try HookInstaller.migrateOriginalStatusLine(home: home)
+        try StatusLineOriginal.migrate(home: home)
         #expect(try String(contentsOf: command, encoding: .utf8) == "edited", "once")
     }
 
@@ -714,7 +714,7 @@ import Foundation
     }
 
     @Test func anEventAiTermDoesNotManageIsNeverARefusal() throws {
-        let (data, _) = try HookInstaller.mergeClaudeSettings(
+        let (data, _) = try ClaudeSettings.merge(
             Data(#"{"hooks": {"PostToolUse": "whatever"}}"#.utf8), hookURL: "u", shimPath: "s")
         let hooks = try #require((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["hooks"] as? [String: Any])
         #expect(hooks["PostToolUse"] as? String == "whatever")
@@ -724,14 +724,14 @@ import Foundation
     /// put on the status line stays, whether it was theirs or our shim at an old path.
     @Test func repointingTheStatusLineKeepsItsOtherKeys() throws {
         let theirs = #"{"statusLine": {"type": "command", "command": "/u/line.py", "padding": 3, "refreshInterval": 5}}"#
-        let (data, original) = try HookInstaller.mergeClaudeSettings(Data(theirs.utf8), hookURL: "u", shimPath: "/n/shim.sh")
+        let (data, original) = try ClaudeSettings.merge(Data(theirs.utf8), hookURL: "u", shimPath: "/n/shim.sh")
         let line = try #require((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["statusLine"] as? [String: Any])
         #expect(line["command"] as? String == "/n/shim.sh" && line["type"] as? String == "command")
         #expect(line["padding"] as? Int == 3 && line["refreshInterval"] as? Int == 5)
         #expect(original?["command"] as? String == "/u/line.py")
 
         let moved = #"{"statusLine": {"type": "command", "command": "/old/claude-statusline-shim.sh", "refreshInterval": 5}}"#
-        let (again, none) = try HookInstaller.mergeClaudeSettings(Data(moved.utf8), hookURL: "u", shimPath: "/n/claude-statusline-shim.sh")
+        let (again, none) = try ClaudeSettings.merge(Data(moved.utf8), hookURL: "u", shimPath: "/n/claude-statusline-shim.sh")
         let repointed = try #require((try JSONSerialization.jsonObject(with: again) as? [String: Any])?["statusLine"] as? [String: Any])
         #expect(repointed["refreshInterval"] as? Int == 5 && repointed["padding"] as? Int == 0)
         #expect(none == nil)

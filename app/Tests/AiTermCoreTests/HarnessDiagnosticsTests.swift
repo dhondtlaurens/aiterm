@@ -234,7 +234,7 @@ import Testing
         ]
         try JSONSerialization.data(withJSONObject: staleClaude)
             .write(to: home.appendingPathComponent(".claude/settings.json"))
-        try "\(HookInstaller.codexBegin)\nold owned block\n\(HookInstaller.codexEnd)\n"
+        try "\(CodexHookConfig.begin)\nold owned block\n\(CodexHookConfig.end)\n"
             .write(to: home.appendingPathComponent(".codex/config.toml"), atomically: true, encoding: .utf8)
 
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
