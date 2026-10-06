@@ -73,8 +73,12 @@ Runs the daemon and app suites through the supported toolchain:
     scripts/test.sh swift                                    # the Swift tests only
     scripts/test.sh swift -- --filter DesignRulesTests       # one suite; anything after -- goes to swift test
 
-The command runs the portable toolchain guard before the Swift suites (and, by default, before the
-daemon's), so a toolchain of the wrong version fails fast instead of producing opaque compiler
+Arguments after `--` with no suite named (`scripts/test.sh -- --filter X`) run `all`, the daemon's
+suite included.
+
+The command runs the portable toolchain guard, and checks the toolchain the suites will build with
+(a `SWIFT` override included), before the Swift suites — and, unless it runs only `daemon`, before
+the daemon's — so a toolchain of the wrong version fails fast instead of producing opaque compiler
 errors. On its first run, it creates `daemon/.venv` and
 installs the daemon package with its test and lint dependencies (the `dev` extra). Set
 `PYTHON=/path/to/python3` to use a specific Python 3.11+ interpreter, or `PYTEST=/path/to/pytest`

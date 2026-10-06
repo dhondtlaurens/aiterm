@@ -105,8 +105,11 @@ struct CoreFoldersTests {
     }
 
     /// `source` with its comments and the text of its string literals — plain, raw (`#"…"#`) and
-    /// multi-line — blanked, keeping their line breaks so a declaration still starts its line. An
-    /// interpolation is blanked with its string: a type named only inside one is not seen.
+    /// multi-line — blanked, keeping their line breaks so a declaration still starts its line.
+    /// Interpolations are not modelled: one holding only code is blanked with its string, so a type
+    /// named only there is not seen, and a string quoted inside one ends the outer string early, so
+    /// the rest of that interpolation reads as code and its closing text as a string. Either way the
+    /// quotes pair up again by the end of the literal.
     static func code(_ source: String) -> String {
         let chars = Array(source)
         var out = "", i = 0

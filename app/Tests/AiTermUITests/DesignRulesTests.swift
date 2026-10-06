@@ -19,6 +19,10 @@ struct DesignRulesTests {
         case font
         /// Rule 2: a padding, spacing, corner radius, offset or frame written as a number — a
         /// `Metrics` member, or a view's own named one-off, instead. Zero is no size, and is allowed.
+        /// One line at a time and by shape, so it does not see a number on a continuation line, a
+        /// frame's number after an argument with parentheses (`.frame(width: f(x), height: 18)`), or
+        /// lengths written elsewhere — `Spacer(minLength:)`, `EdgeInsets(top:…)`, `.lineSpacing(_:)`.
+        /// Those are held by review.
         case length
 
         var pattern: NSRegularExpression {

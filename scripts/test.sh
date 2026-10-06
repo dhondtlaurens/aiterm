@@ -4,7 +4,8 @@
 #   all     (the default) the toolchain guard, the daemon's tests and lint, then every Swift test
 #   swift   the toolchain guard and the Swift tests
 #   daemon  the daemon's tests and lint
-# Anything after `--` goes to `swift test`, e.g. `scripts/test.sh swift -- --filter DesignRulesTests`.
+# Anything after `--` goes to `swift test`, e.g. `scripts/test.sh swift -- --filter DesignRulesTests`;
+# with no suite named (`scripts/test.sh -- --filter X`) the suite is `all`, the daemon's included.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,6 +29,9 @@ fi
 if [[ "$SUITE" != daemon ]]; then
     # Validate first, before spending time on daemon tests with an unusable Swift compiler.
     TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE=1 "$ROOT/scripts/test-swift-toolchain.sh"
+    # The guard checks Swiftly's own toolchain; this checks the one the suites will run, a `SWIFT`
+    # override included.
+    "$ROOT/scripts/swift.sh" --version >/dev/null
 fi
 
 # The daemon's tests, then its lint.
