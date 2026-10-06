@@ -34,6 +34,8 @@ public final class DaemonSupervisor: @unchecked Sendable {
     private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
     private let onStateChange: @Sendable (State) -> Void
     private var process: Process?
+    /// Children given up on for never listening that may not have exited yet; `stop()` ends them.
+    private var abandoned: [Process] = []
     private var attempt = 0
     private var stopping = false
     private var startedAt = Date.distantPast
@@ -82,26 +84,29 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// Must not be called from `queue` itself (`queue.sync` would deadlock); nothing in this type
     /// does, `stop()` is only ever called from outside.
     public func stop() {
-        var victim: Process?
+        var victims: [Process] = []
         queue.sync {
             self.stopping = true
             self.pendingWork?.cancel()
             self.pendingWork = nil
-            victim = self.process
+            victims = (self.process.map { [$0] } ?? []) + self.abandoned
             self.process = nil
+            self.abandoned = []
             self.onStateChange(.stopped)
         }
-        guard let process = victim, process.isRunning else { return }
-        process.terminate()
+        let running = victims.filter(\.isRunning)
+        guard !running.isEmpty else { return }
+        running.forEach { $0.terminate() }
         // Poll rather than block in `waitUntilExit()`: a daemon that ignored SIGTERM would
         // otherwise hang the quit forever. After the grace period it gets SIGKILL, which the
         // kernel always delivers.
         let deadline = Date().addingTimeInterval(Self.stopGracePeriod)
-        while process.isRunning, Date() < deadline { usleep(20_000) }
-        guard process.isRunning else { return }
-        kill(process.processIdentifier, SIGKILL)
+        while running.contains(where: \.isRunning), Date() < deadline { usleep(20_000) }
+        let stuck = running.filter(\.isRunning)
+        guard !stuck.isEmpty else { return }
+        stuck.forEach { kill($0.processIdentifier, SIGKILL) }
         let killDeadline = Date().addingTimeInterval(0.5)
-        while process.isRunning, Date() < killDeadline { usleep(20_000) }
+        while stuck.contains(where: \.isRunning), Date() < killDeadline { usleep(20_000) }
     }
 
     /// `--cookies-from-app`: the daemon asks this app for each iTerm2 API cookie instead of running
@@ -162,13 +167,19 @@ public final class DaemonSupervisor: @unchecked Sendable {
 
     /// Ends a child that never opened its socket and fails the launch, so it is restarted through
     /// the same backoff, and named in the same banner, as a child that exits. It is no longer
-    /// `process` before it is ended, so its own exit is not counted a second time.
+    /// `process` before it is ended, so its own exit is not counted a second time; it is kept in
+    /// `abandoned` until it is gone, so a `stop()` meanwhile still waits for it.
     private func abandon(_ child: Process) {
         process = nil
+        abandoned.removeAll { !$0.isRunning }
+        abandoned.append(child)
         child.terminate()
         // One stuck where SIGTERM is not acted on gets SIGKILL after the grace `stop()` gives.
         let pid = child.processIdentifier
-        queue.asyncAfter(deadline: .now() + Self.stopGracePeriod) { if child.isRunning { kill(pid, SIGKILL) } }
+        queue.asyncAfter(deadline: .now() + Self.stopGracePeriod) { [weak self] in
+            if child.isRunning { kill(pid, SIGKILL) }
+            self?.abandoned.removeAll { !$0.isRunning }
+        }
         recordFailure(message: "did not open its socket within \(Int(bindDeadline.rounded())) s")
     }
 

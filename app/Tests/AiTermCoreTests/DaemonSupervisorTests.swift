@@ -343,7 +343,25 @@ final class DaemonSupervisorTests {
         #expect(box.states.contains { if case .failed(1, let message) = $0 { message.contains("socket") } else { false } },
                 "a child that never listens must be a failed launch, got \(box.states)")
         #expect(!box.states.contains { if case .listening = $0 { true } else { false } })
-        if let pid = firstPid() { #expect(kill(pid, 0) != 0, "the child that never listened must have been ended") }
+        // Ended, then reaped by `Process` a moment later: until then `kill` still finds its zombie.
+        if let pid = firstPid() { await eventually(describing: "the child that never listened to be ended") { kill(pid, 0) != 0 } }
+    }
+
+    // T11-2 holds for a child given up on as well: `stop()` returns only once it is gone, though it
+    // is no longer the supervised process and is waiting out its own grace before SIGKILL.
+    @Test func testStopEndsAChildGivenUpOnThatIgnoresSIGTERM() async {
+        let box = StateBox()
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/deaf-\(UUID().uuidString.prefix(8)).sock",
+                                   arguments: ["-c", "trap '' TERM; while :; do sleep 0.05; done"], logURL: logURL, bindDeadline: 0.1, backoff: { _ in 30 }) { state in
+            box.append(state)
+        }
+        sup.start()
+        await eventually { box.states.contains { if case .failed = $0 { true } else { false } } }
+        let pid = box.states.lazy.compactMap { if case .running(let pid) = $0 { pid } else { nil } }.first
+        sup.stop()
+
+        guard let pid else { Issue.record("supervisor never reported .running"); return }
+        #expect(kill(pid, 0) != 0, "stop() returned while the child it gave up on was still alive")
     }
 
     // Final review item A: a daemon that keeps exiting is only diagnosable if its stdout and stderr
