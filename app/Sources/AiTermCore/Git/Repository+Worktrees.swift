@@ -40,9 +40,10 @@ extension Repository {
         let hasOrigin = try hasOrigin
         let worktreePath = try prepareWorktree(slug: slug)
         // Best-effort, so a new worktree starts from the remote's latest when it can: offline, it
-        // starts from what was last fetched.
+        // starts from what was last fetched. Whether origin has the base at all is not: a git that
+        // cannot say has not said no, and the local base can be far behind origin's.
         if hasOrigin { Log.git.attempt("Fetching \(base) before adding a worktree", level: .default) { try fetchFromOrigin(base) } }
-        let start = hasOrigin && (try? git.run(["rev-parse", "--verify", "--quiet", "origin/\(base)"], in: path)) != nil ? "origin/\(base)" : base
+        let start = try hasOrigin && commit("refs/remotes/origin/" + base) != nil ? "origin/\(base)" : base
         try git.run(["worktree", "add", "--lock", "--reason", Worktree.taskLockReason, "-b", branch, worktreePath, start], in: path,
                     timeout: GitRunner.checkoutTimeout)
         return worktreePath

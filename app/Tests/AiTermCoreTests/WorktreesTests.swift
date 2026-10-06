@@ -465,6 +465,16 @@ import Darwin
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/a-task"))
     }
 
+    /// Nor has one that could not say whether origin has the base said it has not: the task
+    /// started from the local base, which can be far behind origin's, rather than fail.
+    @Test func aTaskWhoseBaseGitCannotLookUpOnOriginFailsWithGitsReason() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let timingOut = TimingOutGitRunner(["rev-parse", "--verify"])
+        #expect { try Repository(repo, git: timingOut).addTaskWorktree(slug: "a-task", branch: "feat/a-task", base: "main") }
+            throws: { ($0 as? GitError)?.timedOut == true }
+        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/a-task"))
+    }
+
     /// Neither local nor on origin — a fork's branch, say — is nothing that could be pushed to.
     @Test func testCheckoutRefusesABranchThatIsNowhere() throws {
         let repo = try repoWithRemoteOnlyBranch()
