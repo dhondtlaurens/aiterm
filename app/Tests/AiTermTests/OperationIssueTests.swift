@@ -321,24 +321,6 @@ extension AppControllerTests {
         #expect(fixture.controller.removals.isEmpty)
     }
 
-    /// A refusal AiTerm has no words of its own for keeps git's, and offers only Keep Branch: `-D`
-    /// would not answer it.
-    @Test func anyOtherRefusalKeepsGitsReasonAndOffersOnlyKeep() {
-        let id = UUID()
-        let issue = OperationIssue.branchKept("feat/work", of: id, because: .other(reason: "Cannot delete branch 'feat/work'."))
-        #expect(issue == OperationIssue(title: "Branch feat/work kept.", reason: "Cannot delete branch 'feat/work'.",
-                                        actions: [.keepBranch(id)], subject: id))
-    }
-
-    /// A failure's own words go in the title and the error's in the reason, never joined: git's by
-    /// its sentence rule, anything else by its description.
-    @Test func anErrorIsTheReasonNotPartOfTheTitle() {
-        let daemon = OperationIssue(title: "Couldn’t reopen the window.", error: DaemonError(code: "x", message: "iTerm2 is busy"))
-        #expect(daemon == OperationIssue(title: "Couldn’t reopen the window.", reason: "iTerm2 is busy"))
-        let git = GitError(args: ["worktree", "remove"], code: 128, stderr: "fatal: not a working tree")
-        #expect(OperationIssue(title: "Couldn’t remove the task.", error: git).reason == "Not a working tree.")
-    }
-
     /// A task, its worktree removed with "Also delete branch" ticked, and its branch kept because it
     /// has a commit `main` lacks. `answers` start with the Remove alert's.
     private func removedWithUnmergedBranch(answering answers: String...) async throws -> (RaceFixture, TaskItem) {

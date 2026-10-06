@@ -19,6 +19,21 @@ public struct Worktree: Equatable, Sendable {
     /// task's branch is deletable.
     public static let reviewLockReason = "aiterm review"
 
+    /// Which kind a task imported from this worktree is. This is the whole reason
+    /// `managedWorktrees()` reports a lock reason: removing a project leaves its worktrees on disk,
+    /// so re-adding it re-imports them, and an import that guessed `.task` for a review would hand
+    /// the Remove alert an "Also delete branch" checkbox over a merge request's branch — the one
+    /// thing this app must never do.
+    ///
+    /// The lock reason a review's worktree is made with is the authority. The `review-` directory
+    /// prefix is a weaker fallback for a worktree whose lock was dropped by hand or lost in a copy
+    /// of the repository; it can mislabel a task on a branch like `feat/review-dashboard`, which
+    /// costs that task its delete-branch checkbox and nothing else. The costs are not symmetric.
+    public var importedKind: TaskKind? {
+        if lockReason == Self.reviewLockReason { return .review }
+        return URL(fileURLWithPath: path).lastPathComponent.hasPrefix("review-") ? .review : nil
+    }
+
     /// `git worktree list --porcelain`: blank-line-separated records of `worktree <path>`,
     /// `branch refs/heads/<name>` and `locked <reason>` — or a bare `locked` when the lock carries none.
     static func parse(porcelain listing: String) -> [Worktree] {

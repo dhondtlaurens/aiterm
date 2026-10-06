@@ -42,7 +42,8 @@ final class ProjectActions {
         work.onChange { [unowned work] subject in
             if case .project(let id) = subject { defaultBranchRows[id] = work.isRunning(.changingDefaultBranch, onProject: id) }
         }
-        checkouts.onRemotes { [weak self] in self?.applyRemotes($0) }
+        // Each pass's remotes, adopted where a project's has changed since it was added.
+        checkouts.onRemotes { [weak workspace] detected in workspace?.mutate { $0.adoptRemotes(detected) } }
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -112,41 +113,11 @@ final class ProjectActions {
         let imported = found.compactMap { worktree -> TaskItem? in
             guard let branch = worktree.branch, !known.contains(worktree.path) else { return nil }
             return TaskItem(id: UUID(), projectId: project.id, title: branch, branch: branch,
-                     worktreePath: worktree.path, baseBranch: base, jira: nil, kind: Self.importedKind(worktree),
+                     worktreePath: worktree.path, baseBranch: base, jira: nil, kind: worktree.importedKind,
                      agent: agent, model: preference.model,
                      reasoning: preference.reasoning, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: nil)
         }
         workspace.mutate { $0.tasks += imported }
-    }
-
-    /// Which kind an imported worktree is. This is the whole reason `managedWorktrees()` reports a
-    /// lock reason: removing a project leaves its worktrees on disk, so re-adding it re-imports
-    /// them, and an import that guessed `.task` for a review would hand `confirmRemove(task:)` an
-    /// "Also delete branch" checkbox over a merge request's branch — the one thing this app must
-    /// never do.
-    ///
-    /// The lock reason a review's worktree is made with is the authority. The `review-` directory
-    /// prefix is a weaker fallback for a worktree whose lock was dropped by hand or lost in a copy
-    /// of the repository; it can mislabel a task on a branch like `feat/review-dashboard`, which
-    /// costs that task its delete-branch checkbox and nothing else. The costs are not symmetric.
-    private static func importedKind(_ worktree: Worktree) -> TaskKind? {
-        if worktree.lockReason == Worktree.reviewLockReason { return .review }
-        return URL(fileURLWithPath: worktree.path).lastPathComponent.hasPrefix("review-") ? .review : nil
-    }
-
-    /// Adopts a remote added, changed or removed after the project itself was — `git remote add` in
-    /// a terminal is not something the app can be told about, and the stored value is what the
-    /// provider badge and every merge-request link are built from, so a stale one outlives the
-    /// change indefinitely. The checkout monitor reads the remotes on every pass.
-    private func applyRemotes(_ detected: [UUID: WorkspaceScan.Remote]) {
-        workspace.mutate { state in
-            for (id, found) in detected {
-                state.updateProject(id: id) { project in
-                    guard project.provider != found.provider || project.remoteUrl != found.url else { return }
-                    project.provider = found.provider; project.remoteUrl = found.url
-                }
-            }
-        }
     }
 
     // -- Jira -----------------------------------------------------------------------------
@@ -161,16 +132,10 @@ final class ProjectActions {
     /// Replaces the project's linked Jira projects with `jiraProjects`, each once, in their order.
     /// An empty list unlinks them all.
     func setJiraProjects(_ jiraProjects: [JiraProjectRef], on project: Project) {
-        let linked = Self.linkedOnce(jiraProjects)
+        let linked = jiraProjects.linkedOnce
         guard canChangeWorkspace, let current = state.project(id: project.id),
               current.jiraProjects != linked else { return }
         workspace.mutate { $0.updateProject(id: project.id) { $0.jiraProjects = linked } }
-    }
-
-    /// `jiraProjects` with every repeat of a project after its first dropped.
-    private static func linkedOnce(_ jiraProjects: [JiraProjectRef]) -> [JiraProjectRef] {
-        var seen = Set<String>()
-        return jiraProjects.filter { seen.insert($0.id).inserted }
     }
 
     // -- the default branch -----------------------------------------------------------------

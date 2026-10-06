@@ -10,12 +10,13 @@ final class LiveSessions {
     /// Every tab, as the helper last described it.
     var sessions: [SessionInfo] = [] {
         didSet {
-            let rows = sessions.map(Self.rowRelevant)
+            let rows = sessions.map(\.rowRelevant)
             if rows != rowSessions {
                 rowSessions = rows
                 for hook in rowSessionsHooks { hook() }
             }
-            seedContexts(from: sessions)
+            let state = workspace.state
+            updateContexts { $0.seed(from: sessions, in: state) }
             for hook in sessionsHooks { hook(sessions) }
         }
     }
@@ -25,10 +26,9 @@ final class LiveSessions {
     /// each of those re-ran the whole row list when the sidebar read `sessions`.
     private(set) var rowSessions: [SessionInfo] = []
     var usage = UsageSnapshot.empty
-    /// Context is displayed per provider within a sidebar row — a task or a terminal — not per tab.
-    /// Keep each provider's last telemetry value while tabs switch or a polling snapshot has nothing
-    /// new to say; selection only controls whether those values are shown.
-    private var contextByRowId: [UUID: [AgentKind: Int]] = [:]
+    /// The context fill each row last reported, per provider. Written only when a value moves:
+    /// session events arrive several a second, and every write re-renders the sidebar.
+    private var contexts = SessionContexts()
 
     /// The workspace the tabs are matched to rows in.
     private let workspace: WorkspaceStore
@@ -58,7 +58,8 @@ final class LiveSessions {
             usage = snapshot.usage
         case .sessionOpened(let session), .sessionChanged(let session):
             let index = sessions.firstIndex(where: { $0.sessionId == session.sessionId })
-            rememberContext(from: session, replacing: index.map { sessions[$0] })
+            let old = index.map { sessions[$0] }, state = workspace.state
+            updateContexts { $0.remember(session, replacing: old, in: state) }
             if let index { sessions[index] = session }
             else { sessions.append(session) }
         case .sessionClosed(let id): sessions.removeAll { $0.sessionId == id }
@@ -68,69 +69,21 @@ final class LiveSessions {
         }
     }
 
-    /// `session` without what no row draws: a field the rows — or the usage footer's CONTEXT row —
-    /// start to read has to stay here.
-    private static func rowRelevant(_ session: SessionInfo) -> SessionInfo {
-        var row = session
-        row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
-        return row
-    }
-
     /// The context each provider last reported in `row`; empty with nothing selected.
     func contextPercents(for row: RowSelection?) -> [AgentKind: Int] {
-        row.flatMap { contextByRowId[$0.id] } ?? [:]
+        row.map { contexts.percents(forRow: $0.id) } ?? [:]
     }
 
     /// Drops the values of rows the workspace no longer has; run on every change to it.
     func pruneContexts() {
         let state = workspace.state
-        let live = Set(state.tasks.map(\.id) + state.terminals.map(\.id))
-        guard contextByRowId.keys.contains(where: { !live.contains($0) }) else { return }
-        contextByRowId = contextByRowId.filter { live.contains($0.key) }
+        updateContexts { $0.prune(keeping: state) }
     }
 
-    /// Writes one provider's fill only when it moved: session events arrive several a second, and
-    /// every write to a published property re-renders the sidebar.
-    private func setContext(_ context: Int, row: UUID, provider: AgentKind) {
-        guard contextByRowId[row]?[provider] != context else { return }
-        contextByRowId[row, default: [:]][provider] = context
-    }
-
-    /// The sidebar row a tab is drawn under: its task, by the tag the daemon read off it, or else
-    /// the terminal whose window it is in. A terminal's tabs carry no task tag, so the window is the
-    /// only thing that ties an agent started in one back to its row — as it is for the row's avatars.
-    private func rowId(for session: SessionInfo, in state: AppState) -> UUID? {
-        if session.taskId != nil {
-            return session.taskUUID.flatMap(state.task(id:))?.id
-        }
-        return state.terminals.first { $0.windowId != nil && $0.windowId == session.windowId }?.id
-    }
-
-    /// A snapshot has no event timestamps, so it can only initialise an unseen provider value.
-    /// Prefer that provider's active tab; its fullest known tab is the fallback.
-    private func seedContexts(from sessions: [SessionInfo]) {
-        let state = workspace.state
-        let reportingByRow = Dictionary(grouping: sessions.filter { $0.contextPercent != nil },
-                                        by: { rowId(for: $0, in: state) })
-        for case let (rowId?, reporting) in reportingByRow {
-            for provider in AgentKind.allCases where contextByRowId[rowId]?[provider] == nil {
-                let own = reporting.filter { $0.agent.agentKind == provider }
-                let session = own.first { $0.active == true }
-                    ?? own.max { ($0.contextPercent ?? 0) < ($1.contextPercent ?? 0) }
-                if let context = session?.contextPercent { setContext(context, row: rowId, provider: provider) }
-            }
-        }
-    }
-
-    /// Only a newly learned non-empty value advances a row's cache. Session changes caused by
-    /// tab activation carry the old per-tab value too; treating those as telemetry would make the
-    /// footer jump backwards while the new tab is still waiting to report.
-    private func rememberContext(from session: SessionInfo, replacing old: SessionInfo?) {
-        guard let context = session.contextPercent,
-              old?.contextPercent != context || old?.taskId != session.taskId
-                  || old?.windowId != session.windowId || old?.agent != session.agent,
-              let provider = session.agent.agentKind,
-              let rowId = rowId(for: session, in: workspace.state) else { return }
-        setContext(context, row: rowId, provider: provider)
+    /// Applies `change` to the context fills, and writes them back only if it moved one.
+    private func updateContexts(_ change: (inout SessionContexts) -> Void) {
+        var next = contexts
+        change(&next)
+        if next != contexts { contexts = next }
     }
 }

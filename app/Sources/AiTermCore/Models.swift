@@ -65,6 +65,12 @@ extension Array where Element == JiraProjectRef {
         guard let last = keys.last else { return "" }
         return keys.count == 1 ? last : keys.dropLast().joined(separator: ", ") + " and " + last
     }
+
+    /// The list with every repeat of a project after its first dropped: what a project links.
+    public var linkedOnce: [JiraProjectRef] {
+        var seen = Set<String>()
+        return filter { seen.insert($0.id).inserted }
+    }
 }
 
 public struct Project: Codable, Identifiable, Equatable, Sendable {
@@ -455,6 +461,20 @@ public struct AppState: Codable, Equatable, Sendable {
         guard !branch.isEmpty, let holder = worktrees.first(where: { $0.branch == branch }) else { return nil }
         let path = Worktree.resolved(holder.path)
         return tasks.first { $0.projectId == projectId && Worktree.resolved($0.worktreePath) == path }
+    }
+
+    /// Adopts each project's remote as the checkout monitor last read it, where it differs from the
+    /// stored one: a remote added, changed or removed after the project was — `git remote add` in a
+    /// terminal is not something the app can be told about, and the stored value is what the
+    /// provider badge and every merge-request link are built from, so a stale one would outlive
+    /// the change indefinitely. A project `detected` has no entry for is left as it is.
+    public mutating func adoptRemotes(_ detected: [UUID: WorkspaceScan.Remote]) {
+        for (id, found) in detected {
+            updateProject(id: id) { project in
+                guard project.provider != found.provider || project.remoteUrl != found.url else { return }
+                project.provider = found.provider; project.remoteUrl = found.url
+            }
+        }
     }
 
     @discardableResult

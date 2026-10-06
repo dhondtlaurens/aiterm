@@ -167,6 +167,42 @@ import Foundation
     }
 
     /// Older workspaces remain readable without an explicit migration.
+    /// A project linked twice is linked once, where it first came.
+    @Test func aJiraProjectIsLinkedOnceInItsFirstPlace() {
+        let site = URL(string: "https://example.atlassian.net")!
+        let refs = ["SHOP", "PAY", "SHOP", "WEB", "PAY"].map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: site) }
+        #expect(refs.linkedOnce.map(\.key) == ["SHOP", "PAY", "WEB"])
+    }
+
+    /// A remote read on disk replaces a stale stored one, provider and URL together; a project the
+    /// pass did not report on keeps its own.
+    @Test func aChangedRemoteIsAdoptedAndAnUnreportedOneKept() {
+        let added = project("added"), unchanged = project("unchanged"), unreported = project("unreported")
+        var state = AppState.empty
+        for p in [added, unchanged, unreported] { state.append(project: p) }
+        let before = state
+        state.adoptRemotes([unchanged.id: WorkspaceScan.Remote(provider: .git, url: nil)])
+        #expect(state == before, "nothing changed, so nothing is written")
+        state.adoptRemotes([added.id: WorkspaceScan.Remote(provider: .github, url: "git@github.com:me/added.git"),
+                            unchanged.id: WorkspaceScan.Remote(provider: .git, url: nil)])
+        #expect(state.project(id: added.id)?.provider == .github)
+        #expect(state.project(id: added.id)?.remoteUrl == "git@github.com:me/added.git")
+        #expect(state.project(id: unchanged.id) == unchanged && state.project(id: unreported.id) == unreported)
+        state.adoptRemotes([added.id: WorkspaceScan.Remote(provider: .git, url: nil)])
+        #expect(state.project(id: added.id)?.provider == .git && state.project(id: added.id)?.remoteUrl == nil, "a removed remote is adopted too")
+    }
+
+    /// An imported worktree is a review when its lock says so, or failing that its folder; anything
+    /// else is a task.
+    @Test func anImportedWorktreeIsAReviewByItsLockOrElseItsFolder() {
+        #expect(Worktree(path: "/r/.worktrees/x", branch: "x", lockReason: Worktree.reviewLockReason).importedKind == .review)
+        #expect(Worktree(path: "/r/.worktrees/review-x", branch: "x", lockReason: nil).importedKind == .review)
+        #expect(Worktree(path: "/r/.worktrees/review-x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == .review)
+        #expect(Worktree(path: "/r/.worktrees/x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == nil)
+        #expect(Worktree(path: "/r/.worktrees/x-review-y", branch: "x", lockReason: "").importedKind == nil)
+    }
+
+    /// Older workspaces remain readable without an explicit migration.
     @Test func testTerminalFromAnOlderStateFileDecodesWithTheDefaultName() throws {
         let json = """
         {"id":"1EB4C0DE-0000-0000-0000-000000000001","projectId":"1EB4C0DE-0000-0000-0000-000000000002",\

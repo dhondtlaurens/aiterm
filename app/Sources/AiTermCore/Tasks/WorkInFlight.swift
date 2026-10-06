@@ -12,14 +12,14 @@ import Foundation
 /// A class rather than a value: the owners that do the work — launches, removals, terminals, the
 /// pull — each start and end work on the same subjects, and each must see the others'.
 @MainActor
-final class WorkInFlight {
-    enum Subject: Hashable {
+public final class WorkInFlight {
+    public enum Subject: Hashable, Sendable {
         case project(UUID), task(UUID), terminal(UUID)
     }
 
     /// One piece of work, handed out by `begin` and ended by `end`.
-    struct Token: Hashable {
-        let subject: Subject
+    public struct Token: Hashable, Sendable {
+        public let subject: Subject
         fileprivate let serial: Int
     }
 
@@ -29,15 +29,17 @@ final class WorkInFlight {
     private var serial = 0
     private var hooks: [@MainActor (Subject) -> Void] = []
 
+    public init() {}
+
     /// Adds `hook` to what hears that work on a subject began, changed or ended, after the ones
     /// added before it.
-    func onChange(_ hook: @escaping @MainActor (Subject) -> Void) {
+    public func onChange(_ hook: @escaping @MainActor (Subject) -> Void) {
         hooks.append(hook)
     }
 
     /// Starts `operation` on project `id`, unless it runs alone there and is already running: never
     /// nil for one that does not run alone.
-    func begin(_ operation: ProjectOperation, onProject id: UUID) -> Token? {
+    public func begin(_ operation: ProjectOperation, onProject id: UUID) -> Token? {
         if operation.runsAlone, projects[id]?.values.contains(operation) == true { return nil }
         let token = next(.project(id))
         projects[id, default: [:]][token.serial] = operation
@@ -46,7 +48,7 @@ final class WorkInFlight {
     }
 
     /// Starts `operation` on task `id`, unless something else already is.
-    func begin(_ operation: TaskOperation, onTask id: UUID) -> Token? {
+    public func begin(_ operation: TaskOperation, onTask id: UUID) -> Token? {
         guard tasks[id] == nil else { return nil }
         let token = next(.task(id))
         tasks[id] = (token.serial, operation)
@@ -55,7 +57,7 @@ final class WorkInFlight {
     }
 
     /// Starts `operation` on terminal `id`, unless something else already is.
-    func begin(_ operation: TerminalOperation, onTerminal id: UUID) -> Token? {
+    public func begin(_ operation: TerminalOperation, onTerminal id: UUID) -> Token? {
         guard terminals[id] == nil else { return nil }
         let token = next(.terminal(id))
         terminals[id] = (token.serial, operation)
@@ -64,14 +66,14 @@ final class WorkInFlight {
     }
 
     /// What the task's work is doing now, as it moves on: a removal that lets its window go.
-    func update(_ token: Token, to operation: TaskOperation) {
+    public func update(_ token: Token, to operation: TaskOperation) {
         guard case .task(let id) = token.subject, tasks[id]?.serial == token.serial, tasks[id]?.operation != operation else { return }
         tasks[id]?.operation = operation
         changed(token.subject)
     }
 
     /// Ends the work `token` names. Ending it twice ends nothing more.
-    func end(_ token: Token) {
+    public func end(_ token: Token) {
         switch token.subject {
         case .project(let id):
             guard projects[id]?.removeValue(forKey: token.serial) != nil else { return }
@@ -87,15 +89,15 @@ final class WorkInFlight {
     }
 
     /// Whether `operation` is running on project `id`.
-    func isRunning(_ operation: ProjectOperation, onProject id: UUID) -> Bool {
+    public func isRunning(_ operation: ProjectOperation, onProject id: UUID) -> Bool {
         projects[id]?.values.contains(operation) == true
     }
 
     /// What is running on task `id`, if anything.
-    func operation(onTask id: UUID) -> TaskOperation? { tasks[id]?.operation }
+    public func operation(onTask id: UUID) -> TaskOperation? { tasks[id]?.operation }
 
     /// What is running on terminal `id`, if anything.
-    func operation(onTerminal id: UUID) -> TerminalOperation? { terminals[id]?.operation }
+    public func operation(onTerminal id: UUID) -> TerminalOperation? { terminals[id]?.operation }
 
     private func next(_ subject: Subject) -> Token {
         serial += 1
@@ -108,7 +110,7 @@ final class WorkInFlight {
 }
 
 /// Work on a project.
-enum ProjectOperation: Equatable {
+public enum ProjectOperation: Equatable, Sendable {
     /// A task or a review being created in it — one at a time, so two creates cannot pick the same
     /// branch or worktree.
     case creatingTask
@@ -120,7 +122,7 @@ enum ProjectOperation: Equatable {
     case changingDefaultBranch
 
     /// Whether a second one is refused while the first runs; any number of windows can open at once.
-    var runsAlone: Bool {
+    public var runsAlone: Bool {
         switch self {
         case .creatingTask, .changingDefaultBranch: true
         case .openingTerminal, .openingTaskWindow: false
@@ -130,7 +132,7 @@ enum ProjectOperation: Equatable {
 
 /// Work on a task, one at a time. It is the task's lock, what its row says while it runs, and
 /// whether a snapshot may give the task back a window it has let go.
-enum TaskOperation: Equatable {
+public enum TaskOperation: Equatable, Sendable {
     /// Reopen Window, opening the task a window of its own.
     case reopening
     /// A review opening as a tab in the task's window.
@@ -143,7 +145,7 @@ enum TaskOperation: Equatable {
     case closing
 
     /// What the row says while this runs, in place of what the task's last removal left it saying.
-    var removal: TaskRemoval? {
+    public var removal: TaskRemoval? {
         switch self {
         case .removing: .removing
         case .closing: .closing
@@ -153,6 +155,6 @@ enum TaskOperation: Equatable {
 }
 
 /// Work on a terminal's window, one at a time.
-enum TerminalOperation: Equatable {
+public enum TerminalOperation: Equatable, Sendable {
     case reopening, closing
 }

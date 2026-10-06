@@ -25,7 +25,7 @@ import Testing
     }
 
     /// A pass whose git calls time out has found nothing out about the project, which is not the
-    /// same as finding it has no remote: `applyRemotes` clears and saves the stored remote of
+    /// same as finding it has no remote: `AppState.adoptRemotes` clears and saves the stored remote of
     /// every project the scan reports, so the project is left out of it.
     @Test func aProjectGitCouldNotBeAskedAboutReportsNoRemote() throws {
         let url = "git@gitlab.example.com:group/app.git"

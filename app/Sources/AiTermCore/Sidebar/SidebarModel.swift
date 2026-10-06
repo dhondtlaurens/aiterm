@@ -16,6 +16,17 @@ public enum TaskStatus: Equatable, Sendable {
     /// The two statuses that are yours to act on, which Focus View opens a project for.
     public var needsAttention: Bool { self == .done || self == .needsInput }
 }
+public extension SessionInfo {
+    /// The tab without what no row draws, for telling a change the rows draw from one they don't:
+    /// most session events are a context fill, a model or a Codex spinner title. A field the rows —
+    /// or the usage footer's CONTEXT row — start to read has to stay here.
+    var rowRelevant: SessionInfo {
+        var row = self
+        row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
+        return row
+    }
+}
+
 public struct AvatarGroup: Equatable, Sendable { public var marks: [SessionAgent]; public var overflow: Int }
 /// A row's branch line (design canvas, "Branch awareness · 17 Sep"): the branch of the tab you are
 /// looking at, how many *other* branches the same window has open, and whether that branch is not

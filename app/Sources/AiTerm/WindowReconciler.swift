@@ -33,22 +33,11 @@ final class WindowReconciler {
         live.handle(event)
         switch event {
         case .snapshot(let snapshot):
-            guard snapshot.connected else { return }
-            // Only a successful connected snapshot establishes that a window is absent.
-            // Reattach by stable task tags first, including a create whose reply was lost.
-            // Worked on a copy, which `commitClosedWindows` adopts in one change if anything differs.
-            var next = state
-            let tabByTask = Dictionary(snapshot.sessions.compactMap { tab in tab.taskUUID.map { ($0, tab) } },
-                                       uniquingKeysWith: { first, _ in first })
-            // A task whose removal has let its window go is the removal's to settle: re-attached,
-            // the window would take the row with it when it closes.
-            for index in next.tasks.indices where work.operation(onTask: next.tasks[index].id) != .removing(windowLetGo: true) {
-                if let session = tabByTask[next.tasks[index].id] { next.tasks[index].windowId = session.windowId }
-            }
-            let windows = Set(snapshot.sessions.map(\.windowId))
-            let closed = Set((next.tasks.compactMap(\.windowId) + next.terminals.compactMap(\.windowId))
-                .filter { !windows.contains($0) })
-            for wid in closed { next.closeWindow(wid) }
+            // The workspace as the snapshot shows it (`AppState.reconciled`), adopted in one change
+            // by `commitClosedWindows` if anything differs. A task whose removal has let its window
+            // go is the removal's to settle, and keeps no window the snapshot offers it.
+            let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0) == .removing(windowLetGo: true) })
+            let next = state.reconciled(with: snapshot, lettingGo: lettingGo)
             guard next != state else { return }
             commitClosedWindows(next)
         case .itermConnected, .itermDisconnected, .itermAuthFailed, .itermCookieRequested: break // last observations remain visible while uncertain
