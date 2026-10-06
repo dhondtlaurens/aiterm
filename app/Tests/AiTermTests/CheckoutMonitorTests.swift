@@ -138,7 +138,10 @@ struct CheckoutMonitorTests {
         monitor.startMonitoring()
         for await started in scans.starts where started == 2 { break }
 
-        let pause = scans.passes[1].start - (try #require(scans.passes[0].end))
+        // A time limit that cancelled the wait lets the loop fall through with one pass or none.
+        let passes = scans.passes
+        try #require(passes.count >= 2, "the monitor never started a second pass")
+        let pause = passes[1].start - (try #require(passes[0].end))
         // Counted from the first pass's start, the second would follow its end by 300 ms.
         #expect(pause >= .milliseconds(400), "the second pass began \(pause) after the first ended")
     }
