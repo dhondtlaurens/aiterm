@@ -16,6 +16,8 @@ import Testing
     struct Manifest: Decodable {
         var protocolVersion: Int, maxFrameBytes: Int
         var events: [String], methods: [String], errorCodes: [String]
+        /// The raw values of a session's `agent` and `state`.
+        var sessionAgents: [String], sessionStates: [String]
         /// The file, or files, that show each name.
         var fixtures: Fixtures
         struct Fixtures: Decodable { var events: [String: String], replies: [String: [String]], errors: [String: String] }
@@ -39,6 +41,10 @@ import Testing
         #expect(Set(manifest.events) == Set(DaemonEventName.allCases.map(\.rawValue)))
         #expect(Set(manifest.methods) == Set(DaemonMethod.allCases.map(\.rawValue)))
         #expect(Set(manifest.errorCodes) == Set(DaemonError.Code.daemonCodes.map(\.rawValue)))
+        // Read leniently — one the app does not know is a shell, or idle — so only this says that
+        // the daemon has grown one.
+        #expect(Set(manifest.sessionAgents) == Set(SessionAgent.allCases.map(\.rawValue)))
+        #expect(Set(manifest.sessionStates) == Set(SessionState.allCases.map(\.rawValue)))
     }
 
     @Test(arguments: DaemonEventName.allCases) func everyEventReadsAsItsName(_ name: DaemonEventName) throws {

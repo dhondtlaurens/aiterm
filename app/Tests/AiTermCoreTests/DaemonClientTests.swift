@@ -124,7 +124,7 @@ final class DaemonClientTests {
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
         do { try await client.activate(windowId: "nope"); Issue.record("expected throw") }
-        catch let e as DaemonError { #expect(e == DaemonError(code: "not_found", message: "no such window")) }
+        catch let e as DaemonError { #expect(e == DaemonError(code: .notFound, message: "no such window")) }
     }
 
     @Test func testEventsAreDecoded() async throws {
@@ -225,7 +225,7 @@ final class DaemonClientTests {
         #expect(server.waitForClient(timeout: 2))
         struct Status: Decodable { var connected: Bool }
         do { _ = try await client.request(.itermStatus, as: Status.self); Issue.record("Expected deadline") }
-        catch let error as DaemonError { #expect(error.code == "timeout") }
+        catch let error as DaemonError { #expect(error.code == .timeout) }
         // A timeout does not corrupt framing or poison subsequent requests.
         server.handler = { req in ["id": req["id"]!, "result": ["connected": true]] }
         #expect(try await client.request(.itermStatus, as: Status.self).connected)
@@ -318,7 +318,7 @@ time.sleep(5)
 
     private func timeOut(_ client: DaemonClient, sourceLocation: SourceLocation = #_sourceLocation) async {
         do { _ = try await client.request(.windowActivate, as: DaemonClient.Empty.self); Issue.record("Expected a timeout", sourceLocation: sourceLocation) }
-        catch { #expect((error as? DaemonError)?.code == "timeout", sourceLocation: sourceLocation) }
+        catch { #expect((error as? DaemonError)?.code == .timeout, sourceLocation: sourceLocation) }
     }
 
     /// CS-6: a daemon whose loop is stuck keeps its socket open and its process alive, so neither
@@ -400,7 +400,7 @@ time.sleep(5)
         // Do not consume while the reader is still filling the bounded queue.
         // A request behind those frames provides a deterministic processing barrier.
         do { _ = try await client.request(.itermStatus, as: DaemonClient.Empty.self); Issue.record("Expected overflow disconnect") }
-        catch let error as DaemonError { #expect(error.code == "disconnected") }
+        catch let error as DaemonError { #expect(error.code == .disconnected) }
         let box = EventBox(client.events)
         var received = 0
         while case .event(let event) = await nextEvent(box) {

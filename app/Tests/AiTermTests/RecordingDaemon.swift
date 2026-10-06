@@ -13,13 +13,14 @@ import Foundation
 final class RecordingDaemon: DaemonCommands {
     struct Request { let method: String; let params: [String: Any] }
     private(set) var requests: [Request] = []
-    var failing: [String: String]
+    /// The code each method fails with: one of the app's, or one only a newer helper would send.
+    var failing: [String: DaemonError.Code]
     private let holding: String?
     private var released = false
     private var held: [CheckedContinuation<Void, Never>] = []
     private var replies: [String: Int] = [:]
 
-    init(failing: [String: String] = [:], holding: String? = nil) {
+    init(failing: [String: DaemonError.Code] = [:], holding: String? = nil) {
         self.failing = failing
         self.holding = holding
     }
@@ -47,7 +48,7 @@ final class RecordingDaemon: DaemonCommands {
         if method == holding, !released { await withCheckedContinuation { held.append($0) } }
         replies[method, default: 0] += 1
         let count = replies[method, default: 1]
-        if let code = failing[method] { throw DaemonError(code: .init(rawValue: code), message: "test failure") }
+        if let code = failing[method] { throw DaemonError(code: code, message: "test failure") }
         return count == 1 ? id : "\(id)-\(count)"
     }
 

@@ -282,8 +282,8 @@ extension AppControllerTests {
 
     /// A close iTerm2 refuses is retried by the next pass, and the row says "Closing…" throughout
     /// rather than flickering back to "Worktree missing" between tries.
-    @Test(arguments: ["temporary_failure", "not_found"])
-    func checkoutCleanupRetriesFailedWindowCloseAndAcceptsAlreadyClosedWindow(errorCode: String) async throws {
+    @Test(arguments: ["temporary_failure", .notFound] as [DaemonError.Code])
+    func checkoutCleanupRetriesFailedWindowCloseAndAcceptsAlreadyClosedWindow(errorCode: DaemonError.Code) async throws {
         let fixture = try CheckoutFixture(windowOpen: true)
         let server = RecordingDaemon(failing: ["window.close": errorCode])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -293,7 +293,7 @@ extension AppControllerTests {
         await controller.checkouts.refresh().value
         await controller.remover.waitForRemoval(of: fixture.task.id)
         try #require(server.closedWindowIds == ["alive"])
-        if errorCode == "temporary_failure" {
+        if errorCode != .notFound {
             #expect(controller.state.tasks == [fixture.task])
             #expect(try controller.savedWorkspace().tasks == [fixture.task])
             #expect(controller.removals == [fixture.task.id: .closing])
@@ -304,7 +304,7 @@ extension AppControllerTests {
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.removals.isEmpty)
         #expect(try controller.savedWorkspace().tasks.isEmpty)
-        #expect(server.closedWindowIds == (errorCode == "temporary_failure" ? ["alive", "alive"] : ["alive"]))
+        #expect(server.closedWindowIds == (errorCode != .notFound ? ["alive", "alive"] : ["alive"]))
     }
 
     /// Closing stops once the checkout comes back: the row is only missing no more.

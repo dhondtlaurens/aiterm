@@ -103,5 +103,18 @@
     "window.setFrame",
     "workspace.snapshot"
   ],
-  "protocolVersion": 1
+  "protocolVersion": 1,
+  "sessionAgents": [
+    "claude",
+    "codex",
+    "grok",
+    "pi",
+    "shell"
+  ],
+  "sessionStates": [
+    "done",
+    "idle",
+    "needsInput",
+    "working"
+  ]
 }

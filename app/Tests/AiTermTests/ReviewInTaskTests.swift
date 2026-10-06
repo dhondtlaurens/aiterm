@@ -55,7 +55,7 @@ extension AppControllerTests {
     /// is gone, so the task gets a new one rather than the sheet an error.
     @Test func aReviewWhoseWindowJustClosedReopensIt() async throws {
         let fixture = try ReviewFixture(windowOpen: true)
-        let server = RecordingDaemon(failing: ["tab.create": "not_found"])
+        let server = RecordingDaemon(failing: ["tab.create": .notFound])
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(server)
 

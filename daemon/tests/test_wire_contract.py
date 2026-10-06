@@ -20,9 +20,10 @@ import json
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from aitermd import protocol, service
+from aitermd.models import AgentKind, State
 from tests.fake_iterm import FakeIterm
 
 WIRE = Path(__file__).parent / "wire"
@@ -199,6 +200,9 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     files["manifest.json"] = {
         "protocolVersion": protocol.VERSION, "maxFrameBytes": protocol.MAX_FRAME_BYTES,
         "events": sorted(protocol.EVENTS), "methods": methods, "errorCodes": sorted(protocol.ERROR_CODES),
+        # The raw values a session's `agent` and `state` can take: the app reads one it does not
+        # know as a shell or as idle, so a new one would otherwise go unnoticed.
+        "sessionAgents": sorted(get_args(AgentKind)), "sessionStates": sorted(get_args(State)),
         # Which files show each name: a reply can have more than one, a snapshot both refused and connected.
         "fixtures": {
             "events": {name: f"event.{name}.json" for name in sorted(events)},

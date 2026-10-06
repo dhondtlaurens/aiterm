@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import __version__, protocol
 from .rpc_server import AlreadyRunning
 
 #: Exit status for "another daemon already owns the socket". Kept distinct from the
@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         params = json.loads(ns.params)
     except json.JSONDecodeError as exc:
-        print(json.dumps({"error": {"code": "bad_params", "message": str(exc)}}), file=sys.stderr)
+        print(json.dumps({"error": {"code": protocol.BAD_PARAMS, "message": str(exc)}}), file=sys.stderr)
         return 1
     try:
         resp = asyncio.run(ctl_request(ns.socket, ns.method, params))

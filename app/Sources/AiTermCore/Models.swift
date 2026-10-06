@@ -21,7 +21,7 @@ public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Senda
 /// A skewed daemon (an app build adopting a worktree's daemon whose build is a different vintage)
 /// can send a raw value this app has never heard of. Decoding it to `.shell` keeps that one session
 /// from failing the whole `DaemonSnapshot`, instead of turning it into a reconnect loop.
-public enum SessionAgent: String, Codable, Equatable, Sendable {
+public enum SessionAgent: String, Codable, Equatable, CaseIterable, Sendable {
     case claude, codex, grok, pi, shell
     public init(from decoder: Decoder) throws {
         self = SessionAgent(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .shell
@@ -29,7 +29,7 @@ public enum SessionAgent: String, Codable, Equatable, Sendable {
 }
 /// See `SessionAgent`'s decoding note: an unrecognized raw value decodes to `.idle` rather than
 /// failing the session, and with it the snapshot, it came in.
-public enum SessionState: String, Codable, Equatable, Sendable {
+public enum SessionState: String, Codable, Equatable, CaseIterable, Sendable {
     case idle, working, needsInput, done
     public init(from decoder: Decoder) throws {
         self = SessionState(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .idle
