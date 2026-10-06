@@ -153,13 +153,11 @@ struct SettingsView: View {
     private var tabBar: some View {
         SegmentedControl(values: SettingsTab.allCases,
                        selection: Binding(get: { tab }, set: { select($0) }),
-                       style: .accent) { item, on in
-            // Weight never changes with `on`: selection is already communicated by the blue fill,
+                       style: .accent) { item, _ in
+            // Weight never changes with the selection: it is already communicated by the blue fill,
             // and changing weight too would make the tab label heavier than the primary action
-            // beside it.
-            Text(item.rawValue)
-                .font(Typography.body)
-                .foregroundStyle(on ? Surface.accent.ink : Palette.muted)
+            // beside it. The control inks the label: white on the accent, secondary off it.
+            Text(item.rawValue).font(Typography.body)
         }
     }
 

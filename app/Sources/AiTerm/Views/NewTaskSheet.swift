@@ -60,11 +60,11 @@ struct NewTaskSheet: View {
                              query: Binding(get: { model.query }, set: { model.setQuery($0) }),
                              open: _ticketsOpen.projectedValue,
                              items: model.results, selection: model.draft.ticket,
-                             row: { ticket, isSelected in
+                             row: { ticket in
                                  // The lane column stays for a ticket without one, so every summary
                                  // is cut at the same place.
                                  PickerResultRow(mark: .brand(Palette.jira), key: ticket.key, keyWidth: Self.ticketKeyWidth,
-                                                 title: ticket.summary, detail: ticket.status ?? "", selected: isSelected)
+                                                 title: ticket.summary, detail: ticket.status ?? "")
                              },
                              selected: { selectedTicket($0) },
                              onPick: { ticket in

@@ -8,6 +8,9 @@ import SwiftUI
 ///
 /// It is hand-built rather than a `Picker`: the system segmented control cannot carry a logo and
 /// paints its selection in the accent colour.
+///
+/// It inks each segment for its ground — the selected one in the surface's ink, white on the
+/// accent; the rest in its secondary ink — so a segment's label is plain `Text` that sets no colour.
 public struct SegmentedControl<Value: Hashable, Content: View>: View {
     /// How the selected segment is marked.
     public enum Style: Equatable, Sendable {
@@ -48,7 +51,7 @@ public struct SegmentedControl<Value: Hashable, Content: View>: View {
             ForEach(values, id: \.self) { value in
                 let on = value == selection, selectable = isSelectable(value)
                 Button { selection = value } label: {
-                    content(value, on)
+                    SegmentInk(on: on) { content(value, on) }
                         .frame(maxWidth: .infinity)
                         .frame(height: Size.control - 2 * Space.hairline)
                         .background(RoundedRectangle(cornerRadius: Radius.control).fill(on ? selectedFill : .clear))
@@ -91,6 +94,18 @@ public struct SegmentedControl<Value: Hashable, Content: View>: View {
             guard values.indices.contains(index) else { return }
         } while !isSelectable(values[index])
         selection = values[index]
+    }
+}
+
+/// A segment's label in the ink of the ground it is drawn on, which the control has already
+/// declared: `.accent` under an accent-style selection, else the ground the track sits on.
+private struct SegmentInk<Label: View>: View {
+    let on: Bool
+    @ViewBuilder let label: () -> Label
+    @Environment(\.surface) private var surface
+
+    var body: some View {
+        label().foregroundStyle(on ? surface.ink : surface.secondaryInk)
     }
 }
 

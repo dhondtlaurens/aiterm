@@ -123,6 +123,10 @@ A component reads the ground it sits on from the environment — `@Environment(\
 `occludingBackground`, so a badge inside a newly selected row turns white by itself rather than
 every call site re-deriving the same colours.
 
+The container that draws the ground declares it, and only it knows whether it is on: `RowPill`
+for a sidebar row, `menuRowHighlight` for a dropdown's — so `PickerResultRow` and the completion
+popup's rows are handed no flag — and `SegmentedControl` for a segment, whose label it inks itself.
+
 `Surface` is not a component and gets no card — it is a rule the components assume.
 
 ## One theme
@@ -150,7 +154,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `HelpText` | subordinate caption copy under a control, in a `tone`: `.secondary` (the default) or `.warning` — it inks itself, so colour it by tone, never by an outer `foregroundStyle` |
 | `Input` | a plain text field in the house field chrome, with its focus ring; `secure: true` for a token |
 | `Select` | a real `NSPopUpButton` that fills its column |
-| `SegmentedControl` | a hand-built segmented control that can carry a logo. `style: .neutral` (a grey selection and the focus ring) or `.accent` (an accent selection on `.surface(.accent)`, no ring — the Settings tab bar); a segment `isSelectable` rejects is dimmed and disabled |
+| `SegmentedControl` | a hand-built segmented control that can carry a logo. `style: .neutral` (a grey selection and the focus ring) or `.accent` (an accent selection on `.surface(.accent)`, no ring — the Settings tab bar); a segment `isSelectable` rejects is dimmed and disabled. It inks each label for its ground — the selection in the surface's ink, the rest in its secondary ink — so a label is plain `Text` |
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS`, a divider's name, the usage footer's CONTEXT and USAGE: micro, uppercase, tracked, secondary ink |

@@ -26,20 +26,20 @@ enum DropdownKeys {
 /// hovering — and dimmed while a row is held down. The ticket, merge request and branch pickers
 /// draw their results in it, and so does the prompt's completion popup.
 ///
-/// It owns the panel and the rows' frame, not the row: `row` draws one item's content, given
-/// whether it is the highlighted one, on the ground that highlight declares (`menuRowHighlight`).
+/// It owns the panel and the rows' frame, not the row: `row` draws one item's content, which reads
+/// the ground its highlight declares (`menuRowHighlight`) rather than being told it is highlighted.
 /// Where it hangs, and the keys that move `index`, are the caller's (`DropdownKeys`).
 struct DropdownList<Item: Identifiable, Row: View>: View {
     let items: [Item]
     @Binding var index: Int
     let onPick: (Item) -> Void
-    @ViewBuilder let row: (Item, Bool) -> Row
+    @ViewBuilder let row: (Item) -> Row
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
                 Button { onPick(item) } label: {
-                    row(item, i == index)
+                    row(item)
                         .padding(.horizontal, Space.base).frame(height: Size.menuRow)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())

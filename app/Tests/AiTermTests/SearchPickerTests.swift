@@ -56,7 +56,7 @@ import SwiftUI
         var body: some View {
             SearchPicker(placeholder: "Search", query: $sheet.query, open: $sheet.open,
                          items: sheet.items, selection: sheet.picked,
-                         row: { choice, _ in Text(choice.id) }, selected: { Text($0.id) },
+                         row: { choice in Text(choice.id) }, selected: { Text($0.id) },
                          onPick: { sheet.picked = $0 }, toggleHelp: { _ in "" })
         }
     }

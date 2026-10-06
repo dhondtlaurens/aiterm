@@ -241,7 +241,6 @@ struct AgentSegmented: View {
                 VendorMark(agent: agent.session, size: Size.vendorMark)
                 Text(agent.displayName).font(on ? Typography.bodyEmphasis : Typography.body)
             }
-            .foregroundStyle(on ? Palette.text : Palette.muted)
         }
     }
 }

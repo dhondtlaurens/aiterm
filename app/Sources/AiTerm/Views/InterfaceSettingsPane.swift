@@ -73,8 +73,8 @@ struct InterfaceSettingsPane: View {
     private var sizeGroup: some View {
         SettingsGroup(title: "Sidebar size",
                       help: "Draws the sidebar’s text, rows and badges larger. View › Zoom In (⌘+), Zoom Out (⌘−) and Actual Size (⌘0) pick the same sizes.") {
-            SegmentedControl(values: InterfaceSize.allCases, selection: interfaceSize) { size, on in
-                Text(size.title).font(Typography.body).foregroundStyle(on ? Palette.text : Palette.muted)
+            SegmentedControl(values: InterfaceSize.allCases, selection: interfaceSize) { size, _ in
+                Text(size.title).font(Typography.body)
             }
         }
     }

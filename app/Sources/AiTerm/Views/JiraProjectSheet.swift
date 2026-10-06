@@ -80,7 +80,7 @@ struct JiraProjectSheet: View {
                 SearchPicker(placeholder: "Add a Jira project by key or name",
                              query: _query.projectedValue, open: _open.projectedValue,
                              items: matches, selection: nil,
-                             row: { project, isSelected in projectRow(project, selected: isSelected) },
+                             row: projectRow,
                              selected: { _ in EmptyView() },
                              onPick: { linked.append($0) },
                              toggleHelp: { $0 ? "Hide Jira projects" : "Show Jira projects" })
@@ -107,9 +107,9 @@ struct JiraProjectSheet: View {
         dismiss.afterThisEvent()
     }
 
-    private func projectRow(_ project: JiraProjectRef, selected: Bool) -> some View {
+    private func projectRow(_ project: JiraProjectRef) -> some View {
         PickerResultRow(mark: .brand(Palette.jira), key: project.key, keyWidth: Self.keyColumnWidth,
-                        title: project.name, detail: nil, selected: selected)
+                        title: project.name, detail: nil)
     }
 
     private func linkedProject(_ project: JiraProjectRef) -> some View {

@@ -19,7 +19,8 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
     @Binding var open: Bool
     let items: [Item]
     let selection: Item?
-    let row: (Item, Bool) -> Row
+    /// A result's content, drawn on the ground its row declares — the accent while highlighted.
+    let row: (Item) -> Row
     let selected: (Item) -> Selected
     let onPick: (Item) -> Void
     /// The toggle's tooltip, given whether the list is currently open. Each picker words this for
@@ -36,7 +37,7 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
     static var visibleLimit: Int { 6 }
 
     init(placeholder: String, query: Binding<String>, open: Binding<Bool>, items: [Item], selection: Item?,
-         row: @escaping (Item, Bool) -> Row, selected: @escaping (Item) -> Selected,
+         row: @escaping (Item) -> Row, selected: @escaping (Item) -> Selected,
          onPick: @escaping (Item) -> Void, toggleHelp: @escaping (Bool) -> String) {
         self.placeholder = placeholder; self._query = query; self._open = open
         self.items = items; self.selection = selection
@@ -148,7 +149,9 @@ struct PickedItemField<Trailing: View>: View {
 
 /// A result row of the ticket, merge request and Jira project pickers: the service's mark, a key
 /// in a column of `keyWidth` so the titles after it start on one line, the title, and a trailing
-/// `detail` — a ticket's or merge request's lane.
+/// `detail` — a ticket's or merge request's lane. Inked for the ground its row declares: on the
+/// accent everything turns white, as in the prompt's command-and-skill popup; off it, the mark and
+/// the key keep the service's colours.
 struct PickerResultRow: View {
     let mark: IconSource
     let key: String
@@ -156,38 +159,23 @@ struct PickerResultRow: View {
     let title: String
     /// `nil` draws no detail column at all; an empty string keeps the column, and its spacing, empty.
     let detail: String?
-    let selected: Bool
+    @Environment(\.surface) private var surface
 
     var body: some View {
-        let appearance = PickerRowAppearance(selected: selected)
         HStack(spacing: Space.base) {
-            Icon(mark, size: Size.pickerRowLogo, tint: appearance.logoTint)
-            Text(key).font(Typography.monoCode).foregroundStyle(appearance.keyColor)
+            Icon(mark, size: Size.pickerRowLogo, tint: Self.logoTint(on: surface))
+            Text(key).font(Typography.monoCode).foregroundStyle(Self.keyInk(on: surface))
                 .frame(width: keyWidth, alignment: .leading)
-            Text(title).font(Typography.caption).foregroundStyle(appearance.titleColor).lineLimit(1)
+            Text(title).font(Typography.caption).foregroundStyle(surface.ink).lineLimit(1)
             Spacer(minLength: Space.snug)
-            if let detail { Text(detail).font(Typography.help).foregroundStyle(appearance.detailColor) }
+            if let detail { Text(detail).font(Typography.help).foregroundStyle(surface.secondaryInk) }
         }
     }
-}
 
-/// Foregrounds for a picker's result row. The blue pointer/keyboard selection needs the same white
-/// treatment as the prompt's command-and-skill popup; the service's brand colours remain
-/// off-selection.
-struct PickerRowAppearance {
-    /// `nil` keeps the mark in its brand colour.
-    let logoTint: Color?
-    let keyColor: Color
-    let titleColor: Color
-    let detailColor: Color
-
-    init(selected: Bool) {
-        let surface: Surface = selected ? .accent : .sheet
-        logoTint = selected ? surface.ink : nil
-        keyColor = selected ? surface.ink : Palette.link
-        titleColor = surface.ink
-        detailColor = surface.secondaryInk
-    }
+    /// The mark's tint: white on the accent, else `nil`, its brand colour.
+    static func logoTint(on surface: Surface) -> Color? { surface.isOnAccent ? surface.ink : nil }
+    /// The key: white on the accent, else the link colour.
+    static func keyInk(on surface: Surface) -> Color { surface.isOnAccent ? surface.ink : Palette.link }
 }
 
 /// A picked ticket's or merge request's lane, on its service's own wash rather than amber: amber

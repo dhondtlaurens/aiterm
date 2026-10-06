@@ -288,12 +288,20 @@ struct CompletionPopup: View {
 
     private var list: some View {
         DropdownList(items: completions.visible, index: Binding(get: { completions.index }, set: { completions.index = $0 }),
-                     onPick: { completions.accept?($0) }) { item, on in
-            let surface: Surface = on ? .accent : .sheet
+                     onPick: { completions.accept?($0) }) { Row(item: $0) }
+    }
+
+    /// One command or skill, inked for the ground its row declares: white while highlighted, and its
+    /// source, faint at rest, rises to the secondary ink there with the rest.
+    private struct Row: View {
+        let item: AgentCompletion
+        @Environment(\.surface) private var surface
+
+        var body: some View {
             HStack(spacing: Space.base) {
-                Icon(.symbol(item.kind == .skill ? "sparkles" : "terminal"), size: Self.iconSize,
+                Icon(.symbol(item.kind == .skill ? "sparkles" : "terminal"), size: CompletionPopup.iconSize,
                      tint: surface.secondaryInk)
-                    .frame(width: Self.iconSlot)
+                    .frame(width: CompletionPopup.iconSlot)
                 Text(item.name).font(Typography.monoCode)
                     .foregroundStyle(surface.ink).lineLimit(1)
                 if let detail = item.detail {
@@ -302,7 +310,7 @@ struct CompletionPopup: View {
                 }
                 Spacer(minLength: Space.snug)
                 Text(item.source.label).font(Typography.help)
-                    .foregroundStyle(on ? surface.secondaryInk : Palette.faint)
+                    .foregroundStyle(surface.isOnAccent ? surface.secondaryInk : Palette.faint)
             }
         }
     }

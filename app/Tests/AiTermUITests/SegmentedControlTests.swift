@@ -74,6 +74,26 @@ import Testing
         #expect(log.surface == [0: .accent, 1: .sheet])
     }
 
+    /// A segment's label is plain `Text`: the control inks it as its callers used to by hand — the
+    /// selection in the ground's ink, white on the accent, and the rest in the secondary ink.
+    @Test(arguments: [SegmentedControl<Int, Text>.Style.neutral, .accent])
+    func theControlInksAPlainLabelForItsGround(style: SegmentedControl<Int, Text>.Style) throws {
+        func render(_ label: @escaping (Int, Bool) -> Text) throws -> Data {
+            let host = NSHostingView(rootView:
+                SegmentedControl(values: [0, 1], selection: .constant(0), style: style, content: label)
+                    .frame(width: 240).padding(4))
+            host.frame = NSRect(x: 0, y: 0, width: 248, height: 36)
+            settle(host)
+            return try pixels(in: host)
+        }
+        let selectedInk = style == .accent ? Surface.accent.ink : Palette.text
+        let plain = try render { value, _ in Text("Segment \(value)") }
+        let byHand = try render { value, on in Text("Segment \(value)").foregroundStyle(on ? selectedInk : Palette.muted) }
+        let unInked = try render { value, _ in Text("Segment \(value)").foregroundStyle(Palette.text) }
+        #expect(plain == byHand)
+        #expect(plain != unInked, "the test must tell inks apart")
+    }
+
     private final class SelectionState: ObservableObject {
         @Published var selection = 0
     }

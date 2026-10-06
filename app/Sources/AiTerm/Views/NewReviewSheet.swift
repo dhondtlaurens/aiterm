@@ -81,10 +81,7 @@ struct NewReviewSheet: View {
                              open: _branchOpen.projectedValue,
                              items: model.branchMatches.map(BranchChoice.init),
                              selection: model.draft.branch.isEmpty ? nil : BranchChoice(model.draft.branch),
-                             row: { choice, on in
-                                 Text(choice.name).font(Typography.monoCode)
-                                     .foregroundStyle((on ? Surface.accent : .sheet).ink).lineLimit(1)
-                             },
+                             row: { BranchResultRow(name: $0.name) },
                              selected: selectedBranch,
                              onPick: { choice in model.draft.setBranch(choice.name) },
                              toggleHelp: { $0 ? "Hide branches" : "Show all branches" })
@@ -99,9 +96,19 @@ struct NewReviewSheet: View {
         init(_ name: String) { self.name = name }
     }
 
-    private func mrRow(_ mr: MergeRequest, _ on: Bool) -> some View {
+    /// A branch in the results, in the ink of the ground its row declares — white while highlighted.
+    private struct BranchResultRow: View {
+        let name: String
+        @Environment(\.surface) private var surface
+
+        var body: some View {
+            Text(name).font(Typography.monoCode).foregroundStyle(surface.ink).lineLimit(1)
+        }
+    }
+
+    private func mrRow(_ mr: MergeRequest) -> some View {
         PickerResultRow(mark: .brand(mr.host.brand), key: mr.reference, keyWidth: Self.mrNumberWidth,
-                        title: mr.title, detail: mr.lane, selected: on)
+                        title: mr.title, detail: mr.lane)
     }
 
     private func selectedMR(_ mr: MergeRequest) -> some View {
