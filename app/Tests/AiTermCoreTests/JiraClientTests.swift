@@ -328,10 +328,129 @@ import Foundation
         #expect(jqls(stub).contains(#"project in ("SHOP") AND key in ("SHOP-20", "SHOP-21") AND statusCategory != Done"#))
     }
 
+    @Test(arguments: [(401, JiraError.unauthorized), (403, .unauthorized), (404, .badResponse(404)), (429, .badResponse(429)), (500, .badResponse(500))])
+    func statusCodesMapToErrors(status: Int, error: JiraError) async {
+        let stub = StubSession { _ in (status, Data()) }
+        await #expect(throws: error) { _ = try await JiraClient(config: config, session: stub.session).testConnection() }
+    }
+
+    /// Nothing listens on port 1, so the connection is refused.
+    @Test func aTransportFailureIsANetworkError() async {
+        let refused = JiraConfig(siteURL: URL(string: "http://127.0.0.1:1")!, email: "a", token: "b")
+        await #expect {
+            _ = try await JiraClient(config: refused, session: URLSession(configuration: .ephemeral)).testConnection()
+        } throws: { error in
+            if case JiraError.network = error { return true } else { return false }
+        }
+    }
+
+    @Test func requestsCarryTheirHeadersAndTheFifteenSecondTimeout() async throws {
+        let stub = StubSession { _ in (200, Data(#"{"displayName":"Me"}"#.utf8)) }
+        _ = try await JiraClient(config: config, session: stub.session).testConnection()
+        let request = try #require(stub.lastRequest)
+        #expect(request.url?.absoluteString == "https://example.atlassian.net/rest/api/3/myself")
+        #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(request.timeoutInterval == 15)
+    }
+
+    @Test func aConnectionTestNamesTheAccountByDisplayNameThenEmail() async throws {
+        let named = StubSession { _ in (200, Data(#"{"displayName":"Me","emailAddress":"me@example.com"}"#.utf8)) }
+        #expect(try await JiraClient(config: config, session: named.session).testConnection() == "Me")
+        let emailOnly = StubSession { _ in (200, Data(#"{"emailAddress":"me@example.com"}"#.utf8)) }
+        #expect(try await JiraClient(config: config, session: emailOnly.session).testConnection() == "me@example.com")
+        let neither = StubSession { _ in (200, Data("{}".utf8)) }
+        #expect(try await JiraClient(config: config, session: neither.session).testConnection() == "connected")
+    }
+
+    /// A body that is not the shape asked for is a decoding error, not an empty result.
+    @Test(arguments: [#"[]"#, #"not json"#, #"{"issues":"none"}"#, #"{"issues":[],"extra":1"#])
+    func aSearchThatIsNoIssueListIsADecodingError(body: String) async {
+        let stub = StubSession { _ in (200, Data(body.utf8)) }
+        await #expect(throws: JiraError.decoding) { _ = try await JiraClient(config: config, session: stub.session).myOpenIssues() }
+    }
+
+    @Test func aProjectListThatIsNoPageIsADecodingError() async {
+        let stub = StubSession { _ in (200, Data(#"{"isLast":true}"#.utf8)) }
+        await #expect(throws: JiraError.decoding) { _ = try await JiraClient(config: config, session: stub.session).projects() }
+    }
+
+    /// An issue Jira sent without a key or a summary drops alone; what it may omit stays nil, and a
+    /// description that is plain text reads as it is.
+    @Test func anIssueThatCannotBeReadDropsAloneAndOptionalFieldsMayBeMissing() async throws {
+        let body = #"""
+        {"issues":[{"key":"A-1","fields":{"summary":"No summary yet"}},
+                   {"key":"A-2","fields":{}},
+                   {"fields":{"summary":"No key"}},
+                   "junk",
+                   {"key":"A-3","fields":{"summary":"Plain","description":"Just text","issuetype":"odd","status":{"name":7}}},
+                   {"key":"A-4","fields":{"summary":"Empty","description":null}}]}
+        """#
+        let stub = StubSession { _ in (200, Data(body.utf8)) }
+        let tickets = try await JiraClient(config: config, session: stub.session).myOpenIssues()
+        #expect(tickets.map(\.key) == ["A-1", "A-3", "A-4"])
+        #expect(tickets.map(\.description) == [nil, "Just text", nil])
+        #expect(tickets.map(\.issueType) == [nil, nil, nil])
+        #expect(tickets.map(\.status) == [nil, nil, nil])
+    }
+
+    @Test func aProjectEntryThatCannotBeReadDropsAloneButStillCountsTowardTheNextPage() async throws {
+        let stub = StubSession { request in
+            let startAt = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "startAt" }?.value
+            return (200, Data((startAt == "0"
+                ? #"{"values":[{"id":"1","key":"A","name":"Alpha"},{"id":"2"}],"total":3}"#
+                : #"{"values":[{"id":"3","key":"C","name":"Gamma"}],"total":3}"#).utf8))
+        }
+        let projects = try await JiraClient(config: config, session: stub.session).projects()
+        #expect(projects.map(\.key) == ["A", "C"])
+        #expect(stub.requests.count == 2)
+    }
+
     @Test func malformedPickerResponseIsAnError() async {
         let stub = StubSession { _ in (200, Data(#"{}"#.utf8)) }
         await #expect(throws: JiraError.decoding) {
             _ = try await JiraClient(config: config, session: stub.session).search(text: "SHOP-2")
+        }
+    }
+
+    /// Ten linked projects mean ten picker requests and ten `key =` lookups; holding them to four
+    /// at a time must not lose one, nor reorder what they find.
+    @Test func aNumberAcrossManyProjectsStillAsksEveryProjectAndKeepsItsOrder() async throws {
+        let projects = (1...10).map { JiraProjectRef(id: "\($0)", key: "P\($0)", name: "Project \($0)", siteURL: config.siteURL) }
+        let stub = keyStub(search: { jql in
+            jql.contains(#"key = ""#) ? jql.split(separator: "\"").last.map { [String($0)] } : []
+        })
+        let tickets = try await JiraClient(config: config, session: stub.session).search(text: "7", projects: projects)
+        #expect(tickets.map(\.key) == (1...10).map { "P\($0)-7" })
+        #expect(Set(pickerQueries(stub)) == Set((1...10).map { "P\($0)-7" }))
+        #expect(pickerQueries(stub).count == 10)
+        #expect(jqls(stub).filter { $0.contains("key = ") }.count == 10)
+    }
+
+    /// The fan-out helper itself: never more than `width` bodies at once, results in item order,
+    /// and the first failure ends the rest.
+    @Test func inOrderRunsAtMostWidthAtOnceAndReturnsInItemOrder() async throws {
+        actor Flight { var now = 0, peak = 0
+            func enter() { now += 1; peak = max(peak, now) }
+            func leave() { now -= 1 }
+        }
+        let flight = Flight()
+        let results = try await JiraClient.inOrder(Array(0..<20), width: 4) { (n: Int) async throws -> Int in
+            await flight.enter()
+            try await Task.sleep(for: .milliseconds(5 + (20 - n)))
+            await flight.leave()
+            return n * 2
+        }
+        #expect(results == (0..<20).map { $0 * 2 })
+        #expect(await flight.peak == 4)
+    }
+
+    @Test func inOrderThrowsTheFailureOfAnyBody() async {
+        await #expect(throws: JiraError.badResponse(500)) {
+            _ = try await JiraClient.inOrder(Array(0..<10), width: 3) { (n: Int) async throws -> Int in
+                if n == 5 { throw JiraError.badResponse(500) }
+                return n
+            }
         }
     }
 

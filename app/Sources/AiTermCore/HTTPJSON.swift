@@ -1,9 +1,10 @@
 import Foundation
 
-/// The request round the REST clients share — Jira, GitLab, GitHub and the release feeds. It sends the
-/// request and tells a transport failure from a status outside 2xx; each client turns those into
-/// its own error. Cancellation stays cancellation: a search dropped for a newer one is not a
-/// network failure to report.
+/// The request round the REST clients share — Jira, GitLab, GitHub and the release feeds. It builds
+/// the request, sends it, tells a transport failure from a status outside 2xx from a body that is
+/// not what was asked for, and decodes it; each client turns those into its own error with one
+/// `mapping`. Cancellation stays cancellation: a search dropped for a newer one is not a network
+/// failure to report.
 ///
 /// No credential leaves its origin. URLSession re-sends every header of the first request on each
 /// redirect hop, so a server that redirects elsewhere — GitLab sends a package download to object
@@ -14,10 +15,46 @@ enum HTTPJSON {
         case transport(Error)
         /// Any status outside 2xx; `0` for a response that is not HTTP at all.
         case status(Int)
+        /// A 2xx whose body does not decode as the type asked for.
+        case undecodable(status: Int)
     }
 
     /// Jira's and GitHub's `Authorization`, and GitLab's `PRIVATE-TOKEN`.
     static let credentialHeaders = ["Authorization", "PRIVATE-TOKEN"]
+
+    /// A request for `url` with `headers`. The clients' timeout is 15 s; a download passes its own.
+    static func request(_ url: URL, headers: [String: String], timeout: TimeInterval = 15) -> URLRequest {
+        var request = URLRequest(url: url)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        request.timeoutInterval = timeout
+        return request
+    }
+
+    /// `string` with `query` appended; nil when it is no URL. `URLComponents(string:)` keeps a
+    /// percent-encoded path verbatim, which `url.appendingPathComponent` would not.
+    static func url(_ string: String, query: [URLQueryItem] = []) -> URL? {
+        guard var components = URLComponents(string: string) else { return nil }
+        if !query.isEmpty { components.queryItems = query }
+        return components.url
+    }
+
+    /// `send`, then the body decoded as `Value`, with the status it came with.
+    static func decode<Value: Decodable>(_ type: Value.Type, _ request: URLRequest, session: URLSession,
+                                         decoder: JSONDecoder = .snakeCase) async throws -> (value: Value, status: Int) {
+        let (data, response) = try await send(request, session: session)
+        guard let value = try? decoder.decode(Value.self, from: data) else { throw Failure.undecodable(status: response.statusCode) }
+        return (value, response.statusCode)
+    }
+
+    /// `decode` with each `Failure` turned into the client's own error by `mapping`; a cancellation
+    /// passes through as it is.
+    static func decode<Value: Decodable, Mapped: Error>(
+        _ type: Value.Type, _ request: URLRequest, session: URLSession, decoder: JSONDecoder = .snakeCase,
+        mapping: (Failure) -> Mapped
+    ) async throws -> (value: Value, status: Int) {
+        do { return try await decode(type, request, session: session, decoder: decoder) }
+        catch let failure as Failure { throw mapping(failure) }
+    }
 
     static func send(_ request: URLRequest, session: URLSession) async throws -> (Data, HTTPURLResponse) {
         let guarded = CredentialGuard(origin: request.url)
@@ -48,6 +85,15 @@ enum HTTPJSON {
         guard (200..<300).contains(http.statusCode) else { throw Failure.status(http.statusCode) }
         return http
     }
+}
+
+extension JSONDecoder {
+    /// GitHub's and GitLab's payloads are snake_case.
+    static let snakeCase: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
+    }()
 }
 
 /// An element of a JSON list that may not decode, so one malformed entry drops only itself.

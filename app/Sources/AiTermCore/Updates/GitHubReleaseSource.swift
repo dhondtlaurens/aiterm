@@ -13,61 +13,35 @@ public struct GitHubReleaseSource: ReleaseSource {
     }
 
     public func latest() async throws -> Release {
-        var components = URLComponents(string: "https://api.github.com/repos/\(owner)/\(repo)/releases")
-        components?.queryItems = [URLQueryItem(name: "per_page", value: "20")]
-        guard let url = components?.url else { throw UpdateError.projectNotFound(.gitHub, "\(owner)/\(repo)") }
-        let (data, response) = try await send(request(url, timeout: 15))
-        guard let page = try? Self.decoder.decode([Lenient<ReleasePayload>].self, from: data) else {
-            throw UpdateError.badResponse(.gitHub, response.statusCode)
+        guard let url = HTTPJSON.url("https://api.github.com/repos/\(owner)/\(repo)/releases", query: [URLQueryItem(name: "per_page", value: "20")])
+        else { throw UpdateError.projectNotFound(.gitHub, "\(owner)/\(repo)") }
+        let (page, status) = try await HTTPJSON.decode([Lenient<ReleasePayload>].self, request(url, timeout: 15), session: session) {
+            mapped($0, listing: true)
         }
         let published = page.filter { $0.value.map { !$0.isDraft && !$0.isPrerelease } ?? true }
-        return try ReleasePage.newest(published.map { $0.value?.entry }, host: .gitHub, status: response.statusCode)
+        return try ReleasePage.newest(published.map { $0.value?.entry }, host: .gitHub, status: status)
     }
 
     /// Streamed to disk, not held in memory: the image is the whole app bundle.
     public func download(_ release: Release, to destination: URL) async throws {
-        let file: URL
-        do { (file, _) = try await HTTPJSON.download(request(release.assetURL, timeout: 300), session: session) }
-        catch { throw mapped(error, listing: false) }
-        let fm = FileManager.default
-        defer { try? fm.removeItem(at: file) }
-        do {
-            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
-            try fm.moveItem(at: file, to: destination)
-        } catch {
-            throw UpdateError.other(error.localizedDescription)
+        try await ReleaseDownload.save(request(release.assetURL, timeout: 300), to: destination, session: session) {
+            mapped($0, listing: false)
         }
     }
 
-    static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return decoder
-    }()
-
     private func request(_ url: URL, timeout: TimeInterval) -> URLRequest {
-        var req = URLRequest(url: url)
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        req.timeoutInterval = timeout
-        return req
-    }
-
-    private func send(_ req: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        do { return try await HTTPJSON.send(req, session: session) }
-        catch { throw mapped(error, listing: true) }
+        HTTPJSON.request(url, headers: ["Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"], timeout: timeout)
     }
 
     /// Unauthenticated, GitHub answers a spent rate limit with 403 or 429. A 404 for the release
-    /// list is the repository; for an image it is only a bad link.
-    private func mapped(_ error: Error, listing: Bool) -> Error {
-        switch error {
-        case HTTPJSON.Failure.transport: return UpdateError.unreachable("api.github.com")
-        case HTTPJSON.Failure.status(403), HTTPJSON.Failure.status(429): return UpdateError.rateLimited
-        case HTTPJSON.Failure.status(404) where listing: return UpdateError.projectNotFound(.gitHub, "\(owner)/\(repo)")
-        case HTTPJSON.Failure.status(let status): return UpdateError.badResponse(.gitHub, status)
-        default: return error
+    /// list is the repository; for an image it is only a bad link. A listing that is no release
+    /// list at all is a bad response, whatever its status.
+    private func mapped(_ failure: HTTPJSON.Failure, listing: Bool) -> UpdateError {
+        switch failure {
+        case .transport: return .unreachable("api.github.com")
+        case .status(403), .status(429): return .rateLimited
+        case .status(404) where listing: return .projectNotFound(.gitHub, "\(owner)/\(repo)")
+        case .status(let status), .undecodable(let status): return .badResponse(.gitHub, status)
         }
     }
 }

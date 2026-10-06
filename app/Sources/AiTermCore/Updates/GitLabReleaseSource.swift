@@ -20,50 +20,32 @@ public struct GitLabReleaseSource: ReleaseSource {
         guard let url = GitLabClient.apiURL(host: host, path: "/api/v4/projects/" + GitLabClient.encodedProject(project) + "/releases",
                                             query: [URLQueryItem(name: "per_page", value: "20")])
         else { throw UpdateError.projectNotFound(.gitLab, project) }
-        let (data, response) = try await send(request(url, timeout: 15), listing: true)
-        guard let page = try? GitLabClient.decoder.decode([Lenient<ReleasePayload>].self, from: data) else {
-            throw UpdateError.badResponse(.gitLab, response.statusCode)
+        let (page, status) = try await HTTPJSON.decode([Lenient<ReleasePayload>].self, request(url, timeout: 15), session: session) {
+            mapped($0, listing: true)
         }
-        return try ReleasePage.newest(page.map { $0.value?.entry }, host: .gitLab, status: response.statusCode)
+        return try ReleasePage.newest(page.map { $0.value?.entry }, host: .gitLab, status: status)
     }
 
     /// Streamed to disk, not held in memory: the disk image is the whole app bundle.
     public func download(_ release: Release, to destination: URL) async throws {
-        let file: URL
-        do { (file, _) = try await HTTPJSON.download(request(release.assetURL, timeout: 300), session: session) }
-        catch { throw mapped(error, listing: false) }
-        let fm = FileManager.default
-        defer { try? fm.removeItem(at: file) }
-        do {
-            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
-            try fm.moveItem(at: file, to: destination)
-        } catch {
-            throw UpdateError.other(error.localizedDescription)
+        try await ReleaseDownload.save(request(release.assetURL, timeout: 300), to: destination, session: session) {
+            mapped($0, listing: false)
         }
     }
 
     private func request(_ url: URL, timeout: TimeInterval) -> URLRequest {
-        var req = URLRequest(url: url)
         // The asset link is whatever a release editor typed.
-        if url.isSameOrigin(as: host) { req.setValue(token, forHTTPHeaderField: "PRIVATE-TOKEN") }
-        req.timeoutInterval = timeout
-        return req
+        HTTPJSON.request(url, headers: url.isSameOrigin(as: host) ? ["PRIVATE-TOKEN": token] : [:], timeout: timeout)
     }
 
-    private func send(_ req: URLRequest, listing: Bool) async throws -> (Data, HTTPURLResponse) {
-        do { return try await HTTPJSON.send(req, session: session) }
-        catch { throw mapped(error, listing: listing) }
-    }
-
-    /// A 404 for the release list is the project; for a disk image it is only a bad link.
-    private func mapped(_ error: Error, listing: Bool) -> Error {
-        switch error {
-        case HTTPJSON.Failure.transport: return UpdateError.unreachable(host.host ?? host.absoluteString)
-        case HTTPJSON.Failure.status(401), HTTPJSON.Failure.status(403): return UpdateError.rejected
-        case HTTPJSON.Failure.status(404) where listing: return UpdateError.projectNotFound(.gitLab, project)
-        case HTTPJSON.Failure.status(let status): return UpdateError.badResponse(.gitLab, status)
-        default: return error
+    /// A 404 for the release list is the project; for a disk image it is only a bad link. A
+    /// listing that is no release list at all is a bad response, whatever its status.
+    private func mapped(_ failure: HTTPJSON.Failure, listing: Bool) -> UpdateError {
+        switch failure {
+        case .transport: return .unreachable(host.host ?? host.absoluteString)
+        case .status(401), .status(403): return .rejected
+        case .status(404) where listing: return .projectNotFound(.gitLab, project)
+        case .status(let status), .undecodable(let status): return .badResponse(.gitLab, status)
         }
     }
 }

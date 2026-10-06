@@ -109,28 +109,21 @@ public struct JiraClient: Sendable {
     private func suggestions(for queries: [String], scope: String, projectKeys: [String],
                              matching: @escaping @Sendable (String) -> Bool) async throws -> [String] {
         let currentJQL = (scope.isEmpty ? "" : scope + " ") + "ORDER BY updated DESC"
-        let lists = try await withThrowingTaskGroup(of: (Int, [String]).self) { group in
-            for (index, query) in queries.enumerated() {
-                group.addTask {
-                    let obj = try await send(request(path: "/rest/api/3/issue/picker", queryItems: [
-                        URLQueryItem(name: "query", value: query),
-                        URLQueryItem(name: "currentJQL", value: currentJQL),
-                        URLQueryItem(name: "showSubTasks", value: "true"),
-                    ]))
-                    guard let sections = obj["sections"] as? [[String: Any]] else { throw JiraError.decoding }
-                    return (index, sections.flatMap { section -> [String] in
-                        let issues = section["issues"] as? [[String: Any]] ?? []
-                        // Current Search keeps to currentJQL; History does not, so it is filtered here.
-                        let scoped = projectKeys.isEmpty || section["id"] as? String == "cs"
-                        return issues.compactMap { issue in
-                            guard let key = issue["key"] as? String, Self.issueKey(key) == key, matching(key),
-                                  scoped || projectKeys.contains(String(key[..<key.lastIndex(of: "-")!])) else { return nil }
-                            return key
-                        }
-                    })
+        let lists = try await Self.inOrder(queries) { query in
+            let picker = try await decode(PickerResponse.self, request(path: "/rest/api/3/issue/picker", queryItems: [
+                URLQueryItem(name: "query", value: query),
+                URLQueryItem(name: "currentJQL", value: currentJQL),
+                URLQueryItem(name: "showSubTasks", value: "true"),
+            ]))
+            return picker.sections.flatMap { section -> [String] in
+                // Current Search keeps to currentJQL; History does not, so it is filtered here.
+                let scoped = projectKeys.isEmpty || section.id == "cs"
+                return (section.issues ?? []).compactMap { issue in
+                    guard let key = issue.value?.key, Self.issueKey(key) == key, matching(key),
+                          scoped || projectKeys.contains(String(key[..<key.lastIndex(of: "-")!])) else { return nil }
+                    return key
                 }
             }
-            return try await group.reduce(into: Array(repeating: [String](), count: queries.count)) { $0[$1.0] = $1.1 }
         }
         var keys: [String] = []
         for rank in 0..<(lists.map(\.count).max() ?? 0) {
@@ -153,17 +146,37 @@ public struct JiraClient: Sendable {
         return keys.compactMap { byKey[$0] }
     }
 
-    /// One search per key, side by side, in `keys` order; a key Jira cannot resolve (400) finds nothing.
+    /// One search per key, a few at a time, in `keys` order; a key Jira cannot resolve (400) finds nothing.
     private func lookUp(_ keys: [String], jql: @escaping @Sendable (String) -> String, scope: String) async throws -> [JiraTicket] {
-        try await withThrowingTaskGroup(of: (Int, [JiraTicket]).self) { group in
-            for (index, key) in keys.enumerated() {
-                group.addTask {
-                    do { return (index, try await search(jql: Self.scoped(jql(key), in: scope))) }
-                    catch JiraError.badResponse(400) { return (index, []) }
-                }
-            }
-            return try await group.reduce(into: Array(repeating: [JiraTicket](), count: keys.count)) { $0[$1.0] = $1.1 }
+        try await Self.inOrder(keys) { key in
+            do { return try await search(jql: Self.scoped(jql(key), in: scope)) }
+            catch JiraError.badResponse(400) { return [] }
         }.flatMap { $0 }
+    }
+
+    /// How many requests one fan-out has in flight. A number across ten linked projects asks for
+    /// ten picker lists and ten lookups, which Jira answered with 429 when sent at once.
+    static let fanOut = 4
+
+    /// `body` for each of `items`, `width` at a time, and the results in the order of `items`. The
+    /// first failure cancels the bodies still running.
+    static func inOrder<Item: Sendable, Output: Sendable>(
+        _ items: [Item], width: Int = fanOut, _ body: @escaping @Sendable (Item) async throws -> Output
+    ) async throws -> [Output] {
+        try await withThrowingTaskGroup(of: (Int, Output).self) { group in
+            var pending = items.enumerated().makeIterator()
+            func startNext(in group: inout ThrowingTaskGroup<(Int, Output), Error>) {
+                guard let (index, item) = pending.next() else { return }
+                group.addTask { (index, try await body(item)) }
+            }
+            for _ in 0..<width { startNext(in: &group) }
+            var results = [Output?](repeating: nil, count: items.count)
+            while let (index, output) = try await group.next() {
+                results[index] = output
+                startNext(in: &group)
+            }
+            return results.compactMap { $0 }
+        }
     }
 
     /// `lists` in order, each ticket once, at most `maxResults`.
@@ -194,42 +207,33 @@ public struct JiraClient: Sendable {
         var startAt = 0
         var projects: [JiraProjectRef] = []
         while true {
-            let obj = try await send(request(path: "/rest/api/3/project/search", queryItems: [
+            let page = try await decode(ProjectPage.self, request(path: "/rest/api/3/project/search", queryItems: [
                 URLQueryItem(name: "startAt", value: String(startAt)),
                 URLQueryItem(name: "maxResults", value: String(pageSize)),
                 URLQueryItem(name: "orderBy", value: "name"),
             ]))
-            guard let values = obj["values"] as? [[String: Any]] else { throw JiraError.decoding }
-            projects += values.compactMap { value in
-                guard let id = value["id"] as? String, let key = value["key"] as? String,
-                      let name = value["name"] as? String else { return nil }
-                return JiraProjectRef(id: id, key: key, name: name, siteURL: config.siteURL)
-            }
-            startAt += values.count
-            let isLast = obj["isLast"] as? Bool
-            let total = obj["total"] as? Int
-            if isLast == true || values.isEmpty || total.map({ startAt >= $0 }) == true
-                || (isLast == nil && total == nil && values.count < pageSize) { break }
+            projects += page.values.compactMap(\.value).map { JiraProjectRef(id: $0.id, key: $0.key, name: $0.name, siteURL: config.siteURL) }
+            startAt += page.values.count
+            if page.isLast == true || page.values.isEmpty || page.total.map({ startAt >= $0 }) == true
+                || (page.isLast == nil && page.total == nil && page.values.count < pageSize) { break }
         }
         return projects
     }
 
     public func testConnection() async throws -> String {
-        let obj = try await get("/rest/api/3/myself")
-        return (obj["displayName"] as? String) ?? (obj["emailAddress"] as? String) ?? "connected"
+        let me = try await decode(Myself.self, request(path: "/rest/api/3/myself"))
+        return me.displayName ?? me.emailAddress ?? "connected"
     }
 
     func search(jql: String) async throws -> [JiraTicket] {
         var req = request(path: "/rest/api/3/search/jql"); req.httpMethod = "POST"
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["jql": jql, "maxResults": Self.maxResults, "fields": ["summary", "description", "status", "issuetype"]])
-        let obj = try await send(req)
-        guard let issues = obj["issues"] as? [[String: Any]] else { throw JiraError.decoding }
-        return issues.compactMap { issue in
-            guard let key = issue["key"] as? String, let f = issue["fields"] as? [String: Any], let summary = f["summary"] as? String else { return nil }
-            let desc = ADFText.plain(f["description"])
-            return JiraTicket(key: key, summary: summary, description: desc.isEmpty ? nil : desc,
-                              issueType: (f["issuetype"] as? [String: Any])?["name"] as? String, status: (f["status"] as? [String: Any])?["name"] as? String,
-                              url: config.siteURL.appendingPathComponent("browse/\(key)").absoluteString)
+        req.httpBody = try JSONEncoder().encode(SearchBody(jql: jql, maxResults: Self.maxResults,
+                                                           fields: ["summary", "description", "status", "issuetype"]))
+        return try await decode(SearchResponse.self, req).issues.compactMap(\.value).map { issue in
+            let description = ADFText.plain(issue.fields.description?.foundationValue)
+            return JiraTicket(key: issue.key, summary: issue.fields.summary, description: description.isEmpty ? nil : description,
+                              issueType: issue.fields.issuetype?.value?.name, status: issue.fields.status?.value?.name,
+                              url: config.siteURL.appendingPathComponent("browse/\(issue.key)").absoluteString)
         }
     }
 
@@ -254,27 +258,57 @@ public struct JiraClient: Sendable {
         scope.isEmpty ? jql : scope + " AND " + jql
     }
 
-    private func get(_ path: String) async throws -> [String: Any] { try await send(request(path: path)) }
-
     private func request(path: String, queryItems: [URLQueryItem] = []) -> URLRequest {
         let base = config.siteURL.appendingPathComponent(path)
-        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
-        if !queryItems.isEmpty { components?.queryItems = queryItems }
-        var req = URLRequest(url: components?.url ?? base)
-        req.setValue("Basic " + Data("\(config.email):\(config.token)".utf8).base64EncodedString(), forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-        return req
+        return HTTPJSON.request(HTTPJSON.url(base.absoluteString, query: queryItems) ?? base, headers: [
+            "Authorization": "Basic " + Data("\(config.email):\(config.token)".utf8).base64EncodedString(),
+            "Content-Type": "application/json", "Accept": "application/json",
+        ])
     }
 
-    private func send(_ req: URLRequest) async throws -> [String: Any] {
-        let data: Data
-        do { (data, _) = try await HTTPJSON.send(req, session: session) }
-        catch HTTPJSON.Failure.transport(let error) { throw JiraError.network(error.localizedDescription) }
-        catch HTTPJSON.Failure.status(let status) {
-            throw status == 401 || status == 403 ? JiraError.unauthorized : JiraError.badResponse(status)
-        }
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw JiraError.decoding }
-        return obj
+    /// Jira's own keys are camelCase, and an ADF description holds keys of its own, so no key strategy.
+    private func decode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
+        try await HTTPJSON.decode(type, request, session: session, decoder: JSONDecoder()) { failure in
+            switch failure {
+            case .transport(let error): return JiraError.network(error.localizedDescription)
+            case .undecodable: return .decoding
+            case .status(401), .status(403): return .unauthorized
+            case .status(let status): return .badResponse(status)
+            }
+        }.value
     }
 }
+
+private struct SearchBody: Encodable {
+    var jql: String, maxResults: Int, fields: [String]
+}
+
+/// A page of `/search/jql`: the issues that have a key and a summary, each other dropped alone.
+private struct SearchResponse: Decodable {
+    struct Issue: Decodable { var key: String, fields: Fields }
+    struct Fields: Decodable {
+        var summary: String
+        /// Atlassian Document Format, or plain text; `ADFText` reads either.
+        var description: StoredJSON?
+        var issuetype: Lenient<Named>?, status: Lenient<Named>?
+    }
+    struct Named: Decodable { var name: String? }
+    var issues: [Lenient<Issue>]
+}
+
+/// `/issue/picker`: its sections of suggested issue keys.
+private struct PickerResponse: Decodable {
+    struct Section: Decodable { var id: String?, issues: [Lenient<Suggestion>]? }
+    struct Suggestion: Decodable { var key: String }
+    var sections: [Section]
+}
+
+/// A page of `/project/search`. `values` keeps its malformed entries as empty ones, so `startAt`
+/// advances past them.
+private struct ProjectPage: Decodable {
+    struct Project: Decodable { var id: String, key: String, name: String }
+    var values: [Lenient<Project>]
+    var isLast: Bool?, total: Int?
+}
+
+private struct Myself: Decodable { var displayName: String?, emailAddress: String? }

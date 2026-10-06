@@ -31,12 +31,6 @@ public struct GitHubClient: Sendable {
     /// How many open pull requests one search reads, and how many it shows.
     static let readLimit = 100, shownLimit = 25
 
-    static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return decoder
-    }()
-
     public func testConnection() async throws -> String {
         struct User: Decodable { var login: String }
         return try await get(User.self, path: "/user", notFound: .badResponse(404)).login
@@ -69,27 +63,22 @@ public struct GitHubClient: Sendable {
 
     private func get<Payload: Decodable>(_ type: Payload.Type, path: String, query: [URLQueryItem] = [],
                                          notFound: GitHubError) async throws -> Payload {
-        var components = URLComponents(string: Self.api + path)
-        if !query.isEmpty { components?.queryItems = query }
-        guard let url = components?.url else { throw GitHubError.decoding }
-        var req = URLRequest(url: url)
-        req.setValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        req.timeoutInterval = 15
-        let data: Data
-        do { (data, _) = try await HTTPJSON.send(req, session: session) }
-        catch HTTPJSON.Failure.transport(let error) { throw GitHubError.network(error.localizedDescription) }
-        catch HTTPJSON.Failure.status(let status) {
-            switch status {
-            case 401: throw GitHubError.unauthorized
-            case 403: throw GitHubError.forbidden
-            case 404: throw notFound
-            default: throw GitHubError.badResponse(status)
-            }
+        guard let url = HTTPJSON.url(Self.api + path, query: query) else { throw GitHubError.decoding }
+        let request = HTTPJSON.request(url, headers: ["Authorization": "Bearer \(config.token)", "Accept": "application/vnd.github+json",
+                                                      "X-GitHub-Api-Version": "2022-11-28"])
+        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+    }
+
+    /// `notFound` is what a 404 means for the path asked.
+    static func error(for failure: HTTPJSON.Failure, notFound: GitHubError) -> GitHubError {
+        switch failure {
+        case .transport(let error): return .network(error.localizedDescription)
+        case .undecodable: return .decoding
+        case .status(401): return .unauthorized
+        case .status(403): return .forbidden
+        case .status(404): return notFound
+        case .status(let status): return .badResponse(status)
         }
-        guard let payload = try? Self.decoder.decode(Payload.self, from: data) else { throw GitHubError.decoding }
-        return payload
     }
 }
 

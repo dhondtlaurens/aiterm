@@ -61,9 +61,7 @@ public struct GitLabClient: Sendable {
     /// setting `queryItems` does not touch it, so the project's `%2F` survives — which assigning
     /// to `components.path` would not (it re-escapes the `%`).
     static func apiURL(host: URL, path: String, query: [URLQueryItem] = []) -> URL? {
-        guard var components = URLComponents(string: base(host) + path) else { return nil }
-        if !query.isEmpty { components.queryItems = query }
-        return components.url
+        HTTPJSON.url(base(host) + path, query: query)
     }
 
     /// The host as written in Settings, less its trailing slashes.
@@ -72,13 +70,6 @@ public struct GitLabClient: Sendable {
         while base.hasSuffix("/") { base.removeLast() }
         return base
     }
-
-    /// GitLab's payloads are snake_case.
-    static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return decoder
-    }()
 
     public func testConnection() async throws -> String {
         struct User: Decodable { var username: String }
@@ -118,22 +109,18 @@ public struct GitLabClient: Sendable {
     private func get<Payload: Decodable>(_ type: Payload.Type, path: String, query: [URLQueryItem] = [],
                                          notFound: GitLabError) async throws -> Payload {
         guard let url = Self.apiURL(host: config.hostURL, path: path, query: query) else { throw GitLabError.decoding }
-        var req = URLRequest(url: url)
-        req.setValue(config.token, forHTTPHeaderField: "PRIVATE-TOKEN")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 15
-        let data: Data
-        do { (data, _) = try await HTTPJSON.send(req, session: session) }
-        catch HTTPJSON.Failure.transport(let error) { throw GitLabError.network(error.localizedDescription) }
-        catch HTTPJSON.Failure.status(let status) {
-            switch status {
-            case 401, 403: throw GitLabError.unauthorized
-            case 404: throw notFound
-            default: throw GitLabError.badResponse(status)
-            }
+        let request = HTTPJSON.request(url, headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json"])
+        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+    }
+
+    static func error(for failure: HTTPJSON.Failure, notFound: GitLabError) -> GitLabError {
+        switch failure {
+        case .transport(let error): return .network(error.localizedDescription)
+        case .undecodable: return .decoding
+        case .status(401), .status(403): return .unauthorized
+        case .status(404): return notFound
+        case .status(let status): return .badResponse(status)
         }
-        guard let payload = try? Self.decoder.decode(Payload.self, from: data) else { throw GitLabError.decoding }
-        return payload
     }
 }
 

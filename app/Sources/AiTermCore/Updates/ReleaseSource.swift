@@ -20,6 +20,28 @@ public protocol ReleaseSource: Sendable {
     func download(_ release: Release, to destination: URL) async throws
 }
 
+/// The one download both hosts share: the request's body streamed to a temporary file, then moved
+/// to its place. The image is the whole app bundle, so it never sits in memory.
+enum ReleaseDownload {
+    /// `mapping` turns the request's failure into the host's `UpdateError`. A file that is already
+    /// at `destination` is replaced.
+    static func save(_ request: URLRequest, to destination: URL, session: URLSession,
+                     mapping: (HTTPJSON.Failure) -> UpdateError) async throws {
+        let file: URL
+        do { (file, _) = try await HTTPJSON.download(request, session: session) }
+        catch let failure as HTTPJSON.Failure { throw mapping(failure) }
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: file) }
+        do {
+            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+            try fm.moveItem(at: file, to: destination)
+        } catch {
+            throw UpdateError.other(error.localizedDescription)
+        }
+    }
+}
+
 /// Every way a check or an update can stop, each with the one line the alert shows.
 public enum UpdateError: Error, Equatable, LocalizedError {
     case noFeed, noToken, tokenForOtherHost(String, feed: String), rejected, projectNotFound(CodeHost, String), noRelease(CodeHost)

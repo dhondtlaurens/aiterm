@@ -35,3 +35,18 @@ public enum ADFText {
         }.joined()
     }
 }
+
+extension StoredJSON {
+    /// The value as `JSONSerialization` would have read it, which is what `ADFText` walks.
+    var foundationValue: Any {
+        switch self {
+        case .null: return NSNull()
+        case .bool(let value): return value
+        case .int(let value): return value
+        case .double(let value): return value
+        case .string(let value): return value
+        case .array(let values): return values.map(\.foundationValue)
+        case .object(let fields): return fields.mapValues(\.foundationValue)
+        }
+    }
+}
