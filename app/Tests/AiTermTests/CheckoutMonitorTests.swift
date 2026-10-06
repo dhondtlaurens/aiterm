@@ -97,7 +97,8 @@ struct CheckoutMonitorTests {
     /// It waits for the pass to be applied rather than for a deadline. Each step of a pass is a turn
     /// of the main actor, and under the parallel runner the hosted-view tests hold the main thread
     /// for seconds at a time, so the steps alone took most of a 10 s wait and sometimes all of it. A
-    /// monitor that never applies the pass hangs here instead, until the time limit fails it.
+    /// monitor that never applies the pass hangs here instead, until the time limit fails it: the
+    /// limit is only a backstop for that regression, not a time the pass is expected to take.
     @Test(.timeLimit(.minutes(1))) func aPassSlowerThanThePollIntervalStillAppliesItsResult() async throws {
         var state = AppState.empty
         state.append(project: project)
@@ -108,7 +109,7 @@ struct CheckoutMonitorTests {
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), pollInterval: .milliseconds(10),
                                       git: .hermetic(), workspace: workspace, removalInFlight: { _ in false },
                                       onRemotes: { _ in passApplied.yield() }, onRemovedTasks: { _ in }, onTitles: { _ in })
-        defer { monitor.stop() }
+        defer { monitor.stop(); passApplied.finish() }
 
         monitor.startMonitoring()
         for await _ in applied { break }
@@ -118,7 +119,12 @@ struct CheckoutMonitorTests {
 
     /// The pause counts from the end of a pass, not from its start: a slow pass is not followed
     /// at once by the next.
-    @Test func thePollWaitsTheIntervalAfterEachPassEnds() async throws {
+    ///
+    /// The gap is read off the scanner's own clock, from the first pass's end to the second's
+    /// start. Counting from when the test saw the first pass start, as it once did, flaked: under
+    /// the parallel runner that sighting could come late enough for the second pass to be due. As
+    /// in the test above, the time limit is only a backstop for a monitor that never polls again.
+    @Test(.timeLimit(.minutes(1))) func thePollWaitsTheIntervalAfterEachPassEnds() async throws {
         var state = AppState.empty
         state.append(project: project)
         let scans = ScanLog(delay: 0.1)
@@ -130,10 +136,11 @@ struct CheckoutMonitorTests {
         defer { monitor.stop() }
 
         monitor.startMonitoring()
-        try await waitForPass(1, of: scans)
-        try await Task.sleep(for: .milliseconds(300)) // Past the first pass's end, short of the interval after it.
+        for await started in scans.starts where started == 2 { break }
 
-        #expect(scans.started == 1)
+        let pause = scans.passes[1].start - (try #require(scans.passes[0].end))
+        // Counted from the first pass's start, the second would follow its end by 300 ms.
+        #expect(pause >= .milliseconds(400), "the second pass began \(pause) after the first ended")
     }
 
     /// What the pass read — the tabs' directories, the projects and the tasks — moved while it
@@ -288,8 +295,8 @@ private final class Script: @unchecked Sendable {
     }
 }
 
-/// What the scanner was asked, counted under a lock because it runs off the main actor. `holding`
-/// makes each pass wait for ``release()``; `delay` makes it take that many seconds.
+/// What the scanner was asked, and when, kept under a lock because it runs off the main actor.
+/// `holding` makes each pass wait for ``release()``; `delay` makes it take that many seconds.
 ///
 /// Unchecked because its stored `var`s are mutable: every access holds `lock`.
 private final class ScanLog: @unchecked Sendable {
@@ -297,32 +304,50 @@ private final class ScanLog: @unchecked Sendable {
     private let gate = DispatchSemaphore(value: 0)
     private let holding: Bool, delay: TimeInterval
     private var count = 0
-    private var passes: [WorkspaceScan] = []
+    private var results: [WorkspaceScan] = []
+    private var timings: [Timing] = []
+    private let startStream = AsyncStream.makeStream(of: Int.self)
+
+    /// When a pass started and, once it has, ended, by the scanner's clock.
+    struct Timing {
+        let start: ContinuousClock.Instant
+        var end: ContinuousClock.Instant?
+    }
 
     init(holding: Bool = false, delay: TimeInterval = 0) { self.holding = holding; self.delay = delay }
 
     var started: Int { lock.lock(); defer { lock.unlock() }; return count }
 
+    var passes: [Timing] { lock.lock(); defer { lock.unlock() }; return timings }
+
+    /// How many passes have started, each time one does.
+    var starts: AsyncStream<Int> { startStream.stream }
+
     func release() { gate.signal() }
 
     func scanner(_ passes: [WorkspaceScan]) -> CheckoutMonitor.Scanner {
-        lock.lock(); self.passes = passes; lock.unlock()
+        lock.lock(); results = passes; lock.unlock()
         return { [self] _, _, _, _, _, _, _ in
             let pass = begin()
             if holding, pass == 0 { _ = gate.wait(timeout: .now() + 10) }
             if delay > 0 { Thread.sleep(forTimeInterval: delay) }
-            return result(pass)
+            return end(pass)
         }
     }
 
     private func begin() -> Int {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         count += 1
-        return count - 1
+        timings.append(Timing(start: .now))
+        let started = count
+        lock.unlock()
+        startStream.continuation.yield(started)
+        return started - 1
     }
 
-    private func result(_ pass: Int) -> WorkspaceScan {
+    private func end(_ pass: Int) -> WorkspaceScan {
         lock.lock(); defer { lock.unlock() }
-        return passes[min(pass, passes.count - 1)]
+        timings[pass].end = .now
+        return results[min(pass, results.count - 1)]
     }
 }
