@@ -294,7 +294,9 @@ struct DiffStatResolverTests {
     /// An untracked file is counted once: what its lines came to is kept against its `lstat`, and
     /// it is read again only when that changes — its modification time, its size, or its change
     /// time, which a `chmod` moves and which a rewrite that put the old modification time back
-    /// cannot help moving.
+    /// cannot help moving. Stamping the modification time moves the change time too, so only the
+    /// `chmod` and the restored-time rewrite isolate the change time; the steps after them show
+    /// that a changed file is read again, not which field noticed.
     @Test func anUntrackedFileIsReadAgainOnlyWhenItsStatChanges() throws {
         let clock = TestClock(), reads = Reads()
         let (_, worktree) = try makeRepo()
@@ -308,20 +310,20 @@ struct DiffStatResolverTests {
         #expect(reads.total == 1, "the same stat, so the count that was kept")
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file)
         #expect(expired() == DiffStat(added: 2, removed: 0))
-        #expect(reads.total == 2, "a new change time is read again")
+        #expect(reads.total == 2, "a chmod moves only the change time, and that is read again")
         var before = stat()
         #expect(lstat(file, &before) == 0)
         let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: file))
         try handle.write(contentsOf: Data("a\n\n\n".utf8))
         try handle.close()
         setModified(file, to: before.st_mtimespec)
-        #expect(expired() == DiffStat(added: 3, removed: 0), "rewritten at the size and modification time it had")
+        #expect(expired() == DiffStat(added: 3, removed: 0), "rewritten at the size and modification time it had, only its change time moved")
         #expect(reads.total == 3)
         setModified(file, to: timespec(tv_sec: before.st_mtimespec.tv_sec + 2, tv_nsec: before.st_mtimespec.tv_nsec))
         #expect(expired() == DiffStat(added: 3, removed: 0))
-        #expect(reads.total == 4, "a new modification time is read again")
+        #expect(reads.total == 4, "a new modification time, which moves the change time with it, is read again")
         try write("a\n\n\n\n\n", to: file)
-        #expect(expired() == DiffStat(added: 5, removed: 0), "and so is a new size")
+        #expect(expired() == DiffStat(added: 5, removed: 0), "and so is a rewrite to a new size, which moves the modification and change times too")
         #expect(reads.total == 5)
     }
 
