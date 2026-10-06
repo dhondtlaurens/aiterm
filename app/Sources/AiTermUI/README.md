@@ -8,9 +8,11 @@ disagree, **this wins**.
 **Module boundary:** `AiTermUI` depends on nothing else in this package — not `AiTermCore`, not
 `AiTerm`. It must not import either. `AiTerm` depends on both `AiTermCore` and `AiTermUI`; the
 dependency only ever points that direction. `DesignRulesTests` reads the source for this, and for
-rule 1 below: an import of either, or a literal colour outside `Palette.swift`, fails the build. Its
-short list of exceptions each carries its reason. It scans `Sources/AiTermUI` only — the app
-target's views are held to rule 1 by review, not by that test.
+both rules below: an import of either in `AiTermUI` fails the build, and so does — in `AiTermUI`
+and the app alike, bar the app's snapshot renderer (`Snapshots/`) — a literal colour outside
+`Palette.swift`, a `Palette` member's `.opacity(…)`, a system text size outside `Metrics.swift`,
+or a padding, spacing, corner radius, offset or frame written as a number (zero aside). Its short
+list of exceptions each carries its reason.
 
 ## The two rules
 

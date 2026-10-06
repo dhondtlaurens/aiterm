@@ -1,56 +1,114 @@
 import Foundation
 import Testing
 
-/// The README's two boundaries, read off the source: nothing in `AiTermUI` imports the rest of the
-/// package, and no file but `Palette.swift` writes a literal colour. Every Swift file under
-/// `Sources/AiTermUI`, subfolders included, is read; the app target is not. Comments are skipped —
-/// a doc comment that names `.white` is not a violation — and string literals are too, so a `//`
-/// inside one (an SVG's `http://`) does not cut the line short.
+/// The README's boundaries, read off the source: nothing in `AiTermUI` imports the rest of the
+/// package, and no view writes a colour, a text size or a length of its own — the design system's
+/// components and the app's views alike. Every Swift file under `Sources/AiTermUI` and
+/// `Sources/AiTerm` is read, subfolders included, bar the app's `Snapshots/`: the debug renderer
+/// that draws a desktop around the app for the README's pictures, which is not the app. Comments
+/// are skipped — a doc comment that names `.white` is not a violation — and string literals are
+/// too, so a `//` inside one (an SVG's `http://`) does not cut the line short.
 struct DesignRulesTests {
-    /// A literal that is allowed where it stands, with the reason. Matched by file and by a piece of
-    /// the offending line, so an entry covers one site rather than a whole file.
+    /// What a view may not write, each with where its value comes from instead.
+    private enum Rule: String, CaseIterable {
+        /// Rule 1: a literal colour — a `Palette` member instead.
+        case colour
+        /// Rule 1: a colour derived from a token where it is used — a named `Palette` member instead.
+        case derivedColour
+        /// Rule 2: a text size of the system's rather than a `Typography` style.
+        case font
+        /// Rule 2: a padding, spacing, corner radius, offset or frame written as a number — a
+        /// `Metrics` member, or a view's own named one-off, instead. Zero is no size, and is allowed.
+        case length
+
+        var pattern: NSRegularExpression {
+            switch self {
+            case .colour: DesignRulesTests.colourLiteral
+            case .derivedColour: DesignRulesTests.derivedColour
+            case .font: DesignRulesTests.systemFont
+            case .length: DesignRulesTests.lengthLiteral
+            }
+        }
+
+        /// The one file that writes the rule's values, as a path under `Sources`.
+        var home: String? {
+            switch self {
+            case .colour: "AiTermUI/Palette.swift"
+            case .font: "AiTermUI/Metrics.swift"
+            case .derivedColour, .length: nil
+            }
+        }
+    }
+
+    /// A literal that is allowed where it stands, with the reason. Matched by file (a path under
+    /// `Sources`), rule and a piece of the offending line, so an entry covers one site rather than
+    /// a whole file. These are the README's one-offs: a shadow, a weight that shares a colour's
+    /// name, a stroke, and a glyph sized as a fraction of the mark or image it is drawn in.
     private struct Exception {
         let file: String
+        let rule: Rule
         let line: String
         let reason: String
     }
 
     private static let exceptions = [
-        Exception(file: "ControlChrome.swift", line: ".shadow(color: .black.opacity(",
+        Exception(file: "AiTermUI/ControlChrome.swift", rule: .colour, line: ".shadow(color: .black.opacity(",
                   reason: "a shadow's black is part of its geometry, which the README leaves untokenised"),
-        Exception(file: "Metrics.swift", line: "case .black: nsWeight = .black",
+        Exception(file: "AiTerm/Views/ToastView.swift", rule: .colour, line: ".shadow(color: .black.opacity(",
+                  reason: "the toast's shadow, as the panel's: a shadow is not tokenised"),
+        Exception(file: "AiTermUI/Metrics.swift", rule: .colour, line: "case .black: nsWeight = .black",
                   reason: "Font.Weight.black mapped to NSFont.Weight.black: a weight, not a colour"),
+        Exception(file: "AiTermUI/Hairline.swift", rule: .length, line: ".frame(height: 1)",
+                  reason: "the hairline is a one-point stroke, which does not scale, not a length on the scale"),
+        Exception(file: "AiTermUI/IconSource.swift", rule: .font, line: ".font(.system(size: size))",
+                  reason: "an SF Symbol drawn at the icon's size, which its caller passes from Metrics"),
+        Exception(file: "AiTermUI/Logos.swift", rule: .font, line: ".font(.system(size: size * 0.9",
+                  reason: "the SF Symbol standing in for a missing logo, sized as a fraction of that logo"),
+        Exception(file: "AiTerm/Views/VendorMark.swift", rule: .font, line: ".font(.system(size: size * 0.36",
+                  reason: "the shell mark's chevron, sized as a fraction of the mark it is drawn in"),
+        Exception(file: "AiTerm/DevBuildIcon.swift", rule: .font, line: "NSFont.systemFont(ofSize: side * letterSize",
+                  reason: "the DEV lettering drawn into the Dock icon, a fraction of whatever size the Dock asks for"),
     ]
 
     private static let colourLiteral = try! NSRegularExpression(
         pattern: #"\b(?:NS)?Color\((?:red|white|srgbRed|calibratedRed|deviceRed|calibratedWhite|deviceWhite|genericGamma22White|displayP3Red|hue|srgbHue|calibratedHue|deviceHue):|\b(?:NS)?Color\.(?:white|black)\b|(?<![\w)\]])\.(?:white|black)\b"#)
+    private static let derivedColour = try! NSRegularExpression(pattern: #"\bPalette\.[\w.]+\.opacity\("#)
+    private static let systemFont = try! NSRegularExpression(
+        pattern: #"\.system\(|\bNSFont\.\w*[sS]ystemFont\w*\(|\.font\(\.(?:largeTitle|title2?|title3|headline|subheadline|body|callout|footnote|caption2?)\b"#)
+    private static let lengthLiteral = try! NSRegularExpression(
+        pattern: #"(?:\.padding\((?:[^()]*,\s*)?|\b(?:spacing|cornerRadius):\s*|\.cornerRadius\(|\.offset\((?:[xy]:\s*)?|\.frame\([^)]*\b(?:width|height|minWidth|idealWidth|maxWidth|minHeight|idealHeight|maxHeight):\s*)-?(?:[1-9]\d*(?:\.\d+)?|0?\.\d*[1-9]\d*)\b"#)
     private static let foreignImport = try! NSRegularExpression(pattern: #"^\s*(?:@testable\s+)?import\s+AiTerm(?:Core)?\s*$"#)
 
     @Test func aiTermUIImportsNothingElseInThePackage() throws {
-        let violations = try Self.sources().flatMap { file, lines in
+        let violations = try Self.sources().filter { $0.file.hasPrefix("AiTermUI/") }.flatMap { file, lines in
             lines.filter { Self.matches(Self.foreignImport, $0.code) }.map { "\(file):\($0.number): \($0.code)" }
         }
         #expect(violations.isEmpty, "AiTermUI must not import AiTermCore or AiTerm: \(violations)")
     }
 
-    @Test func onlyPaletteWritesALiteralColour() throws {
+    @Test func noViewWritesItsOwnColourTextSizeOrLength() throws {
         var used = Set<String>()
         var violations: [String] = []
-        for (file, lines) in try Self.sources() where file != "Palette.swift" {
-            for line in lines where Self.matches(Self.colourLiteral, line.code) {
-                if let exception = Self.exceptions.first(where: { $0.file == file && line.code.contains($0.line) }) {
-                    used.insert(exception.line)
-                } else {
-                    violations.append("\(file):\(line.number): \(line.code.trimmingCharacters(in: .whitespaces))")
+        for (file, lines) in try Self.sources() {
+            for line in lines {
+                for rule in Rule.allCases where rule.home != file && Self.matches(rule.pattern, line.code) {
+                    if let exception = Self.exceptions.first(where: { $0.file == file && $0.rule == rule && line.code.contains($0.line) }) {
+                        used.insert("\(exception.file): \(exception.line)")
+                    } else {
+                        violations.append("\(file):\(line.number): \(rule): \(line.code.trimmingCharacters(in: .whitespaces))")
+                    }
                 }
             }
         }
-        #expect(violations.isEmpty, "a literal colour outside Palette.swift — name it in Palette: \(violations)")
-        let stale = Self.exceptions.filter { !used.contains($0.line) }.map { "\($0.file): \($0.line)" }
+        #expect(violations.isEmpty, """
+            a colour that is not a Palette member, or a text size or length that is not a Metrics one — \
+            name it there (or, for one view's own geometry, in a private static let with its reason): \(violations)
+            """)
+        let stale = Self.exceptions.map { "\($0.file): \($0.line)" }.filter { !used.contains($0) }
         #expect(stale.isEmpty, "exceptions that no longer match anything — remove them: \(stale)")
     }
 
-    /// The patterns themselves, so a regex that quietly matches nothing cannot pass the two scans.
+    /// The patterns themselves, so a regex that quietly matches nothing cannot pass the scans.
     @Test func thePatternsCatchWhatTheyAreFor() {
         for literal in ["Circle().fill(.white)", "Color.black.opacity(0.4)", "Color(red: 1, green: 0, blue: 0)",
                         ".foregroundStyle(Color.white)", "NSColor.white", "x ? .white : .clear", "Color(white: 0.5)",
@@ -60,6 +118,25 @@ struct DesignRulesTests {
         }
         for fine in ["Palette.onAccent", "surface.ink", ".whitespaces", "Color(nsColor: .labelColor)", "blackBox"] {
             #expect(!Self.matches(Self.colourLiteral, fine), "flagged \(fine)")
+        }
+        #expect(Self.matches(Self.derivedColour, ".fill(Palette.accent.opacity(0.2))"))
+        #expect(!Self.matches(Self.derivedColour, ".fill(Palette.accentPressed)"))
+        for literal in [".font(.system(size: 12))", "Font.system(.body)", ".font(.caption)", ".font(.title2)",
+                        "NSFont.systemFont(ofSize: 13)", "NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)"] {
+            #expect(Self.matches(Self.systemFont, literal), "missed \(literal)")
+        }
+        for fine in [".font(Typography.body)", "Image(systemName: \"x\")", "Typography.caption.font"] {
+            #expect(!Self.matches(Self.systemFont, fine), "flagged \(fine)")
+        }
+        for literal in [".padding(8)", ".padding(.horizontal, 12)", ".padding([.top, .bottom], 4)", "VStack(spacing: 6)",
+                        "RoundedRectangle(cornerRadius: 6)", ".cornerRadius(4)", ".offset(y: -2)", ".offset(x: 0.5)",
+                        ".frame(width: 18, height: 18)", ".frame(maxWidth: .infinity, minHeight: 24)"] {
+            #expect(Self.matches(Self.lengthLiteral, literal), "missed \(literal)")
+        }
+        for fine in [".padding(Space.base)", ".padding(.horizontal, scale(Space.gap))", "HStack(spacing: 0)",
+                     "RoundedRectangle(cornerRadius: Radius.chip)", ".frame(width: size * 0.2)", ".offset(x: size * fit.dx)",
+                     ".frame(maxWidth: .infinity)", ".strokeBorder(Palette.border, lineWidth: 1)", ".frame(width: 0)"] {
+            #expect(!Self.matches(Self.lengthLiteral, fine), "flagged \(fine)")
         }
         #expect(Self.code(#"let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>"; Color.white // note"#)
                     .contains("Color.white"), "a // inside a string cut the line")
@@ -79,7 +156,7 @@ struct DesignRulesTests {
     /// `line` with any `//` comment removed. A `//` inside a string literal is text, not a comment:
     /// in a plain string an escaped quote does not end it, and a raw string (`#"…"#`, `##"…"##`)
     /// ends only at a quote followed by as many `#` as opened it. Multi-line strings and `/* */`
-    /// blocks are not in this module's sources, so they are not modelled.
+    /// blocks are not in the scanned sources, so they are not modelled.
     static func code(_ line: String) -> String {
         let chars = Array(line)
         var i = 0
@@ -107,14 +184,19 @@ struct DesignRulesTests {
         return line
     }
 
-    /// Every Swift file under `Sources/AiTermUI`, by its path there, as numbered lines of code.
+    /// Every Swift file the rules hold for, by its path under `Sources`, as numbered lines of code:
+    /// all of `AiTermUI`, and the app bar its snapshot renderer.
     private static func sources() throws -> [(file: String, lines: [(number: Int, code: String)])] {
         let directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/AiTermUI")
-        let enumerator = try #require(FileManager.default.enumerator(atPath: directory.path))
-        let files = enumerator.compactMap { $0 as? String }.filter { $0.hasSuffix(".swift") }.sorted()
-        #expect(files.contains("Palette.swift"), "the scan is not reading AiTermUI")
+            .appendingPathComponent("Sources")
+        let files = try ["AiTermUI", "AiTerm"].flatMap { module in
+            let enumerator = try #require(FileManager.default.enumerator(atPath: directory.appendingPathComponent(module).path))
+            return enumerator.compactMap { $0 as? String }.filter { $0.hasSuffix(".swift") && !$0.hasPrefix("Snapshots/") }
+                .map { "\(module)/\($0)" }
+        }.sorted()
+        #expect(files.contains("AiTermUI/Palette.swift") && files.contains("AiTerm/Views/SidebarView.swift"),
+                "the scan is not reading AiTermUI and the app's views")
         return try files.map { file in
             let source = try String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8)
             let lines = source.components(separatedBy: "\n").enumerated().map { index, line in
