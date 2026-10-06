@@ -80,7 +80,7 @@ final class Notices {
 
     /// Drops whatever is about task `id`, shown or held back — the held one first, so taking the
     /// shown one down cannot put it up in its place. For work that did what the banner asked.
-    func clearIssues(about id: UUID) {
+    func dropIssues(about id: UUID) {
         if deferredIssue?.subject == id { deferredIssue = nil }
         if issue?.subject == id { clearIssue() }
     }

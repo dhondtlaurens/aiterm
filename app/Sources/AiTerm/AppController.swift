@@ -949,7 +949,7 @@ final class AppController {
                 try await openWindow(for: current, command: nil, with: daemon)
                 // "Kept; choose Reopen Window" was asking for exactly this.
                 clearStoppedNote(of: task.id)
-                notices.clearIssues(about: task.id)
+                notices.dropIssues(about: task.id)
             } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
     }
