@@ -5,12 +5,12 @@ extension Harness {
     static let claude = Harness(
         agent: .claude, executable: "claude", displayName: "Claude Code",
         installCommand: "curl -fsSL https://claude.ai/install.sh | bash",
-        fallbackEfforts: ModelCatalog.claudeEfforts, defaultEffort: "high",
+        fallbackEfforts: ModelFiles.claudeEfforts, defaultEffort: "high",
         noModelsExplanation: "No models are available.",
         skillSigil: "/", hookEndpoint: "/hook/claude",
         bundledResource: .script("claude-statusline-shim.sh"),
         launchArguments: { model, reasoning in ["--model", model] + (reasoning.map { ["--effort", $0] } ?? []) },
-        models: .files(sources: { ModelCatalog.claudeSources(home: $0) }, read: { ModelCatalog.claudeModels(home: $0) }),
+        models: .files(sources: { ModelFiles.claudeSources(home: $0) }, read: { ModelFiles.claudeModels(home: $0) }),
         skillRoots: { home, project in
             // Claude Code, like Grok, keeps a `user-invocable: false` skill out of its `/` menu.
             let user = home.appendingPathComponent(".claude")
@@ -28,7 +28,7 @@ extension Harness {
     static let codex = Harness(
         agent: .codex, executable: "codex", displayName: "Codex",
         installCommand: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-        fallbackEfforts: ModelCatalog.codexEfforts, defaultEffort: "medium",
+        fallbackEfforts: ModelFiles.codexEfforts, defaultEffort: "medium",
         noModelsExplanation: "No models are available.",
         // Codex runs a skill as a `$` mention and keeps `/` for its commands, `/prompts:<name>`
         // among them.
@@ -37,7 +37,7 @@ extension Harness {
         launchArguments: { model, reasoning in
             ["--dangerously-bypass-approvals-and-sandbox", "-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
         },
-        models: .files(sources: { ModelCatalog.codexSources(home: $0) }, read: { ModelCatalog.codexModels(home: $0) }),
+        models: .files(sources: { ModelFiles.codexSources(home: $0) }, read: { ModelFiles.codexModels(home: $0) }),
         skillRoots: { home, project in
             // Codex follows the Agent Skills standard, `.agents/skills` in the home and the repo.
             // Its own home still holds the built-ins (`skills/.system`), what its skill installer

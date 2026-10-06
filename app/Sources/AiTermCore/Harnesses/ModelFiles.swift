@@ -1,6 +1,10 @@
 import Foundation
 
-public enum ModelCatalog {
+/// Claude's and Codex's model lists, read from the files each CLI keeps them in — its own catalogue
+/// cache and its settings — with the fallbacks used when there are none. `ModelCatalogue` is what
+/// keeps the lists read, for every agent; these are two of the readers it calls, through each
+/// harness's `ModelListing`.
+public enum ModelFiles {
     public static let claudeAliases = ["opus", "sonnet", "fable", "haiku"]
     public static let claudeEfforts = ["low", "medium", "high"]
     public static let codexEfforts = ["minimal", "low", "medium", "high", "xhigh"]
