@@ -279,7 +279,7 @@ enum Snapshots {
             VStack(alignment: .leading, spacing: Space.hairline) { sidebarRows() }
                 .padding(.horizontal, Space.inset)
             Spacer()
-            UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
+            UsageFooter(task: controller.rows.usageRow(for: controller.focus.selection),
                         rows: SidebarModel.usageVendorRows(controller.live.usage, now: clock.now, calendar: clock.calendar))
         }
         // The rows' 10 pt inset stands in for the List's. The footer is a direct child of the real
@@ -296,7 +296,7 @@ enum Snapshots {
             write(VStack(alignment: .leading, spacing: scale(Space.hairline)) {
                 VStack(alignment: .leading, spacing: scale(Space.hairline)) { sidebarRows() }
                     .padding(.horizontal, scale(Space.inset))
-                UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
+                UsageFooter(task: controller.rows.usageRow(for: controller.focus.selection),
                             rows: SidebarModel.usageVendorRows(controller.live.usage, now: clock.now, calendar: clock.calendar))
             }
             .frame(width: scale(Size.sidebarWidth) + 2 * scale(Space.inset))
@@ -306,7 +306,7 @@ enum Snapshots {
         }
         // A task stacking two providers draws only its active tab's provider.
         controller.focus.browse(.task(working.id))
-        write(UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
+        write(UsageFooter(task: controller.rows.usageRow(for: controller.focus.selection),
                           rows: SidebarModel.usageVendorRows(controller.live.usage, now: clock.now, calendar: clock.calendar))
             .frame(width: Size.sidebarWidth)
             .background(Palette.sidebar), to: out.appendingPathComponent("usage-footer-agents.png"))

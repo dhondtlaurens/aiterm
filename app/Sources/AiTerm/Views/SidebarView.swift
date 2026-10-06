@@ -21,28 +21,26 @@ extension EnvironmentValues {
 
 struct SidebarView: View {
     /// Every view below reads the controller directly: with Observation each one re-renders for the
-    /// properties it read, not for every change. So the toast and the sheet are views of their own —
-    /// read here, either would re-run this body, and the list's model with it, on every change.
+    /// properties it read, not for every change. So the toast, the sheet and the footer are views of
+    /// their own — read here, any of them would re-run this body on every change to it. The list
+    /// reads `controller.rows`, which changes only when a row does: not the workspace, whose sidebar
+    /// frame and remembered choices no row draws.
     let controller: AppController
     /// The row that starts hovered, for tests and snapshots that draw one.
     var hovered: UUID?
-    @Environment(\.footerClock) private var footerClock
 
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
+        let rows = controller.rows
         VStack(spacing: 0) {
             SidebarBanners(controller: controller)
             ScrollViewReader { scroller in
                 List(selection: selection) {
                     SidebarHeader(controller: controller).selectionDisabled()
-                    if !controller.state.hasProjects {
+                    if !rows.hasProjects {
                         SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
                     }
-                    let tasks = Dictionary(controller.state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                    let terminals = Dictionary(controller.state.terminals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                    ForEach(SidebarModel.entries(state: controller.state, sessions: controller.live.rowSessions,
-                                                 branchByCwd: controller.checkouts.branchByCwd, projectBranch: controller.checkouts.projectBranch,
-                                                 diffByTask: controller.checkouts.diffByTask)) { entry in
+                    ForEach(rows.entries) { entry in
                         switch entry {
                         case .divider(let divider):
                             DividerRow(entry: divider, controller: controller).selectionDisabled()
@@ -51,11 +49,11 @@ struct SidebarView: View {
                             ProjectHeaderRow(section: section, controller: controller).tag(section.project.id)
                             if !section.collapsed {
                                 ForEach(section.terminals) { row in
-                                    TerminalRowView(row: row, terminal: terminals[row.id], project: section.project, controller: controller)
+                                    TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
                                         .tag(row.id)
                                 }
                                 ForEach(section.tasks) { row in
-                                    TaskRowView(row: row, task: tasks[row.id], hovered: hovered == row.id, controller: controller)
+                                    TaskRowView(row: row, task: rows.tasks[row.id], hovered: hovered == row.id, controller: controller)
                                         .tag(row.id)
                                 }
                             }
@@ -90,15 +88,7 @@ struct SidebarView: View {
                     RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(id) } }
                 })
             }
-            // The rows depend on the clock — a window that has reset is dropped, and a reset time
-            // gains its weekday across midnight — so they are recomputed on the minute, not only
-            // when the usage changes.
-            TimelineView(.everyMinute) { context in
-                UsageFooter(task: controller.live.usageRow(for: controller.focus.selection),
-                            rows: SidebarModel.usageVendorRows(controller.live.usage, now: footerClock?.now ?? context.date,
-                                                               calendar: footerClock?.calendar ?? .current,
-                                                               claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
-            }
+            SidebarUsageFooter(controller: controller)
         }
         .overlay(alignment: .bottom) { SidebarToast(controller: controller) }
         .frame(minWidth: scale(Size.sidebarMinWidth))
@@ -115,6 +105,37 @@ struct SidebarView: View {
     /// commits through the row's tap.
     private var selection: Binding<UUID?> {
         Binding(get: { controller.focus.selection?.id }, set: { controller.focus.peek(id: $0) })
+    }
+}
+
+/// The usage footer. The vendor rows are worked out here, from the usage, whether Claude's status
+/// line is AiTerm's, and the minute; the selected row's CONTEXT row in ``SelectedRowUsageFooter``,
+/// which alone reads the tabs, the context fills and the selection — so a session event redraws
+/// the footer without working out the vendor rows again.
+struct SidebarUsageFooter: View {
+    let controller: AppController
+    @Environment(\.footerClock) private var footerClock
+
+    var body: some View {
+        // The rows depend on the clock — a window that has reset is dropped, and a reset time
+        // gains its weekday across midnight — so they are recomputed on the minute, not only
+        // when the usage changes.
+        TimelineView(.everyMinute) { context in
+            SelectedRowUsageFooter(controller: controller,
+                                   vendors: SidebarModel.usageVendorRows(controller.live.usage, now: footerClock?.now ?? context.date,
+                                                                         calendar: footerClock?.calendar ?? .current,
+                                                                         claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
+        }
+    }
+}
+
+/// ``UsageFooter`` with the selected row's CONTEXT row above the vendor rows it is handed.
+struct SelectedRowUsageFooter: View {
+    let controller: AppController
+    let vendors: [UsageVendorRow]
+
+    var body: some View {
+        UsageFooter(task: controller.rows.usageRow(for: controller.focus.selection), rows: vendors)
     }
 }
 

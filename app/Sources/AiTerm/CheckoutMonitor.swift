@@ -59,13 +59,17 @@ final class CheckoutMonitor {
     private let onRemotes: @MainActor ([UUID: WorkspaceScan.Remote]) -> Void
     private let onRemovedTasks: @MainActor ([TaskItem]) -> Void
     private let onTitles: @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void
+    /// Who hears that a map the sidebar's rows are drawn from — `branchByCwd`, `projectBranch`,
+    /// `diffByTask` — changed: once for each pass or call that changed any of them.
+    private let rowsChanged: @MainActor () -> Void
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
          workspace: WorkspaceStore,
          removalInFlight: @escaping @MainActor (UUID) -> Bool,
          onRemotes: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void,
          onRemovedTasks: @escaping @MainActor ([TaskItem]) -> Void,
-         onTitles: @escaping @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void) {
+         onTitles: @escaping @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void,
+         rowsChanged: @escaping @MainActor () -> Void = {}) {
         self.live = live
         self.scan = scan
         self.pollInterval = pollInterval
@@ -80,6 +84,7 @@ final class CheckoutMonitor {
         self.onRemotes = onRemotes
         self.onRemovedTasks = onRemovedTasks
         self.onTitles = onTitles
+        self.rowsChanged = rowsChanged
     }
 
     /// Polls the saved checkouts until `stop()`, even when neither the agent nor the daemon sends
@@ -145,10 +150,10 @@ final class CheckoutMonitor {
                 }
                 guard !Task.isCancelled, let scan = scanned else { return }
                 guard inputs == ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd)) else { continue }
-                applyScan(scan)
+                let branchesMoved = applyScan(scan)
                 onRemotes(scan.remotes)
                 onRemovedTasks(scan.removedTasks)
-                retainDiffsDuringRemoval(scan)
+                if retainDiffsDuringRemoval(scan) || branchesMoved { rowsChanged() }
                 syncTitles(scan)
                 if !trailingPassOwed { return }
             }
@@ -162,34 +167,44 @@ final class CheckoutMonitor {
 
     /// A removal that stopped after its checkout went shows the row's diff as missing, rather than
     /// the one held while the removal ran.
-    func dropDiff(for id: UUID) { diffByTask.removeValue(forKey: id) }
+    func dropDiff(for id: UUID) {
+        guard diffByTask.removeValue(forKey: id) != nil else { return }
+        rowsChanged()
+    }
 
     #if DEBUG
     /// The snapshot renderer's checkouts, shown before its first pass (which reports the same) ends.
     func seedSnapshotFixture(_ scan: WorkspaceScan) {
         applyScan(scan)
         diffByTask = scan.diffByTask
+        rowsChanged()
     }
     #endif
 
     /// The monitor runs a pass every two seconds and nearly every pass finds nothing new. An
-    /// unconditional write still tells every observer it changed, re-rendering the sidebar.
-    private func applyScan(_ scan: WorkspaceScan) {
+    /// unconditional write still tells every observer it changed, re-rendering the sidebar. Says
+    /// whether a branch the rows draw moved.
+    @discardableResult
+    private func applyScan(_ scan: WorkspaceScan) -> Bool {
         if missingCheckouts != scan.missingCheckouts { missingCheckouts = scan.missingCheckouts }
-        if branchByCwd != scan.branchByCwd { branchByCwd = scan.branchByCwd }
-        if projectBranch != scan.projectBranch { projectBranch = scan.projectBranch }
         if defaultBranch != scan.defaultBranch { defaultBranch = scan.defaultBranch }
+        var moved = false
+        if branchByCwd != scan.branchByCwd { branchByCwd = scan.branchByCwd; moved = true }
+        if projectBranch != scan.projectBranch { projectBranch = scan.projectBranch; moved = true }
+        return moved
     }
 
     /// Keep the badge steady while removal is in flight, even if a later scan
     /// cannot re-confirm deletion because the checkout's parent goes offline.
-    /// Once removal fails, the row remains and the missing diff is shown.
-    private func retainDiffsDuringRemoval(_ scan: WorkspaceScan) {
+    /// Once removal fails, the row remains and the missing diff is shown. Says whether a diff changed.
+    private func retainDiffsDuringRemoval(_ scan: WorkspaceScan) -> Bool {
         var next = scan.diffByTask
         for id in scan.missingCheckouts where removalInFlight(id) {
             if let previous = diffByTask[id] { next[id] = previous }
         }
-        if diffByTask != next { diffByTask = next }
+        guard diffByTask != next else { return false }
+        diffByTask = next
+        return true
     }
 
     /// The titles read the tabs as they are after the pass, which can have moved while it ran. One

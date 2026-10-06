@@ -53,7 +53,9 @@ Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  Hoo
   branch, off the main actor. That is a `stat` of each directory's `HEAD` file — in a reftable
   repository, of its ref stack's `tables.list` — and git runs only the first time a directory is
   seen. A new context fill, state or model does not rescan, and a context fill, model or tab title
-  does not redraw the rows either: they read `LiveSessions.rowSessions`, which leaves those out.
+  does not redraw the rows either: they are derived from `LiveSessions.rowSessions`, which leaves
+  those out — and so is the Dock badge. Nor does a sidebar move or a remembered agent and model,
+  which the workspace saves but no row draws.
 
 ## Inside the app
 
@@ -69,6 +71,7 @@ owner each, reached as a property of the controller. Views read the owners direc
 | `RowFocus` | `focus` | the selected row — a project header, a task or a terminal — and the request that brings its window forward — a click, Return, a peek — each returned as its `Task` |
 | `LiveSessions` | `live` | every tab the daemon reports, usage, and each row's last context fill |
 | `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and 2 s after the last pass ends |
+| `SidebarRows` | `rows` | the sidebar's rows, derived from the workspace, `live.rowSessions` and the checkouts only when one of them changes what a row draws; the list, the Dock badge, Focus View and List View all read them |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the tab titles it sends after each checkout pass |
 
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the

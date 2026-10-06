@@ -11,6 +11,14 @@ enum RowSelection: Equatable {
         case .project(let id), .task(let id), .terminal(let id): return id
         }
     }
+
+    /// A task's or a terminal's row, selected.
+    init(_ row: RowID) {
+        switch row {
+        case .task(let id): self = .task(id)
+        case .terminal(let id): self = .terminal(id)
+        }
+    }
 }
 
 /// Which sidebar row is selected, and bringing its window forward. Browsing — an arrow key, a new

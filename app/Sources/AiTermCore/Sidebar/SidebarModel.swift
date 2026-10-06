@@ -101,17 +101,40 @@ public enum SidebarEntry: Equatable, Identifiable, Sendable {
 /// clears — the context fill, which is emptied by compaction rather than by the clock.
 /// `resetInFull` is the same time with its weekday spelt out, for `help`.
 public struct UsageLine: Equatable, Sendable {
-    public var label: String; public var percent: Int; public var reset: String?; public var warning: Bool
+    /// What a segment measures: a conversation's context fill, or one of a vendor's account
+    /// windows. The footer prints `shortLabel`; the tooltip and VoiceOver say `name`.
+    public enum Window: Equatable, Sendable {
+        case context, weekly, fiveHour
+
+        /// The glyphs before the ring: `ctx`, `wk`, `5h`.
+        public var shortLabel: String {
+            switch self {
+            case .context: "ctx"
+            case .weekly: "wk"
+            case .fiveHour: "5h"
+            }
+        }
+
+        /// The window in words: "Context", "Weekly limit", "5-hour limit".
+        public var name: String {
+            switch self {
+            case .context: "Context"
+            case .weekly: "Weekly limit"
+            case .fiveHour: "5-hour limit"
+            }
+        }
+    }
+
+    public var window: Window; public var percent: Int; public var reset: String?; public var warning: Bool
     public var resetInFull: String? = nil
 
     /// The segment in words — its tooltip and its VoiceOver label: "Weekly limit, 61 % used, resets
     /// Friday 23:33", or "Context 84 % full".
     public var help: String {
-        switch label {
-        case "ctx": return "Context \(percent) % full"
-        default:
-            let name = label == "wk" ? "Weekly limit" : label == "5h" ? "5-hour limit" : label
-            return "\(name), \(percent) % used" + ((resetInFull ?? reset).map { ", resets \($0)" } ?? "")
+        switch window {
+        case .context: return "\(window.name) \(percent) % full"
+        case .weekly, .fiveHour:
+            return "\(window.name), \(percent) % used" + ((resetInFull ?? reset).map { ", resets \($0)" } ?? "")
         }
     }
 }
@@ -127,6 +150,18 @@ public struct UsageVendorRow: Equatable, Sendable {
 public struct UsageTaskRow: Equatable, Sendable {
     public var agent: SessionAgent; public var context: UsageLine?
     public init(agent: SessionAgent, context: UsageLine?) { self.agent = agent; self.context = context }
+}
+
+/// A sidebar row that can have a window: a task (or review), or a terminal. Focus View steps
+/// through them, and the Dock badge counts them.
+public enum RowID: Hashable, Sendable {
+    case task(UUID), terminal(UUID)
+
+    public var id: UUID {
+        switch self {
+        case .task(let id), .terminal(let id): id
+        }
+    }
 }
 
 public enum SidebarModel {
@@ -172,17 +207,15 @@ public enum SidebarModel {
     /// needs-input row, terminals included, in the order the sidebar draws them: projects top to
     /// bottom, and within one its terminals above its tasks. `skippingTasks` are passed over — the
     /// app's, for tasks on their way out. Focus View goes to the first; the Dock badge counts them.
-    public static func needingAttention(_ sections: [ProjectSection],
-                                        skippingTasks: Set<UUID> = []) -> [(id: UUID, isTerminal: Bool)] {
+    public static func needingAttention(_ sections: [ProjectSection], skippingTasks: Set<UUID> = []) -> [RowID] {
         sections.flatMap { section in
-            section.terminals.filter { $0.status.needsAttention }.map { (id: $0.id, isTerminal: true) }
-                + section.tasks.filter { $0.status.needsAttention && !skippingTasks.contains($0.id) }.map { (id: $0.id, isTerminal: false) }
+            section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
+                + section.tasks.filter { $0.status.needsAttention && !skippingTasks.contains($0.id) }.map { RowID.task($0.id) }
         }
     }
 
     /// The first of `needingAttention`: where Focus View goes.
-    public static func firstNeedingAttention(_ sections: [ProjectSection],
-                                             skippingTasks: Set<UUID> = []) -> (id: UUID, isTerminal: Bool)? {
+    public static func firstNeedingAttention(_ sections: [ProjectSection], skippingTasks: Set<UUID> = []) -> RowID? {
         needingAttention(sections, skippingTasks: skippingTasks).first
     }
 
@@ -258,8 +291,11 @@ public enum SidebarModel {
     public static func entries(state: AppState, sessions: [SessionInfo],
                                branchByCwd: [String: String], projectBranch: [UUID: String],
                                diffByTask: [UUID: DiffStat] = [:]) -> [SidebarEntry] {
-        // Grouped once for every row, rather than filtered per task and per terminal.
+        // Grouped once for every row, rather than filtered per task and per terminal — and the
+        // rows by project once, rather than filtered again for every project.
         let tabs = Tabs(byTask: Dictionary(grouping: sessions, by: \.taskUUID), byWindow: Dictionary(grouping: sessions, by: \.windowId))
+        let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
+                        terminals: Dictionary(grouping: state.terminals, by: \.projectId))
         // A row only a newer build can draw is skipped, and does not count as an end to move towards.
         let drawn = state.items.indices.filter { state.items[$0].isDrawn }
         let first = drawn.first ?? 0, last = drawn.last ?? 0
@@ -268,7 +304,7 @@ public enum SidebarModel {
             case .unknown: return nil
             case .divider(let d): return .divider(DividerEntry(divider: d, canMoveUp: index > first, canMoveDown: index < last))
             case .project(let project):
-                var section = section(project: project, state: state, tabs: tabs,
+                var section = section(project: project, rows: rows, tabs: tabs,
                                       branchByCwd: branchByCwd, projectBranch: projectBranch, diffByTask: diffByTask)
                 section.canMoveUp = index > first; section.canMoveDown = index < last
                 return .project(section)
@@ -279,6 +315,8 @@ public enum SidebarModel {
     /// The session list as the rows look it up: a task's tabs by their tag, a terminal's by its window.
     /// Untagged tabs sit under `nil`, which no task asks for.
     private struct Tabs { var byTask: [UUID?: [SessionInfo]], byWindow: [String: [SessionInfo]] }
+    /// The workspace's tasks and terminals by project, each list in the workspace's order.
+    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]] }
 
     /// The project-only view of `entries`, for the callers that never draw a divider.
     public static func sections(state: AppState, sessions: [SessionInfo],
@@ -288,10 +326,10 @@ public enum SidebarModel {
             .compactMap { if case .project(let s) = $0 { return s } else { return nil } }
     }
 
-    private static func section(project: Project, state: AppState, tabs: Tabs,
+    private static func section(project: Project, rows: Rows, tabs: Tabs,
                                 branchByCwd: [String: String], projectBranch: [UUID: String],
                                 diffByTask: [UUID: DiffStat]) -> ProjectSection {
-        let projectTasks = state.tasks.filter { $0.projectId == project.id }
+        let projectTasks = rows.tasks[project.id] ?? []
         // Keep both lanes in creation order, but never let a newly-created task land below reviews.
         // `nil` is the legacy representation of a task, so only an explicit `.review` belongs in
         // the second lane.
@@ -304,7 +342,7 @@ public enum SidebarModel {
                            avatars: avatars(for: own), status: aggregate(own.map(\.state)),
                            diff: baseDiff(task: task, stat: diffByTask[task.id]))
         }
-        let terminals = state.terminals.filter { $0.projectId == project.id }.map { term -> TerminalRow in
+        let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the
             // same project id, so only the window tells two of them apart.
             let own = term.windowId.flatMap { tabs.byWindow[$0] } ?? []
@@ -350,9 +388,9 @@ public enum SidebarModel {
                 return UsageVendorRow(vendor: vendor, lines: [], note: broken ? statusLineMissingNote : "No usage data yet", warning: broken)
             }
             let epoch = Int(now.timeIntervalSince1970)
-            let windows = [("wk", usage.sevenDay), ("5h", usage.fiveHour)].compactMap { label, window -> UsageLine? in
+            let windows = [(UsageLine.Window.weekly, usage.sevenDay), (.fiveHour, usage.fiveHour)].compactMap { kind, window -> UsageLine? in
                 guard let window, (window.resetsAt ?? .max) > epoch else { return nil }
-                return UsageLine(label: label, percent: window.usedPercent,
+                return UsageLine(window: kind, percent: window.usedPercent,
                                  reset: window.resetsAt.map { fmtReset($0, now: now, calendar: calendar) },
                                  warning: window.usedPercent >= warningThreshold,
                                  resetInFull: window.resetsAt.map { fmtReset($0, now: now, calendar: calendar, inFull: true) })
@@ -384,7 +422,7 @@ public enum SidebarModel {
         let tab = own.first { $0.active == true } ?? own.min { $0.tabIndex < $1.tabIndex }
         let agent = tab?.agent ?? fallback
         return UsageTaskRow(agent: agent, context: agent.agentKind.flatMap { contexts[$0] }.map {
-            UsageLine(label: "ctx", percent: $0, reset: nil, warning: $0 >= warningThreshold)
+            UsageLine(window: .context, percent: $0, reset: nil, warning: $0 >= warningThreshold)
         })
     }
 

@@ -7,15 +7,15 @@ import Testing
 
 @MainActor
 struct UsageFooterGeometryTests {
-    private let context = UsageLine(label: "ctx", percent: 84, reset: nil, warning: true)
-    private let fiveHour = UsageLine(label: "5h", percent: 84, reset: "16:40", warning: true)
-    private let week = UsageLine(label: "wk", percent: 84, reset: "Wed 16:28", warning: true)
+    private let context = UsageLine(window: .context, percent: 84, reset: nil, warning: true)
+    private let fiveHour = UsageLine(window: .fiveHour, percent: 84, reset: "16:40", warning: true)
+    private let week = UsageLine(window: .weekly, percent: 84, reset: "Wed 16:28", warning: true)
 
     /// Each ring and number is hovered and read as its words — the glyphs alone say "wk", a ring
     /// and "Wed". SwiftUI builds no accessibility tree for a test, so the words are checked here, and
     /// the footer hands them to `.help` and `.accessibilityLabel` as they are.
     @Test func everyRingAndNumberIsReadInWords() {
-        #expect(UsageLine(label: "wk", percent: 61, reset: "Fri 23:33", warning: false, resetInFull: "Friday 23:33").help
+        #expect(UsageLine(window: .weekly, percent: 61, reset: "Fri 23:33", warning: false, resetInFull: "Friday 23:33").help
                 == "Weekly limit, 61 % used, resets Friday 23:33")
         #expect(fiveHour.help == "5-hour limit, 84 % used, resets 16:40")
         #expect(context.help == "Context 84 % full")
@@ -141,7 +141,7 @@ struct UsageFooterGeometryTests {
 }
 
 private extension UsageLine {
-    var withoutReset: UsageLine { UsageLine(label: label, percent: percent, reset: nil, warning: warning) }
+    var withoutReset: UsageLine { UsageLine(window: window, percent: percent, reset: nil, warning: warning) }
 }
 
 extension UsageFooterGeometryTests {

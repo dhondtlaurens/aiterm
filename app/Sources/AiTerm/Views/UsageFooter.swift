@@ -104,7 +104,7 @@ struct UsageFooter: View {
                 // One element per window — label, ring, number and reset — read and hovered as its
                 // words: the glyphs alone say "wk", a ring and "Sat".
                 HStack(spacing: 0) {
-                    if labelled { Text(line.label + " ").foregroundStyle(Palette.muted) }
+                    if labelled { Text(line.window.shortLabel + " ").foregroundStyle(Palette.muted) }
                     UsageRing(percent: line.percent, warning: line.warning, size: scale(Size.statusMark))
                     Text(" \(line.percent)%")
                         .foregroundStyle(line.warning ? Palette.amber : Palette.text)

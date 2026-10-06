@@ -11,7 +11,10 @@ final class LiveSessions {
     var sessions: [SessionInfo] = [] {
         didSet {
             let rows = sessions.map(Self.rowRelevant)
-            if rows != rowSessions { rowSessions = rows }
+            if rows != rowSessions {
+                rowSessions = rows
+                rowSessionsChanged()
+            }
             seedContexts(from: sessions)
             sessionsChanged(sessions)
         }
@@ -27,13 +30,18 @@ final class LiveSessions {
     /// new to say; selection only controls whether those values are shown.
     private var contextByRowId: [UUID: [AgentKind: Int]] = [:]
 
-    /// The workspace the tabs are matched to rows in, and who hears of every change to `sessions`.
+    /// The workspace the tabs are matched to rows in, who hears of every change to `sessions`, and
+    /// who hears only of the changes to `rowSessions` — the sidebar's rows and the Dock badge, which
+    /// a context fill or a spinner title leaves as they were.
     private let workspace: WorkspaceStore
     private let sessionsChanged: @MainActor ([SessionInfo]) -> Void
+    private let rowSessionsChanged: @MainActor () -> Void
 
-    init(workspace: WorkspaceStore, sessionsChanged: @escaping @MainActor ([SessionInfo]) -> Void) {
+    init(workspace: WorkspaceStore, sessionsChanged: @escaping @MainActor ([SessionInfo]) -> Void,
+         rowSessionsChanged: @escaping @MainActor () -> Void = {}) {
         self.workspace = workspace
         self.sessionsChanged = sessionsChanged
+        self.rowSessionsChanged = rowSessionsChanged
     }
 
     /// The session and usage events; every other event is someone else's and is ignored.
@@ -54,7 +62,8 @@ final class LiveSessions {
         }
     }
 
-    /// `session` without what no row draws: a field the rows start to read has to stay here.
+    /// `session` without what no row draws: a field the rows — or the usage footer's CONTEXT row —
+    /// start to read has to stay here.
     private static func rowRelevant(_ session: SessionInfo) -> SessionInfo {
         var row = session
         row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
@@ -64,21 +73,6 @@ final class LiveSessions {
     /// The context each provider last reported in `row`; empty with nothing selected.
     func contextPercents(for row: RowSelection?) -> [AgentKind: Int] {
         row.flatMap { contextByRowId[$0.id] } ?? [:]
-    }
-
-    /// The footer's first row: what runs in the task's or terminal's active tab and its last-known
-    /// `ctx`. With nothing selected there is no such row at all.
-    func usageRow(for row: RowSelection?) -> UsageTaskRow? {
-        let state = workspace.state, contexts = contextPercents(for: row)
-        switch row {
-        case .task(let id):
-            guard let task = state.task(id: id) else { return nil }
-            return SidebarModel.usageTaskRow(taskId: id, agent: task.agent, sessions: sessions, contexts: contexts)
-        case .terminal(let id):
-            guard let terminal = state.terminal(id: id) else { return nil }
-            return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: sessions, contexts: contexts)
-        case .project, nil: return nil
-        }
     }
 
     /// Drops the values of rows the workspace no longer has; run on every change to it.

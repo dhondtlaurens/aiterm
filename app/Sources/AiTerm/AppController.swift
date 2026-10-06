@@ -66,6 +66,9 @@ final class AppController {
     let live: LiveSessions
     /// The branches, missing checkouts and diffs on disk, read by a pass every two seconds.
     let checkouts: CheckoutMonitor
+    /// The sidebar's rows, derived from the three above once per change to what they draw: the
+    /// list, the Dock badge, Focus View and List View all read them here.
+    let rows: SidebarRows
     /// The Interface tab's preferences. `tiling.setInterfaceSize` and `helper.setMatchItermBackground`
     /// change the two that act on a window; the badge switches are plain writes.
     let preferences: InterfacePreferences
@@ -174,16 +177,20 @@ final class AppController {
                          isRemoving: { link.controller?.removals[$0]?.inProgress == true },
                          onWindowGone: { link.controller?.handleWindowClosed($0) },
                          notices: notices)
-        let live = LiveSessions(workspace: workspace, sessionsChanged: { link.controller?.sessionsChanged($0) })
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { link.controller?.sessionsChanged($0) },
+                                rowSessionsChanged: { link.controller?.refreshRows() })
         self.live = live
-        checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
+        let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
             removalInFlight: { id in
                 guard let controller = link.controller else { return false }
                 return controller.changingTasks.contains(id) && controller.removals[id]?.awaitsRetry != true
             },
             onRemotes: { link.controller?.applyRemotes($0) },
             onRemovedTasks: { link.controller?.forgetRemovedCheckouts($0) },
-            onTitles: { await helper.sendTitles($0, placedIn: $1) })
+            onTitles: { await helper.sendTitles($0, placedIn: $1) },
+            rowsChanged: { link.controller?.refreshRows() })
+        self.checkouts = checkouts
+        rows = SidebarRows(workspace: workspace, live: live, checkouts: checkouts)
         self.prompter = prompter
         self.setBadge = setBadge
         self.activateIterm = activateIterm
@@ -192,12 +199,13 @@ final class AppController {
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
         // What a change to the workspace sets off, once per change, in this order: whatever named a
         // row that has gone goes with it — its context fills, the banner about it, its removal's
-        // entry — and then the Dock badge counts what is left. Weak, as the link is: the workspace
-        // outlives none of them, and each of them holds it.
+        // entry — and then the rows are derived again if they changed, and the Dock badge counts
+        // what is left. Weak, as the link is: the workspace outlives none of them, and each of them
+        // holds it.
         workspace.onChange { [weak live] in live?.pruneContexts() }
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { link.controller?.pruneRemovals() }
-        workspace.onChange { link.controller?.updateDockBadge() }
+        workspace.onChange { link.controller?.refreshRows() }
         link.controller = self
     }
 
@@ -287,14 +295,19 @@ final class AppController {
     /// Every write to the tabs, whichever event brought it.
     private func sessionsChanged(_ sessions: [SessionInfo]) {
         checkouts.sessionsChanged(sessions)
-        updateDockBadge()
     }
 
-    /// Only a changed label is written to the dock: this runs on every change to the workspace, `sessions`
-    /// and `removals`, several a second, and the label almost never changes. It counts what Focus
-    /// View steps through, from the same rows.
+    /// Something the rows are made of may have changed: they are derived again if it did, and the
+    /// badge recounted if a section changed.
+    private func refreshRows() {
+        if rows.refresh() { updateDockBadge() }
+    }
+
+    /// Only a changed label is written to the dock: this runs whenever a row's status may have
+    /// moved — a section changed, a removal started or ended — and the label almost never changes.
+    /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let label = DockBadge.label(for: liveSections, skippingTasks: leavingTasks)
+        let label = DockBadge.label(for: rows.sections, skippingTasks: leavingTasks)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         setBadge(label)
@@ -480,10 +493,10 @@ final class AppController {
 
     /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
     /// would otherwise land, and with no project that has rows (`SidebarModel.focusView`).
-    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(liveSections)) }
+    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections)) }
     /// Whether List View would do anything: off behind a sheet, as Focus View, and with no project
     /// that has rows to open.
-    var canShowListView: Bool { canApplyView(SidebarModel.listView(liveSections)) }
+    var canShowListView: Bool { canApplyView(SidebarModel.listView(rows.sections)) }
 
     /// ⌘F: opens every project with a done or needs-input row and folds the rest — all of them when
     /// nothing is waiting — in one save, then peeks at the first row waiting on you: selected and its
@@ -491,15 +504,15 @@ final class AppController {
     /// the selection stays. The peek is returned, when there is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
-        let sections = liveSections
+        let sections = rows.sections
         guard applyView(SidebarModel.focusView(sections)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
         guard let first = SidebarModel.firstNeedingAttention(sections, skippingTasks: leavingTasks) else { return nil }
-        return focus.peek(first.isTerminal ? .terminal(first.id) : .task(first.id), force: true)
+        return focus.peek(RowSelection(first), force: true)
     }
     /// ⌘L: opens every project with rows, in one save.
-    func showListView() { applyView(SidebarModel.listView(liveSections)) }
+    func showListView() { applyView(SidebarModel.listView(rows.sections)) }
 
     private func canApplyView(_ layout: [UUID: Bool]) -> Bool {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
@@ -520,12 +533,6 @@ final class AppController {
     /// The tasks on their way out, which Focus View and the Dock badge pass over: their windows are
     /// closing.
     private var leavingTasks: Set<UUID> { Set(removals.filter(\.value.inProgress).keys) }
-
-    /// The same live rows the sidebar draws, so Focus View opens what shows blue or orange.
-    /// Statuses come from the tabs alone; branches play no part.
-    private var liveSections: [ProjectSection] {
-        SidebarModel.sections(state: state, sessions: live.rowSessions, branchByCwd: [:], projectBranch: [:])
-    }
 
     /// Whether `move` would do anything: the first row has no "up", the last no "down", and a
     /// locked workspace has neither. The menus grey their items on this.

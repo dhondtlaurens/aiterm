@@ -89,14 +89,14 @@ import Synchronization
         let busy = section(tasks: [taskRow(.working)])
         let done = taskRow(.done), asking = terminalRow(.needsInput), later = taskRow(.needsInput)
         let waiting = section(tasks: [done, later], terminals: [asking])
-        #expect(SidebarModel.firstNeedingAttention([busy, waiting])! == (asking.id, true))
+        #expect(SidebarModel.firstNeedingAttention([busy, waiting]) == .terminal(asking.id))
         let tasksOnly = section(tasks: [done, later])
-        #expect(SidebarModel.firstNeedingAttention([busy, tasksOnly])! == (done.id, false))
-        #expect(SidebarModel.firstNeedingAttention([tasksOnly], skippingTasks: [done.id])! == (later.id, false))
+        #expect(SidebarModel.firstNeedingAttention([busy, tasksOnly]) == .task(done.id))
+        #expect(SidebarModel.firstNeedingAttention([tasksOnly], skippingTasks: [done.id]) == .task(later.id))
         #expect(SidebarModel.firstNeedingAttention([busy]) == nil)
         // The whole list Focus View steps through, in the same order; the Dock badge counts it.
-        #expect(SidebarModel.needingAttention([busy, waiting]).map(\.id) == [asking.id, done.id, later.id])
-        #expect(SidebarModel.needingAttention([waiting], skippingTasks: [done.id]).map(\.id) == [asking.id, later.id])
+        #expect(SidebarModel.needingAttention([busy, waiting]) == [.terminal(asking.id), .task(done.id), .task(later.id)])
+        #expect(SidebarModel.needingAttention([waiting], skippingTasks: [done.id]) == [.terminal(asking.id), .task(later.id)])
         #expect(SidebarModel.needingAttention([busy]).isEmpty)
     }
 
@@ -174,7 +174,7 @@ import Synchronization
         #expect(row.status == .working)
         // The footer and the tab title follow the same rule as the row.
         #expect(SidebarModel.usageTaskRow(taskId: t.id, agent: .claude, sessions: sessions, contexts: [.codex: 40])
-                == UsageTaskRow(agent: .codex, context: UsageLine(label: "ctx", percent: 40, reset: nil, warning: false)))
+                == UsageTaskRow(agent: .codex, context: UsageLine(window: .context, percent: 40, reset: nil, warning: false)))
         #expect(SidebarModel.sessionTitles(state: state, sessions: sessions, branchByCwd: [:], projectBranch: [:])
                 == [SessionTitle(sessionId: "a", title: "feat/t")])
         let asking = [session("a", task: t.id.uuidString.lowercased(), agent: .codex, state: .needsInput, tab: 0)]
@@ -356,9 +356,9 @@ import Synchronization
             codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 23, resetsAt: wednesday1628), spend: nil, plan: "self_serve_business_prolite", updatedAt: Int(now.timeIntervalSince1970)))
         let rows = SidebarModel.usageVendorRows(snap, now: now, calendar: cal)
         #expect(rows == [
-            UsageVendorRow(vendor: .claude, lines: [UsageLine(label: "wk", percent: 84, reset: "Mon 21:00", warning: true, resetInFull: "Monday 21:00"),
-                                                    UsageLine(label: "5h", percent: 23, reset: "16:40", warning: false, resetInFull: "16:40")], note: nil),
-            UsageVendorRow(vendor: .codex, lines: [UsageLine(label: "wk", percent: 23, reset: "Wed 16:28", warning: false, resetInFull: "Wednesday 16:28")], note: nil),
+            UsageVendorRow(vendor: .claude, lines: [UsageLine(window: .weekly, percent: 84, reset: "Mon 21:00", warning: true, resetInFull: "Monday 21:00"),
+                                                    UsageLine(window: .fiveHour, percent: 23, reset: "16:40", warning: false, resetInFull: "16:40")], note: nil),
+            UsageVendorRow(vendor: .codex, lines: [UsageLine(window: .weekly, percent: 23, reset: "Wed 16:28", warning: false, resetInFull: "Wednesday 16:28")], note: nil),
         ])
         // Each segment's tooltip and VoiceOver label say it in words.
         #expect(rows[0].lines.map(\.help) == ["Weekly limit, 84 % used, resets Monday 21:00", "5-hour limit, 23 % used, resets 16:40"])
@@ -366,7 +366,7 @@ import Synchronization
         #expect(none[0] == UsageVendorRow(vendor: .claude, lines: [], note: "No usage data yet"))
         #expect(none[1] == UsageVendorRow(vendor: .codex, lines: [], note: "No usage data reported"))
         let noReset = SidebarModel.usageVendorRows(UsageSnapshot(claude: Usage(fiveHour: UsageWindow(usedPercent: 5, resetsAt: nil), sevenDay: nil, spend: nil, plan: nil, updatedAt: Int(now.timeIntervalSince1970)), codex: nil), now: now, calendar: cal)
-        #expect(noReset[0].lines == [UsageLine(label: "5h", percent: 5, reset: nil, warning: false)])
+        #expect(noReset[0].lines == [UsageLine(window: .fiveHour, percent: 5, reset: nil, warning: false)])
         #expect(noReset[0].lines[0].help == "5-hour limit, 5 % used")
     }
 
@@ -399,11 +399,11 @@ import Synchronization
                           sevenDay: UsageWindow(usedPercent: 40, resetsAt: epoch + 3600), spend: nil, plan: nil, updatedAt: epoch),
             codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 28, resetsAt: epoch - 86_400), spend: nil, plan: nil, updatedAt: epoch))
         let rows = SidebarModel.usageVendorRows(snap, now: now, calendar: cal)
-        #expect(rows[0].lines.map(\.label) == ["wk"])
+        #expect(rows[0].lines.map(\.window) == [.weekly])
         #expect(rows[1] == UsageVendorRow(vendor: .codex, lines: [], note: "No usage data reported"))
         // A window with no reset time at all never expires.
         let open = UsageSnapshot(claude: Usage(fiveHour: UsageWindow(usedPercent: 5, resetsAt: nil), sevenDay: nil, spend: nil, plan: nil, updatedAt: epoch), codex: nil)
-        #expect(SidebarModel.usageVendorRows(open, now: now, calendar: cal)[0].lines.map(\.label) == ["5h"])
+        #expect(SidebarModel.usageVendorRows(open, now: now, calendar: cal)[0].lines.map(\.window) == [.fiveHour])
     }
 
     /// Both feeds only move while their agent runs, so a quiet vendor is idle, not broken. Its last
@@ -418,7 +418,7 @@ import Synchronization
         }
         let rows = { (age: Int) in SidebarModel.usageVendorRows(usage(age), now: now, calendar: cal)[1].lines }
         #expect(rows(86_400) == rows(0))
-        #expect(rows(0) == [UsageLine(label: "wk", percent: 28, reset: "Wed 23:13", warning: false, resetInFull: "Wednesday 23:13")])
+        #expect(rows(0) == [UsageLine(window: .weekly, percent: 28, reset: "Wed 23:13", warning: false, resetInFull: "Wednesday 23:13")])
     }
 
     // MARK: - context
@@ -431,7 +431,7 @@ import Synchronization
         let task = SidebarModel.usageTaskRow(taskId: id, agent: .claude, sessions: sessions,
                                              contexts: [.claude: 42, .codex: 18, .pi: 7])
         #expect(task == UsageTaskRow(agent: .codex,
-                                     context: UsageLine(label: "ctx", percent: 18, reset: nil, warning: false)))
+                                     context: UsageLine(window: .context, percent: 18, reset: nil, warning: false)))
     }
 
     /// The row is the active tab, whatever runs in it: a shell tab shows the shell with no fill,
@@ -448,7 +448,7 @@ import Synchronization
     @Test func testATaskWithoutTabsShowsItsOwnAgent() {
         let task = SidebarModel.usageTaskRow(taskId: UUID(), agent: .pi, sessions: [tab(UUID(), .codex, 0, active: true)],
                                              contexts: [.pi: 12, .codex: 30])
-        #expect(task == UsageTaskRow(agent: .pi, context: UsageLine(label: "ctx", percent: 12, reset: nil, warning: false)))
+        #expect(task == UsageTaskRow(agent: .pi, context: UsageLine(window: .context, percent: 12, reset: nil, warning: false)))
     }
 
     /// A provider that has not reported yet keeps its mark and draws no fill.
@@ -470,7 +470,7 @@ import Synchronization
         var claude = shell
         claude[0].agent = .claude
         #expect(SidebarModel.usageTerminalRow(windowId: "w2", sessions: claude, contexts: [.claude: 42, .codex: 18])
-                == UsageTaskRow(agent: .claude, context: UsageLine(label: "ctx", percent: 42, reset: nil, warning: false)))
+                == UsageTaskRow(agent: .claude, context: UsageLine(window: .context, percent: 42, reset: nil, warning: false)))
     }
 
     /// A terminal whose window is closed has no tab and no agent of its own: it is a shell.
@@ -490,8 +490,8 @@ import Synchronization
     /// Context crosses the same 80% line as a rate-limit window, so it turns amber with them.
     @Test func testContextWarnsAtTheSameThresholdAsAWindow() {
         let line = { (pct: Int) in SidebarModel.usageTaskRow(taskId: UUID(), agent: .claude, sessions: [], contexts: [.claude: pct]).context }
-        #expect(line(79) == UsageLine(label: "ctx", percent: 79, reset: nil, warning: false))
-        #expect(line(80) == UsageLine(label: "ctx", percent: 80, reset: nil, warning: true))
+        #expect(line(79) == UsageLine(window: .context, percent: 79, reset: nil, warning: false))
+        #expect(line(80) == UsageLine(window: .context, percent: 80, reset: nil, warning: true))
         #expect(line(84)?.help == "Context 84 % full")
     }
 
