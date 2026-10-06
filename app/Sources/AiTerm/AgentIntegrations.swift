@@ -19,6 +19,10 @@ final class AgentIntegrations {
     /// usage feed and anything that edits `~/.claude/settings.json` can take it back out, so the
     /// footer has to be able to say "not installed" instead of promising data that is not coming.
     private(set) var claudeStatusLineInstalled = true
+    /// Reads of Claude's settings start in order but finish on a pool, so a slow earlier read can
+    /// land after a later one: only a read newer than the last one applied may assign.
+    @ObservationIgnored private var statusLineReadsStarted = 0
+    @ObservationIgnored private var statusLineReadsApplied = 0
     /// Every agent's model list, kept until its files change: what the creation sheets offer and
     /// what Settings' cards show, read through one catalogue so the two agree, and so a sheet opened
     /// again does not read `~/.claude.json` or launch PI again.
@@ -82,6 +86,8 @@ final class AgentIntegrations {
     /// must not hold up the app.
     private func readStatusLine(migratingFirst migrating: Bool) async {
         let shim = resources[.claude], home = harnessHome
+        statusLineReadsStarted += 1
+        let read = statusLineReadsStarted
         let installed = try? await BackgroundWork.run {
             if migrating {
                 do { try StatusLineOriginal.migrate(home: home) }
@@ -96,16 +102,19 @@ final class AgentIntegrations {
             // directory, and the developer's own `~/.claude` says nothing about it.
             return shim.map { ClaudeSettings.statusLineIsInstalled(home: home, shimPath: $0) } ?? false
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, read > statusLineReadsApplied else { return }
+        statusLineReadsApplied = read
         claudeStatusLineInstalled = installed ?? false
     }
 
     /// Retained across Settings presentations, and its service with it, so the last-known-good PI
     /// catalogue survives a transient discovery failure and SwiftUI recomposing the sheet root does
     /// not probe again. The remembered models are read live for the same reason: it outlives a sheet.
-    func harnessSettingsModel() -> HarnessSettingsModel {
+    ///
+    /// `service` stands in for the real one in a test that must not launch a login shell.
+    func harnessSettingsModel(service: (any HarnessServicing)? = nil) -> HarnessSettingsModel {
         if let retainedHarnessSettings { return retainedHarnessSettings }
-        let service = HarnessService(
+        let service = service ?? HarnessService(
             home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue, resources: resources)
         let settings = HarnessSettingsModel(
             service: service, rememberedModels: { [weak self] in self?.rememberedModels() ?? [:] },
