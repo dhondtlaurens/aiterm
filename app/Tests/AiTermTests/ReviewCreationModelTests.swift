@@ -304,4 +304,19 @@ import Foundation
         #expect(NewReviewSheet(model: m, previewStep: 1, previewMergeRequests: [], previewOpen: false).canAdvance)
         #expect(!NewReviewSheet(model: m, previewStep: 2, previewMergeRequests: [], previewOpen: false).canAdvance)
     }
+
+    /// What the sheet says in place of merge requests, for every way the host can be unavailable,
+    /// including the wording when a remote or the configured host has no name.
+    @Test(arguments: [
+        (MergeRequestSearch.Unavailable.notConnected(.gitHub), "Connect GitHub in Settings › Integrations, or pick a branch instead."),
+        (.notConnected(.gitLab), "Connect GitLab in Settings › Integrations, or pick a branch instead."),
+        (.noRepositoryPath(.gitHub), "Couldn’t read a GitHub repository from this repository’s remote."),
+        (.noRepositoryPath(.gitLab), "Couldn’t read a GitLab project path from this repository’s remote."),
+        (.otherGitLabHost(remote: "gitlab.com", configured: "git.example.net"),
+         "This project’s remote is gitlab.com; GitLab is configured for git.example.net."),
+        (.otherGitLabHost(remote: nil, configured: nil),
+         "This project’s remote is not a GitLab host; GitLab is configured for another host."),
+    ]) func eachUnavailableHostIsWordedForTheSheet(unavailable: MergeRequestSearch.Unavailable, message: String) {
+        #expect(unavailable.message == message)
+    }
 }
