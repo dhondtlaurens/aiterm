@@ -231,7 +231,7 @@ struct TaskCreationModelTests {
         let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: agent, model: model, reasoning: nil)
         draft.setTitle("Keep this draft")
-        return TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, availableAgents: available,
+        return TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, availableAgents: { available },
                                  catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults, git: .hermetic(),
                                  searchIssues: search, createTask: create)
     }

@@ -22,7 +22,8 @@ extension CreationModel where Kind == TaskCreation {
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
     /// would read the developer's own from anything that left them out. A `catalogue` that throws
     /// has no models to offer, and the sheet says why in their place.
-    convenience init(project: Project, draft: TaskDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
+    convenience init(project: Project, draft: TaskDraft, home: URL,
+                     availableAgents: @escaping @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) },
                      rememberedModels: [AgentKind: String] = [:],
                      catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
                      initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,

@@ -153,8 +153,7 @@ final class AppController {
         self.prompter = prompter
         self.setBadge = setBadge
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
-                                       rememberedModels: { workspace.state.lastModelByAgent },
-                                       availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
+                                       rememberedModels: { workspace.state.lastModelByAgent })
         self.agents = agents
         terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, daemon: { helper.daemon }, activateIterm: activateIterm)

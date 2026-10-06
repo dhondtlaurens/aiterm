@@ -10,10 +10,8 @@ final class AgentIntegrations {
     /// Spec 8: which agent CLIs are actually on the login shell's `PATH`. Probed once at launch,
     /// and joined by any CLI Settings installs; until the probe answers, every agent is assumed
     /// present so the sheet is never wrongly blocked. Written only by `probe()` and Settings'
-    /// installs, and by tests that need an agent missing.
-    var availableAgents: Set<AgentKind> = Set(AgentKind.allCases) {
-        didSet { availableAgentsChanged(availableAgents) }
-    }
+    /// installs, and by tests that need an agent missing; the creation sheets read it live.
+    var availableAgents: Set<AgentKind> = Set(AgentKind.allCases)
     /// Whether AiTerm's shim is still Claude Code's `statusLine` command. Re-read at every launch
     /// and after every hook repair, never cached in UserDefaults: the shim is the whole Claude
     /// usage feed and anything that edits `~/.claude/settings.json` can take it back out, so the
@@ -31,9 +29,6 @@ final class AgentIntegrations {
     /// The model each agent last ran with, from the workspace. Read live by the Settings model,
     /// which outlives any one sheet.
     private let rememberedModels: @MainActor () -> [AgentKind: String]
-    /// Hears every change to `availableAgents`, so a creation sheet that is already open offers an
-    /// agent Settings has just installed.
-    private let availableAgentsChanged: @MainActor (Set<AgentKind>) -> Void
     private let harnessHome: URL
     /// What the drivers install from the bundle, looked up once: the Settings service installs
     /// them, and the footer's probe asks whether Claude Code still runs this bundle's shim.
@@ -43,14 +38,12 @@ final class AgentIntegrations {
     @ObservationIgnored private var retainedHarnessSettings: HarnessSettingsModel?
 
     init(harnessHome: URL, bundledResourcesURL: URL?, locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
-         rememberedModels: @escaping @MainActor () -> [AgentKind: String],
-         availableAgentsChanged: @escaping @MainActor (Set<AgentKind>) -> Void) {
+         rememberedModels: @escaping @MainActor () -> [AgentKind: String]) {
         self.harnessHome = harnessHome
         resources = .bundled(resourceURL: bundledResourcesURL)
         catalogue = ModelCatalogue(home: harnessHome, runner: .live)
         self.locateAgents = locateAgents
         self.rememberedModels = rememberedModels
-        self.availableAgentsChanged = availableAgentsChanged
     }
 
     /// Claude Code's status-line shim in the bundle, if it is there and can be run. Bundle lookups

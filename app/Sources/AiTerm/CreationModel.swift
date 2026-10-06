@@ -63,7 +63,9 @@ final class CreationModel<Kind: CreationKind> {
     nonisolated let id = UUID()
     let project: Project
     let kind: Kind
-    var availableAgents: Set<AgentKind>
+    /// The agent CLIs this machine has, read live: one Settings installs while the sheet is up is
+    /// offered at once, and the views that read this redraw for it.
+    var availableAgents: Set<AgentKind> { installedAgents() }
     /// Everything in the draft but its prompt, which reads as empty here.
     private var fields: Draft
     /// The prompt as typed. Observed under its own name, and not through `draft`.
@@ -83,6 +85,7 @@ final class CreationModel<Kind: CreationKind> {
     private(set) var error: CreationFailure?
     let completions = PromptCompletions()
     let canChangeWorkspace: @MainActor () -> Bool
+    private let installedAgents: @MainActor () -> Set<AgentKind>
     private let rememberedModels: [AgentKind: String]
     /// Whose skills and commands the prompt completes: the person's home in the app.
     private let home: URL
@@ -102,7 +105,8 @@ final class CreationModel<Kind: CreationKind> {
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
 
-    init(kind: Kind, project: Project, draft: Draft, home: URL, availableAgents: Set<AgentKind>, rememberedModels: [AgentKind: String],
+    init(kind: Kind, project: Project, draft: Draft, home: URL, availableAgents: @escaping @MainActor () -> Set<AgentKind>,
+         rememberedModels: [AgentKind: String],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
          initialCatalogueFailure: String? = nil, defaults: UserDefaults, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool,
@@ -110,7 +114,7 @@ final class CreationModel<Kind: CreationKind> {
         var fields = draft
         fields.promptText = ""
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
-        self.home = home; self.availableAgents = availableAgents
+        self.home = home; self.installedAgents = availableAgents
         self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
         self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
         self.canChangeWorkspace = canChangeWorkspace

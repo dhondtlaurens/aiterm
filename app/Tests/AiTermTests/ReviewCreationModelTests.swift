@@ -17,7 +17,7 @@ import Foundation
                        defaults: UserDefaults = ScratchDefaults.make(),
                        create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
-                            home: ScratchHome.bare, availableAgents: available ?? [agent], catalogue: catalogue, defaults: defaults, git: .hermetic(),
+                            home: ScratchHome.bare, availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, git: .hermetic(),
                             searchMergeRequests: search, createReview: create)
     }
 

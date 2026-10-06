@@ -71,23 +71,3 @@ extension AppController {
         }
     }
 }
-
-/// What the New Task and New Review models share that the controller keeps current while the sheet
-/// is up, so it need not tell the two apart.
-@MainActor
-protocol OffersAgents: AnyObject {
-    var availableAgents: Set<AgentKind> { get set }
-}
-
-extension CreationModel: OffersAgents {}
-
-extension AppController.SheetKind {
-    /// The model a New Task or New Review sheet was opened with; `nil` for every other sheet.
-    var creationModel: (any OffersAgents)? {
-        switch self {
-        case .newTask(let model): return model
-        case .newReview(let model): return model
-        case .jiraProjects, .newTerminal, .newDivider, .rename, .settings: return nil
-        }
-    }
-}

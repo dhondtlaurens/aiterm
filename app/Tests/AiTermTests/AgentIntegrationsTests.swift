@@ -15,7 +15,8 @@ struct AgentIntegrationsTests {
         return (controller, root)
     }
 
-    /// A CLI installed from Settings is offered by the New Task sheet already open, without a relaunch.
+    /// A CLI installed from Settings is offered by the New Task sheet already open, without a
+    /// relaunch: the sheet's model reads the CLIs live, and what draws them redraws.
     @Test func anOpenCreationSheetOffersACLISettingsInstalled() throws {
         let (controller, root) = try controller()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -24,10 +25,9 @@ struct AgentIntegrationsTests {
         let model = controller.sheets.makeCreationModel(
             project: project, draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil),
             catalogue: [], jira: nil)
-        controller.sheet = .newTask(model)
         #expect(model.availableAgents == [.claude])
 
-        controller.agents.harnessSettingsModel().cliInstalled(.pi)
+        #expect(invalidates({ _ = model.availableAgents }, by: { controller.agents.harnessSettingsModel().cliInstalled(.pi) }))
         #expect(model.availableAgents == [.claude, .pi])
     }
 
