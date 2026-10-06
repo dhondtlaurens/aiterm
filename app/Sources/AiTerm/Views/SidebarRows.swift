@@ -83,6 +83,9 @@ struct ProjectHeaderRow: View {
     let section: ProjectSection
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
 
     private var project: Project { section.project }
     private var collapses: Bool { Self.collapses(section, canChangeWorkspace: controller.canChangeWorkspace) }
@@ -95,7 +98,10 @@ struct ProjectHeaderRow: View {
     }
 
     var body: some View {
-        let selected = controller.focus.selectedProjectId == project.id
+        #if DEBUG
+        let _ = bodyCounter?.count(project.id)
+        #endif
+        let selected = controller.focus.isSelected(project.id)
         HStack(spacing: scale(Space.base)) {
             // Only the label collapses the section; the "+" menu keeps its own click, which a tap
             // gesture on the whole row would have swallowed.
@@ -310,11 +316,19 @@ struct TaskRowView: View {
     var hovered = false
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
 
     var body: some View {
-        let selected = controller.focus.selectedTaskId == row.id
-        let missing = controller.checkouts.missingCheckouts.contains(row.id)
-        let removal = controller.removals[row.id], removing = removal?.inProgress == true
+        #if DEBUG
+        let _ = bodyCounter?.count(row.id)
+        #endif
+        // Each read for this row alone, so another row's selection, removal or checkout redraws
+        // that row and not this one.
+        let selected = controller.focus.isSelected(row.id)
+        let missing = controller.checkouts.isMissing(row.id)
+        let removal = controller.removal(of: row.id), removing = removal?.inProgress == true
         let caption = TaskRowCaption(removal: removal, missing: missing, windowOpen: task?.windowId != nil)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails)
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
@@ -412,9 +426,15 @@ struct TerminalRowView: View {
     let project: Project
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
 
     var body: some View {
-        let selected = controller.focus.selectedTerminalId == row.id
+        #if DEBUG
+        let _ = bodyCounter?.count(row.id)
+        #endif
+        let selected = controller.focus.isSelected(row.id)
         SelectableRow(selected: selected, activate: { if let terminal { controller.focus.select(.terminal(terminal.id)) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
@@ -468,10 +488,30 @@ struct TerminalRowView: View {
     }
 }
 
+#if DEBUG
+/// Counts the sidebar rows' body evaluations by row id, for the tests that hold an arrow key, a
+/// removal and a missing checkout to the rows they touch. Unset everywhere else.
+@MainActor
+final class RowBodyCounter {
+    private(set) var counts: [UUID: Int] = [:]
+    func count(_ id: UUID) { counts[id, default: 0] += 1 }
+    func reset() { counts = [:] }
+}
+
+private struct RowBodyCounterKey: EnvironmentKey { static let defaultValue: RowBodyCounter? = nil }
+
+extension EnvironmentValues {
+    var rowBodyCounter: RowBodyCounter? {
+        get { self[RowBodyCounterKey.self] }
+        set { self[RowBodyCounterKey.self] = newValue }
+    }
+}
+#endif
+
 /// One of the Jira badges a project row wears beside its own name, one per linked Jira project. A
 /// presentational value rather than an expression inside the row, so the rule — which badges a
 /// project gets, and where each points — is testable without rendering the sidebar, the way
-/// `PickerRowAppearance` is.
+/// `TaskRowBadges` is.
 struct ProjectJiraBadge: Equatable {
     let key: String
     /// The key, unless the Interface tab has turned the project key off; the mark then stands alone.

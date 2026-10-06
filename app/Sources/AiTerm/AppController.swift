@@ -108,11 +108,16 @@ final class AppController {
     @ObservationIgnored private var openingTaskWindows = CountedSet()
     @ObservationIgnored private var changingTasks = Set<UUID>()
     /// The tasks being removed, and how, and the removals that stopped short of the row: what
-    /// their rows say. Observed, unlike `changingTasks` — the lock every task change takes —
-    /// because the row draws it. An entry goes with its task.
-    private(set) var removals: [UUID: TaskRemoval] = [:] {
-        didSet { updateDockBadge() }
+    /// their rows say. An entry goes with its task. Not observed: a row reads its own entry,
+    /// `removal(of:)`, so one task's removal redraws that task's row and no other.
+    @ObservationIgnored private(set) var removals: [UUID: TaskRemoval] = [:] {
+        didSet {
+            for id in Set(oldValue.keys).union(removals.keys) { rowRemovals[id] = removals[id] }
+            updateDockBadge()
+        }
     }
+    /// `removals`, observed row by row.
+    private let rowRemovals: PerRow<TaskRemoval?>
     /// Tasks whose removal has dropped their window before closing it (`closeWindowBeforeRemoval`),
     /// until the removal ends.
     @ObservationIgnored private var windowsLetGo = Set<UUID>()
@@ -154,6 +159,7 @@ final class AppController {
         let link = ControllerLink()
         let workspace = WorkspaceStore(file: store)
         self.workspace = workspace
+        rowRemovals = PerRow(default: nil, workspace: workspace)
         self.preferences = preferences
         self.harnessHome = harnessHome
         self.git = git
@@ -978,6 +984,9 @@ final class AppController {
     }
 
     // -- removing a task ------------------------------------------------------------
+    /// The task's removal, as its row draws it — what is in `removals` for it.
+    func removal(of id: UUID) -> TaskRemoval? { rowRemovals[id] }
+
     #if DEBUG
     /// The snapshot renderer's rows mid-removal, drawn without running one.
     func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { removals[id] = removal }

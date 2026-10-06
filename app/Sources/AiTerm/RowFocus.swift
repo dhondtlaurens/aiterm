@@ -31,8 +31,11 @@ enum RowSelection: Equatable {
 @MainActor
 @Observable
 final class RowFocus {
-    /// Written only by `setSelection(_:)`, through `browse` or an activation.
+    /// Written only by `setSelection(_:)`, through `browse` or an activation. A row does not read
+    /// it: it reads `isSelected(_:)`, which a selection write changes for two rows only.
     private(set) var selection: RowSelection?
+    /// Whether each row is selected, observed row by row: `selection`, mirrored.
+    private let selectedRows: PerRow<Bool>
     /// The request bringing the selected row's window forward, while one is in flight.
     @ObservationIgnored private(set) var activation: Task<Void, Never>?
     /// Moves on with every selection write, so work that started for an older one can tell.
@@ -74,7 +77,12 @@ final class RowFocus {
         self.isRemoving = isRemoving
         self.onWindowGone = onWindowGone
         self.notices = notices
+        selectedRows = PerRow(default: false, workspace: workspace)
     }
+
+    /// Whether the row with this id is selected — a header, a task or a terminal. What a row's body
+    /// reads: an arrow key redraws the row it leaves and the row it reaches, and no other.
+    func isSelected(_ id: UUID) -> Bool { selectedRows[id] }
 
     var selectedTaskId: UUID? {
         if case .task(let id) = selection { return id }
@@ -111,7 +119,11 @@ final class RowFocus {
         generation += 1
         activation?.cancel()
         activation = nil
+        let old = selection?.id
         selection = row
+        guard row?.id != old else { return }
+        if let old { selectedRows[old] = false }
+        if let new = row?.id { selectedRows[new] = true }
     }
 
     /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a

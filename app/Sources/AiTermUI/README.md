@@ -219,8 +219,12 @@ wash. It declares the row's `Surface`, and `RowTitle` and `RowCaption` — a row
 under it — read that rather than a `selected` flag, as a header's chevron, name, provider glyph and
 "+" do; `RowCaption(warns:)` is amber off the accent only. Which row is selected — a project header,
 a task or a terminal; never a divider — is `RowFocus`'s (`controller.focus`), an owner beside the
-controller, not a view: rows read it, and only `SidebarScrollFollower` — not `SidebarView`'s body —
-follows it, so an arrow key redraws the rows it touches and not the list's model.
+controller, not a view. A row reads whether it alone is selected (`focus.isSelected(id)`), as a task
+row reads its own removal (`controller.removal(of:)`) and missing checkout
+(`checkouts.isMissing(_:)`): each a `PerRow` cell, so an arrow key redraws the row it leaves and the
+row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTests` counts them. Only
+`SidebarScrollFollower` — not `SidebarView`'s body — follows the selection whole, so the list's
+model is not redrawn either.
 
 `CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` opens —
 the one trigger for every agent; a Codex skill picked there is written as its `$` mention.

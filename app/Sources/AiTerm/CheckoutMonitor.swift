@@ -14,7 +14,13 @@ final class CheckoutMonitor {
     private(set) var branchByCwd: [String: String] = [:]
     /// Each project's own checkout, for rows whose window is closed and have no tab to read.
     private(set) var projectBranch: [UUID: String] = [:]
-    private(set) var missingCheckouts: Set<UUID> = []
+    /// Tasks whose worktree is not on disk. Not observed: a row reads its own, `isMissing(_:)`, so
+    /// one checkout going redraws that task's row and no other.
+    @ObservationIgnored private(set) var missingCheckouts: Set<UUID> = [] {
+        didSet { for id in oldValue.symmetricDifference(missingCheckouts) { missingRows[id] = missingCheckouts.contains(id) } }
+    }
+    /// `missingCheckouts`, observed row by row.
+    private let missingRows: PerRow<Bool>
     /// Each task's checkout against its base, for the VS Code badge. Measured by the same pass as
     /// the branches, but at most every few seconds per worktree (``DiffStatResolver``).
     private(set) var diffByTask: [UUID: DiffStat] = [:]
@@ -80,6 +86,7 @@ final class CheckoutMonitor {
         branches = BranchResolver(git: guarded, probe: probe); remotes = RemoteResolver(git: guarded, probe: probe)
         diffs = DiffStatResolver(git: guarded); defaultBranches = DefaultBranchResolver(git: guarded, probe: probe)
         self.workspace = workspace
+        missingRows = PerRow(default: false, workspace: workspace)
         self.removalInFlight = removalInFlight
         self.onRemotes = onRemotes
         self.onRemovedTasks = onRemovedTasks
@@ -161,6 +168,9 @@ final class CheckoutMonitor {
         refreshTask = task
         return task
     }
+
+    /// Whether the task's worktree is missing, as its row draws it.
+    func isMissing(_ id: UUID) -> Bool { missingRows[id] }
 
     /// A forgotten task's checkout is no longer one of the workspace's missing ones.
     func forget(task id: UUID) { missingCheckouts.remove(id) }
