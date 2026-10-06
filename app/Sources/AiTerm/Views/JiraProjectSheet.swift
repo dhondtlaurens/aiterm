@@ -24,12 +24,12 @@ struct JiraProjectSheet: View {
     let submit: ([JiraProjectRef]) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    var _projects = State(initialValue: [JiraProjectRef]())
-    var _linked: State<[JiraProjectRef]>
-    var _loading = State(initialValue: true)
-    var _error = State<String?>(initialValue: nil)
-    var _query = State(initialValue: "")
-    var _open = State(initialValue: false)
+    private var _projects = State(initialValue: [JiraProjectRef]())
+    private var _linked: State<[JiraProjectRef]>
+    private var _loading = State(initialValue: true)
+    private var _error = State<String?>(initialValue: nil)
+    private var _query = State(initialValue: "")
+    private var _open = State(initialValue: false)
 
     init(projectName: String, linked: [JiraProjectRef], canSubmit: Bool,
          loadProjects: @escaping () async throws -> [JiraProjectRef], submit: @escaping ([JiraProjectRef]) -> Void) {
@@ -150,3 +150,20 @@ struct JiraProjectSheet: View {
         loading = false
     }
 }
+
+#if DEBUG
+extension JiraProjectSheet {
+    /// The sheet as a load leaves it, with `projects` in hand, and its list open or not: `.task`
+    /// never runs under `ImageRenderer` or in a bare `NSHostingView`, and only a click opens the
+    /// list. For the snapshots and the tests that host the sheet.
+    func seeded(projects: [JiraProjectRef]? = nil, open: Bool = false) -> Self {
+        var sheet = self
+        if let projects {
+            sheet._projects = State(initialValue: projects)
+            sheet._loading = State(initialValue: false)
+        }
+        sheet._open = State(initialValue: open)
+        return sheet
+    }
+}
+#endif

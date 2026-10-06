@@ -36,13 +36,12 @@ import Testing
     /// so these tests exercise the picker rather than SwiftUI's appearance plumbing.
     private func harness(linked: [JiraProjectRef] = [], listOpen: Bool = false, seedProjects: Bool = false) -> Harness {
         let submissions = Submissions()
-        var sheet = JiraProjectSheet(projectName: "aiterm", linked: linked, canSubmit: true,
-                                     loadProjects: { Self.projects },
-                                     submit: { submissions.calls.append($0) })
         // The chevron opens the list in the app; seeding it is the same `State` the button writes,
         // as `NewReviewSheetTests` does for the branch picker.
-        if listOpen { sheet._open = State(initialValue: true) }
-        if seedProjects { sheet._projects = State(initialValue: Self.projects); sheet._loading = State(initialValue: false) }
+        let sheet = JiraProjectSheet(projectName: "aiterm", linked: linked, canSubmit: true,
+                                     loadProjects: { Self.projects },
+                                     submit: { submissions.calls.append($0) })
+            .seeded(projects: seedProjects ? Self.projects : nil, open: listOpen)
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)

@@ -8,26 +8,18 @@ import AiTermCore
 /// picks rather than derives, and there is no base branch to choose.
 struct NewReviewSheet: View {
     @Bindable var model: ReviewCreationModel
-    var _step = State(initialValue: 1)
+    private var _step = State(initialValue: 1)
     private var step: Int { get { _step.wrappedValue } nonmutating set { _step.wrappedValue = newValue } }
-    var _mrOpen = State(initialValue: false)
+    private var _mrOpen = State(initialValue: false)
     private var mrOpen: Bool { get { _mrOpen.wrappedValue } nonmutating set { _mrOpen.wrappedValue = newValue } }
-    var _branchOpen = State(initialValue: false)
+    private var _branchOpen = State(initialValue: false)
     private var branchOpen: Bool { get { _branchOpen.wrappedValue } nonmutating set { _branchOpen.wrappedValue = newValue } }
 
     /// A result row's `!iid` column: a four-digit merge request number in the mono code face, so
     /// the titles after it start on one line.
     private static let mrNumberWidth: CGFloat = 44
 
-    init(model: ReviewCreationModel, previewStep: Int = 1, previewMergeRequests: [MergeRequest]? = nil,
-         previewOpen: Bool = true) {
-        self.model = model
-        if let previewMergeRequests {
-            model.results = previewMergeRequests
-            _step = State(initialValue: previewStep)
-            _mrOpen = State(initialValue: previewOpen)
-        }
-    }
+    init(model: ReviewCreationModel) { self.model = model }
 
     /// ⎋ closes the merge request list first, then the branch list, and only then steps back.
     var body: some View {
@@ -35,7 +27,7 @@ struct NewReviewSheet: View {
                       stepNames: ["Branch", "Agent", "Prompt"],
                       destination: Self.destination(step: step, project: model.project, owner: model.owningTask,
                                                     slug: model.worktreeSlug, branch: model.draft.branch),
-                      createLabel: Self.createLabel(owner: model.owningTask), canAdvance: canAdvance,
+                      createLabel: Self.createLabel(owner: model.owningTask), canAdvance: Self.canAdvance(step: step, model: model),
                       pickers: [_mrOpen.projectedValue, _branchOpen.projectedValue]) {
             content
         }
@@ -136,9 +128,10 @@ struct NewReviewSheet: View {
         return named && !branch.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    var canAdvance: Bool {
-        guard Self.canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating) else { return false }
-        return step == 1 || (model.availableAgents.contains(model.draft.agent) && model.selectedModelIsCurrent)
+    /// The rule above, and past step 1 an agent that can run.
+    static func canAdvance(step: Int, model: ReviewCreationModel) -> Bool {
+        guard canAdvance(step: step, title: model.draft.title, branch: model.draft.branch, creating: model.creating) else { return false }
+        return step == 1 || model.agentIsReady
     }
 
     // A branch that is already a task's opens in that task (see `AppController.createReview`), and
@@ -156,3 +149,17 @@ struct NewReviewSheet: View {
 
     static func createLabel(owner: TaskItem?) -> String { owner.map { "Open in \($0.kindName)" } ?? "Create Review" }
 }
+
+#if DEBUG
+extension NewReviewSheet {
+    /// The sheet already on `step`, with its lists open or not: what only clicks reach in the app,
+    /// for the snapshots and the tests that host the sheet.
+    func seeded(step: Int, mergeRequestsOpen: Bool = false, branchesOpen: Bool = false) -> Self {
+        var sheet = self
+        sheet._step = State(initialValue: step)
+        sheet._mrOpen = State(initialValue: mergeRequestsOpen)
+        sheet._branchOpen = State(initialValue: branchesOpen)
+        return sheet
+    }
+}
+#endif

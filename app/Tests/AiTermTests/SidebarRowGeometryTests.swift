@@ -50,7 +50,7 @@ struct SidebarRowGeometryTests {
         controller.focus.browse(.task(tasks[0].id))
         controller.preferences.interfaceSize = size
 
-        let host = NSHostingView(rootView: SidebarView(controller: controller, hovered: tasks[1].id))
+        let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id))
         host.frame = NSRect(x: 0, y: 0, width: size.scale(340), height: 800)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

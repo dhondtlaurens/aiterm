@@ -176,6 +176,10 @@ final class CreationModel<Kind: CreationKind> {
         catalogueLoaded && models.contains { $0.id == draft.model }
     }
 
+    /// Whether the draft's agent can run: its CLI is installed and its model is one the catalogue
+    /// still offers. Both sheets' agent and prompt steps ask it, and so does `create`.
+    var agentIsReady: Bool { availableAgents.contains(draft.agent) && selectedModelIsCurrent }
+
     /// The segmented picker sets its binding even for a click on the already-selected segment,
     /// and the `.task(id: agent)` reload only re-fires when the agent actually changes.
     func selectAgent(_ agent: AgentKind) {
@@ -277,7 +281,7 @@ final class CreationModel<Kind: CreationKind> {
     /// False means nothing was created and the same draft can be corrected — notably when git
     /// refuses the branch. Once a checkout exists, the workspace owns its recovery and the form closes.
     func create() async -> Bool {
-        guard !creating, canChangeWorkspace(), availableAgents.contains(draft.agent), selectedModelIsCurrent else { return false }
+        guard !creating, canChangeWorkspace(), agentIsReady else { return false }
         creating = true; error = nil
         defer { creating = false }
         guard await kind.confirmBeforeSubmit(self) else { return false }

@@ -170,10 +170,9 @@ import AiTermCore
         model.branches = branches
         if !title.isEmpty { model.draft.setTitle(title) }
         if !branch.isEmpty { model.draft.setBranch(branch) }
-        var sheet = NewReviewSheet(model: model, previewStep: step, previewMergeRequests: mergeRequests, previewOpen: mrOpen)
-        // The branch picker has no preview hook of its own; this is the same `State` seeding the
-        // initialiser does for the merge-request one.
-        if branchOpen { sheet._branchOpen = State(initialValue: true) }
+        // The search's answer, as `.task` would land it; a bare `NSHostingView` never runs it.
+        model.results = mergeRequests
+        let sheet = NewReviewSheet(model: model).seeded(step: step, mergeRequestsOpen: mrOpen, branchesOpen: branchOpen)
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)

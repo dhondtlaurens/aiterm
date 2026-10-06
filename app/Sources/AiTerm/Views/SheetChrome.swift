@@ -2,17 +2,6 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Set by the snapshot harness when it draws with `ImageRenderer`, which cannot materialise a
-/// `ScrollView`'s contents: `SheetLayout` then lays its content out flat and clipped instead.
-private struct SnapshotRenderingKey: EnvironmentKey { static let defaultValue = false }
-
-extension EnvironmentValues {
-    var snapshotRendering: Bool {
-        get { self[SnapshotRenderingKey.self] }
-        set { self[SnapshotRenderingKey.self] = newValue }
-    }
-}
-
 extension DismissAction {
     /// Dismisses on the next main-actor turn rather than inside the event that asked — a click, ⎋,
     /// or ⌘↩ on the primary button; every sheet closes this way. Presented, as the app presents its
@@ -27,7 +16,9 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
     let onBackgroundTap: (() -> Void)?
+    #if DEBUG
     @Environment(\.snapshotRendering) private var isSnapshot
+    #endif
     let navigation: Navigation
     let content: Content
     let footer: Footer
@@ -54,12 +45,16 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
             .padding(.horizontal, Space.margin).padding(.top, Space.section).padding(.bottom, Space.block)
             Hairline()
             Group {
-                // ImageRenderer cannot materialize ScrollView contents.
+                #if DEBUG
+                // The snapshots' `ImageRenderer` cannot materialise a ScrollView's contents.
                 if isSnapshot {
                     paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
                 } else {
                     ScrollView { paddedContent }
                 }
+                #else
+                ScrollView { paddedContent }
+                #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             Hairline()

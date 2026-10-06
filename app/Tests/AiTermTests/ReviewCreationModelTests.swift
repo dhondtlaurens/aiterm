@@ -152,7 +152,7 @@ import Foundation
         let m = model()
         m.draft.setTitle("Review")
         m.draft.setBranch("feat-gift-card")
-        let sheet = NewReviewSheet(model: m, previewStep: 3, previewMergeRequests: [])
+        let sheet = NewReviewSheet(model: m).seeded(step: 3)
         #expect(!invalidates({ _ = sheet.body }, by: { m.promptText = "/code-review" }))
         #expect(invalidates({ _ = sheet.body }, by: { m.draft.setBranch("feat-other") }))
     }
@@ -300,8 +300,7 @@ import Foundation
         m.draft.setTitle("Review")
         m.draft.setBranch("main")
         await m.loadAgentCatalogue()
-        let sheet = NewReviewSheet(model: m, previewStep: 2, previewMergeRequests: [], previewOpen: false)
-        #expect(!sheet.canAdvance)
+        #expect(!NewReviewSheet.canAdvance(step: 2, model: m))
     }
 
     /// No agent CLI at all — a fresh Mac. The review can be named on step 1, but the agent step
@@ -312,8 +311,8 @@ import Foundation
         m.draft.setBranch("main")
         await m.loadAgentCatalogue()
         #expect(m.selectedModelIsCurrent)
-        #expect(NewReviewSheet(model: m, previewStep: 1, previewMergeRequests: [], previewOpen: false).canAdvance)
-        #expect(!NewReviewSheet(model: m, previewStep: 2, previewMergeRequests: [], previewOpen: false).canAdvance)
+        #expect(NewReviewSheet.canAdvance(step: 1, model: m))
+        #expect(!NewReviewSheet.canAdvance(step: 2, model: m))
     }
 
     /// What the sheet says in place of merge requests, for every way the host can be unavailable,

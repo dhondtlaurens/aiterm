@@ -192,16 +192,26 @@ struct SelectableRow<Content: View>: View {
     @Environment(\.interfaceScale) private var scale
     // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode,
     // which the pinned toolchain does not need; this is the storage the macro would generate.
-    var _hovered: State<Bool>
+    private var _hovered = State(initialValue: false)
     private var hovered: Bool {
         get { _hovered.wrappedValue }
         nonmutating set { _hovered.wrappedValue = newValue }
     }
+    #if DEBUG
+    @Environment(\.rowHovered) private var seededHover
+    #endif
 
-    /// `hovered` seeds the pointer state, for tests and snapshots that draw a hovered row.
-    init(selected: Bool, hovered: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+    init(selected: Bool, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
         self.selected = selected; self.activate = activate; self.content = content
-        _hovered = State(initialValue: hovered)
+    }
+
+    /// The pointer's hover, or in a debug build a test's.
+    private var drawsHover: Bool {
+        #if DEBUG
+        hovered || seededHover
+        #else
+        hovered
+        #endif
     }
 
     var body: some View {
@@ -209,7 +219,7 @@ struct SelectableRow<Content: View>: View {
             .padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
             .padding(.vertical, scale(Space.base))
             .frame(minHeight: scale(Size.row))
-            .modifier(RowPill(selected: selected, hovered: hovered))
+            .modifier(RowPill(selected: selected, hovered: drawsHover))
             // The pill is inset from the project row, so the indent goes *outside* the background —
             // painting it inside made the blue run all the way to the sidebar's edge. Selection is drawn
             // here too, not by the list: AppKit's own row highlight covers the whole row rect, which is
@@ -313,11 +323,11 @@ struct RowCaption: View {
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
-    var hovered = false
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
+    @Environment(\.hoveredRow) private var hoveredRow
     #endif
 
     var body: some View {
@@ -335,7 +345,7 @@ struct TaskRowView: View {
                                              canChangeWorkspace: controller.canChangeWorkspace)
         let kindName = task?.kindName ?? "Task"
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(selected: selected, hovered: hovered, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
+        SelectableRow(selected: selected, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
@@ -375,6 +385,9 @@ struct TaskRowView: View {
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }
+        #if DEBUG
+        .environment(\.rowHovered, hoveredRow == row.id)
+        #endif
         .accessibilityLabel(voiceOver.label)
         .accessibilityValue(caption.progress ?? caption.note?.text ?? row.status.label)
         .accessibilityActions {
@@ -504,6 +517,22 @@ extension EnvironmentValues {
     var rowBodyCounter: RowBodyCounter? {
         get { self[RowBodyCounterKey.self] }
         set { self[RowBodyCounterKey.self] = newValue }
+    }
+}
+
+/// The task row a test draws hovered with no pointer over it, set on the sidebar
+/// (`SidebarRowGeometryTests`). The row it names hands `rowHovered` to its `SelectableRow`.
+private struct HoveredRowKey: EnvironmentKey { static let defaultValue: UUID? = nil }
+private struct RowHoveredKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var hoveredRow: UUID? {
+        get { self[HoveredRowKey.self] }
+        set { self[HoveredRowKey.self] = newValue }
+    }
+    fileprivate var rowHovered: Bool {
+        get { self[RowHoveredKey.self] }
+        set { self[RowHoveredKey.self] = newValue }
     }
 }
 #endif

@@ -26,8 +26,6 @@ struct SidebarView: View {
     /// reads `controller.rows`, which changes only when a row does: not the workspace, whose sidebar
     /// frame and remembered choices no row draws.
     let controller: AppController
-    /// The row that starts hovered, for tests and snapshots that draw one.
-    var hovered: UUID?
 
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
@@ -53,7 +51,7 @@ struct SidebarView: View {
                                         .tag(row.id)
                                 }
                                 ForEach(section.tasks) { row in
-                                    TaskRowView(row: row, task: rows.tasks[row.id], hovered: hovered == row.id, controller: controller)
+                                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
                                         .tag(row.id)
                                 }
                             }

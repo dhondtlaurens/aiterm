@@ -19,8 +19,10 @@ import AiTermCore
             JiraTicket(key: "ML-2", summary: "Second ticket", description: nil,
                        issueType: "Task", status: "In Progress", url: "https://example/ML-2"),
         ]
-        let sheet = NewTaskSheet(model: controller.makeCreationModel(project: project, draft: draft, jira: nil),
-                                 previewStep: 1, previewTickets: tickets)
+        let model = controller.makeCreationModel(project: project, draft: draft, jira: nil)
+        // The search's answer, as `.task` would land it; a bare `NSHostingView` never runs it.
+        model.results = tickets
+        let sheet = NewTaskSheet(model: model).seeded(step: 1, ticketsOpen: true)
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)

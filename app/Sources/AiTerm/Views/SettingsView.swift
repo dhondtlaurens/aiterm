@@ -78,7 +78,7 @@ struct SettingsView: View {
     private var interfaceSize: InterfaceSize { get { _interfaceSize.wrappedValue } nonmutating set { _interfaceSize.wrappedValue = newValue } }
     var _result = State<String?>(initialValue: nil)
     private var result: String? { get { _result.wrappedValue } nonmutating set { _result.wrappedValue = newValue } }
-    var _itermEnvironment = State<ItermEnvironment?>(initialValue: nil)
+    private var _itermEnvironment = State<ItermEnvironment?>(initialValue: nil)
     private var itermEnvironment: ItermEnvironment? { get { _itermEnvironment.wrappedValue } nonmutating set { _itermEnvironment.wrappedValue = newValue } }
     var _itermTesting = State<Bool>(initialValue: false)
     private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
@@ -245,6 +245,18 @@ struct SettingsView: View {
         }
     }
 }
+
+#if DEBUG
+extension SettingsView {
+    /// The sheet with iTerm2's check already answered: the test it runs on opening lands after
+    /// `ImageRenderer` has drawn. For the snapshots.
+    func seeded(itermEnvironment: ItermEnvironment) -> Self {
+        var settings = self
+        settings._itermEnvironment = State(initialValue: itermEnvironment)
+        return settings
+    }
+}
+#endif
 
 /// A service's Settings card — Jira, GitLab or GitHub: its mark, its connection's status line, a trailing
 /// Disconnect while it holds saved credentials, and the fields `content` lays out from the

@@ -177,9 +177,10 @@ final class HarnessSettingsModel {
     }
 }
 
+#if DEBUG
 extension HarnessSettingsModel {
-    /// Deterministic Settings fixtures use the same model as the real view, without probing a
-    /// developer's installed CLIs or configuration.
+    /// Deterministic Settings fixtures, for the snapshots and the tests: the same model as the real
+    /// view, without probing a developer's installed CLIs or configuration.
     static func preview() -> HarnessSettingsModel { preview(snapshots: previewSnapshots) }
 
     static func preview(snapshots: [AgentKind: HarnessSnapshot]) -> HarnessSettingsModel {
@@ -225,3 +226,4 @@ private actor PreviewHarnessService: HarnessServicing {
     func install(_ agent: AgentKind) async throws -> HarnessSnapshot { snapshots[agent]! }
     func test(_ snapshot: HarnessSnapshot) async -> HarnessSnapshot { snapshots[snapshot.agent]! }
 }
+#endif

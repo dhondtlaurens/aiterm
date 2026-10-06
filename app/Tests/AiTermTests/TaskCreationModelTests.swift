@@ -91,9 +91,8 @@ struct TaskCreationModelTests {
     @Test func agentStepCannotContinueWithoutASelectableCurrentModel() async {
         let model = fixture(agent: .pi, model: "", catalogue: { _ in [] })
         await model.loadAgentCatalogue()
-        let sheet = NewTaskSheet(model: model, previewStep: 2, previewTickets: [])
-        #expect(!sheet.canAdvance)
-        #expect(!sheet.canCreate)
+        #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
     }
 
     /// A title of spaces is no name: create refuses it, so the sheet must not carry it through three
@@ -102,8 +101,8 @@ struct TaskCreationModelTests {
         let model = fixture()
         await model.loadAgentCatalogue()
         model.draft.setTitle("   ")
-        #expect(!NewTaskSheet(model: model, previewStep: 1, previewTickets: []).canAdvance)
-        #expect(!NewTaskSheet(model: model, previewStep: 3, previewTickets: []).canCreate)
+        #expect(!NewTaskSheet.canAdvance(step: 1, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
     }
 
     /// No agent CLI at all — a fresh Mac. Step 1 still continues; the agent step does not, even
@@ -112,10 +111,9 @@ struct TaskCreationModelTests {
         let model = fixture(available: [])
         await model.loadAgentCatalogue()
         #expect(model.selectedModelIsCurrent)
-        #expect(NewTaskSheet(model: model, previewStep: 1, previewTickets: []).canAdvance)
-        let sheet = NewTaskSheet(model: model, previewStep: 2, previewTickets: [])
-        #expect(!sheet.canAdvance)
-        #expect(!sheet.canCreate)
+        #expect(NewTaskSheet.canAdvance(step: 1, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: 2, model: model))
+        #expect(!NewTaskSheet.canAdvance(step: 3, model: model))
     }
 
     /// A keystroke in the prompt redraws the prompt step and the command preview, which draw it,
@@ -124,7 +122,7 @@ struct TaskCreationModelTests {
         let model = fixture()
         await model.loadAgentCatalogue()
         model.draft.setTitle("Fix the login form")
-        let sheet = NewTaskSheet(model: model, previewStep: 3, previewTickets: [])
+        let sheet = NewTaskSheet(model: model).seeded(step: 3)
         // The task's own body, and the shared frame's it hands its step to.
         let wholeSheet = { _ = sheet.body; _ = sheet.body.body }
         #expect(!invalidates(wholeSheet, by: { model.promptText = "g" }))

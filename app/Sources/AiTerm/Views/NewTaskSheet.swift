@@ -5,9 +5,9 @@ import AiTermCore
 
 struct NewTaskSheet: View {
     @Bindable var model: TaskCreationModel
-    var _step = State(initialValue: 1)
+    private var _step = State(initialValue: 1)
     private var step: Int { get { _step.wrappedValue } nonmutating set { _step.wrappedValue = newValue } }
-    var _ticketsOpen = State(initialValue: false)
+    private var _ticketsOpen = State(initialValue: false)
     private var ticketsOpen: Bool { get { _ticketsOpen.wrappedValue } nonmutating set { _ticketsOpen.wrappedValue = newValue } }
     /// A result row's key column: a Jira key of up to eight characters in the mono code face, so
     /// the summaries after it start on one line.
@@ -20,20 +20,12 @@ struct NewTaskSheet: View {
     /// monospace, the rest of the row left to the new branch's name.
     private static let baseBranchWidth: CGFloat = 190
 
-    init(model: TaskCreationModel, previewStep: Int = 1, previewTickets: [JiraTicket]? = nil,
-         previewTicketsOpen: Bool = true) {
-        self.model = model
-        if let previewTickets {
-            model.results = previewTickets
-            _step = State(initialValue: previewStep)
-            _ticketsOpen = State(initialValue: previewTicketsOpen)
-        }
-    }
+    init(model: TaskCreationModel) { self.model = model }
 
     var body: some View {
         CreationSheet(model: model, step: _step.projectedValue, title: "New task in \(model.project.name)",
                       stepNames: ["Task", "Agent", "Prompt"], destination: destination, createLabel: "Create Task",
-                      canAdvance: canAdvance, pickers: [_ticketsOpen.projectedValue]) {
+                      canAdvance: Self.canAdvance(step: step, model: model), pickers: [_ticketsOpen.projectedValue]) {
             content
         }
     }
@@ -116,9 +108,12 @@ struct NewTaskSheet: View {
 
     // -- what the scaffold is handed ------------------------------------------------
 
-    var canAdvance: Bool {
+    /// Step 1 needs a name and nothing else: the branch follows the title. The agent and prompt
+    /// steps need an agent that can run too — with no CLI installed, Create Task is dead and the
+    /// footer says why.
+    static func canAdvance(step: Int, model: TaskCreationModel) -> Bool {
         guard !model.creating, TaskCreator.isNamed(model.draft.title) else { return false }
-        return step == 1 || canCreate
+        return step == 1 || model.agentIsReady
     }
 
     /// Where the task opens: its new worktree, on steps 1 and 3 only — finding the unused slug
@@ -129,11 +124,17 @@ struct NewTaskSheet: View {
         guard !slug.isEmpty else { return nil }
         return .worktree(project: model.project, slug: slug, branch: model.draft.branchName.isEmpty ? "" : model.draft.branch)
     }
+}
 
-    /// Creating a task needs a title and an agent that exists; with neither CLI installed the button
-    /// is dead and the footer says why.
-    var canCreate: Bool {
-        !model.creating && TaskCreator.isNamed(model.draft.title)
-            && model.availableAgents.contains(model.draft.agent) && model.selectedModelIsCurrent
+#if DEBUG
+extension NewTaskSheet {
+    /// The sheet already on `step`, its ticket list open or not: what only clicks reach in the app,
+    /// for the snapshots and the tests that host the sheet.
+    func seeded(step: Int, ticketsOpen: Bool = false) -> Self {
+        var sheet = self
+        sheet._step = State(initialValue: step)
+        sheet._ticketsOpen = State(initialValue: ticketsOpen)
+        return sheet
     }
 }
+#endif
