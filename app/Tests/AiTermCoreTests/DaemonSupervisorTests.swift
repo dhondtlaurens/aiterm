@@ -238,11 +238,12 @@ final class DaemonSupervisorTests {
 
         await eventually { failedAttempts().count >= 2 }
         #expect(Array(failedAttempts().prefix(2)) == [1, 2])
-        // Each failure asks for the wait one attempt behind it: the first retry is attempt 0's.
-        #expect(Array(waits.attempts.prefix(2)) == [0, 1])
 
         sup.stop()
         #expect(box.states.last == .stopped)
+        // Each failure asks for the wait one attempt behind it: the first retry is attempt 0's. Read
+        // after `stop()`, which waits for the queue: a failure is reported before its wait is asked for.
+        #expect(Array(waits.attempts.prefix(2)) == [0, 1])
 
         // The second failure scheduled a restart 0.1s out. Waiting three times that confirms
         // stop() cancelled it rather than merely racing it; `stop()` is serialised with the

@@ -1,3 +1,7 @@
+// Debug only: these record issues through swift-testing, whose macros a plain release build of the
+// package (the library is built with it, though only tests use it) does not have.
+#if DEBUG
+import Testing
 import Foundation
 
 /// A Unix-socket server a test writes in Python, for one that must behave differently from one
@@ -28,9 +32,14 @@ final class PythonSocketServer {
     static func start(script: String, arguments: [String] = []) async throws -> PythonSocketServer {
         let server = PythonSocketServer(script: script, arguments: arguments)
         try server.process.run()
-        await eventually { FileManager.default.fileExists(atPath: server.path) }
+        guard await eventually(describing: "the Python server to bind \(server.path)", { FileManager.default.fileExists(atPath: server.path) }) else {
+            server.stop()
+            throw DidNotBind(path: server.path)
+        }
         return server
     }
+
+    struct DidNotBind: Error { let path: String }
 
     var isRunning: Bool { process.isRunning }
 
@@ -41,3 +50,4 @@ final class PythonSocketServer {
         try? FileManager.default.removeItem(atPath: path)
     }
 }
+#endif

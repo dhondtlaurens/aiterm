@@ -52,7 +52,7 @@ with c:
         }
         await eventually { backgroundRequestCount() >= 1 }
         // Absence: a second send, if there were one, follows the first within a turn or two.
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(200))
         return backgroundRequestCount()
     }
 
@@ -202,7 +202,7 @@ with c:
         // A later snapshot still showing request 7 is not answered again. Absence: an answer to it
         // would be asked for from the turn that handles the snapshot's event.
         _ = try await client?.snapshot()
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(150))
 
         #expect(answers() == [#"{"cookie": "c1", "key": "k", "requestId": 7}"#, #"{"cookie": "c2", "key": "k", "requestId": 8}"#])
         #expect(asked == 2)

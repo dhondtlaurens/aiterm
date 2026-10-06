@@ -34,16 +34,28 @@ struct LockedSidebarTests {
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
 
-        func table(in view: NSView) -> NSTableView? {
-            if let table = view as? NSTableView { return table }
-            return view.subviews.lazy.compactMap { table(in: $0) }.first
-        }
-        let list = try #require(table(in: host))
+        let list = try #require(host.firstDescendant(NSTableView.self))
         var row = list.convert(list.rect(ofRow: 1), to: host)
         row.size.width = 340 - SidebarRowLayout.trailingInset(.standard) - SidebarRowLayout.trailingSlot(.standard) - 4
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: row))
-        host.cacheDisplay(in: row, to: bitmap)
-        return bitmap
+        // Rows exist before their SwiftUI content has drawn: wait for ink, a pixel that is not the row's ground.
+        var bitmap: NSBitmapImageRep?
+        settle(host) {
+            guard let drawn = host.bitmapImageRepForCachingDisplay(in: row) else { return false }
+            host.cacheDisplay(in: row, to: drawn)
+            bitmap = drawn
+            return Self.hasInk(drawn)
+        }
+        let drawn = try #require(bitmap)
+        #expect(Self.hasInk(drawn), "the row drew nothing")
+        return drawn
+    }
+
+    private static func hasInk(_ bitmap: NSBitmapImageRep) -> Bool {
+        guard let ground = bitmap.colorAt(x: 0, y: 0) else { return false }
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide where bitmap.colorAt(x: x, y: y) != ground { return true }
+        }
+        return false
     }
 
     /// Scoping the lock to the collapse gesture must leave the gesture working, and still locked:
@@ -67,8 +79,7 @@ struct LockedSidebarTests {
         let panel = NSPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false; panel.contentView = host; panel.makeKeyAndOrderFront(nil)
         defer { panel.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { panel.isKeyWindow }
         try #require(panel.isKeyWindow)
         // On the provider icon: left of the name, clear of the Jira badge and the "+".
         let point = host.convert(NSPoint(x: 30, y: host.bounds.midY), to: nil)
@@ -78,7 +89,11 @@ struct LockedSidebarTests {
                                                             windowNumber: panel.windowNumber, context: nil, eventNumber: 1,
                                                             clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
         }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        if locked {
+            settle(host, for: 0.3) // Absence: a locked workspace must not collapse, however long it is given.
+        } else {
+            settle(host) { controller.state.projects[0].collapsed }
+        }
         #expect(controller.state.projects[0].collapsed == !locked)
     }
 

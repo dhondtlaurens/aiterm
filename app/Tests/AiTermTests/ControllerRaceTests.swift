@@ -363,7 +363,7 @@ extension AppControllerTests {
         try await server.received("window.setFrame")
 
         let create = Task { try await controller.createTask(draft: fixture.draft("New"), project: fixture.project) }
-        await eventually { controller.state.tasks.count == 2 }
+        await eventually(describing: "the created task to join the old one") { controller.state.tasks.count == 2 }
         server.release()
         try await create.value
         await click?.value

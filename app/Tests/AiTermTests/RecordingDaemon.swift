@@ -1,3 +1,4 @@
+import Testing
 import Foundation
 @testable import AiTermCore
 @testable import AiTermTestSupport
@@ -25,9 +26,9 @@ final class RecordingDaemon: DaemonCommands {
 
     func requests(_ method: String) -> [Request] { requests.filter { $0.method == method } }
 
-    /// Waits until `method` has been asked for `count` times, or `TestDeadline` has passed.
+    /// Waits until `method` has been asked for `count` times; `TestDeadline` passing is an issue.
     func received(_ method: String, count: Int = 1) async throws {
-        await eventually { requests(method).count >= count }
+        await eventually(describing: "\(count) \(method) request(s)") { requests(method).count >= count }
     }
 
     /// Lets every held reply go, and every later one through without waiting.
