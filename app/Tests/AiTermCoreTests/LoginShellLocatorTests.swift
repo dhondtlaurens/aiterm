@@ -2,6 +2,7 @@ import Foundation
 import Synchronization
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct LoginShellLocatorTests {
     /// What a login shell prints for the locator's query on a machine with `found` installed, each
@@ -23,11 +24,15 @@ import Testing
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: home) }
             let installed = AgentKind.allCases.filter { !missing.contains($0) }
-            let shell = CountingShell(Self.output(installed))
+            let shell = CountingShell(Self.output(installed), gated: true)
             let locator = LoginShellLocator(shell: shell.run)
 
+            // The shell is held until the second lookup has joined it, so the two overlap as they
+            // do at launch, where a shell takes most of a second.
             async let agents = BackgroundWork.run { AgentAvailability.installed(locator: locator) }
             async let python = BackgroundWork.run { PythonLocator.find(locator: locator, validate: { _ in true }) }
+            #expect(await eventually { locator.callersWaiting == 1 })
+            shell.open()
             let (available, interpreter) = try await (agents, python)
             #expect(available == Set(installed))
             #expect(interpreter?.path == "/usr/bin/python3")
@@ -40,10 +45,17 @@ import Testing
             let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
                                          resources: HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: nil,
                                                                      installationAllowed: false, unavailableReason: "Not in a test."))
-            let cards = await withTaskGroup(of: (AgentKind, Bool).self) { group in
-                for agent in AgentKind.allCases { group.addTask { (agent, await service.probe(agent).health != .unavailable) } }
-                return await group.reduce(into: [AgentKind: Bool]()) { $0[$1.0] = $1.1 }
+            let opening = Task {
+                await withTaskGroup(of: (AgentKind, Bool).self) { group in
+                    for agent in AgentKind.allCases { group.addTask { (agent, await service.probe(agent).health != .unavailable) } }
+                    return await group.reduce(into: [AgentKind: Bool]()) { $0[$1.0] = $1.1 }
+                }
             }
+            if missing.count > 1 {
+                #expect(await eventually { locator.callersWaiting == missing.count - 1 })
+                shell.open()
+            }
+            let cards = await opening.value
             #expect(cards == Dictionary(uniqueKeysWithValues: AgentKind.allCases.map { ($0, installed.contains($0)) }))
             #expect(shell.spawns == (missing.isEmpty ? 1 : 2), "missing: \(missing)")
         }
@@ -51,14 +63,18 @@ import Testing
 
     /// Callers who ask while the shell runs wait for it rather than starting their own.
     @Test func concurrentCallersShareOneShell() async throws {
-        let shell = CountingShell(Self.output([.claude, .codex]))
+        let shell = CountingShell(Self.output([.claude, .codex]), gated: true)
         let locator = LoginShellLocator(shell: shell.run)
-        let found = try await withThrowingTaskGroup(of: String?.self) { group in
-            for name in ["claude", "codex", "grok", "pi", "claude", "codex"] {
-                group.addTask { try await BackgroundWork.run { locator.locate(name) } }
+        let names = ["claude", "codex", "grok", "pi", "claude", "codex"]
+        let lookups = Task {
+            try await withThrowingTaskGroup(of: String?.self) { group in
+                for name in names { group.addTask { try await BackgroundWork.run { locator.locate(name) } } }
+                return try await group.reduce(into: [String?]()) { $0.append($1) }
             }
-            return try await group.reduce(into: [String?]()) { $0.append($1) }
         }
+        #expect(await eventually { locator.callersWaiting == names.count - 1 })
+        shell.open()
+        let found = try await lookups.value
         #expect(found.compactMap { $0 }.count == 4)
         #expect(shell.spawns == 1)
     }
@@ -66,7 +82,7 @@ import Testing
     /// A found path stands for as long as it is an executable; a missing name asks again, and so
     /// does a path that no longer runs.
     @Test func aFoundPathStandsWhileItIsAnExecutable() {
-        let shell = CountingShell(Self.output([.claude]), delay: 0)
+        let shell = CountingShell(Self.output([.claude]))
         let executable = Mutex(true)
         let locator = LoginShellLocator(shell: shell.run, isExecutable: { _ in executable.withLock { $0 } })
         #expect(locator.locate("claude") == "/usr/bin/true")
@@ -84,7 +100,7 @@ import Testing
 
     /// After an install, nothing found before is trusted: the CLI may now be somewhere else.
     @Test func forgettingAsksTheShellAgain() {
-        let shell = CountingShell(Self.output([.claude]), delay: 0)
+        let shell = CountingShell(Self.output([.claude]))
         let locator = LoginShellLocator(shell: shell.run)
         _ = locator.locate("claude")
         locator.forget()
@@ -94,7 +110,7 @@ import Testing
 
     /// A shell that failed or ran out of time said nothing, and is not kept as if it had.
     @Test func aShellThatFailedIsNotKept() {
-        let shell = CountingShell(nil, delay: 0)
+        let shell = CountingShell(nil)
         let locator = LoginShellLocator(shell: shell.run)
         #expect(locator.locate("claude") == nil)
         #expect(locator.current() == nil)
@@ -130,24 +146,27 @@ import Testing
     }
 }
 
-/// A login shell that prints a canned answer after a pause, and counts how often it was started.
+/// A login shell that prints a canned answer, and counts how often it was started. A gated one
+/// holds each answer until the test opens the gate once for it.
 private final class CountingShell: Sendable {
     private let output: Mutex<String?>
     private let started = Mutex(0)
-    private let delay: TimeInterval
+    private let gate: DispatchSemaphore?
 
-    init(_ output: String?, delay: TimeInterval = 0.2) {
+    init(_ output: String?, gated: Bool = false) {
         self.output = Mutex(output)
-        self.delay = delay
+        gate = gated ? DispatchSemaphore(value: 0) : nil
     }
 
     var spawns: Int { started.withLock { $0 } }
 
     func answer(_ output: String?) { self.output.withLock { $0 = output } }
 
+    func open() { gate?.signal() }
+
     func run(_ query: String) -> String? {
         started.withLock { $0 += 1 }
-        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+        _ = gate?.wait(timeout: .now() + TestDeadline.seconds)
         return output.withLock { $0 }
     }
 }

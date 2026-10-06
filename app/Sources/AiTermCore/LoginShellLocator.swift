@@ -75,6 +75,10 @@ public final class LoginShellLocator: Sendable {
         }
     }
 
+    /// How many callers are waiting on a shell another caller started: for a test that holds its
+    /// shell until everyone it expects has joined.
+    var callersWaiting: Int { resolution.waiting }
+
     /// Drops every answer, and lets no shell already running stand in for a new one.
     public func forget() {
         known.withLock { $0.answers = nil; $0.generation += 1 }
@@ -98,6 +102,7 @@ final class SingleFlight<Value: Sendable>: Sendable {
     private final class Flight: Sendable {
         private let finished = DispatchGroup()
         private let value = Mutex<Value?>(nil)
+        let joined = Mutex(0)
 
         init() { finished.enter() }
 
@@ -121,12 +126,18 @@ final class SingleFlight<Value: Sendable>: Sendable {
             running = flight
             return (flight, false)
         }
-        if joined { return flight.wait() }
+        if joined {
+            flight.joined.withLock { $0 += 1 }
+            return flight.wait()
+        }
         let result = work()
         running.withLock { if $0 === flight { $0 = nil } }
         flight.finish(result)
         return result
     }
+
+    /// How many callers wait on the run under way.
+    var waiting: Int { running.withLock { $0?.joined.withLock { $0 } ?? 0 } }
 
     /// The run under way, if any, finishes for whoever is already waiting on it; anyone who asks
     /// from now on starts a new one.

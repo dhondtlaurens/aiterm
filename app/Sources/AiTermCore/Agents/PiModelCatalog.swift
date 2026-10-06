@@ -5,25 +5,30 @@ public enum PiModelCatalogError: Error, Equatable, Sendable, LocalizedError {
     case failed(Int32, String)
     case malformed(String)
 
-    /// What the New Task sheet says in place of PI's models when it has none to offer: PI's own
-    /// last line of complaint, when it gave one.
+    /// The failure in a sentence, as Settings' Models check says it.
+    public var summary: String {
+        if case .unavailable = self { return "PI couldn’t be launched." }
+        return "The PI model catalogue is unavailable."
+    }
+
+    /// What the New Task sheet says in place of PI's models when it has none to offer: the
+    /// summary, with PI's own last line of complaint when it gave one.
     public var errorDescription: String? {
-        switch self {
-        case .unavailable: return "PI couldn’t be launched."
-        case .failed(_, let stderr):
-            let reason = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
-            return reason.map { "The PI model catalogue is unavailable: \($0)" } ?? "The PI model catalogue is unavailable."
-        case .malformed: return "The PI model catalogue is unavailable."
-        }
+        guard case .failed(_, let stderr) = self,
+              let reason = stderr.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).last(where: { !$0.isEmpty })
+        else { return summary }
+        return String(summary.dropLast()) + ": " + reason
     }
 }
 
 public enum PiModelCatalog {
     public static let thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 
+    /// PI's table, one row a model. With no provider signed in PI prints a sentence instead — "No
+    /// models available. Use /login …" — and exits 0: that is an empty list, not a broken one.
     public static func parse(_ output: String) throws -> [AgentModel] {
         let lines = output.split(whereSeparator: \Character.isNewline)
-        guard !lines.isEmpty else { return [] }
+        guard let first = lines.first, !first.hasPrefix("No models available") else { return [] }
         let header = lines[0].split(whereSeparator: \Character.isWhitespace).map(String.init)
         guard header == ["provider", "model", "context", "max-out", "thinking", "images"] else {
             throw PiModelCatalogError.malformed("Unexpected PI model-list header")

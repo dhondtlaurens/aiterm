@@ -329,26 +329,23 @@ public enum SkillCatalog {
     }
 
     /// `url`'s frontmatter, from as much of the file as holds it: a skill's body can run to pages,
-    /// and only the block at its top is read.
+    /// and only the block at its top is read. Each line is looked at once, as it arrives. What was
+    /// read is decoded leniently: the last chunk can end inside a character of the body.
     static func frontmatter(of url: URL) -> [String: String] {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return [:] }
         defer { try? handle.close() }
-        var data = Data()
-        while let chunk = try? handle.read(upToCount: 8192), !chunk.isEmpty {
+        var data = Data(), lineStart = 0
+        reading: while let chunk = try? handle.read(upToCount: 8192), !chunk.isEmpty {
             data.append(chunk)
-            if frontmatterIsComplete(in: data) { break }
+            while let newline = data[lineStart...].firstIndex(of: UInt8(ascii: "\n")) {
+                let line = String(decoding: data[lineStart..<newline], as: UTF8.self).trimmingCharacters(in: .whitespaces)
+                // A first line that is not `---` says there is no block; a later `---` closes it.
+                let opensNone = lineStart == 0 && line != "---", closes = lineStart > 0 && line == "---"
+                lineStart = newline + 1
+                if opensNone || closes { break reading }
+            }
         }
-        guard let text = String(data: data, encoding: .utf8) else { return [:] }
-        return frontmatter(in: text)
-    }
-
-    /// Whether `data` already holds the whole block, or shows there is none: its first line is
-    /// complete and is not `---`, or a later complete line closes the block.
-    private static func frontmatterIsComplete(in data: Data) -> Bool {
-        let lines = String(decoding: data, as: UTF8.self).components(separatedBy: "\n").dropLast()
-        guard let first = lines.first else { return false }
-        guard first.trimmingCharacters(in: .whitespaces) == "---" else { return true }
-        return lines.dropFirst().contains { $0.trimmingCharacters(in: .whitespaces) == "---" }
+        return frontmatter(in: String(decoding: data, as: UTF8.self))
     }
 
     // -- matching -------------------------------------------------------------------

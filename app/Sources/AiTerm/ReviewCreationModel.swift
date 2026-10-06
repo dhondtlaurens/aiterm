@@ -32,7 +32,7 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
     init(project: Project, draft: ReviewDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
          rememberedModels: [AgentKind: String] = [:],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
-         initialCatalogue: [AgentModel]? = nil,
+         initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
          defaults: UserDefaults = .standard, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
@@ -42,7 +42,8 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
         self.codeHost = codeHost
         self.findOwner = owningTask
         super.init(project: project, draft: draft, home: home, availableAgents: availableAgents, rememberedModels: rememberedModels,
-                   catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
+                   catalogue: catalogue, initialCatalogue: initialCatalogue,
+                   initialCatalogueFailure: initialCatalogueFailure, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
                    search: searchMergeRequests, submit: createReview)
         findOwningTask()
     }

@@ -52,10 +52,23 @@ struct CreationCatalogueTests {
         #expect(!model.models.isEmpty)
     }
 
-    private func sheet(catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel]) -> TaskCreationModel {
+    /// The sheet is handed the reading its draft was built from, failure and all: a PI that
+    /// fails to launch is not launched a second time for the same opening.
+    @Test func aHandedFailureIsShownWithoutReadingAgain() async {
+        let reads = Mutex(0)
+        let model = sheet(catalogue: { _ in reads.withLock { $0 += 1 }; return [] },
+                          initialCatalogue: [], initialCatalogueFailure: "PI couldn’t be launched.")
+        await model.loadAgentCatalogue()
+        #expect(reads.withLock { $0 } == 0)
+        #expect(model.catalogueFailure == "PI couldn’t be launched.")
+    }
+
+    private func sheet(catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
+                       initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil) -> TaskCreationModel {
         let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .pi, model: "", reasoning: nil)
         return TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, catalogue: catalogue,
+                                 initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure,
                                  defaults: ScratchDefaults.make(), git: .hermetic(), searchIssues: { _ in [] }, createTask: { _ in })
     }
 }

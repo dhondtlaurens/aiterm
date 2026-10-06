@@ -9,13 +9,14 @@ final class TaskCreationModel: CreationModel<TaskDraft, JiraTicket> {
     init(project: Project, draft: TaskDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
          rememberedModels: [AgentKind: String] = [:],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
-         initialCatalogue: [AgentModel]? = nil,
+         initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
          defaults: UserDefaults = .standard, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          searchIssues: @escaping @MainActor (String) async throws -> [JiraTicket],
          createTask: @escaping @MainActor (TaskDraft) async throws -> Void) {
         super.init(project: project, draft: draft, home: home, availableAgents: availableAgents, rememberedModels: rememberedModels,
-                   catalogue: catalogue, initialCatalogue: initialCatalogue, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
+                   catalogue: catalogue, initialCatalogue: initialCatalogue,
+                   initialCatalogueFailure: initialCatalogueFailure, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
                    search: searchIssues, submit: createTask)
     }
 

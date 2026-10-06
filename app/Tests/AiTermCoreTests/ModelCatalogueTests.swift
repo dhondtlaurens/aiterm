@@ -71,6 +71,38 @@ import Testing
         #expect(try catalogue.models(for: .pi) == listed, "unchanged files: the list read stands")
     }
 
+    /// What `pi --offline --list-models` really prints with no provider signed in: status 0, and
+    /// a sentence where the table would be. That is an empty list — the sheet and Settings then
+    /// say to run /login — and it is kept like any list read, not launched again on every opening.
+    static let piSignedOut = """
+        No models available. Use /login to log into a provider via OAuth or API key. See:
+          /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/docs/providers.md
+          /opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/docs/models.md
+
+        """
+
+    @Test func aSignedOutPiListsNoModelsAndIsKept() async throws {
+        #expect(try PiModelCatalog.parse(Self.piSignedOut).isEmpty)
+
+        let home = try scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let launches = Launches()
+        let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
+            launches.count()
+            return ProcessOutput(status: 0, stdout: Self.piSignedOut, stderr: "", timedOut: false)
+        })
+        let catalogue = ModelCatalogue(home: home, runner: runner)
+        #expect(catalogue.read(.pi) == ModelCatalogue.Reading(models: []))
+        #expect(try catalogue.models(for: .pi).isEmpty)
+        #expect(launches.value == 1)
+
+        let service = HarnessService(home: home, daemonPort: 47821, runner: runner, catalogue: catalogue,
+                                     resources: HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: nil,
+                                                                 installationAllowed: false, unavailableReason: "Not in a test."))
+        let card = await service.probe(.pi)
+        #expect(card.checks.first { $0.id == "models" }?.explanation == AgentKind.pi.noModelsExplanation)
+    }
+
     /// A missing CLI is a failure like a failed launch, and launches nothing.
     @Test func aMissingPiIsUnavailable() {
         let catalogue = ModelCatalogue(home: FileManager.default.temporaryDirectory, runner: .nothingInstalled)

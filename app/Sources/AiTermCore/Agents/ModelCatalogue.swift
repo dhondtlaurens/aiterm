@@ -27,8 +27,8 @@ public final class ModelCatalogue: Sendable {
         /// What Settings' Models check says about a failed read.
         public var explanation: String? {
             guard let failure else { return nil }
-            if case .unavailable = failure { return "PI couldn’t be launched." }
-            return stale ? "The PI model catalogue couldn’t be refreshed." : "The PI model catalogue is unavailable."
+            if case .unavailable = failure { return failure.summary }
+            return stale ? "The PI model catalogue couldn’t be refreshed." : failure.summary
         }
     }
 

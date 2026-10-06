@@ -44,8 +44,9 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     /// Whose skills and commands the prompt completes: the person's home in the app.
     private let home: URL
     private let catalogue: @Sendable (AgentKind) throws -> [AgentModel]
-    /// The catalogue the draft was built from, for the first load of the draft's own agent.
-    private var initialCatalogue: (agent: AgentKind, models: [AgentModel])?
+    /// The catalogue the draft was built from, for the first load of the draft's own agent — and
+    /// why it has no models, when it could not be read, so a failed read is not tried twice.
+    private var initialCatalogue: (agent: AgentKind, models: [AgentModel], failure: String?)?
     private let defaults: UserDefaults
     /// Lists the project's branches, and a review's checkouts.
     let git: any GitRunning
@@ -59,12 +60,12 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
 
     init(project: Project, draft: Draft, home: URL, availableAgents: Set<AgentKind>, rememberedModels: [AgentKind: String],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
-         defaults: UserDefaults, git: any GitRunning,
+         initialCatalogueFailure: String? = nil, defaults: UserDefaults, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void) {
         self.project = project; self.draft = draft; self.home = home; self.availableAgents = availableAgents
         self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
-        self.initialCatalogue = initialCatalogue.map { (draft.agent, $0) }
+        self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
         self.canChangeWorkspace = canChangeWorkspace
         self.searchItems = search; self.submit = submit
     }
@@ -111,10 +112,10 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
         let remembered = rememberedModels[agent], catalogueProvider = self.catalogue
         // UserDefaults is documented as thread-safe; the SDK just does not mark it `Sendable`.
         nonisolated(unsafe) let defaults = self.defaults
-        let handed = initialCatalogue?.agent == agent ? initialCatalogue?.models : nil
+        let handed = initialCatalogue?.agent == agent ? initialCatalogue : nil
         initialCatalogue = nil
         let catalogue = try? await BackgroundWork.run {
-            var models = handed ?? [], failure: String?
+            var models = handed?.models ?? [], failure = handed?.failure
             if handed == nil {
                 do { models = try catalogueProvider(agent) } catch { failure = error.localizedDescription }
             }

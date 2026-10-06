@@ -734,7 +734,7 @@ final class AppController {
         let git = self.git, known = checkouts.defaultBranch[project.id]
         prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known) },
                      search: jiraSettings) { [unowned self] in
-            .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, jira: $2))
+            .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2, jira: $3))
         }
     }
 
@@ -743,20 +743,22 @@ final class AppController {
         prepareSheet(for: project, draft: { ReviewDraft.initial(state: $0, agent: $1, catalog: $2) },
                      search: { (gitLab: gitLab(), gitHub: gitHub(),
                                 remote: ProviderDetector.detect(remoteUrl: project.remoteUrl, repoPath: project.path)) }) { [unowned self] in
-            .newReview(makeReviewModel(project: project, draft: $0, catalogue: $1, gitLab: $2.gitLab, gitHub: $2.gitHub, remote: $2.remote))
+            .newReview(makeReviewModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2,
+                                       gitLab: $3.gitLab, gitHub: $3.gitHub, remote: $3.remote))
         }
     }
 
     /// The remembered agent may be one that is no longer installed, so the draft falls back to an
     /// available one — the sheet's picker disables the missing ones and says why. The agent's
-    /// catalogue is read for the draft and handed to the sheet's model with it, when it could be
-    /// read: one that failed is read again by the sheet, which then says why it has no models.
+    /// catalogue is read for the draft and handed to the sheet's model with it — and why it has no
+    /// models, when it could not be read, so the sheet neither reads it again nor launches a
+    /// failing PI a second time.
     /// `search` is read here too — what the sheet's search needs from the Keychain and the
     /// checkout — so no keystroke has to.
     private func prepareSheet<Draft, Search>(for project: Project,
                                              draft build: @escaping @Sendable (AppState, AgentKind, [AgentModel]) -> Draft,
                                              search resolve: @escaping @Sendable () -> Search,
-                                             sheet makeSheet: @escaping (Draft, [AgentModel]?, Search) -> SheetKind)
+                                             sheet makeSheet: @escaping (Draft, [AgentModel], String?, Search) -> SheetKind)
         where Draft: AgentDraft & Sendable, Search: Sendable {
         guard canChangeWorkspace else { return }
         preparingSheet?.cancel()
@@ -764,22 +766,27 @@ final class AppController {
         let agent = AgentAvailability.agent(preferring: state.lastAgentByProject[project.id] ?? .claude, available: available)
         preparingSheet = Task {
             let prepared = try? await BackgroundWork.run {
-                let catalog = try? catalogue.models(for: agent)
-                return (draft: build(state, agent, catalog ?? []), catalog: catalog, search: resolve())
+                let read = Result { try catalogue.models(for: agent) }
+                let catalog = (try? read.get()) ?? []
+                var failure: String?
+                if case .failure(let error) = read { failure = error.localizedDescription }
+                return (draft: build(state, agent, catalog), catalog: catalog, failure: failure, search: resolve())
             }
             guard !Task.isCancelled, canChangeWorkspace, sheet == nil, let prepared,
                   self.state.project(id: project.id) != nil else { return }
-            sheet = makeSheet(prepared.draft, prepared.catalog, prepared.search)
+            sheet = makeSheet(prepared.draft, prepared.catalog, prepared.failure, prepared.search)
         }
     }
 
-    /// `catalogue` is the one `draft` was built from, if the caller read it; `jira` is the
-    /// connection read when the sheet was prepared.
-    func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, jira: JiraConfig?) -> TaskCreationModel {
+    /// `catalogue` is the one `draft` was built from, if the caller read it, and `catalogueFailure`
+    /// why it is empty if reading it failed; `jira` is the connection read when the sheet was prepared.
+    func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
+                           jira: JiraConfig?) -> TaskCreationModel {
         let models = agents.catalogue
         return TaskCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: agents.availableAgents,
                           rememberedModels: state.lastModelByAgent,
-                          catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue, git: git,
+                          catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
+                          initialCatalogueFailure: catalogueFailure, git: git,
                           canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
                           searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
                           createTask: { [weak self] draft in
@@ -788,12 +795,13 @@ final class AppController {
                           })
     }
 
-    private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil,
+    private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                                  gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
         let models = agents.catalogue
         return ReviewCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: agents.availableAgents,
                             rememberedModels: state.lastModelByAgent,
-                            catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue, git: git,
+                            catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
+                            initialCatalogueFailure: catalogueFailure, git: git,
                             canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
                             owningTask: { [weak self] branch, checkouts in
                                 self?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)

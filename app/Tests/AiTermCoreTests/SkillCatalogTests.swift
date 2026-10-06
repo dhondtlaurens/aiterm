@@ -323,4 +323,18 @@ import Foundation
         #expect(SkillCatalog.frontmatter(of: file).isEmpty)
         #expect(SkillCatalog.frontmatter(of: dir.appendingPathComponent("missing.md")).isEmpty)
     }
+
+    /// The block is read in chunks, and the first chunk can end inside a character of the body:
+    /// that half character must not cost the frontmatter it follows.
+    @Test func aCharacterSplitByTheChunkBoundaryKeepsTheFrontmatter() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("SKILL.md")
+        let head = "---\nname: split\ndescription: Kept\nuser-invocable: false\n---\n"
+        let padding = String(repeating: "a", count: 8191 - head.utf8.count)
+        let text = head + padding + "—" + "tail\n"
+        #expect(Array(text.utf8)[8191] == 0xE2, "the dash's three bytes straddle byte 8192")
+        write(text, to: file)
+        #expect(SkillCatalog.frontmatter(of: file) == ["name": "split", "description": "Kept", "user-invocable": "false"])
+    }
 }
