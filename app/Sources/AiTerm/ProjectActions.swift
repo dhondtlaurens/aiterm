@@ -228,14 +228,16 @@ final class ProjectActions {
     }
 
     /// Stores `layout`'s collapsed states — Focus View's or List View's — in one change to the
-    /// workspace, which saves only if one changed.
-    func setCollapsed(_ layout: [UUID: Bool]) {
-        guard canChangeWorkspace else { return }
+    /// workspace, which saves only if one changed. Whether it was stored: not in a locked workspace.
+    @discardableResult
+    func setCollapsed(_ layout: [UUID: Bool]) -> Bool {
+        guard canChangeWorkspace else { return false }
         workspace.mutate { state in
             for (id, collapsed) in layout {
                 state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
             }
         }
+        return true
     }
 
     /// Whether `move` would do anything: the first row has no "up", the last no "down", and a

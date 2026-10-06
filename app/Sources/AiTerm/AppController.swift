@@ -154,8 +154,10 @@ final class AppController {
         // are derived again if they changed, with the Dock badge counting what is left, and only
         // then does a gone task's removal entry go. The entry is what keeps a task on its way out
         // from being counted, so it outlasts the task's row in the sections: the other way round,
-        // the badge would count the row once more between the two. Weak: the workspace outlives
-        // none of them, and each of them holds it.
+        // the badge would count the row once more between the two. Before any of these runs the
+        // hook `focus` added as it was built, which drops a selection whose row went, in the same
+        // change; so do the owners' `PerRow` hooks, which drop only cells no row reads. Weak: the
+        // workspace outlives none of them, and each of them holds it.
         workspace.onChange { [weak live] in live?.pruneContexts() }
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
@@ -257,11 +259,12 @@ final class AppController {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
     }
 
+    /// Whether the layout was stored. A locked workspace is `projects.setCollapsed`'s to refuse, as
+    /// every edit of its own is; `canApplyView` asks it too, but only to grey the menus.
     @discardableResult
     private func applyView(_ layout: [UUID: Bool]) -> Bool {
-        guard canApplyView(layout) else { return false }
-        projects.setCollapsed(layout)
-        return true
+        guard sheet == nil, !layout.isEmpty else { return false }
+        return projects.setCollapsed(layout)
     }
 
     // -- sheets ---------------------------------------------------------------------

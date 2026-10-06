@@ -60,6 +60,8 @@ final class RowFocus {
     @ObservationIgnored private var windowGoneHooks: [@MainActor (String) -> Void] = []
     /// Where a window that would not come forward is reported.
     private let notices: Notices
+    /// The selection's own workspace hook, taken out again when the selection goes, as `PerRow`'s is.
+    @ObservationIgnored private var workspaceHook: WorkspaceStore.Hook?
 
     init(peekDelay: Duration = .milliseconds(120),
          workspace: WorkspaceStore,
@@ -78,7 +80,11 @@ final class RowFocus {
         selectedRows = PerRow(default: false, workspace: workspace)
         // Whatever took the selected row away — a window closed, a removal, a project removed, a
         // terminal closed — the selection goes with it, in the same change.
-        workspace.onChange { [weak self] in self?.dropStale() }
+        workspaceHook = workspace.onChange { [weak self] in self?.dropStale() }
+    }
+
+    isolated deinit {
+        if let workspaceHook { workspace.removeHook(workspaceHook) }
     }
 
     /// Adds `hook` to what hears of a window a request found already gone.
