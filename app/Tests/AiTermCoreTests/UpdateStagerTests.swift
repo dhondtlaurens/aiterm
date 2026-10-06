@@ -1,8 +1,9 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct UpdateStagerTests {
+@Suite(.blocking) struct UpdateStagerTests {
     let version = ReleaseVersion("0.3.0")!
     let stager = UpdateStager(expectedIdentifier: "com.test.aiterm", requirement: #"identifier "com.test.aiterm""#)
 

@@ -5,7 +5,7 @@ import Testing
 
 /// What a repository's worktree and branch work must not do to work that is not its own: a branch someone is rebasing, a
 /// folder under `.worktrees/` that git no longer knows.
-final class WorktreeSafetyTests {
+@Suite(.blocking) final class WorktreeSafetyTests {
     let git = GitRunner.hermetic()
     /// The folder every repository of the test lives in, removed with it.
     let root: String

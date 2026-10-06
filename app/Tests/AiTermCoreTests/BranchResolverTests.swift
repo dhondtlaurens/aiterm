@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct BranchResolverTests {
+@Suite(.blocking) struct BranchResolverTests {
     private func makeRepo(refFormat: String = "files") throws -> String {
         try GitFixture.makeRepo(prefix: "br-", refFormat: refFormat)
     }

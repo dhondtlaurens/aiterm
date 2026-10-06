@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct RemoteResolverTests {
+@Suite(.blocking) struct RemoteResolverTests {
     private func makeRepo() throws -> String { try GitFixture.makeRepo(prefix: "rr-") }
 
     @Test func followsARemoteAddedAfterTheFirstLookup() throws {

@@ -7,7 +7,7 @@ import Darwin
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-@Suite struct WorktreesTests {
+@Suite(.blocking) struct WorktreesTests {
     let git = GitRunner.hermetic()
     var repo: String
 

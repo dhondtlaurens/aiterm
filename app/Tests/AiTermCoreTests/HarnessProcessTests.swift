@@ -3,8 +3,9 @@ import Foundation
 import Synchronization
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct HarnessProcessTests {
+@Suite(.blocking) struct HarnessProcessTests {
     @Test func liveRunnerReapsAChildThatIgnoresTerminate() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("harness-process-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

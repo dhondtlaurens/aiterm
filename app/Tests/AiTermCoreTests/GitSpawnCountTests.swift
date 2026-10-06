@@ -10,7 +10,7 @@ import Testing
 ///
 /// Before the shared probe, the batched ref queries and the cached untracked counts, the same
 /// workspace cost 55 spawns on the first pass and 12 on a pass after the diffs' ttl expired.
-struct GitSpawnCountTests {
+@Suite(.blocking) struct GitSpawnCountTests {
     private let git = GitRunner.hermetic()
 
     private struct Workspace {

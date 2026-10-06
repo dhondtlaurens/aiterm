@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-@Suite struct GitRunnerTests {
+@Suite(.blocking) struct GitRunnerTests {
     /// A stand-in for git: a script whose body is `script`, in a directory of its own.
     private func fakeGit(_ script: String) throws -> (git: GitRunner, directory: String) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("git-runner-\(UUID().uuidString)")

@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-@Suite struct LoginShellLocatorTests {
+@Suite(.blocking) struct LoginShellLocatorTests {
     /// What a login shell prints for the locator's query on a machine with `found` installed, each
     /// at `/usr/bin/true`, and Python at `python`, after an rc file's banner.
     static func output(_ found: [AgentKind], python: String = "/usr/bin/python3") -> String {
@@ -18,6 +18,11 @@ import Testing
     /// every card at once. Before, each was a login shell of its own: two at launch and one per
     /// agent in Settings, six in all. Now they share one; a CLI that is missing is asked about
     /// again on the opening, but every missing one in the same shell.
+    ///
+    /// The callers are child tasks, which the suite's `.blocking` runs off Swift's cooperative pool,
+    /// and the suites whose tests block are marked so too: no caller queues behind them for a
+    /// worker before it reaches the shell, which under the parallel runner once took past the
+    /// deadline.
     @Test func theLaunchAndTheFirstSettingsOpeningShareOneLoginShell() async throws {
         for missing in [[], [AgentKind.grok, .pi]] {
             let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-locator-\(UUID().uuidString)")
@@ -44,17 +49,15 @@ import Testing
             }, forgetLocations: { locator.forget() })
             let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
                                          resources: HarnessResources([:], installationAllowed: false, unavailableReason: "Not in a test."))
-            let opening = Task {
-                await withTaskGroup(of: (AgentKind, Bool).self) { group in
-                    for agent in AgentKind.allCases { group.addTask { (agent, await service.probe(agent).health != .unavailable) } }
-                    return await group.reduce(into: [AgentKind: Bool]()) { $0[$1.0] = $1.1 }
-                }
+            async let opening = withTaskGroup(of: (AgentKind, Bool).self) { group in
+                for agent in AgentKind.allCases { group.addTask { (agent, await service.probe(agent).health != .unavailable) } }
+                return await group.reduce(into: [AgentKind: Bool]()) { $0[$1.0] = $1.1 }
             }
             if missing.count > 1 {
                 #expect(await eventually { locator.callersWaiting == missing.count - 1 })
                 shell.open()
             }
-            let cards = await opening.value
+            let cards = await opening
             #expect(cards == Dictionary(uniqueKeysWithValues: AgentKind.allCases.map { ($0, installed.contains($0)) }))
             #expect(shell.spawns == (missing.isEmpty ? 1 : 2), "missing: \(missing)")
         }

@@ -6,7 +6,7 @@ import Darwin
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-@Suite struct AgentCommandTests {
+@Suite(.blocking) struct AgentCommandTests {
     let wt = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)").path
 
     /// Fully resolves symlinks in `path` using POSIX `realpath(3)`, matching what real `git`

@@ -8,7 +8,7 @@ import Darwin
 
 /// "Pull main": the project's default branch brought to origin's, fast-forward only, wherever
 /// it is checked out — or nowhere.
-@Suite final class DefaultBranchPullTests {
+@Suite(.blocking) final class DefaultBranchPullTests {
     let git = GitRunner.hermetic()
     /// The project's checkout, a clone of `remote`, on the default branch.
     let repo: String

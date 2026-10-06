@@ -41,7 +41,7 @@ private final class RecordedBackoff: Sendable {
 /// the test looks at it: under the parallel runner a test can outlast the real fifteen seconds.
 private let neverAbandoned: TimeInterval = 3600
 
-final class DaemonSupervisorTests {
+@Suite(.blocking) final class DaemonSupervisorTests {
     /// Every supervisor built here writes its daemon log into a throwaway directory: the default
     /// (`AiTermPaths.daemonLogURL`) is the real `~/Library/Application Support/AiTerm`, which the
     /// tests must not touch.

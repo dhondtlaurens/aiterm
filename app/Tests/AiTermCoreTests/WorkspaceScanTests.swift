@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct WorkspaceScanTests {
+@Suite(.blocking) struct WorkspaceScanTests {
     private func makeRepo(remote: String) throws -> String {
         let repo = try GitFixture.makeRepo(prefix: "ws-")
         try GitRunner.hermetic().run(["remote", "add", "origin", remote], in: repo)

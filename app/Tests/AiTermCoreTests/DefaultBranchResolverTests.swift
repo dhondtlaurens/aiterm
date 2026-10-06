@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The default branch the project menu's "Pull main" names, read on every refresh pass.
-final class DefaultBranchResolverTests {
+@Suite(.blocking) final class DefaultBranchResolverTests {
     let git = GitRunner.hermetic()
     /// Every folder a test made, removed with it.
     private var made: [String] = []

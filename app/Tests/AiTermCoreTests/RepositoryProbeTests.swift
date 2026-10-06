@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The one `rev-parse` that names the files the three resolvers watch.
-struct RepositoryProbeTests {
+@Suite(.blocking) struct RepositoryProbeTests {
     private let git = GitRunner.hermetic()
 
     /// The path git reports, which has no symlink in it: `/private/var/…` for the temporary directory.

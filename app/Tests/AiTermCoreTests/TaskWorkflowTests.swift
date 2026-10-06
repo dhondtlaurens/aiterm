@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct TaskWorkflowTests {
+@Suite(.blocking) struct TaskWorkflowTests {
     @Test func removalRetainsUnmergedBranchAndRetryOnlyDeletesBranch() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }

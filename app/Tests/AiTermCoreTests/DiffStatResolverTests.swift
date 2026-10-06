@@ -4,7 +4,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-struct DiffStatResolverTests {
+@Suite(.blocking) struct DiffStatResolverTests {
     private let git = GitRunner.hermetic()
 
     /// A repo on `main` with one tracked file of three lines, and a task worktree off it.

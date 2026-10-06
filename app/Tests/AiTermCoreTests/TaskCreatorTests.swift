@@ -6,7 +6,7 @@ import Darwin
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-@Suite struct TaskCreatorTests {
+@Suite(.blocking) struct TaskCreatorTests {
     let git = GitRunner.hermetic()
     let defaults = ScratchDefaults.make()
     var repo: String

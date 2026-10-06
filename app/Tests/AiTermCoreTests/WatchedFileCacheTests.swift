@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The cache the three resolvers share the machinery of, driven with closures instead of git.
-struct WatchedFileCacheTests {
+@Suite(.blocking) struct WatchedFileCacheTests {
     /// A folder with one file in it, which is what the cache watches.
     private func directory() throws -> (path: String, file: String) {
         let path = try GitFixture.folder("watched-")

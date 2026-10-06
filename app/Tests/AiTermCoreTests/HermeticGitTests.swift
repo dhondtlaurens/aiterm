@@ -5,7 +5,7 @@ import Testing
 
 /// What makes a fixture's git the same on every machine: nothing of the developer's configuration
 /// reaches it, and it commits as an identity of its own.
-@Suite struct HermeticGitTests {
+@Suite(.blocking) struct HermeticGitTests {
     private func scratch() throws -> String {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("hermetic-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

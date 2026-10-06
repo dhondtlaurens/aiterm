@@ -2,8 +2,9 @@ import Darwin
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct ProcessRunnerTests {
+@Suite(.blocking) struct ProcessRunnerTests {
     /// Well past a pipe's ~64 KB buffer on *both* streams: a runner that read one to EOF before
     /// the other would leave the child blocked writing, and itself blocked reading, forever.
     @Test func bothPipesAreDrainedAtOnce() throws {

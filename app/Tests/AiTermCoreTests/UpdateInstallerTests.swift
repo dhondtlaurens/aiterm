@@ -1,8 +1,9 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct UpdateInstallerTests {
+@Suite(.blocking) struct UpdateInstallerTests {
     /// Review focus 1: a home folder with a space in it.
     func workspace() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("installer \(UUID().uuidString)")
