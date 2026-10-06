@@ -6,15 +6,26 @@ import Testing
 @testable import AiTermTestSupport
 
 @Suite(.blocking) struct HarnessProcessTests {
+    /// A child that ignores SIGTERM is killed at its deadline and reaped. The run proves that only
+    /// once the child has trapped TERM and said so (`ready`, written after its pid): one stopped
+    /// before then died of the TERM, or was killed before it could say who it was. Starting
+    /// `/bin/sh` can take longer than a tenth of a second on a loaded machine, so such a run is
+    /// tried again with twice the time, until the child gets there.
     @Test func liveRunnerReapsAChildThatIgnoresTerminate() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("harness-process-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let pidFile = directory.appendingPathComponent("pid")
-        let script = "trap '' TERM; echo $$ > '\(pidFile.path)'; exec /usr/bin/tail -f /dev/null"
-        let result = try HarnessCommandRunner.live.run("/bin/sh", ["-c", script], [:], 0.1)
+        let pidFile = directory.appendingPathComponent("pid"), readyFile = directory.appendingPathComponent("ready")
+        let script = "trap '' TERM; echo $$ > '\(pidFile.path)'; : > '\(readyFile.path)'; exec /usr/bin/tail -f /dev/null"
+        var timeout = 0.1
+        while true {
+            let result = try HarnessCommandRunner.live.run("/bin/sh", ["-c", script], [:], timeout)
+            #expect(result.timedOut)
+            if FileManager.default.fileExists(atPath: readyFile.path) { break }
+            try #require(timeout < TestDeadline.seconds, "the child never got as far as trapping TERM")
+            timeout *= 2
+        }
 
-        #expect(result.timedOut)
         let contents = try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         let pid = try #require(Int32(contents))
         #expect(kill(pid, 0) == -1)

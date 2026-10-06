@@ -14,10 +14,24 @@ import Testing
     @Test func aCallerKeptFromItsTurnIsNotChargedForIt() async {
         var done = false
         /// What another main-actor test's synchronous body does to this one.
-        func holdTheActor() { Thread.sleep(forTimeInterval: 0.6) }
+        func holdTheActor() { Thread.sleep(forTimeInterval: 0.8) }
         Task { try? await Task.sleep(for: .milliseconds(20)); done = true }
         Task { try? await Task.sleep(for: .milliseconds(1)); holdTheActor() }
-        #expect(await eventually(timeout: 0.3) { done })
+        #expect(await eventually(timeout: 0.5) { done })
+    }
+
+    /// What came due while the caller was kept from its turn is queued right behind the check that
+    /// turn brings, so a wait whose time ran out during it gives that one more turn before calling
+    /// the wait off: the actor is held past the wall-clock ceiling, and what the wait is for comes
+    /// due in that time. This is how a busy parallel run timed out a wait whose condition held
+    /// one turn later.
+    @Test func aWaitThatRanOutWhileKeptFromItsTurnSeesWhatCameDueMeanwhile() async {
+        let timeout = 0.2, hold = timeout * Double(wallClockFactor) + 0.1
+        var done = false
+        func holdTheActor() { Thread.sleep(forTimeInterval: hold) }
+        Task { try? await Task.sleep(for: .milliseconds(20)); done = true }
+        Task { try? await Task.sleep(for: .milliseconds(1)); holdTheActor() }
+        #expect(await eventually(timeout: timeout) { done })
     }
 
     /// A wait kept from its turns past `wallClockFactor` times its timeout ends there, though it

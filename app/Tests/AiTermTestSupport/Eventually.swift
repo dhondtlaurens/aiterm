@@ -27,27 +27,37 @@ import Testing
 /// The wall clock still has the last word: a wait that has lasted ``wallClockFactor`` times its
 /// timeout ends there, whatever it was charged, so a condition that never holds on a host that
 /// stays busy fails within a minute rather than as long as the host is busy.
+///
+/// Neither ends the wait on a check that came back late, though, while it has not had the turn
+/// after it: what came due while the caller was kept waiting is queued right behind that check,
+/// so it gets one more turn — once, so a host that stays busy still ends the wait. A busy run
+/// otherwise timed out a wait at a late check whose condition held at the next one.
 @discardableResult
 func eventually(describing what: @autoclosure () -> String = "the condition", timeout: TimeInterval = TestDeadline.seconds,
                 every interval: Duration = .milliseconds(5), sourceLocation: SourceLocation = #_sourceLocation,
                 isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async -> Bool {
     let budget = Duration.seconds(timeout), started = ContinuousClock.now
-    var waited = Duration.zero, checked = started
+    var waited = Duration.zero, checked = started, cameLate = false, hadTheTurnAfter = false
     while !condition() {
         if Task.isCancelled { return false }
-        if waited >= budget {
-            Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
-            return false
-        }
         let elapsed = ContinuousClock.now - started
-        if elapsed >= budget * wallClockFactor {
-            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-            Issue.record("Timed out after \(timeout) s waiting for \(what()) (wall clock: \(String(format: "%.1f", seconds)) s)",
-                         sourceLocation: sourceLocation)
-            return false
+        let overBudget = waited >= budget, pastCeiling = elapsed >= budget * wallClockFactor
+        if overBudget || pastCeiling {
+            if cameLate && !hadTheTurnAfter {
+                hadTheTurnAfter = true
+            } else if overBudget {
+                Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
+                return false
+            } else {
+                let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+                Issue.record("Timed out after \(timeout) s waiting for \(what()) (wall clock: \(String(format: "%.1f", seconds)) s)",
+                             sourceLocation: sourceLocation)
+                return false
+            }
         }
         try? await Task.sleep(for: interval)
         let now = ContinuousClock.now
+        cameLate = now - checked > lateTurn
         waited += min(now - checked, lateTurn)
         checked = now
     }
