@@ -73,10 +73,10 @@ struct SidebarTilingTests {
     }
 
     /// A workspace with a task window, a terminal window and a task whose window is closed,
-    /// connected to a daemon that records what it is asked.
-    private func tiledWorkspace() async throws -> (RaceFixture, RecordingDaemon, NSWindow, TaskItem, TerminalItem) {
+    /// connected to a daemon that records what it is asked and holds back the replies to `holding`.
+    private func tiledWorkspace(holding: String? = nil) async throws -> (RaceFixture, RecordingDaemon, NSWindow, TaskItem, TerminalItem) {
         let fixture = try RaceFixture()
-        let server = RecordingDaemon()
+        let server = RecordingDaemon(holding: holding)
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: "task-window")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Terminal", windowId: "terminal-window",
@@ -118,5 +118,28 @@ struct SidebarTilingTests {
 
         let snapped = server.requests("window.setFrame").compactMap { $0.params["windowId"] as? String }
         #expect(snapped.sorted() == ["task-window", "terminal-window"])
+    }
+
+    /// A14: a re-tiling for a newer frame cancels one still under way, so the windows that one had
+    /// not reached yet are framed once, for the newer frame, rather than by whichever reply is last.
+    @Test func aNewerReTilingCancelsTheOneUnderWay() async throws {
+        let (fixture, server, window, _, _) = try await tiledWorkspace(holding: "window.setFrame")
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let tiling = fixture.controller.tiling
+        let zoom = try #require(tiling.setInterfaceSize(.large))
+        let zoomed = tiling.taskFrame()
+        try await server.received("window.setFrame")
+
+        window.setFrameOrigin(NSPoint(x: 200, y: 0))
+        tiling.sidebarMoved()
+        tiling.finishPendingMove()
+        let moved = tiling.taskFrame()
+        server.release()
+        await zoom.value
+        try await server.received("window.setFrame", count: 3)
+
+        let xs = server.requests("window.setFrame").compactMap { ($0.params["frame"] as? [String: Any])?["x"] as? Double }
+        #expect(xs.count { $0 == Double(zoomed.x) } == 1, "the zoom stopped after its first window, got \(xs)")
+        #expect(xs.count { $0 == Double(moved.x) } == 2)
     }
 }

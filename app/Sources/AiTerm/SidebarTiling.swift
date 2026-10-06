@@ -16,8 +16,11 @@ final class SidebarTiling {
     private let daemon: @MainActor () -> (any DaemonCommands)?
     /// Trailing debounce for `sidebarMoved()`: `didMoveNotification` fires for every pixel of a
     /// drag, and each one would otherwise write state.json and re-frame every iTerm2 window.
-    private var pendingMove: DispatchWorkItem?
+    private var pendingMove: Task<Void, Never>?
     private let moveDelay: TimeInterval
+    /// The re-tiling under way. A newer one, for a newer frame, cancels it: two running at once
+    /// would leave each window wherever the later reply put it.
+    private var snapTask: Task<Void, Never>?
 
     init(preferences: InterfacePreferences, moveDelay: TimeInterval = 0.15, workspace: WorkspaceStore,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
@@ -68,9 +71,13 @@ final class SidebarTiling {
     /// The sidebar moved, was resized or its screen changed; acted on once it has settled.
     func sidebarMoved() {
         pendingMove?.cancel()
-        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.settle() } }
-        pendingMove = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + moveDelay, execute: work)
+        pendingMove = Task { [weak self, moveDelay] in
+            try? await Task.sleep(for: .seconds(moveDelay))
+            // Cancelled while asleep, or once awake but before this turn: a later move, or
+            // `finishPendingMove()`, has taken over.
+            guard !Task.isCancelled else { return }
+            self?.settle()
+        }
     }
 
     /// Quit acts on a move still waiting out its debounce, so the frame it ended on is saved.
@@ -98,6 +105,14 @@ final class SidebarTiling {
         guard let daemon = daemon() else { return nil }
         let state = workspace.state
         let frame = taskFrame(), ids = state.tasks.compactMap(\.windowId) + state.terminals.compactMap(\.windowId)
-        return Task { for id in ids { try? await daemon.setFrame(windowId: id, frame: frame) } }
+        snapTask?.cancel()
+        let task = Task {
+            for id in ids {
+                guard !Task.isCancelled else { return }
+                try? await daemon.setFrame(windowId: id, frame: frame)
+            }
+        }
+        snapTask = task
+        return task
     }
 }
