@@ -2,28 +2,10 @@ import AppKit
 import SwiftUI
 import AiTermUI
 
-/// The key contract every dropdown in this app shares, as a pure function so it can be tested
-/// without rendering: arrows wrap, Return accepts, Escape closes the popup *only*, and anything
-/// else is left to the field and the sheet.
-enum SearchPickerKeys {
-    enum Outcome: Equatable { case moved(Int), accepted(Int), closed, unhandled }
-
-    static func handle(selector: Selector, count: Int, index: Int, open: Bool) -> Outcome {
-        guard open, count > 0 else { return .unhandled }
-        switch selector {
-        case #selector(NSResponder.moveDown(_:)): return .moved((index + 1) % count)
-        case #selector(NSResponder.moveUp(_:)): return .moved((index - 1 + count) % count)
-        case #selector(NSResponder.insertNewline(_:)): return .accepted(min(index, count - 1))
-        case #selector(NSResponder.cancelOperation(_:)): return .closed
-        default: return .unhandled
-        }
-    }
-}
-
 /// A field with its results hanging under it: the ticket picker, the merge request picker and the
 /// branch picker are the same shape. Results overlay the field rather than pushing the rest of the
-/// sheet down — the whole point of a dropdown — and the caller owns the `zIndex` that puts them
-/// over its later siblings.
+/// sheet down — the whole point of a dropdown — and the `FormField` it sits in draws them over the
+/// lines after it.
 ///
 /// The highlighted row and the field's focus are the picker's own: the pointer moving down the
 /// list redraws the picker, not the sheet around it — which would rank or filter its items again.
@@ -102,25 +84,12 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
 
     @ViewBuilder private var results: some View {
         if open, !visible.isEmpty, selection == nil {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(visible.enumerated()), id: \.element.id) { i, item in
-                    Button { pick(item) } label: {
-                        row(item, i == index)
-                            .padding(.horizontal, Space.base).frame(height: Size.menuRow)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(SearchPickerRowStyle(selected: i == index))
-                    .onHover { if $0 { index = i } }
-                }
-            }
-            .padding(Space.tight)
-            .menuChrome()
+            DropdownList(items: visible, index: _index.projectedValue, onPick: pick, row: row)
         }
     }
 
     private func command(_ selector: Selector) -> Bool {
-        switch SearchPickerKeys.handle(selector: selector, count: visible.count, index: index, open: open && selection == nil) {
+        switch DropdownKeys.handle(selector: selector, count: visible.count, index: index, open: open && selection == nil) {
         case .moved(let i): index = i; return true
         case .accepted(let i): pick(visible[i]); return true
         case .closed: open = false; index = 0; return true
@@ -133,14 +102,6 @@ struct SearchPicker<Item: Identifiable, Row: View, Selected: View>: View {
         query = ""
         open = false
         index = 0
-    }
-}
-
-/// A dropdown row: no button chrome, and a highlight that follows the pointer.
-private struct SearchPickerRowStyle: ButtonStyle {
-    let selected: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.menuRowHighlight(selected, pressed: configuration.isPressed)
     }
 }
 

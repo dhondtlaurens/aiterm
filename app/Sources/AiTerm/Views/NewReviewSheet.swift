@@ -53,19 +53,15 @@ struct NewReviewSheet: View {
     // -- step 1: branch -------------------------------------------------------------
 
     private var branchStep: some View {
-        VStack(alignment: .leading, spacing: Space.block) {
+        FrontToBackStack(spacing: Space.block) {
             FormField(model.codeHost.reviewField) {
                 SearchPicker(placeholder: model.codeHost.reviewPlaceholder,
-                             query: Binding(get: { model.query }, set: { model.query = $0; model.scheduleSearch(text: $0) }),
-                             open: Binding(get: { mrOpen }, set: { mrOpen = $0 }),
+                             query: Binding(get: { model.query }, set: { model.setQuery($0) }),
+                             open: _mrOpen.projectedValue,
                              items: model.results, selection: model.draft.mr,
                              row: mrRow, selected: selectedMR,
                              onPick: { mr in model.pick(mr) },
                              toggleHelp: { $0 ? "Hide \(model.codeHost.reviewNoun)s" : "Show open \(model.codeHost.reviewNoun)s" })
-                    // The picker's results hang under the field instead of pushing the rest of the
-                    // sheet down — the whole point of a dropdown. The zIndex is what puts them over
-                    // the help line below, which is a later sibling in this same stack.
-                    .zIndex(3)
                 if let message = model.pickRefusal ?? model.searchError {
                     HelpText(message, tone: .warning)
                 } else if model.draft.mr == nil {
@@ -74,7 +70,6 @@ struct NewReviewSheet: View {
                     HelpText(model.codeHost.reviewHint)
                 }
             }
-            .zIndex(3)
 
             FormField("Review name") {
                 Input(placeholder: "Describe the review", text: Binding(get: { model.draft.title }, set: { model.draft.setTitle($0) }))
@@ -83,7 +78,7 @@ struct NewReviewSheet: View {
             FormField("Branch") {
                 SearchPicker(placeholder: "Search branches",
                              query: $model.branchQuery,
-                             open: Binding(get: { branchOpen }, set: { branchOpen = $0 }),
+                             open: _branchOpen.projectedValue,
                              items: model.branchMatches.map(BranchChoice.init),
                              selection: model.draft.branch.isEmpty ? nil : BranchChoice(model.draft.branch),
                              row: { choice, on in
@@ -94,7 +89,6 @@ struct NewReviewSheet: View {
                              onPick: { choice in model.draft.setBranch(choice.name) },
                              toggleHelp: { $0 ? "Hide branches" : "Show all branches" })
             }
-            .zIndex(2)
         }
     }
 
@@ -114,7 +108,7 @@ struct NewReviewSheet: View {
         PickedItemField(mark: .brand(mr.host.brand), key: mr.reference, title: mr.title, trailing: {
             LaneChip(lane: mr.lane, brand: mr.host.brand, ink: mr.host.brand.color)
         }, clearHelp: "Clear \(model.codeHost.reviewNoun)") {
-            model.clearPick(); model.query = ""; mrOpen = true; model.scheduleSearch(text: "")
+            model.clearPick(); model.reopenSearch(); mrOpen = true
         }
     }
 

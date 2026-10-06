@@ -144,6 +144,40 @@ import Testing
         #expect(text.value.hasPrefix("/brainstorming"))
     }
 
+    /// The popup answers its keys through `DropdownKeys`, as every dropdown does: arrows wrap,
+    /// ↩ accepts the highlighted row, ⎋ closes only the popup, and a closed popup hands every key
+    /// back to the text view.
+    @Test func thePopupAnswersItsKeysAsEveryDropdownDoes() throws {
+        let text = TextBox()
+        let completions = PromptCompletions()
+        completions.all = ["alpha", "alpine", "alps"].map { AgentCompletion(name: $0, kind: .skill, detail: nil, source: .user) }
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
+                                  agent: .claude, completions: completions)
+            .frame(width: 420, height: 150)
+        let host = NSHostingView(rootView: editor)
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        host.layoutSubtreeIfNeeded()
+        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let delegate = try #require(textView.delegate)
+        func send(_ selector: Selector) -> Bool { delegate.textView?(textView, doCommandBy: selector) ?? false }
+
+        #expect(!send(#selector(NSResponder.moveDown(_:))), "closed: the text view keeps its arrows")
+        textView.insertText("/al", replacementRange: textView.selectedRange())
+        #expect(completions.visible.count == 3 && completions.index == 0)
+
+        #expect(send(#selector(NSResponder.moveUp(_:))) && completions.index == 2, "up from the first wraps to the last")
+        #expect(send(#selector(NSResponder.moveDown(_:))) && completions.index == 0, "down from the last wraps to the first")
+        #expect(send(#selector(NSResponder.moveDown(_:))) && completions.index == 1)
+        completions.index = 9
+        #expect(send(#selector(NSResponder.insertNewline(_:))), "a stale index accepts the last row, not out of bounds")
+        #expect(text.value == "/alps ")
+
+        textView.insertText("/al", replacementRange: textView.selectedRange())
+        #expect(completions.isOpen)
+        #expect(send(#selector(NSResponder.cancelOperation(_:))) && !completions.isOpen, "⎋ closes the popup")
+        #expect(!send(#selector(NSResponder.cancelOperation(_:))), "and the next one is the sheet's")
+    }
+
     /// Codex opens the popup from `/` like every agent, and a skill picked there is written as the
     /// `$` mention Codex runs it by.
     @Test func aCodexSkillPickedFromSlashIsWrittenAsItsMention() throws {

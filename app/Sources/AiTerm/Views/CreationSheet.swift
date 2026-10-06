@@ -38,17 +38,17 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
                     onBackgroundTap: { for picker in pickers { picker.wrappedValue = false } }) {
             StepBar(step: step, names: stepNames)
         } content: {
-            VStack(alignment: .leading, spacing: Space.block) {
-                // Above the command preview: the prompt step's completion popup hangs out of the
-                // step and over it, and a later sibling otherwise draws on top.
-                content.zIndex(1)
+            // Front to back: the prompt step's completion popup hangs out of the step and over the
+            // command preview below it.
+            FrontToBackStack(spacing: Space.block) {
+                content
                 if step > 1 { CommandPreview(model: model) }
                 if Destination.isShown(onStep: step), let destination { DestinationLine(destination) }
             }
         } footer: {
             CreationFooter(step: step, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
-                           back: back, advance: advance, escape: escape)
+                           closeList: closeOpenPicker, back: back, advance: advance)
         }
         .task { await model.search(text: "") }
         .task(id: model.draft.agent) { await model.loadAgentCatalogue() }
@@ -58,8 +58,10 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
 
     /// The pickers live on step 1, so only there can ⎋ have a list to close; on a later step a
     /// list left open is out of sight, and the key goes straight to Back.
-    private func escape() {
-        if step == 1, let open = pickers.first(where: { $0.wrappedValue }) { open.wrappedValue = false } else { back() }
+    private func closeOpenPicker() -> Bool {
+        guard step == 1, let open = pickers.first(where: { $0.wrappedValue }) else { return false }
+        open.wrappedValue = false
+        return true
     }
 
     private func back() { guard !model.creating else { return }; if step == 1 { dismiss.afterThisEvent() } else { step -= 1 } }

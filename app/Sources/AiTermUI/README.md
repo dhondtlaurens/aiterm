@@ -112,8 +112,8 @@ Promote a pattern to a primitive only when it is used in two or more files *and*
 type *and* it is not app-shell composition — a sheet's own anatomy, a window's chrome — which stays
 in `Views/` regardless of reuse, because it encodes this app's layout decisions rather than a
 reusable part. `SheetLayout` (nav above content above actions, plus `isSnapshot`, an affordance that
-exists solely for AiTerm's snapshot harness) and `SheetActionRow` (where *this app* puts secondary
-and primary actions) both clear the first two conditions and stay patterns on this one.
+exists solely for AiTerm's snapshot harness) and `SheetFooter` (where *this app* puts a sheet's secondary
+and primary actions, and what ⎋ means) both clear the first two conditions and stay patterns on this one.
 
 ## Surface, not a `selected` flag
 
@@ -145,7 +145,8 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 |---|---|
 | `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows |
 | `Icon` | every mark, at a size: an SF Symbol (its glyph's own width, in the surface's ink unless tinted), a vendor `Brand` (a `size` square, in its colour unless tinted), or a full-colour artwork that carries its own fallback (`.gitlabTanuki`, `.piBadge`). The one way the app draws a logo — no fill travels as a hex string |
-| `FormField` | a label above its control |
+| `FormField` | a label above its control; what the control hangs out of itself — a dropdown's results — draws over the lines after it |
+| `FrontToBackStack` | a `VStack` whose earlier children draw over its later ones, so an overhang (a picker's results, the completion popup) needs no `zIndex` at any level of a sheet. `FormField` is one; a sheet's fields and steps go in another |
 | `HelpText` | subordinate caption copy under a control, in a `tone`: `.secondary` (the default) or `.warning` — it inks itself, so colour it by tone, never by an outer `foregroundStyle` |
 | `Input` | a plain text field in the house field chrome, with its focus ring; `secure: true` for a token |
 | `Select` | a real `NSPopUpButton` that fills its column |
@@ -170,17 +171,17 @@ vendor needs both.
 
 ### Patterns — `app/Sources/AiTerm/Views/`
 
-`SheetLayout`, `SheetSubtitle`, `SheetActionRow`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
+`SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `UsageFooter`, `UsageRing`, `SearchPicker`, `PickerResultRow`,
+`NativeRowHighlight`, `RowMenuAnchor`, `UsageFooter`, `UsageRing`, `SearchPicker`, `DropdownList`, `DropdownKeys`, `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `CompletionHint`,
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `IntegrationMark`, `HarnessSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`,
-`NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `NewTerminalSheet`.
+`NameSheet`, `NewTaskSheet`, `NewReviewSheet`.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -196,7 +197,7 @@ sheet hands it values and keeps its own first step. A failed create shows its er
 the footer — git's failure lines through `GitError.sentence`, as the banner has them — with git's
 whole output in the tooltip (`CreationFailure`).
 
-`NameSheet` is every sheet whose one question is a name: New terminal, Add divider, and Rename for a
+`NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",
 "Terminal name") and a divider — each rename's title, field and sentence from `RenameTarget`. A
 terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraProjectSheet` is
@@ -223,8 +224,16 @@ follows it, so an arrow key redraws the rows it touches and not the list's model
 
 `CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` opens —
 the one trigger for every agent; a Codex skill picked there is written as its `$` mention.
-`SheetPrimaryButton` is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows, and
-every sheet uses it rather than restating that.
+`SheetFooter` is the foot of every sheet — Cancel (or Back), a `SheetPrimaryButton` and optional
+status text — and owns what ⎋ means: an open list closes first (`closeList`), and only then is it
+Cancel, on a hidden button of its own so that *clicking* Cancel still cancels. `SheetPrimaryButton`
+is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows. No sheet restates either.
+
+`DropdownList` is the panel every dropdown hangs in — `menuChrome`, `Size.menuRow` rows, the accent
+behind the highlighted one (the keyboard's or the pointer's), dimmed while pressed — and
+`DropdownKeys` its key contract (arrows wrap, ↩ accepts, ⎋ closes only the popup, everything else is
+the field's). `SearchPicker`'s results and `PromptEditor`'s completion popup are both drawn and
+keyed through them.
 
 `SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or with
 ⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a

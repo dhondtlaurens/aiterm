@@ -72,7 +72,7 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 ## A picker's list
 
 Every `SearchPicker` — the ticket, merge request, branch and Jira project fields — answers the
-same keys while its list is open (`SearchPickerKeys`), and hands every key back once it is closed.
+same keys while its list is open (`DropdownKeys`), and hands every key back once it is closed.
 
 | Keys | Action | Notes |
 |---|---|---|

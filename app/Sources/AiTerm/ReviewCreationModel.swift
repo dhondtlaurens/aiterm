@@ -77,7 +77,6 @@ extension CreationModel where Kind == ReviewCreation {
         findOwningTask()
     }
 
-    /// Whose requests the sheet lists: it names them in its copy and draws their mark.
     var codeHost: CodeHost { kind.codeHost }
 
     /// What git reports checked out in the repository — which worktree has which branch. Read off

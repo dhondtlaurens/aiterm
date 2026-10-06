@@ -111,9 +111,47 @@ struct SheetPrimaryButton: View {
     }
 }
 
-/// The footer New Task and New Review share: the last failure, why no agent can run, Back — or
-/// Cancel on the first step — and the primary action. ⎋ goes to `escape`, on a hidden button of
-/// its own rather than on Cancel: an open picker closes first, and *clicking* Cancel still cancels.
+/// The foot of every sheet: Cancel — or Back, whatever `secondary` says — and the primary action
+/// at the trailing edge, with optional `status` text before them.
+///
+/// ⎋ is a hidden button of its own, not Cancel's key: an open list closes first — a button's key
+/// equivalent would beat the field's own ⎋, and in every other app that list is a window of its own,
+/// so closing the whole sheet is not what the key means there — and *clicking* Cancel still cancels.
+/// `closeList` closes one and says whether there was one to close; a sheet with no lists needs
+/// nothing, and ⎋ is Cancel. `cancel` guards itself when it must, as Back does while a create runs.
+///
+/// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
+struct SheetFooter<Status: View>: View {
+    let secondary: String
+    let primary: String
+    let canCancel: Bool
+    let canSubmit: Bool
+    let closeList: () -> Bool
+    let cancel: () -> Void
+    let submit: () -> Void
+    let status: Status
+
+    init(secondary: String = "Cancel", primary: String, canCancel: Bool = true, canSubmit: Bool = true,
+         closeList: @escaping () -> Bool = { false }, cancel: @escaping () -> Void, submit: @escaping () -> Void,
+         @ViewBuilder status: () -> Status = { EmptyView() }) {
+        self.secondary = secondary; self.primary = primary; self.canCancel = canCancel; self.canSubmit = canSubmit
+        self.closeList = closeList; self.cancel = cancel; self.submit = submit; self.status = status()
+    }
+
+    var body: some View {
+        HStack(spacing: Space.base) {
+            status
+            Spacer(minLength: Space.base)
+            Button(secondary, action: cancel).disabled(!canCancel)
+            SheetPrimaryButton(title: primary, enabled: canSubmit, action: submit)
+        }
+        .controlSize(.large)
+        .overlay { Button("Close") { if !closeList() { cancel() } }.keyboardShortcut(.cancelAction).hidden() }
+    }
+}
+
+/// The footer New Task and New Review share: the last failure, why no agent can run, and a
+/// `SheetFooter` — Back, or Cancel on the first step, and Continue or the create button.
 ///
 /// A failure shows its reason, never the head of git's output: that is the command line and git's
 /// narration, and three lines of it used to be all there was room for. The reason is git's failure
@@ -126,9 +164,9 @@ struct CreationFooter: View {
     let createLabel: String
     let creating: Bool
     let canAdvance: Bool
+    let closeList: () -> Bool
     let back: () -> Void
     let advance: () -> Void
-    let escape: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.gap) {
@@ -139,32 +177,9 @@ struct CreationFooter: View {
             if step == 3, availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
                 Text(note).font(Typography.caption).foregroundStyle(Palette.amber)
             }
-            SheetActionRow {
-                Button(step == 1 ? "Cancel" : "Back", action: back).disabled(creating)
-                SheetPrimaryButton(title: step == 3 ? createLabel : "Continue", enabled: canAdvance, action: advance)
-            }
-            .overlay { Button("Close", action: escape).keyboardShortcut(.cancelAction).hidden() }
+            SheetFooter(secondary: step == 1 ? "Cancel" : "Back", primary: step == 3 ? createLabel : "Continue",
+                        canCancel: !creating, canSubmit: canAdvance, closeList: closeList, cancel: back, submit: advance)
         }
-    }
-}
-
-/// Keep secondary and primary actions together at the trailing edge, with optional status text.
-struct SheetActionRow<Status: View, Actions: View>: View {
-    let status: Status
-    let actions: Actions
-
-    init(@ViewBuilder status: () -> Status = { EmptyView() }, @ViewBuilder actions: () -> Actions) {
-        self.status = status()
-        self.actions = actions()
-    }
-
-    var body: some View {
-        HStack(spacing: Space.base) {
-            status
-            Spacer(minLength: Space.base)
-            actions
-        }
-        .controlSize(.large)
     }
 }
 

@@ -411,10 +411,10 @@ enum Snapshots {
         let refused = CreationFailure(GitError(args: ["worktree", "add", "\(project.path)/.worktrees/review-pay-214-apple-pay", "feat/pay-214-apple-pay"],
                                                code: 128, stderr: "Preparing worktree (checking out 'feat/pay-214-apple-pay')\n" + fatal))
         write(CreationFooter(step: 3, error: refused, availableAgents: [.claude],
-                             createLabel: "Create Review", creating: false, canAdvance: true, back: {}, advance: {}, escape: {})
+                             createLabel: "Create Review", creating: false, canAdvance: true, closeList: { false }, back: {}, advance: {})
                 .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised),
               to: out.appendingPathComponent("sheet-git-error.png"))
-        write(NewTerminalSheet(project: project, suggestedName: "shell 2", branch: "main", canCreate: true, createTerminal: { _ in }),
+        write(NameSheet.newTerminal(project: project, suggestedName: "shell 2", branch: "main", canCreate: true, createTerminal: { _ in }),
               to: out.appendingPathComponent("terminal.png"))
         nameSheets(fixture, to: out)
     }

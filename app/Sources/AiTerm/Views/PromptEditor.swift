@@ -126,18 +126,11 @@ struct PromptEditor: NSViewRepresentable {
         /// closed, goes to the text view as usual — ↩ still inserts a newline in a plain prompt.
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             let model = parent.completions
-            guard model.isOpen else { return false }
-            switch selector {
-            case #selector(NSResponder.moveDown(_:)):
-                model.index = (model.index + 1) % model.visible.count; return true
-            case #selector(NSResponder.moveUp(_:)):
-                model.index = (model.index - 1 + model.visible.count) % model.visible.count; return true
-            case #selector(NSResponder.insertNewline(_:)):
-                accept(model.visible[min(model.index, model.visible.count - 1)]); return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                model.close(); return true
-            default:
-                return false
+            switch DropdownKeys.handle(selector: selector, count: model.visible.count, index: model.index, open: model.isOpen) {
+            case .moved(let index): model.index = index; return true
+            case .accepted(let index): accept(model.visible[index]); return true
+            case .closed: model.close(); return true
+            case .unhandled: return false
             }
         }
 
@@ -266,7 +259,7 @@ final class PromptTextView: NSTextView {
     }
 }
 
-/// The popup itself: a menu-shaped list of the agent's own commands and skills.
+/// The popup itself: a `DropdownList` of the agent's own commands and skills.
 struct CompletionPopup: View {
     let completions: PromptCompletions
     let width: CGFloat
@@ -294,36 +287,24 @@ struct CompletionPopup: View {
     }
 
     private var list: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(completions.visible.enumerated()), id: \.element.id) { index, item in
-                let on = index == completions.index
-                let surface: Surface = on ? .accent : .sheet
-                Button { completions.accept?(item) } label: {
-                    HStack(spacing: Space.base) {
-                        Icon(.symbol(item.kind == .skill ? "sparkles" : "terminal"), size: Self.iconSize,
-                             tint: surface.secondaryInk)
-                            .frame(width: Self.iconSlot)
-                        Text(item.name).font(Typography.monoCode)
-                            .foregroundStyle(surface.ink).lineLimit(1)
-                        if let detail = item.detail {
-                            Text(detail).font(Typography.help)
-                                .foregroundStyle(surface.secondaryInk).lineLimit(1)
-                        }
-                        Spacer(minLength: Space.snug)
-                        Text(item.source.label).font(Typography.help)
-                            .foregroundStyle(on ? surface.secondaryInk : Palette.faint)
-                    }
-                    .padding(.horizontal, Space.base).frame(height: Size.menuRow)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .menuRowHighlight(on)
-                    .contentShape(Rectangle())
+        DropdownList(items: completions.visible, index: Binding(get: { completions.index }, set: { completions.index = $0 }),
+                     onPick: { completions.accept?($0) }) { item, on in
+            let surface: Surface = on ? .accent : .sheet
+            HStack(spacing: Space.base) {
+                Icon(.symbol(item.kind == .skill ? "sparkles" : "terminal"), size: Self.iconSize,
+                     tint: surface.secondaryInk)
+                    .frame(width: Self.iconSlot)
+                Text(item.name).font(Typography.monoCode)
+                    .foregroundStyle(surface.ink).lineLimit(1)
+                if let detail = item.detail {
+                    Text(detail).font(Typography.help)
+                        .foregroundStyle(surface.secondaryInk).lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .onHover { if $0 { completions.index = index } }
+                Spacer(minLength: Space.snug)
+                Text(item.source.label).font(Typography.help)
+                    .foregroundStyle(on ? surface.secondaryInk : Palette.faint)
             }
         }
-        .padding(Space.tight)
-        .menuChrome()
     }
 }
 

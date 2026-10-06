@@ -134,9 +134,8 @@ struct TaskCreationModelTests {
         #expect(invalidates({ _ = CommandPreview(model: model).body }, by: { model.promptText = "go on" }))
         #expect(invalidates({ _ = PromptStep(text: Bindable(model).promptText, agent: .claude, completions: model.completions).body },
                             by: { model.draft.promptText = "" }))
-        // The rest of the draft, and the query, still redraw the sheet that shows them.
+        // The rest of the draft still redraws the sheet that shows it.
         #expect(invalidates(wholeSheet, by: { model.draft.setTitle("Fix the signup form") }))
-        #expect(invalidates({ _ = model.query }, by: { model.query = "WEB" }))
     }
 
     /// The sheet's first load reuses the catalogue its draft was just built from: reading it again

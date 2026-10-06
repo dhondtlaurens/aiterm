@@ -119,7 +119,8 @@ final class CreationModel<Kind: CreationKind> {
 
     /// The draft as create submits it, prompt included. A view reading it is not redrawn as the
     /// prompt is typed — that is what keeps a keystroke from redrawing the whole sheet — so one
-    /// that draws the prompt reads `promptText`.
+    /// that draws the prompt reads `promptText`. `TaskCreationModelTests.aPromptKeystrokeRedrawsOnlyWhatDrawsThePrompt`
+    /// guards it.
     var draft: Draft {
         get {
             var draft = fields
@@ -237,7 +238,16 @@ final class CreationModel<Kind: CreationKind> {
         searchTask = nil
     }
 
-    func scheduleSearch(text: String) {
+    /// The search field's text as it is typed: kept, and searched for after a pause.
+    func setQuery(_ text: String) {
+        query = text
+        scheduleSearch(text: text)
+    }
+
+    /// Back to the default list, as clearing a pick does: an empty query, searched at once.
+    func reopenSearch() { setQuery("") }
+
+    private func scheduleSearch(text: String) {
         cancelSearch()
         searchTask = Task { await search(text: text, debounce: true) }
     }

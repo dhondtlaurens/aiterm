@@ -38,7 +38,7 @@ struct PromptStep<Extra: View>: View {
 
     var body: some View {
         let text = self.text()
-        VStack(alignment: .leading, spacing: Space.block) {
+        FrontToBackStack(spacing: Space.block) {
             FormField("First prompt (optional)") {
                 ZStack(alignment: .topLeading) {
                     PromptEditor(text: text, agent: agent, completions: completions,
@@ -54,10 +54,8 @@ struct PromptStep<Extra: View>: View {
                     CompletionPopup(completions: completions,
                                     width: Sheet.width - 2 * Space.margin - Self.completionPopupTrim)
                 }
-                .zIndex(2)
                 CompletionHint()
             }
-            .zIndex(2)
             extra()
         }
     }

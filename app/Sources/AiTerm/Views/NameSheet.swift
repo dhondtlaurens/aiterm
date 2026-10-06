@@ -1,5 +1,6 @@
 import SwiftUI
 import AiTermUI
+import AiTermCore
 
 /// One field, one name. The sheet behind New terminal, Add divider and the renames of a task, a
 /// review, a terminal and a divider: every flow whose whole question is "what should this be
@@ -8,7 +9,7 @@ import AiTermUI
 /// It has no steps, so its band always holds its one sentence (`SheetSubtitle`). A sheet that opens
 /// a window — New terminal — ends its content with its `DestinationLine`.
 ///
-/// It is a pattern, not a primitive: it composes `SheetLayout` and `SheetActionRow`, which encode
+/// It is a pattern, not a primitive: it composes `SheetLayout` and `SheetFooter`, which encode
 /// where *this app* puts a sheet's nav, content and actions.
 struct NameSheet: View {
     let title: String
@@ -50,10 +51,7 @@ struct NameSheet: View {
                 if let destination { DestinationLine(destination) }
             }
         } footer: {
-            SheetActionRow {
-                Button("Cancel") { dismiss.afterThisEvent() }.keyboardShortcut(.cancelAction)
-                SheetPrimaryButton(title: confirmLabel, enabled: canSubmit, action: confirm)
-            }
+            SheetFooter(primary: confirmLabel, canSubmit: canSubmit, cancel: { dismiss.afterThisEvent() }, submit: confirm)
         }
     }
 
@@ -81,5 +79,26 @@ extension NameSheet {
         NameSheet(title: target.title, subtitle: target.subtitle, fieldLabel: target.fieldLabel,
                   placeholder: target.name, confirmLabel: "Rename", initialName: target.name,
                   canSubmit: canSubmit, submit: submit)
+    }
+
+    /// New terminal: the name the sidebar row carries, and nothing else — a terminal opens in the
+    /// project folder and starts no agent, unlike `NewTaskSheet`'s three steps. Its iTerm2 tabs are
+    /// titled with their branch, as every AiTerm window's are, not with this name.
+    ///
+    /// The suggestion and the branch are computed by `AppController.presentNewTerminal(project:)`
+    /// and passed in: SwiftUI re-creates a sheet's root view on every state change of the
+    /// presenting view, so a name computed here would jump back to the suggestion mid-typing and
+    /// the branch would cost a `git symbolic-ref` on every one of those rebuilds. `branch` is the
+    /// project's checked-out one, for the destination line: terminals run in the repository itself,
+    /// not in a worktree, so there is nothing to derive it from but the repo.
+    static func newTerminal(project: Project, suggestedName: String, branch: String, canCreate: Bool,
+                            createTerminal: @escaping (String) -> Void) -> NameSheet {
+        NameSheet(title: "New terminal in \(project.name)", subtitle: "Opens a shell in the project folder.",
+                  fieldLabel: "Terminal name", placeholder: TerminalItem.defaultName,
+                  destination: .projectFolder(project, branch: branch), confirmLabel: "Create Terminal",
+                  initialName: suggestedName, canSubmit: canCreate,
+                  // An emptied field is not an error: `newTerminal(project:name:)` falls back to
+                  // the same suggestion this sheet opened with.
+                  submit: createTerminal)
     }
 }

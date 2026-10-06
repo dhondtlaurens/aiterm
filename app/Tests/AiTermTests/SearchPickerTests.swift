@@ -5,8 +5,8 @@ import SwiftUI
 @testable import AiTermTestSupport
 
 @Suite struct SearchPickerTests {
-    private func handle(_ sel: Selector, count: Int = 3, index: Int = 0, open: Bool = true) -> SearchPickerKeys.Outcome {
-        SearchPickerKeys.handle(selector: sel, count: count, index: index, open: open)
+    private func handle(_ sel: Selector, count: Int = 3, index: Int = 0, open: Bool = true) -> DropdownKeys.Outcome {
+        DropdownKeys.handle(selector: sel, count: count, index: index, open: open)
     }
 
     @Test func testArrowsWrapAround() {

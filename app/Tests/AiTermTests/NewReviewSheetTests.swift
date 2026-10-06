@@ -123,7 +123,7 @@ import AiTermCore
     }
 }
 
-/// The keys, driven through a hosted sheet rather than through `SearchPickerKeys` — which is a
+/// The keys, driven through a hosted sheet rather than through `DropdownKeys` — which is a
 /// pure function and so says nothing about how this sheet composes two pickers and a footer.
 /// Mirrors `NewTaskSheetKeyboardTests`, which drives the field's delegate the same way.
 @MainActor

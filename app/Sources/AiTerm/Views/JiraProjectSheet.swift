@@ -73,42 +73,31 @@ struct JiraProjectSheet: View {
         SheetLayout(title: "Jira projects for \(projectName)", height: Sheet.height, onBackgroundTap: { open = false }) {
             SheetSubtitle(Self.subtitle)
         } content: {
-            VStack(alignment: .leading, spacing: Space.block) {
-                FormField("Jira projects") {
-                    ForEach(linked) { linkedProject($0) }
-                    // Never handed a selection: a pick joins the list above, and the field stays
-                    // for the next one.
-                    SearchPicker(placeholder: "Add a Jira project by key or name",
-                                 query: Binding(get: { query }, set: { query = $0 }),
-                                 open: Binding(get: { open }, set: { open = $0 }),
-                                 items: matches, selection: nil,
-                                 row: { project, isSelected in projectRow(project, selected: isSelected) },
-                                 selected: { _ in EmptyView() },
-                                 onPick: { linked.append($0) },
-                                 toggleHelp: { $0 ? "Hide Jira projects" : "Show Jira projects" })
-                        // As in the ticket picker: the results hang over the help line below, which
-                        // is a later sibling in this same stack.
-                        .zIndex(3)
-                    status
-                }
-                .zIndex(2)
+            FormField("Jira projects") {
+                ForEach(linked) { linkedProject($0) }
+                // Never handed a selection: a pick joins the list above, and the field stays
+                // for the next one.
+                SearchPicker(placeholder: "Add a Jira project by key or name",
+                             query: _query.projectedValue, open: _open.projectedValue,
+                             items: matches, selection: nil,
+                             row: { project, isSelected in projectRow(project, selected: isSelected) },
+                             selected: { _ in EmptyView() },
+                             onPick: { linked.append($0) },
+                             toggleHelp: { $0 ? "Hide Jira projects" : "Show Jira projects" })
+                status
             }
         } footer: {
-            // ⎋ on a hidden button of its own, as `CreationFooter` has it: an open list closes
-            // first — the button's key equivalent would beat the field's own ⎋ — and *clicking*
-            // Cancel still cancels.
-            SheetActionRow {
-                Button("Cancel") { dismiss.afterThisEvent() }
-                SheetPrimaryButton(title: "Save", enabled: canSubmit, action: confirm)
-            }
-            .overlay { Button("Close", action: escape).keyboardShortcut(.cancelAction).hidden() }
+            SheetFooter(primary: "Save", canSubmit: canSubmit, closeList: closeList,
+                        cancel: { dismiss.afterThisEvent() }, submit: confirm)
         }
         .task { await load() }
     }
 
-    /// ⎋: closes the list while it is open, and only then the sheet.
-    private func escape() {
-        if open { open = false } else { dismiss.afterThisEvent() }
+    /// ⎋ closes the list while it is open, and only then the sheet.
+    private func closeList() -> Bool {
+        guard open else { return false }
+        open = false
+        return true
     }
 
     /// Hands the list up, then dismisses once the button's own event is over.

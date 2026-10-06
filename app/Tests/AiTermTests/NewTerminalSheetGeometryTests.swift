@@ -12,8 +12,8 @@ struct NewTerminalSheetGeometryTests {
     @Test func usesTheStandardCreationSheetFootprint() {
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git,
                               remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let sheet = NewTerminalSheet(project: project, suggestedName: "Terminal", branch: "main",
-                                     canCreate: true, createTerminal: { _ in })
+        let sheet = NameSheet.newTerminal(project: project, suggestedName: "Terminal", branch: "main",
+                                          canCreate: true, createTerminal: { _ in })
         let host = NSHostingView(rootView: sheet)
 
         #expect(host.fittingSize.width == 560)

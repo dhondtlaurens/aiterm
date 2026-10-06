@@ -113,11 +113,9 @@ struct SettingsView: View {
         } content: {
             settingsContent
         } footer: {
-            SheetActionRow {
+            SheetFooter(primary: "Save", cancel: { cancel(); dismiss.afterThisEvent() },
+                        submit: { if save() { dismiss.afterThisEvent() } }) {
                 if let result { Text(result).font(Typography.caption).foregroundStyle(Palette.muted).lineLimit(2) }
-            } actions: {
-                Button("Cancel") { cancel(); dismiss.afterThisEvent() }.keyboardShortcut(.cancelAction)
-                SheetPrimaryButton(title: "Save") { if save() { dismiss.afterThisEvent() } }
             }
         }
         // ⌘1–⌘3, on hidden buttons: a view carries one shortcut, and the tab bar's segments are

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// A label above its control, at the system's spacing.
+/// A label above its control, at the system's spacing. What the control hangs out of itself — a
+/// dropdown's results — draws over the lines after it (`FrontToBackStack`).
 public struct FormField<Content: View>: View {
     let label: String
     let content: Content
@@ -11,7 +12,7 @@ public struct FormField<Content: View>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Space.snug) {
+        FrontToBackStack(spacing: Space.snug) {
             Text(label).font(Typography.label).foregroundStyle(Palette.muted)
             content
         }

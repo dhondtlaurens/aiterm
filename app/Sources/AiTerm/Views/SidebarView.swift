@@ -276,7 +276,7 @@ struct SidebarSheet: View {
                                      submit: { controller.setJiraProjects($0, on: project) })
                 case .newTask(let model): NewTaskSheet(model: model)
                 case .newReview(let model): NewReviewSheet(model: model)
-                case .newTerminal(let project, let name, let branch): NewTerminalSheet(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.newTerminal(project: project, name: $0) })
+                case .newTerminal(let project, let name, let branch): NameSheet.newTerminal(project: project, suggestedName: name, branch: branch, canCreate: controller.canChangeWorkspace, createTerminal: { controller.newTerminal(project: project, name: $0) })
                 case .newDivider:
                     NameSheet.newDivider(canSubmit: controller.canChangeWorkspace, submit: { controller.addDivider(name: $0) })
                 case .rename(let target):

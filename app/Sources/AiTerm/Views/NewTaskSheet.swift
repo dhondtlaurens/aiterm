@@ -54,11 +54,11 @@ struct NewTaskSheet: View {
     // -- step 1: ticket -------------------------------------------------------------
 
     private var ticketStep: some View {
-        VStack(alignment: .leading, spacing: Space.block) {
+        FrontToBackStack(spacing: Space.block) {
             FormField("Jira ticket (optional)") {
                 SearchPicker(placeholder: model.ticketPlaceholder,
-                             query: Binding(get: { model.query }, set: { model.query = $0; model.scheduleSearch(text: $0) }),
-                             open: Binding(get: { ticketsOpen }, set: { ticketsOpen = $0 }),
+                             query: Binding(get: { model.query }, set: { model.setQuery($0) }),
+                             open: _ticketsOpen.projectedValue,
                              items: model.results, selection: model.draft.ticket,
                              row: { ticket, isSelected in
                                  // The lane column stays for a ticket without one, so every summary
@@ -72,10 +72,6 @@ struct NewTaskSheet: View {
                                  model.draft.apply(ticket: ticket)
                              },
                              toggleHelp: { $0 ? "Hide tickets" : "Show my open tickets" })
-                    // The picker's results hang under the field instead of pushing the rest of the
-                    // sheet down — the whole point of a dropdown. The zIndex is what puts them over
-                    // the help line below, which is a later sibling in this same stack.
-                    .zIndex(3)
                 if model.draft.ticket == nil {
                     if let message = model.searchError {
                         HelpText(message, tone: .warning)
@@ -84,7 +80,6 @@ struct NewTaskSheet: View {
                     }
                 }
             }
-            .zIndex(2)
 
             FormField("Task name") {
                 Input(placeholder: "Describe the task", text: Binding(get: { model.draft.title }, set: { model.draft.setTitle($0) }))
@@ -115,7 +110,7 @@ struct NewTaskSheet: View {
         PickedItemField(mark: .brand(Palette.jira), key: ticket.key, title: ticket.summary, trailing: {
             if let status = ticket.status { LaneChip(lane: status, brand: Palette.jira, ink: Palette.link) }
         }, clearHelp: "Clear ticket") {
-            model.draft.apply(ticket: nil); model.query = ""; ticketsOpen = true; model.scheduleSearch(text: "")
+            model.draft.apply(ticket: nil); model.reopenSearch(); ticketsOpen = true
         }
     }
 
