@@ -14,8 +14,9 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
     case noOrigin
     /// "Pull main" with no local branch of the default's name to bring up to date.
     case noLocalBranch(String)
-    /// The local default branch with `local` commits origin lacks while origin has `remote` it lacks.
-    case defaultBranchDiverged(String, local: Int, remote: Int)
+    /// The local default branch with `local` commits origin lacks while origin has `remote` it lacks;
+    /// either is `nil` when git could not count them.
+    case defaultBranchDiverged(String, local: Int?, remote: Int?)
     /// Rebasing the default branch onto origin's stopped on a conflict, and was aborted.
     case rebaseConflicted(String)
 
@@ -41,5 +42,6 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
     }
 }
 
-/// "1 commit", "3 commits": a count of commits, as the errors above say it.
-private func commits(_ count: Int) -> String { "\(count) \(count == 1 ? "commit" : "commits")" }
+/// "1 commit", "3 commits": a count of commits, as the errors above say it — or just "commits" when
+/// git could not count them.
+private func commits(_ count: Int?) -> String { count.map { "\($0) \($0 == 1 ? "commit" : "commits")" } ?? "commits" }

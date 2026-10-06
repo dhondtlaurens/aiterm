@@ -13,6 +13,14 @@ struct BranchOutcomeCopyTests {
         #expect(DefaultBranchRebase(branch: "main", ahead: 0).toast == "main rebased onto origin: it now matches origin.")
     }
 
+    /// A count git could not make — a `rev-list` that timed out — is said without a number, never as 0.
+    @Test func toastsWithACountGitCouldNotMake() {
+        #expect(DefaultBranchPull.fastForwarded("main", commits: nil).toast == "main updated with origin’s new commits.")
+        #expect(DefaultBranchPull.ahead("main", commits: nil).toast == "main is ahead of origin, so there was nothing to pull.")
+        #expect(DefaultBranchRebase(branch: "main", ahead: nil).toast == "main rebased onto origin, not pushed.")
+        #expect(ReviewBranchRelease.Kept.unpushed(commits: nil).note(branch: "feat/x") == "Branch feat/x kept: commits not on origin.")
+    }
+
     @Test func aKeptReviewBranchSaysWhy() {
         let notes: [(ReviewBranchRelease.Kept, String)] = [
             (.unpushed(commits: 1), "Branch feat/x kept: 1 commit not on origin."),

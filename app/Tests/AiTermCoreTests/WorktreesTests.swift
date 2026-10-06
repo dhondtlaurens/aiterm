@@ -612,6 +612,19 @@ import Darwin
         #expect(try hasLocalBranch("feat/mr-branch", in: repo))
     }
 
+    /// Kept for commits origin lacks that git could not count: kept all the same, with no number,
+    /// rather than "0 commits not on origin".
+    @Test func aReviewBranchWhoseUnpushedCommitsGitCannotCountIsKeptWithoutANumber() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try commit("fix", in: path)
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
+        let release = Repository(repo, git: TimingOutGitRunner(["rev-list"])).releaseReviewBranch("feat/mr-branch", target: "main")
+        guard case .kept(.unpushed(let commits)) = release else { Issue.record("expected the branch kept, got \(release)"); return }
+        #expect(commits == nil)
+        #expect(try hasLocalBranch("feat/mr-branch", in: repo))
+    }
+
     /// No origin, nothing to judge the branch against: it is left exactly as it was.
     @Test func testReleasingAReviewBranchWithoutOriginLeavesIt() throws {
         _ = try git.run(["branch", "feat/local"], in: repo)

@@ -16,8 +16,8 @@ public enum ReviewBranchRelease: Equatable, Sendable {
         case originUnreachable(String)
         /// Origin's tip of the branch could not be fetched to compare against.
         case originNotFetched
-        /// It has this many commits origin's branch lacks.
-        case unpushed(commits: Int)
+        /// It has this many commits origin's branch lacks — `nil` when git could not count them.
+        case unpushed(commits: Int?)
         /// Origin no longer has it, and its work is not on this target — `""` for a review that has
         /// none.
         case unmerged(target: String)

@@ -90,6 +90,38 @@ import Darwin
                 == "Your local “main” has 4 commits that aren’t on origin, and origin has 23 commits it doesn’t.")
         #expect(WorktreeError.defaultBranchDiverged("main", local: 1, remote: 1).errorDescription
                 == "Your local “main” has 1 commit that isn’t on origin, and origin has 1 commit it doesn’t.")
+        #expect(WorktreeError.defaultBranchDiverged("main", local: nil, remote: nil).errorDescription
+                == "Your local “main” has commits that aren’t on origin, and origin has commits it doesn’t.")
+    }
+
+    /// A count git could not make — it timed out — is no count: the pull still says what it did,
+    /// but not "0 new commits", "0 commits ahead" or a diverged branch with nothing on either side.
+    @Test func aPullGitCannotCountSaysNoNumber() throws {
+        let uncounting = TimingOutGitRunner(["rev-list"])
+        try push(2, from: other)
+        guard case .fastForwarded("main", let pulled) = try Repository(repo, git: uncounting).pullDefaultBranch() else {
+            Issue.record("expected a fast-forward"); return
+        }
+        #expect(pulled == nil)
+        try commit("local", in: repo)
+        guard case .ahead("main", let ahead) = try Repository(repo, git: uncounting).pullDefaultBranch() else {
+            Issue.record("expected the branch ahead"); return
+        }
+        #expect(ahead == nil)
+        try push(1, from: other)
+        #expect { try Repository(repo, git: uncounting).pullDefaultBranch() } throws: { error in
+            guard case WorktreeError.defaultBranchDiverged("main", let local, let remote) = error else { return false }
+            return local == nil && remote == nil
+        }
+    }
+
+    @Test func aRebaseGitCannotCountSaysNoNumber() throws {
+        try change("file.txt", to: "mine\n", in: repo)
+        try push(2, from: other)
+        let rebased = try Repository(repo, git: TimingOutGitRunner(["rev-list"])).rebaseDefaultBranch()
+        #expect(rebased.branch == "main")
+        #expect(rebased.ahead == nil)
+        #expect(try git.run(["rev-parse", "main~1"], in: repo) == sha("main", in: other), "rebased all the same")
     }
 
     // -- rebasing a diverged default branch ------------------------------------------------

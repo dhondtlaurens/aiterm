@@ -1,18 +1,19 @@
 import Foundation
 
-/// What ``Repository/pullDefaultBranch()`` found, each with the branch it is about.
+/// What ``Repository/pullDefaultBranch()`` found, each with the branch it is about. A count of
+/// commits is `nil` when git could not make it.
 public enum DefaultBranchPull: Equatable, Sendable {
     case upToDate(String)
-    case fastForwarded(String, commits: Int)
+    case fastForwarded(String, commits: Int?)
     /// Local commits origin lacks, and nothing of origin's to take: left as it is.
-    case ahead(String, commits: Int)
+    case ahead(String, commits: Int?)
 }
 
 /// What ``Repository/rebaseDefaultBranch()`` left: the branch, and how many commits it now has that
-/// origin lacks. Never pushed: that stays the person's to do.
+/// origin lacks — `nil` when git could not count them. Never pushed: that stays the person's to do.
 public struct DefaultBranchRebase: Equatable, Sendable {
-    public var branch: String, ahead: Int
-    public init(branch: String, ahead: Int) { self.branch = branch; self.ahead = ahead }
+    public var branch: String, ahead: Int?
+    public init(branch: String, ahead: Int?) { self.branch = branch; self.ahead = ahead }
 }
 
 /// The local default branch kept up with origin's: "Pull main", and the rebase a diverged pull offers.

@@ -126,11 +126,12 @@ public struct Repository: Sendable {
         try git.ask(["merge-base", "--is-ancestor", ancestor, commit], in: path, none: [1]) != nil
     }
 
-    /// How many commits `to` has that `from` lacks.
-    func count(_ from: String, _ to: String) -> Int {
-        Int(Log.git.attempt("Counting the commits from \(from) to \(to) in \(path)") {
+    /// How many commits `to` has that `from` lacks; `nil` when git could not count them — it timed
+    /// out, say — which is no count rather than none.
+    func count(_ from: String, _ to: String) -> Int? {
+        Log.git.attempt("Counting the commits from \(from) to \(to) in \(path)") {
             try git.run(["rev-list", "--count", from + ".." + to], in: path)
-        } ?? "") ?? 0
+        }.flatMap { Int($0) }
     }
 
     /// Whether the repository has a remote called `origin`: git's answer is a failure (exit 2)

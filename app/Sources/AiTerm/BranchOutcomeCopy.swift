@@ -1,15 +1,17 @@
 import AiTermCore
 
 // How the app words what git work on a project's branches came to. Core reports each outcome as a
-// value; the toasts say it here.
+// value; the toasts say it here. A count git could not make is said without a number.
 
 extension DefaultBranchPull {
     /// The toast that says it.
     var toast: String {
         switch self {
         case .upToDate(let branch): "\(branch) is already up to date."
-        case .fastForwarded(let branch, let count): "\(branch) updated with \(commits(count, adjective: "new"))."
-        case .ahead(let branch, let count): "\(branch) is \(commits(count)) ahead of origin, so there was nothing to pull."
+        case .fastForwarded(let branch, let count?): "\(branch) updated with \(commits(count, adjective: "new"))."
+        case .fastForwarded(let branch, nil): "\(branch) updated with origin’s new commits."
+        case .ahead(let branch, let count?): "\(branch) is \(commits(count)) ahead of origin, so there was nothing to pull."
+        case .ahead(let branch, nil): "\(branch) is ahead of origin, so there was nothing to pull."
         }
     }
 }
@@ -17,8 +19,11 @@ extension DefaultBranchPull {
 extension DefaultBranchRebase {
     /// The toast that says it. Never pushed: that stays the person's to do.
     var toast: String {
-        ahead == 0 ? "\(branch) rebased onto origin: it now matches origin."
-            : "\(branch) rebased onto origin: \(commits(ahead)) ahead, not pushed."
+        switch ahead {
+        case 0: "\(branch) rebased onto origin: it now matches origin."
+        case let ahead?: "\(branch) rebased onto origin: \(commits(ahead)) ahead, not pushed."
+        case nil: "\(branch) rebased onto origin, not pushed."
+        }
     }
 }
 
@@ -32,7 +37,8 @@ extension ReviewBranchRelease.Kept {
         case .checkedOut(let path): "checked out at \(path)"
         case .originUnreachable(let why): "couldn’t check origin (\(why))"
         case .originNotFetched: "couldn’t fetch origin’s \(branch) to compare"
-        case .unpushed(let count): "\(commits(count)) not on origin"
+        case .unpushed(let count?): "\(commits(count)) not on origin"
+        case .unpushed(nil): "commits not on origin"
         case .unmerged(let target): "not on origin and not merged into \(target.isEmpty ? "its target" : target)"
         case .notDeleted(let why): why
         case .unchecked(let why): "couldn’t check where its commits are (\(why))"
