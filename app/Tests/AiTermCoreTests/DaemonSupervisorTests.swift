@@ -37,6 +37,10 @@ private final class RecordedBackoff: Sendable {
     var backoff: @Sendable (Int) -> TimeInterval { { [self] attempt in asked.withLock { $0.append(attempt) }; return delay(attempt) } }
 }
 
+/// The bind deadline for a fake daemon that never opens its socket but must stay up for as long as
+/// the test looks at it: under the parallel runner a test can outlast the real fifteen seconds.
+private let neverAbandoned: TimeInterval = 3600
+
 final class DaemonSupervisorTests {
     /// Every supervisor built here writes its daemon log into a throwaway directory: the default
     /// (`AiTermPaths.daemonLogURL`) is the real `~/Library/Application Support/AiTerm`, which the
@@ -125,7 +129,7 @@ final class DaemonSupervisorTests {
     // adoption would then treat the process that replaced it as itself having exited.
     @Test func testAStaleChildsExitIsIgnored() async {
         let box = StateBox()
-        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/stale-\(UUID().uuidString).sock", arguments: ["-c", "sleep 30"], logURL: logURL) { state in
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/stale-\(UUID().uuidString).sock", arguments: ["-c", "sleep 30"], logURL: logURL, bindDeadline: neverAbandoned) { state in
             box.append(state)
         }
         sup.start()
@@ -152,7 +156,7 @@ final class DaemonSupervisorTests {
     @Test func testStopTerminatesTheProcessBeforeReturning() async {
         let box = StateBox()
         // A "python" that stays alive, so the process is still running when stop() is called.
-        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/z.sock", arguments: ["-c", "sleep 30"], logURL: logURL) { state in
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/z.sock", arguments: ["-c", "sleep 30"], logURL: logURL, bindDeadline: neverAbandoned) { state in
             box.append(state)
         }
         sup.start()
@@ -179,7 +183,7 @@ final class DaemonSupervisorTests {
         // `printenv` takes a single name, hence the shell expansion.)
         let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/env.sock",
                                    arguments: ["-c", "echo \"nobytecode=$PYTHONDONTWRITEBYTECODE pythonpath=$PYTHONPATH\" > '\(out.path)'; sleep 30"],
-                                   logURL: logURL) { state in
+                                   logURL: logURL, bindDeadline: neverAbandoned) { state in
             box.append(state)
         }
         sup.start()
@@ -322,6 +326,26 @@ final class DaemonSupervisorTests {
         #expect(order == ["running", "listening"])
     }
 
+    // A child that never opens its socket — stuck in an import — is a failed launch, not one that
+    // is still starting: it is ended and restarted through the same backoff as one that exits, so
+    // the banner says what it says for a helper that keeps stopping rather than "Starting…" forever.
+    @Test func testADaemonThatNeverListensIsAFailedLaunchAndIsRestarted() async {
+        let box = StateBox()
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/mute-\(UUID().uuidString.prefix(8)).sock",
+                                   arguments: ["-c", "sleep 30"], logURL: logURL, bindDeadline: 0.2, backoff: { _ in 0.01 }) { state in
+            box.append(state)
+        }
+        sup.start()
+        func firstPid() -> Int32? { box.states.lazy.compactMap { if case .running(let pid) = $0 { pid } else { nil } }.first }
+        await eventually { box.runningCount >= 2 }
+        sup.stop()
+
+        #expect(box.states.contains { if case .failed(1, let message) = $0 { message.contains("socket") } else { false } },
+                "a child that never listens must be a failed launch, got \(box.states)")
+        #expect(!box.states.contains { if case .listening = $0 { true } else { false } })
+        if let pid = firstPid() { #expect(kill(pid, 0) != 0, "the child that never listened must have been ended") }
+    }
+
     // Final review item A: a daemon that keeps exiting is only diagnosable if its stdout and stderr
     // land somewhere the banner can point at, so the child's output must reach the log file.
     @Test func testDaemonOutputIsWrittenToTheLogFile() async {
@@ -364,8 +388,10 @@ final class DaemonSupervisorTests {
         defer { try? orphan.close() }
 
         let box = StateBox()
+        // `exec`, so no shell is left waiting on the sleep: `stop()`'s SIGTERM reaches the whole
+        // process group, and a shell that outlived its sleep wrote "Terminated" into the log.
         let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/inode.sock",
-                                   arguments: ["-c", "echo new-daemon; sleep 30"], logURL: logURL) { state in
+                                   arguments: ["-c", "echo new-daemon; exec sleep 30"], logURL: logURL, bindDeadline: neverAbandoned) { state in
             box.append(state)
         }
         sup.start()

@@ -20,9 +20,17 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// to restart. Any other non-zero status is a genuine crash.
     public static let alreadyRunningExitStatus: Int32 = 3
 
+    /// How long a child has to open its socket before it counts as a failed launch. A daemon binds
+    /// about a tenth of a second after the spawn, and under half a second on the first launch after
+    /// a build; it compiles every module from source each time (`PYTHONDONTWRITEBYTECODE`), so a
+    /// cold disk or a loaded machine can stretch that several times over. Fifteen seconds is far
+    /// past any of those, and is as long as the app waits for any answer from the helper.
+    public static let bindDeadline: TimeInterval = 15
+
     private let python: URL, daemonDir: URL, socketPath: String, hookPort: Int, arguments: [String]?
     private let logURL: URL
     private let adoptedProbeInterval: TimeInterval
+    private let bindDeadline: TimeInterval
     private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
     private let onStateChange: @Sendable (State) -> Void
     private var process: Process?
@@ -34,8 +42,8 @@ public final class DaemonSupervisor: @unchecked Sendable {
     private var pendingWork: DispatchWorkItem?
     private let queue = DispatchQueue(label: "aiterm.supervisor")
 
-    public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, adoptedProbeInterval: TimeInterval = 5, backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) }, onStateChange: @escaping @Sendable (State) -> Void) {
-        self.python = python; self.daemonDir = daemonDir; self.socketPath = socketPath; self.hookPort = hookPort; self.arguments = arguments; self.logURL = logURL; self.adoptedProbeInterval = adoptedProbeInterval; self.backoff = backoff; self.onStateChange = onStateChange
+    public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, adoptedProbeInterval: TimeInterval = 5, bindDeadline: TimeInterval = DaemonSupervisor.bindDeadline, backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) }, onStateChange: @escaping @Sendable (State) -> Void) {
+        self.python = python; self.daemonDir = daemonDir; self.socketPath = socketPath; self.hookPort = hookPort; self.arguments = arguments; self.logURL = logURL; self.adoptedProbeInterval = adoptedProbeInterval; self.bindDeadline = bindDeadline; self.backoff = backoff; self.onStateChange = onStateChange
     }
 
     public func start() {
@@ -136,18 +144,32 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// or more after the spawn: an app that connected on `.running` met a missing socket, said
     /// "Reconnecting to AiTerm’s helper…" on every launch and waited out a one-second backoff for
     /// its first snapshot. A probe is a bare `connect()`, so asking often costs nothing; after the
-    /// first few seconds a child that is still not listening is asked less often. A child that
-    /// exits first is `exited(_:)`'s, which cancels the probe.
+    /// first few seconds a child that is still not listening is asked less often, and one that is
+    /// not listening by `bindDeadline` is a failed launch. A child that exits first is
+    /// `exited(_:)`'s, which cancels the probe.
     private func awaitListening(_ child: Process, since spawn: Date = Date()) {
         let elapsed = Date().timeIntervalSince(spawn)
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, !self.stopping, child === self.process else { return }
             self.pendingWork = nil
             if SocketProbe.isLive(path: self.socketPath) { self.onStateChange(.listening(pid: child.processIdentifier)) }
+            else if Date().timeIntervalSince(spawn) >= self.bindDeadline { self.abandon(child) }
             else { self.awaitListening(child, since: spawn) }
         }
         pendingWork = workItem
         queue.asyncAfter(deadline: .now() + (elapsed < 5 ? 0.02 : 0.5), execute: workItem)
+    }
+
+    /// Ends a child that never opened its socket and fails the launch, so it is restarted through
+    /// the same backoff, and named in the same banner, as a child that exits. It is no longer
+    /// `process` before it is ended, so its own exit is not counted a second time.
+    private func abandon(_ child: Process) {
+        process = nil
+        child.terminate()
+        // One stuck where SIGTERM is not acted on gets SIGKILL after the grace `stop()` gives.
+        let pid = child.processIdentifier
+        queue.asyncAfter(deadline: .now() + Self.stopGracePeriod) { if child.isRunning { kill(pid, SIGKILL) } }
+        recordFailure(message: "did not open its socket within \(Int(bindDeadline.rounded())) s")
     }
 
     /// Not `private`, so a test can hand it a foreign `Process` to prove the guard below. The app
@@ -191,9 +213,10 @@ public final class DaemonSupervisor: @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + adoptedProbeInterval, execute: workItem)
     }
 
-    /// Shared bookkeeping for both the "process never started" (`launch()`'s `catch`) and "process
-    /// started then exited" (`exited()`) failure paths, so both escalate the same attempt counter
-    /// and backoff delay instead of the launch-failure path retrying forever at `Backoff.delay(0)`.
+    /// Shared bookkeeping for the "process never started" (`launch()`'s `catch`), "process started
+    /// then exited" (`exited()`) and "process never listened" (`abandon(_:)`) failure paths, so all
+    /// escalate the same attempt counter and backoff delay instead of the launch-failure path
+    /// retrying forever at `Backoff.delay(0)`.
     private func recordFailure(message: String) {
         attempt += 1
         onStateChange(.failed(attempt: attempt, message: message))
