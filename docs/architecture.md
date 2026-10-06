@@ -132,6 +132,18 @@ effect in the order it was sent.
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
 
+An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read
+is logged and drops the connection, so the app reconnects to a fresh snapshot rather than keep a
+row the event would have changed.
+
+Each side names every command, event and error code, the protocol version and the 1 MB frame
+limit once: the daemon in `protocol.py` and its registered handlers, the app in
+`DaemonProtocol.swift`. `daemon/tests/test_wire_contract.py` writes a frame of every event, reply
+and error code, as a running daemon sends them, and a manifest of those names into
+`daemon/tests/wire/`, and fails while the checked-in files differ from what the daemon sends. The
+app's `WireContractTests` reads each frame with the client's own decoders and checks its names
+against the manifest.
+
 The socket is the only channel. If the daemon dies, the supervisor restarts it; from the second
 failure the banner names the log at `~/Library/Application Support/AiTerm/aitermd.log`.
 

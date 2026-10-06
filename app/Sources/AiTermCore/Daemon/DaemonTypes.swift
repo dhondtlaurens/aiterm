@@ -40,22 +40,16 @@ public struct Usage: Codable, Equatable, Sendable {
 public struct UsageSnapshot: Codable, Equatable, Sendable { public var claude, codex: Usage?
     public static let empty = UsageSnapshot(claude: nil, codex: nil) }
 
+/// A request's failure: the daemon's error reply, or this client's own (`Code`).
 public struct DaemonError: Error, Equatable, LocalizedError, CustomStringConvertible {
-    public let code: String, message: String
+    public let code: Code, message: String
     public var errorDescription: String? { message }
     public var description: String { message }
 
-    /// The thing a request named — a window, session or task — is already gone.
-    static let notFoundCode = "not_found"
-    /// `DaemonClient.snapshot()`'s own guard: a helper whose protocol version this app cannot speak.
-    static let incompatibleCode = "incompatible"
-    /// The daemon has no handler for this request name — an older helper out of sync with a newer app.
-    static let unknownMethodCode = "unknown_method"
-
-    public var isNotFound: Bool { code == Self.notFoundCode }
+    public var isNotFound: Bool { code == .notFound }
     /// Either code a stale or mismatched helper answers with, as opposed to iTerm2 itself being
     /// unreachable — `DaemonConnection` reports these as `.helperMismatch`, not a retryable outage.
-    public var isMismatch: Bool { code == Self.incompatibleCode || code == Self.unknownMethodCode }
+    public var isMismatch: Bool { code == .incompatible || code == .unknownMethod }
 }
 
 public struct DaemonSnapshot: Decodable, Equatable, Sendable {
@@ -93,7 +87,7 @@ public enum DaemonEvent: Equatable, Sendable {
 /// the line is decoded from the same bytes, once, into the type its route names (`Reply`,
 /// `EventPayload`), with no untyped tree in between.
 struct Header: Decodable { var id: Int?, event: String?, error: DaemonErrorBody? }
-struct DaemonErrorBody: Decodable { var code: String, message: String }
+struct DaemonErrorBody: Decodable { var code: DaemonError.Code, message: String }
 /// A reply's `result`, as the request's own type.
 struct Reply<Value: Decodable>: Decodable { var result: Value }
 /// An event's `payload`, as the type its name says.

@@ -3,8 +3,14 @@ import json
 from typing import Any
 
 
+# The app's half of this contract is app/Sources/AiTermCore/Daemon/DaemonProtocol.swift. Both are
+# checked against tests/wire/manifest.json, which tests/test_wire_contract.py writes from this
+# module and the registered methods, beside a golden frame of every event and reply.
+
 # The version of this protocol, as the `workspace.snapshot` bootstrap reports it.
 VERSION = 1
+# The longest request line the server reads, and the longest line the app reads from it.
+MAX_FRAME_BYTES = 1 << 20
 
 # The events the daemon broadcasts to every attached client.
 ITERM_CONNECTED = "iterm.connected"
@@ -17,6 +23,18 @@ SESSION_OPENED = "session.opened"
 SESSION_CHANGED = "session.changed"
 SESSION_CLOSED = "session.closed"
 USAGE_CHANGED = "usage.changed"
+EVENTS = (ITERM_CONNECTED, ITERM_DISCONNECTED, ITERM_AUTH_FAILED, ITERM_COOKIE_REQUESTED, WINDOW_ACTIVATED, WINDOW_CLOSED,
+          SESSION_OPENED, SESSION_CHANGED, SESSION_CLOSED, USAGE_CHANGED)
+
+# The codes of an error reply.
+BAD_PARAMS = "bad_params"
+NOT_FOUND = "not_found"
+ITERM_UNAVAILABLE = "iterm_unavailable"
+# A line that is not a request: not JSON, not an object, or without a method name.
+PROTOCOL = "protocol"
+INTERNAL = "internal"
+UNKNOWN_METHOD = "unknown_method"
+ERROR_CODES = (BAD_PARAMS, NOT_FOUND, ITERM_UNAVAILABLE, PROTOCOL, INTERNAL, UNKNOWN_METHOD)
 
 
 class ProtocolError(ValueError):

@@ -57,7 +57,7 @@ public final class DaemonClient: Sendable {
     /// `iterm.status`: answered from what the helper holds, with no lock and no iTerm2 call, so
     /// a helper whose loop runs answers it in one turn whatever else is waiting. An older helper
     /// without it still answers, with `unknown_method`, which proves the same.
-    static let livenessCheck = "iterm.status"
+    static let livenessCheck = DaemonMethod.itermStatus
     /// How long the liveness check is given. Its answer takes one turn of the helper's loop, so
     /// three seconds is a wide margin for a busy machine. The check goes out at the second timeout
     /// in a row, so a stuck helper is dropped this long after that: with requests overlapping, one
@@ -67,7 +67,6 @@ public final class DaemonClient: Sendable {
     private let writer = DispatchQueue(label: "aiterm.socket-writer")
     private let requestTimeout: TimeInterval
     public let events: AsyncStream<DaemonEvent>
-    private static let maximumFrameBytes = 1 << 20
     private static let log = Logger(subsystem: "com.laurensdhondt.aiterm", category: "daemon")
 
     public init(socketPath: String, requestTimeout: TimeInterval = 15, livenessTimeout: TimeInterval = 3) {
@@ -85,10 +84,10 @@ public final class DaemonClient: Sendable {
             state.used = true
             return first
         }
-        guard firstUse else { throw DaemonError(code: "connection_used", message: "Create a new client to reconnect") }
+        guard firstUse else { throw DaemonError(code: .connectionUsed, message: "Create a new client to reconnect") }
         let address = try UnixSocketAddress(path: socketPath)
         let s = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard s >= 0 else { throw DaemonError(code: "socket", message: String(cString: strerror(errno))) }
+        guard s >= 0 else { throw DaemonError(code: .socket, message: String(cString: strerror(errno))) }
         // Without this, writing to a daemon that has gone away raises SIGPIPE, whose default
         // disposition kills the whole app. With it, `writeAll` simply sees EPIPE and reports it.
         var noSigPipe: Int32 = 1
@@ -106,7 +105,7 @@ public final class DaemonClient: Sendable {
             if ready > 0, getsockopt(s, SOL_SOCKET, SO_ERROR, &error, &size) == 0, error == 0 { rc = 0 }
             else { errno = ready == 0 ? ETIMEDOUT : (error == 0 ? errno : error) }
         }
-        guard rc == 0 else { let e = errno; Darwin.close(s); throw DaemonError(code: "connect", message: String(cString: strerror(e))) }
+        guard rc == 0 else { let e = errno; Darwin.close(s); throw DaemonError(code: .connect, message: String(cString: strerror(e))) }
         _ = fcntl(s, F_SETFL, flags)
         let generation: Int? = state.withLock { state in
             guard state.events != nil else { return nil }
@@ -115,7 +114,7 @@ public final class DaemonClient: Sendable {
         }
         guard let generation else {
             Darwin.close(s)
-            throw DaemonError(code: "disconnected", message: "Connection was canceled")
+            throw DaemonError(code: .disconnected, message: "Connection was canceled")
         }
         Thread(block: { self.readLoop(fd: s, generation: generation) }).start()
     }
@@ -141,7 +140,7 @@ public final class DaemonClient: Sendable {
         // by another `connect()` in this process — the blocked reader would then consume bytes
         // belonging to a brand-new connection. `shutdown` makes the pending `read` return 0, and
         // the reader closes its own descriptor on the way out.
-        waiting.values.forEach { $0.fail(DaemonError(code: "disconnected", message: "helper connection closed")) }
+        waiting.values.forEach { $0.fail(DaemonError(code: .disconnected, message: "helper connection closed")) }
         continuation?.finish()
     }
 
@@ -170,7 +169,7 @@ public final class DaemonClient: Sendable {
             var searchFrom = buffer.startIndex + searched
             while let nl = buffer[searchFrom...].firstIndex(of: 10) {
                 let line = buffer[lineStart..<nl]
-                guard line.count <= Self.maximumFrameBytes,
+                guard line.count <= DaemonProtocol.maximumFrameBytes,
                       let header = try? decoder.decode(Header.self, from: line) else { break reading }
                 dispatch(header, line: line, decoder: decoder)
                 lineStart = nl + 1; searchFrom = lineStart
@@ -178,7 +177,7 @@ public final class DaemonClient: Sendable {
             // Once per read rather than per line: only an unfinished line is carried over.
             buffer.removeSubrange(buffer.startIndex..<lineStart)
             searched = buffer.count
-            if buffer.count > Self.maximumFrameBytes { break }
+            if buffer.count > DaemonProtocol.maximumFrameBytes { break }
         }
         // This thread is the sole owner of `fd` (the parameter): `connect()` handed it over and
         // `disconnect()` only shuts it down, so the close below is the one and only close. Clear
@@ -214,7 +213,14 @@ public final class DaemonClient: Sendable {
             return
         }
         guard let name = header.event else { return }
-        yield(Self.decodeEvent(name, from: line, using: decoder))
+        do { yield(try Self.decodeEvent(name, from: line, using: decoder)) }
+        catch {
+            // What the event was about is left as it was, and stays so until a snapshot, which
+            // only a connection's start brings: drop this one, as for a dropped event, and let
+            // its owner reconnect to a fresh snapshot.
+            Self.logUnreadable(name, error)
+            disconnect()
+        }
     }
 
     /// Read under the lock, so a reader thread cannot see the continuation while `disconnect()` is
@@ -227,9 +233,8 @@ public final class DaemonClient: Sendable {
     }
 
     /// The event a line names, decoded from its bytes. An event this app does not know is a newer
-    /// helper's and is passed on as `.unknown`; one it knows but cannot read is logged, since the
-    /// row it was about is left as it was.
-    static func decodeEvent(_ name: String, from line: Data, using decoder: JSONDecoder = JSONDecoder()) -> DaemonEvent {
+    /// helper's and is passed on as `.unknown`; one it knows but cannot read throws.
+    static func decodeEvent(_ name: String, from line: Data, using decoder: JSONDecoder = JSONDecoder()) throws -> DaemonEvent {
         struct Version: Decodable { var version: String? }
         struct WindowId: Decodable { var windowId: String }
         struct SessionId: Decodable { var sessionId: String }
@@ -239,28 +244,23 @@ public final class DaemonClient: Sendable {
             let event = try decoder.decode(EventPayload<P>.self, from: line)
             return event.payload
         }
-        do {
-            switch name {
-            case "iterm.disconnected": return .itermDisconnected
-            case "iterm.connected": return .itermConnected(try payload(Version.self).version)
-            case "iterm.auth_failed": return .itermAuthFailed(try payload(Reason.self).reason)
-            case "iterm.cookieRequested": return .itermCookieRequested(try payload(CookieRequest.self).requestId)
-            case "window.activated": return .windowActivated(try payload(WindowId.self).windowId)
-            case "window.closed": return .windowClosed(try payload(WindowId.self).windowId)
-            case "session.opened": return .sessionOpened(try payload(SessionInfo.self))
-            case "session.changed": return .sessionChanged(try payload(SessionInfo.self))
-            case "session.closed": return .sessionClosed(try payload(SessionId.self).sessionId)
-            case "usage.changed": return .usageChanged(try payload(UsageSnapshot.self))
-            default: return .unknown(name)
-            }
-        } catch {
-            logUnreadable(name, error)
-            return .unknown(name)
+        guard let known = DaemonEventName(rawValue: name) else { return .unknown(name) }
+        switch known {
+        case .itermDisconnected: return .itermDisconnected
+        case .itermConnected: return .itermConnected(try payload(Version.self).version)
+        case .itermAuthFailed: return .itermAuthFailed(try payload(Reason.self).reason)
+        case .itermCookieRequested: return .itermCookieRequested(try payload(CookieRequest.self).requestId)
+        case .windowActivated: return .windowActivated(try payload(WindowId.self).windowId)
+        case .windowClosed: return .windowClosed(try payload(WindowId.self).windowId)
+        case .sessionOpened: return .sessionOpened(try payload(SessionInfo.self))
+        case .sessionChanged: return .sessionChanged(try payload(SessionInfo.self))
+        case .sessionClosed: return .sessionClosed(try payload(SessionId.self).sessionId)
+        case .usageChanged: return .usageChanged(try payload(UsageSnapshot.self))
         }
     }
 
     /// When each event was last logged as unreadable. A helper that sends a shape this app cannot
-    /// read sends it at the rate it sends that event, several times a second for `session.changed`,
+    /// read sends it every time it sends that event, and each time this client reconnects to it,
     /// so each event's failure is logged at most once a minute.
     private static let unreadableLogged = Mutex<[String: ContinuousClock.Instant]>([:])
 
@@ -272,7 +272,7 @@ public final class DaemonClient: Sendable {
             return true
         }
         guard due else { return }
-        log.error("Unreadable \(name, privacy: .public) event from the helper (logged at most once a minute): \(String(describing: error), privacy: .public)")
+        log.error("Unreadable \(name, privacy: .public) event from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
     }
 
     private func allocateID() -> Int {
@@ -286,7 +286,7 @@ public final class DaemonClient: Sendable {
         state.withLock { $0.pending.removeValue(forKey: id) }?.fail(error)
     }
 
-    private func timedOut(_ id: Int, method: String, isLivenessCheck: Bool) {
+    private func timedOut(_ id: Int, method: DaemonMethod, isLivenessCheck: Bool) {
         let (entry, check) = state.withLock { state in
             let entry = state.pending.removeValue(forKey: id)
             guard entry != nil, !isLivenessCheck else { return (entry, false) }
@@ -295,7 +295,7 @@ public final class DaemonClient: Sendable {
             if check { state.checkingLiveness = true }
             return (entry, check)
         }
-        entry?.fail(DaemonError(code: "timeout", message: "\(method) timed out; its outcome may need reconciliation"))
+        entry?.fail(DaemonError(code: .timeout, message: "\(method.rawValue) timed out; its outcome may need reconciliation"))
         if check { Task { await self.checkLiveness() } }
     }
 
@@ -306,13 +306,13 @@ public final class DaemonClient: Sendable {
     /// far as `pending` is on a client already disconnected.
     private func checkLiveness() async {
         do { _ = try await request(Self.livenessCheck, params: Optional<NoParams>.none, as: Empty.self, ordered: nil, isLivenessCheck: true) }
-        catch let error as DaemonError where error.code == "timeout" { disconnect() }
+        catch let error as DaemonError where error.code == .timeout { disconnect() }
         catch {}
     }
 
     /// A reply's `result`, decoded from its line. `Empty` asks for nothing, so nothing is read: a
     /// helper may answer it with `{}`, `null` or no result at all.
-    private static func result<R: Decodable>(_: R.Type, from line: Data, using decoder: JSONDecoder) throws -> R {
+    static func result<R: Decodable>(_: R.Type, from line: Data, using decoder: JSONDecoder) throws -> R {
         if let empty = Empty() as? R { return empty }
         return try decoder.decode(Reply<R>.self, from: line).result
     }
@@ -331,28 +331,28 @@ public final class DaemonClient: Sendable {
     }
     private struct NoParams: Encodable {}
 
-    public func request<R: Decodable & Sendable>(_ method: String, as type: R.Type) async throws -> R {
+    public func request<R: Decodable & Sendable>(_ method: DaemonMethod, as type: R.Type) async throws -> R {
         try await request(method, params: Optional<NoParams>.none, as: type, ordered: nil, isLivenessCheck: false)
     }
 
-    public func request<P: Encodable, R: Decodable & Sendable>(_ method: String, params: P, as type: R.Type) async throws -> R {
+    public func request<P: Encodable, R: Decodable & Sendable>(_ method: DaemonMethod, params: P, as type: R.Type) async throws -> R {
         try await request(method, params: Optional(params), as: type, ordered: nil, isLivenessCheck: false)
     }
 
     /// `ordered` makes the reply an event too, yielded from the reader thread in its place among
     /// the events around it. A liveness check has its own, shorter timeout, which is not counted
     /// as the helper going quiet again.
-    private func request<P: Encodable, R: Decodable & Sendable>(_ method: String, params: P?, as type: R.Type,
+    private func request<P: Encodable, R: Decodable & Sendable>(_ method: DaemonMethod, params: P?, as type: R.Type,
                                                                 ordered: (@Sendable (R) -> DaemonEvent)?,
                                                                 isLivenessCheck: Bool) async throws -> R {
         try Task.checkCancellation()
         let id = allocateID()
         // Once `withTaskCancellationHandler` returns, its handler has run or never will.
         defer { state.withLock { _ = $0.cancelled.remove(id) } }
-        var encoded = try JSONEncoder().encode(Envelope(id: id, method: method, params: params))
+        var encoded = try JSONEncoder().encode(Envelope(id: id, method: method.rawValue, params: params))
         encoded.append(10)
         let data = encoded
-        guard data.count <= Self.maximumFrameBytes else { throw DaemonError(code: "protocol", message: "Request exceeds frame limit") }
+        guard data.count <= DaemonProtocol.maximumFrameBytes else { throw DaemonError(code: .protocol, message: "Request exceeds frame limit") }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<R, Error>) in
                 let request = Pending(answer: { line, decoder, yield in
@@ -364,7 +364,7 @@ public final class DaemonClient: Sendable {
                 }, fail: { cont.resume(throwing: $0) }, isLivenessCheck: isLivenessCheck)
                 let refusal: Error? = state.withLock { state in
                     if state.cancelled.contains(id) { return CancellationError() }
-                    guard state.fd >= 0 else { return DaemonError(code: "disconnected", message: "not connected") }
+                    guard state.fd >= 0 else { return DaemonError(code: .disconnected, message: "not connected") }
                     state.pending[id] = request
                     return nil
                 }
@@ -376,7 +376,7 @@ public final class DaemonClient: Sendable {
                     // dup keeps this descriptor alive even if the reader exits during a write.
                     let socket = state.withLock { $0.pending[id] != nil && $0.fd >= 0 ? dup($0.fd) : -1 }
                     guard socket >= 0 else {
-                        failRequest(id, error: DaemonError(code: "disconnected", message: "not connected")); return
+                        failRequest(id, error: DaemonError(code: .disconnected, message: "not connected")); return
                     }
                     defer { Darwin.close(socket) }
                     if let error = Self.writeAll(fd: socket, data: data) {
@@ -404,7 +404,7 @@ public final class DaemonClient: Sendable {
                 let n = write(fd, base + offset, data.count - offset)
                 if n > 0 { offset += n; continue }
                 if n < 0, errno == EINTR { continue }
-                return DaemonError(code: "write", message: n < 0 ? String(cString: strerror(errno)) : "short write")
+                return DaemonError(code: .write, message: n < 0 ? String(cString: strerror(errno)) : "short write")
             }
             return nil
         }
@@ -439,35 +439,35 @@ public final class DaemonClient: Sendable {
     /// writes it with no pause after reading its state, so it is a barrier between the events
     /// before it and those after.
     public func snapshot() async throws -> DaemonSnapshot {
-        let snapshot = try await request("workspace.snapshot", params: Optional<NoParams>.none, as: DaemonSnapshot.self,
+        let snapshot = try await request(.workspaceSnapshot, params: Optional<NoParams>.none, as: DaemonSnapshot.self,
                                          ordered: { .snapshot($0) }, isLivenessCheck: false)
-        guard snapshot.protocolVersion == 1 else {
-            throw DaemonError(code: DaemonError.incompatibleCode, message: "Restart AiTerm with its matching bundled helper")
+        guard snapshot.protocolVersion == DaemonProtocol.version else {
+            throw DaemonError(code: .incompatible, message: "Restart AiTerm with its matching bundled helper")
         }
         return snapshot
     }
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
-        try await request("window.createTask", params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame), as: WindowResult.self).windowId }
+        try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame), as: WindowResult.self).windowId }
     public func createTerminalWindow(projectId: String, cwd: String, title: String, frame: Frame) async throws -> String {
-        try await request("window.createTerminal", params: CreateTerminalParams(projectId: projectId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
+        try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
     /// A tab in an existing window, carrying that window's task or project tag.
     public func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {
-        try await request("tab.create", params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand), as: SessionResult.self).sessionId }
-    public func activate(windowId: String) async throws { _ = try await request("window.activate", params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
-    public func setFrame(windowId: String, frame: Frame) async throws { _ = try await request("window.setFrame", params: WindowParams(windowId: windowId, frame: frame), as: Empty.self) }
-    public func close(windowId: String) async throws { _ = try await request("window.close", params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
+        try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand), as: SessionResult.self).sessionId }
+    public func activate(windowId: String) async throws { _ = try await request(.windowActivate, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
+    public func setFrame(windowId: String, frame: Frame) async throws { _ = try await request(.windowSetFrame, params: WindowParams(windowId: windowId, frame: frame), as: Empty.self) }
+    public func close(windowId: String) async throws { _ = try await request(.windowClose, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
     @discardableResult public func setSessionTitles(_ titles: [SessionTitle]) async throws -> Int {
-        try await request("sessions.setTitles", params: SessionTitlesParams(titles: titles), as: ChangedResult.self).changed
+        try await request(.sessionsSetTitles, params: SessionTitlesParams(titles: titles), as: ChangedResult.self).changed
     }
-    public func markSeen(taskId: String) async throws -> Int { try await request("sessions.markSeen", params: TaskParams(taskId: taskId), as: ChangedResult.self).changed }
+    public func markSeen(taskId: String) async throws -> Int { try await request(.sessionsMarkSeen, params: TaskParams(taskId: taskId), as: ChangedResult.self).changed }
     /// Answers `iterm.cookieRequested`. False when the request had already timed out or been
     /// answered, so the cookie was not used.
     @discardableResult public func provideCookie(requestId: Int, _ answer: ItermCookieAnswer) async throws -> Bool {
-        try await request("iterm.provideCookie", params: CookieParams(requestId: requestId, answer: answer), as: AcceptedResult.self).accepted
+        try await request(.itermProvideCookie, params: CookieParams(requestId: requestId, answer: answer), as: AcceptedResult.self).accepted
     }
     /// Applies the Interface preference to every terminal window AiTerm manages. The daemon keeps
     /// this session-scoped, so no iTerm2 profile is edited.
     public func setMatchItermBackground(_ enabled: Bool) async throws {
-        _ = try await request("interface.setMatchItermBackground", params: InterfaceParams(matchItermBackground: enabled), as: Empty.self)
+        _ = try await request(.interfaceSetMatchItermBackground, params: InterfaceParams(matchItermBackground: enabled), as: Empty.self)
     }
 }

@@ -44,6 +44,11 @@ class RpcServer:
     def register(self, method: str, handler: Handler) -> None:
         self._handlers[method] = handler
 
+    @property
+    def methods(self) -> list[str]:
+        """The names a request may have, in order: the wire contract's list of them."""
+        return sorted(self._handlers)
+
     async def start(self) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         if os.path.exists(self.path):
@@ -52,7 +57,7 @@ class RpcServer:
             os.unlink(self.path)
         old_umask = os.umask(0o177)
         try:
-            self._server = await asyncio.start_unix_server(self._serve, path=self.path, limit=1 << 20)
+            self._server = await asyncio.start_unix_server(self._serve, path=self.path, limit=protocol.MAX_FRAME_BYTES)
         finally:
             os.umask(old_umask)
         self._socket_inode = os.stat(self.path).st_ino
@@ -165,19 +170,19 @@ class RpcServer:
         try:
             msg = protocol.decode(line)
         except protocol.ProtocolError as exc:
-            return protocol.error(None, "protocol", str(exc))
+            return protocol.error(None, protocol.PROTOCOL, str(exc))
         request_id = msg.get("id")
         method = msg.get("method")
         if not isinstance(method, str):
-            return protocol.error(request_id, "protocol", "method must be a string")
+            return protocol.error(request_id, protocol.PROTOCOL, "method must be a string")
         handler = self._handlers.get(method)
         if handler is None:
-            return protocol.error(request_id, "unknown_method", str(method))
+            return protocol.error(request_id, protocol.UNKNOWN_METHOD, str(method))
         try:
             result = await handler(msg.get("params"))
         except RpcError as exc:
             return protocol.error(request_id, exc.code, exc.message)
         except Exception as exc:  # noqa: BLE001 - surfaced to the client
             log.exception("handler %s failed", method)
-            return protocol.error(request_id, "internal", str(exc))
+            return protocol.error(request_id, protocol.INTERNAL, str(exc))
         return protocol.response(request_id, result)

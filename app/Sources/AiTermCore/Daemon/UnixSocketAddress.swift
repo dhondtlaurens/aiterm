@@ -11,7 +11,7 @@ struct UnixSocketAddress {
     private var raw = sockaddr_un()
 
     init(path: String) throws {
-        guard path.utf8.count < 104 else { throw DaemonError(code: "socket", message: "Socket path is too long") }
+        guard path.utf8.count < 104 else { throw DaemonError(code: .socket, message: "Socket path is too long") }
         raw.sun_family = sa_family_t(AF_UNIX)
         _ = path.withCString { strncpy(&raw.sun_path.0, $0, 103) }
     }

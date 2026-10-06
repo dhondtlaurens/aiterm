@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from . import protocol
 from .iterm_bridge import ItermPort, ItermUnavailable
 from .models import PROJECT_TAG, TASK_TAG
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
@@ -195,7 +196,7 @@ class WindowManager:
         try:
             applied = await self.iterm.set_session_titles(wanted)
         except ItermUnavailable as exc:
-            raise RpcError("iterm_unavailable", str(exc)) from exc
+            raise RpcError(protocol.ITERM_UNAVAILABLE, str(exc)) from exc
         finally:
             in_flight, self._titles_in_flight = self._titles_in_flight, set()
         self._applied_titles.update({session_id: wanted[session_id] for session_id in applied if session_id in in_flight})

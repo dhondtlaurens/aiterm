@@ -158,6 +158,24 @@ final class DaemonClientTests {
         #expect(u2.claude == nil)
     }
 
+    /// ARCH-05: a known event this app cannot read leaves what it was about stale until the next
+    /// snapshot, which only a reconnect brings, so the client drops the connection and its owner
+    /// reconnects to a fresh one. An event it does not know is a newer helper's: it passes as
+    /// `.unknown`, and the connection stays.
+    @Test func anUnreadableKnownEventEndsTheConnectionAndAnUnknownOneDoesNot() async throws {
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        let box = EventBox(client.events)
+        server.push(event: "session.renamed", payload: ["sessionId": "s1"])
+        guard case .event(let unknown) = await nextEvent(box) else { Issue.record("timed out waiting for the unknown event"); return }
+        #expect(unknown == .unknown("session.renamed"))
+
+        server.push(event: "session.changed", payload: ["sessionId": "s1"])
+        server.push(event: "window.closed", payload: ["windowId": "w1"])
+        guard case .event(let end) = await nextEvent(box) else { Issue.record("timed out waiting for the stream to end"); return }
+        #expect(end == nil, "neither the unreadable event nor any after it is passed on")
+    }
+
     /// The branch a row shows is resolved from `effectiveCwd`, never from `cwd`: iTerm2 only ever
     /// reports the shell's directory, which does not follow an agent into a worktree.
     @Test func testSessionInfoPrefersTheAgentsCwd() throws {
@@ -202,11 +220,11 @@ final class DaemonClientTests {
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
         struct Status: Decodable { var connected: Bool }
-        do { _ = try await client.request("iterm.status", as: Status.self); Issue.record("Expected deadline") }
+        do { _ = try await client.request(.itermStatus, as: Status.self); Issue.record("Expected deadline") }
         catch let error as DaemonError { #expect(error.code == "timeout") }
         // A timeout does not corrupt framing or poison subsequent requests.
         server.handler = { req in ["id": req["id"]!, "result": ["connected": true]] }
-        #expect(try await client.request("iterm.status", as: Status.self).connected)
+        #expect(try await client.request(.itermStatus, as: Status.self).connected)
     }
 
     /// A separate, long-timeout client: racing cancellation against an 80ms request timeout (as a
@@ -222,7 +240,7 @@ final class DaemonClientTests {
         try longWaitClient.connect()
         #expect(longWaitServer.waitForClient(timeout: 2))
         struct Status: Decodable { var connected: Bool }
-        let waiting = Task { try await longWaitClient.request("iterm.status", as: Status.self) }
+        let waiting = Task { try await longWaitClient.request(.itermStatus, as: Status.self) }
         await eventually { !longWaitServer.received.isEmpty }
         waiting.cancel()
         do { _ = try await waiting.value; Issue.record("Expected cancellation") }
@@ -238,7 +256,8 @@ final class DaemonClientTests {
             for index in 0..<40 {
                 group.addTask {
                     let value = String(repeating: "payload-\(index)", count: 2000)
-                    let reply = try await client.request("echo", params: value, as: String.self)
+                    // The server echoes any request's params: the method is not what is under test.
+                    let reply = try await client.request(.windowActivate, params: value, as: String.self)
                     #expect(reply == value)
                 }
             }
@@ -247,11 +266,11 @@ final class DaemonClientTests {
         #expect(server.received.count == 40)
     }
 
-    @Test func missingEventPayloadsNeverCrash() {
+    @Test func aKnownEventWithoutItsPayloadIsUnreadableNotACrash() throws {
         for name in ["window.activated", "window.closed", "session.opened", "session.changed", "session.closed", "usage.changed"] {
-            #expect(DaemonClient.decodeEvent(name, from: Data(#"{"event":"\#(name)"}"#.utf8)) == .unknown(name))
+            #expect(throws: DecodingError.self) { try DaemonClient.decodeEvent(name, from: Data(#"{"event":"\#(name)"}"#.utf8)) }
         }
-        #expect(DaemonClient.decodeEvent("iterm.disconnected", from: Data(#"{"event":"iterm.disconnected"}"#.utf8)) == .itermDisconnected)
+        #expect(try DaemonClient.decodeEvent("iterm.disconnected", from: Data(#"{"event":"iterm.disconnected"}"#.utf8)) == .itermDisconnected)
     }
 
     /// The reader searches only the bytes each read adds and carries an unfinished line over: a line
@@ -294,7 +313,7 @@ time.sleep(5)
     }
 
     private func timeOut(_ client: DaemonClient, sourceLocation: SourceLocation = #_sourceLocation) async {
-        do { _ = try await client.request("window.activate", as: DaemonClient.Empty.self); Issue.record("Expected a timeout", sourceLocation: sourceLocation) }
+        do { _ = try await client.request(.windowActivate, as: DaemonClient.Empty.self); Issue.record("Expected a timeout", sourceLocation: sourceLocation) }
         catch { #expect((error as? DaemonError)?.code == "timeout", sourceLocation: sourceLocation) }
     }
 
@@ -311,17 +330,17 @@ time.sleep(5)
         await timeOut(client)
         guard case .event(let end) = await nextEvent(box) else { Issue.record("a wedged helper kept its connection"); return }
         #expect(end == nil)
-        #expect(server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck })
+        #expect(server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck.rawValue })
     }
 
     /// Requests queued behind one of the helper's locks while iTerm2 is slow time out back to back
     /// from a helper whose loop is fine: it answers the liveness check, and the connection stays.
     @Test func timeoutsFromAHelperThatStillAnswersKeepTheConnection() async throws {
         client = DaemonClient(socketPath: server.path, requestTimeout: 0.05, livenessTimeout: 2)
-        server.handler = { req in req["method"] as? String == DaemonClient.livenessCheck ? ["id": req["id"]!, "result": ["connected": false]] : nil }
+        server.handler = { req in req["method"] as? String == DaemonClient.livenessCheck.rawValue ? ["id": req["id"]!, "result": ["connected": false]] : nil }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        func checks() -> Int { server.received.count { $0["method"] as? String == DaemonClient.livenessCheck } }
+        func checks() -> Int { server.received.count { $0["method"] as? String == DaemonClient.livenessCheck.rawValue } }
         for round in 1...2 {
             await timeOut(client)
             await timeOut(client)
@@ -343,12 +362,12 @@ time.sleep(5)
         #expect(server.waitForClient(timeout: 2))
         await timeOut(client)
         answering.withLock { $0 = true }
-        _ = try await client.request("window.activate", as: DaemonClient.Empty.self)
+        _ = try await client.request(.windowActivate, as: DaemonClient.Empty.self)
         answering.withLock { $0 = false }
         await timeOut(client)
         answering.withLock { $0 = true }
-        _ = try await client.request("window.activate", as: DaemonClient.Empty.self)
-        #expect(!server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck })
+        _ = try await client.request(.windowActivate, as: DaemonClient.Empty.self)
+        #expect(!server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck.rawValue })
     }
 
     @Test func snapshotAppearsInWireOrderAsAnEventBarrier() async throws {
@@ -375,7 +394,7 @@ time.sleep(5)
         for index in 0..<600 { server.push(event: "window.closed", payload: ["windowId": "w\(index)"]) }
         // Do not consume while the reader is still filling the bounded queue.
         // A request behind those frames provides a deterministic processing barrier.
-        do { _ = try await client.request("echo", as: DaemonClient.Empty.self); Issue.record("Expected overflow disconnect") }
+        do { _ = try await client.request(.itermStatus, as: DaemonClient.Empty.self); Issue.record("Expected overflow disconnect") }
         catch let error as DaemonError { #expect(error.code == "disconnected") }
         let box = EventBox(client.events)
         var received = 0

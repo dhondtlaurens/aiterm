@@ -47,7 +47,7 @@ final class RecordingDaemon: DaemonCommands {
         if method == holding, !released { await withCheckedContinuation { held.append($0) } }
         replies[method, default: 0] += 1
         let count = replies[method, default: 1]
-        if let code = failing[method] { throw DaemonError(code: code, message: "test failure") }
+        if let code = failing[method] { throw DaemonError(code: .init(rawValue: code), message: "test failure") }
         return count == 1 ? id : "\(id)-\(count)"
     }
 
