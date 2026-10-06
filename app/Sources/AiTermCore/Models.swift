@@ -161,9 +161,10 @@ public struct UnknownSidebarItem: Equatable, Sendable {
 
 /// One row of the sidebar's top level. `AppState.items` is the order the sidebar is drawn in.
 ///
-/// `.unknown` is a kind a newer build added. Like `Provider`, it lets an older build open the
-/// workspace instead of refusing it, but a row cannot be defaulted into something else, so it is
-/// kept whole, left undrawn, and written back unchanged.
+/// `.unknown` is a kind a newer build added — or a row with no `kind` this build can read, missing
+/// or not a string. Like `Provider`, it lets an older build open the workspace instead of refusing
+/// it, but a row cannot be defaulted into something else, so it is kept whole, left undrawn, and
+/// written back unchanged.
 public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
     case project(Project)
     case divider(SidebarDivider)
@@ -188,7 +189,7 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        switch Kind(rawValue: try c.decode(String.self, forKey: .kind)) {
+        switch (try? c.decodeIfPresent(String.self, forKey: .kind))?.flatMap(Kind.init(rawValue:)) {
         case .project: self = .project(try c.decode(Project.self, forKey: .project))
         case .divider: self = .divider(try c.decode(SidebarDivider.self, forKey: .divider))
         case nil: self = .unknown(UnknownSidebarItem(raw: try decoder.singleValueContainer().decode(StoredJSON.self)))
@@ -213,6 +214,8 @@ public struct JiraRef: Codable, Equatable, Sendable {
 /// Which of the two branch-shaped flows made this item. `nil` is everything saved before reviews
 /// existed and means the same as `.task`; only `== .review` is ever tested. A raw value this build
 /// does not know decodes as `.task`, like `Provider`; `TaskItem` keeps the raw value for the resave.
+/// So a row of a kind only a newer build knows is removed here as a task is: its Remove offers
+/// "Also delete branch" — unticked, the person's to tick — where a review's never does.
 public enum TaskKind: String, Codable, Equatable, Sendable {
     case task, review
     public init(from decoder: Decoder) throws {
