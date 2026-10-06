@@ -325,11 +325,12 @@ time.sleep(5)
         for round in 1...2 {
             await timeOut(client)
             await timeOut(client)
-            await eventually { checks() >= round }
+            try #require(await eventually(describing: "round \(round)'s check") { checks() == 2 * round - 1 })
+            // Sent once the server holds the check, so answered after it in wire order: the check's
+            // reply has been read, ending this run of timeouts, before the next round's first one.
+            _ = try await client.request(DaemonClient.livenessCheck, as: DaemonClient.Empty.self)
         }
-        // Answered in wire order, so the checks' replies have been read by the time this one is.
-        _ = try await client.request(DaemonClient.livenessCheck, as: DaemonClient.Empty.self)
-        #expect(checks() == 3, "one check per run of timeouts, and the request above")
+        #expect(checks() == 4, "one check per run of timeouts, and one request per round after it")
     }
 
     /// One reply between two timeouts is a helper that is answering: only an unbroken run counts.

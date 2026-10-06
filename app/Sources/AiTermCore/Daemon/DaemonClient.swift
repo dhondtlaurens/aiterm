@@ -5,29 +5,47 @@ import Synchronization
 import Darwin
 #endif
 
-/// Mutable transport state is protected by `lock`; the writer queue owns writes,
-/// and each reader exclusively closes its descriptor. Streams are thread-safe.
-public final class DaemonClient: @unchecked Sendable {
+/// Every mutable field is in `state`, so the compiler, not a convention, keeps each access under
+/// its lock; the writer queue owns writes, and each reader exclusively closes its descriptor.
+/// Streams are thread-safe.
+public final class DaemonClient: Sendable {
     public let socketPath: String
-    private var fd: Int32 = -1
-    private let lock = NSLock()
-    private var nextId = 0
-    private var generation = 0
     /// A request waiting for its reply. Its closures know the type the caller awaits, so the reader
     /// decodes the reply once, straight into that type, and resumes the caller with it.
-    private struct Pending {
-        let deadline: DispatchWorkItem
+    ///
+    /// Its deadline is not held here or cancelled: a deadline that fires after its request has
+    /// left `pending` finds nothing to time out, and ids are never reused.
+    private struct Pending: Sendable {
         /// Decodes the reply line and resumes the caller. A reply that also stands for an event
         /// (`snapshot()`'s) hands it to `yield` first, so it takes its place in the stream in
         /// wire order, before the caller resumes.
-        let answer: (_ line: Data, _ decoder: JSONDecoder, _ yield: (DaemonEvent) -> Void) -> Void
-        let fail: (Error) -> Void
+        let answer: @Sendable (_ line: Data, _ decoder: JSONDecoder, _ yield: (DaemonEvent) -> Void) -> Void
+        let fail: @Sendable (Error) -> Void
+        let isLivenessCheck: Bool
     }
-    private var pending: [Int: Pending] = [:]
-    /// Requests that timed out since the last reply of any kind.
-    private var consecutiveTimeouts = 0
-    /// Whether a liveness check is waiting for its reply, so a run of timeouts sends only one.
-    private var checkingLiveness = false
+    /// The transport's mutable state, all of it under one lock. Whatever must happen because of a
+    /// change (resuming a caller, finishing the stream, starting a reader) happens after the lock
+    /// is released, with what `withLock` hands back.
+    private struct State: ~Copyable {
+        var fd: Int32 = -1
+        var nextId = 0
+        /// Bumped by each `connect()` and `disconnect()`, so a reader can tell whether it is still
+        /// the current connection's (see `readLoop`).
+        var generation = 0
+        var pending: [Int: Pending] = [:]
+        /// Requests whose task was cancelled before they reached `pending`: `request` checks here
+        /// before it registers one, and clears its id once the cancellation handler can no longer run.
+        var cancelled: Set<Int> = []
+        /// Requests that timed out since the last reply of any kind.
+        var consecutiveTimeouts = 0
+        /// Whether a liveness check is waiting for its reply, so a run of timeouts sends only one.
+        /// Cleared by the check's reply, or by the disconnect that its silence leads to.
+        var checkingLiveness = false
+        var used = false
+        /// `nil` once the stream has been finished: a stale reader's `yield` is then a no-op.
+        var events: AsyncStream<DaemonEvent>.Continuation?
+    }
+    private let state: Mutex<State>
     /// A helper whose loop is stuck still has its process and its socket, so neither the supervisor
     /// nor the reader notices it. Timeouts alone do not show it: the helper answers each request on
     /// its own task, but window creation, placement and the snapshot each wait their turn on a lock
@@ -41,13 +59,13 @@ public final class DaemonClient: @unchecked Sendable {
     /// without it still answers, with `unknown_method`, which proves the same.
     static let livenessCheck = "iterm.status"
     /// How long the liveness check is given. Its answer takes one turn of the helper's loop, so
-    /// three seconds is a wide margin for a busy machine, and keeps a stuck helper found within
-    /// one request timeout and a few seconds of the first silence.
+    /// three seconds is a wide margin for a busy machine. The check goes out at the second timeout
+    /// in a row, so a stuck helper is dropped this long after that: with requests overlapping, one
+    /// request timeout and these few seconds after the first silence; with requests sent one after
+    /// another, each waiting out its own timeout, about two request timeouts and these seconds.
     private let livenessTimeout: TimeInterval
     private let writer = DispatchQueue(label: "aiterm.socket-writer")
     private let requestTimeout: TimeInterval
-    private var used = false
-    private var eventContinuation: AsyncStream<DaemonEvent>.Continuation?
     public let events: AsyncStream<DaemonEvent>
     private static let maximumFrameBytes = 1 << 20
     private static let log = Logger(subsystem: "com.laurensdhondt.aiterm", category: "daemon")
@@ -58,14 +76,16 @@ public final class DaemonClient: @unchecked Sendable {
         self.livenessTimeout = livenessTimeout
         let stream = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
         self.events = stream.stream
-        self.eventContinuation = stream.continuation
+        self.state = Mutex(State(events: stream.continuation))
     }
 
     public func connect() throws {
-        lock.lock()
-        guard !used else { lock.unlock(); throw DaemonError(code: "connection_used", message: "Create a new client to reconnect") }
-        used = true
-        lock.unlock()
+        let firstUse = state.withLock { state in
+            let first = !state.used
+            state.used = true
+            return first
+        }
+        guard firstUse else { throw DaemonError(code: "connection_used", message: "Create a new client to reconnect") }
         let address = try UnixSocketAddress(path: socketPath)
         let s = socket(AF_UNIX, SOCK_STREAM, 0)
         guard s >= 0 else { throw DaemonError(code: "socket", message: String(cString: strerror(errno))) }
@@ -88,40 +108,40 @@ public final class DaemonClient: @unchecked Sendable {
         }
         guard rc == 0 else { let e = errno; Darwin.close(s); throw DaemonError(code: "connect", message: String(cString: strerror(e))) }
         _ = fcntl(s, F_SETFL, flags)
-        lock.lock()
-        guard eventContinuation != nil else {
-            lock.unlock(); Darwin.close(s)
+        let generation: Int? = state.withLock { state in
+            guard state.events != nil else { return nil }
+            state.generation += 1; state.fd = s
+            return state.generation
+        }
+        guard let generation else {
+            Darwin.close(s)
             throw DaemonError(code: "disconnected", message: "Connection was canceled")
         }
-        generation += 1; let gen = generation; fd = s
-        lock.unlock()
-        Thread(block: { self.readLoop(fd: s, generation: gen) }).start()
+        Thread(block: { self.readLoop(fd: s, generation: generation) }).start()
     }
 
-    /// Tears the connection down and **ends** `events`: the continuation is taken out from under
-    /// `lock` and finished exactly once, so a consumer's `for await` over `events` returns instead
+    /// Tears the connection down and **ends** `events`: the continuation is taken out of `state`
+    /// and finished exactly once, so a consumer's `for await` over `events` returns instead
     /// of hanging forever on a client that is never coming back. Taking it (rather than only
     /// finishing it) also makes later `yield`s from a stale `readLoop` no-ops, which is the same
     /// guarantee the `generation` bump gives the socket side. A client is single-use once
     /// disconnected: reconnecting it would not revive the stream, so callers make a new client.
     public func disconnect() {
-        lock.lock()
-        let f = fd; fd = -1; generation += 1
-        let waiting = pending; pending = [:]
-        let continuation = eventContinuation; eventContinuation = nil
-        // The reader takes this lock before closing: shutdown must happen before
-        // it can release the descriptor number for another socket to reuse.
-        if f >= 0 { shutdown(f, SHUT_RDWR) }
-        lock.unlock()
+        let (waiting, continuation) = state.withLock { state in
+            let f = state.fd; state.fd = -1; state.generation += 1
+            let waiting = state.pending; state.pending = [:]; state.checkingLiveness = false
+            let continuation = state.events; state.events = nil
+            // The reader takes this lock before closing: shutdown must happen before
+            // it can release the descriptor number for another socket to reuse.
+            if f >= 0 { shutdown(f, SHUT_RDWR) }
+            return (waiting, continuation)
+        }
         // Shut the socket down but do NOT close it here: `readLoop` may be blocked in `read(f)`,
         // and closing the descriptor out from under it would free the number for immediate reuse
         // by another `connect()` in this process — the blocked reader would then consume bytes
         // belonging to a brand-new connection. `shutdown` makes the pending `read` return 0, and
         // the reader closes its own descriptor on the way out.
-        waiting.values.forEach {
-            $0.deadline.cancel()
-            $0.fail(DaemonError(code: "disconnected", message: "helper connection closed"))
-        }
+        waiting.values.forEach { $0.fail(DaemonError(code: "disconnected", message: "helper connection closed")) }
         continuation?.finish()
     }
 
@@ -129,7 +149,7 @@ public final class DaemonClient: @unchecked Sendable {
     /// at `connect()` time for this specific connection: once `fd` is closed, its integer can be
     /// reused immediately by a later `connect()`, so a blocked `read()` on the stale value could
     /// otherwise observe bytes from — and then tear down — a brand-new connection. Comparing
-    /// against the live `self.generation` after the loop exits ensures this reader only tears
+    /// against the live `state.generation` after the loop exits ensures this reader only tears
     /// things down when it is still the current connection; if a newer `connect()`/`disconnect()`
     /// has already superseded it, that call owns the cleanup.
     private func readLoop(fd: Int32, generation: Int) {
@@ -162,12 +182,13 @@ public final class DaemonClient: @unchecked Sendable {
         }
         // This thread is the sole owner of `fd` (the parameter): `connect()` handed it over and
         // `disconnect()` only shuts it down, so the close below is the one and only close. Clear
-        // `self.fd` first, under the lock, so a `disconnect()` arriving after the close cannot
+        // `state.fd` first, under the lock, so a `disconnect()` arriving after the close cannot
         // `shutdown()` a descriptor number the process has already handed to someone else.
-        lock.lock()
-        let stillCurrent = generation == self.generation
-        if stillCurrent { self.fd = -1 }
-        lock.unlock()
+        let stillCurrent = state.withLock { state in
+            guard generation == state.generation else { return false }
+            state.fd = -1
+            return true
+        }
         Darwin.close(fd)
         // The stream ending *is* the signal: yielding a synthetic `.itermDisconnected` here blamed
         // iTerm2 for the daemon itself having died (the banner read "Reconnecting to iTerm2…" for a
@@ -177,21 +198,17 @@ public final class DaemonClient: @unchecked Sendable {
         disconnect()
     }
 
-    /// The event continuation read under `lock`, so a reader thread cannot observe it while
-    /// `disconnect()` is taking it away; `nil` once the stream has been finished.
-    private func liveContinuation() -> AsyncStream<DaemonEvent>.Continuation? {
-        lock.lock(); defer { lock.unlock() }
-        return eventContinuation
-    }
-
     private func dispatch(_ header: Header, line: Data, decoder: JSONDecoder) {
         if let id = header.id {
-            lock.lock()
-            let request = pending.removeValue(forKey: id)
-            consecutiveTimeouts = 0 // even a late reply is a helper that answers
-            lock.unlock()
+            let request = state.withLock { state in
+                state.consecutiveTimeouts = 0 // even a late reply is a helper that answers
+                let request = state.pending.removeValue(forKey: id)
+                // Read by this thread before the check's caller resumes, so the next run of
+                // timeouts can always send its own check.
+                if request?.isLivenessCheck == true { state.checkingLiveness = false }
+                return request
+            }
             guard let request else { return }
-            request.deadline.cancel()
             if let error = header.error { request.fail(DaemonError(code: error.code, message: error.message)); return }
             request.answer(line, decoder, yield)
             return
@@ -200,8 +217,10 @@ public final class DaemonClient: @unchecked Sendable {
         yield(Self.decodeEvent(name, from: line, using: decoder))
     }
 
+    /// Read under the lock, so a reader thread cannot see the continuation while `disconnect()` is
+    /// taking it away.
     private func yield(_ event: DaemonEvent) {
-        if case .dropped = liveContinuation()?.yield(event) {
+        if case .dropped = state.withLock({ $0.events })?.yield(event) {
             // An incomplete event history is not trustworthy. Reconnect to a fresh snapshot.
             disconnect()
         }
@@ -257,42 +276,35 @@ public final class DaemonClient: @unchecked Sendable {
     }
 
     private func allocateID() -> Int {
-        lock.lock(); defer { lock.unlock() }
-        nextId += 1
-        return nextId
-    }
-
-    private final class Cancellation: Sendable {
-        private let value = Mutex(false)
-        func cancel() { value.withLock { $0 = true } }
-        var isCancelled: Bool { value.withLock { $0 } }
+        state.withLock { state in
+            state.nextId += 1
+            return state.nextId
+        }
     }
 
     private func failRequest(_ id: Int, error: Error) {
-        lock.lock(); let entry = pending.removeValue(forKey: id); lock.unlock()
-        entry?.deadline.cancel()
-        entry?.fail(error)
+        state.withLock { $0.pending.removeValue(forKey: id) }?.fail(error)
     }
 
     private func timedOut(_ id: Int, method: String, isLivenessCheck: Bool) {
-        lock.lock()
-        let entry = pending.removeValue(forKey: id)
-        var check = false
-        if entry != nil, !isLivenessCheck {
-            consecutiveTimeouts += 1
-            check = consecutiveTimeouts >= Self.timeoutsBeforeLivenessCheck && !checkingLiveness
-            if check { checkingLiveness = true }
+        let (entry, check) = state.withLock { state in
+            let entry = state.pending.removeValue(forKey: id)
+            guard entry != nil, !isLivenessCheck else { return (entry, false) }
+            state.consecutiveTimeouts += 1
+            let check = state.consecutiveTimeouts >= Self.timeoutsBeforeLivenessCheck && !state.checkingLiveness
+            if check { state.checkingLiveness = true }
+            return (entry, check)
         }
-        lock.unlock()
         entry?.fail(DaemonError(code: "timeout", message: "\(method) timed out; its outcome may need reconciliation"))
         if check { Task { await self.checkLiveness() } }
     }
 
     /// Asks a helper that has gone quiet whether its loop still runs, and drops the connection if
     /// it does not answer: its owner then reconnects to it, or reports it unreachable. Any answer,
-    /// an error included, is a helper that is there; the reply itself resets `consecutiveTimeouts`.
+    /// an error included, is a helper that is there; the reply itself resets `consecutiveTimeouts`
+    /// and clears `checkingLiveness`, as the disconnect does otherwise. A check that never got as
+    /// far as `pending` is on a client already disconnected.
     private func checkLiveness() async {
-        defer { lock.withLock { checkingLiveness = false } }
         do { _ = try await request(Self.livenessCheck, params: Optional<NoParams>.none, as: Empty.self, ordered: nil, isLivenessCheck: true) }
         catch let error as DaemonError where error.code == "timeout" { disconnect() }
         catch {}
@@ -334,36 +346,35 @@ public final class DaemonClient: @unchecked Sendable {
                                                                 ordered: (@Sendable (R) -> DaemonEvent)?,
                                                                 isLivenessCheck: Bool) async throws -> R {
         try Task.checkCancellation()
-        let id = allocateID(), cancellation = Cancellation()
+        let id = allocateID()
+        // Once `withTaskCancellationHandler` returns, its handler has run or never will.
+        defer { state.withLock { _ = $0.cancelled.remove(id) } }
         var encoded = try JSONEncoder().encode(Envelope(id: id, method: method, params: params))
         encoded.append(10)
         let data = encoded
         guard data.count <= Self.maximumFrameBytes else { throw DaemonError(code: "protocol", message: "Request exceeds frame limit") }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<R, Error>) in
-                let deadline = DispatchWorkItem { [weak self] in self?.timedOut(id, method: method, isLivenessCheck: isLivenessCheck) }
-                let request = Pending(deadline: deadline, answer: { line, decoder, yield in
+                let request = Pending(answer: { line, decoder, yield in
                     do {
                         let value = try Self.result(R.self, from: line, using: decoder)
                         if let ordered { yield(ordered(value)) }
                         cont.resume(returning: value)
                     } catch { cont.resume(throwing: error) }
-                }, fail: { cont.resume(throwing: $0) })
-                lock.lock()
-                if cancellation.isCancelled {
-                    lock.unlock(); cont.resume(throwing: CancellationError()); return
+                }, fail: { cont.resume(throwing: $0) }, isLivenessCheck: isLivenessCheck)
+                let refusal: Error? = state.withLock { state in
+                    if state.cancelled.contains(id) { return CancellationError() }
+                    guard state.fd >= 0 else { return DaemonError(code: "disconnected", message: "not connected") }
+                    state.pending[id] = request
+                    return nil
                 }
-                guard fd >= 0 else {
-                    lock.unlock(); cont.resume(throwing: DaemonError(code: "disconnected", message: "not connected")); return
+                if let refusal { cont.resume(throwing: refusal); return }
+                DispatchQueue.global().asyncAfter(deadline: .now() + (isLivenessCheck ? livenessTimeout : requestTimeout)) { [weak self] in
+                    self?.timedOut(id, method: method, isLivenessCheck: isLivenessCheck)
                 }
-                pending[id] = request
-                lock.unlock()
-                DispatchQueue.global().asyncAfter(deadline: .now() + (isLivenessCheck ? livenessTimeout : requestTimeout), execute: deadline)
                 writer.async { [self] in
-                    lock.lock()
                     // dup keeps this descriptor alive even if the reader exits during a write.
-                    let socket = pending[id] != nil && fd >= 0 ? dup(fd) : -1
-                    lock.unlock()
+                    let socket = state.withLock { $0.pending[id] != nil && $0.fd >= 0 ? dup($0.fd) : -1 }
                     guard socket >= 0 else {
                         failRequest(id, error: DaemonError(code: "disconnected", message: "not connected")); return
                     }
@@ -375,7 +386,8 @@ public final class DaemonClient: @unchecked Sendable {
                 }
             }
         } onCancel: {
-            cancellation.cancel()
+            // Not yet in `pending` is not yet registered: the registration sees `cancelled` instead.
+            self.state.withLock { _ = $0.cancelled.insert(id) }
             self.failRequest(id, error: CancellationError())
         }
     }

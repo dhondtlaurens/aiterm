@@ -1,12 +1,13 @@
 import Foundation
+import Synchronization
 #if canImport(Darwin)
 import Darwin
 #endif
 
-/// Unchecked because every mutable property is read and written only on `queue` (`start`/`stop`
-/// hop onto it, and the termination handler and timed work items run on it), which is what makes
-/// sharing it safe.
-public final class DaemonSupervisor: @unchecked Sendable {
+/// Its work runs on `queue` (`start`/`stop` hop onto it, and the termination handler and timed
+/// actions run on it), which keeps launches, exits and probes in order; what that work changes is
+/// in `state`, so the compiler, not that convention, keeps every access under its lock.
+public final class DaemonSupervisor: Sendable {
     /// `.running` is a spawned child; `.listening` is that child once its socket accepts
     /// connections, which is when the app connects. `.adopted` means a daemon we did not start is
     /// serving the socket, so there is no child process of ours to supervise — the app connects to
@@ -33,15 +34,19 @@ public final class DaemonSupervisor: @unchecked Sendable {
     private let bindDeadline: TimeInterval
     private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
     private let onStateChange: @Sendable (State) -> Void
-    private var process: Process?
-    /// Children given up on for never listening that may not have exited yet; `stop()` ends them.
-    private var abandoned: [Process] = []
-    private var attempt = 0
-    private var stopping = false
-    private var startedAt = Date.distantPast
-    /// Whichever timed action is outstanding — a probe for a new child's socket, a backoff restart
-    /// or an adopted-daemon liveness probe. Only ever one, and `stop()` cancels it.
-    private var pendingWork: DispatchWorkItem?
+    private struct Supervision {
+        var process: Process?
+        /// Children given up on for never listening that have not exited yet; `stop()` ends them.
+        var abandoned: [Process] = []
+        var attempt = 0
+        var stopping = false
+        var startedAt = Date.distantPast
+        /// Names the one timed action still to run — a probe for a new child's socket, a backoff
+        /// restart or an adopted-daemon liveness probe. Scheduling another, an exit and `stop()`
+        /// each bump it, which cancels the one outstanding.
+        var scheduled = 0
+    }
+    private let state = Mutex(Supervision())
     private let queue = DispatchQueue(label: "aiterm.supervisor")
 
     public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, adoptedProbeInterval: TimeInterval = 5, bindDeadline: TimeInterval = DaemonSupervisor.bindDeadline, backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) }, onStateChange: @escaping @Sendable (State) -> Void) {
@@ -49,7 +54,11 @@ public final class DaemonSupervisor: @unchecked Sendable {
     }
 
     public func start() {
-        queue.async { self.stopping = false; self.truncateLog(); self.launch() }
+        queue.async {
+            self.state.withLock { $0.stopping = false }
+            self.truncateLog()
+            self.launch()
+        }
     }
 
     /// One launch's worth of log, not a forever-growing file: the log exists so the banner's
@@ -84,15 +93,16 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// Must not be called from `queue` itself (`queue.sync` would deadlock); nothing in this type
     /// does, `stop()` is only ever called from outside.
     public func stop() {
-        var victims: [Process] = []
-        queue.sync {
-            self.stopping = true
-            self.pendingWork?.cancel()
-            self.pendingWork = nil
-            victims = (self.process.map { [$0] } ?? []) + self.abandoned
-            self.process = nil
-            self.abandoned = []
-            self.onStateChange(.stopped)
+        let victims = queue.sync {
+            let victims = state.withLock { state in
+                state.stopping = true
+                state.scheduled += 1
+                let victims = (state.process.map { [$0] } ?? []) + state.abandoned
+                state.process = nil; state.abandoned = []
+                return victims
+            }
+            onStateChange(.stopped)
+            return victims
         }
         let running = victims.filter(\.isRunning)
         guard !running.isEmpty else { return }
@@ -139,7 +149,7 @@ public final class DaemonSupervisor: @unchecked Sendable {
         p.terminationHandler = { [weak self] proc in self?.queue.async { [weak self] in self?.exited(proc) } }
         onStateChange(.starting)
         do { try p.run() } catch { recordFailure(message: error.localizedDescription); return }
-        process = p; startedAt = Date()
+        state.withLock { $0.process = p; $0.startedAt = Date() }
         onStateChange(.running(pid: p.processIdentifier))
         awaitListening(p)
     }
@@ -154,58 +164,56 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// `exited(_:)`'s, which cancels the probe.
     private func awaitListening(_ child: Process, since spawn: Date = Date()) {
         let elapsed = Date().timeIntervalSince(spawn)
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, !self.stopping, child === self.process else { return }
-            self.pendingWork = nil
-            if SocketProbe.isLive(path: self.socketPath) { self.onStateChange(.listening(pid: child.processIdentifier)) }
-            else if Date().timeIntervalSince(spawn) >= self.bindDeadline { self.abandon(child) }
-            else { self.awaitListening(child, since: spawn) }
+        schedule(after: elapsed < 5 ? 0.02 : 0.5) { supervisor in
+            guard supervisor.state.withLock({ child === $0.process }) else { return }
+            if SocketProbe.isLive(path: supervisor.socketPath) { supervisor.onStateChange(.listening(pid: child.processIdentifier)) }
+            else if Date().timeIntervalSince(spawn) >= supervisor.bindDeadline { supervisor.abandon(child) }
+            else { supervisor.awaitListening(child, since: spawn) }
         }
-        pendingWork = workItem
-        queue.asyncAfter(deadline: .now() + (elapsed < 5 ? 0.02 : 0.5), execute: workItem)
     }
 
     /// Ends a child that never opened its socket and fails the launch, so it is restarted through
     /// the same backoff, and named in the same banner, as a child that exits. It is no longer
     /// `process` before it is ended, so its own exit is not counted a second time; it is kept in
-    /// `abandoned` until it is gone, so a `stop()` meanwhile still waits for it.
+    /// `abandoned` until `exited(_:)` hears it is gone, so a `stop()` meanwhile still waits for it.
     private func abandon(_ child: Process) {
-        process = nil
-        abandoned.removeAll { !$0.isRunning }
-        abandoned.append(child)
+        state.withLock { $0.process = nil; $0.abandoned.append(child) }
         child.terminate()
         // One stuck where SIGTERM is not acted on gets SIGKILL after the grace `stop()` gives.
         let pid = child.processIdentifier
-        queue.asyncAfter(deadline: .now() + Self.stopGracePeriod) { [weak self] in
+        queue.asyncAfter(deadline: .now() + Self.stopGracePeriod) {
             if child.isRunning { kill(pid, SIGKILL) }
-            self?.abandoned.removeAll { !$0.isRunning }
         }
         recordFailure(message: "did not open its socket within \(Int(bindDeadline.rounded())) s")
     }
 
     /// Not `private`, so a test can hand it a foreign `Process` to prove the guard below. The app
-    /// calls it only from `launch()`'s `terminationHandler`, always on `queue`. That test calls it
-    /// from its own thread, while the supervised child runs on and nothing on `queue` writes the
-    /// state the guard reads.
+    /// calls it only from `launch()`'s `terminationHandler`, always on `queue`; that test calls it
+    /// from its own thread, which `state`'s lock makes safe.
     func exited(_ proc: Process) {
-        // `proc` is whichever child's `terminationHandler` fired; a `launch()` since it started
-        // (a restart, an adoption handoff) can have moved `process` on before its callback runs.
-        // Without this guard, that stale callback would restart or adopt on top of the process
-        // that already replaced it.
-        guard !stopping, proc === process else { return }
-        // A child that exits before it listens leaves its socket probe behind.
-        pendingWork?.cancel(); pendingWork = nil
+        let supervised = state.withLock { state in
+            // Reaped: an abandoned child leaves nothing for `stop()` to wait for.
+            state.abandoned.removeAll { $0 === proc }
+            // `proc` is whichever child's `terminationHandler` fired; a `launch()` since it started
+            // (a restart, an adoption handoff) can have moved `process` on before its callback
+            // runs. Without this guard, that stale callback would restart or adopt on top of the
+            // process that already replaced it.
+            guard !state.stopping, proc === state.process else { return false }
+            // A child that exits before it listens leaves its socket probe behind.
+            state.scheduled += 1
+            return true
+        }
+        guard supervised else { return }
         // A daemon that refused to start because one is already running is not a crash: the app
         // wants *that* daemon. Restarting instead is what produced the "Daemon keeps exiting"
         // loop, since every retry hit the same live socket.
         if proc.terminationStatus == Self.alreadyRunningExitStatus { adopt(); return }
-        if Date().timeIntervalSince(startedAt) > 60 { attempt = 0 }
+        state.withLock { if Date().timeIntervalSince($0.startedAt) > 60 { $0.attempt = 0 } }
         recordFailure(message: "exited with status \(proc.terminationStatus)")
     }
 
     private func adopt() {
-        attempt = 0
-        process = nil
+        state.withLock { $0.attempt = 0; $0.process = nil }
         onStateChange(.adopted)
         scheduleAdoptedProbe()
     }
@@ -214,14 +222,9 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// way to notice an adopted one going away is to ask the socket. When it stops answering we
     /// take over and start our own.
     private func scheduleAdoptedProbe() {
-        guard !stopping else { return }
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, !self.stopping else { return }
-            self.pendingWork = nil
-            if SocketProbe.isLive(path: self.socketPath) { self.scheduleAdoptedProbe() } else { self.launch() }
+        schedule(after: adoptedProbeInterval) { supervisor in
+            if SocketProbe.isLive(path: supervisor.socketPath) { supervisor.scheduleAdoptedProbe() } else { supervisor.launch() }
         }
-        pendingWork = workItem
-        queue.asyncAfter(deadline: .now() + adoptedProbeInterval, execute: workItem)
     }
 
     /// Shared bookkeeping for the "process never started" (`launch()`'s `catch`), "process started
@@ -229,19 +232,22 @@ public final class DaemonSupervisor: @unchecked Sendable {
     /// escalate the same attempt counter and backoff delay instead of the launch-failure path
     /// retrying forever at `Backoff.delay(0)`.
     private func recordFailure(message: String) {
-        attempt += 1
+        let attempt = state.withLock { $0.attempt += 1; return $0.attempt }
         onStateChange(.failed(attempt: attempt, message: message))
-        scheduleRestart()
+        schedule(after: backoff(attempt - 1)) { $0.launch() }
     }
 
-    private func scheduleRestart() {
-        guard !stopping else { return }
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, !self.stopping else { return }
-            self.pendingWork = nil
-            self.launch()
+    /// Runs `action` on `queue` after `delay`, unless the supervisor is stopping by then or the
+    /// action has been cancelled (see `Supervision.scheduled`) — and replaces any still waiting.
+    private func schedule(after delay: TimeInterval, _ action: @escaping @Sendable (DaemonSupervisor) -> Void) {
+        guard let token = state.withLock({ state -> Int? in
+            guard !state.stopping else { return nil }
+            state.scheduled += 1
+            return state.scheduled
+        }) else { return }
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.state.withLock({ !$0.stopping && $0.scheduled == token }) else { return }
+            action(self)
         }
-        pendingWork = workItem
-        queue.asyncAfter(deadline: .now() + backoff(attempt - 1), execute: workItem)
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Lines a checkout adds and removes against the branch it started from.
 public struct DiffStat: Equatable, Sendable {
@@ -24,10 +25,9 @@ public struct DiffStat: Equatable, Sendable {
 /// left alone for `failureBackoff` seconds, so a dead mount costs its deadline once in a while
 /// rather than on every pass.
 ///
-/// Thread-safe, and meant to be called off the main actor: every miss runs git.
-///
-/// Unchecked because `entries` and `mergeBases` are `var`s: both are only touched with `lock` held.
-public final class DiffStatResolver: @unchecked Sendable {
+/// Thread-safe, and meant to be called off the main actor: every miss runs git, with the lock on
+/// what is kept released meanwhile.
+public final class DiffStatResolver: Sendable {
     private struct Entry { var value: DiffStat?; var at: Date }
     /// What an untracked file counted as, and the `lstat` of the file it was counted from.
     private struct Counted { var stamp: Stamp; var lines: Int? }
@@ -65,13 +65,16 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// Reads an untracked file to count its lines: ``contents(of:size:)``, which a test wraps to
     /// count what is read.
     private let contents: @Sendable (_ path: String, _ size: Int) -> Data?
-    private let lock = NSLock()
-    private var entries: [String: Entry] = [:]
-    private var mergeBases: [String: MergeBase] = [:]
-    /// Per checkout, the files the last pass counted, by path.
-    private var counted: [String: [String: Counted]] = [:]
-    /// When git last ran out of time on a checkout.
-    private var timeouts: [String: TimedOut] = [:]
+    /// What is kept, per worktree and base.
+    private struct Kept {
+        var entries: [String: Entry] = [:]
+        var mergeBases: [String: MergeBase] = [:]
+        /// Per checkout, the files the last pass counted, by path.
+        var counted: [String: [String: Counted]] = [:]
+        /// When git last ran out of time on a checkout.
+        var timeouts: [String: TimedOut] = [:]
+    }
+    private let kept = Mutex(Kept())
 
     /// Untracked files bigger than this are skipped rather than read: a line count is not worth a
     /// stray dump or build artifact that escaped `.gitignore`.
@@ -93,19 +96,21 @@ public final class DiffStatResolver: @unchecked Sendable {
     public func diff(for worktree: String, base: String) -> DiffStat? {
         guard !worktree.isEmpty, !base.isEmpty else { return nil }
         let key = Self.key(worktree, base)
-        lock.lock()
-        let known = entries[key]
-        if let known, now().timeIntervalSince(known.at) < ttl { lock.unlock(); return known.value }
-        if let timeout = timeouts[key], timeout.isPending(now: now(), backoff: failureBackoff) { lock.unlock(); return known?.value }
-        lock.unlock()
+        // A fresh answer stands, and so does the last known one while git is left alone.
+        let (known, stands): (Entry?, Bool) = kept.withLock { kept in
+            let known = kept.entries[key]
+            let fresh = known.map { now().timeIntervalSince($0.at) < ttl } ?? false
+            return (known, fresh || kept.timeouts[key]?.isPending(now: now(), backoff: failureBackoff) == true)
+        }
+        if stands { return known?.value }
         do {
             let value = try read(worktree, base: base, key: key)
-            lock.lock(); entries[key] = Entry(value: value, at: now()); timeouts[key] = nil; lock.unlock()
+            kept.withLock { $0.entries[key] = Entry(value: value, at: now()); $0.timeouts[key] = nil }
             return value
         } catch {
             // Git ran out of time, which is no answer: the diff last known stands, and is not
             // asked about again until the backoff is over.
-            lock.lock(); timeouts[key] = TimedOut(error, at: now()); lock.unlock()
+            kept.withLock { $0.timeouts[key] = TimedOut(error, at: now()) }
             return known?.value
         }
     }
@@ -114,12 +119,12 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// What is kept for a task no longer among `tasks` is dropped.
     public func diffs(for tasks: [TaskItem], skipping missing: Set<UUID> = []) -> [UUID: DiffStat] {
         let live = Set(tasks.map { Self.key($0.worktreePath, $0.baseBranch) })
-        lock.lock()
-        for key in entries.keys where !live.contains(key) { entries[key] = nil }
-        for key in mergeBases.keys where !live.contains(key) { mergeBases[key] = nil }
-        for key in counted.keys where !live.contains(key) { counted[key] = nil }
-        for key in timeouts.keys where !live.contains(key) { timeouts[key] = nil }
-        lock.unlock()
+        kept.withLock { kept in
+            kept.entries = kept.entries.filter { live.contains($0.key) }
+            kept.mergeBases = kept.mergeBases.filter { live.contains($0.key) }
+            kept.counted = kept.counted.filter { live.contains($0.key) }
+            kept.timeouts = kept.timeouts.filter { live.contains($0.key) }
+        }
         var out: [UUID: DiffStat] = [:]
         for task in tasks where !missing.contains(task.id) {
             if let diff = diff(for: task.worktreePath, base: task.baseBranch) { out[task.id] = diff }
@@ -155,12 +160,12 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// The cached merge-base while its refs are unchanged, else a fresh one. The refs are stamped
     /// before git is asked, so a ref that moves while it answers is caught on the next pass.
     private func mergeBase(_ worktree: String, base: String, key: String) throws -> String? {
-        lock.lock(); let cached = mergeBases[key]; lock.unlock()
+        let cached = kept.withLock { $0.mergeBases[key] }
         if let cached, cached.refs.areCurrent { return cached.commit }
         guard let files = try Self.refFiles(worktree, base: base, git: git) else { return nil }
         let refs = FileStamps(files)
         let commit = try Self.findMergeBase(worktree, base: base, git: git)
-        lock.lock(); mergeBases[key] = MergeBase(refs: refs, commit: commit); lock.unlock()
+        kept.withLock { $0.mergeBases[key] = MergeBase(refs: refs, commit: commit) }
         return commit
     }
 
@@ -212,10 +217,10 @@ public final class DiffStatResolver: @unchecked Sendable {
     /// remembered. Files no longer listed are forgotten.
     private func untrackedLines(_ worktree: String, key: String) throws -> Int {
         guard let listing = try Self.ask(["ls-files", "--others", "--exclude-standard", "-z"], in: worktree, git: git) else { return 0 }
-        lock.lock(); let before = counted[key] ?? [:]; lock.unlock()
+        let before = kept.withLock { $0.counted[key] ?? [:] }
         var after: [String: Counted] = [:]
         var total = 0, bytes = 0
-        defer { lock.lock(); counted[key] = after; lock.unlock() }
+        defer { kept.withLock { $0.counted[key] = after } }
         // Bounded, so a folder that escaped `.gitignore` is not split into every path it holds only
         // for all those past the cap to be dropped.
         for name in listing.split(separator: "\0", maxSplits: cap.files).prefix(cap.files) {
