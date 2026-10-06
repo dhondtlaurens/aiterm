@@ -68,7 +68,7 @@ final class AppController {
     let checkouts: CheckoutMonitor
     /// The sidebar's rows, derived from the three above once per change to what they draw: the
     /// list, the Dock badge, Focus View and List View all read them here.
-    let rows: SidebarRows
+    let rows: SidebarProjection
     /// The Interface tab's preferences. `tiling.setInterfaceSize` and `helper.setMatchItermBackground`
     /// change the two that act on a window; the badge switches are plain writes.
     let preferences: InterfacePreferences
@@ -190,7 +190,7 @@ final class AppController {
             onTitles: { await helper.sendTitles($0, placedIn: $1) },
             rowsChanged: { link.controller?.refreshRows() })
         self.checkouts = checkouts
-        rows = SidebarRows(workspace: workspace, live: live, checkouts: checkouts)
+        rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
         self.prompter = prompter
         self.setBadge = setBadge
         self.activateIterm = activateIterm
@@ -198,14 +198,16 @@ final class AppController {
                                    rememberedModels: { workspace.state.lastModelByAgent },
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
         // What a change to the workspace sets off, once per change, in this order: whatever named a
-        // row that has gone goes with it — its context fills, the banner about it, its removal's
-        // entry — and then the rows are derived again if they changed, and the Dock badge counts
-        // what is left. Weak, as the link is: the workspace outlives none of them, and each of them
-        // holds it.
+        // row that has gone goes with it — its context fills and the banner about it — then the rows
+        // are derived again if they changed, with the Dock badge counting what is left, and only
+        // then does a gone task's removal entry go. The entry is what keeps a task on its way out
+        // from being counted, so it outlasts the task's row in the sections: the other way round,
+        // the badge would count the row once more between the two. Weak, as the link is: the
+        // workspace outlives none of them, and each of them holds it.
         workspace.onChange { [weak live] in live?.pruneContexts() }
         workspace.onChange { [weak notices] in notices?.dropStale() }
-        workspace.onChange { link.controller?.pruneRemovals() }
         workspace.onChange { link.controller?.refreshRows() }
+        workspace.onChange { link.controller?.pruneRemovals() }
         link.controller = self
     }
 

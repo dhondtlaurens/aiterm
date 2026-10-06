@@ -2,12 +2,13 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The sidebar's rows are derived once, for the list, the Dock badge and Focus and List View, and
 /// only when a row could have changed: not for a session event that moved a fill, a model or a
 /// title, nor for a sidebar move or a remembered choice, which the workspace saves but no row draws.
 @MainActor
-struct SidebarRowsTests {
+struct SidebarProjectionTests {
     private let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .gitlab, remoteUrl: nil,
                                   addedAt: Date(), collapsed: false)
     private var task: TaskItem {
@@ -36,7 +37,7 @@ struct SidebarRowsTests {
     }
 
     /// What the list draws from: a write that changes none of it redraws no row.
-    private func readsTheList(_ rows: SidebarRows) -> () -> Void {
+    private func readsTheList(_ rows: SidebarProjection) -> () -> Void {
         { _ = rows.entries; _ = rows.tasks; _ = rows.terminals }
     }
 
@@ -106,8 +107,8 @@ struct SidebarRowsTests {
         #expect(controller.rows.entries == expected())
     }
 
-    /// The Dock badge counts the rows the list draws: it moves with a status, and a removal that
-    /// starts passes the task over, as Focus View does.
+    /// The Dock badge counts the rows the list draws: it moves with a status, and not with a fill
+    /// or a sidebar move.
     @Test func theBadgeCountsTheDerivedRows() throws {
         var written: [String?] = []
         let controller = AppController(preferences: .scratch(), setBadge: { written.append($0) })
@@ -124,6 +125,39 @@ struct SidebarRowsTests {
         #expect(written == ["1"])
         event.state = .idle
         controller.live.handle(.sessionChanged(event))
+        #expect(written == ["1", nil])
+    }
+
+    /// A removal that starts passes its task over, as Focus View does, and the task's going leaves
+    /// the badge clear: its row is gone from the sections before its removal's entry goes, so the
+    /// badge never counts it again in between.
+    @Test func aRemovedTaskLeavesTheBadgeOnce() async throws {
+        let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
+        let root = URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let git = GitRunner.hermetic(), repo = root.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try git.run(["init", "-q", "-b", "main"], in: repo.path)
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo.path)
+        let checkout = repo.appendingPathComponent(".worktrees/work").path
+        try git.run(["worktree", "add", "-q", "-b", "feat/work", checkout], in: repo.path)
+        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let task = TaskItem(id: Self.taskId, projectId: project.id, title: "Work", branch: "feat/work", worktreePath: checkout,
+                            baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
+                            appendTicket: false, createdAt: Date(), windowId: nil)
+
+        var written: [String?] = []
+        let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       prompter: ScriptedPrompter(answering: "Remove"), setBadge: { written.append($0) }, git: git)
+        try controller.loadWorkspace()
+        controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
+        controller.live.handle(.sessionOpened(tab(.done)))
+        #expect(written == ["1"])
+
+        let removal = try #require(controller.confirmRemove(task: task))
+        await removal.value
+        #expect(controller.state.tasks.isEmpty, "the task is removed")
         #expect(written == ["1", nil])
     }
 

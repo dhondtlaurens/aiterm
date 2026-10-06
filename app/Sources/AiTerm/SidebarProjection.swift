@@ -13,7 +13,7 @@ import AiTermCore
 /// badge, and the first two to redraw the list.
 @MainActor
 @Observable
-final class SidebarRows {
+final class SidebarProjection {
     /// The list's top level, in the order it is drawn: projects with their rows, and dividers.
     private(set) var entries: [SidebarEntry] = []
     /// The projects of `entries`.
@@ -64,6 +64,8 @@ final class SidebarRows {
         derivations += 1
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
                                            projectBranch: next.projectBranch, diffByTask: next.diffByTask)
+        // Rebuilt only when their own list changed, since most derivations are for a status; and
+        // written only when the lookup differs, which a reordered list leaves as it was.
         if next.tasks != previous?.tasks {
             let tasks = Dictionary(next.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if tasks != self.tasks { self.tasks = tasks }
