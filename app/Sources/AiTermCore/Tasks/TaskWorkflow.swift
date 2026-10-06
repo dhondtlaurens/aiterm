@@ -11,9 +11,9 @@ public struct TaskWorkflow: Sendable {
     public struct Removed: Sendable {
         /// The checkout is gone. A failed branch deletion remains independently retryable.
         public let branchRefusal: BranchRefusal?
-        /// A review's local branch left in place because it holds work origin lacks. Nothing to
-        /// retry — the review is removed — only something worth saying.
-        public var keptBranch: String? = nil
+        /// Why a review's local branch was left in place: it holds work origin lacks, or that could
+        /// not be ruled out. Nothing to retry — the review is removed — only something worth saying.
+        public var keptBranch: ReviewBranchRelease.Kept? = nil
     }
 
     /// Why a removed task's branch is still there.
@@ -76,28 +76,30 @@ public struct TaskWorkflow: Sendable {
     public func hasUnsavedWork(task: TaskItem, project: Project) async throws -> Bool {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
-            try Worktrees.hasUnsavedWork(repo: project.path, path: task.worktreePath, git: git)
+            try Repository(project.path, git: git).hasUnsavedWork(at: task.worktreePath)
         }
     }
 
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool) async throws -> Removed {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
+            let repository = Repository(project.path, git: git)
             // A review's branch is the merge request's: never deleted on request — a caller may ask and
             // simply not get it — but released by `releaseReviewBranch` below, which deletes only a
             // local copy with nothing origin lacks. The worktree is ours and is removed as a task's is.
             let deleteBranch = deleteBranch && task.kind != .review
             if FileManager.default.fileExists(atPath: task.worktreePath) {
-                try Worktrees.remove(repo: project.path, path: task.worktreePath, deleteBranch: nil, force: force, git: git)
+                try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force)
             } else {
                 // Locked worktrees cannot be pruned until their lock is released.
                 _ = try? git.run(["worktree", "unlock", task.worktreePath], in: project.path, timeout: GitRunner.checkoutTimeout)
                 try git.run(["worktree", "prune"], in: project.path)
             }
             if task.kind == .review {
-                let release = Worktrees.releaseReviewBranch(repo: project.path, branch: task.branch, target: task.baseBranch, git: git)
-                guard case .kept(let why) = release else { return Removed(branchRefusal: nil) }
-                return Removed(branchRefusal: nil, keptBranch: "Branch \(task.branch) kept: \(why).")
+                guard case .kept(let why) = repository.releaseReviewBranch(task.branch, target: task.baseBranch) else {
+                    return Removed(branchRefusal: nil)
+                }
+                return Removed(branchRefusal: nil, keptBranch: why)
             }
             guard deleteBranch else { return Removed(branchRefusal: nil) }
             do {
@@ -110,7 +112,7 @@ public struct TaskWorkflow: Sendable {
                     // project's checkout is usually sitting on some other task's branch; that refused
                     // branches already merged into their base. Ask about the base ourselves, and `-D` is
                     // then no less safe than `-d`: the commits demonstrably live on in the base.
-                    let merged = Worktrees.isMerged(branch: task.branch, into: task.baseBranch, repo: project.path, git: git)
+                    let merged = repository.isMerged(task.branch, into: task.baseBranch)
                     // Not merged there: let git have the last word, and say what it says.
                     try git.run(["branch", merged ? "-D" : "-d", task.branch], in: project.path)
                 }
@@ -127,7 +129,7 @@ public struct TaskWorkflow: Sendable {
     public func pullDefaultBranch(of project: Project) async throws -> DefaultBranchPull {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
-            try Worktrees.pullDefaultBranch(repo: project.path, git: git)
+            try Repository(project.path, git: git).pullDefaultBranch()
         }
     }
 
@@ -135,7 +137,7 @@ public struct TaskWorkflow: Sendable {
     public func rebaseDefaultBranch(of project: Project) async throws -> DefaultBranchRebase {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
-            try Worktrees.rebaseDefaultBranch(repo: project.path, git: git)
+            try Repository(project.path, git: git).rebaseDefaultBranch()
         }
     }
 

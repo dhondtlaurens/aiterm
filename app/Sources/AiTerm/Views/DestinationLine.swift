@@ -13,7 +13,7 @@ struct Destination: Equatable {
 
     /// A new worktree, `slug`, in the project's worktree directory: New Task and New Review.
     static func worktree(project: Project, slug: String, branch: String) -> Destination {
-        Destination(place: "\(project.name)/\(Worktrees.directoryName)/\(slug)", branch: branch)
+        Destination(place: "\(project.name)/\(Worktree.directoryName)/\(slug)", branch: branch)
     }
 
     /// The project folder itself: New Terminal.

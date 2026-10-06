@@ -1,6 +1,6 @@
 import Foundation
 
-/// Maps a project's directory to its default branch — ``Worktrees/defaultBranch(repo:git:)`` —
+/// Maps a project's directory to its default branch — ``Repository/defaultBranch()`` —
 /// cheaply enough to be asked for every project on every refresh pass, for the project menu's
 /// "Pull main".
 ///
@@ -12,7 +12,7 @@ import Foundation
 ///
 /// Thread-safe, and meant to be called off the main actor: every miss runs git.
 public final class DefaultBranchResolver: Sendable {
-    /// Every ref ``Worktrees/defaultBranch(repo:git:)`` reads, relative to the common git directory.
+    /// Every ref ``Repository/defaultBranch()`` reads, relative to the common git directory.
     /// A reftable repository keeps none of them in a file: every update rewrites its stack's
     /// `tables.list` instead, as ``BranchResolver`` watches for HEAD. `config` is not read, but every
     /// repository has one: a repository whose default is none of the usual names, and has no origin,
@@ -35,7 +35,7 @@ public final class DefaultBranchResolver: Sendable {
     /// Forgets every project directory not in `live`.
     public func retain(only live: Set<String>) { cache.retain(only: live) }
 
-    /// The default branch of the repository `repo` is in — ``Worktrees/fallbackDefaultBranch`` when
+    /// The default branch of the repository `repo` is in — ``Repository/fallbackDefaultBranch`` when
     /// it does not say — or `nil` when it is not a git checkout, or git could not be asked and nothing
     /// was known before. A failure is never kept; one after an answer leaves that answer standing
     /// until the next lookup.
@@ -44,7 +44,7 @@ public final class DefaultBranchResolver: Sendable {
         let git = self.git, probe = self.probe
         do {
             switch try cache.answer(for: repo, locate: { try probe.locations(of: $0).map(Self.watched) },
-                                    read: { repo, _ in try Worktrees.detectDefaultBranch(repo: repo, git: git) ?? Worktrees.fallbackDefaultBranch }) {
+                                    read: { repo, _ in try Repository(repo, git: git).detectDefaultBranch() ?? Repository.fallbackDefaultBranch }) {
             case .notARepository: return nil
             case .found(let branch): return branch
             }

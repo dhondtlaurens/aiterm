@@ -344,11 +344,11 @@ final class AppController {
         guard canChangeWorkspace else { return }
         let git = self.git
         let inspection = try? await BackgroundWork.run {
-            let top = try Worktrees.toplevel(of: picked, git: git)
+            let top = try Repository.toplevel(of: picked, git: git)
             let path = top ?? picked
             // A lookup that fails adds the project without a remote, which the checkout monitor's
             // next pass finds and adopts; it is not worth refusing the folder over.
-            return (top, path, top == nil ? nil : try? Worktrees.remoteUrl(repo: path, git: git))
+            return (top, path, top == nil ? nil : try? Repository(path, git: git).remoteUrl())
         }
         guard canChangeWorkspace, let (toplevel, path, remote) = inspection else { return }
         if let existing = state.projects.first(where: { $0.path == path }) {
@@ -371,15 +371,16 @@ final class AppController {
         let agent = state.lastAgentByProject[project.id] ?? .claude
         let remembered = state.lastModelByAgent[agent]
         let imports = try? await BackgroundWork.run {
-            (try Worktrees.existing(repo: project.path, git: git), try Worktrees.detectDefaultBranch(repo: project.path, git: git),
-             ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
+            let repository = Repository(project.path, git: git)
+            return (try repository.managedWorktrees(), try repository.detectDefaultBranch(),
+                    ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
         }
         // A default branch git could not be asked for throws above, and nothing is offered: the offer is
         // made only when the project is added, so it is not made at all rather than saving "main" into
         // every imported task for a timeout. A repository with no default branch to name is another matter.
         guard canChangeWorkspace, state.project(id: project.id) != nil,
               let (found, detected, preference) = imports, !found.isEmpty else { return }
-        let base = detected ?? Worktrees.fallbackDefaultBranch
+        let base = detected ?? Repository.fallbackDefaultBranch
         let answer = prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
                                               detail: "Adds existing worktrees as tasks without starting agents.",
                                               buttons: ["Import", "Skip"], escape: 1))
@@ -396,18 +397,18 @@ final class AppController {
         persist()
     }
 
-    /// Which kind an imported worktree is. This is the whole reason `Worktrees.existing` reports a
+    /// Which kind an imported worktree is. This is the whole reason `managedWorktrees()` reports a
     /// lock reason: removing a project leaves its worktrees on disk, so re-adding it re-imports
     /// them, and an import that guessed `.task` for a review would hand `confirmRemove(task:)` an
     /// "Also delete branch" checkbox over a merge request's branch — the one thing this app must
     /// never do.
     ///
-    /// The lock reason `Worktrees.checkout` writes is the authority. The `review-` directory
+    /// The lock reason a review's worktree is made with is the authority. The `review-` directory
     /// prefix is a weaker fallback for a worktree whose lock was dropped by hand or lost in a copy
     /// of the repository; it can mislabel a task on a branch like `feat/review-dashboard`, which
     /// costs that task its delete-branch checkbox and nothing else. The costs are not symmetric.
     private static func importedKind(_ worktree: Worktree) -> TaskKind? {
-        if worktree.lockReason == Worktrees.reviewLockReason { return .review }
+        if worktree.lockReason == Worktree.reviewLockReason { return .review }
         return URL(fileURLWithPath: worktree.path).lastPathComponent.hasPrefix("review-") ? .review : nil
     }
 
@@ -462,14 +463,14 @@ final class AppController {
     /// own state, not the workspace's, so a locked workspace does not stop it.
     @discardableResult
     func pullDefault(project: Project) -> Task<Void, Never>? {
-        changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.pullDefaultBranch(of: project).summary },
+        changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.pullDefaultBranch(of: project).toast },
                             failure: { .pullRefused($0, in: project.id) })
     }
 
     /// The banner's Rebase, after "Pull main" found the branches diverged. Held like a pull, so
     /// the menu's Pull main waits for it.
     private func rebaseDefault(project: Project) -> Task<Void, Never>? {
-        let rebase = changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.rebaseDefaultBranch(of: project).summary },
+        let rebase = changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.rebaseDefaultBranch(of: project).toast },
                                          failure: { OperationIssue(title: "Couldn’t rebase the default branch.", error: $0) })
         if rebase != nil { notices.clearIssue() }
         return rebase
@@ -804,7 +805,7 @@ final class AppController {
     }
 
     /// A branch already checked out in a task's worktree — or an earlier review's — is reviewed
-    /// there; any other gets a worktree of its own, on the branch (see `Worktrees.checkout`). Which
+    /// there; any other gets a worktree of its own, on the branch (see `Repository.addReviewWorktree`). Which
     /// is asked of git now, not of the saved rows: a task's worktree can have moved to another branch.
     func createReview(draft: ReviewDraft, project: Project) async throws {
         if let owner = try await checkoutOwner(of: draft.branch, in: project) {
@@ -860,7 +861,7 @@ final class AppController {
     private func checkoutOwner(of branch: String, in project: Project) async throws -> TaskItem? {
         guard !branch.isEmpty else { return nil }
         let git = self.git, repo = project.path
-        let worktrees = try await BackgroundWork.run { try Worktrees.listed(repo: repo, git: git) }
+        let worktrees = try await BackgroundWork.run { try Repository(repo, git: git).worktrees() }
         return state.task(checkingOut: branch, in: project.id, worktrees: worktrees)
     }
 
@@ -1171,7 +1172,7 @@ final class AppController {
             }
         }
         forget(task: task)
-        if persistenceError == nil { showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0 } ?? "")) }
+        if persistenceError == nil { showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? "")) }
     }
 
     /// The row goes, and with it — `pruneForgottenRows` — the banner about it and its removal's entry.

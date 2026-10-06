@@ -137,14 +137,28 @@ struct GitSpawnCountTests {
             let answer = try body()
             return (answer, recording.calls.count - mark)
         }
-        let defaultBranch = try counted { try Worktrees.detectDefaultBranch(repo: repo, git: recording) }
+        let defaultBranch = try counted { try Repository(repo, git: recording).detectDefaultBranch() }
         #expect(defaultBranch.answer == "main" && defaultBranch.spawns == 1)
-        let branches = counted { Worktrees.branches(repo: repo, git: recording) }
+        let branches = counted { Repository(repo, git: recording).branches() }
         #expect(branches.answer == ["main", "feat/x"] && branches.spawns == 2)
-        let merged = counted { Worktrees.isMerged(branch: "feat/x", into: "main", repo: repo, git: recording) }
+        let merged = counted { Repository(repo, git: recording).isMerged("feat/x", into: "main") }
         #expect(merged.answer && merged.spawns == 1)
-        let unknown = counted { Worktrees.isMerged(branch: "feat/x", into: "gone", repo: repo, git: recording) }
+        let unknown = counted { Repository(repo, git: recording).isMerged("feat/x", into: "gone") }
         #expect(!unknown.answer && unknown.spawns == 2, "the local and the origin ref, neither of which exists")
+    }
+
+    /// A removal lists the worktrees once — where it asked git for the list, the lock reason and
+    /// the list again — and the record it finds carries the lock reason a refusal puts back.
+    @Test func aRemovalListsTheWorktreesOnce() throws {
+        let repo = try GitFixture.makeRepo(prefix: "remove-", git: git)
+        let recording = RecordingGitRunner(forwardingTo: .hermetic())
+        let repository = Repository(repo, git: recording)
+        let path = try repository.addTaskWorktree(slug: "x", branch: "feat/x", base: "main")
+        func listings() -> Int { recording.calls.filter { $0.args.starts(with: ["worktree", "list"]) }.count }
+        let before = listings()
+        try repository.removeWorktree(at: path, deleteBranch: nil, force: false)
+        #expect(listings() - before == 1)
+        #expect(!FileManager.default.fileExists(atPath: path))
     }
 
     /// A project on a dead mount: every git there waits out its whole deadline, ten seconds. Before

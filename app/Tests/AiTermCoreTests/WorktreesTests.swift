@@ -36,73 +36,73 @@ import Darwin
     }
 
     @Test func testSlugAndBranchName() {
-        #expect(Worktrees.slug("Add graceful SIGTERM shutdown to the worker (drain in-flight tasks, fail-fast the rest)") == "add-graceful-sigterm-shutdown-to-the-worker-drai")
-        #expect(Worktrees.branchSlug(key: "WEB-5447", summary: "Add graceful SIGTERM") == "web-5447-add-graceful-sigterm")
-        #expect(Worktrees.branchSlug(key: nil, summary: "Sidebar avatars") == "sidebar-avatars")
+        #expect(BranchNaming.slug("Add graceful SIGTERM shutdown to the worker (drain in-flight tasks, fail-fast the rest)") == "add-graceful-sigterm-shutdown-to-the-worker-drai")
+        #expect(BranchNaming.branchSlug(key: "WEB-5447", summary: "Add graceful SIGTERM") == "web-5447-add-graceful-sigterm")
+        #expect(BranchNaming.branchSlug(key: nil, summary: "Sidebar avatars") == "sidebar-avatars")
     }
 
     @Test func testToplevelAndDefaultBranchWithoutRemote() throws {
-        #expect(try Worktrees.toplevel(of: repo + "/", git: git) == repo)
-        #expect(try Worktrees.toplevel(of: FileManager.default.temporaryDirectory.path, git: git) == nil)
-        #expect(Worktrees.defaultBranch(repo: repo, git: git) == "main")
-        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == nil)
-        #expect(Worktrees.validateBranch("feat/x-1", git: git))
-        #expect(!Worktrees.validateBranch("feat//bad..name", git: git))
+        #expect(try Repository.toplevel(of: repo + "/", git: git) == repo)
+        #expect(try Repository.toplevel(of: FileManager.default.temporaryDirectory.path, git: git) == nil)
+        #expect(Repository(repo, git: git).defaultBranch() == "main")
+        #expect(try Repository(repo, git: git).remoteUrl() == nil)
+        #expect(BranchNaming.isValid("feat/x-1", git: git))
+        #expect(!BranchNaming.isValid("feat//bad..name", git: git))
     }
 
     /// "No remote" is git's answer; a timeout is not, and reads as an error rather than as `nil`.
     @Test func aRemoteLookupThatFailsIsNotAnAnswer() throws {
         let flaky = FlakyGitRunner()
         flaky.failing = true
-        #expect(throws: GitError.self) { try Worktrees.remoteUrl(repo: repo, git: flaky) }
+        #expect(throws: GitError.self) { try Repository(repo, git: flaky).remoteUrl() }
         flaky.failing = false
-        #expect(try Worktrees.remoteUrl(repo: repo, git: flaky) == nil)
+        #expect(try Repository(repo, git: flaky).remoteUrl() == nil)
         _ = try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
-        #expect(try Worktrees.remoteUrl(repo: repo, git: flaky) == "git@example.com:app.git")
+        #expect(try Repository(repo, git: flaky).remoteUrl() == "git@example.com:app.git")
         flaky.failing = true
-        #expect(throws: GitError.self) { try Worktrees.remoteUrl(repo: repo, git: flaky) }
+        #expect(throws: GitError.self) { try Repository(repo, git: flaky).remoteUrl() }
     }
 
     /// The remote the checked-out branch tracks wins over `origin`, and a remote that is not
     /// called origin is found when there is no other.
     @Test func remoteUrlPrefersTheUpstreamThenOriginThenAnyRemote() throws {
         _ = try git.run(["remote", "add", "fork", "git@example.com:fork.git"], in: repo)
-        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:fork.git")
+        #expect(try Repository(repo, git: git).remoteUrl() == "git@example.com:fork.git")
         _ = try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
-        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:app.git")
+        #expect(try Repository(repo, git: git).remoteUrl() == "git@example.com:app.git")
         _ = try git.run(["config", "branch.main.remote", "fork"], in: repo)
         _ = try git.run(["config", "branch.main.merge", "refs/heads/main"], in: repo)
         _ = try git.run(["update-ref", "refs/remotes/fork/main", "HEAD"], in: repo)
-        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:fork.git")
+        #expect(try Repository(repo, git: git).remoteUrl() == "git@example.com:fork.git")
     }
 
     /// A detached HEAD has no upstream and a repository without a commit has no branch to ask: git
     /// answers 128 to `@{upstream}` for both, which is "no remote here" and not a failure.
     @Test func remoteUrlOfADetachedOrUnbornRepositoryIsNilNotAnError() throws {
         try git.run(["checkout", "-q", "--detach"], in: repo)
-        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == nil)
+        #expect(try Repository(repo, git: git).remoteUrl() == nil)
         _ = try git.run(["remote", "add", "origin", "git@example.com:app.git"], in: repo)
-        #expect(try Worktrees.remoteUrl(repo: repo, git: git) == "git@example.com:app.git", "detached, it falls through to origin")
+        #expect(try Repository(repo, git: git).remoteUrl() == "git@example.com:app.git", "detached, it falls through to origin")
 
         let unborn = repo + "-unborn"
         defer { try? FileManager.default.removeItem(atPath: unborn) }
         try git.run(["init", "-q", "-b", "main", unborn], in: "/")
-        #expect(try Worktrees.remoteUrl(repo: unborn, git: git) == nil)
+        #expect(try Repository(unborn, git: git).remoteUrl() == nil)
         _ = try git.run(["remote", "add", "origin", "git@example.com:unborn.git"], in: unborn)
-        #expect(try Worktrees.remoteUrl(repo: unborn, git: git) == "git@example.com:unborn.git")
+        #expect(try Repository(unborn, git: git).remoteUrl() == "git@example.com:unborn.git")
     }
 
     /// A default branch git cannot name is `nil`, and the name shown for it is "main"; a git that
     /// times out names nothing, and says so rather than naming "main".
     @Test func aDefaultBranchLookupThatFailsIsNotTheFallback() throws {
         _ = try git.run(["branch", "-m", "main", "trunk"], in: repo)
-        #expect(try Worktrees.detectDefaultBranch(repo: repo, git: git) == nil)
-        #expect(Worktrees.defaultBranch(repo: repo, git: git) == "main")
+        #expect(try Repository(repo, git: git).detectDefaultBranch() == nil)
+        #expect(Repository(repo, git: git).defaultBranch() == "main")
         _ = try git.run(["branch", "-m", "trunk", "master"], in: repo)
         let flaky = FlakyGitRunner()
-        #expect(try Worktrees.detectDefaultBranch(repo: repo, git: flaky) == "master")
+        #expect(try Repository(repo, git: flaky).detectDefaultBranch() == "master")
         flaky.failing = true
-        #expect(throws: GitError.self) { try Worktrees.detectDefaultBranch(repo: repo, git: flaky) }
+        #expect(throws: GitError.self) { try Repository(repo, git: flaky).detectDefaultBranch() }
     }
 
     /// The base-branch popup is fed by git, not by a guess: the default branch leads, local
@@ -119,7 +119,7 @@ import Darwin
         _ = try git.run(["push", "-q", "origin", "main", "release/2026-09", "feat/local-only", "feat/remote-only"], in: repo)
         _ = try git.run(["branch", "-D", "feat/remote-only"], in: repo)
 
-        let found = Worktrees.branches(repo: repo, git: git)
+        let found = Repository(repo, git: git).branches()
         #expect(found.first == "main", "the default branch leads, whatever its commit date")
         #expect(found.contains("release/2026-09"))
         #expect(found.contains("feat/local-only"))
@@ -130,17 +130,17 @@ import Darwin
     }
 
     @Test func testCreateLocksExcludesAndListsThenRemoves() throws {
-        let path = try Worktrees.create(repo: repo, slug: "web-1-thing", branch: "feat/web-1-thing", base: "main", git: git)
+        let path = try Repository(repo, git: git).addTaskWorktree(slug: "web-1-thing", branch: "feat/web-1-thing", base: "main")
         #expect(path == repo + "/.worktrees/web-1-thing")
         #expect(FileManager.default.fileExists(atPath: path + "/.git"))
         let exclude = try String(contentsOfFile: repo + "/.git/info/exclude", encoding: .utf8)
         #expect(exclude.contains(".worktrees/"))
-        let list = try Worktrees.existing(repo: repo, git: git)
+        let list = try Repository(repo, git: git).managedWorktrees()
         #expect(list.map(\.branch) == ["feat/web-1-thing"])
-        #expect(list.map(\.lockReason) == [Worktrees.taskLockReason])
+        #expect(list.map(\.lockReason) == [Worktree.taskLockReason])
         #expect(try git.run(["worktree", "list", "--porcelain"], in: repo).contains("locked"))
         #expect(try git.run(["status", "--porcelain"], in: repo).isEmpty, "worktree dir must not show as untracked")
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: "feat/web-1-thing", force: false, git: git)
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: "feat/web-1-thing", force: false)
         #expect(!FileManager.default.fileExists(atPath: path))
         #expect(throws: (any Error).self) { try git.run(["rev-parse", "--verify", "feat/web-1-thing"], in: repo) }
     }
@@ -148,42 +148,42 @@ import Darwin
     /// A branch git will not delete must not skip the prune that follows: a stale entry left by a
     /// checkout deleted outside git stays listed until something prunes it.
     @Test func aRefusedBranchDeletionStillPrunes() throws {
-        let path = try Worktrees.create(repo: repo, slug: "a", branch: "feat/a", base: "main", git: git)
+        let path = try Repository(repo, git: git).addTaskWorktree(slug: "a", branch: "feat/a", base: "main")
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "unmerged"], in: path)
         let stale = repo + "/.worktrees/stale"
         try git.run(["worktree", "add", "-q", "-b", "feat/stale", stale], in: repo)
         try FileManager.default.removeItem(atPath: stale)
 
-        #expect(throws: GitError.self) { try Worktrees.remove(repo: repo, path: path, deleteBranch: "feat/a", force: false, git: git) }
-        #expect(try Worktrees.listed(repo: repo, git: git).map(\.path) == [repo])
+        #expect(throws: GitError.self) { try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: "feat/a", force: false) }
+        #expect(try Repository(repo, git: git).worktrees().map(\.path) == [repo])
     }
 
     /// git drops its record of a worktree even when it cannot delete all of it. What it leaves is
     /// a folder no git knows, and removing that again used to fail "is not a working tree" for good.
     @Test func aRemovalGitGaveUpOnHalfwayIsFinishedByTheNext() throws {
-        let path = try Worktrees.create(repo: repo, slug: "a", branch: "feat/a", base: "main", git: git)
+        let path = try Repository(repo, git: git).addTaskWorktree(slug: "a", branch: "feat/a", base: "main")
         // Git's half: the checkout and its registration gone, a folder of build output left.
         try git.run(["worktree", "unlock", path], in: repo)
         try git.run(["worktree", "remove", path], in: repo)
         try FileManager.default.createDirectory(atPath: path + "/app/.nuxt", withIntermediateDirectories: true)
         try "export {}\n".write(toFile: path + "/app/.nuxt/nuxt.d.ts", atomically: true, encoding: .utf8)
 
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: "feat/a", force: false, git: git)
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: "feat/a", force: false)
 
         #expect(!FileManager.default.fileExists(atPath: path))
-        #expect(try Worktrees.listed(repo: repo, git: git).map(\.path) == [repo])
+        #expect(try Repository(repo, git: git).worktrees().map(\.path) == [repo])
         #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/feat/a"], in: repo).isEmpty)
     }
 
     /// The same failure, as it happens: a process still running in the checkout — a dev server's
     /// watcher — writes files back while git deletes it, and git gives up after dropping its record.
     @Test func aRemovalGitGivesUpOnHalfwayStillFinishes() throws {
-        let path = try Worktrees.create(repo: repo, slug: "a", branch: "feat/a", base: "main", git: git)
+        let path = try Repository(repo, git: git).addTaskWorktree(slug: "a", branch: "feat/a", base: "main")
 
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: RefillingGitRunner())
+        try Repository(repo, git: RefillingGitRunner()).removeWorktree(at: path, deleteBranch: nil, force: false)
 
         #expect(!FileManager.default.fileExists(atPath: path))
-        #expect(try Worktrees.listed(repo: repo, git: git).map(\.path) == [repo])
+        #expect(try Repository(repo, git: git).worktrees().map(\.path) == [repo])
     }
 
     /// Only a leftover of AiTerm's own is deleted: a folder outside `.worktrees/` that git does not
@@ -192,7 +192,7 @@ import Darwin
         let folder = repo + "/notes"
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
 
-        #expect(throws: (any Error).self) { try Worktrees.remove(repo: repo, path: folder, deleteBranch: nil, force: true, git: git) }
+        #expect(throws: (any Error).self) { try Repository(repo, git: git).removeWorktree(at: folder, deleteBranch: nil, force: true) }
         #expect(FileManager.default.fileExists(atPath: folder))
     }
 
@@ -200,23 +200,23 @@ import Darwin
     /// window can close before anything is deleted — and never of a folder git no longer knows,
     /// where `git status` would answer for the project's own checkout.
     @Test func unsavedWorkIsWhatRemoveWouldRefuse() throws {
-        let path = try Worktrees.create(repo: repo, slug: "a", branch: "feat/a", base: "main", git: git)
-        #expect(try !Worktrees.hasUnsavedWork(repo: repo, path: path, git: git))
+        let path = try Repository(repo, git: git).addTaskWorktree(slug: "a", branch: "feat/a", base: "main")
+        #expect(try !Repository(repo, git: git).hasUnsavedWork(at: path))
         try "draft".write(toFile: path + "/notes.txt", atomically: true, encoding: .utf8)
-        #expect(try Worktrees.hasUnsavedWork(repo: repo, path: path, git: git))
+        #expect(try Repository(repo, git: git).hasUnsavedWork(at: path))
 
         try "dirty".write(toFile: repo + "/project.txt", atomically: true, encoding: .utf8)
         try git.run(["worktree", "unlock", path], in: repo)
         try git.run(["worktree", "remove", "--force", path], in: repo)
         try FileManager.default.createDirectory(atPath: path + "/app", withIntermediateDirectories: true)
-        #expect(try !Worktrees.hasUnsavedWork(repo: repo, path: path, git: git))
+        #expect(try !Repository(repo, git: git).hasUnsavedWork(at: path))
     }
 
     /// Only the leading `refs/heads/` is git's; the rest is the branch's name.
     @Test func aBranchNameContainingRefsHeadsIsListedWhole() throws {
         let path = repo + "/.worktrees/odd"
         try git.run(["worktree", "add", "-q", "-b", "x/refs/heads/y", path], in: repo)
-        #expect(try Worktrees.listed(repo: repo, git: git).first { $0.path == path }?.branch == "x/refs/heads/y")
+        #expect(try Repository(repo, git: git).worktrees().first { $0.path == path }?.branch == "x/refs/heads/y")
     }
 
     /// Final review item C: a linked worktree added as a project is an ordinary repository path as
@@ -225,7 +225,7 @@ import Darwin
     /// exclude file with `git rev-parse --git-path info/exclude` puts the line in the common dir's
     /// `info/exclude` — the main repository's — which is where git reads it from for every worktree.
     @Test func testCreateInsideALinkedWorktreeExcludesInTheCommonDir() throws {
-        let linked = try Worktrees.create(repo: repo, slug: "outer", branch: "feat/outer", base: "main", git: git)
+        let linked = try Repository(repo, git: git).addTaskWorktree(slug: "outer", branch: "feat/outer", base: "main")
         #expect(!((try? FileManager.default.attributesOfItem(atPath: linked + "/.git")[.type] as? FileAttributeType) == .typeDirectory),
                 "a linked worktree's .git must be a file for this test to mean anything")
 
@@ -233,7 +233,7 @@ import Darwin
         // come from the nested create resolving the common dir's exclude file.
         try "".write(toFile: repo + "/.git/info/exclude", atomically: true, encoding: .utf8)
 
-        let nested = try Worktrees.create(repo: linked, slug: "inner", branch: "feat/inner", base: "main", git: git)
+        let nested = try Repository(linked, git: git).addTaskWorktree(slug: "inner", branch: "feat/inner", base: "main")
         #expect(nested == linked + "/.worktrees/inner")
         #expect(FileManager.default.fileExists(atPath: nested + "/.git"))
 
@@ -245,7 +245,7 @@ import Darwin
 
     @Test func testCreateFailsCleanlyOnExistingBranch() throws {
         _ = try git.run(["branch", "feat/dup"], in: repo)
-        let error = #expect(throws: (any Error).self) { try Worktrees.create(repo: repo, slug: "dup", branch: "feat/dup", base: "main", git: git) }
+        let error = #expect(throws: (any Error).self) { try Repository(repo, git: git).addTaskWorktree(slug: "dup", branch: "feat/dup", base: "main") }
         #expect((error as? GitError)?.stderr.contains("already exists") ?? false)
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/dup"))
     }
@@ -257,14 +257,14 @@ import Darwin
         try FileManager.default.createDirectory(atPath: repo + "/.git/hooks", withIntermediateDirectories: true)
         try "#!/bin/sh\nexit 1\n".write(toFile: hook, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook)
-        #expect(throws: GitError.self) { try Worktrees.create(repo: repo, slug: "hooked", branch: "feat/hooked", base: "main", git: git) }
-        let left = try Worktrees.listed(repo: repo, git: git).first { $0.branch == "feat/hooked" }
-        #expect(left?.lockReason == Worktrees.taskLockReason)
+        #expect(throws: GitError.self) { try Repository(repo, git: git).addTaskWorktree(slug: "hooked", branch: "feat/hooked", base: "main") }
+        let left = try Repository(repo, git: git).worktrees().first { $0.branch == "feat/hooked" }
+        #expect(left?.lockReason == Worktree.taskLockReason)
     }
 
     @Test func testRefusesSymlinkedWorktreesDir() throws {
         try FileManager.default.createSymbolicLink(atPath: repo + "/.worktrees", withDestinationPath: "/tmp")
-        #expect(throws: (any Error).self) { try Worktrees.create(repo: repo, slug: "x", branch: "feat/x", base: "main", git: git) }
+        #expect(throws: (any Error).self) { try Repository(repo, git: git).addTaskWorktree(slug: "x", branch: "feat/x", base: "main") }
     }
 
     /// Regression test for T3-3: `GitRunner.run` used to read stdout to EOF, then stderr to EOF,
@@ -326,7 +326,7 @@ import Darwin
 
     @Test func testCheckoutCreatesALocalBranchTrackingOrigin() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         #expect(path == repo + "/.worktrees/review-mr-branch")
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/mr-branch")
         #expect(try git.run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: path) == "origin/feat/mr-branch")
@@ -349,7 +349,7 @@ import Darwin
 
     @Test func aReviewOfABranchOnlyOriginHasWorksInASingleBranchClone() throws {
         let (clone, _) = try singleBranchCloneOfRepoWithAnotherBranch()
-        let path = try Worktrees.checkout(repo: clone, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(clone, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/mr-branch")
         // `--track` refuses a tracking ref the clone's fetch config does not cover, so the review's
         // push target is written directly.
@@ -359,7 +359,7 @@ import Darwin
 
     @Test func aTaskCanStartFromABranchOnlyOriginHasInASingleBranchClone() throws {
         let (clone, remote) = try singleBranchCloneOfRepoWithAnotherBranch()
-        let path = try Worktrees.create(repo: clone, slug: "task", branch: "feat/task", base: "feat/mr-branch", git: git)
+        let path = try Repository(clone, git: git).addTaskWorktree(slug: "task", branch: "feat/task", base: "feat/mr-branch")
         #expect(try git.run(["rev-parse", "HEAD"], in: path) == (try git.run(["rev-parse", "feat/mr-branch"], in: remote)))
     }
 
@@ -369,7 +369,7 @@ import Darwin
         let repo = try repoWithRemoteOnlyBranch()
         _ = try git.run(["checkout", "-q", "feat/mr-branch"], in: repo)
         #expect(throws: WorktreeError.branchCheckedOut("feat/mr-branch", at: repo)) {
-            try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+            try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         }
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/mr-branch", "the checkout is untouched")
@@ -409,7 +409,7 @@ import Darwin
         let repo = try repoWithRemoteOnlyBranch()
         _ = try git.run(["branch", "-q", "--track", "feat/mr-branch", "origin/feat/mr-branch"], in: repo)
         let fresh = try pushNewCommitToMRBranch(of: repo)
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/mr-branch")
         #expect(try sha("HEAD", in: path) == fresh)
     }
@@ -422,7 +422,7 @@ import Darwin
         try commit("my fix", in: repo)
         let mine = try sha("HEAD", in: repo)
         _ = try git.run(["checkout", "-q", "main"], in: repo)
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         #expect(try sha("HEAD", in: path) == mine)
     }
 
@@ -436,7 +436,7 @@ import Darwin
         _ = try git.run(["checkout", "-q", "main"], in: repo)
         _ = try pushNewCommitToMRBranch(of: repo)
         #expect(throws: WorktreeError.branchDiverged("feat/mr-branch")) {
-            try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+            try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         }
         #expect(try sha("feat/mr-branch", in: repo) == mine)
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
@@ -446,14 +446,14 @@ import Darwin
     @Test func testCheckoutRefusesABranchThatIsNowhere() throws {
         let repo = try repoWithRemoteOnlyBranch()
         #expect(throws: WorktreeError.branchNotOnOrigin("feat/from-a-fork")) {
-            try Worktrees.checkout(repo: repo, slug: "review-from-a-fork", branch: "feat/from-a-fork", git: git)
+            try Repository(repo, git: git).addReviewWorktree(slug: "review-from-a-fork", branch: "feat/from-a-fork")
         }
     }
 
     /// Without an origin the local branch is all there is.
     @Test func testCheckoutWithoutOriginChecksOutTheLocalBranch() throws {
         _ = try git.run(["branch", "feat/local"], in: repo)
-        let path = try Worktrees.checkout(repo: repo, slug: "review-local", branch: "feat/local", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-local", branch: "feat/local")
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/local")
     }
 
@@ -463,34 +463,34 @@ import Darwin
     /// is on origin, kept — and why — when some are not. The remote branch is never touched.
     @Test func testReleasingAReviewBranchDeletesItOnlyWhenEverythingIsPushed() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         try commit("fix one", in: path)
         try commit("fix two", in: path)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git)
-                == .kept("2 commits not on origin"))
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main")
+                == .kept(.unpushed(commits: 2)))
         #expect(try hasLocalBranch("feat/mr-branch", in: repo))
 
         _ = try git.run(["push", "-q", "origin", "feat/mr-branch"], in: repo)
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git) == .deleted)
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .deleted)
         #expect(try !hasLocalBranch("feat/mr-branch", in: repo))
         #expect(try git.run(["ls-remote", "--heads", "origin", "feat/mr-branch"], in: repo).isEmpty == false, "origin keeps it")
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git) == .untouched)
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .untouched)
     }
 
     /// GitLab deletes a merged branch on origin; merged into the target, the local copy holds
     /// nothing that is not there. Not merged, it is the only copy left.
     @Test func testReleasingAReviewBranchWhoseRemoteIsGone() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
         _ = try git.run(["push", "-q", "origin", "--delete", "feat/mr-branch"], in: repo)
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git)
-                == .kept("not on origin and not merged into main"))
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main")
+                == .kept(.unmerged(target: "main")))
 
         _ = try git.run(["push", "-q", "origin", "feat/mr-branch:main"], in: repo)
         _ = try git.run(["fetch", "-q", "origin"], in: repo)
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git) == .deleted)
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .deleted)
     }
 
     /// Origin is asked, not its cached tracking ref. Deleted on origin by someone else — this clone
@@ -498,14 +498,14 @@ import Darwin
     /// local branch is the only copy of work never merged, and is kept.
     @Test func testAReviewBranchDeletedOnOriginBehindAStaleTrackingRefIsKept() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
         _ = try git.run(["branch", "-D", "feat/mr-branch"], in: origin(of: repo))
         #expect(try git.run(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/feat/mr-branch"], in: repo).isEmpty == false,
                 "the tracking ref is stale, which is the point")
 
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git)
-                == .kept("not on origin and not merged into main"))
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main")
+                == .kept(.unmerged(target: "main")))
         #expect(try hasLocalBranch("feat/mr-branch", in: repo))
     }
 
@@ -513,15 +513,15 @@ import Darwin
     /// commit, but origin's branch no longer does.
     @Test func testAReviewBranchForcePushedOnOriginIsKept() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
         let other = try clone(of: repo)
         _ = try git.run(["checkout", "-q", "-B", "feat/mr-branch", "origin/main"], in: other)
         try commit("rewritten", in: other)
         _ = try git.run(["push", "-q", "--force", "origin", "feat/mr-branch"], in: other)
 
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git)
-                == .kept("1 commit not on origin"))
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main")
+                == .kept(.unpushed(commits: 1)))
         #expect(try hasLocalBranch("feat/mr-branch", in: repo))
     }
 
@@ -529,14 +529,14 @@ import Darwin
     /// stays, whatever the tracking ref claims.
     @Test func testAReviewBranchIsKeptWhenOriginCannotBeChecked() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
         _ = try git.run(["remote", "set-url", "origin", repo + "/../gone.git"], in: repo)
 
-        guard case .kept(let why) = Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git) else {
-            Issue.record("expected the branch to be kept"); return
+        guard case .kept(.originUnreachable(let why)) = Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") else {
+            Issue.record("expected the branch to be kept as origin could not be asked"); return
         }
-        #expect(why.hasPrefix("couldn’t check origin"))
+        #expect(!why.isEmpty, "with git's reason")
         #expect(try hasLocalBranch("feat/mr-branch", in: repo))
     }
 
@@ -544,13 +544,13 @@ import Darwin
     /// fetched: origin's target as it is now holds every commit, so the local copy goes.
     @Test func testAReviewBranchMergedOnOriginSinceTheLastFetchIsDeleted() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
         let other = try clone(of: repo)
         _ = try git.run(["push", "-q", "origin", "origin/feat/mr-branch:main"], in: other)
         _ = try git.run(["push", "-q", "origin", "--delete", "feat/mr-branch"], in: other)
 
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git) == .deleted)
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .deleted)
         #expect(try !hasLocalBranch("feat/mr-branch", in: repo))
     }
 
@@ -558,17 +558,14 @@ import Darwin
     /// origin says.
     @Test func testAReviewBranchCheckedOutElsewhereIsKept() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
-        guard case .kept(let why) = Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: git) else {
-            Issue.record("expected the branch to be kept"); return
-        }
-        #expect(why == "checked out at \(path)")
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .kept(.checkedOut(at: path)))
     }
 
     /// No origin, nothing to judge the branch against: it is left exactly as it was.
     @Test func testReleasingAReviewBranchWithoutOriginLeavesIt() throws {
         _ = try git.run(["branch", "feat/local"], in: repo)
-        #expect(Worktrees.releaseReviewBranch(repo: repo, branch: "feat/local", target: "main", git: git) == .untouched)
+        #expect(Repository(repo, git: git).releaseReviewBranch("feat/local", target: "main") == .untouched)
         #expect(try hasLocalBranch("feat/local", in: repo))
     }
 
@@ -576,8 +573,8 @@ import Darwin
     /// merge request, so no failure path may delete it.
     @Test func testCheckoutNeverDeletesTheBranchItCheckedOut() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        _ = try Worktrees.checkout(repo: repo, slug: "review-one", branch: "feat/mr-branch", git: git)
-        try Worktrees.remove(repo: repo, path: repo + "/.worktrees/review-one", deleteBranch: nil, force: true, git: git)
+        _ = try Repository(repo, git: git).addReviewWorktree(slug: "review-one", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: repo + "/.worktrees/review-one", deleteBranch: nil, force: true)
         let refs = try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/feat/mr-branch"], in: repo)
         #expect(refs.contains("refs/heads/feat/mr-branch"))
     }
@@ -587,45 +584,45 @@ import Darwin
     /// becomes a task whose branch the app will offer to delete.
     @Test func testExistingReportsTheLockReasonThatTellsAReviewFromATask() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        _ = try Worktrees.create(repo: repo, slug: "a-task", branch: "feat/a-task", base: "main", git: git)
-        _ = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        _ = try Repository(repo, git: git).addTaskWorktree(slug: "a-task", branch: "feat/a-task", base: "main")
+        _ = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
 
-        let found = try Worktrees.existing(repo: repo, git: git)
+        let found = try Repository(repo, git: git).managedWorktrees()
         #expect(found.count == 2)
         let reasons = Dictionary(uniqueKeysWithValues: found.map { ($0.branch, $0.lockReason) })
-        #expect(reasons["feat/a-task"] == Worktrees.taskLockReason)
-        #expect(reasons["feat/mr-branch"] == Worktrees.reviewLockReason)
+        #expect(reasons["feat/a-task"] == Worktree.taskLockReason)
+        #expect(reasons["feat/mr-branch"] == Worktree.reviewLockReason)
     }
 
     /// git prints a bare `locked` line for a lock taken without a reason, and an unlocked worktree
     /// prints none at all. Neither may be read as a review.
     @Test func testExistingDistinguishesNoLockFromALockWithoutAReason() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let bare = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let bare = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         _ = try git.run(["worktree", "unlock", bare], in: repo)
-        var found = try Worktrees.existing(repo: repo, git: git)
+        var found = try Repository(repo, git: git).managedWorktrees()
         #expect(found.map(\.lockReason) == [String?.none])
 
         _ = try git.run(["worktree", "lock", bare], in: repo)
-        found = try Worktrees.existing(repo: repo, git: git)
+        found = try Repository(repo, git: git).managedWorktrees()
         #expect(found.map(\.lockReason) == [""])
-        #expect(Worktrees.lockReason(repo: repo, path: bare, git: git) == "")
+        #expect(Repository(repo, git: git).lockReason(of: bare) == "")
     }
 
     /// A refused removal relocks what it just unlocked. It used to relock every worktree as
     /// `aiterm task`, which silently rewrote a review's marker and re-opened the hole above.
     @Test func testARefusedRemovalRestoresAReviewsOwnLockReason() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         // An untracked file makes `git worktree remove` (without --force) refuse.
         try "scratch".write(toFile: path + "/untracked.txt", atomically: true, encoding: .utf8)
 
         #expect(throws: (any Error).self) {
-            try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: git)
+            try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
         }
         #expect(FileManager.default.fileExists(atPath: path), "the refusal must leave the worktree in place")
-        #expect(Worktrees.lockReason(repo: repo, path: path, git: git) == Worktrees.reviewLockReason)
-        #expect(try Worktrees.existing(repo: repo, git: git).map(\.lockReason) == [Worktrees.reviewLockReason])
+        #expect(Repository(repo, git: git).lockReason(of: path) == Worktree.reviewLockReason)
+        #expect(try Repository(repo, git: git).managedWorktrees().map(\.lockReason) == [Worktree.reviewLockReason])
     }
 
     /// The lock is written by `worktree add` itself (`--lock --reason`): there is no second command
@@ -634,15 +631,15 @@ import Darwin
     @Test func aWorktreeIsLockedByTheCommandThatCreatesIt() throws {
         let repo = try repoWithRemoteOnlyBranch()
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
-        let review = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: recording)
-        let task = try Worktrees.create(repo: repo, slug: "task", branch: "feat/task", base: "main", git: recording)
+        let review = try Repository(repo, git: recording).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        let task = try Repository(repo, git: recording).addTaskWorktree(slug: "task", branch: "feat/task", base: "main")
 
         #expect(!recording.calls.contains { $0.args.starts(with: ["worktree", "lock"]) }, "no separate lock step")
         let adds = recording.calls.filter { $0.args.starts(with: ["worktree", "add"]) }.map(\.args)
         #expect(adds.count == 2)
         #expect(adds.allSatisfy { $0.contains("--lock") })
-        #expect(Worktrees.lockReason(repo: repo, path: review, git: git) == Worktrees.reviewLockReason)
-        #expect(Worktrees.lockReason(repo: repo, path: task, git: git) == Worktrees.taskLockReason)
+        #expect(Repository(repo, git: git).lockReason(of: review) == Worktree.reviewLockReason)
+        #expect(Repository(repo, git: git).lockReason(of: task) == Worktree.taskLockReason)
     }
 
     /// Every call that talks to origin gets the remote deadline and the stall guard; a checkout —
@@ -651,10 +648,10 @@ import Darwin
     @Test func eachGitCallGetsTheDeadlineForWhatItDoes() throws {
         let repo = try repoWithRemoteOnlyBranch()
         let recording = RecordingGitRunner(forwardingTo: .hermetic())
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: recording)
-        try Worktrees.remove(repo: repo, path: path, deleteBranch: nil, force: false, git: recording)
-        _ = Worktrees.releaseReviewBranch(repo: repo, branch: "feat/mr-branch", target: "main", git: recording)
-        _ = try Worktrees.create(repo: repo, slug: "task", branch: "feat/task", base: "main", git: recording)
+        let path = try Repository(repo, git: recording).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: recording).removeWorktree(at: path, deleteBranch: nil, force: false)
+        _ = Repository(repo, git: recording).releaseReviewBranch("feat/mr-branch", target: "main")
+        _ = try Repository(repo, git: recording).addTaskWorktree(slug: "task", branch: "feat/task", base: "main")
 
         let options = ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=10"]
         for call in recording.calls {

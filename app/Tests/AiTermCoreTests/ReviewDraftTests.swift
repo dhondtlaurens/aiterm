@@ -57,7 +57,7 @@ import Foundation
     }
 
     @Test func testReviewWorktreeDirectoryIsPrefixed() {
-        #expect(TaskCreator.reviewSlug(branch: "feat/gift-card") == "review-gift-card")
-        #expect(TaskCreator.reviewSlug(branch: "feat-gift-card") == "review-feat-gift-card")
+        #expect(BranchNaming.reviewSlug(branch: "feat/gift-card") == "review-gift-card")
+        #expect(BranchNaming.reviewSlug(branch: "feat-gift-card") == "review-feat-gift-card")
     }
 }

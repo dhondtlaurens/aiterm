@@ -17,7 +17,7 @@ public enum RepoRemote: Equatable, Sendable {
 /// `git remote add` (see ``WatchedFileCache``). From inside a linked worktree, `config` resolves to
 /// the *shared* one, which is the one holding the remotes.
 ///
-/// The answer is ``Worktrees/remoteUrl(repo:git:)``, so it matches what adding the project would
+/// The answer is ``Repository/remoteUrl()``, so it matches what adding the project would
 /// have stored. That prefers the checked-out branch's upstream, which `config` also holds — but a
 /// checkout alone does not rewrite `config`, so switching to a branch tracking a *different* remote
 /// is only picked up once something else touches it.
@@ -47,7 +47,7 @@ public final class RemoteResolver: Sendable {
         let git = self.git, probe = self.probe
         do {
             switch try cache.answer(for: repo, locate: { try probe.locations(of: $0).map { [$0.config] } },
-                                    read: { repo, _ in try Worktrees.remoteUrl(repo: repo, git: git) }) {
+                                    read: { repo, _ in try Repository(repo, git: git).remoteUrl() }) {
             case .notARepository: return .notARepository
             case .found(let remote): return .remote(remote)
             }

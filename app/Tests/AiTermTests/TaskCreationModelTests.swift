@@ -187,7 +187,7 @@ struct TaskCreationModelTests {
         let model = TaskCreationModel(project: project, draft: draft, home: ScratchHome.bare, catalogue: ScratchHome.catalogue,
                                       defaults: ScratchDefaults.make(), git: .hermetic(), searchIssues: { _ in [] }, createTask: { _ in })
         #expect(model.worktreeSlug == "login-2")
-        #expect(model.worktreeSlug == TaskCreator.unused(draft.worktreeSlug, in: repo))
+        #expect(model.worktreeSlug == BranchNaming.unused(draft.worktreeSlug, in: repo))
         model.draft.setBranch("fix/logout")
         #expect(model.worktreeSlug == "logout")
 

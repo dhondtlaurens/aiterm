@@ -120,7 +120,7 @@ import Darwin
     }
 
     /// Ruling P3, linked-worktree case: for a real `.worktrees/<slug>` linked worktree (created via
-    /// `Worktrees.create`, as production code does), `git rev-parse --git-path info/exclude` run
+    /// `addTaskWorktree`, as production code does), `git rev-parse --git-path info/exclude` run
     /// inside the linked worktree returns an *absolute* path into the main repo's common dir, not a
     /// path relative to the worktree. Verifies the absolute-path branch of `excludeAitermDirectory`
     /// lands `.aiterm/` in the main repo's exclude file, and that building twice is idempotent
@@ -133,7 +133,7 @@ import Darwin
         _ = try git.run(["init", "-q", "-b", "main"], in: repo)
         _ = try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
 
-        let linkedPath = try Worktrees.create(repo: repo, slug: "web-1-thing", branch: "feat/web-1-thing", base: "main", git: git)
+        let linkedPath = try Repository(repo, git: git).addTaskWorktree(slug: "web-1-thing", branch: "feat/web-1-thing", base: "main")
 
         let long = String(repeating: "x", count: 9000)
         _ = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: linkedPath, git: .hermetic())

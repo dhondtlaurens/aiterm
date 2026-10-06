@@ -54,12 +54,12 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
     }
 
     /// The worktree directory the sheet names: the one create will make.
-    var worktreeSlug: String { unusedSlug(TaskCreator.reviewSlug(branch: draft.branch)) }
+    var worktreeSlug: String { unusedSlug(BranchNaming.reviewSlug(branch: draft.branch)) }
 
     func loadCheckouts() async {
         let path = project.path
         let git = git
-        let found = try? await BackgroundWork.run { try Worktrees.listed(repo: path, git: git) }
+        let found = try? await BackgroundWork.run { try Repository(path, git: git).worktrees() }
         guard !Task.isCancelled else { return }
         checkouts = found ?? []
     }

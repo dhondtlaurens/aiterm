@@ -481,15 +481,15 @@ public struct AppState: Codable, Equatable, Sendable {
     /// of that branch opens, since git lets a branch be checked out in one worktree only. A task or
     /// an earlier review: whichever row that worktree belongs to.
     ///
-    /// Decided by `worktrees` (`Worktrees.listed`), never by `TaskItem.branch`: that is the branch a
+    /// Decided by `worktrees` (`Repository.worktrees()`), never by `TaskItem.branch`: that is the branch a
     /// row is bound to, and its worktree can drift onto another one. Routing by the saved name would
     /// open a review of one branch in a checkout of another. `nil` when no row's worktree has the
     /// branch — including when the project's own checkout or an untracked worktree has it, which
-    /// `Worktrees.checkout` then refuses by path.
+    /// `Repository.addReviewWorktree` then refuses by path.
     public func task(checkingOut branch: String, in projectId: UUID, worktrees: [Worktree]) -> TaskItem? {
         guard !branch.isEmpty, let holder = worktrees.first(where: { $0.branch == branch }) else { return nil }
-        let path = Worktrees.resolved(holder.path)
-        return tasks.first { $0.projectId == projectId && Worktrees.resolved($0.worktreePath) == path }
+        let path = Worktree.resolved(holder.path)
+        return tasks.first { $0.projectId == projectId && Worktree.resolved($0.worktreePath) == path }
     }
 
     @discardableResult

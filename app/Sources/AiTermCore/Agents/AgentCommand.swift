@@ -80,10 +80,10 @@ public enum AgentCommand {
     /// `<worktreePath>/.git/info/exclude` (which is a file, not a directory, in a worktree
     /// checkout). This must never fail command building, so every step here is best-effort:
     /// a plain (non-repo) temp directory, like the one `testLongPromptGoesToFile` uses, is fine.
-    /// The resolution and the append are `Worktrees`' helpers, shared with `Worktrees.create`.
+    /// The resolution and the append are ``ExcludeFile``'s, shared with a new worktree's.
     private static func excludeAitermDirectory(worktreePath: String, git: any GitRunning) {
-        guard let excludeURL = Worktrees.excludeFile(forWorktreeOrRepo: worktreePath, git: git) else { return }
-        try? Worktrees.appendExclude(".aiterm/", to: excludeURL)
+        guard let excludeURL = ExcludeFile.url(forWorktreeOrRepo: worktreePath, git: git) else { return }
+        try? ExcludeFile.append(".aiterm/", to: excludeURL)
     }
 
     public static func composePrompt(userText: String?, ticket: JiraTicket?, appendTicket: Bool) -> String? {

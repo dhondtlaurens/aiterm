@@ -70,12 +70,12 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
         self.searchItems = search; self.submit = submit
     }
 
-    /// `slug` as create will make it, through `TaskCreator.unused`. Remembered per slug, so a
+    /// `slug` as create will make it, through `BranchNaming.unused`. Remembered per slug, so a
     /// render stats the worktree directory only after the branch changed.
     func unusedSlug(_ slug: String) -> String {
         guard !slug.isEmpty else { return "" }
         if let memo = unusedSlugMemo, memo.slug == slug { return memo.unused }
-        let unused = TaskCreator.unused(slug, in: project.path)
+        let unused = BranchNaming.unused(slug, in: project.path)
         unusedSlugMemo = (slug, unused)
         return unused
     }
@@ -146,7 +146,7 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     func loadBranches() async {
         let path = project.path
         let git = git
-        let found = try? await BackgroundWork.run { Worktrees.branches(repo: path, git: git) }
+        let found = try? await BackgroundWork.run { Repository(path, git: git).branches() }
         guard !Task.isCancelled else { return }
         branches = found ?? []
     }

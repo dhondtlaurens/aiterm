@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// What `Worktrees` must not do to work that is not its own: a branch someone is rebasing, a
+/// What a repository's worktree and branch work must not do to work that is not its own: a branch someone is rebasing, a
 /// folder under `.worktrees/` that git no longer knows.
 final class WorktreeSafetyTests {
     let git = GitRunner.hermetic()
@@ -49,7 +49,7 @@ final class WorktreeSafetyTests {
         #expect(throws: GitError.self) { try self.git.run(["rebase", "--exec", "false", "HEAD~1"], in: self.root + "/rebasing") }
         let before = try sha("feat/x", in: repo)
 
-        #expect(throws: (any Error).self) { try Worktrees.checkout(repo: self.repo, slug: "review", branch: "feat/x", git: self.git) }
+        #expect(throws: (any Error).self) { try Repository(self.repo, git: self.git).addReviewWorktree(slug: "review", branch: "feat/x") }
         #expect(try sha("feat/x", in: repo) == before)
         #expect(throws: Never.self) { try self.git.run(["rebase", "--continue"], in: self.root + "/rebasing") }
     }

@@ -222,11 +222,11 @@ import Darwin
 
     /// The rule create and the sheet's preview share.
     @Test func anUnusedSlugSkipsEveryDirectoryAlreadyThere() throws {
-        #expect(TaskCreator.unused("login", in: repo) == "login")
+        #expect(BranchNaming.unused("login", in: repo) == "login")
         for taken in ["login", "login-2"] {
             try FileManager.default.createDirectory(atPath: repo + "/.worktrees/" + taken, withIntermediateDirectories: true)
         }
-        #expect(TaskCreator.unused("login", in: repo) == "login-3")
+        #expect(BranchNaming.unused("login", in: repo) == "login-3")
     }
 
     // -- reviews ---------------------------------------------------------------------

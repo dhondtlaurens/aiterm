@@ -192,7 +192,7 @@ struct TaskWorkflowTests {
         let kept = try await TaskWorkflow(git: .hermetic()).remove(task: unpushed.review, project: unpushed.project, deleteBranch: true, force: false)
         #expect(try unpushed.hasLocalBranch())
         #expect(kept.branchRefusal == nil)
-        #expect(kept.keptBranch == "Branch feat/mr-branch kept: 1 commit not on origin.")
+        #expect(kept.keptBranch == .unpushed(commits: 1))
     }
 
     private func fixture() throws -> (Project, TaskDraft) {
@@ -210,7 +210,7 @@ struct TaskWorkflowTests {
 
 /// A repo with a merge request's branch already checked out into a worktree — the shape
 /// `TaskWorkflow.remove` sees for a review — built the same way `TaskWorkflowTests.fixture()`
-/// builds a task's repo, plus the branch and the `Worktrees.checkout` worktree a review needs.
+/// builds a task's repo, plus the branch and the `addReviewWorktree` worktree a review needs.
 /// With an origin, the branch is pushed there and exists locally only as the review's checkout.
 private struct ReviewRemovalFixture {
     let git = GitRunner.hermetic()
@@ -231,7 +231,7 @@ private struct ReviewRemovalFixture {
             try git.run(["push", "-q", "origin", "main", "feat/mr-branch"], in: repo)
             try git.run(["branch", "-q", "-D", "feat/mr-branch"], in: repo)
         }
-        let path = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         project = Project(id: UUID(), name: "Repo", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         review = TaskItem(id: UUID(), projectId: project.id, title: "Add gift card", branch: "feat/mr-branch", worktreePath: path,
                           baseBranch: "main", jira: nil, kind: .review, mr: nil, agent: .claude, model: "sonnet", reasoning: nil,

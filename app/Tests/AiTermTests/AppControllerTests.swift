@@ -743,7 +743,7 @@ import Testing
     /// them — and before this test the import built every one of them as a `.task`. A review that
     /// came back as a task gets an "Also delete branch" checkbox over a merge request's branch,
     /// which is the one thing the app must never offer. The marker is the lock reason
-    /// `Worktrees.checkout` writes; `Worktrees.existing` now carries it through.
+    /// a review's worktree is made with; `managedWorktrees()` now carries it through.
     @Test func importingWorktreesKeepsAReviewAReview() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -787,7 +787,7 @@ import Testing
     }
 
     /// A repository holding one worktree of each kind, made by the same calls the app makes: a
-    /// task's through `Worktrees.create` and a review's through `Worktrees.checkout`.
+    /// task's through `addTaskWorktree` and a review's through `addReviewWorktree`.
     /// Resolved with POSIX `realpath(3)`, as `WorktreesTests` does: git reports the physical path
     /// for a repository under `/var/folders`, and an unresolved one is added as "the repository
     /// around the folder you picked", a path the project would then not match.
@@ -799,8 +799,8 @@ import Testing
         try git.run(["init", "-q", "-b", "main", repo], in: root)
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"], in: repo)
         try git.run(["branch", "feat/mr-branch"], in: repo)
-        _ = try Worktrees.create(repo: repo, slug: "a-task", branch: "feat/a-task", base: "main", git: git)
-        _ = try Worktrees.checkout(repo: repo, slug: "review-mr-branch", branch: "feat/mr-branch", git: git)
+        _ = try Repository(repo, git: git).addTaskWorktree(slug: "a-task", branch: "feat/a-task", base: "main")
+        _ = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         return repo
     }
 

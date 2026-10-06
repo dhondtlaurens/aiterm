@@ -26,7 +26,7 @@ import Darwin
 
     @Test func testFastForwardsTheBranchWhereItIsCheckedOut() throws {
         try push(2, from: other)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("main", commits: 2))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 2))
         #expect(try sha("main", in: repo) == sha("main", in: other))
         #expect(try sha("HEAD", in: repo) == sha("main", in: other), "the checkout's files moved with it")
         #expect(try git.run(["status", "--porcelain"], in: repo).isEmpty)
@@ -35,7 +35,7 @@ import Darwin
     @Test func testMovesTheBranchWhenNoCheckoutHasIt() throws {
         _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
         try push(1, from: other)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("main", commits: 1))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1))
         #expect(try sha("main", in: repo) == sha("main", in: other))
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/elsewhere", "the checkout is untouched")
     }
@@ -49,20 +49,20 @@ import Darwin
         #expect(throws: GitError.self) { try git.run(["rebase", "--exec", "false", "HEAD~1"], in: repo) }
         try push(1, from: other)
         let before = try sha("main", in: repo)
-        #expect(throws: GitError.self) { try Worktrees.pullDefaultBranch(repo: repo, git: git) }
+        #expect(throws: GitError.self) { try Repository(repo, git: git).pullDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
         #expect(throws: Never.self) { try git.run(["rebase", "--continue"], in: repo) }
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "main")
     }
 
     @Test func testSaysSoWhenAlreadyUpToDate() throws {
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .upToDate("main"))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .upToDate("main"))
     }
 
     @Test func testLeavesUnpushedCommitsAlone() throws {
         try commit("local", in: repo)
         let before = try sha("main", in: repo)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .ahead("main", commits: 1))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .ahead("main", commits: 1))
         #expect(try sha("main", in: repo) == before)
     }
 
@@ -70,7 +70,7 @@ import Darwin
         try commit("local", in: repo)
         try push(1, from: other)
         let before = try sha("main", in: repo)
-        #expect(throws: WorktreeError.defaultBranchDiverged("main", local: 1, remote: 1)) { try Worktrees.pullDefaultBranch(repo: repo, git: git) }
+        #expect(throws: WorktreeError.defaultBranchDiverged("main", local: 1, remote: 1)) { try Repository(repo, git: git).pullDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
     }
 
@@ -86,7 +86,7 @@ import Darwin
     @Test func testRebasesTheBranchWhereItIsCheckedOut() throws {
         try change("file.txt", to: "mine\n", in: repo)
         try push(2, from: other)
-        #expect(try Worktrees.rebaseDefaultBranch(repo: repo, git: git) == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["rev-parse", "main~1"], in: repo) == sha("main", in: other), "origin's commits are under the local one")
         #expect(try sha("HEAD", in: repo) == sha("main", in: repo))
         #expect(try String(contentsOfFile: repo + "/file.txt", encoding: .utf8) == "mine\n")
@@ -99,10 +99,10 @@ import Darwin
         try change("file.txt", to: "mine\n", in: repo)
         _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
         try push(1, from: other)
-        #expect(try Worktrees.rebaseDefaultBranch(repo: repo, git: git) == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["rev-parse", "main~1"], in: repo) == sha("main", in: other))
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/elsewhere", "the checkout is untouched")
-        #expect(try Worktrees.listed(repo: repo, git: git).count == 1, "the rebase's own checkout is gone")
+        #expect(try Repository(repo, git: git).worktrees().count == 1, "the rebase's own checkout is gone")
     }
 
     /// The rebase's own checkout is only scratch: making it runs no `post-checkout` hook (a husky
@@ -119,7 +119,7 @@ import Darwin
         try? FileManager.default.removeItem(atPath: marker)
         try push(1, from: other)
 
-        #expect(try Worktrees.rebaseDefaultBranch(repo: repo, git: git) == DefaultBranchRebase(branch: "main", ahead: 2))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 2))
         let log = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
         #expect(!log.contains("hook 0000000000000000000000000000000000000000"), "no hook for the new checkout")
         #expect(log.split(separator: "\n").first == "smudge 1", "the new checkout's files are not smudged")
@@ -136,9 +136,9 @@ import Darwin
         _ = try git.run(["worktree", "add", "-q", stale, "main"], in: repo)
         try push(1, from: other)
 
-        if rebase { #expect(try Worktrees.rebaseDefaultBranch(repo: repo, git: git) == DefaultBranchRebase(branch: "main", ahead: 1)) }
-        else { #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("main", commits: 1)) }
-        #expect(try Worktrees.listed(repo: repo, git: git).count == 1)
+        if rebase { #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1)) }
+        else { #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1)) }
+        #expect(try Repository(repo, git: git).worktrees().count == 1)
         #expect(!FileManager.default.fileExists(atPath: stale))
     }
 
@@ -152,9 +152,9 @@ import Darwin
         _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
         try push(1, from: other)
         let before = try sha("main", in: repo)
-        #expect(throws: GitError.self) { try Worktrees.rebaseDefaultBranch(repo: self.repo, git: self.git) }
+        #expect(throws: GitError.self) { try Repository(self.repo, git: self.git).rebaseDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
-        #expect(try Worktrees.listed(repo: repo, git: git).count == 1, "the rebase's own checkout is gone")
+        #expect(try Repository(repo, git: git).worktrees().count == 1, "the rebase's own checkout is gone")
     }
 
     /// Checked out in a linked worktree rather than the project's checkout, the branch is merged
@@ -164,7 +164,7 @@ import Darwin
         let linked = repo + "/../linked"
         _ = try git.run(["worktree", "add", "-q", linked, "main"], in: repo)
         try push(1, from: other)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("main", commits: 1))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1))
         #expect(try sha("HEAD", in: linked) == sha("main", in: other))
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/elsewhere")
     }
@@ -174,7 +174,7 @@ import Darwin
         _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
         _ = try git.run(["branch", "-q", "-D", "main"], in: repo)
         try push(1, from: other)
-        #expect(throws: WorktreeError.noLocalBranch("main")) { try Worktrees.pullDefaultBranch(repo: self.repo, git: self.git) }
+        #expect(throws: WorktreeError.noLocalBranch("main")) { try Repository(self.repo, git: self.git).pullDefaultBranch() }
     }
 
     /// `git rebase` replays commits, not merges: a branch merged locally arrives as its commits.
@@ -184,7 +184,7 @@ import Darwin
         _ = try git.run(["checkout", "-q", "main"], in: repo)
         _ = try git.run(["merge", "-q", "--no-ff", "-m", "Merge feat/notes", "feat/notes"], in: repo)
         try push(1, from: other)
-        #expect(try Worktrees.rebaseDefaultBranch(repo: repo, git: git) == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["log", "-1", "--format=%s", "main"], in: repo) == "change notes.txt")
     }
 
@@ -199,7 +199,7 @@ import Darwin
         _ = try git.run(["merge", "-q", "--no-ff", "-m", "Merge feat/notes", "feat/notes"], in: repo)
         let notes = try sha("feat/notes", in: repo)
         try push(1, from: other)
-        #expect(try Worktrees.rebaseDefaultBranch(repo: repo, git: git) == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["log", "-1", "--format=%s", "main"], in: repo) == "change notes.txt")
         #expect(try git.run(["rev-list", "--merges", "--count", "origin/main..main"], in: repo) == "0")
         #expect(try sha("feat/notes", in: repo) == notes)
@@ -210,7 +210,7 @@ import Darwin
         try change("file.txt", to: "theirs\n", in: other)
         _ = try git.run(["push", "-q", "origin", "main"], in: other)
         let before = try sha("main", in: repo)
-        #expect(throws: WorktreeError.rebaseConflicted("main")) { try Worktrees.rebaseDefaultBranch(repo: repo, git: git) }
+        #expect(throws: WorktreeError.rebaseConflicted("main")) { try Repository(repo, git: git).rebaseDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
         #expect(try sha("HEAD", in: repo) == before)
         #expect(try git.run(["status", "--porcelain"], in: repo).isEmpty, "no rebase left in progress")
@@ -223,9 +223,9 @@ import Darwin
         try change("file.txt", to: "theirs\n", in: other)
         _ = try git.run(["push", "-q", "origin", "main"], in: other)
         let before = try sha("main", in: repo)
-        #expect(throws: WorktreeError.rebaseConflicted("main")) { try Worktrees.rebaseDefaultBranch(repo: repo, git: git) }
+        #expect(throws: WorktreeError.rebaseConflicted("main")) { try Repository(repo, git: git).rebaseDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
-        #expect(try Worktrees.listed(repo: repo, git: git).count == 1)
+        #expect(try Repository(repo, git: git).worktrees().count == 1)
     }
 
     /// A rebase someone already has under way is theirs: git refuses the new one, and it is not
@@ -238,7 +238,7 @@ import Darwin
         _ = try git.run(["fetch", "-q", "origin"], in: repo)
         #expect(throws: GitError.self) { try git.run(["rebase", "origin/main"], in: repo) }
         _ = try git.run(["checkout", "-q", "-f", "main"], in: repo)
-        #expect(throws: GitError.self) { try Worktrees.rebaseDefaultBranch(repo: repo, git: git) }
+        #expect(throws: GitError.self) { try Repository(repo, git: git).rebaseDefaultBranch() }
         #expect(throws: Never.self) { try git.run(["rebase", "--abort"], in: repo) }
     }
 
@@ -251,7 +251,7 @@ import Darwin
         try "mine\n".write(toFile: repo + "/file.txt", atomically: true, encoding: .utf8)
         let before = try sha("main", in: repo)
         // The refusal names the file, so the banner can too.
-        #expect { try Worktrees.pullDefaultBranch(repo: self.repo, git: self.git) } throws: { error in
+        #expect { try Repository(self.repo, git: self.git).pullDefaultBranch() } throws: { error in
             GitError.sentence(of: error).hasSuffix("would be overwritten by merge: file.txt.")
         }
         #expect(try sha("main", in: repo) == before)
@@ -272,13 +272,13 @@ import Darwin
         try "mine\n".write(toFile: repo + "/file.txt", atomically: true, encoding: .utf8)
         let before = try sha("main", in: repo)
 
-        #expect(throws: GitError.self) { try Worktrees.pullDefaultBranch(repo: repo, git: git) }
+        #expect(throws: GitError.self) { try Repository(repo, git: git).pullDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
         #expect(try String(contentsOfFile: repo + "/file.txt", encoding: .utf8) == "mine\n")
 
         try change("local.txt", to: "local\n", in: repo)
         let diverged = try sha("main", in: repo)
-        #expect(throws: GitError.self) { try Worktrees.rebaseDefaultBranch(repo: repo, git: git) }
+        #expect(throws: GitError.self) { try Repository(repo, git: git).rebaseDefaultBranch() }
         #expect(try sha("main", in: repo) == diverged)
         #expect(try String(contentsOfFile: repo + "/file.txt", encoding: .utf8) == "mine\n")
         #expect(try git.run(["stash", "list"], in: repo).isEmpty)
@@ -289,41 +289,32 @@ import Darwin
     @Test func testFindsMasterWithoutOriginHead() throws {
         let (repo, other) = try Self.clones(defaultBranch: "master", git: git, into: &roots)
         _ = try? git.run(["remote", "set-head", "origin", "--delete"], in: repo)
-        #expect(Worktrees.defaultBranch(repo: repo, git: git) == "master")
+        #expect(Repository(repo, git: git).defaultBranch() == "master")
         try push(1, from: other)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("master", commits: 1))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("master", commits: 1))
     }
 
     /// A default branch with a slash in its name is named whole, not by its last part.
     @Test func testNamesADefaultBranchWithASlash() throws {
         let (repo, other) = try Self.clones(defaultBranch: "release/x", git: git, into: &roots)
         _ = try git.run(["remote", "set-head", "origin", "--auto"], in: repo)
-        #expect(Worktrees.defaultBranch(repo: repo, git: git) == "release/x")
+        #expect(Repository(repo, git: git).defaultBranch() == "release/x")
         try push(1, from: other)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("release/x", commits: 1))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("release/x", commits: 1))
     }
 
     /// After the default branch is renamed on origin, a clone's `origin/HEAD` still names the old
     /// one. That name is not trusted: whichever of the usual names exists is.
     @Test func testFallsBackWhenOriginHeadNamesABranchThatIsGone() throws {
         _ = try git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master"], in: repo)
-        #expect(Worktrees.defaultBranch(repo: repo, git: git) == "main")
+        #expect(Repository(repo, git: git).defaultBranch() == "main")
         try push(1, from: other)
-        #expect(try Worktrees.pullDefaultBranch(repo: repo, git: git) == .fastForwarded("main", commits: 1))
+        #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1))
     }
 
     @Test func testRefusesAProjectWithoutOrigin() throws {
         _ = try git.run(["remote", "remove", "origin"], in: repo)
-        #expect(throws: WorktreeError.noOrigin) { try Worktrees.pullDefaultBranch(repo: repo, git: git) }
-    }
-
-    @Test func testSummaries() {
-        #expect(DefaultBranchPull.upToDate("main").summary == "main is already up to date.")
-        #expect(DefaultBranchPull.fastForwarded("main", commits: 1).summary == "main updated with 1 new commit.")
-        #expect(DefaultBranchPull.fastForwarded("master", commits: 3).summary == "master updated with 3 new commits.")
-        #expect(DefaultBranchPull.ahead("main", commits: 2).summary == "main is 2 commits ahead of origin, so there was nothing to pull.")
-        #expect(DefaultBranchRebase(branch: "main", ahead: 1).summary == "main rebased onto origin: 1 commit ahead, not pushed.")
-        #expect(DefaultBranchRebase(branch: "main", ahead: 0).summary == "main rebased onto origin: it now matches origin.")
+        #expect(throws: WorktreeError.noOrigin) { try Repository(repo, git: git).pullDefaultBranch() }
     }
 
     // -- helpers ------------------------------------------------------------------------

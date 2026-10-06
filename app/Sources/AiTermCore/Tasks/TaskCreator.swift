@@ -11,11 +11,11 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
 
     public var branch: String { "\(branchType.rawValue)/\(branchName)" }
 
-    /// The branch's worktree directory before a taken one is skipped (`TaskCreator.unused`, which
+    /// The branch's worktree directory before a taken one is skipped (`BranchNaming.unused`, which
     /// the sheet applies): nothing while the name field is empty, rather than the type alone that
-    /// `TaskCreator.worktreeSlug` falls back to for a bare `feat/`.
+    /// `BranchNaming.worktreeSlug` falls back to for a bare `feat/`.
     public var worktreeSlug: String {
-        branchName.trimmingCharacters(in: .whitespaces).isEmpty ? "" : TaskCreator.worktreeSlug(branch: branch)
+        branchName.trimmingCharacters(in: .whitespaces).isEmpty ? "" : BranchNaming.worktreeSlug(branch: branch)
     }
 
     /// A draft with no ticket and no title yet. `initial(project:state:git:agent:catalog:)` is the one a sheet
@@ -30,7 +30,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public static func initial(project: Project, state: AppState, git: any GitRunning, agent: AgentKind,
                                catalog: [AgentModel], defaultBranch: String? = nil, defaults: UserDefaults = .standard) -> TaskDraft {
         let preference = Self.preference(for: agent, state: state, catalog: catalog, defaults: defaults)
-        return TaskDraft(ticket: nil, baseBranch: defaultBranch ?? Worktrees.defaultBranch(repo: project.path, git: git), agent: agent,
+        return TaskDraft(ticket: nil, baseBranch: defaultBranch ?? Repository(project.path, git: git).defaultBranch(), agent: agent,
                          model: preference.model, reasoning: preference.reasoning)
     }
 
@@ -39,7 +39,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
         self.ticket = ticket
         if !titleEdited { title = ticket?.summary ?? title }
         if !typeEdited, let ticket { branchType = BranchType(issueType: ticket.issueType) }
-        if !branchEdited { branchName = Worktrees.branchSlug(key: ticket?.key, summary: ticket?.summary ?? title) }
+        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.key, summary: ticket?.summary ?? title) }
     }
 
     /// Both guard against being handed what they already hold: SwiftUI writes a `TextField`'s value
@@ -49,7 +49,7 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public mutating func setTitle(_ t: String) {
         guard t != title else { return }
         title = t; titleEdited = true
-        if !branchEdited { branchName = Worktrees.branchSlug(key: ticket?.key, summary: t) }
+        if !branchEdited { branchName = BranchNaming.branchSlug(key: ticket?.key, summary: t) }
     }
 
     /// The branch field's text: a name, or a whole branch whose known type prefix moves into the
@@ -79,33 +79,6 @@ public enum TaskCreator {
         }
     }
 
-    /// The worktree directory for `branch`, less its type: `feat/login` works in `.worktrees/login`.
-    public static func worktreeSlug(branch: String) -> String {
-        let withoutPrefix = branch.split(separator: "/").dropFirst().joined(separator: "-")
-        var slug = Worktrees.slug(withoutPrefix.isEmpty ? branch : withoutPrefix)
-        // `Worktrees.slug` keeps ASCII letters and digits only, so a branch like `feat/日本語` or
-        // `feat/--` can slug to nothing at all — and an empty slug would make the worktree path the
-        // `.worktrees` directory itself, which git would then be asked to create a checkout in.
-        // Fall back to the whole branch name, then to a random but valid directory name.
-        if slug.isEmpty { slug = Worktrees.slug(branch) }
-        if slug.isEmpty { slug = "task-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8).lowercased() }
-        return slug
-    }
-
-    /// A review's worktree directory, prefixed so a review and a task on related branches cannot
-    /// collide on a path and so the directory says which it is.
-    public static func reviewSlug(branch: String) -> String { "review-" + worktreeSlug(branch: branch) }
-
-    /// `slug`, else the first of `slug-2`, `slug-3`… that is not already in `repo`'s worktree
-    /// directory: dropping the type makes `feat/login` and `fix/login` want the same one. Create
-    /// and the sheets' preview both ask this, so the directory named is the one made.
-    public static func unused(_ slug: String, in repo: String) -> String {
-        let directory = repo + "/" + Worktrees.directoryName + "/"
-        var candidate = slug, n = 1
-        while FileManager.default.fileExists(atPath: directory + candidate) { n += 1; candidate = "\(slug)-\(n)" }
-        return candidate
-    }
-
     /// Whether `title` names a task or review. Create refuses one that does not, and the sheets hold
     /// their first step on the same rule rather than letting it through to fail at the last.
     public static func isNamed(_ title: String) -> Bool {
@@ -115,9 +88,9 @@ public enum TaskCreator {
     public static func create(draft: TaskDraft, project: Project, git: any GitRunning) throws -> TaskItem {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
-        guard Worktrees.validateBranch(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
-        let slug = unused(worktreeSlug(branch: draft.branch), in: project.path)
-        let path = try Worktrees.create(repo: project.path, slug: slug, branch: draft.branch, base: draft.baseBranch, git: git)
+        guard BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
+        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path)
+        let path = try Repository(project.path, git: git).addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
         return TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
                         jira: draft.ticket.map { JiraRef(key: $0.key, summary: $0.summary, url: $0.url) }, agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
                         firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket, createdAt: Date(), windowId: nil)
@@ -127,9 +100,9 @@ public enum TaskCreator {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,
-              Worktrees.validateBranch(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
-        let slug = unused(reviewSlug(branch: draft.branch), in: project.path)
-        let path = try Worktrees.checkout(repo: project.path, slug: slug, branch: draft.branch, git: git)
+              BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
+        let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path)
+        let path = try Repository(project.path, git: git).addReviewWorktree(slug: slug, branch: draft.branch)
         return TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
                         baseBranch: draft.mr?.targetBranch ?? "", jira: nil, kind: .review,
                         mr: draft.mr.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },
