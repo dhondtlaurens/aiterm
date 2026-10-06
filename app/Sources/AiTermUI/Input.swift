@@ -1,12 +1,24 @@
+import AppKit
 import SwiftUI
 
 /// A plain text field dressed in the house field chrome; `secure` hides what is typed, for a token.
+///
+/// The field is AppKit's own `NSTextField` (`NSSecureTextField` for `secure`), as tall as AppKit
+/// measures it for its font. SwiftUI's `TextField` takes its height from a line height SwiftUI
+/// caches under the font object's address, and once a font is freed and another lands at that
+/// address, the new one reads the old one's height: a body field laid out after the monospaced
+/// branch field came out a point short in a few launches in a hundred.
 public struct Input: View {
     let placeholder: String
     @Binding var text: String
     var monospaced: Bool
     var secure: Bool
-    @FocusState private var focused: Bool
+    @Environment(\.interfaceScale) private var scale
+    // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode;
+    // this is the storage and accessor the macro would generate. Private, and so kept out of the
+    // initialiser: whether the field has the keyboard is the field's own business.
+    private var _focused = State(initialValue: false)
+    private var focused: Bool { get { _focused.wrappedValue } nonmutating set { _focused.wrappedValue = newValue } }
 
     public init(placeholder: String, text: Binding<String>, monospaced: Bool = false, secure: Bool = false) {
         self.placeholder = placeholder
@@ -16,25 +28,92 @@ public struct Input: View {
     }
 
     public var body: some View {
-        Group {
-            if secure {
-                SecureField(placeholder, text: Self.edits(to: $text))
-            } else {
-                TextField(placeholder, text: Self.edits(to: $text))
-            }
-        }
-        .textFieldStyle(.plain)
-        .font(monospaced ? Typography.monoCode : Typography.body)
-        .foregroundStyle(Palette.text)
-        .focused($focused)
-        .fieldChrome(focused: focused)
+        InputField(placeholder: placeholder, text: Self.edits(to: $text), focused: _focused.projectedValue,
+                   font: (monospaced ? Typography.monoCode : Typography.body).scaled(by: scale).nsFont,
+                   secure: secure)
+            .fieldChrome(focused: focused)
     }
 
-    /// `binding`, passing on only real edits. AppKit hands the field's value back when editing
-    /// begins and ends, not only when the text changes, and a setter with a side effect on the
-    /// other end — open the ticket list, mark the branch hand-edited — would then fire because the
-    /// user clicked some other field.
+    /// `binding`, passing on only real edits. A setter can have a side effect on the other end —
+    /// open the ticket list, mark the branch hand-edited — that a value handed back unchanged, as
+    /// a field does when editing begins or ends, must not fire.
     static func edits(to binding: Binding<String>) -> Binding<String> {
         Binding(get: { binding.wrappedValue }, set: { if $0 != binding.wrappedValue { binding.wrappedValue = $0 } })
+    }
+}
+
+/// The AppKit field under an `Input`, configured as SwiftUI's plain `TextField` configured its
+/// own: no bezel, no background and no AppKit focus ring (the chrome draws the house ring), one
+/// line that scrolls rather than wraps.
+private struct InputField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+    @Binding var focused: Bool
+    let font: NSFont
+    /// Read once, when the field is made: no `Input` changes between a token and plain text.
+    let secure: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let report: () -> Void = { [weak coordinator = context.coordinator] in coordinator?.focusBegan() }
+        let field: NSTextField
+        if secure {
+            let secureField = FocusableSecureTextField()
+            secureField.onFocus = report
+            field = secureField
+        } else {
+            let plainField = FocusableTextField()
+            plainField.onFocus = report
+            field = plainField
+        }
+        field.delegate = context.coordinator
+        field.isBezeled = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.lineBreakMode = .byClipping
+        field.cell?.isScrollable = true
+        field.cell?.wraps = false
+        field.textColor = NSColor(Palette.text)
+        field.font = font
+        field.placeholderString = placeholder
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text { field.stringValue = text }
+        if field.placeholderString != placeholder { field.placeholderString = placeholder }
+        if field.font != font { field.font = font }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: InputField
+        init(_ parent: InputField) { self.parent = parent }
+
+        /// Focus arrives with the keyboard, not with the first edit: `controlTextDidBeginEditing`
+        /// waits for a keystroke, which would leave a clicked field without its ring.
+        func focusBegan() { if !parent.focused { parent.focused = true } }
+        func controlTextDidEndEditing(_ notification: Notification) { if parent.focused { parent.focused = false } }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+    }
+}
+
+/// `FocusableTextField`'s report of taking the keyboard, for a field that hides what is typed.
+final class FocusableSecureTextField: NSSecureTextField {
+    /// Called when the field takes the keyboard.
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocus?() }
+        return became
     }
 }
