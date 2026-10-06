@@ -4,6 +4,7 @@ import Testing
 import AiTermCore
 import AiTermUI
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite struct HarnessSettingsLayoutTests {
@@ -169,8 +170,8 @@ import AiTermUI
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        try await Task.sleep(for: .milliseconds(100))
-        host.layoutSubtreeIfNeeded()
+        // Laid out once the settings have scrolled content: taller than what shows of it.
+        settle(host) { firstScrollView(in: host).map { ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height } ?? false }
 
         #expect(host.fittingSize.width <= Sheet.width)
         let scroll = try #require(firstScrollView(in: host))

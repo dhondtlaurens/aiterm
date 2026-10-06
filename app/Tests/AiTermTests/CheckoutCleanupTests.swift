@@ -25,10 +25,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         controller.checkouts.refresh()
-        let deadline = TestDeadline.fromNow()
-        while (!controller.checkouts.missingCheckouts.contains(fixture.task.id) || server.closedWindowIds.isEmpty), Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.checkouts.missingCheckouts.contains(fixture.task.id) && !server.closedWindowIds.isEmpty }
         #expect(controller.state.tasks == [fixture.task])
         #expect(controller.checkouts.diffByTask[fixture.task.id] == diff)
 
@@ -44,10 +41,7 @@ extension AppControllerTests {
         try FileManager.default.moveItem(at: offlineParent, to: parent)
 
         server.release()
-        let finishedDeadline = TestDeadline.fromNow()
-        while (closeFails ? controller.checkouts.diffByTask[fixture.task.id] != nil : !controller.state.tasks.isEmpty), Date() < finishedDeadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { closeFails ? controller.checkouts.diffByTask[fixture.task.id] == nil : controller.state.tasks.isEmpty }
         if closeFails {
             #expect(controller.state.tasks == [fixture.task])
             #expect(controller.checkouts.diffByTask[fixture.task.id] == nil)
@@ -225,19 +219,13 @@ extension AppControllerTests {
         let controller = fixture.controller
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         controller.checkouts.refresh()
-        let deadline = TestDeadline.fromNow()
-        while controller.checkouts.projectBranch[fixture.project.id] == nil, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil }
         #expect(controller.state.tasks == [fixture.task])
         #expect(try controller.store.load().tasks == [fixture.task])
         let server = RecordingDaemon()
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(server)
-        let reconnectedDeadline = TestDeadline.fromNow()
-        while !controller.state.tasks.isEmpty, Date() < reconnectedDeadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
         #expect(server.closedWindowIds == ["alive"])
     }
@@ -315,31 +303,26 @@ extension AppControllerTests {
     }
 
     @Test func checkoutMonitorDetectsDeletionWithoutSessionChangesAndStopsOnShutdown() async throws {
-        let fixture = try CheckoutFixture(windowOpen: true, pollInterval: .milliseconds(50))
+        let fixture = try CheckoutFixture(windowOpen: true, pollInterval: .milliseconds(10))
         let server = RecordingDaemon()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         controller.checkouts.startMonitoring()
         controller.checkouts.startMonitoring() // Must not create a second poll lifetime.
-        let initialDeadline = TestDeadline.fromNow()
-        while controller.checkouts.projectBranch[fixture.project.id] == nil, Date() < initialDeadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil }
         try #require(controller.checkouts.projectBranch[fixture.project.id] == "main")
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         // Deliver no events and call no refresh: the production timer must find it.
-        let deadline = TestDeadline.fromNow()
-        while !controller.state.tasks.isEmpty, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
         #expect(server.closedWindowIds == ["alive"])
+        // The removal's trailing branch refresh, and the poll's own pass, finish before a task is restored.
+        await controller.checkouts.refreshTask?.value
         controller.shutdown()
-        // Let the removal's trailing branch refresh finish before restoring a task.
-        try await Task.sleep(for: .milliseconds(100))
         controller.state.tasks = [fixture.task]
-        try await Task.sleep(for: .milliseconds(250)) // Five poll intervals: a poll that outlived shutdown would have run.
+        // Absence: ten poll intervals, in which a poll that outlived shutdown would have run.
+        try await Task.sleep(for: .milliseconds(100))
         #expect(controller.state.tasks == [fixture.task])
     }
 
@@ -354,10 +337,7 @@ extension AppControllerTests {
         // Exercise actual Git removal. No hook or synthetic removal event is delivered.
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         controller.checkouts.refresh()
-        let deadline = TestDeadline.fromNow()
-        while !controller.state.tasks.isEmpty, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.focus.selectedTaskId == nil)
         #expect(try controller.store.load().tasks.isEmpty)
@@ -389,10 +369,7 @@ extension AppControllerTests {
             taskId: fixture.task.id.uuidString, projectId: nil, agent: .codex, model: nil,
             state: .idle, title: "", cwd: fixture.task.worktreePath + "/deleted-subdirectory")]
         controller.checkouts.refresh()
-        let deadline = TestDeadline.fromNow()
-        while controller.checkouts.projectBranch[fixture.project.id] == nil && controller.checkouts.missingCheckouts.isEmpty, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil || !controller.checkouts.missingCheckouts.isEmpty }
         #expect(controller.state.tasks == [fixture.task])
         #expect(try controller.store.load().tasks == [fixture.task])
     }
@@ -502,8 +479,7 @@ extension AppControllerTests {
         #expect(controller.removals == [fixture.task.id: .closing])
 
         server.release()
-        let deadline = TestDeadline.fromNow()
-        while !controller.state.tasks.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.removals.isEmpty)
     }

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// The real `hooks/claude-statusline-shim.sh`, run in a temporary home with `curl` and `python3`
 /// replaced by recorders on `PATH`: nothing reaches a running daemon, and the test sees exactly
@@ -51,14 +52,9 @@ import Testing
     /// enough to survive the scheduling delays of a fully loaded machine (the full suite's other
     /// concurrent test hosts) without masking a real one.
     func forwarded(_ home: Home) async throws -> (arguments: [String], body: String)? {
-        let deadline = Date().addingTimeInterval(15)
-        while Date() < deadline {
-            if let arguments = try? String(contentsOf: home.curlArguments, encoding: .utf8) {
-                return (arguments.split(separator: "\n").map(String.init), try String(contentsOf: home.curlInput, encoding: .utf8))
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        return nil
+        guard await eventually(timeout: 15, { FileManager.default.fileExists(atPath: home.curlArguments.path) }),
+              let arguments = try? String(contentsOf: home.curlArguments, encoding: .utf8) else { return nil }
+        return (arguments.split(separator: "\n").map(String.init), try String(contentsOf: home.curlInput, encoding: .utf8))
     }
 
     @Test func forwardsToTheAppsHookPortAndRunsTheOriginalCommandWithoutPython() async throws {

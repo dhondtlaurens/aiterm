@@ -19,6 +19,7 @@ public final class DaemonSupervisor: @unchecked Sendable {
     private let python: URL, daemonDir: URL, socketPath: String, hookPort: Int, arguments: [String]?
     private let logURL: URL
     private let adoptedProbeInterval: TimeInterval
+    private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
     private let onStateChange: @Sendable (State) -> Void
     private var process: Process?
     private var attempt = 0
@@ -29,8 +30,8 @@ public final class DaemonSupervisor: @unchecked Sendable {
     private var pendingWork: DispatchWorkItem?
     private let queue = DispatchQueue(label: "aiterm.supervisor")
 
-    public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, adoptedProbeInterval: TimeInterval = 5, onStateChange: @escaping @Sendable (State) -> Void) {
-        self.python = python; self.daemonDir = daemonDir; self.socketPath = socketPath; self.hookPort = hookPort; self.arguments = arguments; self.logURL = logURL; self.adoptedProbeInterval = adoptedProbeInterval; self.onStateChange = onStateChange
+    public init(python: URL, daemonDir: URL, socketPath: String, hookPort: Int = AiTermPaths.hookPort, arguments: [String]? = nil, logURL: URL = AiTermPaths.daemonLogURL, adoptedProbeInterval: TimeInterval = 5, backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) }, onStateChange: @escaping @Sendable (State) -> Void) {
+        self.python = python; self.daemonDir = daemonDir; self.socketPath = socketPath; self.hookPort = hookPort; self.arguments = arguments; self.logURL = logURL; self.adoptedProbeInterval = adoptedProbeInterval; self.backoff = backoff; self.onStateChange = onStateChange
     }
 
     public func start() {
@@ -181,6 +182,6 @@ public final class DaemonSupervisor: @unchecked Sendable {
             self.launch()
         }
         pendingWork = workItem
-        queue.asyncAfter(deadline: .now() + Backoff.delay(attempt: attempt - 1), execute: workItem)
+        queue.asyncAfter(deadline: .now() + backoff(attempt - 1), execute: workItem)
     }
 }

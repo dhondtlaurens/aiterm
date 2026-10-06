@@ -182,9 +182,9 @@ import Foundation
         var pending: [String: CheckedContinuation<[MergeRequest], Error>] = [:]
         let m = model(search: { text in try await withCheckedThrowingContinuation { pending[text] = $0 } })
         let first = Task { await m.search(text: "old") }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { pending["old"] != nil }
         let second = Task { await m.search(text: "new") }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { pending["new"] != nil }
         let newest = MergeRequest(iid: 9, title: "Newest", sourceBranch: "feat-newest", targetBranch: "main",
                                   author: "L", state: "opened", draft: false,
                                   url: "https://git.example.net/web/acme-web/-/merge_requests/9")
@@ -194,7 +194,7 @@ import Foundation
         await first.value
         #expect(m.results == [newest])
         let third = Task { await m.search(text: "abandoned") }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { pending["abandoned"] != nil }
         m.cancelSearch()
         m.draft.apply(mr: newest)
         try #require(pending["abandoned"]).resume(throwing: GitLabError.unauthorized)
@@ -235,8 +235,7 @@ import Foundation
         // as blocked as one during the submit. The read resumes on the main actor, which the
         // suite's pixel tests hold for seconds at a time, so the deadline is generous: it only
         // bounds a hang, and the loop leaves as soon as the submit lands.
-        let deadline = Date().addingTimeInterval(30)
-        while calls == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        await eventually(timeout: 30) { calls != 0 }
         #expect(m.creating)
         #expect(await m.create() == false)
         #expect(calls == 1)

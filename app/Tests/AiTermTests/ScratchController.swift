@@ -19,7 +19,7 @@ extension AppController {
                      prompter: Prompter = ScriptedPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
                      activateIterm: @escaping @MainActor () -> Void = {}, peekDelay: Duration = .zero,
-                     checkoutPollInterval: Duration = .seconds(2), git: any GitRunning = GitRunner.hermetic(),
+                     checkoutPollInterval: Duration = .seconds(2), toastLifetime: Duration = .seconds(10), git: any GitRunning = GitRunner.hermetic(),
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      },
@@ -33,6 +33,6 @@ extension AppController {
                   bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                   prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, peekDelay: peekDelay,
-                  checkoutPollInterval: checkoutPollInterval, git: git, scan: scan)
+                  checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, git: git, scan: scan)
     }
 }

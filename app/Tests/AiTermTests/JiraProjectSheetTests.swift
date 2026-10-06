@@ -4,6 +4,7 @@ import AiTermUI
 import AiTermCore
 import Testing
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The sheet edits the list of Jira projects linked to a project. It picks from every Jira project
 /// the account can see — hundreds of them — so it searches rather than scrolls. These tests drive
@@ -49,11 +50,6 @@ import Testing
         window.makeKeyAndOrderFront(nil)
         settle(host)
         return Harness(host: host, window: window, submissions: submissions)
-    }
-
-    private func settle(_ host: NSView, for seconds: TimeInterval = 0.05) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
-        host.layoutSubtreeIfNeeded()
     }
 
     private func field(in host: NSView) -> NSTextField? {

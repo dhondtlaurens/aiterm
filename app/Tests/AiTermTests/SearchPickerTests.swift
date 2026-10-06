@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import SwiftUI
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 @Suite struct SearchPickerTests {
     private func handle(_ sel: Selector, count: Int = 3, index: Int = 0, open: Bool = true) -> SearchPickerKeys.Outcome {
@@ -70,11 +71,6 @@ import SwiftUI
         return (host, window)
     }
 
-    private func settle(_ host: NSView) {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
-    }
-
     private func field(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.placeholderString == "Search" { return field }
         return view.subviews.lazy.compactMap { field(in: $0) }.first
@@ -112,7 +108,6 @@ import SwiftUI
         #expect(field.currentEditor() == nil)
 
         sheet.open = true
-        settle(host)
-        #expect(field.currentEditor() != nil)
+        #expect(settle(host) { field.currentEditor() != nil })
     }
 }

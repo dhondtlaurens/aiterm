@@ -62,8 +62,7 @@ struct CheckoutMonitorTests {
 
     /// Waits, off the main actor's turn, until the scanner reports it started its `count`th pass.
     private func waitForPass(_ count: Int, of scans: ScanLog) async throws {
-        let deadline = TestDeadline.fromNow()
-        while scans.started < count, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        await eventually { scans.started >= count }
         try #require(scans.started >= count)
     }
 
@@ -104,8 +103,7 @@ struct CheckoutMonitorTests {
         defer { monitor.stop() }
 
         monitor.startMonitoring()
-        let deadline = TestDeadline.fromNow()
-        while monitor.branchByCwd.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        await eventually { !monitor.branchByCwd.isEmpty }
 
         #expect(monitor.branchByCwd == ["/repo": "main"])
     }

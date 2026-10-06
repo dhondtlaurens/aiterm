@@ -30,8 +30,7 @@ struct SidebarInteractionTests {
                              styleMask: [.titled], backing: .buffered, defer: false)
         other.isReleasedWhenClosed = false; other.makeKeyAndOrderFront(nil)
         defer { sidebar.orderOut(nil); other.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         #expect(!sidebar.isKeyWindow)
 
         func table(in view: NSView) -> NSTableView? {
@@ -87,8 +86,7 @@ struct SidebarInteractionTests {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        turnRunLoop(0.05)
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
@@ -126,8 +124,7 @@ struct SidebarInteractionTests {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        turnRunLoop(0.05)
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
@@ -147,7 +144,7 @@ struct SidebarInteractionTests {
 
         window.sendEvent(try backspace(.command))
         #expect(fixture.prompter.asked.isEmpty, "the alert waits for the key event to finish")
-        try await fixture.until { !fixture.prompter.asked.isEmpty }
+        await eventually { !fixture.prompter.asked.isEmpty }
         #expect(fixture.prompter.asked.map(\.message) == ["Remove task “\(task.title)”?"])
         #expect(fixture.prompter.asked.first?.checkbox == "Also delete branch \(task.branch)")
     }
@@ -179,8 +176,7 @@ struct SidebarInteractionTests {
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
@@ -226,8 +222,7 @@ struct SidebarInteractionTests {
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
@@ -277,8 +272,7 @@ struct SidebarInteractionTests {
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
@@ -342,8 +336,7 @@ struct SidebarInteractionTests {
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
 
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
@@ -368,8 +361,7 @@ struct SidebarInteractionTests {
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
             return view.subviews.lazy.compactMap { table(in: $0) }.first
@@ -380,8 +372,7 @@ struct SidebarInteractionTests {
 
         controller.state.append(project: Project(id: UUID(), name: "a", path: "/a", provider: .git, remoteUrl: nil,
                                                  addedAt: Date(), collapsed: true))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        settle(host, for: 0.05) // Absence: the row count is the same before and after.
         // Header, the divider, project a.
         #expect(list.numberOfRows == 3)
         #expect(controller.state.projects.count == 1)

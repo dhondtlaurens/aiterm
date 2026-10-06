@@ -12,9 +12,9 @@ struct TaskCreationModelTests {
         var pending: [String: CheckedContinuation<[JiraTicket], Error>] = [:]
         let model = fixture(search: { text in try await withCheckedThrowingContinuation { pending[text] = $0 } })
         let first = Task { await model.search(text: "old") }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { pending["old"] != nil }
         let second = Task { await model.search(text: "new") }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { pending["new"] != nil }
         let ticket = JiraTicket(key: "MOB-1", summary: "Newest", description: "", issueType: nil, status: nil, url: "https://example.com")
         try #require(pending["new"]).resume(returning: [ticket])
         await second.value
@@ -22,7 +22,7 @@ struct TaskCreationModelTests {
         await first.value
         #expect(model.results == [ticket])
         let third = Task { await model.search(text: "abandoned") }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { pending["abandoned"] != nil }
         model.cancelSearch()
         model.draft.apply(ticket: ticket)
         try #require(pending["abandoned"]).resume(throwing: JiraError.unauthorized)
@@ -40,7 +40,7 @@ struct TaskCreationModelTests {
         })
         await model.loadAgentCatalogue()
         let first = Task { await model.create() }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { calls == 1 }
         #expect(model.creating)
         #expect(await model.create() == false)
         #expect(calls == 1)

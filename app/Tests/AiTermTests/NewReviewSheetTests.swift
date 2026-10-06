@@ -184,11 +184,6 @@ import AiTermCore
         return Harness(model: model, host: host, window: window, created: created)
     }
 
-    private func settle(_ host: NSView, for seconds: TimeInterval = 0.05) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
-        host.layoutSubtreeIfNeeded()
-    }
-
     private static let mrPlaceholder = "Search by !number, title or branch"
     private static let branchPlaceholder = "Search branches"
 
@@ -319,7 +314,7 @@ import AiTermCore
         // Step 2 now waits for a real catalogue selection before it can continue. The catalogue
         // is loaded off-main; wait for it rather than assuming the old 50 ms render settle also
         // completed that work.
-        for _ in 0..<100 where !h.model.catalogueLoaded { try await Task.sleep(for: .milliseconds(20)) }
+        await eventually { h.model.catalogueLoaded }
         settle(h.host)
         #expect(self.field("Describe the review", in: h.host) == nil)
         #expect(!descendants(of: NSPopUpButton.self, in: h.host).isEmpty, "step 2: Agent, with its model select")
@@ -332,7 +327,7 @@ import AiTermCore
 
         pressCommandReturn(h)
         // Creation runs in a `Task` the button's action starts; awaiting is what lets it run.
-        for _ in 0..<100 where h.created.drafts.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        await eventually { !h.created.drafts.isEmpty }
         #expect(h.created.drafts.count == 1, "step 3's ⌘↩ says Create Review, and creates")
         #expect(h.created.drafts.first?.title == "Review it")
         #expect(h.created.drafts.first?.branch == "main")

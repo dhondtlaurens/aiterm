@@ -38,10 +38,6 @@ import AiTermCore
                                  testGitHub: { testers.tested($0); return "octocat" })
     }
 
-    private func settle(until done: () -> Bool) async {
-        for _ in 0..<100 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
-    }
-
     @Test func gitHubSavesAndDisconnectsItsToken() {
         let store = MemorySecretStore(), defaults = ScratchDefaults.make()
         let m = model(store: store, defaults: defaults)
@@ -60,10 +56,10 @@ import AiTermCore
         let testers = Testers()
         let m = model(gitHub: Self.gitHub, testers: testers)
         m.testConfigured()
-        await settle { m.gitHub.test == .connected("octocat") }
+        await eventually { m.gitHub.test == .connected("octocat") }
         #expect(testers.gitHubCalls == [Self.gitHub])
         m.gitHub.fields.token = "gh-other"
-        await settle { testers.gitHubCalls.count == 2 }
+        await eventually { testers.gitHubCalls.count == 2 }
         #expect(testers.gitHubCalls.last == GitHubConfig(token: "gh-other"))
     }
 
@@ -123,7 +119,7 @@ import AiTermCore
         #expect(m.jira.status == SettingsStatus(.idle, "Not tested yet"))
         #expect(m.gitLab.status == SettingsStatus(.idle, "Not set up"))
         m.testConfigured()
-        await settle { m.jira.test != .running }
+        await eventually { m.jira.test != .running }
         #expect(m.jira.status == SettingsStatus(.ready, "Connected as Jira Person"))
         #expect(m.gitLab.test == nil)
         #expect(testers.jiraCalls == [Self.jira])
@@ -139,7 +135,7 @@ import AiTermCore
         m.gitLab.fields.token = "gl"
         m.gitLab.fields.token = "gl-token"
         #expect(m.gitLab.test == nil)
-        await settle { m.gitLab.test == .connected("GitLab Person") }
+        await eventually { m.gitLab.test == .connected("GitLab Person") }
         #expect(m.gitLab.test == .connected("GitLab Person"))
         #expect(testers.gitLabCalls == [Self.gitLab])
 
@@ -295,19 +291,19 @@ import AiTermCore
         let record = ServiceTestRecord()
         let failing = model(jira: Self.jira, record: record, jiraAnswer: { throw URLError(.userAuthenticationRequired) })
         failing.testConfigured()
-        await settle { failing.jira.test != .running }
+        await eventually { failing.jira.test != .running }
         #expect(record.jiraFailed)
         #expect(record.anyFailed)
 
         let passing = model(jira: Self.jira, record: record)
         passing.testConfigured()
-        await settle { passing.jira.test != .running }
+        await eventually { passing.jira.test != .running }
         #expect(!record.jiraFailed)
 
         let unsaved = model(record: record, jiraAnswer: { throw URLError(.userAuthenticationRequired) })
         unsaved.jira.fields = JiraFields(Self.jira)
         unsaved.jira.runTest()
-        await settle { unsaved.jira.test != .running }
+        await eventually { unsaved.jira.test != .running }
         #expect(!record.jiraFailed, "those fields were never saved")
         #expect(unsaved.save() == nil)
         #expect(record.jiraFailed, "saved now, and their last test failed")

@@ -27,8 +27,7 @@ final class RecordingDaemon: DaemonCommands {
 
     /// Waits until `method` has been asked for `count` times, or `TestDeadline` has passed.
     func received(_ method: String, count: Int = 1) async throws {
-        let deadline = TestDeadline.fromNow()
-        while requests(method).count < count, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        await eventually { requests(method).count >= count }
     }
 
     /// Lets every held reply go, and every later one through without waiting.

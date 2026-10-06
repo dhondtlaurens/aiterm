@@ -18,10 +18,11 @@ final class SidebarTiling {
     /// Trailing debounce for `sidebarMoved()`: `didMoveNotification` fires for every pixel of a
     /// drag, and each one would otherwise write state.json and re-frame every iTerm2 window.
     private var pendingMove: DispatchWorkItem?
-    private let moveDelay = 0.15
+    private let moveDelay: TimeInterval
 
-    init(preferences: InterfacePreferences, tiledWindows: @escaping @MainActor () -> [String],
+    init(preferences: InterfacePreferences, moveDelay: TimeInterval = 0.15, tiledWindows: @escaping @MainActor () -> [String],
          daemon: @escaping @MainActor () -> (any DaemonCommands)?, saveSidebarFrame: @escaping @MainActor (CGRect) -> Void) {
+        self.moveDelay = moveDelay
         self.preferences = preferences
         self.tiledWindows = tiledWindows
         self.daemon = daemon

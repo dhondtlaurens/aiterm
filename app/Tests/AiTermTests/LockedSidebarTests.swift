@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// A workspace that cannot be saved locks what would change it, and nothing else: following a
 /// link changes nothing, so a locked project row's Jira badge still opens its project.
@@ -31,8 +32,7 @@ struct LockedSidebarTests {
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
-        host.layoutSubtreeIfNeeded()
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
 
         func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }

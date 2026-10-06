@@ -11,17 +11,21 @@ final class DaemonConnection {
     private let onEvent: @MainActor (DaemonEvent) -> Void
     /// Answers the helper's requests for an iTerm2 API cookie (`ItermCookie`); injected by tests.
     private let requestCookie: () async -> ItermCookieAnswer
+    /// The pause before retry number `attempt`; a test passes a short one.
+    private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
     private var lifetime: Task<Void, Never>?
     private var client: DaemonClient?
 
     init(socketPath: String, onClient: @escaping @MainActor (DaemonClient?) -> Void,
          onStatus: @escaping @MainActor (ItermConnection) -> Void, onEvent: @escaping @MainActor (DaemonEvent) -> Void,
+         backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) },
          requestCookie: @escaping () async -> ItermCookieAnswer = ItermCookie.request) {
         self.socketPath = socketPath
         self.onClient = onClient
         self.onStatus = onStatus
         self.onEvent = onEvent
         self.requestCookie = requestCookie
+        self.backoff = backoff
     }
 
     func start() {
@@ -94,7 +98,7 @@ final class DaemonConnection {
             connection.disconnect()
             if client === connection { client = nil; onClient(nil) }
             guard !Task.isCancelled else { break }
-            do { try await Task.sleep(for: .seconds(Backoff.delay(attempt: attempt))) }
+            do { try await Task.sleep(for: .seconds(backoff(attempt))) }
             catch { break }
             attempt += 1
         }

@@ -89,6 +89,8 @@ final class AppController {
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
     let git: any GitRunning
+    /// How long a completion toast stays up.
+    private let toastLifetime: Duration
     /// The home whose agent configuration the sheets read — models, skills, commands. The
     /// person's own in the app; a test's is a bare directory of its own.
     private let harnessHome: URL
@@ -137,7 +139,8 @@ final class AppController {
     /// builds a controller. The app builds one with `live()`, the snapshots with `live` too and a few
     /// of its own, and a test with the convenience initializer in its target, whose defaults touch
     /// none of them. `peekDelay` is `RowFocus`'s; a test passes none, and awaits the peek instead.
-    /// `checkoutPollInterval` is the pause between the checkout monitor's passes.
+    /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
+    /// how long a completion toast stays up.
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -152,6 +155,7 @@ final class AppController {
          activateIterm: @escaping @MainActor () -> Void,
          peekDelay: Duration,
          checkoutPollInterval: Duration,
+         toastLifetime: Duration,
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner) {
         let link = ControllerLink()
@@ -159,6 +163,7 @@ final class AppController {
         self.preferences = preferences
         self.harnessHome = harnessHome
         self.git = git
+        self.toastLifetime = toastLifetime
         taskWorkflow = TaskWorkflow(git: git)
         self.jiraSettings = jiraSettings
         self.gitLabSettings = gitLabSettings
@@ -254,10 +259,10 @@ final class AppController {
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
     /// what was kept and why. The id means an older delayed dismissal cannot hide a newer toast.
-    private func showToast(_ message: String) {
+    func showToast(_ message: String) {
         let id = toastState.show(message)
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
+        Task { [weak self, toastLifetime] in
+            try? await Task.sleep(for: toastLifetime)
             guard !Task.isCancelled else { return }
             self?.toastState.dismiss(id: id)
         }
@@ -1444,6 +1449,6 @@ extension AppController {
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
                       activateIterm: activateIterm, peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
-                      git: GitRunner(), scan: scan)
+                      toastLifetime: .seconds(10), git: GitRunner(), scan: scan)
     }
 }

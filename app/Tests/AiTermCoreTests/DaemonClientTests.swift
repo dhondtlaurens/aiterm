@@ -222,7 +222,7 @@ final class DaemonClientTests {
         #expect(longWaitServer.waitForClient(timeout: 2))
         struct Status: Decodable { var connected: Bool }
         let waiting = Task { try await longWaitClient.request("iterm.status", as: Status.self) }
-        try await Task.sleep(for: .milliseconds(20))
+        await eventually { !longWaitServer.received.isEmpty }
         waiting.cancel()
         do { _ = try await waiting.value; Issue.record("Expected cancellation") }
         catch is CancellationError { }

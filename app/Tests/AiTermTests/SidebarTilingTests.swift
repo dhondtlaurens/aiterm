@@ -17,7 +17,7 @@ struct SidebarTilingTests {
     /// A drag reports every pixel; the frame is saved once, when it has settled.
     @Test func aMoveIsSavedOnceItSettles() async throws {
         var saved: [CGRect] = []
-        let tiling = SidebarTiling(preferences: .scratch(), tiledWindows: { [] }, daemon: { nil },
+        let tiling = SidebarTiling(preferences: .scratch(), moveDelay: 0.02, tiledWindows: { [] }, daemon: { nil },
                                    saveSidebarFrame: { saved.append($0) })
         let window = sidebarWindow()
         tiling.sidebarWindow = window
@@ -27,9 +27,9 @@ struct SidebarTilingTests {
         tiling.sidebarMoved()
         #expect(saved.isEmpty)
 
-        let deadline = TestDeadline.fromNow()
-        while saved.isEmpty, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        try await Task.sleep(for: .milliseconds(300))
+        try #require(await eventually { !saved.isEmpty })
+        // Absence: the first move's own, cancelled, delay would have fired by now.
+        try await Task.sleep(for: .milliseconds(100))
         #expect(saved == [window.frame])
     }
 

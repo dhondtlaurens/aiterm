@@ -363,7 +363,7 @@ extension AppControllerTests {
         try await server.received("window.setFrame")
 
         let create = Task { try await controller.createTask(draft: fixture.draft("New"), project: fixture.project) }
-        try await fixture.until { controller.state.tasks.count == 2 }
+        await eventually { controller.state.tasks.count == 2 }
         server.release()
         try await create.value
         await click?.value
@@ -601,12 +601,6 @@ struct RaceFixture {
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle(title)
         return draft
-    }
-
-    /// Waits up to `TestDeadline` for `condition`, checked on the main actor between turns.
-    func until(_ condition: () -> Bool) async throws {
-        let deadline = TestDeadline.fromNow()
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     }
 
     func cleanUp() { try? FileManager.default.removeItem(at: root) }

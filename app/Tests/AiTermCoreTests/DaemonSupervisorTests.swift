@@ -1,16 +1,16 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// Reference-type box so the process-exit callback (fired on the supervisor's private queue) can
-/// safely append to a shared array while the test awaits a continuation on the second `.running`.
+/// safely append to a shared array the test polls with `eventually`.
 ///
-/// Unchecked because its stored `var`s are mutable: every access holds `lock`.
+/// Unchecked because its stored `var` is mutable: every access holds `lock`.
 private final class StateBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _states: [DaemonSupervisor.State] = []
-    private var runningCount = 0
-    private var continuation: CheckedContinuation<Void, Never>?
 
     /// Lock-protected snapshot; safe to read from the test's task while `append` runs on the
     /// supervisor's private queue.
@@ -18,61 +18,23 @@ private final class StateBox: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }; return _states
     }
 
-    func append(_ state: DaemonSupervisor.State) {
-        lock.lock()
-        _states.append(state)
-        if case .running = state {
-            runningCount += 1
-            if runningCount == 2, let cont = continuation {
-                continuation = nil
-                lock.unlock()
-                cont.resume()
-                return
-            }
-        }
-        lock.unlock()
-    }
+    var runningCount: Int { states.count { if case .running = $0 { return true } else { return false } } }
 
-    /// Waits until two `.running` states have been observed, or resumes immediately if that
-    /// already happened before this was called. Cancellation-aware: a caller racing this against
-    /// a timeout (`testSupervisorRestartsAfterExit`'s task group) must be able to resume it via
-    /// `Task.cancel()` — a plain `withCheckedContinuation` ignores cancellation, so `group.cancelAll()`
-    /// could never wake this up, and `withTaskGroup` then hangs forever waiting for a child that
-    /// will never finish instead of the test failing its assertions within the group's own timeout.
-    /// `onCancel` and the continuation's registration both hold `lock`, so whichever runs second is
-    /// the one that actually resumes — the other finds nothing to do (`continuation` already nil,
-    /// or `Task.isCancelled` already true) and never double-resumes.
-    func waitForTwoRunning() async {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                lock.lock()
-                if runningCount >= 2 || Task.isCancelled {
-                    lock.unlock()
-                    cont.resume()
-                } else {
-                    continuation = cont
-                    lock.unlock()
-                }
-            }
-        } onCancel: {
-            lock.lock()
-            let cont = continuation
-            continuation = nil
-            lock.unlock()
-            cont?.resume()
-        }
+    func append(_ state: DaemonSupervisor.State) {
+        lock.lock(); defer { lock.unlock() }
+        _states.append(state)
     }
 }
 
-/// Polls `condition` every 20ms until it is true or `timeoutSeconds` elapses. Used for the
-/// launch-failure-escalation test below, where the awaited condition (a count threshold, or "no
-/// further growth") doesn't map to a single continuation-worthy event.
-private func waitUntil(timeoutSeconds: Double, condition: () -> Bool) async {
-    let deadline = Date().addingTimeInterval(timeoutSeconds)
-    while !condition() {
-        if Date() >= deadline { return }
-        try? await Task.sleep(for: .seconds(0.02))
-    }
+/// The attempt numbers a supervisor asked its backoff about, in order, answering each with `delay`.
+/// A test passes `delay` to say how long each wait is, and reads `attempts` to see which waits the
+/// supervisor chose, rather than timing them.
+private final class RecordedBackoff: Sendable {
+    private let asked = Mutex<[Int]>([])
+    let delay: @Sendable (Int) -> TimeInterval
+    init(_ delay: @escaping @Sendable (Int) -> TimeInterval) { self.delay = delay }
+    var attempts: [Int] { asked.withLock { $0 } }
+    var backoff: @Sendable (Int) -> TimeInterval { { [self] attempt in asked.withLock { $0.append(attempt) }; return delay(attempt) } }
 }
 
 final class DaemonSupervisorTests {
@@ -146,21 +108,15 @@ final class DaemonSupervisorTests {
     @Test func testSupervisorRestartsAfterExit() async {
         // Use /bin/sh as the "python": the module name is ignored, the process exits immediately with 0.
         let box = StateBox()
-        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/x.sock", arguments: ["-c", "exit 0"], logURL: logURL) { state in
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/x.sock", arguments: ["-c", "exit 0"], logURL: logURL,
+                                   backoff: { _ in 0.01 }) { state in
             box.append(state)
         }
         sup.start()
-
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await box.waitForTwoRunning() }
-            group.addTask { try? await Task.sleep(for: .seconds(5)) }
-            await group.next()
-            group.cancelAll()
-        }
-
+        await eventually { box.runningCount >= 2 }
         sup.stop()
-        let runningCount = box.states.count { if case .running = $0 { return true } else { return false } }
-        #expect(runningCount >= 2, "a daemon that exits must be relaunched, got \(box.states)")
+
+        #expect(box.runningCount >= 2, "a daemon that exits must be relaunched, got \(box.states)")
         #expect(box.states.contains { if case .failed(let attempt, _) = $0 { return attempt == 1 } else { return false } })
     }
 
@@ -173,7 +129,7 @@ final class DaemonSupervisorTests {
             box.append(state)
         }
         sup.start()
-        await waitUntil(timeoutSeconds: 3) { box.states.contains { if case .running = $0 { return true } else { return false } } }
+        await eventually { box.states.contains { if case .running = $0 { return true } else { return false } } }
 
         // A foreign, already-exited `Process` standing in for a stale `terminationHandler` — one
         // whose callback fires after `sup` has already moved on to a different child.
@@ -205,7 +161,7 @@ final class DaemonSupervisorTests {
             for state in box.states { if case .running(let pid) = state { return pid } }
             return nil
         }
-        await waitUntil(timeoutSeconds: 3) { runningPid() != nil }
+        await eventually { runningPid() != nil }
         guard let pid = runningPid() else { Issue.record("supervisor never reported .running"); return }
         #expect(kill(pid, 0) == 0, "the fake daemon should be running before stop()")
 
@@ -231,7 +187,7 @@ final class DaemonSupervisorTests {
         func dumped() -> String {
             (try? String(contentsOf: out, encoding: .utf8))?.trimmingCharacters(in: .newlines) ?? ""
         }
-        await waitUntil(timeoutSeconds: 3) { dumped().contains("pythonpath=") }
+        await eventually { dumped().contains("pythonpath=") }
         sup.stop()
 
         #expect(dumped() == "nobytecode=1 pythonpath=/tmp",
@@ -268,7 +224,10 @@ final class DaemonSupervisorTests {
     // reported .stopped, i.e. a pending scheduled restart must not fire after stop().
     @Test func testSupervisorEscalatesBackoffOnLaunchFailureAndStopsCleanly() async {
         let box = StateBox()
-        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/nonexistent/python3"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/y.sock", logURL: logURL) { state in
+        // The first retry is quick; the second is the pending one `stop()` must cancel.
+        let waits = RecordedBackoff { $0 == 0 ? 0.01 : 0.1 }
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/nonexistent/python3"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/y.sock", logURL: logURL,
+                                   backoff: waits.backoff) { state in
             box.append(state)
         }
         sup.start()
@@ -277,18 +236,19 @@ final class DaemonSupervisorTests {
             box.states.compactMap { if case .failed(let attempt, _) = $0 { return attempt } else { return nil } }
         }
 
-        // First failure fires ~immediately; the second arrives after the 1s backoff for attempt 1.
-        await waitUntil(timeoutSeconds: 4) { failedAttempts().count >= 2 }
+        await eventually { failedAttempts().count >= 2 }
         #expect(Array(failedAttempts().prefix(2)) == [1, 2])
+        // Each failure asks for the wait one attempt behind it: the first retry is attempt 0's.
+        #expect(Array(waits.attempts.prefix(2)) == [0, 1])
 
         sup.stop()
-        await waitUntil(timeoutSeconds: 1) { if case .stopped? = box.states.last { return true } else { return false } }
         #expect(box.states.last == .stopped)
 
-        // The second failure (attempt 2) scheduled a restart 2s out (Backoff.delay(attempt: 1)).
-        // Waiting less than that confirms stop() cancelled it rather than merely racing it.
+        // The second failure scheduled a restart 0.1s out. Waiting three times that confirms
+        // stop() cancelled it rather than merely racing it; `stop()` is serialised with the
+        // restart, so a restart that fired first still leaves `.stopped` last.
         let countAfterStop = box.states.count
-        try? await Task.sleep(for: .seconds(1.5))
+        try? await Task.sleep(for: .milliseconds(300))
         #expect(box.states.count == countAfterStop, "no further state changes should arrive after stop()")
     }
 
@@ -304,7 +264,7 @@ final class DaemonSupervisorTests {
         }
         sup.start()
 
-        await waitUntil(timeoutSeconds: 3) { box.states.contains(.adopted) }
+        await eventually { box.states.contains(.adopted) }
         sup.stop()
 
         #expect(box.states.contains(.adopted), "exit status \(DaemonSupervisor.alreadyRunningExitStatus) must report .adopted, got \(box.states)")
@@ -329,7 +289,7 @@ final class DaemonSupervisorTests {
             guard let i = box.states.firstIndex(of: .adopted) else { return 0 }
             return box.states[i...].filter { $0 == .starting }.count
         }
-        await waitUntil(timeoutSeconds: 3) { startsAfterFirstAdoption() >= 1 }
+        await eventually { startsAfterFirstAdoption() >= 1 }
         sup.stop()
 
         #expect(startsAfterFirstAdoption() >= 1, "a vanished adopted daemon must be replaced, got \(box.states)")
@@ -346,7 +306,7 @@ final class DaemonSupervisorTests {
         sup.start()
 
         func logText() -> String { (try? String(contentsOf: logURL, encoding: .utf8)) ?? "" }
-        await waitUntil(timeoutSeconds: 3) { logText().contains("hello-from-daemon") }
+        await eventually { logText().contains("hello-from-daemon") }
         sup.stop()
 
         #expect(logText().contains("hello-from-daemon"), "the daemon's output must reach \(logURL.path), got “\(logText())”")
@@ -355,13 +315,26 @@ final class DaemonSupervisorTests {
     // CS-14: a daemon that still has the old file open (an orphan about to be adopted, or one
     // still exiting) must keep writing into the file the banner points at, so the log is emptied
     // in place rather than replaced.
-    @Test func testRestartEmptiesTheLogInPlaceSoAnOpenWriterStillReachesIt() async throws {
+    //
+    // An orphan that opened the file for append (as `openLog` does) lands its lines right after the
+    // child's. One built before that did not, and writes at the offset it had: the emptied file
+    // grows a gap of NULs before its line, which a reader of the log sees as junk but which does
+    // not hide it, so only a writer that appends is held to a clean file.
+    @Test(arguments: [true, false])
+    func testRestartEmptiesTheLogInPlaceSoAnOpenWriterStillReachesIt(orphanAppends: Bool) async throws {
         try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true)
-        try Data("stale-line\n".utf8).write(to: logURL)
+        try Data("stale-line-from-the-run-before\n".utf8).write(to: logURL)
         let before = try FileManager.default.attributesOfItem(atPath: logURL.path)[.systemFileNumber] as? Int
-        let orphan = try FileHandle(forWritingTo: logURL)
+        let orphan: FileHandle
+        if orphanAppends {
+            let fd = open(logURL.path, O_WRONLY | O_APPEND)
+            try #require(fd >= 0)
+            orphan = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        } else {
+            orphan = try FileHandle(forWritingTo: logURL)
+            _ = try orphan.seekToEnd()
+        }
         defer { try? orphan.close() }
-        _ = try orphan.seekToEnd()
 
         let box = StateBox()
         let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/bin/sh"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: "/tmp/inode.sock",
@@ -370,14 +343,18 @@ final class DaemonSupervisorTests {
         }
         sup.start()
         func logText() -> String { (try? String(contentsOf: logURL, encoding: .utf8)) ?? "" }
-        await waitUntil(timeoutSeconds: 3) { logText().contains("new-daemon") }
+        await eventually { logText().contains("new-daemon") }
         try orphan.write(contentsOf: Data("orphan-line\n".utf8))
-        await waitUntil(timeoutSeconds: 3) { logText().contains("orphan-line") }
+        await eventually { logText().contains("orphan-line") }
         sup.stop()
 
         let after = try FileManager.default.attributesOfItem(atPath: logURL.path)[.systemFileNumber] as? Int
         #expect(after == before, "truncating must not swap the file under a running writer")
         #expect(!logText().contains("stale-line"))
-        #expect(logText().contains("orphan-line"), "got “\(logText())”")
+        if orphanAppends {
+            #expect(logText() == "new-daemon\norphan-line\n", "got “\(logText())”")
+        } else {
+            #expect(logText().replacing("\0", with: "") == "new-daemon\norphan-line\n", "got “\(logText())”")
+        }
     }
 }

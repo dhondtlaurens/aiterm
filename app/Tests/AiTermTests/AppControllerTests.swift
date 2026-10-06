@@ -361,6 +361,16 @@ import Testing
         #expect(controller.toastState.toast == nil)
     }
 
+    /// A completion toast comes down by itself once its lifetime has passed, and is up until then.
+    @Test func aToastIsTakenDownAfterItsLifetime() async {
+        let controller = AppController(preferences: .scratch(), toastLifetime: .milliseconds(30))
+        controller.showToast("Task removed.")
+        #expect(controller.toastState.toast?.message == "Task removed.")
+
+        await eventually { controller.toastState.toast == nil }
+        #expect(controller.toastState.toast == nil)
+    }
+
     /// The "already in your projects" alert stays.
     @Test func pickingAProjectAlreadyAddedSaysSoAndAddsNothing() async throws {
         let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
@@ -930,10 +940,7 @@ import Testing
         controller.start()
         defer { controller.shutdown() }
 
-        let deadline = Date().addingTimeInterval(10)
-        while scans.count == 0 || controller.helper.itermConnection == .starting, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await eventually { scans.count != 0 && controller.helper.itermConnection != .starting }
         #expect(scans.count >= 1, "the restarted monitor runs a pass")
         // The first start's lookup was cancelled with it: only the restarted helper reports.
         #expect(controller.helper.itermConnection == .pythonMissing, "the restarted helper looked for Python")
@@ -1190,8 +1197,7 @@ extension AppControllerTests {
                                        gitLabSettings: { onMain.withLock { $0.append(Thread.isMainThread) }; return nil },
                                        gitHubSettings: { nil })
         controller.presentSettings()
-        let deadline = TestDeadline.fromNow()
-        while controller.sheet == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        await eventually { controller.sheet != nil }
         guard case .settings(let saved, let gitLab, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
         #expect(saved == jira && gitLab == nil)
         #expect(onMain.withLock { $0 } == [false, false])
