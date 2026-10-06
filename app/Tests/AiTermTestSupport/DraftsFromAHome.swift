@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-// Drafts built from a catalogue read off a home, for tests. The app reads the catalogue off the
+// Drafts built from a catalogue read off a home, with no CLI to launch, for tests. The app reads the catalogue off the
 // main actor and hands it to `initial(…catalog:)` (`AppController.prepareSheet`); these read it on
 // the spot. `home` and `defaults` are required — a default of the developer's own `~/.codex` and
 // `UserDefaults.standard` made a test's answer depend on the machine it ran on. A test passes
@@ -9,7 +9,7 @@ import AiTermCore
 
 extension AgentDraft {
     static func preference(for agent: AgentKind, state: AppState, home: URL, defaults: UserDefaults) -> ModelPreference {
-        preference(for: agent, state: state, catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)
+        preference(for: agent, state: state, catalog: ModelCatalogue(home: home, runner: .nothingInstalled).read(agent).models, defaults: defaults)
     }
 
     mutating func setAgent(_ a: AgentKind, state: AppState, home: URL, defaults: UserDefaults) {
@@ -24,13 +24,13 @@ extension TaskDraft {
     static func initial(project: Project, state: AppState, git: any GitRunning, home: URL, defaults: UserDefaults) -> TaskDraft {
         let agent = state.lastAgentByProject[project.id] ?? .claude
         return initial(project: project, state: state, git: git, agent: agent,
-                       catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)
+                       catalog: ModelCatalogue(home: home, runner: .nothingInstalled).read(agent).models, defaults: defaults)
     }
 }
 
 extension ReviewDraft {
     static func initial(project: Project, state: AppState, home: URL, defaults: UserDefaults) -> ReviewDraft {
         let agent = state.lastAgentByProject[project.id] ?? .claude
-        return initial(state: state, agent: agent, catalog: ModelCatalog.models(for: agent, home: home), defaults: defaults)
+        return initial(state: state, agent: agent, catalog: ModelCatalogue(home: home, runner: .nothingInstalled).read(agent).models, defaults: defaults)
     }
 }

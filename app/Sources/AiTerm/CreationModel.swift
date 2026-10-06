@@ -33,6 +33,9 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     @Published var branches: [String] = []
     @Published var models: [AgentModel] = []
     @Published private(set) var catalogueLoaded = false
+    /// Why the chosen agent has no models to offer, when its catalogue could not be read: PI's own
+    /// complaint, shown where the model picker would be.
+    @Published private(set) var catalogueFailure: String?
     @Published private(set) var creating = false
     @Published private(set) var error: CreationFailure?
     let completions = PromptCompletions()
@@ -40,7 +43,7 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     private let rememberedModels: [AgentKind: String]
     /// Whose skills and commands the prompt completes: the person's home in the app.
     private let home: URL
-    private let catalogue: @Sendable (AgentKind) -> [AgentModel]
+    private let catalogue: @Sendable (AgentKind) throws -> [AgentModel]
     /// The catalogue the draft was built from, for the first load of the draft's own agent.
     private var initialCatalogue: (agent: AgentKind, models: [AgentModel])?
     private let defaults: UserDefaults
@@ -55,7 +58,7 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     private var unusedSlugMemo: (slug: String, unused: String)?
 
     init(project: Project, draft: Draft, home: URL, availableAgents: Set<AgentKind>, rememberedModels: [AgentKind: String],
-         catalogue: @escaping @Sendable (AgentKind) -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
+         catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
          defaults: UserDefaults, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void) {
@@ -98,6 +101,7 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
         draft.agent = agent
         models = []
         catalogueLoaded = false
+        catalogueFailure = nil
         resetModel = true
     }
 
@@ -110,12 +114,17 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
         let handed = initialCatalogue?.agent == agent ? initialCatalogue?.models : nil
         initialCatalogue = nil
         let catalogue = try? await BackgroundWork.run {
-            let models = handed ?? catalogueProvider(agent)
-            return (models: models, completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home),
+            var models = handed ?? [], failure: String?
+            if handed == nil {
+                do { models = try catalogueProvider(agent) } catch { failure = error.localizedDescription }
+            }
+            return (models: models, failure: failure,
+                    completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home),
                     resolution: ModelSettings.resolution(for: agent, catalog: models, remembered: remembered, defaults: defaults))
         }
         guard !Task.isCancelled, generation == catalogueGeneration, agent == draft.agent, let catalogue else { return }
         models = catalogue.models
+        catalogueFailure = catalogue.failure
         catalogueLoaded = true
         completions.all = catalogue.completions
         completions.close()

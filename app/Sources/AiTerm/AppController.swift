@@ -378,12 +378,12 @@ final class AppController {
 
     private func importWorktrees(for project: Project) async {
         guard project.provider != .none else { return }
-        let git = self.git, home = harnessHome
+        let git = self.git, catalogue = agents.catalogue
         let agent = state.lastAgentByProject[project.id] ?? .claude
         let remembered = state.lastModelByAgent[agent]
         let imports = try? await BackgroundWork.run {
             (try Worktrees.existing(repo: project.path, git: git), try Worktrees.detectDefaultBranch(repo: project.path, git: git),
-             ModelSettings.resolve(for: agent, catalog: ModelCatalog.models(for: agent, home: home), remembered: remembered))
+             ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
         }
         // A default branch git could not be asked for throws above, and nothing is offered: the offer is
         // made only when the project is added, so it is not made at all rather than saving "main" into
@@ -744,22 +744,23 @@ final class AppController {
 
     /// The remembered agent may be one that is no longer installed, so the draft falls back to an
     /// available one — the sheet's picker disables the missing ones and says why. The agent's
-    /// catalogue is read once, for the draft, and handed to the sheet's model with it: for PI it
-    /// is a launch of the CLI. `search` is read here too — what the sheet's search needs from the
-    /// Keychain and the checkout — so no keystroke has to.
+    /// catalogue is read for the draft and handed to the sheet's model with it, when it could be
+    /// read: one that failed is read again by the sheet, which then says why it has no models.
+    /// `search` is read here too — what the sheet's search needs from the Keychain and the
+    /// checkout — so no keystroke has to.
     private func prepareSheet<Draft, Search>(for project: Project,
                                              draft build: @escaping @Sendable (AppState, AgentKind, [AgentModel]) -> Draft,
                                              search resolve: @escaping @Sendable () -> Search,
-                                             sheet makeSheet: @escaping (Draft, [AgentModel], Search) -> SheetKind)
+                                             sheet makeSheet: @escaping (Draft, [AgentModel]?, Search) -> SheetKind)
         where Draft: AgentDraft & Sendable, Search: Sendable {
         guard canChangeWorkspace else { return }
         preparingSheet?.cancel()
-        let state = self.state, available = agents.availableAgents, home = harnessHome
+        let state = self.state, available = agents.availableAgents, catalogue = agents.catalogue
         let agent = AgentAvailability.agent(preferring: state.lastAgentByProject[project.id] ?? .claude, available: available)
         preparingSheet = Task {
             let prepared = try? await BackgroundWork.run {
-                let catalog = ModelCatalog.models(for: agent, home: home)
-                return (draft: build(state, agent, catalog), catalog: catalog, search: resolve())
+                let catalog = try? catalogue.models(for: agent)
+                return (draft: build(state, agent, catalog ?? []), catalog: catalog, search: resolve())
             }
             guard !Task.isCancelled, canChangeWorkspace, sheet == nil, let prepared,
                   self.state.project(id: project.id) != nil else { return }
@@ -770,10 +771,10 @@ final class AppController {
     /// `catalogue` is the one `draft` was built from, if the caller read it; `jira` is the
     /// connection read when the sheet was prepared.
     func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, jira: JiraConfig?) -> TaskCreationModel {
-        let home = harnessHome
-        return TaskCreationModel(project: project, draft: draft, home: home, availableAgents: agents.availableAgents,
+        let models = agents.catalogue
+        return TaskCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: agents.availableAgents,
                           rememberedModels: state.lastModelByAgent,
-                          catalogue: { ModelCatalog.models(for: $0, home: home) }, initialCatalogue: catalogue, git: git,
+                          catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue, git: git,
                           canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
                           searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
                           createTask: { [weak self] draft in
@@ -784,10 +785,10 @@ final class AppController {
 
     private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil,
                                  gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
-        let home = harnessHome
-        return ReviewCreationModel(project: project, draft: draft, home: home, availableAgents: agents.availableAgents,
+        let models = agents.catalogue
+        return ReviewCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: agents.availableAgents,
                             rememberedModels: state.lastModelByAgent,
-                            catalogue: { ModelCatalog.models(for: $0, home: home) }, initialCatalogue: catalogue, git: git,
+                            catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue, git: git,
                             canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
                             owningTask: { [weak self] branch, checkouts in
                                 self?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)

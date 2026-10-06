@@ -4,10 +4,11 @@ import AiTermCore
 /// The New Task sheet's state: a `CreationModel` that searches the project's Jira tickets.
 final class TaskCreationModel: CreationModel<TaskDraft, JiraTicket> {
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
-    /// would read the developer's own from anything that left them out.
+    /// would read the developer's own from anything that left them out. A `catalogue` that throws
+    /// has no models to offer, and the sheet says why in their place.
     init(project: Project, draft: TaskDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
          rememberedModels: [AgentKind: String] = [:],
-         catalogue: @escaping @Sendable (AgentKind) -> [AgentModel],
+         catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
          initialCatalogue: [AgentModel]? = nil,
          defaults: UserDefaults = .standard, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },

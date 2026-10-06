@@ -56,7 +56,9 @@ enum Snapshots {
             try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             return home
         }()
-        nonisolated static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { ModelCatalog.models(for: $0, home: Fixture.home) }
+        /// The bare home's models, with no CLI to launch: PI offers none.
+        nonisolated static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { models.read($0).models }
+        nonisolated private static let models = ModelCatalogue(home: home, runner: .nothingInstalled)
         /// Asked for branches and checkouts of a project that is not on disk: it answers none.
         nonisolated static let git = GitRunner()
         let controller: AppController
@@ -324,7 +326,7 @@ enum Snapshots {
         // The model it opens on is the first of the real home's catalogue, as it has always been drawn
         // here (`Fixture.catalogue` would draw the bare home's, and move the agent step's pixels).
         let realHome = FileManager.default.homeDirectoryForCurrentUser
-        let preference = TaskDraft.preference(for: .claude, state: .empty, catalog: ModelCatalog.models(for: .claude, home: realHome),
+        let preference = TaskDraft.preference(for: .claude, state: .empty, catalog: ModelCatalogue(home: realHome, runner: .nothingInstalled).read(.claude).models,
                                               defaults: Fixture.defaults)
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: preference.model, reasoning: preference.reasoning)
         write(NewTaskSheet(model: TaskCreationModel(project: project, draft: draft, home: Fixture.home, catalogue: Fixture.catalogue, git: Fixture.git, searchIssues: { _ in tickets }, createTask: { _ in }), previewStep: 1, previewTickets: tickets,

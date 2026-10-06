@@ -19,24 +19,25 @@ public enum HarnessServiceError: Error, Equatable, LocalizedError {
 /// script — runs through `BackgroundWork`, never on the actor: a blocked cooperative thread would
 /// queue every other card's probe behind it. So the actor is reentrant across those launches.
 public actor HarnessService {
-    private let home: URL
     private let runner: HarnessCommandRunner
     private let resources: HarnessResources
     private let testClient: HarnessTestClient
     /// Each agent's driver, when this copy of AiTerm can install it: none from a translocated
     /// bundle, or without the bundled resource it writes.
     private let drivers: [AgentKind: any HarnessDriver]
-    /// The catalogue each agent's last successful probe found, and that probe's number: probes of
-    /// one agent can overlap, and an older one finishing last must not replace a newer answer.
-    private var lastSuccessfulCatalogues: [AgentKind: (probe: Int, models: [AgentModel])] = [:]
-    private var probesStarted = 0
+    /// The model lists, shared with the creation sheets in the app; it keeps the last list each
+    /// agent's probe read, for a probe whose read fails.
+    private let catalogue: ModelCatalogue
 
+    /// `catalogue` is the app's, shared with the sheets; without one, the service reads `home`'s
+    /// through `runner` on its own.
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 daemonPort: Int, runner: HarnessCommandRunner = .live,
+                catalogue: ModelCatalogue? = nil,
                 resources: HarnessResources = .bundled(),
                 testTransport: HarnessTestTransport = .live) {
-        self.home = home
         self.runner = runner
+        self.catalogue = catalogue ?? ModelCatalogue(home: home, runner: runner)
         self.resources = resources
         self.testClient = HarnessTestClient(runner: runner, transport: testTransport,
                                             daemonPort: daemonPort)
@@ -56,8 +57,7 @@ public actor HarnessService {
     /// instead of reading it again: writing a driver changes nothing about which models there are,
     /// and for PI reading them is a launch.
     private func probe(_ agent: AgentKind, reusingCatalogueOf earlier: HarnessSnapshot?) async -> HarnessSnapshot {
-        probesStarted += 1
-        let probe = probesStarted, runner = self.runner
+        let runner = self.runner
         guard let executable = try? await BackgroundWork.run({ runner.locate(agent.rawValue) }),
               LoginShell.isExecutableFile(executable) else {
             return .reduce(agent: agent, cliAvailable: false, integrationState: .notChecked,
@@ -80,7 +80,7 @@ public actor HarnessService {
             catalogue = Catalogue(models: earlier.models, stale: earlier.modelsAreStale,
                                   check: earlier.checks.first { $0.id == "models" })
         } else {
-            catalogue = await readCatalogue(agent, executable: executable, probe: probe)
+            catalogue = await readCatalogue(agent, executable: executable)
         }
         let models = catalogue.models, stale = catalogue.stale
         checks.append(catalogue.check ?? HarnessCheck(
@@ -94,35 +94,15 @@ public actor HarnessService {
     /// earlier probe's. Otherwise the check follows from whether there are any.
     private struct Catalogue { var models: [AgentModel], stale: Bool, check: HarnessCheck? }
 
-    private func readCatalogue(_ agent: AgentKind, executable: String, probe: Int) async -> Catalogue {
-        switch agent {
-        case .claude, .codex, .grok:
-            let models = ModelCatalog.models(for: agent, home: home)
-            remember(models, for: agent, from: probe)
-            return Catalogue(models: models, stale: false, check: nil)
-        case .pi:
-            let runner = self.runner
-            do {
-                let models = try await BackgroundWork.run { try PiModelCatalog.discover(executable: executable, runner: runner) }
-                remember(models, for: agent, from: probe)
-                return Catalogue(models: models, stale: false, check: nil)
-            } catch {
-                // The CLI was already located and executable, so a failed launch is a models
-                // warning, never an unavailable card that would hide every action.
-                let models = lastSuccessfulCatalogues[agent]?.models ?? []
-                let stale = !models.isEmpty
-                let explanation: String
-                if case PiModelCatalogError.unavailable = error {
-                    explanation = "PI couldn’t be launched."
-                } else {
-                    explanation = stale
-                        ? "The PI model catalogue couldn’t be refreshed."
-                        : "The PI model catalogue is unavailable."
-                }
-                return Catalogue(models: models, stale: stale,
-                                 check: HarnessCheck(id: "models", label: "Models", passed: false, explanation: explanation))
-            }
-        }
+    /// A probe reads afresh: Settings is where a person checks that PI still launches. The CLI was
+    /// already located and executable, so a failed launch is a models warning, never an
+    /// unavailable card that would hide every action — over the last list read, if there is one.
+    private func readCatalogue(_ agent: AgentKind, executable: String) async -> Catalogue {
+        let catalogue = self.catalogue
+        let reading = (try? await BackgroundWork.run { catalogue.read(agent, executable: executable, refreshing: true) })
+            ?? ModelCatalogue.Reading(models: [], failure: .unavailable)
+        return Catalogue(models: reading.models, stale: reading.stale,
+                         check: reading.explanation.map { HarnessCheck(id: "models", label: "Models", passed: false, explanation: $0) })
     }
 
     /// A missing CLI is installed first, with its vendor's installer, and then its driver — one
@@ -163,10 +143,5 @@ public actor HarnessService {
                                 integrationState: before.integrationState,
                                 models: before.models, modelsAreStale: before.modelsAreStale,
                                 checks: checks)
-    }
-
-    private func remember(_ models: [AgentModel], for agent: AgentKind, from probe: Int) {
-        guard probe > lastSuccessfulCatalogues[agent]?.probe ?? 0 else { return }
-        lastSuccessfulCatalogues[agent] = (probe, models)
     }
 }

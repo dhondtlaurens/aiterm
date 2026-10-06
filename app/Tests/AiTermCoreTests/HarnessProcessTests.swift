@@ -48,38 +48,6 @@ import Testing
         #expect(result.stdout == "interpreted\n")
     }
 
-    /// Locating a CLI is a login shell, most of a second: Settings used to run nine on opening.
-    /// A found path is kept while it is still an executable, and forgotten after an install.
-    @Test func locationsAreCachedWhileExecutableAndForgottenOnRequest() {
-        let lookups = LockedCounter(), executable = LockedFlag(true)
-        let runner = HarnessCommandRunner.caching(find: { name in lookups.increment(); return "/bin/\(name)" },
-                                                  isExecutable: { _ in executable.value },
-                                                  run: { _, _, _, _ in ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false) })
-        #expect(runner.locate("pi") == "/bin/pi")
-        #expect(runner.locate("pi") == "/bin/pi")
-        #expect(lookups.value == 1)
-
-        executable.value = false
-        #expect(runner.locate("pi") == "/bin/pi", "a path that is no longer executable is looked up again")
-        #expect(lookups.value == 2)
-
-        executable.value = true
-        runner.forgetLocations()
-        _ = runner.locate("pi")
-        #expect(lookups.value == 3)
-    }
-
-    /// A missing CLI is not remembered: installed from a terminal, it must show up on the next probe.
-    @Test func aMissingCLIIsLookedUpEveryTime() {
-        let lookups = LockedCounter()
-        let runner = HarnessCommandRunner.caching(find: { _ in lookups.increment(); return nil },
-                                                  isExecutable: { _ in true },
-                                                  run: { _, _, _, _ in ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false) })
-        #expect(runner.locate("pi") == nil)
-        #expect(runner.locate("pi") == nil)
-        #expect(lookups.value == 2)
-    }
-
     @Test func installingACLIForgetsTheCachedLocations() throws {
         let forgotten = LockedCounter()
         let runner = HarnessCommandRunner(locate: { _ in nil },
@@ -94,13 +62,4 @@ private final class LockedCounter: Sendable {
     private let count = Mutex(0)
     func increment() { count.withLock { $0 += 1 } }
     var value: Int { count.withLock { $0 } }
-}
-
-private final class LockedFlag: Sendable {
-    private let flag: Mutex<Bool>
-    init(_ flag: Bool) { self.flag = Mutex(flag) }
-    var value: Bool {
-        get { flag.withLock { $0 } }
-        set { flag.withLock { $0 = newValue } }
-    }
 }

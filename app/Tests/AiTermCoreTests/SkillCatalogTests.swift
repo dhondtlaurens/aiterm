@@ -278,4 +278,49 @@ import Foundation
             #expect(SkillCatalog.invocation(of: prompt, for: agent) == "/prompts:draft")
         }
     }
+
+    /// Every sheet opening and every agent switch walked the skill trees and read every `SKILL.md`.
+    /// A discovery now stands while nothing it looked at has changed: a skill rewritten in place
+    /// with its size and date kept still answers from the cache, and any change a `stat` sees — a
+    /// new date, a new skill, a project directory appearing — is read again.
+    @Test func aDiscoveryStandsUntilSomethingItLookedAtChanges() throws {
+        let home = tempDir(), project = tempDir()
+        defer { try? FileManager.default.removeItem(at: home); try? FileManager.default.removeItem(at: project) }
+        let manifest = home.appendingPathComponent(".claude/skills/alpha/SKILL.md")
+        let dated = Date(timeIntervalSince1970: 1_800_000_000)
+        write("---\ndescription: First\n---\n", to: manifest)
+        try FileManager.default.setAttributes([.modificationDate: dated], ofItemAtPath: manifest.path)
+        func found() -> [String] {
+            SkillCatalog.discover(agent: .claude, projectPath: project.path, home: home).map { "\($0.name)=\($0.detail ?? "")" }
+        }
+        #expect(found() == ["alpha=First"])
+
+        let handle = try FileHandle(forWritingTo: manifest)
+        try handle.write(contentsOf: Data("---\ndescription: Again\n---\n".utf8))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: dated], ofItemAtPath: manifest.path)
+        #expect(found() == ["alpha=First"], "nothing a stat sees has changed")
+
+        try FileManager.default.setAttributes([.modificationDate: dated.addingTimeInterval(1)], ofItemAtPath: manifest.path)
+        #expect(found() == ["alpha=Again"])
+
+        write("---\ndescription: Second\n---\n", to: home.appendingPathComponent(".claude/skills/beta/SKILL.md"))
+        #expect(found() == ["alpha=Again", "beta=Second"])
+
+        write("---\ndescription: Here\n---\n", to: project.appendingPathComponent(".claude/commands/local.md"))
+        #expect(found() == ["alpha=Again", "beta=Second", "local=Here"])
+    }
+
+    /// Only the block at the top of a file is read, however long the body after it.
+    @Test func frontmatterIsReadFromTheTopOfALongFile() throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("SKILL.md")
+        let body = String(repeating: "Some — body text.\n", count: 20_000)
+        write("---\nname: long\ndescription: >-\n  folded\n  text\nuser-invocable: false\n---\n" + body + "description: not this\n", to: file)
+        #expect(SkillCatalog.frontmatter(of: file) == ["name": "long", "description": "folded text", "user-invocable": "false"])
+        write("no frontmatter\n---\ndescription: x\n---\n", to: file)
+        #expect(SkillCatalog.frontmatter(of: file).isEmpty)
+        #expect(SkillCatalog.frontmatter(of: dir.appendingPathComponent("missing.md")).isEmpty)
+    }
 }

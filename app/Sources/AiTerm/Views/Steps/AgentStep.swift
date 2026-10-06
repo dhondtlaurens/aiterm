@@ -9,6 +9,8 @@ struct AgentStep: View {
     let availableAgents: Set<AgentKind>
     let models: [AgentModel]
     let catalogueLoaded: Bool
+    /// Why there are no models, when the catalogue could not be read.
+    let catalogueFailure: String?
     let agent: AgentKind
     let model: String
     @Binding var reasoning: String?
@@ -22,6 +24,7 @@ struct AgentStep: View {
         availableAgents = model.availableAgents
         models = model.models
         catalogueLoaded = model.catalogueLoaded
+        catalogueFailure = model.catalogueFailure
         agent = model.draft.agent
         self.model = model.draft.model
         _reasoning = Binding(get: { model.draft.reasoning }, set: { model.draft.reasoning = $0 })
@@ -29,10 +32,11 @@ struct AgentStep: View {
         setModel = { model.draft.setModel($0, catalog: model.models) }
     }
 
-    init(availableAgents: Set<AgentKind>, models: [AgentModel], catalogueLoaded: Bool,
+    init(availableAgents: Set<AgentKind>, models: [AgentModel], catalogueLoaded: Bool, catalogueFailure: String? = nil,
          agent: AgentKind, model: String, reasoning: Binding<String?>,
          selectAgent: @escaping (AgentKind) -> Void, setModel: @escaping (String) -> Void) {
         self.availableAgents = availableAgents; self.models = models; self.catalogueLoaded = catalogueLoaded
+        self.catalogueFailure = catalogueFailure
         self.agent = agent; self.model = model; _reasoning = reasoning
         self.selectAgent = selectAgent; self.setModel = setModel
     }
@@ -46,8 +50,10 @@ struct AgentStep: View {
             + " in Settings › Agents."
     }
 
-    static func modelPlaceholder(agent: AgentKind, catalogueLoaded: Bool) -> String {
-        catalogueLoaded ? agent.noModelsExplanation : "Loading models…"
+    /// A catalogue that could not be read says why — "PI couldn’t be launched." — rather than
+    /// suggesting a sign-in that would not help.
+    static func modelPlaceholder(agent: AgentKind, catalogueLoaded: Bool, failure: String? = nil) -> String {
+        catalogueLoaded ? failure ?? agent.noModelsExplanation : "Loading models…"
     }
 
     var selectedModel: AgentModel? { models.first { $0.id == model } }
@@ -70,7 +76,7 @@ struct AgentStep: View {
             HStack(alignment: .top, spacing: Space.gap) {
                 FormField("Model") {
                     if models.isEmpty {
-                        HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded)).fieldChrome()
+                        HelpText(Self.modelPlaceholder(agent: agent, catalogueLoaded: catalogueLoaded, failure: catalogueFailure)).fieldChrome()
                     } else {
                         Select(values: modelChoices, selection: Binding(get: { selectedModel ?? unselectedModel }, set: { setModel($0.id) }),
                                label: { $0.label }, detail: { $0.detail })

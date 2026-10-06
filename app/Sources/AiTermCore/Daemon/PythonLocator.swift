@@ -46,7 +46,14 @@ public enum PythonLocator {
         return result.stdout.contains("True")
     }
 
-    public static func find(runner: (String) -> String? = LoginShell.run, validate: (URL) -> Bool = isSupported) -> URL? {
+    /// The first candidate that passes `validate`, from what the shared login shell said — the one
+    /// the launch's agent probe also asks, so finding Python costs no shell of its own.
+    public static func find(locator: LoginShellLocator = .shared, validate: (URL) -> Bool = isSupported) -> URL? {
+        candidates(shellOutput: locator.current()?.pythonOutput).first(where: validate)
+    }
+
+    /// `find`, with `runner` asked `candidateQuery` directly.
+    static func find(runner: (String) -> String?, validate: (URL) -> Bool = isSupported) -> URL? {
         candidates(shellOutput: runner(candidateQuery)).first(where: validate)
     }
 }

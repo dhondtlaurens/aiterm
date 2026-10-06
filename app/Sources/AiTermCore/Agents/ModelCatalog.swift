@@ -124,7 +124,10 @@ public enum ModelCatalog {
 
     // -- lookup ---------------------------------------------------------------------
 
-    public static func models(for agent: AgentKind, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [AgentModel] {
+    /// The models an agent keeps on disk in `home`, read now. PI keeps none — its list is a launch
+    /// of its CLI — so it has no file catalogue. `ModelCatalogue` is what the app asks: it covers
+    /// PI, and keeps what it read until one of these files changes (`sources(for:home:)`).
+    static func fileModels(for agent: AgentKind, home: URL) -> [AgentModel]? {
         switch agent {
         case .claude:
             return claudeModels(catalogJSON: claudeCatalogURL(home: home).flatMap { try? Data(contentsOf: $0) },
@@ -136,7 +139,30 @@ public enum ModelCatalog {
         case .grok:
             return GrokModelCatalog.models(home: home)
         case .pi:
-            return (try? PiModelCatalog.discover()) ?? []
+            return nil
+        }
+    }
+
+    /// The files `fileModels(for:home:)` reads for `agent`, in a fixed order. Claude's catalogue
+    /// directory is listed with every catalogue in it, because which one is read depends on all
+    /// their dates. PI's are where it keeps its sign-ins and custom models, which is what its list
+    /// is made from, beside the CLI itself: an upgrade can change the list too.
+    static func sources(for agent: AgentKind, home: URL, executable: String?) -> [String] {
+        func path(_ relative: String) -> String { home.appendingPathComponent(relative).path }
+        switch agent {
+        case .claude:
+            let directory = path(".claude/cache/model-catalog")
+            let catalogues = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
+                .filter { $0.hasSuffix("-cc.json") }.sorted().map { directory + "/" + $0 }
+            return [directory] + catalogues + [path(".claude/settings.json"), path(".claude.json")]
+        case .codex:
+            return [path(".codex/models_cache.json"), path(".codex/config.toml")]
+        case .grok:
+            return [path(".grok/models_cache.json"), path(".grok/config.toml")]
+        case .pi:
+            let cli = executable.map { [$0, ($0 as NSString).resolvingSymlinksInPath] } ?? []
+            return [path(".pi/agent"), path(".pi/agent/auth.json"), path(".pi/agent/models.json"),
+                    path(".pi/agent/settings.json")] + cli
         }
     }
 

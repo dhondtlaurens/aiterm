@@ -19,6 +19,10 @@ final class AgentIntegrations {
     /// usage feed and anything that edits `~/.claude/settings.json` can take it back out, so the
     /// footer has to be able to say "not installed" instead of promising data that is not coming.
     private(set) var claudeStatusLineInstalled = true
+    /// Every agent's model list, kept until its files change: what the creation sheets offer and
+    /// what Settings' cards show, read through one catalogue so the two agree, and so a sheet opened
+    /// again does not read `~/.claude.json` or launch PI again.
+    let catalogue: ModelCatalogue
 
     /// The model each agent last ran with, from the workspace. Read live by the Settings model,
     /// which outlives any one sheet.
@@ -37,6 +41,7 @@ final class AgentIntegrations {
          availableAgentsChanged: @escaping @MainActor (Set<AgentKind>) -> Void) {
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
+        catalogue = ModelCatalogue(home: harnessHome, runner: .live)
         self.locateAgents = locateAgents
         self.rememberedModels = rememberedModels
         self.availableAgentsChanged = availableAgentsChanged
@@ -86,7 +91,8 @@ final class AgentIntegrations {
     func harnessSettingsModel() -> HarnessSettingsModel {
         if let retainedHarnessSettings { return retainedHarnessSettings }
         let service = HarnessService(
-            home: harnessHome, daemonPort: AiTermPaths.hookPort, resources: .bundled(resourceURL: bundledResourcesURL))
+            home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue,
+            resources: .bundled(resourceURL: bundledResourcesURL))
         let settings = HarnessSettingsModel(
             service: service, rememberedModels: { [weak self] in self?.rememberedModels() ?? [:] },
             integrationChanged: { [weak self] agent in

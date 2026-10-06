@@ -235,7 +235,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: home) }
         try Data("{}".utf8).write(to: dir.appendingPathComponent("org-abc-web.json"))
         try Fixtures.claudeCatalog.write(to: dir.appendingPathComponent("org-abc-cc.json"))
-        #expect(ModelCatalog.models(for: .claude, home: home).map(\.id).first == "claude-fable-5-1")
+        #expect(ModelCatalogue(home: home, runner: .nothingInstalled).read(.claude).models.map(\.id).first == "claude-fable-5-1")
     }
 
     enum Fixtures {

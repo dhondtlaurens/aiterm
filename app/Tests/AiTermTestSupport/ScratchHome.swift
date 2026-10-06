@@ -16,11 +16,13 @@ enum ScratchHome {
     }()
 
     /// What an agent with no configuration offers, for a creation model a test builds: Claude's
-    /// aliases, and Codex's defaults. PI's is a launch of its CLI, so a test gets none; Grok's reads
-    /// the bare home's missing `models_cache.json` and gets none either.
-    static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { agent in
-        agent == .pi ? [] : ModelCatalog.models(for: agent, home: ScratchHome.bare)
-    }
+    /// aliases, and Codex's defaults. PI's is a launch of its CLI, and a test's machine has none to
+    /// launch, so it gets none; Grok's reads the bare home's missing `models_cache.json` and gets
+    /// none either.
+    static let catalogue: @Sendable (AgentKind) -> [AgentModel] = { models.read($0).models }
+
+    /// The bare home's catalogue, with no CLI installed.
+    static let models = ModelCatalogue(home: bare, runner: .nothingInstalled)
 
     private static let created = Mutex<URL?>(nil)
 

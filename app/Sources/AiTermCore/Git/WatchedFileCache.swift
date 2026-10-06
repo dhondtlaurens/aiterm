@@ -171,6 +171,13 @@ struct FileStamps: Equatable {
         stamps = files.map(Self.stamp)
     }
 
+    /// Stamps taken one at a time, each just before its file was read: for a walk that learns which
+    /// files its answer depends on only as it reads them (`SkillCatalog`).
+    init(files: [String], stamps: [Stamp?]) {
+        self.files = files
+        self.stamps = stamps
+    }
+
     /// Whether every file is as it was when these stamps were taken.
     var areCurrent: Bool { self == FileStamps(files) }
 

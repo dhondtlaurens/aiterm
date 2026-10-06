@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 
 public enum HarnessProcessError: Error, Equatable, LocalizedError {
     case launchFailed(String)
@@ -28,25 +27,23 @@ public struct HarnessCommandRunner: Sendable {
         self.forgetLocations = forgetLocations
     }
 
-    /// Finding a CLI is a login shell, most of a second, and a Settings opening, a PI probe and
-    /// an install each asked several times. A found path is kept for as long as it is still an
-    /// executable; a missing CLI is looked for again every time, so one installed from a terminal
-    /// shows up on the next probe.
-    static func caching(find: @escaping @Sendable (String) -> String?,
-                        isExecutable: @escaping @Sendable (String) -> Bool,
-                        run: @escaping @Sendable (String, [String], [String: String], TimeInterval) throws -> ProcessOutput) -> HarnessCommandRunner {
-        let cache = LocationCache()
-        return HarnessCommandRunner(locate: { name in
-            if let path = cache[name], isExecutable(path) { return path }
-            let found = find(name)
-            cache[name] = found
-            return found
-        }, run: run, forgetLocations: { cache.removeAll() })
+    /// CLIs found through `locator`, which keeps what it found, and run with their `bin` on the
+    /// `PATH`.
+    public init(locator: LoginShellLocator) {
+        self.init(locate: { locator.locate($0) }, run: Self.launch, forgetLocations: { locator.forget() })
     }
 
-    public static let live = caching(find: { name in
-        LoginShell.locate([name])?[name]
-    }, isExecutable: LoginShell.isExecutableFile, run: { executable, arguments, overrides, timeout in
+    /// The app's: CLIs found where the launch's probe found them, through the shared locator.
+    public static let live = HarnessCommandRunner(locator: .shared)
+
+    /// A machine with no agent CLI on it, for what renders or tests a catalogue without launching
+    /// one: nothing is found and nothing starts.
+    public static let nothingInstalled = HarnessCommandRunner(locate: { _ in nil }, run: { executable, _, _, _ in
+        throw HarnessProcessError.launchFailed("\(executable) is not installed.")
+    })
+
+    private static let launch: @Sendable (String, [String], [String: String], TimeInterval) throws -> ProcessOutput = {
+        executable, arguments, overrides, timeout in
         var environment = ProcessRunner.inheritedEnvironment
         for (key, value) in overrides { environment[key] = value }
         // An npm CLI such as PI is a `#!/usr/bin/env node` script, and an app opened from the
@@ -59,16 +56,5 @@ public struct HarnessCommandRunner: Sendable {
         } catch {
             throw HarnessProcessError.launchFailed(error.localizedDescription)
         }
-    })
-}
-
-private final class LocationCache: Sendable {
-    private let paths = Mutex<[String: String]>([:])
-
-    subscript(name: String) -> String? {
-        get { paths.withLock { $0[name] } }
-        set { paths.withLock { $0[name] = newValue } }
     }
-
-    func removeAll() { paths.withLock { $0.removeAll() } }
 }

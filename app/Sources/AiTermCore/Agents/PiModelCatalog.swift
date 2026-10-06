@@ -1,9 +1,21 @@
 import Foundation
 
-public enum PiModelCatalogError: Error, Equatable {
+public enum PiModelCatalogError: Error, Equatable, Sendable, LocalizedError {
     case unavailable
     case failed(Int32, String)
     case malformed(String)
+
+    /// What the New Task sheet says in place of PI's models when it has none to offer: PI's own
+    /// last line of complaint, when it gave one.
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable: return "PI couldn’t be launched."
+        case .failed(_, let stderr):
+            let reason = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
+            return reason.map { "The PI model catalogue is unavailable: \($0)" } ?? "The PI model catalogue is unavailable."
+        case .malformed: return "The PI model catalogue is unavailable."
+        }
+    }
 }
 
 public enum PiModelCatalog {
@@ -33,13 +45,14 @@ public enum PiModelCatalog {
         }
     }
 
-    public static func discover(runner: HarnessCommandRunner = .live) throws -> [AgentModel] {
+    /// PI's models, from `pi --list-models`. `ModelCatalogue` is what the app asks; it keeps them.
+    static func discover(runner: HarnessCommandRunner) throws -> [AgentModel] {
         guard let executable = runner.locate("pi") else { throw PiModelCatalogError.unavailable }
         return try discover(executable: executable, runner: runner)
     }
 
     /// `discover` with the CLI a probe has already found.
-    public static func discover(executable: String, runner: HarnessCommandRunner = .live) throws -> [AgentModel] {
+    static func discover(executable: String, runner: HarnessCommandRunner) throws -> [AgentModel] {
         let result: ProcessOutput
         do {
             result = try runner.run(executable, ["--offline", "--list-models"], ["PI_OFFLINE": "1"], 5)

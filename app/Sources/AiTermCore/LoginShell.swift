@@ -37,9 +37,19 @@ extension LoginShell {
     /// safe unquoted in a command are asked about.
     public static func locate(_ names: [String], runner: (String) -> String? = run,
                               isExecutable: (String) -> Bool = isExecutableFile) -> [String: String]? {
-        let asked = names.filter { !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }
+        let asked = askable(names)
         guard !asked.isEmpty else { return [:] }
-        guard let output = runner(locateQuery(asked)) else { return nil }
+        return runner(locateQuery(asked)).map { located(asked, in: $0, isExecutable: isExecutable) }
+    }
+
+    /// The names that are safe unquoted in a command, the only ones `locateQuery` may be built from.
+    static func askable(_ names: [String]) -> [String] {
+        names.filter { !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }
+    }
+
+    /// What `locateQuery(asked)` printed, read: the executable each name runs, if it names one.
+    /// Lines that are not an answer about an asked name — an rc file's banner — are skipped.
+    static func located(_ asked: [String], in output: String, isExecutable: (String) -> Bool) -> [String: String] {
         var found: [String: String] = [:]
         for line in output.split(whereSeparator: \.isNewline) {
             let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)

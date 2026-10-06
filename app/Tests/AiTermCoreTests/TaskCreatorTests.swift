@@ -183,7 +183,7 @@ import Darwin
         draft.setAgent(.claude, state: state, home: home, defaults: defaults)
         #expect(draft.model == "sonnet")
         #expect(draft.reasoning == "low")
-        draft.setModel("opus", catalog: ModelCatalog.models(for: .claude, home: home))
+        draft.setModel("opus", catalog: ModelCatalogue(home: home, runner: .nothingInstalled).read(.claude).models)
         #expect(ModelSettings.load(for: .claude, defaults: defaults)?.model == "sonnet")
     }
 

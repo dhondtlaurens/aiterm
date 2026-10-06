@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// One thing the user can type at the start of the first prompt: a slash command or a skill the
 /// chosen agent actually has on this machine.
@@ -36,7 +37,54 @@ public enum SkillCatalog {
 
     // -- discovery ------------------------------------------------------------------
 
+    /// What one discovery found, and the stamps of everything it looked at to find it.
+    private struct Discovery: Sendable { let stamps: FileStamps, found: [AgentCompletion] }
+
+    /// Every agent's, home's and project's last discovery. Each sheet opening and each agent picked
+    /// in one asked again: dozens of directory listings, and every `SKILL.md` read. Now a discovery
+    /// stands while nothing it looked at has changed — no directory it listed, no file it read, no
+    /// path it found missing — which a `stat` of each tells.
+    private static let discoveries = KeyedStates<Discovery?>(nil)
+
     public static func discover(agent: AgentKind, projectPath: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [AgentCompletion] {
+        let key = [agent.rawValue, home.path, projectPath ?? ""].joined(separator: "\u{0}")
+        return discoveries.withState(for: key) { known in
+            if let known, known.stamps.areCurrent { return known.found }
+            let walk = Walk()
+            let found = discover(agent: agent, projectPath: projectPath, home: home, walk: walk)
+            known = Discovery(stamps: walk.stamps, found: found)
+            return found
+        }
+    }
+
+    /// The paths a discovery looked at, each stamped just before it was: a directory before it is
+    /// listed, a file before it is read, a path whose existence was asked before it was asked. A
+    /// change after the stamp is a change the next discovery sees.
+    final class Walk {
+        private var paths: [String] = [], taken: [FileStamps.Stamp?] = [], seen = Set<String>()
+
+        func look(at path: String) {
+            guard seen.insert(path).inserted else { return }
+            paths.append(path)
+            taken.append(FileStamps.stamp(path))
+        }
+
+        var stamps: FileStamps { FileStamps(files: paths, stamps: taken) }
+    }
+
+    private static func discover(agent: AgentKind, projectPath: String?, home: URL, walk: Walk) -> [AgentCompletion] {
+        func skills(in root: URL, namespace: String?, source: AgentCompletion.Source, hidingNonInvocable: Bool = false) -> [AgentCompletion] {
+            Self.skills(in: root, namespace: namespace, source: source, hidingNonInvocable: hidingNonInvocable, walk: walk)
+        }
+        func commands(in root: URL, namespace: String?, source: AgentCompletion.Source, depth: Int = maxDepth) -> [AgentCompletion] {
+            Self.commands(in: root, namespace: namespace, source: source, depth: depth, walk: walk)
+        }
+        func pluginCompletions(under userRoot: URL, hidingNonInvocable: Bool = false) -> [AgentCompletion] {
+            Self.pluginCompletions(under: userRoot, hidingNonInvocable: hidingNonInvocable, walk: walk)
+        }
+        func piSkills(in root: URL, source: AgentCompletion.Source) -> [AgentCompletion] {
+            Self.piSkills(in: root, source: source, walk: walk)
+        }
         var found: [AgentCompletion] = []
         switch agent {
         case .claude:
@@ -98,16 +146,16 @@ public enum SkillCatalog {
         return found.filter { seen.insert($0.name).inserted }.sorted { $0.name < $1.name }
     }
 
-    private static func pluginCompletions(under userRoot: URL, hidingNonInvocable: Bool = false) -> [AgentCompletion] {
-        pluginRoots(under: userRoot.appendingPathComponent("plugins")).flatMap { plugin in
+    private static func pluginCompletions(under userRoot: URL, hidingNonInvocable: Bool, walk: Walk) -> [AgentCompletion] {
+        pluginRoots(under: userRoot.appendingPathComponent("plugins"), walk: walk).flatMap { plugin in
             skills(in: plugin.url.appendingPathComponent("skills"), namespace: plugin.name, source: .plugin(plugin.name),
-                   hidingNonInvocable: hidingNonInvocable)
-                + commands(in: plugin.url.appendingPathComponent("commands"), namespace: plugin.name, source: .plugin(plugin.name))
+                   hidingNonInvocable: hidingNonInvocable, walk: walk)
+                + commands(in: plugin.url.appendingPathComponent("commands"), namespace: plugin.name, source: .plugin(plugin.name), walk: walk)
         }
     }
 
-    private static func piSkills(in root: URL, source: AgentCompletion.Source) -> [AgentCompletion] {
-        skills(in: root, namespace: nil, source: source).map { item in
+    private static func piSkills(in root: URL, source: AgentCompletion.Source, walk: Walk) -> [AgentCompletion] {
+        skills(in: root, namespace: nil, source: source, walk: walk).map { item in
             AgentCompletion(name: item.name.hasPrefix("skill:") ? item.name : "skill:" + item.name,
                             kind: item.kind, detail: item.detail, source: item.source)
         }
@@ -117,11 +165,11 @@ public enum SkillCatalog {
     /// directory wins per plugin name (a newer version sorts after an older one, its numbers
     /// compared as numbers so `6.10.0` beats `6.9.0`), and buckets that hold no skills or commands
     /// are skipped.
-    static func pluginRoots(under pluginsDir: URL) -> [(name: String, url: URL)] {
+    static func pluginRoots(under pluginsDir: URL, walk: Walk) -> [(name: String, url: URL)] {
         var out: [String: URL] = [:]
         for base in ["cache", "synced"] {
             let dir = pluginsDir.appendingPathComponent(base)
-            for candidate in descend(dir, depth: 3) where isPluginRoot(candidate) {
+            for candidate in descend(dir, depth: 3, walk: walk) where isPluginRoot(candidate, walk: walk) {
                 // <…>/<plugin>/<version> and <…>/<plugin> are both seen; the plugin name is the
                 // directory that owns the skills, or its parent when a version sits in between.
                 let name = pluginName(for: candidate)
@@ -132,8 +180,12 @@ public enum SkillCatalog {
         return out.map { (name: $0.key, url: $0.value) }.sorted { $0.name < $1.name }
     }
 
-    static func isPluginRoot(_ url: URL) -> Bool {
-        ["skills", "commands"].contains { isDirectory(url.appendingPathComponent($0)) }
+    static func isPluginRoot(_ url: URL, walk: Walk) -> Bool {
+        ["skills", "commands"].contains { name in
+            let folder = url.appendingPathComponent(name)
+            walk.look(at: folder.path)
+            return isDirectory(folder)
+        }
     }
 
     static func pluginName(for root: URL) -> String {
@@ -152,15 +204,16 @@ public enum SkillCatalog {
     /// CLIs that keep such a skill out of their slash menu (Claude Code, Grok); Codex and PI
     /// document no such key.
     static func skills(in root: URL, namespace: String?, source: AgentCompletion.Source,
-                       hidingNonInvocable: Bool = false) -> [AgentCompletion] {
-        descend(root, depth: maxDepth).compactMap { dir in
+                       hidingNonInvocable: Bool = false, walk: Walk) -> [AgentCompletion] {
+        descend(root, depth: maxDepth, walk: walk).compactMap { dir in
             let manifest = dir.appendingPathComponent("SKILL.md")
+            walk.look(at: manifest.path)
             guard FileManager.default.fileExists(atPath: manifest.path) else { return nil }
-            let text = (try? String(contentsOf: manifest, encoding: .utf8)) ?? ""
-            if hidingNonInvocable, frontmatterValue("user-invocable", in: text)?.lowercased() == "false" { return nil }
-            let name = frontmatterValue("name", in: text).map(leafName) ?? dir.lastPathComponent
+            let fields = frontmatter(of: manifest)
+            if hidingNonInvocable, fields["user-invocable"]?.lowercased() == "false" { return nil }
+            let name = fields["name"].map(leafName) ?? dir.lastPathComponent
             return AgentCompletion(name: qualify(name, with: namespace), kind: .skill,
-                                   detail: frontmatterValue("description", in: text), source: source)
+                                   detail: fields["description"], source: source)
         }
     }
 
@@ -171,20 +224,22 @@ public enum SkillCatalog {
     /// afterwards: `contentsOfDirectory` hands back `/private/var/...` for a URL built from
     /// `/var/...`, so trimming the root off the string produced names like `/privatedeploy`.
     static func commands(in root: URL, namespace: String?, source: AgentCompletion.Source,
-                         prefix: [String] = [], depth: Int = maxDepth) -> [AgentCompletion] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(at: root.resolvingSymlinksInPath(), includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
+                         prefix: [String] = [], depth: Int = maxDepth, walk: Walk) -> [AgentCompletion] {
+        let listed = root.resolvingSymlinksInPath()
+        walk.look(at: root.path); walk.look(at: listed.path)
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: listed, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
         var out: [AgentCompletion] = []
         for entry in entries {
             let component = entry.lastPathComponent
             guard !component.hasPrefix(".") else { continue }
             if isDirectory(entry) {
                 guard depth > 0, !isSkipped(component) else { continue }
-                out += commands(in: entry, namespace: namespace, source: source, prefix: prefix + [component], depth: depth - 1)
+                out += commands(in: entry, namespace: namespace, source: source, prefix: prefix + [component], depth: depth - 1, walk: walk)
             } else if entry.pathExtension == "md", component != "SKILL.md" {
                 let name = (prefix + [entry.deletingPathExtension().lastPathComponent]).joined(separator: ":")
-                let text = (try? String(contentsOf: entry, encoding: .utf8)) ?? ""
+                walk.look(at: entry.path)
                 out.append(AgentCompletion(name: qualify(name, with: namespace), kind: .command,
-                                           detail: frontmatterValue("description", in: text), source: source))
+                                           detail: frontmatter(of: entry)["description"], source: source))
             }
         }
         return out
@@ -219,15 +274,17 @@ public enum SkillCatalog {
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
     }
 
-    static func descend(_ root: URL, depth: Int) -> [URL] {
+    static func descend(_ root: URL, depth: Int, walk: Walk) -> [URL] {
         guard depth > 0 else { return [] }
         // A symlinked directory is not listed through the link itself, only through its target.
-        guard let entries = try? FileManager.default.contentsOfDirectory(at: root.resolvingSymlinksInPath(), includingPropertiesForKeys: [.isDirectoryKey],
+        let listed = root.resolvingSymlinksInPath()
+        walk.look(at: root.path); walk.look(at: listed.path)
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: listed, includingPropertiesForKeys: [.isDirectoryKey],
                                                                         options: [.skipsPackageDescendants]) else { return [] }
         var out: [URL] = []
         for entry in entries where !isSkipped(entry.lastPathComponent) && isDirectory(entry) {
             out.append(entry)
-            out += descend(entry, depth: depth - 1)
+            out += descend(entry, depth: depth - 1, walk: walk)
         }
         return out
     }
@@ -237,17 +294,27 @@ public enum SkillCatalog {
     /// The value of one key in a `---` frontmatter block, including the folded (`>-`, `|`) form
     /// that longer skill descriptions use.
     public static func frontmatterValue(_ key: String, in text: String) -> String? {
-        let lines = text.components(separatedBy: "\n")
-        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
+        frontmatter(in: text)[key].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Every key of a `---` frontmatter block, read in one pass; the first of a key wins, and a key
+    /// with nothing after it reads as empty.
+    static func frontmatter(in text: String) -> [String: String] {
+        var lines = text.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return [:] }
+        if let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) {
+            lines.removeSubrange(end...)
+        }
+        var values: [String: String] = [:]
         var i = 1
         while i < lines.count {
             let line = lines[i]
-            if line.trimmingCharacters(in: .whitespaces) == "---" { return nil }
-            guard line.hasPrefix(key + ":") else { i += 1; continue }
-            var value = String(line.dropFirst(key.count + 1)).trimmingCharacters(in: .whitespaces)
+            i += 1
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let key = String(line[..<colon])
+            var value = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
             if value == ">" || value == ">-" || value == "|" || value == "|-" {
                 var folded: [String] = []
-                i += 1
                 while i < lines.count, lines[i].hasPrefix("  ") {
                     folded.append(lines[i].trimmingCharacters(in: .whitespaces)); i += 1
                 }
@@ -256,9 +323,32 @@ public enum SkillCatalog {
             if value.count >= 2, (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
                 value = String(value.dropFirst().dropLast())
             }
-            return value.isEmpty ? nil : value
+            if values[key] == nil { values[key] = value }
         }
-        return nil
+        return values.filter { !$0.value.isEmpty }
+    }
+
+    /// `url`'s frontmatter, from as much of the file as holds it: a skill's body can run to pages,
+    /// and only the block at its top is read.
+    static func frontmatter(of url: URL) -> [String: String] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [:] }
+        defer { try? handle.close() }
+        var data = Data()
+        while let chunk = try? handle.read(upToCount: 8192), !chunk.isEmpty {
+            data.append(chunk)
+            if frontmatterIsComplete(in: data) { break }
+        }
+        guard let text = String(data: data, encoding: .utf8) else { return [:] }
+        return frontmatter(in: text)
+    }
+
+    /// Whether `data` already holds the whole block, or shows there is none: its first line is
+    /// complete and is not `---`, or a later complete line closes the block.
+    private static func frontmatterIsComplete(in data: Data) -> Bool {
+        let lines = String(decoding: data, as: UTF8.self).components(separatedBy: "\n").dropLast()
+        guard let first = lines.first else { return false }
+        guard first.trimmingCharacters(in: .whitespaces) == "---" else { return true }
+        return lines.dropFirst().contains { $0.trimmingCharacters(in: .whitespaces) == "---" }
     }
 
     // -- matching -------------------------------------------------------------------

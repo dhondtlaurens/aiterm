@@ -27,10 +27,11 @@ final class ReviewCreationModel: CreationModel<ReviewDraft, MergeRequest> {
     // requests would make a misconfigured sheet look merely empty rather than broken, and every
     // real call site passes `ReviewCreationModel.searcher(gitLab:gitHub:remote:)` anyway.
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
-    /// would read the developer's own from anything that left them out.
+    /// would read the developer's own from anything that left them out. A `catalogue` that throws
+    /// has no models to offer, and the sheet says why in their place.
     init(project: Project, draft: ReviewDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
          rememberedModels: [AgentKind: String] = [:],
-         catalogue: @escaping @Sendable (AgentKind) -> [AgentModel],
+         catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
          initialCatalogue: [AgentModel]? = nil,
          defaults: UserDefaults = .standard, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
