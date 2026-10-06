@@ -420,7 +420,7 @@ extension AppControllerTests {
         case .newTerminal: controller.presentNewTerminal(project: fixture.project)
         case .settings: controller.presentSettings()
         }
-        let preparing = try #require(controller.preparingSheet)
+        let preparing = try #require(controller.sheets.preparingSheet)
 
         controller.presentNewDivider()
         await preparing.value
@@ -439,7 +439,7 @@ extension AppControllerTests {
         case .newTerminal: controller.presentNewTerminal(project: fixture.project)
         case .settings: controller.presentSettings()
         }
-        let preparing = try #require(controller.preparingSheet)
+        let preparing = try #require(controller.sheets.preparingSheet)
 
         controller.sheet = .newDivider
         await preparing.value
@@ -455,8 +455,12 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
+        // With the project's branch read, New Terminal opens at once too.
+        await controller.checkouts.refresh().value
+        try #require(controller.checkouts.projectBranch[fixture.project.id] != nil)
         let presenters: [(String, () -> Void)] = [
             ("divider", { controller.presentNewDivider() }),
+            ("new terminal", { controller.presentNewTerminal(project: fixture.project) }),
             ("rename divider", { controller.presentRename(divider: SidebarDivider(id: UUID(), name: "D")) }),
             ("rename task", { controller.presentRename(task: task) }),
             ("rename terminal", { controller.presentRename(terminal: terminal) }),
@@ -465,13 +469,45 @@ extension AppControllerTests {
         for (name, present) in presenters {
             controller.sheet = nil
             controller.presentNewTask(project: fixture.project)
-            let preparing = try #require(controller.preparingSheet)
+            let preparing = try #require(controller.sheets.preparingSheet)
             present()
             await preparing.value
             #expect(preparing.isCancelled, "\(name) cancels the preparation")
             #expect(controller.sheet?.id.hasPrefix("task-") == false, "\(name) is not replaced by New Task")
             #expect(controller.sheet != nil, "\(name) opened its own sheet")
         }
+    }
+
+    /// New Terminal names the branch the checkout monitor read for the project, the one the
+    /// terminal's row and tab titles will show, and so opens at once. Only before the monitor's first
+    /// pass does it ask git, off the main actor.
+    @Test func newTerminalOpensAtOnceOnTheBranchTheCheckoutMonitorRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let git = GitRunner.hermetic()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git.run(["init", "-q", "-b", "main"], in: root.path)
+        let project = Project(id: UUID(), name: "Repo", path: root.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        // The monitor's answer differs from git's, so the sheet says which one it took.
+        let seen = WorkspaceScan(branchByCwd: [:], projectBranch: [project.id: "feat/seen"], missingCheckouts: [], removedTasks: [], remotes: [:])
+        let controller = AppController(preferences: .scratch(), git: git, scan: { _, _, _, _, _, _, _ in seen })
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        controller.workspace.mutate { $0.items = [.project(project)] }
+
+        controller.presentNewTerminal(project: project)
+        await (try #require(controller.sheets.preparingSheet)).value
+        guard case .newTerminal(_, let name, let branch)? = controller.sheet else { Issue.record("expected New Terminal"); return }
+        #expect(branch == "main", "git's answer, before the monitor has one")
+        #expect(name == TerminalItem.defaultName)
+
+        controller.sheet = nil
+        await controller.checkouts.refresh().value
+        controller.presentNewTerminal(project: project)
+        #expect(controller.sheets.preparingSheet == nil)
+        guard case .newTerminal(_, let name, let branch)? = controller.sheet else { Issue.record("expected New Terminal at once"); return }
+        #expect(branch == "feat/seen")
+        #expect(name == TerminalItem.defaultName)
     }
 
     /// Reopen Window stays on the menu while the daemon is away, so it says why nothing happens.

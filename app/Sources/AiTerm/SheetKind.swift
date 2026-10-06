@@ -47,9 +47,10 @@ extension AppController {
         }
     }
 
-    /// The New Task case carries its draft: building it costs a `git symbolic-ref` and a read of
-    /// the agent's config, and SwiftUI re-creates a sheet's root view on every state change of the
-    /// presenting view — so the draft is built once here instead of in `NewTaskSheet.init`.
+    /// The New Task case carries its draft: building it costs a read of the agent's config — and
+    /// git, for a default branch the checkout monitor has not read yet — and SwiftUI re-creates a
+    /// sheet's root view on every state change of the presenting view, so the draft is built once,
+    /// by `SheetCoordinator`, instead of in `NewTaskSheet.init`.
     enum SheetKind: Identifiable {
         case jiraProjects(Project)
         case newTask(TaskCreationModel), newReview(ReviewCreationModel)

@@ -22,7 +22,15 @@ final class AppController {
     var persistenceError: String? { workspace.persistenceError }
     var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
 
-    var sheet: SheetKind?
+    /// The sheet slot, every way into it, and the creation sheets' models.
+    let sheets: SheetCoordinator
+    /// `sheets`', forwarded: the sidebar presents it, and the menus grey behind it.
+    var sheet: SheetKind? {
+        get { sheets.sheet }
+        set { sheets.sheet = newValue }
+    }
+    /// A project's terminals: a new one, a reopened window, a terminal closed.
+    let terminals: TerminalActions
     /// The banner above the list and the completion toast, and which report wins the banner.
     let notices: Notices
 
@@ -50,21 +58,12 @@ final class AppController {
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
     let git: any GitRunning
-    /// The home whose agent configuration the sheets read — models, skills, commands. The
-    /// person's own in the app; a test's is a bare directory of its own.
-    private let harnessHome: URL
-    /// Read the saved Jira, GitLab and GitHub connections. Each reads the Keychain (Jira and GitLab also
-    /// UserDefaults), so they are called off the main actor.
+    /// Reads the saved Jira connection — the Keychain and UserDefaults — off the main actor, for a
+    /// project's Jira projects sheet.
     private let jiraSettings: @Sendable () -> JiraConfig?
-    private let gitLabSettings: @Sendable () -> GitLabConfig?
-    private let gitHubSettings: @Sendable () -> GitHubConfig?
     private let taskWorkflow: TaskWorkflow
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
-    /// Brings iTerm2 forward once a new terminal's window is frontmost in it (`focus` does the same
-    /// for a chosen row): the daemon raises the window inside iTerm2 but leaves the app behind
-    /// AiTerm. Only the app activates anything, so the default is nothing.
-    private let activateIterm: @MainActor () -> Void
     @ObservationIgnored private var dockBadgeLabel: String?
 
     /// The work under way on each project, task and terminal: what one waits for before it starts,
@@ -78,7 +77,6 @@ final class AppController {
     /// Whether the project's default branch is being pulled or rebased, as its menu reads it.
     func isChangingDefaultBranch(_ projectId: UUID) -> Bool { defaultBranchRows[projectId] }
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
-    @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
     /// Nothing here has a default: every dependency that reaches outside the process — the state
     /// file, the Keychain, a login shell, the person's home, the modal alerts — is named by whoever
@@ -112,12 +110,9 @@ final class AppController {
         let work = WorkInFlight()
         self.work = work
         self.preferences = preferences
-        self.harnessHome = harnessHome
         self.git = git
         taskWorkflow = TaskWorkflow(git: git)
         self.jiraSettings = jiraSettings
-        self.gitLabSettings = gitLabSettings
-        self.gitHubSettings = gitHubSettings
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false },
                               withdrawn: { link.controller?.remover.clearStoppedNote(of: $0) })
@@ -157,10 +152,22 @@ final class AppController {
         }
         self.prompter = prompter
         self.setBadge = setBadge
-        self.activateIterm = activateIterm
-        agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
-                                   rememberedModels: { workspace.state.lastModelByAgent },
-                                   availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
+        let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
+                                       rememberedModels: { workspace.state.lastModelByAgent },
+                                       availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
+        self.agents = agents
+        terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
+                                    tiling: tiling, daemon: { helper.daemon }, activateIterm: activateIterm)
+        sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
+                                  jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
+                                  createTask: { draft, project in
+                                      guard let controller = link.controller else { throw CancellationError() }
+                                      try await controller.createTask(draft: draft, project: project)
+                                  },
+                                  createReview: { draft, project in
+                                      guard let controller = link.controller else { throw CancellationError() }
+                                      try await controller.createReview(draft: draft, project: project)
+                                  })
         // What a change to the workspace sets off, once per change, in this order: whatever named a
         // row that has gone goes with it — its context fills and the banner about it — then the rows
         // are derived again if they changed, with the Dock badge counting what is left, and only
@@ -197,7 +204,7 @@ final class AppController {
         agentProbe?.cancel()
         agentProbe = nil
         checkouts.stop()
-        preparingSheet?.cancel()
+        sheets.cancelPreparation()
         focus.cancel()
         helper.shutdown()
     }
@@ -379,12 +386,6 @@ final class AppController {
         return try await JiraClient(config: config).projects()
     }
 
-    /// The sheet that edits the project's linked Jira projects, opened on the list as it is now.
-    func presentJiraProjects(for project: Project) {
-        guard canChangeWorkspace, let current = state.project(id: project.id) else { return }
-        present(.jiraProjects(current))
-    }
-
     /// Replaces the project's linked Jira projects with `jiraProjects`, each once, in their order.
     /// An empty list unlinks them all.
     func setJiraProjects(_ jiraProjects: [JiraProjectRef], on project: Project) {
@@ -545,11 +546,6 @@ final class AppController {
     }
 
     // -- dividers and renames -------------------------------------------------------
-    func presentNewDivider() {
-        guard canChangeWorkspace else { return }
-        present(.newDivider)
-    }
-
     /// A divider is pure workspace state: no daemon call, no window, nothing to undo but the label.
     func addDivider(name: String) {
         guard canChangeWorkspace else { return }
@@ -560,16 +556,6 @@ final class AppController {
     func removeDivider(_ divider: SidebarDivider) {
         guard canChangeWorkspace else { return }
         workspace.mutate { $0.removeItem(id: divider.id) }
-    }
-
-    func presentRename(divider: SidebarDivider) {
-        guard canChangeWorkspace else { return }
-        present(.rename(.divider(divider)))
-    }
-
-    func presentRename(task: TaskItem) {
-        guard canChangeWorkspace else { return }
-        present(.rename(.task(task)))
     }
 
     /// An empty name is a real choice for a divider — the row draws a plain rule.
@@ -588,11 +574,6 @@ final class AppController {
         workspace.mutate { $0.tasks[i].title = trimmed }
     }
 
-    func presentRename(terminal: TerminalItem) {
-        guard canChangeWorkspace, let current = state.terminal(id: terminal.id) else { return }
-        present(.rename(.terminal(current)))
-    }
-
     /// The row's name, and the one its window is opened with on Reopen. Nothing in iTerm2 changes:
     /// its tabs are titled with their branch (`SidebarModel.sessionTitles`), not with this name,
     /// and the window's profile name is set once, as it opens. An empty name keeps the old one.
@@ -604,121 +585,17 @@ final class AppController {
     }
 
     // -- sheets ---------------------------------------------------------------------
-    /// Puts `kind` in the sheet slot straight away, and ends any preparation still on its way to
-    /// the slot: New Task, New Review, New Terminal and Settings read something off the main actor
-    /// first, and the menu stays enabled meanwhile, so what the person opened since is the sheet
-    /// they are typing into. The preparations check the slot is empty as they finish too, for a
-    /// sheet put there by other means.
-    private func present(_ kind: SheetKind) {
-        preparingSheet?.cancel()
-        preparingSheet = nil
-        sheet = kind
-    }
-
-    /// Settings opens on the saved connections, read off the main actor: two Keychain items and
-    /// UserDefaults, which can take a moment, and a Keychain that asks for access longer still.
-    /// Off behind another sheet, as the zoom and view items are: Settings would replace it, and a
-    /// New Task draft with it.
-    var canPresentSettings: Bool { sheet == nil }
-
-    func presentSettings() {
-        guard canPresentSettings else { return }
-        preparingSheet?.cancel()
-        let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
-        preparingSheet = Task {
-            let saved = try? await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
-            guard !Task.isCancelled, let saved, canPresentSettings else { return }
-            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub)
-        }
-    }
-
-    /// Builds the draft once, here, and hands it to the sheet (see `SheetKind`): SwiftUI re-creates
-    /// a sheet's root view on every state change of the presenting view, and a draft costs a git
-    /// call and a read of the agent's model catalogue.
-    func presentNewTask(project: Project) {
-        // The monitor reads each project's default branch on every pass: nothing to ask git for.
-        let git = self.git, known = checkouts.defaultBranch[project.id]
-        prepareSheet(for: project, draft: { TaskDraft.initial(project: project, state: $0, git: git, agent: $1, catalog: $2, defaultBranch: known) },
-                     search: jiraSettings) { [unowned self] in
-            .newTask(makeCreationModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2, jira: $3))
-        }
-    }
-
-    func presentNewReview(project: Project) {
-        let gitLab = gitLabSettings, gitHub = gitHubSettings
-        prepareSheet(for: project, draft: { ReviewDraft.initial(state: $0, agent: $1, catalog: $2) },
-                     search: { (gitLab: gitLab(), gitHub: gitHub(),
-                                remote: ProviderDetector.detect(remoteUrl: project.remoteUrl, repoPath: project.path)) }) { [unowned self] in
-            .newReview(makeReviewModel(project: project, draft: $0, catalogue: $1, catalogueFailure: $2,
-                                       gitLab: $3.gitLab, gitHub: $3.gitHub, remote: $3.remote))
-        }
-    }
-
-    /// The remembered agent may be one that is no longer installed, so the draft falls back to an
-    /// available one — the sheet's picker disables the missing ones and says why. The agent's
-    /// catalogue is read for the draft and handed to the sheet's model with it — and why it has no
-    /// models, when it could not be read, so the sheet neither reads it again nor launches a
-    /// failing PI a second time.
-    /// `search` is read here too — what the sheet's search needs from the Keychain and the
-    /// checkout — so no keystroke has to.
-    private func prepareSheet<Draft, Search>(for project: Project,
-                                             draft build: @escaping @Sendable (AppState, AgentKind, [AgentModel]) -> Draft,
-                                             search resolve: @escaping @Sendable () -> Search,
-                                             sheet makeSheet: @escaping (Draft, [AgentModel], String?, Search) -> SheetKind)
-        where Draft: AgentDraft & Sendable, Search: Sendable {
-        guard canChangeWorkspace else { return }
-        preparingSheet?.cancel()
-        let state = self.state, available = agents.availableAgents, catalogue = agents.catalogue
-        let agent = AgentAvailability.agent(preferring: state.lastAgentByProject[project.id] ?? .claude, available: available)
-        preparingSheet = Task {
-            let prepared = try? await BackgroundWork.run {
-                let read = Result { try catalogue.models(for: agent) }
-                let catalog = (try? read.get()) ?? []
-                var failure: String?
-                if case .failure(let error) = read { failure = error.localizedDescription }
-                return (draft: build(state, agent, catalog), catalog: catalog, failure: failure, search: resolve())
-            }
-            guard !Task.isCancelled, canChangeWorkspace, sheet == nil, let prepared,
-                  self.state.project(id: project.id) != nil else { return }
-            sheet = makeSheet(prepared.draft, prepared.catalog, prepared.failure, prepared.search)
-        }
-    }
-
-    /// `catalogue` is the one `draft` was built from, if the caller read it, and `catalogueFailure`
-    /// why it is empty if reading it failed; `jira` is the connection read when the sheet was prepared.
-    func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
-                           jira: JiraConfig?) -> TaskCreationModel {
-        let models = agents.catalogue
-        return TaskCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: agents.availableAgents,
-                          rememberedModels: state.lastModelByAgent,
-                          catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
-                          initialCatalogueFailure: catalogueFailure, git: git,
-                          canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
-                          searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
-                          createTask: { [weak self] draft in
-                              guard let self else { throw CancellationError() }
-                              try await self.createTask(draft: draft, project: project)
-                          })
-    }
-
-    private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
-                                 gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
-        let models = agents.catalogue
-        return ReviewCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: agents.availableAgents,
-                            rememberedModels: state.lastModelByAgent,
-                            catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
-                            initialCatalogueFailure: catalogueFailure, git: git,
-                            canChangeWorkspace: { [weak self] in self?.canChangeWorkspace == true },
-                            owningTask: { [weak self] branch, checkouts in
-                                self?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)
-                            },
-                            codeHost: MergeRequestSearch.host(for: remote),
-                            searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
-                            createReview: { [weak self] draft in
-                                guard let self else { throw CancellationError() }
-                                try await self.createReview(draft: draft, project: project)
-                            })
-    }
+    /// `sheets`', forwarded: the menus, the rows and the tests open a sheet here.
+    var canPresentSettings: Bool { sheets.canPresentSettings }
+    func presentSettings() { sheets.presentSettings() }
+    func presentJiraProjects(for project: Project) { sheets.presentJiraProjects(for: project) }
+    func presentNewDivider() { sheets.presentNewDivider() }
+    func presentRename(divider: SidebarDivider) { sheets.presentRename(divider: divider) }
+    func presentRename(task: TaskItem) { sheets.presentRename(task: task) }
+    func presentRename(terminal: TerminalItem) { sheets.presentRename(terminal: terminal) }
+    func presentNewTask(project: Project) { sheets.presentNewTask(project: project) }
+    func presentNewReview(project: Project) { sheets.presentNewReview(project: project) }
+    func presentNewTerminal(project: Project) { sheets.presentNewTerminal(project: project) }
 
     // -- tasks ----------------------------------------------------------------------
     func createTask(draft: TaskDraft, project: Project) async throws {
@@ -791,7 +668,7 @@ final class AppController {
     /// The new row is selected and its window opens beside the sidebar, but iTerm2 is not brought
     /// forward: the agent is already working on the prompt, so the keyboard stays in the sidebar,
     /// as after a peek, and Return commits. A new terminal, which has nothing running, does come
-    /// forward (see `newTerminal(project:name:)`).
+    /// forward (see `TerminalActions.newTerminal(project:name:)`).
     private func create(_ draft: some AgentDraft, kind: TaskKind, in project: Project,
                         checkout: () async throws -> TaskWorkflow.Created) async throws {
         let noun = kind == .review ? "Review" : "Task"
@@ -907,102 +784,13 @@ final class AppController {
     #endif
 
     // -- terminals ------------------------------------------------------------------
-    /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
-    /// terminal opens in the project folder and starts no agent. The branch is read here rather
-    /// than in the sheet, for the same reason `TaskDraft` is (see `SheetKind`): SwiftUI re-creates
-    /// a sheet's root view on every state change of the presenting view, and this is a git call.
-    func presentNewTerminal(project: Project) {
-        guard canChangeWorkspace else { return }
-        preparingSheet?.cancel()
-        let git = self.git
-        preparingSheet = Task {
-            let branch = try? await BackgroundWork.run { try git.run(["symbolic-ref", "--short", "HEAD"], in: project.path) }
-            guard !Task.isCancelled, canChangeWorkspace, sheet == nil, state.project(id: project.id) != nil else { return }
-            sheet = .newTerminal(project, name: TerminalItem.suggestedName(existing: state.terminals.filter { $0.projectId == project.id }), branch: branch ?? "")
-        }
-    }
-
+    /// `terminals`', forwarded: the rows' menus, ⌘⌫ and the tests reach a terminal here.
     @discardableResult
-    func newTerminal(project: Project, name: String) -> Task<Void, Never>? {
-        guard canChangeWorkspace else { return nil }
-        guard let daemon = helper.daemon else { report(.disconnected("creating the terminal")); return nil }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = trimmed.isEmpty ? TerminalItem.suggestedName(existing: state.terminals.filter { $0.projectId == project.id }) : trimmed
-        let opening = work.begin(.openingTerminal, onProject: project.id)
-        // Selected like a new task, and — unlike one — brought forward: an empty shell is only
-        // useful once typed into. Neither if another row was chosen meanwhile.
-        let generation = focus.generation
-        return Task {
-            defer { if let opening { work.end(opening) } }
-            guard canChangeWorkspace else { return }
-            do {
-                let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, cwd: project.path, title: name, frame: tiling.taskFrame())
-                // Removal waits for this, but a restored backup replaces the whole workspace. A row
-                // whose project is gone would fail every save, so the window is closed, not adopted.
-                guard state.project(id: project.id) != nil else {
-                    try? await daemon.closeWindowIfOpen(wid)
-                    return
-                }
-                let item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: wid, createdAt: Date())
-                workspace.mutate { $0.terminals.append(item) }
-                checkouts.refresh()
-                guard generation == focus.generation else { return }
-                focus.browse(.terminal(item.id))
-                activateIterm()
-            } catch { report(OperationIssue(title: "Couldn’t open the terminal.", error: error)) }
-        }
-    }
-
-    /// The terminal twin of `reopen(task:)`: a new window in the project's own directory, adopted by
-    /// the row that lost its window.
+    func newTerminal(project: Project, name: String) -> Task<Void, Never>? { terminals.newTerminal(project: project, name: name) }
     @discardableResult
-    func reopen(terminal: TerminalItem, project: Project) -> Task<Void, Never>? {
-        guard canChangeWorkspace else { return nil }
-        guard let current = state.terminal(id: terminal.id), current.windowId == nil else { return nil }
-        guard let daemon = helper.daemon else { report(.disconnected("Reopen Window again")); return nil }
-        guard let reopening = work.begin(.reopening, onTerminal: terminal.id) else { return nil }
-        return Task {
-            defer { work.end(reopening) }
-            guard canChangeWorkspace else { return }
-            do {
-                let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, cwd: project.path, title: current.name, frame: tiling.taskFrame())
-                // As for a task's window: a row that went meanwhile cannot adopt it.
-                guard let i = state.terminals.firstIndex(where: { $0.id == terminal.id }) else {
-                    try? await daemon.closeWindowIfOpen(wid)
-                    return
-                }
-                workspace.mutate { $0.terminals[i].windowId = wid }
-            } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
-        }
-    }
-
-    /// Closing a terminal touches nothing on disk — there is no worktree behind it — so it needs no
-    /// confirmation, unlike removing a task. The row's copy is as old as the click, so the window
-    /// closed is the one the terminal has when the close runs: a reopen can have given it one since.
-    /// A close while the window is still reopening says so rather than racing it.
+    func reopen(terminal: TerminalItem, project: Project) -> Task<Void, Never>? { terminals.reopen(terminal: terminal, project: project) }
     @discardableResult
-    func close(terminal: TerminalItem) -> Task<Void, Never>? {
-        guard canChangeWorkspace, let current = state.terminal(id: terminal.id) else { return nil }
-        switch work.operation(onTerminal: terminal.id) {
-        case .closing: return nil // the Remove already in flight
-        case .reopening:
-            report("“\(current.name)” is still reopening its window. Try Remove Terminal again once it has.")
-            return nil
-        case nil: break
-        }
-        guard let closing = work.begin(.closing, onTerminal: terminal.id) else { return nil }
-        return Task {
-            defer { work.end(closing) }
-            guard canChangeWorkspace else { return }
-            if let wid = state.terminal(id: terminal.id)?.windowId {
-                guard let daemon = helper.daemon else { report(.disconnected("Remove Terminal again")); return }
-                do { try await daemon.closeWindowIfOpen(wid) }
-                catch { report(OperationIssue(title: "Couldn’t close the terminal.", error: error)); return }
-            }
-            workspace.mutate { $0.terminals.removeAll { $0.id == terminal.id } }
-            focus.dropStale()
-        }
-    }
+    func close(terminal: TerminalItem) -> Task<Void, Never>? { terminals.close(terminal: terminal) }
 
     // -- the File menu -----------------------------------------------------------------
     /// The project File › New Task, New Review and New Terminal act on: the selected project header,

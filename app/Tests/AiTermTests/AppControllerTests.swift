@@ -1233,7 +1233,7 @@ extension AppControllerTests {
         let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
                                        harnessHome: home, bundledResourcesURL: nil)
         let project = Project(id: UUID(), name: "Repo", path: root.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let model = controller.makeCreationModel(
+        let model = controller.sheets.makeCreationModel(
             project: project, draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil), jira: nil)
 
         await model.loadAgentCatalogue()

@@ -19,7 +19,7 @@ import AiTermCore
             JiraTicket(key: "ML-2", summary: "Second ticket", description: nil,
                        issueType: "Task", status: "In Progress", url: "https://example/ML-2"),
         ]
-        let model = controller.makeCreationModel(project: project, draft: draft, jira: nil)
+        let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
         // The search's answer, as `.task` would land it; a bare `NSHostingView` never runs it.
         model.results = tickets
         let sheet = NewTaskSheet(model: model).seeded(step: 1, ticketsOpen: true)

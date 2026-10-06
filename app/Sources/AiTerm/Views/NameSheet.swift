@@ -85,10 +85,10 @@ extension NameSheet {
     /// project folder and starts no agent, unlike `NewTaskSheet`'s three steps. Its iTerm2 tabs are
     /// titled with their branch, as every AiTerm window's are, not with this name.
     ///
-    /// The suggestion and the branch are computed by `AppController.presentNewTerminal(project:)`
+    /// The suggestion and the branch are computed by `SheetCoordinator.presentNewTerminal(project:)`
     /// and passed in: SwiftUI re-creates a sheet's root view on every state change of the
     /// presenting view, so a name computed here would jump back to the suggestion mid-typing and
-    /// the branch would cost a `git symbolic-ref` on every one of those rebuilds. `branch` is the
+    /// the branch would be looked up on every one of those rebuilds. `branch` is the
     /// project's checked-out one, for the destination line: terminals run in the repository itself,
     /// not in a worktree, so there is nothing to derive it from but the repo.
     static func newTerminal(project: Project, suggestedName: String, branch: String, canCreate: Bool,

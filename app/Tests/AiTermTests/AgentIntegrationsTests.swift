@@ -21,7 +21,7 @@ struct AgentIntegrationsTests {
         defer { try? FileManager.default.removeItem(at: root) }
         controller.agents.availableAgents = [.claude]
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let model = controller.makeCreationModel(
+        let model = controller.sheets.makeCreationModel(
             project: project, draft: TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil),
             catalogue: [], jira: nil)
         controller.sheet = .newTask(model)

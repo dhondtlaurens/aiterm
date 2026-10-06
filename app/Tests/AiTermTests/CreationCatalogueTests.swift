@@ -6,7 +6,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The creation sheets read their models through the app's `ModelCatalogue`, as
-/// `AppController.makeCreationModel` wires them.
+/// `SheetCoordinator.makeCreationModel` wires them.
 @MainActor
 struct CreationCatalogueTests {
     /// Every opening of a sheet with PI picked, and every switch back to PI, launched PI's CLI. Now
