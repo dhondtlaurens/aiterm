@@ -92,7 +92,9 @@ enum ModelListing: Sendable {
         }
     }
 
-    /// The list, read now. A launched list without its CLI is unavailable.
+    /// The list, read now. A launched list without its CLI is unavailable. PI's is the only one
+    /// launched, so a launch's failure is `PiModelCatalogError`, which `ModelCatalogue` words; a
+    /// second launched list would generalise that error, not copy it.
     func read(home: URL, executable: String?, runner: HarnessCommandRunner) throws -> [AgentModel] {
         switch self {
         case .files(_, let read): return read(home)
@@ -117,7 +119,6 @@ struct SkillRoot: Sendable {
 
     /// `source` is what the place's completions are offered as; a plugin's are offered as that
     /// plugin's, whatever it says.
-
     var kind: Kind, url: URL, source: AgentCompletion.Source
 
     init(_ kind: Kind, _ url: URL, _ source: AgentCompletion.Source) {
