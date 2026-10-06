@@ -808,7 +808,7 @@ import Testing
         let imported = Dictionary(uniqueKeysWithValues: controller.state.tasks.map { ($0.branch, $0.kind) })
         #expect(imported.count == 2, "both worktrees import: \(controller.state.tasks.map(\.branch))")
         #expect(imported["feat/mr-branch"] == .review, "the review's lock reason survives the round trip")
-        #expect(imported["feat/a-task"] == TaskKind?.none, "a task stays a task")
+        #expect(imported["feat/a-task"] == .task, "a task stays a task")
         #expect(controller.state.tasks.filter { $0.kind == .review }.allSatisfy { !TaskRemover.offersBranchDeletion(for: $0) })
     }
 

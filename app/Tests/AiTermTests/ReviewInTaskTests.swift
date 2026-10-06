@@ -30,7 +30,7 @@ extension AppControllerTests {
         // The task now has a merge request, so its row shows the badge.
         let saved = try #require(try fixture.controller.savedWorkspace().tasks.first)
         #expect(saved.mr == MergeRequestRef(iid: 7, title: "Work", url: "https://gitlab/x/-/merge_requests/7"))
-        #expect(saved.kind == nil && saved.branch == "feat/work" && saved.worktreePath == fixture.task.worktreePath)
+        #expect(saved.kind == .task && saved.branch == "feat/work" && saved.worktreePath == fixture.task.worktreePath)
         #expect(fixture.controller.state.lastAgentByProject[fixture.project.id] == .claude)
     }
 

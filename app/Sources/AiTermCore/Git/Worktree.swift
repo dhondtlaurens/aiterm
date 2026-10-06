@@ -29,9 +29,9 @@ public struct Worktree: Equatable, Sendable {
     /// prefix is a weaker fallback for a worktree whose lock was dropped by hand or lost in a copy
     /// of the repository; it can mislabel a task on a branch like `feat/review-dashboard`, which
     /// costs that task its delete-branch checkbox and nothing else. The costs are not symmetric.
-    public var importedKind: TaskKind? {
+    public var importedKind: TaskKind {
         if lockReason == Self.reviewLockReason { return .review }
-        return URL(fileURLWithPath: path).lastPathComponent.hasPrefix("review-") ? .review : nil
+        return URL(fileURLWithPath: path).lastPathComponent.hasPrefix("review-") ? .review : .task
     }
 
     /// `git worktree list --porcelain`: blank-line-separated records of `worktree <path>`,

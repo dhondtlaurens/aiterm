@@ -1,10 +1,12 @@
 import Foundation
 import Synchronization
 
-public enum TaskStatus: Equatable, Sendable {
-    case idle, working, needsInput, done
+/// A row's status: its tabs' states, aggregated (`SidebarModel.aggregate`) — the same four a tab
+/// has, so the same type.
+public typealias TaskStatus = SessionState
 
-    public var label: String {
+public extension SessionState {
+    var label: String {
         switch self {
         case .idle: return "Idle"
         case .working: return "Working"
@@ -14,8 +16,9 @@ public enum TaskStatus: Equatable, Sendable {
     }
 
     /// The two statuses that are yours to act on, which Focus View opens a project for.
-    public var needsAttention: Bool { self == .done || self == .needsInput }
+    var needsAttention: Bool { self == .done || self == .needsInput }
 }
+
 public extension SessionInfo {
     /// The tab without what no row draws, for telling a change the rows draw from one they don't:
     /// most session events are a context fill, a model or a Codex spinner title. A field the rows —
@@ -268,7 +271,7 @@ public enum SidebarModel {
                                    own: String?, fallback: String?) -> BranchLabel {
         let ordered = sessions.sorted { $0.tabIndex < $1.tabIndex }
         let named = ordered.compactMap { s in branchByCwd[s.effectiveCwd].map { (session: s, branch: $0) } }
-        let primary = named.first { $0.session.active == true } ?? named.first
+        let primary = named.first { $0.session.active } ?? named.first
         let name = primary?.branch ?? own ?? fallback ?? ""
         guard !name.isEmpty else { return .none }
         let extra = Set(named.map(\.branch)).subtracting([name]).count
@@ -430,7 +433,7 @@ public enum SidebarModel {
 
     /// Until the daemon has said which tab is current, the first tab stands in for it.
     private static func usageRow(_ own: [SessionInfo], fallback: SessionAgent, contexts: [AgentKind: Int]) -> UsageTaskRow {
-        let tab = own.first { $0.active == true } ?? own.min { $0.tabIndex < $1.tabIndex }
+        let tab = own.first(where: \.active) ?? own.min { $0.tabIndex < $1.tabIndex }
         let agent = tab?.agent ?? fallback
         return UsageTaskRow(agent: agent, context: agent.agentKind.flatMap { contexts[$0] }.map {
             UsageLine(window: .context, percent: $0, reset: nil, warning: $0 >= warningThreshold)

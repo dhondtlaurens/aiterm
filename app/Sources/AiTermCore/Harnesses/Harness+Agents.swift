@@ -3,7 +3,7 @@ import Foundation
 /// The four harnesses, side by side: what differs between them is read here, in one table.
 extension Harness {
     static let claude = Harness(
-        agent: .claude, session: .claude, executable: "claude", displayName: "Claude Code",
+        agent: .claude, executable: "claude", displayName: "Claude Code",
         installCommand: "curl -fsSL https://claude.ai/install.sh | bash",
         fallbackEfforts: ModelCatalog.claudeEfforts, defaultEffort: "high",
         noModelsExplanation: "No models are available.",
@@ -26,7 +26,7 @@ extension Harness {
         makeDriver: { home, port, shim in shim.map { ClaudeDriver(home: home, daemonPort: port, shimPath: $0) } })
 
     static let codex = Harness(
-        agent: .codex, session: .codex, executable: "codex", displayName: "Codex",
+        agent: .codex, executable: "codex", displayName: "Codex",
         installCommand: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
         fallbackEfforts: ModelCatalog.codexEfforts, defaultEffort: "medium",
         noModelsExplanation: "No models are available.",
@@ -56,7 +56,7 @@ extension Harness {
         makeDriver: { home, port, _ in CodexDriver(home: home, daemonPort: port) })
 
     static let grok = Harness(
-        agent: .grok, session: .grok, executable: "grok", displayName: "Grok Build",
+        agent: .grok, executable: "grok", displayName: "Grok Build",
         installCommand: "curl -fsSL https://x.ai/cli/install.sh | bash",
         fallbackEfforts: ["low", "medium", "high", "xhigh"], defaultEffort: "high",
         noModelsExplanation: "No Grok models — run grok once to sign in and fetch them.",
@@ -82,7 +82,7 @@ extension Harness {
         makeDriver: { home, port, shim in shim.map { GrokDriver(home: home, daemonPort: port, shimPath: $0) } })
 
     static let pi = Harness(
-        agent: .pi, session: .pi, executable: "pi", displayName: "PI",
+        agent: .pi, executable: "pi", displayName: "PI",
         installCommand: "curl -fsSL https://pi.dev/install.sh | sh",
         fallbackEfforts: PiModelCatalog.thinkingLevels, defaultEffort: "medium",
         noModelsExplanation: "No PI providers are signed in — run /login in PI.",

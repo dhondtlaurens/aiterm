@@ -15,6 +15,9 @@ public enum Provider: String, Codable, Equatable, Sendable {
 public enum MoveStep: Sendable { case up, down }
 public enum AgentKind: String, Codable, Equatable, Hashable, CaseIterable, Sendable { case claude, codex, grok, pi }
 
+/// What a tab runs: an agent — one case for each `AgentKind`, of the same name, so each is the
+/// other's by its raw value — or a plain shell.
+///
 /// A skewed daemon (an app build adopting a worktree's daemon whose build is a different vintage)
 /// can send a raw value this app has never heard of. Decoding it to `.shell` keeps that one session
 /// from failing the whole `DaemonSnapshot`, instead of turning it into a reconnect loop.
@@ -39,8 +42,9 @@ public extension SessionAgent {
 }
 
 public extension AgentKind {
-    /// The mark a tab running this agent draws.
-    var session: SessionAgent { harness.session }
+    /// The mark a tab running this agent draws: the session agent of its name. Every agent has one
+    /// (`ModelsTests`); `.shell` is only what a missing one would read as.
+    var session: SessionAgent { SessionAgent(rawValue: rawValue) ?? .shell }
 }
 
 /// A Jira project whose tickets belong to an AiTerm project.
@@ -217,9 +221,10 @@ public struct JiraRef: Codable, Equatable, Sendable {
     public init(key: String, summary: String, url: String) { self.key = key; self.summary = summary; self.url = url }
 }
 
-/// Which of the two branch-shaped flows made this item. `nil` is everything saved before reviews
-/// existed and means the same as `.task`; only `== .review` is ever tested. A raw value this build
-/// does not know decodes as `.task`, like `Provider`; `TaskItem` keeps the raw value for the resave.
+/// Which of the two branch-shaped flows made this item; only `== .review` is ever tested. A task
+/// saved without one — every task is, as was everything saved before reviews existed — reads as
+/// `.task`. A raw value this build does not know decodes as `.task` too, like `Provider`;
+/// `TaskItem` keeps what the file had for the resave.
 /// So a row of a kind only a newer build knows is removed here as a task is: its Remove offers
 /// "Also delete branch" — unticked, the person's to tick — where a review's never does.
 public enum TaskKind: String, Codable, Equatable, Sendable {
@@ -246,25 +251,30 @@ public extension MergeRequestRef {
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String
     public var jira: JiraRef?, mr: MergeRequestRef?
-    /// Assigning one drops `unrecognizedKind`: the new value is what is saved from then on.
-    public var kind: TaskKind? { didSet { unrecognizedKind = nil } }
+    /// Assigning one replaces what the file had: the new value is what is saved from then on.
+    public var kind: TaskKind { didSet { savedKind = kind.rawValue } }
     /// Assigning one drops `unrecognizedAgent`, as for `kind`.
     public var agent: AgentKind { didSet { unrecognizedAgent = nil } }
     public var model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool
     public var createdAt: Date, windowId: String?
-    /// The raw `kind` and `agent` a newer build saved, when this build has no case for them. The
-    /// task reads as a `.task` and a `.claude` task meanwhile, and a save writes the raw values
-    /// back, so a downgrade and a later upgrade lose nothing. Nothing launches from a saved
-    /// `agent`: a task's tabs are started by the daemon from the draft, at creation.
-    public private(set) var unrecognizedKind: String?, unrecognizedAgent: String?
-    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind? = nil, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?) {
+    /// The raw `agent` a newer build saved, when this build has no case for it. The task reads as a
+    /// `.claude` task meanwhile, and a save writes the raw value back, so a downgrade and a later
+    /// upgrade lose nothing. Nothing launches from a saved `agent`: a task's tabs are started by
+    /// the daemon from the draft, at creation.
+    public private(set) var unrecognizedAgent: String?
+    /// `kind` as the file has it, written back as it was: none for a task saved without one, and a
+    /// raw value a newer build saved, which this build reads as `.task`.
+    private var savedKind: String?
+    /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
+    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
         self.jira = jira; self.kind = kind; self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning; self.firstPrompt = firstPrompt; self.appendTicket = appendTicket
         self.createdAt = createdAt; self.windowId = windowId
+        savedKind = kind == .task ? nil : kind.rawValue
     }
 
     /// "Task" or "Review": what the row's menu, its alerts and its banners call it.
-    public var kindName: String { (kind ?? .task).displayName }
+    public var kindName: String { kind.displayName }
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
@@ -282,9 +292,8 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         worktreePath = try c.decode(String.self, forKey: .worktreePath)
         baseBranch = try c.decode(String.self, forKey: .baseBranch)
         jira = try c.decodeIfPresent(JiraRef.self, forKey: .jira)
-        let rawKind = try c.decodeIfPresent(String.self, forKey: .kind)
-        kind = rawKind.map { TaskKind(rawValue: $0) ?? .task }
-        unrecognizedKind = rawKind.flatMap { TaskKind(rawValue: $0) == nil ? $0 : nil }
+        savedKind = try c.decodeIfPresent(String.self, forKey: .kind)
+        kind = savedKind.flatMap(TaskKind.init(rawValue:)) ?? .task
         mr = try c.decodeIfPresent(MergeRequestRef.self, forKey: .mr)
         let rawAgent = try c.decode(String.self, forKey: .agent)
         agent = AgentKind(rawValue: rawAgent) ?? .claude
@@ -306,8 +315,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         try c.encode(worktreePath, forKey: .worktreePath)
         try c.encode(baseBranch, forKey: .baseBranch)
         try c.encodeIfPresent(jira, forKey: .jira)
-        if let unrecognizedKind { try c.encode(unrecognizedKind, forKey: .kind) }
-        else { try c.encodeIfPresent(kind, forKey: .kind) }
+        try c.encodeIfPresent(savedKind, forKey: .kind)
         try c.encodeIfPresent(mr, forKey: .mr)
         try c.encode(unrecognizedAgent ?? agent.rawValue, forKey: .agent)
         try c.encode(model, forKey: .model)

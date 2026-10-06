@@ -5,7 +5,7 @@ import AiTermCore
 extension TaskItem {
     /// A task in `project`, with no worktree of its own on disk unless `worktreePath` names one.
     static func stub(in project: Project, title: String = "Work", branch: String? = nil, worktreePath: String? = nil,
-                     kind: TaskKind? = nil, windowId: String? = nil) -> TaskItem {
+                     kind: TaskKind = .task, windowId: String? = nil) -> TaskItem {
         let branch = branch ?? "feat/\(title.lowercased().replacingOccurrences(of: " ", with: "-"))"
         return TaskItem(id: UUID(), projectId: project.id, title: title, branch: branch,
                         worktreePath: worktreePath ?? project.path + "/.worktrees/" + branch, baseBranch: "main", jira: nil,

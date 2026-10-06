@@ -26,7 +26,7 @@ public struct SessionContexts: Equatable, Sendable {
         for case let (rowId?, reporting) in reportingByRow {
             for provider in AgentKind.allCases where byRow[rowId]?[provider] == nil {
                 let own = reporting.filter { $0.agent.agentKind == provider }
-                let session = own.first { $0.active == true }
+                let session = own.first(where: \.active)
                     ?? own.max { ($0.contextPercent ?? 0) < ($1.contextPercent ?? 0) }
                 if let context = session?.contextPercent { set(context, row: rowId, provider: provider) }
             }

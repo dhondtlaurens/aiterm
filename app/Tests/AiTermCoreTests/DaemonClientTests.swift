@@ -182,13 +182,13 @@ final class DaemonClientTests {
         let moved = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"idle","title":"","cwd":"/repo","agentCwd":"/repo/.worktrees/feat","active":true}"#
         let a = try JSONDecoder().decode(SessionInfo.self, from: Data(moved.utf8))
         #expect(a.effectiveCwd == "/repo/.worktrees/feat")
-        #expect(a.active == true)
+        #expect(a.active)
 
-        // An older daemon, or a plain shell tab: no agentCwd, no active flag.
+        // An older daemon, or a plain shell tab: no agentCwd, and no active flag, which reads as not active.
         let plain = #"{"sessionId":"s2","windowId":"w1","tabIndex":1,"taskId":null,"projectId":null,"agent":"shell","model":null,"state":"idle","title":"","cwd":"/repo"}"#
         let b = try JSONDecoder().decode(SessionInfo.self, from: Data(plain.utf8))
         #expect(b.effectiveCwd == "/repo")
-        #expect(b.active == nil)
+        #expect(!b.active)
     }
 
     /// No synthetic `.itermDisconnected` here: the daemon dying is not the same fact as iTerm2

@@ -5,7 +5,7 @@ import Synchronization
 
 @Suite struct SidebarModelTests {
     func session(_ id: String, task: String?, agent: SessionAgent, state: SessionState, tab: Int, window: String = "w1", project: String? = nil,
-                 cwd: String = "", agentCwd: String? = nil, active: Bool? = nil, context: Int? = nil) -> SessionInfo {
+                 cwd: String = "", agentCwd: String? = nil, active: Bool = false, context: Int? = nil) -> SessionInfo {
         SessionInfo(sessionId: id, windowId: window, tabIndex: tab, taskId: task, projectId: project, agent: agent, model: nil, state: state,
                     title: "", cwd: cwd, agentCwd: agentCwd, active: active, contextPercent: context)
     }
@@ -186,13 +186,13 @@ import Synchronization
         let project = Project(id: UUID(), name: "p", path: "/p", provider: .git, remoteUrl: nil,
                               addedAt: Date(), collapsed: false)
         state.items = [.project(project)]
-        func item(_ title: String, kind: TaskKind?) -> TaskItem {
+        func item(_ title: String, kind: TaskKind = .task) -> TaskItem {
             TaskItem(id: UUID(), projectId: project.id, title: title, branch: title,
                      worktreePath: "/p/.worktrees/\(title)", baseBranch: "main", jira: nil, kind: kind,
                      agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
                      createdAt: Date(), windowId: nil)
         }
-        let task1 = item("Task 1", kind: nil) // Tasks saved before `kind` existed are tasks too.
+        let task1 = item("Task 1") // Saved without a `kind`, as tasks are.
         let review1 = item("MR 1", kind: .review)
         let task2 = item("Task 2", kind: .task)
         let review2 = item("MR 2", kind: .review)

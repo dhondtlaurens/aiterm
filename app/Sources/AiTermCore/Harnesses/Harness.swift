@@ -8,8 +8,6 @@ import Foundation
 /// through a switch in every file that needs a fact.
 public struct Harness: Sendable {
     public let agent: AgentKind
-    /// The mark a tab running this agent draws.
-    public let session: SessionAgent
     /// The CLI's name on the login shell's `PATH`.
     public let executable: String
     public let displayName: String

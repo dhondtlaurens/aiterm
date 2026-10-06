@@ -7,6 +7,10 @@ import Foundation
         #expect(AgentKind.allCases == [.claude, .codex, .grok, .pi])
         #expect(AgentKind.grok.displayName == "Grok Build")
         #expect(AgentKind.grok.session == .grok && SessionAgent.grok.agentKind == .grok)
+        // Each agent is a tab's agent of the same name, and back: the two enums are kept in step
+        // by their raw values alone.
+        #expect(AgentKind.allCases.allSatisfy { $0.session.agentKind == $0 })
+        #expect(SessionAgent.shell.agentKind == nil)
     }
 
     /// A provider a newer build saved decodes as a plain repository instead of failing the load.
@@ -37,12 +41,19 @@ import Foundation
         // Choosing a value of this build's own replaces the saved one.
         future.agent = .grok; future.kind = .review
         #expect(try raw(future, "kind") == "review" && raw(future, "agent") == "grok")
-        // Known values, and a missing kind, are untouched.
+        // Known values, and a missing kind, are untouched: a task saved without one reads as a task
+        // and is saved without one, as a task made here is; one that says "task" keeps saying it.
         #expect(try decoded(agent: "pi", kind: "review").kind == .review)
         let plain = try decoded(agent: "pi", kind: nil)
-        #expect(plain.kind == nil && plain.agent == .pi && plain.unrecognizedAgent == nil)
-        task.kind = nil
-        #expect(try raw(task, "kind") == nil)
+        #expect(plain.kind == .task && plain.agent == .pi && plain.unrecognizedAgent == nil)
+        #expect(try raw(plain, "kind") == nil)
+        #expect(try raw(decoded(agent: "pi", kind: "task"), "kind") == "task")
+        task = TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
+                        jira: nil, agent: .codex, model: "m", reasoning: nil, firstPrompt: nil,
+                        appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
+        #expect(try raw(task, "kind") == nil && task.kind == .task)
+        task.kind = .task
+        #expect(try raw(task, "kind") == "task")
     }
 
     @Test func anUnknownSidebarItemKeepsItsPlaceAndIsNeverDrawnOrCounted() throws {
@@ -166,7 +177,6 @@ import Foundation
         #expect(refs.keyList == "SHOP, PAY and WEB")
     }
 
-    /// Older workspaces remain readable without an explicit migration.
     /// A project linked twice is linked once, where it first came.
     @Test func aJiraProjectIsLinkedOnceInItsFirstPlace() {
         let site = URL(string: "https://example.atlassian.net")!
@@ -198,8 +208,8 @@ import Foundation
         #expect(Worktree(path: "/r/.worktrees/x", branch: "x", lockReason: Worktree.reviewLockReason).importedKind == .review)
         #expect(Worktree(path: "/r/.worktrees/review-x", branch: "x", lockReason: nil).importedKind == .review)
         #expect(Worktree(path: "/r/.worktrees/review-x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == .review)
-        #expect(Worktree(path: "/r/.worktrees/x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == nil)
-        #expect(Worktree(path: "/r/.worktrees/x-review-y", branch: "x", lockReason: "").importedKind == nil)
+        #expect(Worktree(path: "/r/.worktrees/x", branch: "x", lockReason: Worktree.taskLockReason).importedKind == .task)
+        #expect(Worktree(path: "/r/.worktrees/x-review-y", branch: "x", lockReason: "").importedKind == .task)
     }
 
     /// Older workspaces remain readable without an explicit migration.
@@ -309,7 +319,7 @@ import Foundation
          "agent":"claude","model":"sonnet","appendTicket":true,"createdAt":0}
         """
         let task = try JSONDecoder().decode(TaskItem.self, from: Data(json.utf8))
-        #expect(task.kind == nil)
+        #expect(task.kind == .task)
         #expect(task.mr == nil)
         #expect(task.title == "Add gift card")
     }
@@ -444,7 +454,7 @@ import Foundation
     /// created on. The same path in another project is another repository's row.
     @Test func testTheRowCheckingOutABranchIsFoundByItsWorktree() {
         let project = UUID(), other = UUID()
-        func item(_ title: String, bound branch: String, in projectId: UUID, kind: TaskKind? = nil) -> TaskItem {
+        func item(_ title: String, bound branch: String, in projectId: UUID, kind: TaskKind = .task) -> TaskItem {
             TaskItem(id: UUID(), projectId: projectId, title: title, branch: branch, worktreePath: "/wt/" + title, baseBranch: "main",
                      jira: nil, kind: kind, agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: true,
                      createdAt: Date(), windowId: nil)

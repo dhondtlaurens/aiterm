@@ -10,8 +10,9 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// a Claude that has entered a worktree; the daemon fills this in from the agent's own session
     /// file (Claude) or its hook posts (Codex). Absent for a plain shell.
     public var agentCwd: String? = nil
-    /// True for the tab that was current in its window as of the daemon's last snapshot.
-    public var active: Bool? = nil
+    /// True for the tab that was current in its window as of the daemon's last snapshot. The
+    /// bundled daemon always says; one that does not is read as saying no.
+    public var active = false
     /// This provider's last-known context fill within the task, 0-100. The daemon shares it across
     /// sibling tabs running the same provider so tab changes cannot erase it. An unassociated
     /// session may carry its own value, but the app only displays task context.
@@ -22,6 +23,28 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     public var taskUUID: UUID? { taskId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
+}
+
+extension SessionInfo {
+    /// Written by hand for `active` alone, which an older daemon leaves out; every other field is
+    /// read as the synthesised decoder would. In an extension, so the memberwise initialiser stays.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        windowId = try c.decode(String.self, forKey: .windowId)
+        tabIndex = try c.decode(Int.self, forKey: .tabIndex)
+        taskId = try c.decodeIfPresent(String.self, forKey: .taskId)
+        projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
+        agent = try c.decode(SessionAgent.self, forKey: .agent)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning)
+        state = try c.decode(SessionState.self, forKey: .state)
+        title = try c.decode(String.self, forKey: .title)
+        cwd = try c.decode(String.self, forKey: .cwd)
+        agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
+        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
+        contextPercent = try c.decodeIfPresent(Int.self, forKey: .contextPercent)
+    }
 }
 
 /// A literal title for one iTerm2 tab. The daemon keeps it separate from the session's process
