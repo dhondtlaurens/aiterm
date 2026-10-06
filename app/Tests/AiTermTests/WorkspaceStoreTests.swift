@@ -33,18 +33,23 @@ struct WorkspaceStoreTests {
         #expect(workspace.persistenceError == nil)
     }
 
-    /// A save is not pushed back by the changes after it: a stream of them is saved as it goes,
-    /// so quitting or crashing mid-stream loses at most the last `saveDelay` of it.
-    @Test func aSteadyStreamOfChangesIsStillSaved() async throws {
+    /// A save is not pushed back by the changes after it, and does not wait for the main actor: a
+    /// stream of changes from a main actor that never lets go is saved while it runs, a delay after
+    /// its first change — so quitting or crashing mid-stream loses at most that delay of it.
+    @Test func aSteadyStreamOfChangesIsSavedADelayAfterItsFirst() throws {
         let (workspace, dir) = try loadedStore(saveDelay: .milliseconds(100))
         defer { try? FileManager.default.removeItem(at: dir) }
-        var savedMidStream = false
-        for step in 1...60 {
+        let start = Date()
+        var landed: TimeInterval?
+        var step = 0
+        while landed == nil, Date().timeIntervalSince(start) < 5 {
+            step += 1
             workspace.mutate { $0.lastModelByAgent[.claude] = "model-\(step)" }
-            try await Task.sleep(for: .milliseconds(20))
-            if saved(workspace)?.lastModelByAgent[.claude] != nil { savedMidStream = true; break }
+            Thread.sleep(forTimeInterval: 0.01) // The main actor, held: no await anywhere in the loop.
+            if saved(workspace)?.lastModelByAgent[.claude] != nil { landed = Date().timeIntervalSince(start) }
         }
-        #expect(savedMidStream)
+        let after = try #require(landed, "saved while the stream ran")
+        #expect(after < 1, "saved \(after) s after the first change, with a 0.1 s delay")
     }
 
     /// Each change runs every hook once, in the order they were added; one that changes nothing
@@ -120,6 +125,24 @@ struct WorkspaceStoreTests {
         #expect(saved(workspace)?.lastModelByAgent[.claude] == "opus")
         try await Task.sleep(for: .milliseconds(100))
         #expect(try Data(contentsOf: workspace.file.backupURL) == before)
+    }
+
+    /// A restored backup is what the file holds afterwards: a save still waiting from before the
+    /// restore is not made over it.
+    @Test func aRestoreDropsTheSaveWaitingFromBeforeIt() async throws {
+        let (workspace, dir) = try loadedStore(saveDelay: .milliseconds(30))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        workspace.mutate { $0.lastModelByAgent[.claude] = "backed-up" }
+        #expect(workspace.flush())
+        workspace.mutate { $0.lastModelByAgent[.claude] = "current" }
+        #expect(workspace.flush()) // The backup now holds "backed-up".
+        workspace.mutate { $0.lastModelByAgent[.claude] = "waiting" }
+
+        try workspace.restoreBackup()
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(workspace.state.lastModelByAgent[.claude] == "backed-up")
+        #expect(saved(workspace)?.lastModelByAgent[.claude] == "backed-up")
     }
 
     /// A workspace with no file yet is written by the first flush, changed or not, so quitting at

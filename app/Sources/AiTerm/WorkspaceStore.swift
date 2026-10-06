@@ -71,15 +71,17 @@ final class WorkspaceStore {
     /// Reads the file, once.
     func load() throws {
         guard !loaded else { return }
-        let loaded = try file.load()
-        // A workspace with no file yet is written by the first save, even with nothing changed.
-        adopt(loaded, saved: FileManager.default.fileExists(atPath: file.url.path))
+        let file = self.file
+        adopt(try writer.adopt(revision: revision + 1) {
+            // A workspace with no file yet is written by the first save, even with nothing changed.
+            (try file.load(), saved: FileManager.default.fileExists(atPath: file.url.path))
+        })
     }
 
     /// Replaces the file with its backup, keeping the damaged one beside it, and adopts it.
     func restoreBackup() throws {
         let file = self.file
-        adopt(try writer.run { try file.restoreBackup() }, saved: true)
+        adopt(try writer.adopt(revision: revision + 1) { (try file.restoreBackup(), saved: true) })
         persistenceError = nil
     }
 
@@ -94,9 +96,9 @@ final class WorkspaceStore {
         return persistenceError == nil
     }
 
-    private func adopt(_ loaded: AppState, saved: Bool) {
+    /// Takes the workspace the writer has just read or restored, as the revision handed to it.
+    private func adopt(_ loaded: AppState) {
         revision += 1
-        writer.adopted(revision: revision, saved: saved)
         let changed = loaded != state
         state = loaded
         self.loaded = true
@@ -170,16 +172,16 @@ private final class WorkspaceWriter: Sendable {
         return write(state, revision: revision)
     }
 
-    /// The workspace was read or restored: nothing waiting is saved over it, and the file holds it
-    /// unless there is no file yet.
-    func adopted(revision: Int, saved isSaved: Bool) {
-        waiting.withLock { $0 = nil }
-        if isSaved { saved.withLock { $0 = revision } }
-    }
-
-    /// `work`, once a save under way has written: for a restore, which writes the file too.
-    func run<T>(_ work: () throws -> T) throws -> T {
-        try saved.withLock { _ in try work() }
+    /// Reads or restores the workspace as `revision`, once a save under way has written, and with
+    /// no save let in until the file is known to hold it: nothing waiting from before is saved over
+    /// it, and a save already past its wait finds the file newer than what it holds.
+    func adopt(revision: Int, _ read: () throws -> (AppState, saved: Bool)) throws -> AppState {
+        try saved.withLock { saved in
+            let (state, isSaved) = try read()
+            waiting.withLock { $0 = nil }
+            if isSaved { saved = revision }
+            return state
+        }
     }
 
     private func write(_ state: AppState, revision: Int) -> Result<Void, any Error> {

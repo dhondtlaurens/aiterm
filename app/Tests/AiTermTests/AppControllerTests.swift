@@ -486,6 +486,22 @@ import Testing
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
     }
 
+    /// A controller that goes away takes its workspace with it: nothing the workspace tells of a
+    /// change holds on to it, so a test's store does not live on to save into a deleted folder.
+    @Test func aControllerThatGoesAwayTakesItsWorkspace() throws {
+        weak var workspace: WorkspaceStore?
+        weak var live: LiveSessions?
+        weak var notices: Notices?
+        do {
+            let (controller, dir) = try loadedController()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            workspace = controller.workspace; live = controller.live; notices = controller.notices
+        }
+        #expect(workspace == nil)
+        #expect(live == nil)
+        #expect(notices == nil)
+    }
+
     /// A change still waiting on its save when the app quits is saved before it does.
     @Test func quittingSavesAChangeStillWaitingOnItsSave() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

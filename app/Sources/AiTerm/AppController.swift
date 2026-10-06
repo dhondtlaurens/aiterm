@@ -159,7 +159,7 @@ final class AppController {
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
         let notices = Notices(toastLifetime: toastLifetime,
-                              isStale: { $0.isStale(in: workspace.state) },
+                              isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false },
                               withdrawn: { link.controller?.clearStoppedNote(of: $0) })
         self.notices = notices
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
@@ -192,9 +192,10 @@ final class AppController {
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
         // What a change to the workspace sets off, once per change, in this order: whatever named a
         // row that has gone goes with it — its context fills, the banner about it, its removal's
-        // entry — and then the Dock badge counts what is left.
-        workspace.onChange { live.pruneContexts() }
-        workspace.onChange { notices.dropStale() }
+        // entry — and then the Dock badge counts what is left. Weak, as the link is: the workspace
+        // outlives none of them, and each of them holds it.
+        workspace.onChange { [weak live] in live?.pruneContexts() }
+        workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { link.controller?.pruneRemovals() }
         workspace.onChange { link.controller?.updateDockBadge() }
         link.controller = self
