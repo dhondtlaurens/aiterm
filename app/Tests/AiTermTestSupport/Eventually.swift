@@ -16,21 +16,37 @@ import Testing
 ///
 /// Only for what is *expected*. A test that shows something does not happen keeps a fixed window,
 /// which stays as short as it can be.
+///
+/// The timeout counts the time the condition had to come true, not time the caller spent waiting
+/// for a turn: a check that comes back later than ``lateTurn`` counts as that long. Under the
+/// parallel runner a main-actor test's next check queues behind every other main-actor test the
+/// runner has started — over ten seconds of their bodies, at the start of the app's run — and the
+/// thing it waits for, due on the same actor a moment after the check was, queues right behind it.
+/// Charged in full, that queue alone timed out a wait whose condition held at the very next check.
 @discardableResult
 func eventually(describing what: @autoclosure () -> String = "the condition", timeout: TimeInterval = TestDeadline.seconds,
                 every interval: Duration = .milliseconds(5), sourceLocation: SourceLocation = #_sourceLocation,
                 isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
+    let budget = Duration.seconds(timeout)
+    var waited = Duration.zero, checked = ContinuousClock.now
     while !condition() {
         if Task.isCancelled { return false }
-        if Date() >= deadline {
+        if waited >= budget {
             Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
             return false
         }
         try? await Task.sleep(for: interval)
+        let now = ContinuousClock.now
+        waited += min(now - checked, lateTurn)
+        checked = now
     }
     return true
 }
+
+/// How long a wait between two checks of `eventually` is charged at most. Longer is the caller
+/// kept from its turn — its actor, or Swift's cooperative pool, busy with other tests' work —
+/// rather than anything the condition was given; a loaded machine's jitter stays well below it.
+private let lateTurn = Duration.milliseconds(100)
 
 /// `eventually` for a synchronous test that waits on threads it started: the wait blocks the test's
 /// own thread rather than suspending, so neither it nor what it waits for needs another worker of
