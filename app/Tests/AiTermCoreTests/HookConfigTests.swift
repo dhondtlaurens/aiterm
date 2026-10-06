@@ -370,7 +370,7 @@ import Foundation
     }
 
     /// The bundle can move (a rebuild into another directory, a drag to /Applications) without the
-    /// shim ceasing to be ours — `mergeClaudeSettings` already repoints it by filename rather than
+    /// shim ceasing to be ours — `ClaudeSettings.merge` already repoints it by filename rather than
     /// treating it as a foreign original, and the launch check has to agree, or every move would
     /// report the feed as broken. What it must not agree with is a path nothing answers at.
     @Test func testTheShimIsStillOursAfterTheBundleMovesButNotAfterItVanishes() throws {
