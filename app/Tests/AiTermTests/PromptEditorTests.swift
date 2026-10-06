@@ -38,6 +38,24 @@ import Testing
         #expect(textView.visibleRect.contains(CGPoint(x: lastGlyphRect.midX, y: lastGlyphRect.midY)))
     }
 
+    /// Every caret move outside a `/` token closes the popup. Closing one already closed — the
+    /// popup's list empty and its first row highlighted — changes nothing the popup draws, so the
+    /// popup is not redrawn for each keystroke.
+    @Test func closingAClosedPopupRedrawsNothing() {
+        let completions = PromptCompletions()
+        let popup = { _ = CompletionPopup(completions: completions, width: 300).body; _ = (completions.visible, completions.index) }
+        #expect(!invalidates(popup, by: { completions.close() }))
+
+        completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
+        completions.index = 0
+        #expect(invalidates(popup, by: { completions.close() }), "closing an open one does")
+        completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn),
+                               AgentCompletion(name: "loop", kind: .skill, detail: nil, source: .user)]
+        completions.index = 1
+        completions.close()
+        #expect(completions.visible.isEmpty && completions.index == 0)
+    }
+
     /// The prompt field wears the house focus ring like every other field, so the editor has to say
     /// when its text view takes the keyboard and when it gives it up.
     @Test func theEditorReportsFocus() throws {

@@ -1,31 +1,39 @@
 import Foundation
 import AiTermCore
 
-/// The New Task sheet's state: a `CreationModel` that searches the project's Jira tickets.
-final class TaskCreationModel: CreationModel<TaskDraft, JiraTicket> {
+/// New Task's part of `CreationModel`: it searches the project's Jira tickets, names the worktree
+/// after the task, and its prompt carries the ticket.
+struct TaskCreation: CreationKind {
+    typealias Draft = TaskDraft
+    typealias Item = JiraTicket
+
+    func slug(for draft: TaskDraft) -> String { draft.worktreeSlug }
+
+    /// A task's prompt carries its ticket too, when the person kept "Include Jira ticket details".
+    func composedPrompt(_ text: String, draft: TaskDraft) -> String? {
+        AgentCommand.composePrompt(userText: text, ticket: draft.ticket, appendTicket: draft.appendTicket)
+    }
+}
+
+/// The New Task sheet's state.
+typealias TaskCreationModel = CreationModel<TaskCreation>
+
+extension CreationModel where Kind == TaskCreation {
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
     /// would read the developer's own from anything that left them out. A `catalogue` that throws
     /// has no models to offer, and the sheet says why in their place.
-    init(project: Project, draft: TaskDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
-         rememberedModels: [AgentKind: String] = [:],
-         catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
-         initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
-         defaults: UserDefaults = .standard, git: any GitRunning,
-         canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
-         searchIssues: @escaping @MainActor (String) async throws -> [JiraTicket],
-         createTask: @escaping @MainActor (TaskDraft) async throws -> Void) {
-        super.init(project: project, draft: draft, home: home, availableAgents: availableAgents, rememberedModels: rememberedModels,
-                   catalogue: catalogue, initialCatalogue: initialCatalogue,
-                   initialCatalogueFailure: initialCatalogueFailure, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
-                   search: searchIssues, submit: createTask)
-    }
-
-    /// The worktree directory the sheet names: the one create will make.
-    var worktreeSlug: String { unusedSlug(draft.worktreeSlug) }
-
-    /// A task's prompt carries its ticket too, when the person kept "Include Jira ticket details".
-    override var composedPrompt: String? {
-        AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
+    convenience init(project: Project, draft: TaskDraft, home: URL, availableAgents: Set<AgentKind> = Set(AgentKind.allCases),
+                     rememberedModels: [AgentKind: String] = [:],
+                     catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
+                     initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
+                     defaults: UserDefaults = .standard, git: any GitRunning,
+                     canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
+                     searchIssues: @escaping @MainActor (String) async throws -> [JiraTicket],
+                     createTask: @escaping @MainActor (TaskDraft) async throws -> Void) {
+        self.init(kind: TaskCreation(), project: project, draft: draft, home: home, availableAgents: availableAgents,
+                  rememberedModels: rememberedModels, catalogue: catalogue, initialCatalogue: initialCatalogue,
+                  initialCatalogueFailure: initialCatalogueFailure, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
+                  search: searchIssues, submit: createTask)
     }
 
     /// The ticket field's placeholder names what it searches: the linked Jira projects, or — with

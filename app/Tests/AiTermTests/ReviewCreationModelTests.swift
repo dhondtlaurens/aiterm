@@ -146,6 +146,17 @@ import Foundation
         #expect(lookups == before + 1)
     }
 
+    /// As in New Task: typing the prompt redraws the prompt step and the command, not the sheet
+    /// with its destination and button. (The frame they share is New Task's test.)
+    @Test func aPromptKeystrokeDoesNotRedrawTheSheet() {
+        let m = model()
+        m.draft.setTitle("Review")
+        m.draft.setBranch("feat-gift-card")
+        let sheet = NewReviewSheet(model: m, previewStep: 3, previewMergeRequests: [])
+        #expect(!invalidates({ _ = sheet.body }, by: { m.promptText = "/code-review" }))
+        #expect(invalidates({ _ = sheet.body }, by: { m.draft.setBranch("feat-other") }))
+    }
+
     @Test func testCreateRefusesAnUnavailableAgent() async {
         let m = model()
         m.draft.setAgent(.codex, state: AppState.empty, home: ScratchHome.bare, defaults: ScratchDefaults.make())

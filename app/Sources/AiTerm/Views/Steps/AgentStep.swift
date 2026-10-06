@@ -20,7 +20,7 @@ struct AgentStep: View {
     /// The step as both sheets use it. The agent and the model are read here and changed only through
     /// `selectAgent` and `setModel`, which keep the draft's dependent fields in step; the reasoning
     /// level is the one value the step writes itself.
-    init<Draft, Item>(model: CreationModel<Draft, Item>) {
+    init<Kind>(model: CreationModel<Kind>) {
         availableAgents = model.availableAgents
         models = model.models
         catalogueLoaded = model.catalogueLoaded

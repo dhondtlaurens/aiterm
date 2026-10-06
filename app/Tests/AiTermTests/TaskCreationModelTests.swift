@@ -1,5 +1,5 @@
-import Combine
 import Foundation
+import SwiftUI
 import Synchronization
 import Testing
 @testable import AiTermCore
@@ -118,16 +118,25 @@ struct TaskCreationModelTests {
         #expect(!sheet.canCreate)
     }
 
-    /// The sheet's state is declared on the generic `CreationModel`. SwiftUI only redraws a sheet
-    /// whose model announces changes, so a subclass must still publish its superclass's fields.
-    @Test func changesDeclaredOnTheSharedModelArePublished() {
+    /// A keystroke in the prompt redraws the prompt step and the command preview, which draw it,
+    /// and not the sheet around them: its other steps' fields, the destination, the footer.
+    @Test func aPromptKeystrokeRedrawsOnlyWhatDrawsThePrompt() async {
         let model = fixture()
-        var notifications = 0
-        let subscription = model.objectWillChange.sink { notifications += 1 }
-        defer { subscription.cancel() }
-        model.query = "WEB"
-        model.draft.promptText = "go"
-        #expect(notifications == 2)
+        await model.loadAgentCatalogue()
+        model.draft.setTitle("Fix the login form")
+        let sheet = NewTaskSheet(model: model, previewStep: 3, previewTickets: [])
+        // The task's own body, and the shared frame's it hands its step to.
+        let wholeSheet = { _ = sheet.body; _ = sheet.body.body }
+        #expect(!invalidates(wholeSheet, by: { model.promptText = "g" }))
+        #expect(!invalidates(wholeSheet, by: { model.draft.promptText = "go" }), "nor through the draft")
+        #expect(model.draft.promptText == "go" && model.previewCommand.contains("go"))
+
+        #expect(invalidates({ _ = CommandPreview(model: model).body }, by: { model.promptText = "go on" }))
+        #expect(invalidates({ _ = PromptStep(text: Bindable(model).promptText, agent: .claude, completions: model.completions).body },
+                            by: { model.draft.promptText = "" }))
+        // The rest of the draft, and the query, still redraw the sheet that shows them.
+        #expect(invalidates(wholeSheet, by: { model.draft.setTitle("Fix the signup form") }))
+        #expect(invalidates({ _ = model.query }, by: { model.query = "WEB" }))
     }
 
     /// The sheet's first load reuses the catalogue its draft was just built from: reading it again

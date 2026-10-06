@@ -11,8 +11,8 @@ import AiTermCore
 /// `pickers` are the sheet's open-list flags in the order ⎋ closes them: ⎋ belongs to an open list
 /// first — in every other app that list is a window of its own, and closing the whole sheet is not
 /// what the key means there — and a click on the sheet's background closes them all.
-struct CreationSheet<Draft: AgentDraft & Equatable, Item: Equatable, Content: View>: View {
-    @ObservedObject var model: CreationModel<Draft, Item>
+struct CreationSheet<Kind: CreationKind, Content: View>: View {
+    let model: CreationModel<Kind>
     @Binding var step: Int
     let title: String
     let stepNames: [String]
@@ -25,7 +25,7 @@ struct CreationSheet<Draft: AgentDraft & Equatable, Item: Equatable, Content: Vi
     let content: Content
     @Environment(\.dismiss) private var dismiss
 
-    init(model: CreationModel<Draft, Item>, step: Binding<Int>, title: String, stepNames: [String],
+    init(model: CreationModel<Kind>, step: Binding<Int>, title: String, stepNames: [String],
          destination: Destination?, createLabel: String, canAdvance: Bool, pickers: [Binding<Bool>],
          @ViewBuilder content: () -> Content) {
         self.model = model; self._step = step; self.title = title; self.stepNames = stepNames
@@ -42,7 +42,7 @@ struct CreationSheet<Draft: AgentDraft & Equatable, Item: Equatable, Content: Vi
                 // Above the command preview: the prompt step's completion popup hangs out of the
                 // step and over it, and a later sibling otherwise draws on top.
                 content.zIndex(1)
-                if step > 1 { CommandBlock(caption: "Command", command: model.previewCommand) }
+                if step > 1 { CommandPreview(model: model) }
                 if Destination.isShown(onStep: step), let destination { DestinationLine(destination) }
             }
         } footer: {
@@ -75,4 +75,11 @@ struct CreationSheet<Draft: AgentDraft & Equatable, Item: Equatable, Content: Vi
 
     /// Already past the button's event by the time it dismisses: the create is awaited first.
     private func create() { Task { if await model.create() { dismiss() } } }
+}
+
+/// The command preview under steps 2 and 3: the one part of the frame that reads the prompt, so a
+/// keystroke in the prompt redraws this line and not the sheet around it.
+struct CommandPreview<Kind: CreationKind>: View {
+    let model: CreationModel<Kind>
+    var body: some View { CommandBlock(caption: "Command", command: model.previewCommand) }
 }

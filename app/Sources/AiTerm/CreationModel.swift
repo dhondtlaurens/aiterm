@@ -17,27 +17,70 @@ struct CreationFailure: Equatable {
     }
 }
 
+/// What one kind of creation sheet brings to `CreationModel`: what it searches and builds, and what
+/// it adds around the draft. `TaskCreation` searches Jira tickets and `ReviewCreation` merge
+/// requests. The model calls these at the points where the two sheets differ.
+@MainActor
+protocol CreationKind {
+    associatedtype Draft: AgentDraft & Equatable
+    associatedtype Item: Equatable
+    /// The worktree directory `draft` would get, before `BranchNaming.unused` makes it one not taken.
+    func slug(for draft: Draft) -> String
+    /// The first prompt the command carries, from `text`, the prompt as typed.
+    func composedPrompt(_ text: String, draft: Draft) -> String?
+    /// Told after anything in the draft but its prompt changed, with what the draft was before.
+    func draftChanged(from old: Draft, in model: CreationModel<Self>)
+    /// Told after the branch list was read.
+    func branchesChanged(in model: CreationModel<Self>)
+    /// A last check between the press and the submit, run while `creating` holds off a second
+    /// press. `false` stops the create; the kind says why with `model.refuse`.
+    func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
+}
+
+extension CreationKind {
+    /// The person's text, trimmed. New Task appends its ticket.
+    func composedPrompt(_ text: String, draft: Draft) -> String? {
+        AgentCommand.composePrompt(userText: text, ticket: nil, appendTicket: false)
+    }
+    func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
+    func branchesChanged(in model: CreationModel<Self>) {}
+    func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
+}
+
 /// What the New Task and New Review sheets share: the draft, the chosen agent's model catalogue and
 /// prompt completions, the branch list, a debounced search whose stale answers are dropped, and the
-/// one create call. `TaskCreationModel` searches Jira tickets and `ReviewCreationModel` merge
-/// requests; that, and how each is built, is all they add.
+/// one create call. `Kind` is the rest (`TaskCreationModel`, `ReviewCreationModel`).
+///
+/// Observed per property, so a view redraws only for what it reads. The draft's prompt is kept
+/// apart from the rest of it for that reason: the editor writes it on every keystroke, and only the
+/// prompt step and the command preview draw it.
 @MainActor
-class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableObject {
+@Observable
+final class CreationModel<Kind: CreationKind> {
+    typealias Draft = Kind.Draft
+    typealias Item = Kind.Item
+
     nonisolated let id = UUID()
     let project: Project
-    @Published var availableAgents: Set<AgentKind>
-    @Published var draft: Draft
-    @Published var query = ""
-    @Published var results: [Item] = []
-    @Published var searchError: String?
-    @Published var branches: [String] = []
-    @Published var models: [AgentModel] = []
-    @Published private(set) var catalogueLoaded = false
+    let kind: Kind
+    var availableAgents: Set<AgentKind>
+    /// Everything in the draft but its prompt, which reads as empty here.
+    private var fields: Draft
+    /// The prompt as typed. Observed under its own name, and not through `draft`.
+    @ObservationIgnored private var prompt: String
+    var query = ""
+    var results: [Item] = []
+    var searchError: String?
+    var branches: [String] = [] {
+        didSet { kind.branchesChanged(in: self) }
+    }
+    var models: [AgentModel] = []
+    private(set) var catalogueLoaded = false
     /// Why the chosen agent has no models to offer, when its catalogue could not be read: PI's own
     /// complaint, shown where the model picker would be.
-    @Published private(set) var catalogueFailure: String?
-    @Published private(set) var creating = false
-    @Published private(set) var error: CreationFailure?
+    private(set) var catalogueFailure: String?
+    private(set) var creating = false
+    private(set) var error: CreationFailure?
     let completions = PromptCompletions()
     let canChangeWorkspace: @MainActor () -> Bool
     private let rememberedModels: [AgentKind: String]
@@ -46,29 +89,68 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     private let catalogue: @Sendable (AgentKind) throws -> [AgentModel]
     /// The catalogue the draft was built from, for the first load of the draft's own agent — and
     /// why it has no models, when it could not be read, so a failed read is not tried twice.
-    private var initialCatalogue: (agent: AgentKind, models: [AgentModel], failure: String?)?
+    @ObservationIgnored private var initialCatalogue: (agent: AgentKind, models: [AgentModel], failure: String?)?
     private let defaults: UserDefaults
     /// Lists the project's branches, and a review's checkouts.
     let git: any GitRunning
     private let searchItems: @MainActor (String) async throws -> [Item]
     private let submit: @MainActor (Draft) async throws -> Void
-    private var searchTask: Task<Void, Never>?
-    private var searchGeneration = 0
-    private var catalogueGeneration = 0
-    private var resetModel = false
-    private var unusedSlugMemo: (slug: String, unused: String)?
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var searchGeneration = 0
+    @ObservationIgnored private var catalogueGeneration = 0
+    @ObservationIgnored private var resetModel = false
+    /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
+    @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
 
-    init(project: Project, draft: Draft, home: URL, availableAgents: Set<AgentKind>, rememberedModels: [AgentKind: String],
+    init(kind: Kind, project: Project, draft: Draft, home: URL, availableAgents: Set<AgentKind>, rememberedModels: [AgentKind: String],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
          initialCatalogueFailure: String? = nil, defaults: UserDefaults, git: any GitRunning,
          canChangeWorkspace: @escaping @MainActor () -> Bool,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void) {
-        self.project = project; self.draft = draft; self.home = home; self.availableAgents = availableAgents
+        var fields = draft
+        fields.promptText = ""
+        self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
+        self.home = home; self.availableAgents = availableAgents
         self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
         self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
         self.canChangeWorkspace = canChangeWorkspace
         self.searchItems = search; self.submit = submit
     }
+
+    /// The draft as create submits it, prompt included. A view reading it is not redrawn as the
+    /// prompt is typed — that is what keeps a keystroke from redrawing the whole sheet — so one
+    /// that draws the prompt reads `promptText`.
+    var draft: Draft {
+        get {
+            var draft = fields
+            draft.promptText = prompt
+            return draft
+        }
+        set {
+            let old = draft
+            promptText = newValue.promptText
+            var changed = newValue
+            changed.promptText = ""
+            guard changed != fields else { return }
+            fields = changed
+            kind.draftChanged(from: old, in: self)
+        }
+    }
+
+    /// The prompt as typed, which the prompt step edits; also `draft.promptText`.
+    var promptText: String {
+        get {
+            access(keyPath: \.promptText)
+            return prompt
+        }
+        set {
+            guard newValue != prompt else { return }
+            withMutation(keyPath: \.promptText) { prompt = newValue }
+        }
+    }
+
+    /// The worktree directory the sheet names: the one create will make.
+    var worktreeSlug: String { unusedSlug(kind.slug(for: fields)) }
 
     /// `slug` as create will make it, through `BranchNaming.unused`. Remembered per slug, so a
     /// render stats the worktree directory only after the branch changed.
@@ -80,10 +162,8 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
         return unused
     }
 
-    /// The first prompt the command carries: the person's text, trimmed. New Task appends its ticket.
-    var composedPrompt: String? {
-        AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
-    }
+    /// The first prompt the command carries.
+    var composedPrompt: String? { kind.composedPrompt(promptText, draft: draft) }
 
     /// Spec 4.4's "exact command", built without touching disk (`previewCommand`, not `build`): the
     /// sheet shows it on one line and truncates, the tooltip carries the whole thing.
@@ -184,17 +264,13 @@ class CreationModel<Draft: AgentDraft & Equatable, Item: Equatable>: ObservableO
     /// Stops a create before it starts, saying why in the footer.
     func refuse(_ reason: String) { error = CreationFailure(reason: reason, detail: nil) }
 
-    /// A last check between the press and the submit, run while `creating` holds off a second
-    /// press. `false` stops the create; the override says why with `refuse`.
-    func confirmBeforeSubmit() async -> Bool { true }
-
     /// False means nothing was created and the same draft can be corrected — notably when git
     /// refuses the branch. Once a checkout exists, the workspace owns its recovery and the form closes.
     func create() async -> Bool {
         guard !creating, canChangeWorkspace(), availableAgents.contains(draft.agent), selectedModelIsCurrent else { return false }
         creating = true; error = nil
         defer { creating = false }
-        guard await confirmBeforeSubmit() else { return false }
+        guard await kind.confirmBeforeSubmit(self) else { return false }
         do { try await submit(draft); return true }
         catch { self.error = CreationFailure(error) }
         return false

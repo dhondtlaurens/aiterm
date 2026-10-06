@@ -7,7 +7,7 @@ import AiTermCore
 /// exists — optionally the source branch of a merge request — instead of creating one, so step 1
 /// picks rather than derives, and there is no base branch to choose.
 struct NewReviewSheet: View {
-    @ObservedObject var model: ReviewCreationModel
+    @Bindable var model: ReviewCreationModel
     var _step = State(initialValue: 1)
     private var step: Int { get { _step.wrappedValue } nonmutating set { _step.wrappedValue = newValue } }
     var _mrOpen = State(initialValue: false)
@@ -46,7 +46,7 @@ struct NewReviewSheet: View {
         switch step {
         case 1: branchStep
         case 2: AgentStep(model: model)
-        default: PromptStep(text: $model.draft.promptText, agent: model.draft.agent, completions: model.completions)
+        default: PromptStep(text: $model.promptText, agent: model.draft.agent, completions: model.completions)
         }
     }
 

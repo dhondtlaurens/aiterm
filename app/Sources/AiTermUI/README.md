@@ -191,7 +191,7 @@ the task that has its branch. New Task and New Review draw it on steps 1 and 3 (
 New terminal under its field; nothing else writes where a window opens.
 
 `CreationSheet` is the frame New Task and New Review share — step bar, command preview, destination
-line, footer and its keys, the loads on appear — generic over the sheet's `CreationModel`; each
+line, footer and its keys, the loads on appear — generic over the sheet's `CreationKind`; each
 sheet hands it values and keeps its own first step. A failed create shows its error as a sentence in
 the footer — git's failure lines through `GitError.sentence`, as the banner has them — with git's
 whole output in the tooltip (`CreationFailure`).

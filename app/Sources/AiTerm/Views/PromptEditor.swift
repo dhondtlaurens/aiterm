@@ -5,21 +5,26 @@ import AiTermCore
 
 /// What the completion popup is showing right now. The `NSTextView` drives it and the SwiftUI
 /// overlay renders it, so the list, the highlighted row and the caret position stay in one place.
+///
+/// Observed per property, and a write of the value already there is no change: closing a closed
+/// popup, which every caret move does, redraws nothing.
 @MainActor
-final class PromptCompletions: ObservableObject {
-    @Published var all: [AgentCompletion] = []
-    @Published var visible: [AgentCompletion] = []
-    @Published var index = 0
+@Observable
+final class PromptCompletions {
+    /// Every command and skill the agent has; the popup draws only `visible`.
+    @ObservationIgnored var all: [AgentCompletion] = []
+    var visible: [AgentCompletion] = []
+    var index = 0
     /// Top-left of the popup, in the editor's own coordinates.
-    @Published var anchor = CGPoint.zero
+    var anchor = CGPoint.zero
     /// The editor's own width, so the popup can pull itself left instead of running past the
     /// field's right edge when the token starts near the end of a line.
-    @Published var fieldWidth: CGFloat = 0
+    var fieldWidth: CGFloat = 0
     var isOpen: Bool { !visible.isEmpty }
     /// Set by the editor so the popup's rows can be clicked as well as typed through.
-    var accept: ((AgentCompletion) -> Void)?
+    @ObservationIgnored var accept: ((AgentCompletion) -> Void)?
 
-    func close() { if !visible.isEmpty { visible = [] }; index = 0 }
+    func close() { visible = []; index = 0 }
 }
 
 /// The first-prompt editor: a real `NSTextView`, which is what makes the completion popup possible
@@ -31,8 +36,8 @@ final class PromptCompletions: ObservableObject {
 struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
     let agent: AgentKind
-    /// Not observed: the text view never draws the popup, and observing it here would update the
-    /// `NSTextView` on every caret move. `CompletionPopup` is the one observer.
+    /// Never read while updating the view: the text view never draws the popup, and reading it
+    /// there would update the `NSTextView` on every caret move. `CompletionPopup` is its one reader.
     let completions: PromptCompletions
     /// Told when the text view takes the keyboard and when it gives it up, so the field around it
     /// can draw the focus ring.
@@ -170,10 +175,8 @@ struct PromptEditor: NSViewRepresentable {
             let matches = SkillCatalog.matches(model.all, query: trigger.query)
             guard !matches.isEmpty else { model.close(); return }
             if model.visible != matches { model.visible = matches; model.index = 0 }
-            let anchor = caretAnchor(in: textView, tokenStart: trigger.range.lowerBound)
-            if model.anchor != anchor { model.anchor = anchor }
-            let width = textView.enclosingScrollView?.bounds.width ?? textView.bounds.width
-            if model.fieldWidth != width { model.fieldWidth = width }
+            model.anchor = caretAnchor(in: textView, tokenStart: trigger.range.lowerBound)
+            model.fieldWidth = textView.enclosingScrollView?.bounds.width ?? textView.bounds.width
         }
 
         /// Bottom-left of the line the caret is on, in the scroll view's visible coordinates, so the
@@ -265,7 +268,7 @@ final class PromptTextView: NSTextView {
 
 /// The popup itself: a menu-shaped list of the agent's own commands and skills.
 struct CompletionPopup: View {
-    @ObservedObject var completions: PromptCompletions
+    let completions: PromptCompletions
     let width: CGFloat
     /// The kind glyph's own size. Same size as `Typography.micro`, but that step is always
     /// semibold, and this plain SF Symbol glyph must draw at its regular weight, so it takes the
@@ -275,7 +278,7 @@ struct CompletionPopup: View {
     /// the name text that follows them.
     private static let iconSlot: CGFloat = 12
     var body: some View {
-        // The offset lives here, not at the call site: only this view observes the model, so an
+        // The offset lives here, not at the call site: only this view reads the model, so an
         // anchor read anywhere else would be the one from when the sheet last rebuilt.
         if completions.visible.isEmpty { EmptyView() } else {
             list.frame(width: width)

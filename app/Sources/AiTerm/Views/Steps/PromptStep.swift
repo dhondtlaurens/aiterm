@@ -5,7 +5,9 @@ import AiTermCore
 /// Step 3 of both sheets. `extra` is New Task's "Include Jira ticket details" checkbox; New Review
 /// passes nothing.
 struct PromptStep<Extra: View>: View {
-    @Binding var text: String
+    /// Made as the step draws rather than as the sheet builds it: a `Binding` reads its value when
+    /// it is made, and a sheet that read the prompt would be redrawn whole on every keystroke.
+    private let text: () -> Binding<String>
     let agent: AgentKind
     let completions: PromptCompletions
     let extra: () -> Extra
@@ -15,9 +17,9 @@ struct PromptStep<Extra: View>: View {
         nonmutating set { _editorFocused.wrappedValue = newValue }
     }
 
-    init(text: Binding<String>, agent: AgentKind, completions: PromptCompletions,
+    init(text: @autoclosure @escaping () -> Binding<String>, agent: AgentKind, completions: PromptCompletions,
          @ViewBuilder extra: @escaping () -> Extra = { EmptyView() }) {
-        self._text = text; self.agent = agent; self.completions = completions; self.extra = extra
+        self.text = text; self.agent = agent; self.completions = completions; self.extra = extra
     }
 
     /// The empty-prompt placeholder sits where `PromptEditor`'s first glyph would: across, its text
@@ -35,14 +37,15 @@ struct PromptStep<Extra: View>: View {
     private static var editorHeight: CGFloat { 150 }
 
     var body: some View {
+        let text = self.text()
         VStack(alignment: .leading, spacing: Space.block) {
             FormField("First prompt (optional)") {
                 ZStack(alignment: .topLeading) {
-                    PromptEditor(text: $text, agent: agent, completions: completions,
+                    PromptEditor(text: text, agent: agent, completions: completions,
                                  onFocusChange: { if editorFocused != $0 { editorFocused = $0 } }, focusOnAppear: true)
                         .frame(height: Self.editorHeight)
                         .fieldBox(focused: editorFocused)
-                    if text.isEmpty {
+                    if text.wrappedValue.isEmpty {
                         Text("Describe what the agent should do.").font(Typography.promptMono).foregroundStyle(Palette.placeholder)
                             .padding(.horizontal, Self.placeholderInsetX).padding(.top, Self.placeholderInsetY).allowsHitTesting(false)
                     }
