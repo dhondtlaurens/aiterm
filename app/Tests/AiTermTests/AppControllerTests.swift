@@ -830,6 +830,31 @@ import Testing
         #expect(controller.state.projects.count == 1, "the project itself is added")
         #expect(prompter.asked.isEmpty)
         #expect(controller.state.tasks.isEmpty, "no task is saved with a guessed base branch")
+        // ARCH-06: the offer is made only now, so the person is told it was not.
+        #expect(controller.issue?.title == "Couldn’t check repo for worktrees to import.")
+        #expect(controller.issue?.reason == "Git timed out after \(GitRunner.localTimeout) s.")
+    }
+
+    /// ARCH-06: a git that cannot say whether the folder is a repository — it timed out, or would
+    /// not start — is not a folder outside one. Nothing is added, and the banner says why, where
+    /// the pick used to do nothing at all.
+    @Test func aProjectGitCannotInspectIsReportedNotSilentlyDropped() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let prompter = ScriptedPrompter()
+        let git = FlakyGitRunner()
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(),
+                                        prompter: prompter, git: git)
+        try controller.loadWorkspace()
+        let repo = try Self.repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
+        defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
+
+        git.failing = true
+        await controller.addProject(path: repo)
+        #expect(controller.state.projects.isEmpty)
+        #expect(prompter.asked.isEmpty)
+        #expect(controller.issue == OperationIssue(title: "Couldn’t add the project.",
+                                                   reason: "Git timed out after \(GitRunner.localTimeout) s."))
     }
 
     /// A repository holding one worktree of each kind, made by the same calls the app makes: a

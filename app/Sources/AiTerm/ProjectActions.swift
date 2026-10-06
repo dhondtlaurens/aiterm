@@ -61,18 +61,29 @@ final class ProjectActions {
 
     /// The repository a picked folder belongs to, added with its remote, then the offer to import
     /// its worktrees. A folder inside a repository adds the repository itself, and a toast says so;
-    /// one already in the workspace is refused.
+    /// one already in the workspace is refused. A git that cannot say whether the folder is in a
+    /// repository at all — it timed out, or would not start — adds nothing, and the banner says so.
     func addProject(path picked: String) async {
         guard canChangeWorkspace else { return }
         let git = self.git
-        let inspection = try? await BackgroundWork.run {
-            let top = try Repository.toplevel(of: picked, git: git)
-            let path = top ?? picked
-            // A lookup that fails adds the project without a remote, which the checkout monitor's
-            // next pass finds and adopts; it is not worth refusing the folder over.
-            return (top, path, top == nil ? nil : try? Repository(path, git: git).remoteUrl())
+        let inspection: (toplevel: String?, path: String, remote: String?)
+        do {
+            inspection = try await BackgroundWork.run {
+                let top = try Repository.toplevel(of: picked, git: git)
+                let path = top ?? picked
+                // A lookup that fails adds the project without a remote, which the checkout monitor's
+                // next pass finds and adopts; it is not worth refusing the folder over, nor telling
+                // anyone about. Its worktrees are still offered: a repository is `.git` without one.
+                let remote = top == nil ? nil : Log.git.attempt("Reading the remote of \(path)") { try Repository(path, git: git).remoteUrl() }
+                return (top, path, remote ?? nil)
+            }
+        } catch {
+            Log.workspace.failed("Inspecting \(picked) to add it as a project", error)
+            if canChangeWorkspace { notices.report(OperationIssue(title: "Couldn’t add the project.", error: error)) }
+            return
         }
-        guard canChangeWorkspace, let (toplevel, path, remote) = inspection else { return }
+        guard canChangeWorkspace else { return }
+        let (toplevel, path, remote) = inspection
         if let existing = state.projects.first(where: { $0.path == path }) {
             await prompter.ask(AlertPrompt(message: "\(existing.name) is already in your projects", detail: existing.path))
             return
@@ -93,16 +104,25 @@ final class ProjectActions {
         let git = self.git, catalogue = agents.catalogue
         let agent = state.lastAgentByProject[project.id] ?? .claude
         let remembered = state.lastModelByAgent[agent]
-        let imports = try? await BackgroundWork.run {
-            let repository = Repository(project.path, git: git)
-            return (try repository.managedWorktrees(), try repository.detectDefaultBranch(),
-                    ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
+        let imports: (found: [Worktree], detected: String?, preference: ModelPreference)
+        do {
+            imports = try await BackgroundWork.run {
+                let repository = Repository(project.path, git: git)
+                return (try repository.managedWorktrees(), try repository.detectDefaultBranch(),
+                        ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
+            }
+        } catch {
+            // A default branch git could not be asked for throws above, and nothing is offered: the
+            // offer is made only when the project is added, so it is not made at all rather than
+            // saving "main" into every imported task for a timeout — and the banner says it was not.
+            // A repository with no default branch to name is another matter.
+            Log.git.failed("Looking for worktrees to import into \(project.path)", error)
+            guard state.project(id: project.id) != nil else { return }
+            notices.report(OperationIssue(title: "Couldn’t check \(project.name) for worktrees to import.", error: error))
+            return
         }
-        // A default branch git could not be asked for throws above, and nothing is offered: the offer is
-        // made only when the project is added, so it is not made at all rather than saving "main" into
-        // every imported task for a timeout. A repository with no default branch to name is another matter.
-        guard canChangeWorkspace, state.project(id: project.id) != nil,
-              let (found, detected, preference) = imports, !found.isEmpty else { return }
+        let (found, detected, preference) = imports
+        guard canChangeWorkspace, state.project(id: project.id) != nil, !found.isEmpty else { return }
         let base = detected ?? Repository.fallbackDefaultBranch
         let answer = await prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
                                               detail: "Adds existing worktrees as tasks without starting agents.",
