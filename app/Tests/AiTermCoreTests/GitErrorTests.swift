@@ -52,4 +52,14 @@ struct GitErrorTests {
         let curl = "fatal: unable to access 'https://example.com/a.git/': Connection timed out after 10001 milliseconds"
         #expect(!GitError(args: ["fetch"], code: 128, stderr: curl).timedOut)
     }
+
+    /// What a failure logs: the command and git's own words, which the banner's sentence tidies away.
+    /// `Logger.failed` asks the error for it, and anything that has none logs its description.
+    @Test func theLogKeepsTheCommandAndGitsOwnWords() {
+        #expect(GitError(args: ["worktree", "add", "x"], code: 128, stderr: "fatal: no").logDetail
+                == "git worktree add x exited 128: fatal: no")
+        #expect(GitError(args: ["fetch"], code: 1, stderr: "", timedOut: true).logDetail == "git fetch exited 1, timed out: ")
+        struct Other: Error {}
+        #expect((Other() as Error as? any LogDetailed) == nil)
+    }
 }

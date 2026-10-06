@@ -60,6 +60,14 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
     }
 }
 
+/// The command and git's own words, for `Logger.failed`: what `sentence(of:)` tidies away for a
+/// banner is what the log is for.
+extension GitError: LogDetailed {
+    var logDetail: String {
+        "git \(args.joined(separator: " ")) exited \(code)\(timedOut ? ", timed out" : ""): \(stderr)"
+    }
+}
+
 /// What runs git for a caller. Production runs the real binary (``GitRunner``); a test hands in one
 /// that counts, records or fails what it is asked, without a class for the tests to subclass.
 ///

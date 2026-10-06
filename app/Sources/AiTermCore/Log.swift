@@ -29,6 +29,12 @@ public enum Log {
     public static let ui = Logger(subsystem: subsystem, category: "ui")
 }
 
+/// An error that says more in a log line than in its description. `Log` sits below every folder
+/// of Core, so it asks an error for this rather than knowing which ones have it (`GitError` does).
+protocol LogDetailed: Error {
+    var logDetail: String { get }
+}
+
 extension Logger {
     /// `work`'s value, or `nil` once its failure is logged as `what` failing: for a step the caller
     /// goes on without, where `try?` would leave no trace of why.
@@ -52,12 +58,11 @@ extension Logger {
         }
     }
 
-    /// `what` failed with `error`, logged in one line: a git failure with the command and its own
-    /// words, which the banner's sentence (`GitError.sentence`) tidies away.
+    /// `what` failed with `error`, logged in one line: its `logDetail` where it has one (a git
+    /// failure's command and own words, which the banner's sentence tidies away), else its
+    /// description.
     public func failed(_ what: String, _ error: Error, level: OSLogType = .error) {
-        let detail = (error as? GitError).map { git in
-            "git \(git.args.joined(separator: " ")) exited \(git.code)\(git.timedOut ? ", timed out" : ""): \(git.stderr)"
-        } ?? String(describing: error)
+        let detail = (error as? any LogDetailed)?.logDetail ?? String(describing: error)
         log(level: level, "\(what, privacy: .public) failed: \(detail, privacy: .public)")
     }
 }

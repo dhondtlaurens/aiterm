@@ -5,26 +5,6 @@ public struct GitLabConfig: Equatable, Sendable {
     public init(hostURL: URL, token: String) { self.hostURL = hostURL; self.token = token }
 }
 
-public struct MergeRequest: Equatable, Sendable, Identifiable {
-    public var iid: Int, title: String, sourceBranch: String, targetBranch: String
-    public var author: String?, state: String, draft: Bool, url: String
-    /// `owner:branch` when the branch lives in a fork rather than on origin, which is where a
-    /// review checks out from. Only GitHub reports it.
-    public var forkHead: String?
-    public var id: Int { iid }
-    public init(iid: Int, title: String, sourceBranch: String, targetBranch: String,
-                author: String?, state: String, draft: Bool, url: String, forkHead: String? = nil) {
-        self.iid = iid; self.title = title; self.sourceBranch = sourceBranch; self.targetBranch = targetBranch
-        self.author = author; self.state = state; self.draft = draft; self.url = url; self.forkHead = forkHead
-    }
-
-    /// The lane a picked merge or pull request shows beside its title.
-    public var lane: String { forkHead != nil ? "Fork" : draft ? "Draft" : state.capitalized }
-    public var host: CodeHost { CodeHost(webURL: url) }
-    /// `!87` for GitLab, `#87` for GitHub.
-    public var reference: String { host.reference(iid) }
-}
-
 public enum GitLabError: Error, Equatable, LocalizedError {
     case unauthorized, network(String), badResponse(Int), decoding, projectNotFound(String)
     /// Nothing at the host answers GitLab's API — a mistyped host, or a web page in front of it.
