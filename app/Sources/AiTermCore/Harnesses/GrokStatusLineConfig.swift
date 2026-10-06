@@ -13,10 +13,6 @@ enum GrokStatusLineConfig {
     static let shimName = "grok-statusline-shim.sh"
     static let disabledTypes: Set<String> = ["disabled", "off", "none", "hidden"]
 
-    static func originalURL(home: URL) -> URL {
-        home.appendingPathComponent("Library/Application Support/AiTerm/grok-statusline-original.cmd")
-    }
-
     /// Grok runs `command` directly when it names an executable, through `sh -c` otherwise, so a
     /// path with spaces is shell-quoted.
     static func command(forShim path: String) -> String { AgentCommand.shellWord(path) }
@@ -103,23 +99,18 @@ enum GrokStatusLineConfig {
         return (result, nil)
     }
 
-    /// Points `file`, whose text the caller has read (`nil` when there is none), at the shim.
-    /// Saves a replaced command first, so a failure between the two can never leave Grok on the
-    /// shim with no record of the user's own status line.
+    /// Points `file`, whose text the caller has read (`nil` when there is none), at the shim, with
+    /// the user's own command kept first (`StatusLineOriginal.record`). `original` is where.
     static func install(_ text: String?, into file: UserConfigFile, original: URL, shimPath: String) throws {
-        let fileManager = FileManager.default
-        let before = state(text, shimPath: shimPath)
         guard let merged = merge(text, shimPath: shimPath) else { return }
-        if let replaced = merged.replaced {
-            try fileManager.createDirectory(at: original.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try StatusLineOriginal.save(replaced, to: original)
-        } else if before == .missing {
-            // The user removed (or never had) their own status line — do not revive a stale
-            // saved command on repair. Kept for `.outdated` (a moved bundle) below.
-            try StatusLineOriginal.remove(original)
+        let before: StatusLineOriginal.Before
+        switch state(text, shimPath: shimPath) {
+        case .foreign(let command): before = .foreign(command)
+        case .missing: before = .missing
+        case .current, .outdated, .builtin, .unsupportedLayout: before = .ours
         }
+        try StatusLineOriginal.record(before, command: original)
         try file.backUp()
         try file.write(Data(merged.text.utf8))
     }
 }
-

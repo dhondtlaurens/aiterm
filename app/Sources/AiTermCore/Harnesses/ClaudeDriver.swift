@@ -18,7 +18,10 @@ struct ClaudeDriver: HarnessDriver {
         case .present(let data):
             let object: [String: Any]
             do { object = try ClaudeSettings.mergeable(data) } catch { return .refused(file, error.reason) }
-            if ClaudeSettings.isInstalled(object, daemonPort: daemonPort, shimPath: shimPath) {
+            // The status-line shim posts to the port in its file, so settings that are current beside
+            // another port, or none, are outdated: Repair writes it.
+            if ClaudeSettings.isInstalled(object, daemonPort: daemonPort, shimPath: shimPath),
+               ShimPort.isRecorded(daemonPort, home: home) {
                 return DriverProbe(.current)
             }
             return DriverProbe(ClaudeSettings.isOwned(object, shimPath: shimPath) ? .outdated : .missing)
@@ -26,7 +29,7 @@ struct ClaudeDriver: HarnessDriver {
     }
 
     func install() throws {
-        let file = settings, fileManager = FileManager.default
+        let file = settings
         let data: Data?
         switch file.read() {
         case .missing: data = nil
@@ -40,30 +43,26 @@ struct ClaudeDriver: HarnessDriver {
             throw file.refusal(refusal.reason)
         }
         let (merged, original) = result
-        let support = try AiTermPaths.migrateSupportDirectory(homeDirectory: home)
-        try fileManager.createDirectory(at: support, withIntermediateDirectories: true)
-        // T9-1 fix 4: save the original status line *before* writing the merged settings.json, so
-        // a crash (or a failed/partial write) between the two can never leave Claude pointed at
-        // the shim without a recorded original to fall back to.
-        let originalURL = support.appendingPathComponent("statusline-original.json")
-        let commandURL = support.appendingPathComponent("statusline-original.cmd")
-        if let original {
-            try JSONSerialization.data(withJSONObject: original).write(to: originalURL, options: .atomic)
-            try StatusLineOriginal.save(original["command"] as? String, to: commandURL)
-            // Asked of the file's content only (`isRunnable` defeated): here the question is
-            // whether settings.json still names our shim, not whether that shim can run. A bundle
-            // that moved, or a translocated launch, would otherwise look like "the user removed
-            // our status line" and throw away the record of the user's real one.
-        } else if !ClaudeSettings.statusLineIsInstalled(data, shimPath: shimPath, isRunnable: { _ in true }) {
-            // If the user removed their status line, do not revive an old saved display when
-            // reinstalling the telemetry callback. Keep the original on normal shim reinstalls.
-            for url in [originalURL, commandURL] { try StatusLineOriginal.remove(url) }
-        } else {
-            try StatusLineOriginal.migrate(from: originalURL, to: commandURL)
-        }
+        // The shim's port and the user's own status line are on disk before `settings.json` points
+        // Claude at the shim: a crash or a failed write between the two can never leave it running
+        // a shim that posts nowhere, or without the status line it replaced.
+        try ShimPort.record(daemonPort, home: home)
+        try StatusLineOriginal.record(before(original: original, data: data),
+                                      command: AiTermPaths.statusLineOriginalURL(home: home),
+                                      legacy: AiTermPaths.legacyStatusLineOriginalURL(home: home))
         guard !ClaudeSettings.same(data, merged) else { return }
         try file.backUp()
         try file.write(merged)
+    }
+
+    /// The status line the file had: the user's own command when the merge set one aside, ours when
+    /// `settings.json` still names our shim, whether or not it can run (the question is what the
+    /// file says, not whether that shim works: a moved bundle would otherwise look like the user
+    /// removing our status line, and the record of their real one would go), otherwise none.
+    private func before(original: [String: Any]?, data: Data?) -> StatusLineOriginal.Before {
+        if let command = original?["command"] as? String, !command.isEmpty { return .foreign(command) }
+        if original == nil, ClaudeSettings.statusLineIsInstalled(data, shimPath: shimPath, isRunnable: { _ in true }) { return .ours }
+        return .missing
     }
 
     func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(endpoint: Harness.claude.hookEndpoint) }

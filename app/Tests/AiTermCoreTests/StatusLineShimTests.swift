@@ -7,6 +7,9 @@ import Testing
 /// replaced by recorders on `PATH`: nothing reaches a running daemon, and the test sees exactly
 /// what the shim would have started. Claude Code runs it on every status-line tick.
 @Suite struct StatusLineShimTests {
+    /// Not the app's own, so a port the shim fell back to would show.
+    static let port = 50123
+
     static let shim = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("hooks/claude-statusline-shim.sh")
@@ -14,13 +17,13 @@ import Testing
 
     struct Home {
         let url: URL
-        var support: URL { url.appendingPathComponent("Library/Application Support/AiTerm") }
+        var support: URL { AiTermPaths.supportDirectory(home: url) }
         var curlArguments: URL { url.appendingPathComponent("curl-args") }
         var curlInput: URL { url.appendingPathComponent("curl-stdin") }
         var pythonRuns: URL { url.appendingPathComponent("python3-runs") }
     }
 
-    func makeHome() throws -> Home {
+    func makeHome(port: Int? = Self.port) throws -> Home {
         let home = Home(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-shim-\(UUID().uuidString)"))
         let bin = home.url.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
@@ -31,6 +34,7 @@ import Testing
             mv "$HOME/curl-stdin.tmp" "$HOME/curl-stdin"; mv "$HOME/curl-args.tmp" "$HOME/curl-args"
             """)
         try recorder(at: bin.appendingPathComponent("python3"), #"echo run >> "$HOME/python3-runs""#)
+        if let port { try ShimPort.record(port, home: home.url) }
         return home
     }
 
@@ -57,15 +61,15 @@ import Testing
         return (arguments.split(separator: "\n").map(String.init), try String(contentsOf: home.curlInput, encoding: .utf8))
     }
 
-    @Test func forwardsToTheAppsHookPortAndRunsTheOriginalCommandWithoutPython() async throws {
+    @Test func forwardsToThePortTheDriverRecordedAndRunsTheOriginalCommandWithoutPython() async throws {
         let home = try makeHome(); defer { try? FileManager.default.removeItem(at: home.url) }
-        try Data(#"printf 'mine:'; cat"#.utf8).write(to: home.support.appendingPathComponent("statusline-original.cmd"))
+        try Data(#"printf 'mine:'; cat"#.utf8).write(to: AiTermPaths.statusLineOriginalURL(home: home.url))
         let output = try run(home)
         #expect(output.status == 0)
         #expect(output.stdout == "mine:" + payload)
         #expect(output.stderr == "")
         let post = try #require(try await forwarded(home))
-        #expect(post.arguments.last == "http://127.0.0.1:\(AiTermPaths.hookPort)/statusline")
+        #expect(post.arguments.last == "http://127.0.0.1:\(Self.port)/statusline")
         #expect(post.body == payload)
         #expect(!FileManager.default.fileExists(atPath: home.pythonRuns.path), "a status-line tick must not start python3")
     }
@@ -73,7 +77,7 @@ import Testing
     @Test func withoutAnOriginalCommandItIsSilentAndStillForwards() async throws {
         for original: String? in [nil, ""] {
             let home = try makeHome(); defer { try? FileManager.default.removeItem(at: home.url) }
-            if let original { try Data(original.utf8).write(to: home.support.appendingPathComponent("statusline-original.cmd")) }
+            if let original { try Data(original.utf8).write(to: AiTermPaths.statusLineOriginalURL(home: home.url)) }
             let output = try run(home)
             #expect(output.status == 0)
             #expect(output.stdout == "")
@@ -84,7 +88,7 @@ import Testing
 
     @Test func anUnreadableCommandFileIsSilentAndStillForwards() async throws {
         let home = try makeHome(); defer { try? FileManager.default.removeItem(at: home.url) }
-        let command = home.support.appendingPathComponent("statusline-original.cmd")
+        let command = AiTermPaths.statusLineOriginalURL(home: home.url)
         try Data("printf 'mine:'; cat".utf8).write(to: command)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: command.path)
         let output = try run(home)
@@ -92,5 +96,37 @@ import Testing
         #expect(output.stdout == "")
         #expect(output.stderr == "")
         #expect(try await forwarded(home)?.body == payload)
+    }
+
+    /// No port recorded, no post: the shim has nowhere to send it, and says nothing, and the user's
+    /// own status line shows all the same.
+    @Test func withoutARecordedPortItPostsNothingAndStillRunsTheOriginalCommand() throws {
+        let home = try makeHome(port: nil); defer { try? FileManager.default.removeItem(at: home.url) }
+        try Data(#"printf 'mine:'; cat"#.utf8).write(to: AiTermPaths.statusLineOriginalURL(home: home.url))
+        let output = try run(home)
+        #expect(output.status == 0)
+        #expect(output.stdout == "mine:" + payload)
+        #expect(output.stderr == "")
+        // The post is a background job a tick would have started by now; give it a moment to not exist.
+        Thread.sleep(forTimeInterval: 0.5)
+        #expect(!FileManager.default.fileExists(atPath: home.curlArguments.path))
+    }
+
+    /// The shim spells the support folder in shell and nothing else of the app's: this pins that
+    /// spelling to `AiTermPaths`, which writes the files it reads. The port is in no bundled file,
+    /// and PI's extension takes it from the driver (`PiDriver.portPlaceholder`).
+    @Test func theBundledFilesSpellTheSupportFolderAsAiTermPathsDoesAndNoPort() throws {
+        let hooks = Self.shim.deletingLastPathComponent()
+        let relative = AiTermPaths.supportDirectory(home: URL(fileURLWithPath: "/h")).path.replacingOccurrences(of: "/h/", with: "")
+        for name in ["claude-statusline-shim.sh", "grok-statusline-shim.sh"] {
+            let text = try String(contentsOf: hooks.appendingPathComponent(name), encoding: .utf8)
+            #expect(text.contains("$HOME/\(relative)\""), "\(name) reads files from another folder than the app writes")
+            #expect(text.contains(AiTermPaths.hookPortURL(home: URL(fileURLWithPath: "/h")).lastPathComponent))
+            #expect(!text.contains(String(AiTermPaths.hookPort)), "\(name) spells the hook port")
+        }
+        let extensionText = try String(contentsOf: hooks.appendingPathComponent("pi-aiterm-status.ts"), encoding: .utf8)
+        #expect(!extensionText.contains(String(AiTermPaths.hookPort)))
+        #expect(extensionText.components(separatedBy: PiDriver.portPlaceholder).count == 2)
+        #expect(extensionText.hasPrefix("// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n"))
     }
 }

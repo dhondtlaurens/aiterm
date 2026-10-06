@@ -23,6 +23,20 @@ import Testing
         #expect(probe.checks.isEmpty)
     }
 
+    /// The shim posts to the port in `hook-port`: a status line that points at it is outdated until
+    /// Install has recorded the daemon's, and a Repair of an otherwise current install does it.
+    @Test func theShimsPortIsRecordedByInstallAndMissingOnesAreOutdated() throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        try driver(home).install()
+        #expect(try String(contentsOf: AiTermPaths.hookPortURL(home: home), encoding: .utf8) == "\(port)\n")
+
+        try FileManager.default.removeItem(at: AiTermPaths.hookPortURL(home: home))
+        #expect(driver(home).state == .outdated)
+        try driver(home).install()
+        #expect(driver(home).state == .current)
+        #expect(ShimPort.isRecorded(port, home: home))
+    }
+
     @Test func hooksWithoutTheStatusLineAreOutdated() throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let url = GrokHooksFile.url(home: home)
@@ -99,7 +113,7 @@ import Testing
         try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "[ui.status_line]\ntype = \"command\"\ncommand = \"~/line.sh\"\n".write(to: config, atomically: true, encoding: .utf8)
         try driver(home).install()
-        let original = GrokStatusLineConfig.originalURL(home: home)
+        let original = AiTermPaths.grokStatusLineOriginalURL(home: home)
         #expect(try String(contentsOf: original, encoding: .utf8) == "~/line.sh")
         #expect(FileManager.default.fileExists(atPath: config.path + ".aiterm-backup"))
         #expect(driver(home).state == .current)
@@ -111,7 +125,7 @@ import Testing
         try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "[ui.status_line]\ntype = \"command\"\ncommand = \"~/line.sh\"\n".write(to: config, atomically: true, encoding: .utf8)
         try driver(home).install()
-        let original = GrokStatusLineConfig.originalURL(home: home)
+        let original = AiTermPaths.grokStatusLineOriginalURL(home: home)
         #expect(try String(contentsOf: original, encoding: .utf8) == "~/line.sh")
 
         // The user turns the status line off (or deletes the table); repairing must not bring
@@ -127,7 +141,7 @@ import Testing
         try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "[ui.status_line]\ntype = \"command\"\ncommand = \"~/line.sh\"\n".write(to: config, atomically: true, encoding: .utf8)
         try driver(home).install()
-        let original = GrokStatusLineConfig.originalURL(home: home)
+        let original = AiTermPaths.grokStatusLineOriginalURL(home: home)
         #expect(try String(contentsOf: original, encoding: .utf8) == "~/line.sh")
 
         // The bundle moved: config still names the old shim path, so the state is `.outdated`,

@@ -4,8 +4,11 @@
 import { EventEmitter } from "node:events";
 
 let posts = [];
-globalThis.fetch = async (_url, init) => {
-	posts.push(JSON.parse(init.body));
+let stalled = false;
+globalThis.fetch = async (url, init) => {
+	posts.push({ ...JSON.parse(init.body), _url: url });
+	// A daemon that accepts the connection and never answers.
+	if (stalled) await new Promise(() => {});
 	return { json: async () => ({}) };
 };
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -84,5 +87,30 @@ staleCtx.invalidate();
 await phase("stale", async () => {
 	bus.emit("subagents:started", { id: "a4" });
 });
+
+// What a handler hands back to PI, which may wait on it: nothing, unless the driver test asked for
+// the acknowledgement. Raced against a timer so a handler that does return the stalled post fails
+// rather than hangs.
+const returned = async (steps) => {
+	const timedOut = Symbol("timed out");
+	const results = [];
+	for (const step of steps) {
+		const outcome = await Promise.race([Promise.resolve(step()).then((value) => ({ value })), settled().then(() => timedOut)]);
+		results.push(outcome === timedOut ? "pending" : outcome.value === undefined ? "nothing" : "a value");
+	}
+	return results;
+};
+stalled = true;
+const handlerCtx = context("root", true);
+const handlers = ["session_start", "agent_start", "agent_settled", "ui_prompt_start", "ui_prompt_end"];
+phases.returned = await returned(handlers.map((name) => () => root(name, handlerCtx, { reason: "startup" })));
+phases.returned.push(...await returned([
+	() => root("model_select", handlerCtx, { model: { provider: "p", id: "m" } }),
+	() => root("thinking_level_select", handlerCtx, { level: "low" }),
+]));
+process.env.AITERM_INTEGRATION_TEST = "t-1";
+phases.returned_under_test = await returned([() => root("agent_start", handlerCtx)]);
+delete process.env.AITERM_INTEGRATION_TEST;
+stalled = false;
 
 process.stdout.write(JSON.stringify(phases));

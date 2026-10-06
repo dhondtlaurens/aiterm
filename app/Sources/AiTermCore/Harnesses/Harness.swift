@@ -33,8 +33,8 @@ public struct Harness: Sendable {
     /// Where the agent keeps skills and commands, globally and in the project, in the order the
     /// CLI reads them: the first of a name wins.
     let skillRoots: @Sendable (_ home: URL, _ project: URL?) -> [SkillRoot]
-    /// The driver, given the bundled resource it installs (`HarnessResources`); `nil` without one
-    /// it needs.
+    /// The driver, given the daemon's hook port and the bundled resource it installs
+    /// (`HarnessResources`); `nil` without one it needs.
     let makeDriver: @Sendable (_ home: URL, _ daemonPort: Int, _ resource: String?) -> (any HarnessDriver)?
 
     /// The launch command's words before its prompt, unquoted (`AgentCommand` quotes them).

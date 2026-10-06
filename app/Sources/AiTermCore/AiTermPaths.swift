@@ -4,21 +4,48 @@ import Foundation
 /// Both the app and the daemon supervisor read these, so a change here cannot leave the hook
 /// installer and the daemon arguing about a port, or the log and the socket in different folders.
 public enum AiTermPaths {
-    /// Hook HTTP receiver port (daemon plan §1). The installer writes it into the agent configs and
-    /// the supervisor passes it to `aitermd run --hook-port`.
+    /// Hook HTTP receiver port (daemon plan §1). The drivers install it: the agents' hook URLs
+    /// carry it, PI's extension is written with it, and the status-line shims read it from
+    /// `hookPortURL` (`ShimPort`). The supervisor passes it to `aitermd run --hook-port`.
     public static let hookPort = 47821
 
-    public static var supportDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/AiTerm")
+    /// AiTerm's folder in `home`'s Application Support: state, the helper's socket and log, and the
+    /// small files the status-line shims read. The shims spell the same path in shell
+    /// (`StatusLineShimTests` pins that they do).
+    public static func supportDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        home.appendingPathComponent("Library/Application Support/AiTerm")
     }
 
-    /// Called before loading state or installing hooks. A temporary sibling makes a case-only
+    /// The port the status-line shims post to, one line of digits: a shim runs on every tick of its
+    /// agent's status line and reads it with a shell builtin.
+    public static func hookPortURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        supportDirectory(home: home).appendingPathComponent("hook-port")
+    }
+
+    /// The command of the user's own Claude Code status line, which the shim runs.
+    public static func statusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        supportDirectory(home: home).appendingPathComponent("statusline-original.cmd")
+    }
+
+    /// The JSON record an older install kept of it in place of `statusLineOriginalURL`, which the
+    /// launch migration reads once and nothing writes any more.
+    public static func legacyStatusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        supportDirectory(home: home).appendingPathComponent("statusline-original.json")
+    }
+
+    /// The command of the user's own Grok Build status line, which its shim runs.
+    public static func grokStatusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        supportDirectory(home: home).appendingPathComponent("grok-statusline-original.cmd")
+    }
+
+    /// Called once, at launch, before loading state: a driver's install writes into the folder but
+    /// never renames it. A temporary sibling makes a case-only
     /// rename work on either filesystem type. Failures propagate so startup cannot create empty
     /// state beside data it failed to migrate. Two distinct existing directories require recovery.
     @discardableResult
     public static func migrateSupportDirectory(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> URL {
-        let base = homeDirectory.appendingPathComponent("Library/Application Support")
-        let preferred = base.appendingPathComponent("AiTerm")
+        let preferred = supportDirectory(home: homeDirectory)
+        let base = preferred.deletingLastPathComponent()
         let legacy = base.appendingPathComponent("AIterm")
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: base.path) else { return preferred }
@@ -43,8 +70,8 @@ public enum AiTermPaths {
         return preferred
     }
 
-    public static var socketPath: String { supportDirectory.appendingPathComponent("aitermd.sock").path }
-    public static var daemonLogURL: URL { supportDirectory.appendingPathComponent("aitermd.log") }
+    public static var socketPath: String { supportDirectory().appendingPathComponent("aitermd.sock").path }
+    public static var daemonLogURL: URL { supportDirectory().appendingPathComponent("aitermd.log") }
 
     /// Where a downloaded update is unpacked and verified, and where the replaced app waits until
     /// the new one launches. Caches, because every file in it is disposable: launch deletes it.

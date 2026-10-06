@@ -45,18 +45,46 @@ import Foundation
         try Data(#"{"statusLine":{"type":"command","command":"my-statusline"}}"#.utf8).write(to: settings)
         let shim = "/Applications/AiTerm.app/claude-statusline-shim.sh"
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        let original = home.appendingPathComponent("Library/Application Support/AiTerm/statusline-original.json")
-        let command = home.appendingPathComponent("Library/Application Support/AiTerm/statusline-original.cmd")
-        let saved = try Data(contentsOf: original)
+        let command = AiTermPaths.statusLineOriginalURL(home: home)
         #expect(try String(contentsOf: command, encoding: .utf8) == "my-statusline", "the shim reads the command as plain text")
+        #expect(!FileManager.default.fileExists(atPath: AiTermPaths.legacyStatusLineOriginalURL(home: home).path),
+                "the JSON record nothing reads is no longer written")
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        #expect(try Data(contentsOf: original) == saved)
         #expect(try String(contentsOf: command, encoding: .utf8) == "my-statusline")
+        // An old install's JSON record goes with the command when the user's status line does.
+        let legacy = AiTermPaths.legacyStatusLineOriginalURL(home: home)
+        try Data(#"{"command":"my-statusline"}"#.utf8).write(to: legacy)
         try Data("{}".utf8).write(to: settings)
         try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        #expect(!FileManager.default.fileExists(atPath: original.path))
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
         #expect(!FileManager.default.fileExists(atPath: command.path))
         #expect(ClaudeSettings.statusLineIsInstalled(try Data(contentsOf: settings), shimPath: shim, isRunnable: { _ in true }))
+    }
+
+    /// The shim posts to the port in `hook-port`, so Install writes it, and settings that are
+    /// current without it are outdated until a Repair does. It writes it into a support folder it
+    /// finds, however the folder is spelled, and never renames the user's data: an install that
+    /// found both "AIterm" and "AiTerm" once threw "Both … folders exist" about a file it was not
+    /// writing.
+    @Test func installRecordsTheShimsPortAndNeverMigratesTheDataFolder() throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let shim = "/Applications/AiTerm.app/claude-statusline-shim.sh"
+        let driver = ClaudeDriver(home: home, daemonPort: 50123, shimPath: shim)
+        try driver.install()
+        #expect(try String(contentsOf: AiTermPaths.hookPortURL(home: home), encoding: .utf8) == "50123\n")
+        #expect(driver.state == .current)
+
+        try FileManager.default.removeItem(at: AiTermPaths.hookPortURL(home: home))
+        #expect(driver.state == .outdated, "the shim has no port to post to: Repair writes it")
+        try Data("47821\n".utf8).write(to: AiTermPaths.hookPortURL(home: home))
+        #expect(driver.state == .outdated, "another port than the hooks' own")
+        try driver.install()
+        #expect(driver.state == .current)
+
+        let base = AiTermPaths.supportDirectory(home: home).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("AIterm"), withIntermediateDirectories: true)
+        try driver.install()
+        #expect(FileManager.default.fileExists(atPath: base.appendingPathComponent("AIterm").path), "the legacy folder is left to launch")
     }
 
     /// AiTerm once installed `PreToolUse` as a synchronous Bash hook. A merge takes out only our
@@ -324,7 +352,7 @@ import Foundation
         #expect(merged.components(separatedBy: CodexHookConfig.end).count == 2, "exactly one well-formed block, not two")
     }
 
-    // MARK: - T9-1 fix 4: write statusline-original.json before settings.json so a crash in between can't lose it
+    // MARK: - T9-1 fix 4: write the original status line before settings.json so a crash in between can't lose it
 
     @Test func testInstallWritesOriginalStatusLineBeforeSettingsFileSurvivesASettingsWriteFailure() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-home-\(UUID().uuidString)")
@@ -336,7 +364,7 @@ import Foundation
         """.utf8).write(to: settingsURL)
         // Make the .claude directory read-only so writing (and backing up) settings.json fails,
         // while Library/Application Support/AiTerm (a sibling tree) stays writable. If the
-        // installer still writes statusline-original.json first, it survives the failed
+        // installer still writes statusline-original.cmd first, it survives the failed
         // settings.json write below; if it wrote settings.json first, the original would be lost.
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: claudeDir.path)
         defer {
@@ -348,9 +376,8 @@ import Foundation
             try ClaudeDriver(home: home, daemonPort: 47821, shimPath: "/Applications/AiTerm.app/shim.sh").install()
         }
 
-        let originalPath = home.appendingPathComponent("Library/Application Support/AiTerm/statusline-original.json")
-        let savedOriginal = try JSONSerialization.jsonObject(with: try Data(contentsOf: originalPath)) as! [String: Any]
-        #expect(savedOriginal["command"] as? String == "/Users/me/.claude/statusline/statusline.py", "the original status line must have been saved before the (failing) settings.json write")
+        let saved = try String(contentsOf: AiTermPaths.statusLineOriginalURL(home: home), encoding: .utf8)
+        #expect(saved == "/Users/me/.claude/statusline/statusline.py", "the original status line must have been saved before the (failing) settings.json write")
     }
 
     /// The shim is the only channel Claude usage can arrive through — Claude Code hands out
@@ -576,27 +603,6 @@ import Foundation
         #expect(CodexDriver(home: home, daemonPort: 9999).state != .current)
         let repaired = CodexHookConfig.merge(text, hookURL: "http://127.0.0.1:9999")
         #expect(repaired == text.replacingOccurrences(of: "127.0.0.1:47821", with: "127.0.0.1:9999"))
-    }
-
-    /// Installs from before the shim read plain text kept only the JSON record. The shim no longer
-    /// parses it, so the next install writes the command out once, and the user's status line
-    /// keeps showing.
-    @Test func anOldJSONRecordOfTheOriginalCommandIsMigratedOnce() throws {
-        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
-        let shim = "/Applications/AiTerm.app/shim.sh"
-        let support = home.appendingPathComponent("Library/Application Support/AiTerm")
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        try Data(#"{"type":"command","command":"~/bin/my status.sh --short"}"#.utf8).write(to: support.appendingPathComponent("statusline-original.json"))
-        try Data(#"{"statusLine":{"type":"command","command":"\#(shim)","padding":0}}"#.utf8).write(to: home.appendingPathComponent(".claude/settings.json"))
-
-        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        let command = support.appendingPathComponent("statusline-original.cmd")
-        #expect(try String(contentsOf: command, encoding: .utf8) == "~/bin/my status.sh --short")
-
-        // Once: a command file already there is the record, whatever the old JSON says.
-        try Data("edited".utf8).write(to: command)
-        try ClaudeDriver(home: home, daemonPort: 47821, shimPath: shim).install()
-        #expect(try String(contentsOf: command, encoding: .utf8) == "edited")
     }
 
     /// An upgrade must not wait for Settings' Install or Repair to keep the user's status line

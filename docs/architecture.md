@@ -155,7 +155,7 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | avatars | iTerm2's session list — one mark per tab, in tab order |
 | branch | the *agent's* working directory, never iTerm2's: `session.path` is the shell's and never follows a Claude that entered a worktree |
 | diff badge | `git diff --numstat` from the merge-base with the task's base, plus the untracked files' lines (at most 2,000 files and 20 MB; a file over 1 MB is skipped). Kept 5 s, inside the 2 s checkout pass; the merge-base is kept until a ref it joins moves. While the refs stand still an expiry costs two git processes per task — 40 at 20 tasks, where it was 100 |
-| Claude usage | the `statusLine` shim — Claude Code hands rate limits to that command and to nothing else. It posts with `curl` to the fixed hook port and starts no `python3` |
+| Claude usage | the `statusLine` shim — Claude Code hands rate limits to that command and to nothing else. It posts with `curl` to the hook port its driver recorded in `hook-port` and starts no `python3` |
 | Codex usage | the `rate_limits` block Codex writes into every `token_count` record of its rollout file under `~/.codex/sessions` — the same file the context fill comes from, no subprocess |
 | context fill | the same `statusLine` payload's `context_window`; the reporting session updates its task's last-known value, and the footer draws it only while that task is selected |
 | provider icon | the git remote URL, or the repo itself |
@@ -182,7 +182,10 @@ status line counts as current only when it names this bundle's shim or a copy th
 eight events go to a file AiTerm owns outright, `~/.grok/hooks/aiterm.json`, written atomically
 rather than merged; only its status line merges into `~/.grok/config.toml`'s `[ui.status_line]`
 table, saving a foreign command to `grok-statusline-original.cmd` first. The PI extension goes to
-`~/.pi/agent/extensions/aiterm-status.ts`, schema 3.
+`~/.pi/agent/extensions/aiterm-status.ts`, schema 4, written with the hook port in place of its placeholder.
+The two status-line shims run from the bundle and read the port from `hook-port` in the support folder,
+which each of their drivers' Install writes (launch writes it too, for an upgrade); a shim with no port
+posts nothing, and a card whose file does not hold the daemon's port is outdated.
 
 **A long first prompt** — When the typed command would pass 1000 bytes, or the prompt holds a
 control character, the prompt goes to `<worktree>/.aiterm/first-prompt.md` and the command becomes

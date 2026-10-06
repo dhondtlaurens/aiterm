@@ -68,7 +68,8 @@ final class AgentIntegrations {
     }
 
     /// The status line's launch probe: first the upgrade of an old record of the user's own status
-    /// line, which the shim would otherwise stop showing, then the read.
+    /// line, which the shim would otherwise stop showing, and the port the shims post to, which an
+    /// install from before they read it never recorded, then the read.
     /// Internal, not private, for `theLaunchProbeMigratesAnOldStatusLineRecord`.
     func probeStatusLine() async { await readStatusLine(migratingFirst: true) }
 
@@ -85,6 +86,11 @@ final class AgentIntegrations {
             if migrating {
                 do { try StatusLineOriginal.migrate(home: home) }
                 catch { NSLog("AiTerm: could not migrate the saved status line: \(error.localizedDescription)") }
+                // The shims are in the bundle and so are as new as the app, but read the port from a
+                // file only a driver's Install writes: until it has, an upgrade's status line posts
+                // to nothing and the footer's usage goes quiet.
+                do { try ShimPort.record(AiTermPaths.hookPort, home: home) }
+                catch { NSLog("AiTerm: could not record the hook port: \(error.localizedDescription)") }
             }
             // The harness home this was given, never the default: in a test that is a temporary
             // directory, and the developer's own `~/.claude` says nothing about it.

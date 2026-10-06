@@ -1,7 +1,13 @@
-// AiTerm PI extension schema: 3
+// AiTerm PI extension schema: 4
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const endpoint = "http://127.0.0.1:47821/hook/pi";
+// The port is AiTermPaths.hookPort, which PiDriver writes in place of the placeholder.
+const endpoint = "http://127.0.0.1:__AITERM_HOOK_PORT__/hook/pi";
+
+// PI may wait on what a handler returns, and reporting must never hold PI up: a daemon that accepts
+// the connection and stalls would cost every turn the request's whole timeout. Handlers hand back
+// nothing, except under the driver test, which has to see the acknowledgement before PI exits.
+const settle = (posted: Promise<void>) => process.env.AITERM_INTEGRATION_TEST ? posted : undefined;
 
 async function report(event: string, ctx: ExtensionContext, overrides: Record<string, unknown> = {}) {
 	try {
@@ -57,15 +63,15 @@ export default function (pi: ExtensionAPI) {
 
 	// The reason tells the daemon whether a new conversation began (it forgets the old one's
 	// subagents) or the extensions merely reloaded.
-	pi.on("session_start", (event, ctx) => { session = ctx; return report("session_start", ctx, { reason: event.reason }); });
-	pi.on("agent_start", (_event, ctx) => report("agent_start", ctx));
-	pi.on("agent_settled", (_event, ctx) => report("agent_settled", ctx));
-	pi.on("ui_prompt_start", (_event, ctx) => report("ui_prompt_start", ctx));
-	pi.on("ui_prompt_end", (_event, ctx) => report("ui_prompt_end", ctx));
-	pi.on("model_select", (event, ctx) => report("model_select", ctx, {
+	pi.on("session_start", (event, ctx) => { session = ctx; return settle(report("session_start", ctx, { reason: event.reason })); });
+	pi.on("agent_start", (_event, ctx) => settle(report("agent_start", ctx)));
+	pi.on("agent_settled", (_event, ctx) => settle(report("agent_settled", ctx)));
+	pi.on("ui_prompt_start", (_event, ctx) => settle(report("ui_prompt_start", ctx)));
+	pi.on("ui_prompt_end", (_event, ctx) => settle(report("ui_prompt_end", ctx)));
+	pi.on("model_select", (event, ctx) => settle(report("model_select", ctx, {
 		model: `${event.model.provider}/${event.model.id}`,
-	}));
-	pi.on("thinking_level_select", (event, ctx) => report("thinking_level_select", ctx, {
+	})));
+	pi.on("thinking_level_select", (event, ctx) => settle(report("thinking_level_select", ctx, {
 		reasoning: event.level,
-	}));
+	})));
 }

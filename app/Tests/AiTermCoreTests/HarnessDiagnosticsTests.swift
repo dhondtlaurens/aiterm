@@ -47,7 +47,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
-        try PiDriver(home: home, source: source).install()
+        try PiDriver(home: home, daemonPort: 47821, source: source).install()
         let results = CommandResults([
             ProcessOutput(status: 0,
                                  stdout: "provider model context max-out thinking images\nopenai model-x 128k 16k yes no\n",
@@ -91,7 +91,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
-        try PiDriver(home: home, source: source).install()
+        try PiDriver(home: home, daemonPort: 47821, source: source).install()
         let attempts = CallCounter()
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
             attempts.increment()
@@ -119,7 +119,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
-        try PiDriver(home: home, source: source).install()
+        try PiDriver(home: home, daemonPort: 47821, source: source).install()
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" },
                                           run: { _, _, _, _ in throw CocoaError(.fileReadUnknown) })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
@@ -176,15 +176,15 @@ import Testing
 
         let before = await service.probe(.pi)
         #expect(before.canInstall)
-        #expect(PiDriver(home: home, source: source).state == .missing)
+        #expect(PiDriver(home: home, daemonPort: 47821, source: source).state == .missing)
         let after = try await service.install(.pi)
         #expect(after.health == .ready)
-        #expect(PiDriver(home: home, source: source).state == .current)
+        #expect(PiDriver(home: home, daemonPort: 47821, source: source).state == .current)
 
         // Install again over the working extension: it is overwritten, not refused.
         let again = try await service.install(.pi)
         #expect(again.health == .ready)
-        #expect(PiDriver(home: home, source: source).state == .current)
+        #expect(PiDriver(home: home, daemonPort: 47821, source: source).state == .current)
     }
 
     @Test func corruptedCurrentVersionPiExtensionCanBeReinstalled() async throws {
@@ -280,7 +280,7 @@ extension HarnessDiagnosticsTests {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
-        try PiDriver(home: home, source: source).install()
+        try PiDriver(home: home, daemonPort: 47821, source: source).install()
         let lookups = CallCounter()
         let runner = HarnessCommandRunner(locate: { _ in lookups.increment(); return "/usr/bin/true" }, run: { _, arguments, environment, _ in
             let id = environment["AITERM_INTEGRATION_TEST"] ?? ""
@@ -313,7 +313,7 @@ extension HarnessDiagnosticsTests {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-pool-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
-        try PiDriver(home: home, source: source).install()
+        try PiDriver(home: home, daemonPort: 47821, source: source).install()
         return (home, HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true, unavailableReason: nil))
     }
 

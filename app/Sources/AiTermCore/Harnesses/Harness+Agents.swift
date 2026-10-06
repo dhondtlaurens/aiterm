@@ -104,5 +104,5 @@ extension Harness {
             }
             return roots
         },
-        makeDriver: { home, _, source in source.map { PiDriver(home: home, source: $0) } })
+        makeDriver: { home, port, source in source.map { PiDriver(home: home, daemonPort: port, source: $0) } })
 }

@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 SHIM = Path(__file__).resolve().parents[2] / "hooks" / "grok-statusline-shim.sh"
-HOOK_PORT = 47821  # AiTermPaths.hookPort
 PAYLOAD = {"session_id": "g-1", "context_window": {"used_percentage": 37}}
 
 
@@ -18,18 +17,14 @@ PAYLOAD = {"session_id": "g-1", "context_window": {"used_percentage": 37}}
 def home(tmp_path, daemon):
     support = tmp_path / "Library" / "Application Support" / "AiTerm"
     support.mkdir(parents=True)
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    curl = bin_dir / "curl"
-    curl.write_text(f'#!/bin/sh\nexec /usr/bin/curl --connect-to 127.0.0.1:{HOOK_PORT}:127.0.0.1:{daemon.server_port} "$@"\n')
-    curl.chmod(0o755)
+    (support / "hook-port").write_text(f"{daemon.server_port}\n")
     return tmp_path
 
 
 def run_shim(home, payload=PAYLOAD):
     """Runs the shim the way Grok does: in a process group of its own, which is killed the moment
     the script exits (25-status-line.md, "Background work does not survive")."""
-    env = {"HOME": str(home), "PATH": f"{home / 'bin'}:/usr/bin:/bin",
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin",
            "ITERM_SESSION_ID": "w0t0p0:tab-1"}
     shim = subprocess.Popen([str(SHIM)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, env=env, start_new_session=True)
@@ -71,3 +66,13 @@ def test_shim_keeps_the_originals_exit_status(home, daemon):
     result = run_shim(home)
     assert (result.returncode, result.stdout) == (3, "mine")
     assert wait_for(daemon)[0][0] == "/statusline/grok"
+
+
+def test_shim_without_a_recorded_port_posts_nothing_and_still_runs_the_original(home, daemon):
+    (home / "Library" / "Application Support" / "AiTerm" / "hook-port").unlink()
+    original = home / "Library" / "Application Support" / "AiTerm" / "grok-statusline-original.cmd"
+    original.write_text("cat >/dev/null; printf 'mine'")
+    result = run_shim(home)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
+    time.sleep(0.5)
+    assert daemon.received == []

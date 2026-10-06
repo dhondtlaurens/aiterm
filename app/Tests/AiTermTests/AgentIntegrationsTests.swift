@@ -41,4 +41,18 @@ struct AgentIntegrationsTests {
         controller.workspace.mutate { $0.lastModelByAgent[.codex] = "gpt-5.6" }
         #expect(settings.rememberedModels() == [.codex: "gpt-5.6"])
     }
+
+    /// The shims read the hook port from a file only a driver's Install writes, so launch writes it
+    /// too: an app updated over an install from before they read it would otherwise post to nothing
+    /// until someone pressed Repair.
+    @Test func theLaunchProbeRecordsTheShimsPort() async throws {
+        let (controller, root) = try controller()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        #expect(!ShimPort.isRecorded(AiTermPaths.hookPort, home: home))
+
+        await controller.agents.probeStatusLine()
+
+        #expect(ShimPort.isRecorded(AiTermPaths.hookPort, home: home))
+    }
 }

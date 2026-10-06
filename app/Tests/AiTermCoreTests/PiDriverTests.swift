@@ -15,7 +15,11 @@ import Testing
 
     private var current: String { ownedSource(version: PiDriver.schemaVersion) }
 
-    private func driver(_ home: URL, source: String? = nil) -> PiDriver { PiDriver(home: home, source: source ?? current) }
+    private let port = 47821
+
+    private func driver(_ home: URL, port: Int? = nil, source: String? = nil) -> PiDriver {
+        PiDriver(home: home, daemonPort: port ?? self.port, source: source ?? current)
+    }
 
     private func url(_ home: URL) -> URL { home.appendingPathComponent(PiDriver.path) }
 
@@ -135,5 +139,31 @@ import Testing
         #expect(throws: HarnessDriverError.self) { try driver(home).install() }
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == missing.path)
         #expect(!FileManager.default.fileExists(atPath: missing.path))
+    }
+
+    /// Schema 4 is written with the daemon's port, where the schema-3 file had it spelled out, so
+    /// a schema-3 install reads as out of date: it still posts to the port it was written with,
+    /// until Repair writes the daemon's.
+    @Test func aSchemaThreeInstallIsOutdated() throws {
+        #expect(PiDriver.state(of: ownedSource(version: 3), expected: nil) == .outdated)
+    }
+
+    /// The extension is installed with the daemon's port in place of its placeholder, and a file
+    /// written for another port is outdated-by-content, not current.
+    @Test func theExtensionIsWrittenWithTheDaemonsPort() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nconst endpoint = \"http://127.0.0.1:\(PiDriver.portPlaceholder)/hook/pi\";\n"
+
+        try driver(home, port: 50123, source: source).install()
+
+        #expect(try String(contentsOf: url(home), encoding: .utf8)
+                == "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nconst endpoint = \"http://127.0.0.1:50123/hook/pi\";\n")
+        #expect(driver(home, port: 50123, source: source).state == .current)
+        // The daemon moved to another port: the file no longer matches what Install writes.
+        #expect(driver(home, port: 50124, source: source).state == .invalidOwned)
+        try driver(home, port: 50124, source: source).install()
+        #expect(driver(home, port: 50124, source: source).state == .current)
+        #expect(try String(contentsOf: url(home), encoding: .utf8).contains("127.0.0.1:50124/hook/pi"))
     }
 }

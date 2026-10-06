@@ -4,12 +4,20 @@ import Foundation
 /// tool's. It is AiTerm's when its first line carries the schema marker.
 struct PiDriver: HarnessDriver {
     static let path = ".pi/agent/extensions/aiterm-status.ts"
-    static let schemaVersion = 3
+    static let schemaVersion = 4
     private static let markerPrefix = "// AiTerm PI extension schema: "
+    /// Where the bundled extension names the hook port, which Install fills in: a copy of the file
+    /// in PI's home cannot read the app's constant, and one that named another port than the
+    /// daemon's would post to nothing.
+    static let portPlaceholder = "__AITERM_HOOK_PORT__"
 
     let home: URL
-    /// The bundled extension, which Install writes and a current file matches exactly.
+    let daemonPort: Int
+    /// The bundled extension, with `portPlaceholder` where its port goes.
     let source: String
+
+    /// What Install writes, and a current file matches exactly.
+    private var installed: String { source.replacingOccurrences(of: Self.portPlaceholder, with: String(daemonPort)) }
 
     var file: UserConfigFile { UserConfigFile(home: home, Self.path) }
 
@@ -30,7 +38,7 @@ struct PiDriver: HarnessDriver {
         case .missing: return DriverProbe(.missing)
         case .refused(let reason): return .refused(file, reason)
         case .present(let text):
-            let state = Self.state(of: text, expected: source)
+            let state = Self.state(of: text, expected: installed)
             return state == .foreign ? .foreign(file) : DriverProbe(state)
         }
     }
@@ -47,7 +55,7 @@ struct PiDriver: HarnessDriver {
             throw HarnessDriverError.foreign(path: file.displayPath)
         case .missing, .present: break
         }
-        try file.write(Data(source.utf8))
+        try file.write(Data(installed.utf8))
     }
 
     func test(with client: HarnessTestClient) async -> HarnessTestResult {

@@ -26,7 +26,7 @@ public final class StateStore: Sendable {
     private let lastKnown = Mutex<KnownFile?>(nil)
 
     public init(url: URL) { self.url = url }
-    public static var defaultURL: URL { AiTermPaths.supportDirectory.appendingPathComponent("state.json") }
+    public static var defaultURL: URL { AiTermPaths.supportDirectory().appendingPathComponent("state.json") }
     public var backupURL: URL { url.appendingPathExtension("backup") }
     public var hasValidBackup: Bool { (try? decode(Data(contentsOf: backupURL))) != nil }
 

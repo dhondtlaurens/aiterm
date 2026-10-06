@@ -2,8 +2,8 @@
 
 The callback forwards usage silently unless the user already has a custom status line.
 These tests run the real script and capture both its output and the daemon payload. The shim
-posts to the app's fixed hook port, so `curl` on PATH is a wrapper that connects that port to
-this test's server: nothing reaches a daemon that happens to be running.
+posts to the port ClaudeDriver records in `hook-port`, which here is the test server's, so nothing
+reaches a daemon that happens to be running on the app's own.
 """
 import json
 import subprocess
@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 SHIM = Path(__file__).resolve().parents[2] / "hooks" / "claude-statusline-shim.sh"
-HOOK_PORT = 47821  # AiTermPaths.hookPort
 PAYLOAD = {
     "model": {"id": "claude-opus-5", "display_name": "Opus 5"},
     "rate_limits": {"five_hour": {"used_percentage": 23.4, "resets_at": 1790000000}},
@@ -24,17 +23,13 @@ PAYLOAD = {
 def home(tmp_path, daemon):
     support = tmp_path / "Library" / "Application Support" / "AiTerm"
     support.mkdir(parents=True)
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    curl = bin_dir / "curl"
-    curl.write_text(f'#!/bin/sh\nexec /usr/bin/curl --connect-to 127.0.0.1:{HOOK_PORT}:127.0.0.1:{daemon.server_port} "$@"\n')
-    curl.chmod(0o755)
+    (support / "hook-port").write_text(f"{daemon.server_port}\n")
     return tmp_path
 
 
 def run_shim(home, payload=PAYLOAD):
     return subprocess.run([str(SHIM)], input=json.dumps(payload), capture_output=True,
-                          text=True, env={"HOME": str(home), "PATH": f"{home / 'bin'}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"})
+                          text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"})
 
 
 def forwarded(daemon, timeout=3.0):
@@ -95,4 +90,36 @@ def test_legacy_aiterm_mode_no_longer_replaces_custom_statusline(home, daemon):
     (support_of(home) / "statusline-original.cmd").write_text(str(original))
     (support_of(home) / "statusline-mode").write_text("aiterm\n")
     assert run_shim(home).stdout.strip() == "my own status line"
+    assert forwarded(daemon)
+
+
+def test_posts_to_whatever_port_the_file_names_and_to_no_other(home, daemon):
+    # The file is the only place the shim learns the port: one with no port in it posts nowhere,
+    # and still shows the user's own status line.
+    (support_of(home) / "hook-port").unlink()
+    original = home / "mine.sh"
+    original.write_text("#!/bin/sh\ncat >/dev/null\necho 'my own status line'\n")
+    original.chmod(0o755)
+    (support_of(home) / "statusline-original.cmd").write_text(str(original))
+    result = run_shim(home)
+    assert (result.returncode, result.stdout.strip(), result.stderr) == (0, "my own status line", "")
+    time.sleep(0.5)
+    assert daemon.received == []
+
+
+def test_an_unreadable_port_file_is_silent(home, daemon):
+    (support_of(home) / "hook-port").chmod(0o000)
+    result = run_shim(home)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    time.sleep(0.5)
+    assert daemon.received == []
+
+
+def test_runs_the_original_command_through_sh_without_reading_zshenv(home, daemon):
+    # `#!/bin/zsh -f` and `sh -c`: the user's ~/.zshenv is never sourced on a tick, by the shim or
+    # by the command it runs.
+    (home / ".zshenv").write_text("echo zshenv-ran >&2\n")
+    (support_of(home) / "statusline-original.cmd").write_text("cat >/dev/null; printf 'mine'")
+    result = run_shim(home)
+    assert (result.stdout, result.stderr) == ("mine", "")
     assert forwarded(daemon)

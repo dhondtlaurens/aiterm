@@ -40,7 +40,9 @@ struct GrokDriver: HarnessDriver {
         if case .refused(let reason) = reading.config { return .refused(config, reason) }
         guard reading.hooksState == .current else { return DriverProbe(reading.hooksState) }
         switch GrokStatusLineConfig.state(reading.config.value, shimPath: shimPath) {
-        case .current: return DriverProbe(.current)
+        // The shim posts to the port in its file; a status line pointed at it is outdated until
+        // that is the daemon's, as Install makes it.
+        case .current: return DriverProbe(ShimPort.isRecorded(daemonPort, home: home) ? .current : .outdated)
         case .builtin:
             return DriverProbe(.current, checks: [Self.contextCheck("Grok’s built-in status line is on, so AiTerm cannot read context.")])
         case .unsupportedLayout:
@@ -61,8 +63,9 @@ struct GrokDriver: HarnessDriver {
         if reading.hooksState == .foreign { throw HarnessDriverError.foreign(path: hooks.displayPath) }
         if case .refused(let reason) = reading.config { throw config.refusal(reason) }
         if reading.hooksState != .current { try hooks.write(GrokHooksFile.contents(daemonPort: daemonPort)) }
+        try ShimPort.record(daemonPort, home: home)
         try GrokStatusLineConfig.install(reading.config.value, into: config,
-                                         original: GrokStatusLineConfig.originalURL(home: home), shimPath: shimPath)
+                                         original: AiTermPaths.grokStatusLineOriginalURL(home: home), shimPath: shimPath)
     }
 
     func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(endpoint: Harness.grok.hookEndpoint) }
