@@ -45,13 +45,15 @@ func eventually(describing what: @autoclosure () -> String = "the condition", ti
         if overBudget || pastCeiling {
             if cameLate && !hadTheTurnAfter {
                 hadTheTurnAfter = true
-            } else if overBudget {
-                Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
-                return false
-            } else {
+            } else if pastCeiling {
+                // The wall clock's verdict wins when both have run out: on a busy host the turn
+                // after a late one can be late too, and charge the budget past its end as well.
                 let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
                 Issue.record("Timed out after \(timeout) s waiting for \(what()) (wall clock: \(String(format: "%.1f", seconds)) s)",
                              sourceLocation: sourceLocation)
+                return false
+            } else {
+                Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
                 return false
             }
         }

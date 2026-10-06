@@ -36,11 +36,18 @@ import Testing
 
     /// A wait kept from its turns past `wallClockFactor` times its timeout ends there, though it
     /// was charged less than the timeout: the actor is held once, for longer than that, so the
-    /// check after it has been charged a single late turn.
+    /// check after it has been charged a single late turn. The turn after that one is late too,
+    /// as on a busy host, which charges the budget past its end as well; the wall clock still
+    /// has the word.
     @Test func aWaitStopsAtTheWallClockCeilingWhateverItWasCharged() async {
         let timeout = 0.2, hold = timeout * Double(wallClockFactor) + 0.1
-        func holdTheActor() { Thread.sleep(forTimeInterval: hold) }
-        Task { holdTheActor() } // Runs once the wait first suspends.
+        func holdTheActor(for seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+        // Runs once the wait first suspends; the second hold, queued behind the late check, is
+        // what the turn after it waits for.
+        Task {
+            holdTheActor(for: hold)
+            Task { holdTheActor(for: 0.15) }
+        }
         await withKnownIssue {
             #expect(await eventually(timeout: timeout) { false } == false)
         } matching: { issue in
