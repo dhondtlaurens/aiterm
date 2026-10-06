@@ -102,6 +102,14 @@ struct Lenient<Value: Decodable>: Decodable {
     init(from decoder: Decoder) throws { value = try? Value(from: decoder) }
 }
 
+extension KeyedDecodingContainer {
+    /// `key` as `Value`, or nil when it is absent, null or of another type: one odd field of a
+    /// payload that has others worth reading is treated as not sent.
+    func lenient<Value: Decodable>(_ type: Value.Type, forKey key: Key) -> Value? {
+        (try? decodeIfPresent(type, forKey: key)) ?? nil
+    }
+}
+
 /// Drops the credentials from a redirect that leaves the first request's origin.
 ///
 /// The completion-handler form, not the `async` one: URLSession runs an `async` delegate method as a

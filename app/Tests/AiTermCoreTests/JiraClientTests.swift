@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -427,22 +428,20 @@ import Foundation
         #expect(jqls(stub).filter { $0.contains("key = ") }.count == 10)
     }
 
-    /// The fan-out helper itself: never more than `width` bodies at once, results in item order,
-    /// and the first failure ends the rest.
+    /// The fan-out helper itself: never more than `width` bodies at once, results in item order.
+    /// The first `width` bodies wait for each other, so that many really are in flight together
+    /// however a loaded runner schedules them.
     @Test func inOrderRunsAtMostWidthAtOnceAndReturnsInItemOrder() async throws {
-        actor Flight { var now = 0, peak = 0
-            func enter() { now += 1; peak = max(peak, now) }
-            func leave() { now -= 1 }
-        }
+        let width = 4
         let flight = Flight()
-        let results = try await JiraClient.inOrder(Array(0..<20), width: 4) { (n: Int) async throws -> Int in
-            await flight.enter()
-            try await Task.sleep(for: .milliseconds(5 + (20 - n)))
+        let results = try await JiraClient.inOrder(Array(0..<20), width: width) { (n: Int) async throws -> Int in
+            await flight.enter(latch: n < width ? width : nil)
+            try await Task.sleep(for: .milliseconds(1 + (20 - n)))
             await flight.leave()
             return n * 2
         }
         #expect(results == (0..<20).map { $0 * 2 })
-        #expect(await flight.peak == 4)
+        #expect(await flight.peak == width)
     }
 
     @Test func inOrderThrowsTheFailureOfAnyBody() async {
@@ -452,6 +451,63 @@ import Foundation
                 return n
             }
         }
+    }
+
+    /// The failure of one body cancels the others and starts no more.
+    @Test func inOrderStartsNothingMoreAfterAFailure() async {
+        let starts = Mutex(0)
+        await #expect(throws: JiraError.badResponse(500)) {
+            _ = try await JiraClient.inOrder(Array(0..<20), width: 3) { (n: Int) async throws -> Int in
+                starts.withLock { $0 += 1 }
+                if n == 1 { throw JiraError.badResponse(500) }
+                try await Task.sleep(for: .seconds(60))
+                return n
+            }
+        }
+        #expect(starts.withLock { $0 } == 3, "the three that started together, and no fourth")
+    }
+
+    /// A search dropped for a newer one cancels the task it runs in: the bodies end, none more starts.
+    @Test func inOrderEndsWithCancellationWhenItsTaskIsCancelled() async {
+        let starts = Mutex(0)
+        let fanOut = Task {
+            try await JiraClient.inOrder(Array(0..<20), width: 3) { (n: Int) async throws -> Int in
+                starts.withLock { $0 += 1 }
+                try await Task.sleep(for: .seconds(60))
+                return n
+            }
+        }
+        await eventually(describing: "three bodies to start") { starts.withLock { $0 } == 3 }
+        fanOut.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await fanOut.value }
+        #expect(starts.withLock { $0 } == 3)
+    }
+
+    /// One section that is no section, or a field of the wrong type, costs only itself.
+    @Test func anOddPickerSectionCostsOnlyItself() async throws {
+        let stub = StubSession { request in
+            if request.url?.path == "/rest/api/3/issue/picker" {
+                return (200, Data(#"{"sections":["junk",{"id":7,"issues":[{"key":"SHOP-20"}]},{"id":"cs","issues":"none"},{"id":"hs","issues":[{"key":"SHOP-21"},{"key":3}]}]}"#.utf8))
+            }
+            let found = jqlBody(request)?.contains("key in") == true ? #"[{"key":"SHOP-20","fields":{"summary":"a"}},{"key":"SHOP-21","fields":{"summary":"b"}}]"# : "[]"
+            return (200, Data(#"{"issues":\#(found)}"#.utf8))
+        }
+        let tickets = try await JiraClient(config: config, session: stub.session).search(text: "SHOP-2")
+        #expect(tickets.map(\.key) == ["SHOP-20", "SHOP-21"])
+    }
+
+    @Test func aPagingFieldOfTheWrongTypeIsReadAsNotSent() async throws {
+        let stub = StubSession { _ in (200, Data(#"{"values":[{"id":"1","key":"A","name":"Alpha"}],"isLast":"yes","total":"many"}"#.utf8)) }
+        let projects = try await JiraClient(config: config, session: stub.session).projects()
+        #expect(projects.map(\.key) == ["A"])
+        #expect(stub.requests.count == 1, "no usable paging field and a short page is the last page")
+    }
+
+    @Test func anAccountNameOfTheWrongTypeFallsBackToTheNextOne() async throws {
+        let stub = StubSession { _ in (200, Data(#"{"displayName":5,"emailAddress":"me@example.com"}"#.utf8)) }
+        #expect(try await JiraClient(config: config, session: stub.session).testConnection() == "me@example.com")
+        let neither = StubSession { _ in (200, Data(#"{"displayName":[],"emailAddress":null}"#.utf8)) }
+        #expect(try await JiraClient(config: config, session: neither.session).testConnection() == "connected")
     }
 
     var app: JiraProjectRef { JiraProjectRef(id: "1", key: "SHOP", name: "Storefront", siteURL: config.siteURL) }
@@ -495,4 +551,24 @@ private func pickerValue(_ name: String, of request: URLRequest) -> String? {
 
 private func jqlBody(_ request: URLRequest) -> String? {
     (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])?["jql"] as? String
+}
+
+/// Counts the bodies of a fan-out that are inside it, and holds the first few until all have entered.
+private actor Flight {
+    private(set) var peak = 0
+    private var now = 0, entered = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func enter(latch: Int?) async {
+        now += 1; peak = max(peak, now); entered += 1
+        guard let latch else { return }
+        if entered >= latch {
+            waiting.forEach { $0.resume() }
+            waiting = []
+        } else {
+            await withCheckedContinuation { waiting.append($0) }
+        }
+    }
+
+    func leave() { now -= 1 }
 }

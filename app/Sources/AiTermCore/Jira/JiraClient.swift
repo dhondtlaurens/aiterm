@@ -115,10 +115,10 @@ public struct JiraClient: Sendable {
                 URLQueryItem(name: "currentJQL", value: currentJQL),
                 URLQueryItem(name: "showSubTasks", value: "true"),
             ]))
-            return picker.sections.flatMap { section -> [String] in
+            return picker.sections.compactMap(\.value).flatMap { section -> [String] in
                 // Current Search keeps to currentJQL; History does not, so it is filtered here.
                 let scoped = projectKeys.isEmpty || section.id == "cs"
-                return (section.issues ?? []).compactMap { issue in
+                return section.issues.compactMap { issue in
                     guard let key = issue.value?.key, Self.issueKey(key) == key, matching(key),
                           scoped || projectKeys.contains(String(key[..<key.lastIndex(of: "-")!])) else { return nil }
                     return key
@@ -163,7 +163,8 @@ public struct JiraClient: Sendable {
     static func inOrder<Item: Sendable, Output: Sendable>(
         _ items: [Item], width: Int = fanOut, _ body: @escaping @Sendable (Item) async throws -> Output
     ) async throws -> [Output] {
-        try await withThrowingTaskGroup(of: (Int, Output).self) { group in
+        precondition(width > 0, "a fan-out of no width never starts")
+        return try await withThrowingTaskGroup(of: (Int, Output).self) { group in
             var pending = items.enumerated().makeIterator()
             func startNext(in group: inout ThrowingTaskGroup<(Int, Output), Error>) {
                 guard let (index, item) = pending.next() else { return }
@@ -175,7 +176,8 @@ public struct JiraClient: Sendable {
                 results[index] = output
                 startNext(in: &group)
             }
-            return results.compactMap { $0 }
+            // Every item started and none finished twice, so every slot is filled.
+            return results.map { $0! }
         }
     }
 
@@ -296,19 +298,44 @@ private struct SearchResponse: Decodable {
     var issues: [Lenient<Issue>]
 }
 
-/// `/issue/picker`: its sections of suggested issue keys.
+/// `/issue/picker`: its sections of suggested issue keys. A section that is not one drops alone.
 private struct PickerResponse: Decodable {
-    struct Section: Decodable { var id: String?, issues: [Lenient<Suggestion>]? }
+    struct Section: Decodable {
+        var id: String?, issues: [Lenient<Suggestion>]
+        init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: Key.self)
+            id = fields.lenient(String.self, forKey: .id)
+            issues = fields.lenient([Lenient<Suggestion>].self, forKey: .issues) ?? []
+        }
+        private enum Key: String, CodingKey { case id, issues }
+    }
     struct Suggestion: Decodable { var key: String }
-    var sections: [Section]
+    var sections: [Lenient<Section>]
 }
 
 /// A page of `/project/search`. `values` keeps its malformed entries as empty ones, so `startAt`
-/// advances past them.
+/// advances past them. The paging fields it may send wrongly are read as not sent.
 private struct ProjectPage: Decodable {
     struct Project: Decodable { var id: String, key: String, name: String }
     var values: [Lenient<Project>]
     var isLast: Bool?, total: Int?
+
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: Key.self)
+        values = try fields.decode([Lenient<Project>].self, forKey: .values)
+        isLast = fields.lenient(Bool.self, forKey: .isLast)
+        total = fields.lenient(Int.self, forKey: .total)
+    }
+    private enum Key: String, CodingKey { case values, isLast, total }
 }
 
-private struct Myself: Decodable { var displayName: String?, emailAddress: String? }
+private struct Myself: Decodable {
+    var displayName: String?, emailAddress: String?
+
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: Key.self)
+        displayName = fields.lenient(String.self, forKey: .displayName)
+        emailAddress = fields.lenient(String.self, forKey: .emailAddress)
+    }
+    private enum Key: String, CodingKey { case displayName, emailAddress }
+}
