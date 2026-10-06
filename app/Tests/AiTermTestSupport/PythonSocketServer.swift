@@ -23,7 +23,8 @@ final class PythonSocketServer {
     let path: String
     private let process = Process()
     private let output = Pipe()
-    private let listening = Mutex(false)
+    /// What the reader has heard: the line ``listenSays`` prints, and the end of the output.
+    private let heard = Mutex((listening: false, ended: false))
 
     private init(script: String, arguments: [String]) {
         // Short and in /tmp: a socket path is limited to about a hundred bytes.
@@ -38,9 +39,11 @@ final class PythonSocketServer {
         let server = PythonSocketServer(script: script, arguments: arguments)
         try server.process.run()
         server.readUntilListening()
+        // Not `process.isRunning`: a script that listened and then ended at once can be gone before
+        // its line is read. The output ends after the script does, so its end settles it.
         guard await eventually(describing: "the Python server to listen on \(server.path)", {
-            server.isListening || !server.process.isRunning
-        }), server.isListening else {
+            server.heard.withLock { $0.listening || $0.ended }
+        }), server.heard.withLock({ $0.listening }) else {
             server.stop()
             throw DidNotListen(path: server.path)
         }
@@ -62,20 +65,19 @@ _socket.socket = _SaysWhenListening
 """
     private nonisolated static let listeningLine = "aiterm-test-server-listening"
 
-    private var isListening: Bool { listening.withLock { $0 } }
-
     /// Reads the script's output on a thread of its own until ``listenSays`` speaks, and then
     /// drains the rest until the script ends, so no later print fills the pipe.
     private func readUntilListening() {
         let reader = output.fileHandleForReading
         Thread { [self] in
             let line = Data((Self.listeningLine + "\n").utf8)
-            var heard = Data()
+            var read = Data()
             while case let chunk = reader.availableData, !chunk.isEmpty {
-                guard heard.range(of: line) == nil else { continue }
-                heard.append(chunk)
-                if heard.range(of: line) != nil { listening.withLock { $0 = true } }
+                guard read.range(of: line) == nil else { continue }
+                read.append(chunk)
+                if read.range(of: line) != nil { heard.withLock { $0.listening = true } }
             }
+            heard.withLock { $0.ended = true }
         }.start()
     }
 

@@ -19,4 +19,22 @@ time.sleep(30)
 
         #expect(SocketProbe.isLive(path: server.path))
     }
+
+    /// A script that listened and ended at once did listen: its end can come before its line is
+    /// read, and is not taken for a script that never got there.
+    @Test func aScriptThatListensAndEndsAtOnceStillStarted() async throws {
+        let server = try await PythonSocketServer.start(script: """
+import socket,sys
+s=socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1]);s.listen()
+""")
+        server.stop()
+    }
+
+    /// One that ends without listening is refused as soon as it has ended, not at the deadline.
+    @Test func aScriptThatEndsWithoutListeningIsRefused() async {
+        await #expect(throws: PythonSocketServer.DidNotListen.self) {
+            try await PythonSocketServer.start(script: "import sys")
+        }
+    }
 }
