@@ -101,6 +101,21 @@ struct StallGuardedGitTests {
         #expect(stub.asked == ["/mnt/one"])
     }
 
+    /// Stripping the slashes from `/` leaves nothing, which owns nothing; the root is still a folder,
+    /// so a project at the root keeps its imported worktrees.
+    @Test func theRootFolderIsStillAFolder() {
+        let clock = TestClock(), stub = Stub()
+        let guarded = StallGuardedGit(stub, now: { clock.now })
+        let root = project("/")
+        guarded.scope(projects: [root], tasks: [task(root, "/elsewhere/imported")])
+        stub.hang("/", true)
+        _ = try? guarded.run(["status"], in: "/")
+        #expect(throws: GitError.self, "the root's imported worktree is the root project's") {
+            try guarded.run(["status"], in: "/elsewhere/imported")
+        }
+        #expect(stub.asked == ["/"])
+    }
+
     /// A refusal is an answer, not a stall.
     @Test func aFailureThatIsNotATimeoutStallsNothing() {
         struct Refuses: GitRunning {

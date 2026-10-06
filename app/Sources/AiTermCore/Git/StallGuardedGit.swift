@@ -48,11 +48,12 @@ public final class StallGuardedGit: GitRunning {
         state.withLock { $0.owners = owners }
     }
 
-    /// `path` less its trailing slashes, so `/a/b/` and `/a/b` are one folder.
+    /// `path` less its trailing slashes, so `/a/b/` and `/a/b` are one folder. The root stays `/`:
+    /// stripped to nothing it would be the empty folder, which owns nothing.
     private static func folder(_ path: String) -> String {
         var folder = path
         while folder.hasSuffix("/") { folder.removeLast() }
-        return folder
+        return folder.isEmpty && !path.isEmpty ? "/" : folder
     }
 
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
