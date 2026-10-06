@@ -61,31 +61,27 @@ public actor HarnessService {
         guard let executable = try? await BackgroundWork.run({ runner.locate(agent.rawValue) }),
               LoginShell.isExecutableFile(executable) else {
             return .reduce(agent: agent, cliAvailable: false, integrationState: .notChecked,
-                                    models: [], checks: [HarnessCheck(id: "cli", label: "CLI", passed: false,
-                                                                     explanation: "\(agent.displayName) CLI is unavailable.")])
+                                    models: [], checks: [HarnessCheck(.cli, passed: false,
+                                                                      explanation: "\(agent.displayName) CLI is unavailable.")])
         }
 
-        var checks = [HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil)]
+        var checks = [HarnessCheck(.cli, passed: true, explanation: nil)]
         let driver = drivers[agent]?.probe()
             ?? DriverProbe(state: .resourceUnavailable, explanation: resources.unavailableReason ?? "The bundled driver is unavailable.")
         let integration = driver.state
-        // The UI calls every harness's integration a driver: hooks for Claude, Codex and Grok, an
-        // extension for PI — the same job, so one word.
-        checks.append(HarnessCheck(id: "integration", label: "Driver",
-                                   passed: integration == .current, explanation: driver.explanation))
+        checks.append(HarnessCheck(.integration, passed: integration == .current, explanation: driver.explanation))
         checks += driver.checks
 
         let catalogue: Catalogue
         if let earlier, earlier.health != .unavailable {
             catalogue = Catalogue(models: earlier.models, stale: earlier.modelsAreStale,
-                                  check: earlier.checks.first { $0.id == "models" })
+                                  check: earlier.checks.first { $0.id == .models })
         } else {
             catalogue = await readCatalogue(agent, executable: executable)
         }
         let models = catalogue.models, stale = catalogue.stale
         checks.append(catalogue.check ?? HarnessCheck(
-            id: "models", label: "Models", passed: !models.isEmpty,
-            explanation: models.isEmpty ? agent.noModelsExplanation : nil))
+            .models, passed: !models.isEmpty, explanation: models.isEmpty ? agent.noModelsExplanation : nil))
         return .reduce(agent: agent, cliAvailable: true, integrationState: integration,
                                 models: models, modelsAreStale: stale, checks: checks)
     }
@@ -102,7 +98,7 @@ public actor HarnessService {
         let reading = (try? await BackgroundWork.run { catalogue.read(agent, executable: executable, refreshing: true) })
             ?? ModelCatalogue.Reading(models: [], failure: .unavailable)
         return Catalogue(models: reading.models, stale: reading.stale,
-                         check: reading.explanation.map { HarnessCheck(id: "models", label: "Models", passed: false, explanation: $0) })
+                         check: reading.explanation.map { HarnessCheck(.models, passed: false, explanation: $0) })
     }
 
     /// A missing CLI is installed first, with its vendor's installer, and then its driver — one
@@ -138,7 +134,7 @@ public actor HarnessService {
         guard before.health != .unavailable, before.integrationState == .current,
               let driver = drivers[before.agent] else { return before }
         let result = await driver.test(with: testClient)
-        let checks = before.checks.filter { $0.id != "daemon" && $0.id != "delivery" } + result.checks
+        let checks = before.checks.filter { $0.id != .daemon && $0.id != .delivery } + result.checks
         return .reduce(agent: before.agent, cliAvailable: true,
                                 integrationState: before.integrationState,
                                 models: before.models, modelsAreStale: before.modelsAreStale,

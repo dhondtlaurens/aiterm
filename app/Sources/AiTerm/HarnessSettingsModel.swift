@@ -94,9 +94,8 @@ final class HarnessSettingsModel {
             let current = known ?? HarnessSnapshot.reduce(
                 agent: agent, cliAvailable: true, integrationState: .resourceUnavailable,
                 models: [], checks: [])
-            var checks = current.checks.filter { $0.id != "operation" }
-            checks.insert(HarnessCheck(id: "operation", label: "Setup", passed: false,
-                                       explanation: explanation), at: 0)
+            var checks = current.checks.filter { $0.id != .operation }
+            checks.insert(HarnessCheck(.operation, passed: false, explanation: explanation), at: 0)
             snapshots[agent] = HarnessSnapshot.reduce(
                 agent: agent, cliAvailable: current.health != .unavailable,
                 integrationState: current.integrationState, models: current.models,
@@ -160,7 +159,7 @@ final class HarnessSettingsModel {
 
     private func applyingSelection(_ preference: ModelPreference?,
                                    to snapshot: HarnessSnapshot) -> HarnessSnapshot {
-        var checks = snapshot.checks.filter { $0.id != "selected-model" }
+        var checks = snapshot.checks.filter { $0.id != .selectedModel }
         // An absent CLI, failed discovery, empty provider list, or stale catalogue already has a
         // more fundamental explanation. A missing saved default is actionable only when a fresh,
         // non-empty catalogue proves that the id really disappeared.
@@ -169,7 +168,7 @@ final class HarnessSettingsModel {
             // Keep concrete setup/Test failures ahead of this preference warning. When every
             // harness layer passes, this is the first (and only) failed check and still becomes
             // the card summary.
-            checks.append(HarnessCheck(id: "selected-model", label: "Default model", passed: false,
+            checks.append(HarnessCheck(.selectedModel, passed: false,
                                        explanation: "The selected model is no longer available."))
         }
         return .reduce(agent: snapshot.agent, cliAvailable: snapshot.health != .unavailable,
@@ -205,18 +204,16 @@ extension HarnessSettingsModel {
                             defaultEffort: "medium")
         func ready(_ agent: AgentKind, _ model: AgentModel) -> HarnessSnapshot {
             .reduce(agent: agent, cliAvailable: true, integrationState: .current, models: [model],
-                    checks: [HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil),
-                             HarnessCheck(id: "integration", label: "Driver",
-                                          passed: true, explanation: nil)])
+                    checks: [HarnessCheck(.cli, passed: true, explanation: nil),
+                             HarnessCheck(.integration, passed: true, explanation: nil)])
         }
         return [
             .claude: ready(.claude, claude),
             .codex: ready(.codex, codex),
             .grok: ready(.grok, grok),
             .pi: .reduce(agent: .pi, cliAvailable: true, integrationState: .missing, models: [pi],
-                         checks: [HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil),
-                                  HarnessCheck(id: "integration", label: "Driver", passed: false,
-                                               explanation: "Driver is not installed.")]),
+                         checks: [HarnessCheck(.cli, passed: true, explanation: nil),
+                                  HarnessCheck(.integration, passed: false, explanation: "Driver is not installed.")]),
         ]
     }()
 }

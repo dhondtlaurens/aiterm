@@ -12,7 +12,7 @@ import Testing
                                        models: []).health == .unavailable)
         #expect(HarnessSnapshot.reduce(agent: .pi, cliAvailable: true, integrationState: .missing,
                                        models: [model]).health == .warning)
-        let providerCheck = HarnessCheck(id: "models", label: "Models", passed: false,
+        let providerCheck = HarnessCheck(.models, passed: false,
                                          explanation: "No PI providers are signed in.")
         #expect(HarnessSnapshot.reduce(agent: .pi, cliAvailable: true, integrationState: .current,
                                        models: [], checks: [providerCheck]).health == .warning)
@@ -30,10 +30,10 @@ import Testing
 
     @Test func aFailedTestIsWarningWithItsFirstExplanation() {
         let checks = [
-            HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil),
-            HarnessCheck(id: "delivery", label: "Status delivery", passed: false,
+            HarnessCheck(.cli, passed: true, explanation: nil),
+            HarnessCheck(.delivery, passed: false,
                          explanation: "AiTerm did not receive the test event."),
-            HarnessCheck(id: "models", label: "Models", passed: false,
+            HarnessCheck(.models, passed: false,
                          explanation: "The model catalogue is unavailable."),
         ]
         let snapshot = HarnessSnapshot.reduce(agent: .pi, cliAvailable: true,
@@ -112,7 +112,7 @@ import Testing
         #expect(current.health == .ready)
         let failed = await service.probe(.pi)
         #expect(failed.health == .warning)
-        #expect(failed.checks.first { $0.id == "cli" }?.passed == true)
+        #expect(failed.checks.first { $0.id == .cli }?.passed == true)
         #expect(failed.models == current.models)
         #expect(failed.modelsAreStale)
         #expect(failed.summary == "PI couldn’t be launched.")
@@ -134,7 +134,7 @@ import Testing
 
         let snapshot = await service.probe(.pi)
         #expect(snapshot.health == .warning)
-        #expect(snapshot.checks.first { $0.id == "cli" }?.passed == true)
+        #expect(snapshot.checks.first { $0.id == .cli }?.passed == true)
         #expect(snapshot.models.isEmpty)
         #expect(!snapshot.modelsAreStale)
         #expect(snapshot.summary == "PI couldn’t be launched.")
@@ -158,7 +158,7 @@ import Testing
                                                                  unavailableReason: nil))
         for agent in AgentKind.allCases {
             let snapshot = await service.probe(agent)
-            let integration = try #require(snapshot.checks.first { $0.id == "integration" })
+            let integration = try #require(snapshot.checks.first { $0.id == .integration })
             #expect(integration.label == "Driver")
             #expect(snapshot.summary == "Driver is not installed.")
         }
@@ -315,7 +315,7 @@ extension HarnessDiagnosticsTests {
         #expect(probed.health == .ready)
         #expect(lookups.value == 1)
         let tested = await service.test(probed)
-        #expect(tested.checks.first { $0.id == "delivery" }?.passed == true)
+        #expect(tested.checks.first { $0.id == .delivery }?.passed == true)
         #expect(lookups.value == 2, "only the Test's own launch of PI looks for it")
     }
 }

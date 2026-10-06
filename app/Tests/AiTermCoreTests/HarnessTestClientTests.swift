@@ -22,7 +22,7 @@ import Testing
         #expect(claude.passed)
         #expect(codex.passed)
         #expect(grok.passed)
-        #expect(claude.checks.map(\.id) == ["daemon", "delivery"])
+        #expect(claude.checks.map(\.id) == [.daemon, .delivery])
         #expect(claude.checks.map(\.passed) == [true, true])
     }
 
@@ -42,7 +42,7 @@ import Testing
         let failedResult = await HarnessTestClient(transport: .failing).testHTTP(agent: .codex)
         #expect(!failedResult.passed)
         #expect(failedResult.explanation == "AiTerm’s helper is unavailable.")
-        #expect(failedResult.checks.map(\.id) == ["daemon", "delivery"])
+        #expect(failedResult.checks.map(\.id) == [.daemon, .delivery])
         #expect(failedResult.checks.map(\.passed) == [false, false])
     }
 

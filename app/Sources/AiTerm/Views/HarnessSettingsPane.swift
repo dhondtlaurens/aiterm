@@ -8,7 +8,7 @@ enum HarnessCardPresentation {
     /// The CLI and the driver. Models stay out: the picker below carries an empty catalogue, and the
     /// opening test's daemon and delivery checks reach the user through the status sentence.
     static func chips(for snapshot: HarnessSnapshot) -> [HarnessCheck] {
-        snapshot.checks.filter { $0.id == "cli" || $0.id == "integration" }
+        snapshot.checks.filter { $0.id == .cli || $0.id == .integration }
     }
 
     static func status(for snapshot: HarnessSnapshot) -> SettingsStatus {
@@ -19,7 +19,7 @@ enum HarnessCardPresentation {
         case .warning: return SettingsStatus(.attention, snapshot.summary)
         // A missing CLI is a neutral fact until installing it fails; then it needs attention.
         case .unavailable:
-            return SettingsStatus(snapshot.checks.contains { $0.id == "operation" } ? .attention : .idle,
+            return SettingsStatus(snapshot.checks.contains { $0.id == .operation } ? .attention : .idle,
                                   snapshot.summary)
         }
     }

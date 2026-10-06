@@ -50,7 +50,7 @@ struct GrokDriver: HarnessDriver {
     }
 
     private static func contextCheck(_ explanation: String) -> HarnessCheck {
-        HarnessCheck(id: "context", label: "Context", passed: false, explanation: explanation, repairable: false)
+        HarnessCheck(.context, passed: false, explanation: explanation, repairable: false)
     }
 
     /// Validates both halves before writing either: never the hooks file written with the status

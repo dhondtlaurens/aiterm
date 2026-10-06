@@ -69,10 +69,10 @@ import AiTermUI
         // daemon and delivery checks surface through the status sentence instead.
         let snapshot = HarnessSnapshot.reduce(agent: .claude, cliAvailable: true, integrationState: .current,
                                               models: [], checks: [
-            HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil),
-            HarnessCheck(id: "integration", label: "Driver", passed: true, explanation: nil),
-            HarnessCheck(id: "models", label: "Models", passed: false, explanation: "No models are available."),
-            HarnessCheck(id: "delivery", label: "Status delivery", passed: true, explanation: nil),
+            HarnessCheck(.cli, passed: true, explanation: nil),
+            HarnessCheck(.integration, passed: true, explanation: nil),
+            HarnessCheck(.models, passed: false, explanation: "No models are available."),
+            HarnessCheck(.delivery, passed: true, explanation: nil),
         ])
         #expect(HarnessCardPresentation.chips(for: snapshot).map(\.label) == ["CLI", "Driver"])
     }
@@ -82,7 +82,7 @@ import AiTermUI
                                            models: [readyModel], checks: [])
         let tested = HarnessSnapshot.reduce(agent: .claude, cliAvailable: true, integrationState: .current,
                                             models: [readyModel], checks: [
-            HarnessCheck(id: "delivery", label: "Status delivery", passed: true, explanation: nil),
+            HarnessCheck(.delivery, passed: true, explanation: nil),
         ])
         let missing = HarnessSnapshot.reduce(agent: .pi, cliAvailable: true, integrationState: .missing,
                                              models: [readyModel])
@@ -95,7 +95,7 @@ import AiTermUI
         #expect(HarnessCardPresentation.status(for: absent) == SettingsStatus(.idle, "PI CLI is unavailable"))
         let failedInstall = HarnessSnapshot.reduce(
             agent: .pi, cliAvailable: false, integrationState: .notChecked, models: [],
-            checks: [HarnessCheck(id: "operation", label: "Setup", passed: false,
+            checks: [HarnessCheck(.operation, passed: false,
                                   explanation: "curl: (6) Could not resolve host: pi.dev")])
         #expect(HarnessCardPresentation.status(for: failedInstall)
                 == SettingsStatus(.attention, "curl: (6) Could not resolve host: pi.dev"))
@@ -152,9 +152,9 @@ import AiTermUI
                                    models: [AgentModel(id: "m", label: "M", detail: nil, efforts: [], defaultEffort: nil)],
                                    checks: checks)
         }
-        let cli = HarnessCheck(id: "cli", label: "CLI", passed: true, explanation: nil)
-        let context = HarnessCheck(id: "context", label: "Context", passed: false, explanation: "built-in", repairable: false)
-        let delivery = HarnessCheck(id: "delivery", label: "Delivery", passed: false, explanation: "no event arrived")
+        let cli = HarnessCheck(.cli, passed: true, explanation: nil)
+        let context = HarnessCheck(.context, passed: false, explanation: "built-in", repairable: false)
+        let delivery = HarnessCheck(.delivery, passed: false, explanation: "no event arrived")
 
         #expect(HarnessCardPresentation.action(for: card([cli, context])) == nil)
         #expect(HarnessCardPresentation.action(for: card([cli, context, delivery])) == "Repair")

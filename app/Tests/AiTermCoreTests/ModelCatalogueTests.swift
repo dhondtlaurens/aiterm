@@ -100,7 +100,7 @@ import Testing
                                      resources: HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: nil,
                                                                  installationAllowed: false, unavailableReason: "Not in a test."))
         let card = await service.probe(.pi)
-        #expect(card.checks.first { $0.id == "models" }?.explanation == AgentKind.pi.noModelsExplanation)
+        #expect(card.checks.first { $0.id == .models }?.explanation == AgentKind.pi.noModelsExplanation)
     }
 
     /// A missing CLI is a failure like a failed launch, and launches nothing.

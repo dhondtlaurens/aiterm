@@ -74,7 +74,7 @@ import AiTermCore
         await model.install(.claude)
 
         #expect(model.snapshots[.claude]?.health == .warning)
-        #expect(model.snapshots[.claude]?.checks.first { $0.id == "cli" }?.passed == true)
+        #expect(model.snapshots[.claude]?.checks.first { $0.id == .cli }?.passed == true)
         #expect(model.snapshots[.claude]?.summary == "The bundled driver is unavailable.")
         #expect(announced == [.claude])
     }
@@ -110,7 +110,7 @@ import AiTermCore
     }
 
     @Test func openingSettingsTestsEveryInstalledDriver() async {
-        let passed = HarnessCheck(id: "delivery", label: "Status delivery", passed: true, explanation: nil)
+        let passed = HarnessCheck(.delivery, passed: true, explanation: nil)
         let fake = FakeHarnessService(testChecks: [passed])
         let model = HarnessSettingsModel(service: fake, rememberedModels: { [:] }, defaults: isolatedDefaults())
 
@@ -121,7 +121,7 @@ import AiTermCore
         #expect(model.snapshots[.claude]?.checks.contains(passed) == true)
         #expect(model.snapshots[.codex]?.checks.contains(passed) == true)
         #expect(model.snapshots[.grok]?.checks.contains(passed) == true)
-        #expect(model.snapshots[.pi]?.checks.contains { $0.id == "delivery" } == false)
+        #expect(model.snapshots[.pi]?.checks.contains { $0.id == .delivery } == false)
         #expect(model.running.isEmpty)
     }
 
@@ -148,7 +148,7 @@ import AiTermCore
         await model.load()
 
         #expect(model.snapshots[.pi]?.summary == "AiTerm did not receive the test event.")
-        #expect(model.snapshots[.pi]?.checks.last?.id == "selected-model")
+        #expect(model.snapshots[.pi]?.checks.last?.id == .selectedModel)
     }
 
     @Test func saveKeepsExistingDefaultsAndAddsPiKey() async {
@@ -236,7 +236,7 @@ import AiTermCore
 
         #expect(model.snapshots[.pi]?.health == .unavailable)
         #expect(model.snapshots[.pi]?.summary == "PI CLI is unavailable.")
-        #expect(model.snapshots[.pi]?.checks.contains { $0.id == "selected-model" } == false)
+        #expect(model.snapshots[.pi]?.checks.contains { $0.id == .selectedModel } == false)
     }
 
     @Test func selectingAFreshModelClearsTheLocalMissingModelWarning() async {
@@ -324,17 +324,16 @@ private let readySnapshots: [AgentKind: HarnessSnapshot] = [
 private func snapshot(_ agent: AgentKind, health: HarnessHealth, summary: String,
                       integration: HarnessIntegrationState, models: [AgentModel],
                       modelsAreStale: Bool = false) -> HarnessSnapshot {
-    var checks = [HarnessCheck(id: "cli", label: "CLI", passed: health != .unavailable,
+    var checks = [HarnessCheck(.cli, passed: health != .unavailable,
                                explanation: health == .unavailable ? summary : nil),
-                  HarnessCheck(id: "integration", label: "Driver",
-                               passed: integration == .current,
+                  HarnessCheck(.integration, passed: integration == .current,
                                explanation: integration == .current ? nil : summary)]
     if health == .warning, integration == .current, !modelsAreStale {
-        checks.append(HarnessCheck(id: "delivery", label: "Status delivery", passed: false,
+        checks.append(HarnessCheck(.delivery, passed: false,
                                    explanation: summary))
     }
     if modelsAreStale {
-        checks.append(HarnessCheck(id: "models", label: "Models", passed: false,
+        checks.append(HarnessCheck(.models, passed: false,
                                    explanation: summary))
     }
     return HarnessSnapshot(agent: agent, health: health, summary: summary,

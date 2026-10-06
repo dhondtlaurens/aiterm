@@ -125,18 +125,16 @@ public struct HarnessTestClient: Sendable {
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   object["ok"] as? Bool == true,
                   object["daemonTestId"] as? String == id else {
-                return HarnessCheck(id: "daemon", label: "Helper", passed: false,
-                                    explanation: "AiTerm’s helper is unavailable.")
+                return HarnessCheck(.daemon, passed: false, explanation: "AiTerm’s helper is unavailable.")
             }
-            return HarnessCheck(id: "daemon", label: "Helper", passed: true, explanation: nil)
+            return HarnessCheck(.daemon, passed: true, explanation: nil)
         } catch {
-            return HarnessCheck(id: "daemon", label: "Helper", passed: false,
-                                explanation: "AiTerm’s helper is unavailable.")
+            return HarnessCheck(.daemon, passed: false, explanation: "AiTerm’s helper is unavailable.")
         }
     }
 
     private func deliveryCheck(passed: Bool, explanation: String?) -> HarnessCheck {
-        HarnessCheck(id: "delivery", label: "Status delivery", passed: passed, explanation: explanation)
+        HarnessCheck(.delivery, passed: passed, explanation: explanation)
     }
 
     private func skippedDeliveryCheck() -> HarnessCheck {
