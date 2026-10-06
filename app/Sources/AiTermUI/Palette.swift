@@ -120,25 +120,25 @@ public enum Palette {
     // Brand marks, not UI colours.
     /// Anthropic's vendor colour for the Claude logo/glyph — a brand mark, not a UI colour; never
     /// use it to colour a button or status.
-    public static let claude = Brand(0xD97757, path: Logos.claudePath, fallbackSymbol: "asterisk")
+    public static let claude = Brand("claude", 0xD97757, path: Logos.claudePath, fallbackSymbol: "asterisk")
     /// Atlassian's vendor colour for the Jira mark — a brand mark, not a UI colour; do not reach
     /// for it to colour general UI.
-    public static let jira = Brand(0x2684FF, path: Logos.jiraPath, fallbackSymbol: "ticket")
+    public static let jira = Brand("jira", 0x2684FF, path: Logos.jiraPath, fallbackSymbol: "ticket")
     /// GitLab's vendor colour for its mark — a brand mark, not a UI colour; reserved for the
     /// GitLab logo/badge only.
-    public static let gitlab = Brand(0xFC6D26, path: Logos.gitlabPath, fallbackSymbol: "triangle.fill")
+    public static let gitlab = Brand("gitlab", 0xFC6D26, path: Logos.gitlabPath, fallbackSymbol: "triangle.fill")
     /// GitHub's mark, in white: GitHub's mark is monochrome, and the app is dark-only. A brand
     /// mark, not a UI colour; reserved for the GitHub logo/badge only. A light ground — the
     /// Integrations disc — tints it `markInk`.
-    public static let github = Brand(0xFFFFFF, path: Logos.githubPath, fallbackSymbol: "chevron.left.forwardslash.chevron.right")
+    public static let github = Brand("github", 0xFFFFFF, path: Logos.githubPath, fallbackSymbol: "chevron.left.forwardslash.chevron.right")
     /// Microsoft's vendor colour for the VS Code mark — a brand mark, not a UI colour; used only
     /// where the VS Code badge appears.
-    public static let vscode = Brand(0x23A9F2, path: Logos.vscodePath, fallbackSymbol: "chevron.left.forwardslash.chevron.right")
+    public static let vscode = Brand("vscode", 0x23A9F2, path: Logos.vscodePath, fallbackSymbol: "chevron.left.forwardslash.chevron.right")
     /// OpenAI's mark, in its own black — drawn on `VendorMark`'s white Codex disc. A brand mark,
     /// not a UI colour.
-    public static let openai = Brand(0x000000, path: Logos.openaiPath, fallbackSymbol: "hexagon")
+    public static let openai = Brand("openai", 0x000000, path: Logos.openaiPath, fallbackSymbol: "hexagon")
     /// xAI's Grok mark, in black: Grok has no brand colour. A brand mark, not a UI colour.
-    public static let grok = Brand(0x000000, path: Logos.grokPath, fallbackSymbol: "circle.slash", evenOdd: true)
+    public static let grok = Brand("grok", 0x000000, path: Logos.grokPath, fallbackSymbol: "circle.slash", evenOdd: true)
 
     // -- sidebar ---------------------------------------------------------------------
     /// A neutral translucent wash behind an unselected count chip or badge. 8 % of `.primary`, which
@@ -220,6 +220,9 @@ public enum Palette {
 /// wants a `Color`. Deriving both from one number is what stops them drifting — `#2684FF` used to be
 /// written twice, once as `Palette.jira` and once as a literal in `JiraChip`.
 public struct Brand: Sendable, Hashable {
+    /// What the brand is called, and the whole of its identity: two brands are equal when their names
+    /// are, so an image cache keys on a few characters, not on the path's kilobytes.
+    public let name: String
     public let color: Color
     /// `color` as `#RRGGBB`, for the SVG fill. Internal: only `Icon` builds the document.
     let hex: String
@@ -237,7 +240,11 @@ public struct Brand: Sendable, Hashable {
     /// merge request's lane in a picker — neutral information in the vendor's colour, not a warning.
     public var wash: Color { color.opacity(0.18) }
 
-    public init(_ value: UInt32, path: String, fallbackSymbol: String, evenOdd: Bool = false) {
+    public static func == (lhs: Brand, rhs: Brand) -> Bool { lhs.name == rhs.name }
+    public func hash(into hasher: inout Hasher) { hasher.combine(name) }
+
+    public init(_ name: String, _ value: UInt32, path: String, fallbackSymbol: String, evenOdd: Bool = false) {
+        self.name = name
         color = Palette.hex(value)
         hex = String(format: "#%06X", value)
         self.path = path

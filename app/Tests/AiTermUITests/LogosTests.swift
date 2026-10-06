@@ -4,20 +4,32 @@ import Testing
 
 @MainActor
 struct LogosTests {
-    /// Two marks are two images, however their path data starts. The cache used to key on the
-    /// fill and the path's first 24 characters, so a second mark sharing that prefix was drawn as
-    /// the first.
-    @Test func marksThatStartAlikeAreCachedApart() {
+    /// A brand is its name: two brands are cached apart because they are called apart, however
+    /// their path data starts, and the cache never hashes the path to tell.
+    @Test func brandsThatStartAlikeAreCachedApart() {
         let prefix = "M0 0h24v24H0zM0 0h24v24H0z"
-        let first = Logos.image(path: prefix + "M2 2h4v4H2z", fill: "#FFFFFF")
-        let second = Logos.image(path: prefix + "M2 2h8v8H2z", fill: "#FFFFFF")
+        let first = Logos.image(brand: Brand("first", 0xFFFFFF, path: prefix + "M2 2h4v4H2z", fallbackSymbol: "circle"), fill: "#FFFFFF")
+        let second = Logos.image(brand: Brand("second", 0xFFFFFF, path: prefix + "M2 2h8v8H2z", fallbackSymbol: "circle"), fill: "#FFFFFF")
         #expect(first != nil && second != nil)
         #expect(first !== second)
     }
 
     @Test func aMarkIsRasterisedOncePerFill() {
-        let path = Logos.jiraPath
-        #expect(Logos.image(path: path, fill: "#2684FF") === Logos.image(path: path, fill: "#2684FF"))
-        #expect(Logos.image(path: path, fill: "#2684FF") !== Logos.image(path: path, fill: "#FFFFFF"))
+        let brand = Palette.jira
+        #expect(Logos.image(brand: brand, fill: "#2684FF") === Logos.image(brand: brand, fill: "#2684FF"))
+        #expect(Logos.image(brand: brand, fill: "#2684FF") !== Logos.image(brand: brand, fill: "#FFFFFF"))
+    }
+
+    @Test func everyBrandHasItsOwnName() {
+        let brands = [Palette.claude, Palette.jira, Palette.gitlab, Palette.github, Palette.vscode, Palette.openai, Palette.grok]
+        #expect(Set(brands.map(\.name)).count == brands.count)
+    }
+
+    /// The tint a row paints a mark in is resolved once, then remembered: the same text again, and
+    /// the right one.
+    @Test func aTintIsResolvedToItsHexOnceAndRemembered() {
+        #expect(Icon.hexString(Palette.markPaper) == "#FFFFFF")
+        #expect(Icon.hexString(Palette.markInk) == "#000000")
+        #expect(Icon.hexString(Palette.markPaper) == "#FFFFFF")
     }
 }

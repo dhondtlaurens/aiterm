@@ -31,22 +31,24 @@ enum Logos {
     static let gitlabFourColourSVG = ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/><path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></svg>"##
 
     /// What an image is cached under: the whole of what it was built from, so two marks can never
-    /// share an entry however their path data starts.
+    /// share an entry. A brand is its name, since a body asks for its mark each time it runs and
+    /// hashing a path of kilobytes is what a path key would cost every time.
     private enum Key: Hashable {
-        case mark(path: String, fill: String, evenOdd: Bool)
+        case brand(name: String, fill: String)
         case document(String)
     }
 
     /// Main-actor state: every reader is a view's `body`.
     @MainActor private static var cache: [Key: NSImage] = [:]
 
-    /// A single-colour mark — `path` in a 24 × 24 viewBox, filled with `fill` — rasterised once per
-    /// path and fill. `evenOdd` sets `fill-rule="evenodd"` on the path: only Grok's mark needs it,
-    /// whose inner cut renders filled under SVG's default nonzero winding rule.
-    @MainActor static func image(path: String, fill: String, evenOdd: Bool = false) -> NSImage? {
-        image(for: .mark(path: path, fill: fill, evenOdd: evenOdd)) {
-            let rule = evenOdd ? #" fill-rule="evenodd""# : ""
-            return #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="\#(fill)"\#(rule) d="\#(path)"/></svg>"#
+    /// A single-colour mark — the brand's path in a 24 × 24 viewBox, filled with `fill` —
+    /// rasterised once per brand and fill. A brand with `evenOdd` gets `fill-rule="evenodd"` on its
+    /// path: only Grok's mark needs it, whose inner cut renders filled under SVG's default nonzero
+    /// winding rule.
+    @MainActor static func image(brand: Brand, fill: String) -> NSImage? {
+        image(for: .brand(name: brand.name, fill: fill)) {
+            let rule = brand.evenOdd ? #" fill-rule="evenodd""# : ""
+            return #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="\#(fill)"\#(rule) d="\#(brand.path)"/></svg>"#
         }
     }
 
@@ -68,16 +70,15 @@ enum Logos {
 /// load. Internal: `Icon(.brand(…))` is how anything draws one, so the fill never travels as text
 /// outside this module.
 struct LogoGlyph: View {
-    let path: String, fill: String, fallback: String, size: CGFloat
-    var evenOdd: Bool = false
+    let brand: Brand, fill: String, size: CGFloat
 
     var body: some View {
-        if let image = Logos.image(path: path, fill: fill, evenOdd: evenOdd) {
+        if let image = Logos.image(brand: brand, fill: fill) {
             // Decorative: whatever carries the mark — a badge, a row — says what it is.
             Image(nsImage: image).resizable().interpolation(.high).frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            Image(systemName: fallback).font(.system(size: size * 0.9, weight: .bold))
+            Image(systemName: brand.fallbackSymbol).font(.system(size: size * 0.9, weight: .bold))
                 .accessibilityHidden(true)
         }
     }

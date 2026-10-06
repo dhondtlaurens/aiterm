@@ -48,11 +48,7 @@ public struct Icon: View {
                 .font(.system(size: size))
                 .foregroundStyle(tint ?? surface.ink)
         case let .brand(brand):
-            LogoGlyph(path: brand.path,
-                      fill: tint.map(Self.hexString) ?? brand.hex,
-                      fallback: brand.fallbackSymbol,
-                      size: size,
-                      evenOdd: brand.evenOdd)
+            LogoGlyph(brand: brand, fill: tint.map(Self.hexString) ?? brand.hex, size: size)
         case let .artwork(svg, fallback):
             if let image = Logos.image(svg: svg) {
                 Image(nsImage: image).resizable().interpolation(.high).frame(width: size, height: size)
@@ -72,8 +68,12 @@ public struct Icon: View {
     /// `app/Tests/AiTermUITests/ColorProbe.swift` resolves colours the same way, for tests rather
     /// than for an SVG fill. The two are kept separate deliberately (production vs. test-only), but
     /// they duplicate this exact `.darkAqua`/sRGB dance — if one changes, check the other.
+    ///
+    /// Remembered per colour: a body asks again each time it runs, and the resolve costs an
+    /// appearance switch and a string format, for the handful of tints there are.
     @MainActor
-    private static func hexString(_ color: Color) -> String {
+    static func hexString(_ color: Color) -> String {
+        if let known = hexes[color] { return known }
         var hex = "#000000"
         let appearance = NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()
         appearance.performAsCurrentDrawingAppearance {
@@ -83,6 +83,9 @@ public struct Icon: View {
                          Int((srgb.greenComponent * 255).rounded()),
                          Int((srgb.blueComponent * 255).rounded()))
         }
+        hexes[color] = hex
         return hex
     }
+
+    @MainActor private static var hexes: [Color: String] = [:]
 }
