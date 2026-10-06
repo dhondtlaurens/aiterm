@@ -476,8 +476,8 @@ final class AppController {
         return rebase
     }
 
-    /// A pull or a rebase of `project`'s default branch, one at a time: its summary is the toast,
-    /// its failure the banner. Neither is shown for a project removed while git ran.
+    /// A pull or a rebase of `project`'s default branch, one at a time: the result's `.toast` is the
+    /// toast, its failure the banner. Neither is shown for a project removed while git ran.
     private func changeDefaultBranch(of project: Project, _ run: @escaping () async throws -> String,
                                      failure: @escaping (Error) -> OperationIssue) -> Task<Void, Never>? {
         guard changingDefaultBranch.insert(project.id).inserted else { return nil }
