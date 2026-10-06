@@ -48,6 +48,15 @@ final class TaskRemover {
     private let rows: PerRow<TaskRemoval?>
     /// Each task's removal or closing while it runs, for whoever awaits it.
     private var running: [UUID: Task<Void, Never>] = [:]
+    /// Each removed checkout being confirmed gone again before it is acted on: one at a time per task,
+    /// so passes over a mount that has stopped answering do not pile up threads stuck on it.
+    private var confirmations: [UUID: Task<Void, Never>] = [:]
+    /// Whether a task's checkout is gone for good, asked off the main actor just before the cleanup
+    /// acts on it. The disk's answer (`WorkspaceScan.checkoutRemovalIsConfirmed`); a test stands in a
+    /// mount that never answers.
+    var confirmsRemoval: @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool = {
+        WorkspaceScan.checkoutRemovalIsConfirmed($0, projectPath: $1)
+    }
 
     private let workspace: WorkspaceStore
     private let work: WorkInFlight
@@ -92,13 +101,16 @@ final class TaskRemover {
     var leavingTasks: Set<UUID> { Set(removals.filter(\.value.inProgress).keys) }
 
     /// Whether the checkout monitor holds the task's diff still while its checkout goes: something
-    /// runs on the task, and it is not a row waiting on a retry.
+    /// runs on the task — its cleanup's confirmation among them — and it is not a row waiting on a
+    /// retry.
     func removalInFlight(_ id: UUID) -> Bool {
-        work.operation(onTask: id) != nil && removals[id]?.awaitsRetry != true
+        (work.operation(onTask: id) != nil || confirmations[id] != nil) && removals[id]?.awaitsRetry != true
     }
 
-    /// Waits for the task's removal or closing under way, if there is one.
+    /// Waits for the task's removal or closing under way, if there is one — and for a removed
+    /// checkout's confirmation first, which the closing follows.
     func waitForRemoval(of id: UUID) async {
+        await confirmations[id]?.value
         await running[id]?.value
     }
 
@@ -354,20 +366,35 @@ final class TaskRemover {
     /// and is finishing up — waits: closing the window would kill it. The daemon settles such a
     /// turn even when the agent's last hook cannot arrive (spec §10b), and the next pass closes it.
     ///
-    /// The pass confirmed each removal off the main actor (`WorkspaceScan.removedTasks`), and is
-    /// applied only if the workspace it read is the one there now; it is not confirmed again here,
-    /// where a `stat` on a mount that has stopped answering would hold up the main actor. A
-    /// checkout that comes back afterwards stops the closing at the next pass.
+    /// Each removal is confirmed once more just before it is acted on — the checkout can have come
+    /// back since the pass looked — and off the main actor: a `stat` on a mount that has stopped
+    /// answering holds a thread of its own, not the sidebar. The task is then checked again as it
+    /// is now, back on the main actor, and only a task that is still gone and still waiting is
+    /// closed.
     func forgetRemovedCheckouts(_ removed: [TaskItem]) {
         // A task still closing whose checkout came back is not closing any more.
         let gone = Set(removed.map(\.id))
         for (id, outcome) in outcomes where outcome == .closing && !gone.contains(id) && work.operation(onTask: id) == nil {
             outcomes[id] = nil
         }
-        for task in removed where workspace.state.tasks.contains(task) && work.operation(onTask: task.id) == nil
-                                  && removals[task.id]?.awaitsRetry != true && !turnInFlight(task.id) {
-            automaticallyForgetRemovedTask(task.id)
+        for task in removed where awaitsCleanup(task) && confirmations[task.id] == nil {
+            let confirms = confirmsRemoval, projectPath = workspace.state.project(id: task.projectId)?.path
+            confirmations[task.id] = Task {
+                defer { confirmations[task.id] = nil }
+                let confirmed = await withCheckedContinuation { continuation in
+                    Thread { continuation.resume(returning: confirms(task, projectPath)) }.start()
+                }
+                guard confirmed, awaitsCleanup(task) else { return }
+                automaticallyForgetRemovedTask(task.id)
+            }
         }
+    }
+
+    /// Whether a task the pass found gone is the cleanup's to close: unchanged since, nothing else
+    /// running on it, not held for a removal's retry, and its agent not mid-turn.
+    private func awaitsCleanup(_ task: TaskItem) -> Bool {
+        workspace.state.tasks.contains(task) && work.operation(onTask: task.id) == nil
+            && removals[task.id]?.awaitsRetry != true && !turnInFlight(task.id)
     }
 
     private func turnInFlight(_ taskId: UUID) -> Bool {

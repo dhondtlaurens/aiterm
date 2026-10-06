@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -327,21 +328,52 @@ extension AppControllerTests {
         #expect(controller.state.tasks == [fixture.task])
     }
 
-    /// A removal the pass confirmed off the main actor is acted on as confirmed: the cleanup does not
-    /// look at the disk again, where a `stat` on a mount that has stopped answering would hold up the
-    /// main actor. Here the worktree's parent has gone out of reach since the pass.
-    @Test func aConfirmedRemovalIsNotCheckedAgainOnTheMainActor() async throws {
+    /// A checkout the pass found gone is confirmed gone once more before its task is closed: one
+    /// that came back in between is left be.
+    @Test func aCheckoutThatCameBackBeforeTheCleanupActsIsNotForgotten() async throws {
         let fixture = try CheckoutFixture(windowOpen: true)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon()
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(server)
-        try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
-        let parent = URL(fileURLWithPath: fixture.task.worktreePath).deletingLastPathComponent()
-        try FileManager.default.moveItem(at: parent, to: fixture.root.appendingPathComponent("offline-worktrees"))
 
+        // As a pass that looked while the checkout was away hands it over: it is back on disk.
         controller.remover.forgetRemovedCheckouts([fixture.task])
+        await controller.remover.waitForRemoval(of: fixture.task.id)
+        #expect(controller.state.tasks == [fixture.task])
+        #expect(server.closedWindowIds.isEmpty)
+        #expect(controller.removals.isEmpty)
+    }
+
+    /// The confirmation runs off the main actor: a mount that never answers holds its own thread,
+    /// while the sidebar — and further passes — go on, and no second confirmation piles up behind
+    /// it. Once it answers, the task is closed as it would have been.
+    @Test func aConfirmationThatNeverAnswersLeavesTheMainActorFree() async throws {
+        let fixture = try CheckoutFixture(windowOpen: true)
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon()
+        let answer = DispatchSemaphore(value: 0), asked = Mutex(0)
+        defer { answer.signal(); controller.shutdown() }
+        controller.remover.confirmsRemoval = { _, _ in
+            asked.withLock { $0 += 1 }
+            answer.wait()
+            return true
+        }
+        controller.helper.setDaemonClient(server)
+        try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
+
+        await controller.checkouts.refresh().value
+        await eventually { asked.withLock { $0 } == 1 }
+        await controller.checkouts.refresh().value
+        controller.rename(task: fixture.task, to: "Still answering")
+        #expect(controller.state.tasks.map(\.title) == ["Still answering"])
+        #expect(asked.withLock { $0 } == 1, "one confirmation per task, however many passes")
+        #expect(server.closedWindowIds.isEmpty)
+
+        controller.rename(task: fixture.task, to: fixture.task.title)
+        answer.signal()
         await controller.remover.waitForRemoval(of: fixture.task.id)
         #expect(server.closedWindowIds == ["alive"])
         #expect(controller.state.tasks.isEmpty)
