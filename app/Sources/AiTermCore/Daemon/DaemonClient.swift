@@ -26,13 +26,24 @@ public final class DaemonClient: @unchecked Sendable {
     private var pending: [Int: Pending] = [:]
     /// Requests that timed out since the last reply of any kind.
     private var consecutiveTimeouts = 0
+    /// Whether a liveness check is waiting for its reply, so a run of timeouts sends only one.
+    private var checkingLiveness = false
     /// A helper whose loop is stuck still has its process and its socket, so neither the supervisor
-    /// nor the reader notices it. It answers each request on its own task, so a slow one (a window
-    /// waiting on iTerm2) never holds up another's reply: two timeouts with no reply between them
-    /// are a full timeout's silence across two requests. One would drop the connection over a
-    /// single slow iTerm2 call; a third would leave the app waiting out another timeout on a helper
-    /// already not answering. A false alarm costs one reconnect and a fresh snapshot.
-    static let timeoutsBeforeDisconnect = 2
+    /// nor the reader notices it. Timeouts alone do not show it: the helper answers each request on
+    /// its own task, but window creation, placement and the snapshot each wait their turn on a lock
+    /// held across iTerm2 calls, so with iTerm2 slow, requests queued behind one lock time out back
+    /// to back from a helper that is fine. So two timeouts with no reply between them only prompt a
+    /// liveness check (`livenessCheck`), and the connection is dropped only when that goes
+    /// unanswered too.
+    static let timeoutsBeforeLivenessCheck = 2
+    /// `iterm.status`: answered from what the helper holds, with no lock and no iTerm2 call, so
+    /// a helper whose loop runs answers it in one turn whatever else is waiting. An older helper
+    /// without it still answers, with `unknown_method`, which proves the same.
+    static let livenessCheck = "iterm.status"
+    /// How long the liveness check is given. Its answer takes one turn of the helper's loop, so
+    /// three seconds is a wide margin for a busy machine, and keeps a stuck helper found within
+    /// one request timeout and a few seconds of the first silence.
+    private let livenessTimeout: TimeInterval
     private let writer = DispatchQueue(label: "aiterm.socket-writer")
     private let requestTimeout: TimeInterval
     private var used = false
@@ -41,9 +52,10 @@ public final class DaemonClient: @unchecked Sendable {
     private static let maximumFrameBytes = 1 << 20
     private static let log = Logger(subsystem: "com.laurensdhondt.aiterm", category: "daemon")
 
-    public init(socketPath: String, requestTimeout: TimeInterval = 15) {
+    public init(socketPath: String, requestTimeout: TimeInterval = 15, livenessTimeout: TimeInterval = 3) {
         self.socketPath = socketPath
         self.requestTimeout = requestTimeout
+        self.livenessTimeout = livenessTimeout
         let stream = AsyncStream<DaemonEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
         self.events = stream.stream
         self.eventContinuation = stream.continuation
@@ -223,9 +235,25 @@ public final class DaemonClient: @unchecked Sendable {
             default: return .unknown(name)
             }
         } catch {
-            log.error("Unreadable \(name, privacy: .public) event from the helper: \(String(describing: error), privacy: .public)")
+            logUnreadable(name, error)
             return .unknown(name)
         }
+    }
+
+    /// When each event was last logged as unreadable. A helper that sends a shape this app cannot
+    /// read sends it at the rate it sends that event, several times a second for `session.changed`,
+    /// so each event's failure is logged at most once a minute.
+    private static let unreadableLogged = Mutex<[String: ContinuousClock.Instant]>([:])
+
+    private static func logUnreadable(_ name: String, _ error: Error) {
+        let now = ContinuousClock.now
+        let due = unreadableLogged.withLock { logged in
+            if let last = logged[name], now - last < .seconds(60) { return false }
+            logged[name] = now
+            return true
+        }
+        guard due else { return }
+        log.error("Unreadable \(name, privacy: .public) event from the helper (logged at most once a minute): \(String(describing: error), privacy: .public)")
     }
 
     private func allocateID() -> Int {
@@ -246,14 +274,28 @@ public final class DaemonClient: @unchecked Sendable {
         entry?.fail(error)
     }
 
-    private func timedOut(_ id: Int, method: String) {
+    private func timedOut(_ id: Int, method: String, isLivenessCheck: Bool) {
         lock.lock()
         let entry = pending.removeValue(forKey: id)
-        if entry != nil { consecutiveTimeouts += 1 }
-        let wedged = entry != nil && consecutiveTimeouts >= Self.timeoutsBeforeDisconnect
+        var check = false
+        if entry != nil, !isLivenessCheck {
+            consecutiveTimeouts += 1
+            check = consecutiveTimeouts >= Self.timeoutsBeforeLivenessCheck && !checkingLiveness
+            if check { checkingLiveness = true }
+        }
         lock.unlock()
         entry?.fail(DaemonError(code: "timeout", message: "\(method) timed out; its outcome may need reconciliation"))
-        if wedged { disconnect() }
+        if check { Task { await self.checkLiveness() } }
+    }
+
+    /// Asks a helper that has gone quiet whether its loop still runs, and drops the connection if
+    /// it does not answer: its owner then reconnects to it, or reports it unreachable. Any answer,
+    /// an error included, is a helper that is there; the reply itself resets `consecutiveTimeouts`.
+    private func checkLiveness() async {
+        defer { lock.withLock { checkingLiveness = false } }
+        do { _ = try await request(Self.livenessCheck, params: Optional<NoParams>.none, as: Empty.self, ordered: nil, isLivenessCheck: true) }
+        catch let error as DaemonError where error.code == "timeout" { disconnect() }
+        catch {}
     }
 
     /// A reply's `result`, decoded from its line. `Empty` asks for nothing, so nothing is read: a
@@ -278,17 +320,19 @@ public final class DaemonClient: @unchecked Sendable {
     private struct NoParams: Encodable {}
 
     public func request<R: Decodable & Sendable>(_ method: String, as type: R.Type) async throws -> R {
-        try await request(method, params: Optional<NoParams>.none, as: type, ordered: nil)
+        try await request(method, params: Optional<NoParams>.none, as: type, ordered: nil, isLivenessCheck: false)
     }
 
     public func request<P: Encodable, R: Decodable & Sendable>(_ method: String, params: P, as type: R.Type) async throws -> R {
-        try await request(method, params: Optional(params), as: type, ordered: nil)
+        try await request(method, params: Optional(params), as: type, ordered: nil, isLivenessCheck: false)
     }
 
     /// `ordered` makes the reply an event too, yielded from the reader thread in its place among
-    /// the events around it.
+    /// the events around it. A liveness check has its own, shorter timeout, which is not counted
+    /// as the helper going quiet again.
     private func request<P: Encodable, R: Decodable & Sendable>(_ method: String, params: P?, as type: R.Type,
-                                                                ordered: (@Sendable (R) -> DaemonEvent)?) async throws -> R {
+                                                                ordered: (@Sendable (R) -> DaemonEvent)?,
+                                                                isLivenessCheck: Bool) async throws -> R {
         try Task.checkCancellation()
         let id = allocateID(), cancellation = Cancellation()
         var encoded = try JSONEncoder().encode(Envelope(id: id, method: method, params: params))
@@ -297,7 +341,7 @@ public final class DaemonClient: @unchecked Sendable {
         guard data.count <= Self.maximumFrameBytes else { throw DaemonError(code: "protocol", message: "Request exceeds frame limit") }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<R, Error>) in
-                let deadline = DispatchWorkItem { [weak self] in self?.timedOut(id, method: method) }
+                let deadline = DispatchWorkItem { [weak self] in self?.timedOut(id, method: method, isLivenessCheck: isLivenessCheck) }
                 let request = Pending(deadline: deadline, answer: { line, decoder, yield in
                     do {
                         let value = try Self.result(R.self, from: line, using: decoder)
@@ -314,7 +358,7 @@ public final class DaemonClient: @unchecked Sendable {
                 }
                 pending[id] = request
                 lock.unlock()
-                DispatchQueue.global().asyncAfter(deadline: .now() + requestTimeout, execute: deadline)
+                DispatchQueue.global().asyncAfter(deadline: .now() + (isLivenessCheck ? livenessTimeout : requestTimeout), execute: deadline)
                 writer.async { [self] in
                     lock.lock()
                     // dup keeps this descriptor alive even if the reader exits during a write.
@@ -384,7 +428,7 @@ public final class DaemonClient: @unchecked Sendable {
     /// before it and those after.
     public func snapshot() async throws -> DaemonSnapshot {
         let snapshot = try await request("workspace.snapshot", params: Optional<NoParams>.none, as: DaemonSnapshot.self,
-                                         ordered: { .snapshot($0) })
+                                         ordered: { .snapshot($0) }, isLivenessCheck: false)
         guard snapshot.protocolVersion == 1 else {
             throw DaemonError(code: DaemonError.incompatibleCode, message: "Restart AiTerm with its matching bundled helper")
         }

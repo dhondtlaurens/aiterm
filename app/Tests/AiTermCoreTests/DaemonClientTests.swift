@@ -293,42 +293,61 @@ time.sleep(5)
         #expect(event == .itermCookieRequested(large))
     }
 
+    private func timeOut(_ client: DaemonClient, sourceLocation: SourceLocation = #_sourceLocation) async {
+        do { _ = try await client.request("window.activate", as: DaemonClient.Empty.self); Issue.record("Expected a timeout", sourceLocation: sourceLocation) }
+        catch { #expect((error as? DaemonError)?.code == "timeout", sourceLocation: sourceLocation) }
+    }
+
     /// CS-6: a daemon whose loop is stuck keeps its socket open and its process alive, so neither
-    /// the reader nor the supervisor notices. It answers each request on its own, so a slow request
-    /// never delays another's reply: two timeouts with no reply between them are a helper that is
-    /// not answering at all, and the connection is dropped so its owner reconnects to a fresh one.
-    @Test func consecutiveTimeoutsDropTheConnection() async throws {
-        client = DaemonClient(socketPath: server.path, requestTimeout: 0.05)
+    /// the reader nor the supervisor notices. Two timeouts in a row prompt a liveness check, and a
+    /// check that goes unanswered as well drops the connection so its owner reconnects.
+    @Test func aHelperThatAnswersNothingIsDropped() async throws {
+        client = DaemonClient(socketPath: server.path, requestTimeout: 0.05, livenessTimeout: 0.1)
         server.handler = { _ in nil }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
         let box = EventBox(client.events)
-        for _ in 0..<2 {
-            do { _ = try await client.request("iterm.status", as: DaemonClient.Empty.self); Issue.record("Expected a timeout") }
-            catch let error as DaemonError { #expect(error.code == "timeout") }
-        }
+        await timeOut(client)
+        await timeOut(client)
         guard case .event(let end) = await nextEvent(box) else { Issue.record("a wedged helper kept its connection"); return }
         #expect(end == nil)
+        #expect(server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck })
+    }
+
+    /// Requests queued behind one of the helper's locks while iTerm2 is slow time out back to back
+    /// from a helper whose loop is fine: it answers the liveness check, and the connection stays.
+    @Test func timeoutsFromAHelperThatStillAnswersKeepTheConnection() async throws {
+        client = DaemonClient(socketPath: server.path, requestTimeout: 0.05, livenessTimeout: 2)
+        server.handler = { req in req["method"] as? String == DaemonClient.livenessCheck ? ["id": req["id"]!, "result": ["connected": false]] : nil }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        func checks() -> Int { server.received.count { $0["method"] as? String == DaemonClient.livenessCheck } }
+        for round in 1...2 {
+            await timeOut(client)
+            await timeOut(client)
+            await eventually { checks() >= round }
+        }
+        // Answered in wire order, so the checks' replies have been read by the time this one is.
+        _ = try await client.request(DaemonClient.livenessCheck, as: DaemonClient.Empty.self)
+        #expect(checks() == 3, "one check per run of timeouts, and the request above")
     }
 
     /// One reply between two timeouts is a helper that is answering: only an unbroken run counts.
+    /// Long enough a timeout that an answered request is never mistaken for one under load.
     @Test func aReplyBetweenTimeoutsKeepsTheConnection() async throws {
-        client = DaemonClient(socketPath: server.path, requestTimeout: 0.05)
+        client = DaemonClient(socketPath: server.path, requestTimeout: 0.5, livenessTimeout: 0.1)
         let answering = Mutex(false)
         server.handler = { req in answering.withLock { $0 } ? ["id": req["id"]!, "result": [:]] : nil }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        func timeOut() async {
-            do { _ = try await client.request("iterm.status", as: DaemonClient.Empty.self); Issue.record("Expected a timeout") }
-            catch { #expect((error as? DaemonError)?.code == "timeout") }
-        }
-        await timeOut()
+        await timeOut(client)
         answering.withLock { $0 = true }
-        _ = try await client.request("iterm.status", as: DaemonClient.Empty.self)
+        _ = try await client.request("window.activate", as: DaemonClient.Empty.self)
         answering.withLock { $0 = false }
-        await timeOut()
+        await timeOut(client)
         answering.withLock { $0 = true }
-        _ = try await client.request("iterm.status", as: DaemonClient.Empty.self)
+        _ = try await client.request("window.activate", as: DaemonClient.Empty.self)
+        #expect(!server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck })
     }
 
     @Test func snapshotAppearsInWireOrderAsAnEventBarrier() async throws {
