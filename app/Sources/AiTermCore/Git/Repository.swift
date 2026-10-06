@@ -95,11 +95,16 @@ public struct Repository: Sendable {
     /// own upstream only. The project's checkout is rarely sitting on the base branch — another
     /// task's branch is usually checked out there — so git refuses branches whose work is demonstrably
     /// safe in `main`. This answers the question the app actually means.
-    public func isMerged(_ branch: String, into base: String) -> Bool {
+    ///
+    /// Thrown when git could not answer — it timed out, say — which is no "not merged".
+    public func isMerged(_ branch: String, into base: String) throws -> Bool {
         guard !base.isEmpty, base != branch else { return false }
-        // A ref that does not exist makes `--is-ancestor` fail like one that is not an ancestor, so
-        // there is nothing to check for first.
-        return ["refs/heads/" + base, "refs/remotes/origin/" + base].contains { isAncestor(branch, of: $0) }
+        for ref in ["refs/heads/" + base, "refs/remotes/origin/" + base] {
+            // A ref that does not exist is a `fatal:` (128) from `--is-ancestor`: the work is not
+            // there either, so there is nothing to check for first.
+            if try git.ask(["merge-base", "--is-ancestor", branch, ref], in: path, none: [1, 128]) != nil { return true }
+        }
+        return false
     }
 
     // MARK: Refs and origin, for the jobs in the other files
@@ -115,9 +120,10 @@ public struct Repository: Sendable {
         try git.ask(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: path, none: [1])
     }
 
-    /// A git that cannot be asked answers no, as one that says no (exit 1) does.
-    func isAncestor(_ ancestor: String, of commit: String) -> Bool {
-        (try? git.run(["merge-base", "--is-ancestor", ancestor, commit], in: path)) != nil
+    /// Whether `ancestor` is in `commit`'s history. git's "no" is exit 1; anything else — a
+    /// timeout, a commit it cannot find — is thrown, so it is never taken for a no.
+    func isAncestor(_ ancestor: String, of commit: String) throws -> Bool {
+        try git.ask(["merge-base", "--is-ancestor", ancestor, commit], in: path, none: [1]) != nil
     }
 
     /// How many commits `to` has that `from` lacks.
@@ -128,8 +134,10 @@ public struct Repository: Sendable {
     }
 
     /// Whether the repository has a remote called `origin`: git's answer is a failure (exit 2)
-    /// when it has none.
-    var hasOrigin: Bool { (try? git.run(["remote", "get-url", "origin"], in: path)) != nil }
+    /// when it has none. Any other failure — a timeout — is thrown, as no answer at all.
+    var hasOrigin: Bool {
+        get throws { try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) != nil }
+    }
 
     /// `branch` fetched from origin into `origin/<branch>`. An explicit, forced refspec: `git fetch
     /// origin <branch>` updates the tracking ref only when `remote.origin.fetch` covers it, which a

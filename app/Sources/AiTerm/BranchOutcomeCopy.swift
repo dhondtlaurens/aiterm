@@ -35,6 +35,7 @@ extension ReviewBranchRelease.Kept {
         case .unpushed(let count): "\(commits(count)) not on origin"
         case .unmerged(let target): "not on origin and not merged into \(target.isEmpty ? "its target" : target)"
         case .notDeleted(let why): why
+        case .unchecked(let why): "couldn’t check where its commits are (\(why))"
         }
     }
 }

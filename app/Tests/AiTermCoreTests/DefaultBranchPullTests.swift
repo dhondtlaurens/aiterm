@@ -74,6 +74,17 @@ import Darwin
         #expect(try sha("main", in: repo) == before)
     }
 
+    /// Task 38 review: a git that could not say whether one tip contains the other — it timed out —
+    /// has not said the branches diverged. The pull fails with git's reason, and moves nothing.
+    @Test func aPullGitCannotCompareFailsWithGitsReasonNotAsDiverged() throws {
+        try push(1, from: other)
+        let before = try sha("main", in: repo)
+        #expect { try Repository(repo, git: TimingOutGitRunner(["merge-base"])).pullDefaultBranch() } throws: { error in
+            (error as? GitError)?.timedOut == true
+        }
+        #expect(try sha("main", in: repo) == before)
+    }
+
     @Test func testSaysHowFarADivergedBranchIsFromOrigin() throws {
         #expect(WorktreeError.defaultBranchDiverged("main", local: 4, remote: 23).errorDescription
                 == "Your local “main” has 4 commits that aren’t on origin, and origin has 23 commits it doesn’t.")

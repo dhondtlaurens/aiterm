@@ -90,10 +90,11 @@ extension GitRunning {
     /// `rev-parse --verify --quiet` and `symbolic-ref --quiet`, `2` for `remote get-url` of a remote
     /// that does not exist, `128` for a `fatal:`: `nil` for one of `none`. Any other failure — a
     /// timeout, git not starting, a status nothing expects — says nothing about the answer and is
-    /// thrown, so it is never mistaken for one.
+    /// thrown, so it is never mistaken for one — a timeout even when the git it killed was left
+    /// with one of those statuses.
     public func ask(_ args: [String], in dir: String, none: Set<Int32>) throws -> String? {
         do { return try run(args, in: dir) }
-        catch let error as GitError where none.contains(error.code) { return nil }
+        catch let error as GitError where !error.timedOut && none.contains(error.code) { return nil }
     }
 }
 

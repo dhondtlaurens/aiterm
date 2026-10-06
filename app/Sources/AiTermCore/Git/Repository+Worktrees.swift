@@ -37,10 +37,10 @@ extension Repository {
     /// only its `post-checkout` hook failed, and keeps it *locked*, since the lock is part of the
     /// add. Nothing may assume git cleaned up after a failed add. The same holds for a review's.
     public func addTaskWorktree(slug: String, branch: String, base: String) throws -> String {
+        let hasOrigin = try hasOrigin
         let worktreePath = try prepareWorktree(slug: slug)
         // Best-effort, so a new worktree starts from the remote's latest when it can: offline, it
         // starts from what was last fetched.
-        let hasOrigin = hasOrigin
         if hasOrigin { Log.git.attempt("Fetching \(base) before adding a worktree", level: .default) { try fetchFromOrigin(base) } }
         let start = hasOrigin && (try? git.run(["rev-parse", "--verify", "--quiet", "origin/\(base)"], in: path)) != nil ? "origin/\(base)" : base
         try git.run(["worktree", "add", "--lock", "--reason", Worktree.taskLockReason, "-b", branch, worktreePath, start], in: path,
@@ -57,7 +57,7 @@ extension Repository {
     /// refusal comes before anything is created, and no failure path deletes a branch that holds
     /// anything origin lacks — this one is someone's merge request.
     public func addReviewWorktree(slug: String, branch: String) throws -> String {
-        let hasOrigin = hasOrigin
+        let hasOrigin = try hasOrigin
         if hasOrigin { Log.git.attempt("Fetching \(branch) before adding a review", level: .default) { try fetchFromOrigin(branch) } }
         let local = sha("refs/heads/" + branch)
         let remote = hasOrigin ? sha("refs/remotes/origin/" + branch) : nil
@@ -66,8 +66,10 @@ extension Repository {
         }
         switch (local, remote) {
         case (nil, nil): throw WorktreeError.branchNotOnOrigin(branch)
-        case let (l?, r?) where l != r && !isAncestor(r, of: l):
-            guard isAncestor(l, of: r) else { throw WorktreeError.branchDiverged(branch) }
+        case let (l?, r?) where l != r:
+            // Ahead: origin's tip is in it, and its unpushed commits are kept as they are.
+            if try isAncestor(r, of: l) { break }
+            guard try isAncestor(l, of: r) else { throw WorktreeError.branchDiverged(branch) }
             // Behind: a fast-forward, which git refuses for a branch being rebased in some checkout.
             try fastForward(branch)
         default: break

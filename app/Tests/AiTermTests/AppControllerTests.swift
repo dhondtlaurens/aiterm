@@ -835,6 +835,31 @@ import Testing
         #expect(controller.issue?.reason == "Git timed out after \(GitRunner.localTimeout) s.")
     }
 
+    /// Task 38 review: once the workspace can no longer be saved, no import could be made either,
+    /// so a check for worktrees that fails meanwhile is not reported: the banner over the failed
+    /// save is what matters, as a pick that fails then is not reported either.
+    @Test func aFailedImportCheckIsNotReportedOnceTheWorkspaceCannotChange() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StateStore(url: dir.appendingPathComponent("state.json"))
+        let git = GatedDefaultBranchGit()
+        let controller = AppController(store: store, preferences: .scratch(), prompter: ScriptedPrompter(), git: git)
+        try controller.loadWorkspace()
+        let repo = try Self.repoWithATaskAndAReviewWorktree(git: GitRunner.hermetic())
+        defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: repo).deletingLastPathComponent()) }
+
+        let adding = Task { await controller.addProject(path: repo) }
+        await eventually { git.isWaiting }
+        try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
+        controller.workspace.mutate { $0.lastModelByAgent[.claude] = "sonnet" }
+        #expect(!controller.workspace.flush())
+        git.open()
+        await adding.value
+
+        #expect(controller.state.projects.count == 1)
+        #expect(controller.issue == nil, "got \(String(describing: controller.issue))")
+    }
+
     /// ARCH-06: a git that cannot say whether the folder is a repository — it timed out, or would
     /// not start — is not a folder outside one. Nothing is added, and the banner says why, where
     /// the pick used to do nothing at all.
@@ -1338,6 +1363,23 @@ private final class ScanCounter: Sendable {
 }
 
 /// A git that times out whenever it is asked for the default branch's name, as it does under load.
+/// `DefaultBranchFailingGit`, whose failing read first waits for `open()`, so a test acts while
+/// the import's git is still running.
+private final class GatedDefaultBranchGit: GitRunning {
+    private let inner = DefaultBranchFailingGit()
+    private let gate = Mutex((waiting: false, open: false))
+    var isWaiting: Bool { gate.withLock { $0.waiting } }
+    func open() { gate.withLock { $0.open = true } }
+
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        if args.first == "for-each-ref", args.contains("refs/remotes/origin/HEAD") {
+            gate.withLock { $0.waiting = true }
+            while !gate.withLock({ $0.open }) { Thread.sleep(forTimeInterval: 0.005) }
+        }
+        return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+    }
+}
+
 private struct DefaultBranchFailingGit: GitRunning {
     let inner: any GitRunning = GitRunner.hermetic()
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {

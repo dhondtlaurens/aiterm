@@ -23,6 +23,8 @@ public enum ReviewBranchRelease: Equatable, Sendable {
         case unmerged(target: String)
         /// git refused to delete it, for this reason.
         case notDeleted(String)
+        /// git could not say whether its work is anywhere else — it timed out, say — for this reason.
+        case unchecked(String)
     }
 }
 
@@ -38,8 +40,15 @@ extension Repository {
     /// vouch for commits origin no longer has — and the next prune would take the only other copy.
     /// So a branch origin confirms it lacks is judged against the target, and if origin cannot be
     /// asked at all (offline, refused credentials) the branch is kept: that proves nothing either way.
+    /// Nor does a git here that could not answer — it timed out — and the branch is kept for that too.
     public func releaseReviewBranch(_ branch: String, target: String) -> ReviewBranchRelease {
-        guard hasOrigin, let local = sha("refs/heads/" + branch) else { return .untouched }
+        do { return try release(branch, target: target) }
+        catch { return .kept(.unchecked(GitError.reason(of: error))) }
+    }
+
+    /// `releaseReviewBranch`, throwing when git here could not answer what it was asked.
+    private func release(_ branch: String, target: String) throws -> ReviewBranchRelease {
+        guard try hasOrigin, let local = try commit("refs/heads/" + branch) else { return .untouched }
         if let holder = Log.git.attempt("Listing the worktrees of \(path)", { try worktrees() })?.first(where: { $0.branch == branch }) {
             return .kept(.checkedOut(at: holder.path))
         }
@@ -48,14 +57,14 @@ extension Repository {
         catch { return .kept(.originUnreachable(GitError.reason(of: error))) }
         if let remote = onOrigin[branch] {
             guard fetched(remote, branch: branch) else { return .kept(.originNotFetched) }
-            guard !isAncestor(local, of: remote) else { return delete(branch) }
+            guard try !isAncestor(local, of: remote) else { return delete(branch) }
             return .kept(.unpushed(commits: count(remote, local)))
         }
         // Origin no longer has the branch. Its commits are safe only where they still live: on the
         // target as origin has it now, or on a local branch of that name — never a cached copy.
-        let retained = !target.isEmpty && target != branch && (
-            onOrigin[target].map { fetched($0, branch: target) && isAncestor(local, of: $0) } == true
-                || sha("refs/heads/" + target).map { isAncestor(local, of: $0) } == true)
+        let retained = try !target.isEmpty && target != branch && (
+            onOrigin[target].map { try fetched($0, branch: target) && isAncestor(local, of: $0) } == true
+                || sha("refs/heads/" + target).map { try isAncestor(local, of: $0) } == true)
         guard retained else { return .kept(.unmerged(target: target)) }
         return delete(branch)
     }

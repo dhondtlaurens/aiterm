@@ -23,6 +23,8 @@ struct BranchOutcomeCopyTests {
             (.unmerged(target: "main"), "Branch feat/x kept: not on origin and not merged into main."),
             (.unmerged(target: ""), "Branch feat/x kept: not on origin and not merged into its target."),
             (.notDeleted("error: branch is locked"), "Branch feat/x kept: error: branch is locked."),
+            (.unchecked("git merge-base timed out after 10 s"),
+             "Branch feat/x kept: couldn’t check where its commits are (git merge-base timed out after 10 s)."),
         ]
         for (kept, note) in notes { #expect(kept.note(branch: "feat/x") == note) }
     }

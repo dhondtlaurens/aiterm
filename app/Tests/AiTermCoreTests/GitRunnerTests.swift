@@ -106,6 +106,13 @@ import Testing
         }
     }
 
+    /// A git killed at its deadline has not answered, whatever status it was left with — one that
+    /// is also git's "no" included.
+    @Test func aQuestionThatTimedOutIsThrownWhateverItsStatus() {
+        let git = TimingOutGitRunner(["rev-parse"], code: 1)
+        #expect(throws: GitError.self) { try git.ask(["rev-parse", "--verify", "--quiet", "HEAD"], in: "/", none: [1]) }
+    }
+
     /// A remote is asked with the remote deadline, and a transfer that has stalled is abandoned
     /// by git itself rather than left to run into it.
     @Test func aRemoteCommandGetsTheRemoteDeadlineAndGivesUpOnAStall() throws {

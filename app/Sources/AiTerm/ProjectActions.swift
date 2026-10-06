@@ -114,10 +114,11 @@ final class ProjectActions {
         } catch {
             // A default branch git could not be asked for throws above, and nothing is offered: the
             // offer is made only when the project is added, so it is not made at all rather than
-            // saving "main" into every imported task for a timeout — and the banner says it was not.
-            // A repository with no default branch to name is another matter.
+            // saving "main" into every imported task for a timeout — and the banner says it was not,
+            // unless no import could have been made by now anyway. A repository with no default
+            // branch to name is another matter.
             Log.git.failed("Looking for worktrees to import into \(project.path)", error)
-            guard state.project(id: project.id) != nil else { return }
+            guard canChangeWorkspace, state.project(id: project.id) != nil else { return }
             notices.report(OperationIssue(title: "Couldn’t check \(project.name) for worktrees to import.", error: error))
             return
         }

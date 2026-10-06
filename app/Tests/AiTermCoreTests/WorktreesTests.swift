@@ -442,6 +442,29 @@ import Darwin
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
     }
 
+    /// Task 38 review: a git that could not say whether one side contains the other — it timed
+    /// out — has not said the branch diverged. The review fails with git's reason.
+    @Test func aReviewWhoseBranchGitCannotCompareFailsWithGitsReason() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        _ = try git.run(["branch", "-q", "--track", "feat/mr-branch", "origin/feat/mr-branch"], in: repo)
+        _ = try pushNewCommitToMRBranch(of: repo)
+        #expect { try Repository(repo, git: TimingOutGitRunner(["merge-base"])).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch") }
+            throws: { ($0 as? GitError)?.timedOut == true }
+        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
+    }
+
+    /// Nor has one that could not say whether there is an origin said there is none: a branch only
+    /// origin has was refused as being nowhere, and a task started from a base it never fetched.
+    @Test func aWorktreeInARepositoryGitCannotAskForItsOriginFailsWithGitsReason() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let timingOut = TimingOutGitRunner(["remote", "get-url"])
+        #expect { try Repository(repo, git: timingOut).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch") }
+            throws: { ($0 as? GitError)?.timedOut == true }
+        #expect { try Repository(repo, git: timingOut).addTaskWorktree(slug: "a-task", branch: "feat/a-task", base: "main") }
+            throws: { ($0 as? GitError)?.timedOut == true }
+        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/a-task"))
+    }
+
     /// Neither local nor on origin — a fork's branch, say — is nothing that could be pushed to.
     @Test func testCheckoutRefusesABranchThatIsNowhere() throws {
         let repo = try repoWithRemoteOnlyBranch()
@@ -560,6 +583,23 @@ import Darwin
         let repo = try repoWithRemoteOnlyBranch()
         let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .kept(.checkedOut(at: path)))
+    }
+
+    /// Task 38 review: a git that could not say whether the branch's commits are on origin's — or
+    /// whether there is an origin — has not said they are not: the branch is kept, and the reason
+    /// is git's, not "0 commits not on origin" or nothing at all.
+    @Test func aReviewBranchGitCannotJudgeIsKeptWithGitsReason() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try Repository(repo, git: git).removeWorktree(at: path, deleteBranch: nil, force: false)
+        for timingOut in [TimingOutGitRunner(["merge-base"]), TimingOutGitRunner(["remote", "get-url"])] {
+            let release = Repository(repo, git: timingOut).releaseReviewBranch("feat/mr-branch", target: "main")
+            guard case .kept(.unchecked(let why)) = release else {
+                Issue.record("expected the branch kept as git could not be asked, got \(release)"); continue
+            }
+            #expect(why.contains("timed out"))
+        }
+        #expect(try hasLocalBranch("feat/mr-branch", in: repo))
     }
 
     /// No origin, nothing to judge the branch against: it is left exactly as it was.

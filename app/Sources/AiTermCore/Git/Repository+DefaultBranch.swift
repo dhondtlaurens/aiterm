@@ -27,8 +27,8 @@ extension Repository {
     public func pullDefaultBranch() throws -> DefaultBranchPull {
         let (branch, local, remote) = try fetchDefaultBranch()
         if local == remote { return .upToDate(branch) }
-        if isAncestor(remote, of: local) { return .ahead(branch, commits: count(remote, local)) }
-        guard isAncestor(local, of: remote) else {
+        if try isAncestor(remote, of: local) { return .ahead(branch, commits: count(remote, local)) }
+        guard try isAncestor(local, of: remote) else {
             throw WorktreeError.defaultBranchDiverged(branch, local: count(remote, local), remote: count(local, remote))
         }
         let commits = count(local, remote)
@@ -123,7 +123,7 @@ extension Repository {
     /// The default branch, fetched: its name, the local tip and origin's. An explicit refspec, so
     /// the tracking ref compared against is updated whatever `remote.origin.fetch` says.
     private func fetchDefaultBranch() throws -> (branch: String, local: String, remote: String) {
-        guard hasOrigin else { throw WorktreeError.noOrigin }
+        guard try hasOrigin else { throw WorktreeError.noOrigin }
         let branch = try detectDefaultBranch() ?? Self.fallbackDefaultBranch
         try fetchFromOrigin(branch)
         guard let local = sha("refs/heads/" + branch) else { throw WorktreeError.noLocalBranch(branch) }

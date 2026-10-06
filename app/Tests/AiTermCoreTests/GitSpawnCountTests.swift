@@ -141,10 +141,12 @@ import Testing
         #expect(defaultBranch.answer == "main" && defaultBranch.spawns == 1)
         let branches = counted { Repository(repo, git: recording).branches() }
         #expect(branches.answer == ["main", "feat/x"] && branches.spawns == 2)
-        let merged = counted { Repository(repo, git: recording).isMerged("feat/x", into: "main") }
+        let merged = try counted { try Repository(repo, git: recording).isMerged("feat/x", into: "main") }
         #expect(merged.answer && merged.spawns == 1)
-        let unknown = counted { Repository(repo, git: recording).isMerged("feat/x", into: "gone") }
+        let unknown = try counted { try Repository(repo, git: recording).isMerged("feat/x", into: "gone") }
         #expect(!unknown.answer && unknown.spawns == 2, "the local and the origin ref, neither of which exists")
+        // Task 38 review: a git that could not answer has not said no.
+        #expect(throws: GitError.self) { try Repository(repo, git: TimingOutGitRunner(["merge-base"])).isMerged("feat/x", into: "main") }
     }
 
     /// A removal lists the worktrees once — where it asked git for the list, the lock reason and

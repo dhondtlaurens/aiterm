@@ -113,7 +113,7 @@ public struct TaskWorkflow: Sendable {
                     // project's checkout is usually sitting on some other task's branch; that refused
                     // branches already merged into their base. Ask about the base ourselves, and `-D` is
                     // then no less safe than `-d`: the commits demonstrably live on in the base.
-                    let merged = repository.isMerged(task.branch, into: task.baseBranch)
+                    let merged = try repository.isMerged(task.branch, into: task.baseBranch)
                     // Not merged there: let git have the last word, and say what it says.
                     try git.run(["branch", merged ? "-D" : "-d", task.branch], in: project.path)
                 }
