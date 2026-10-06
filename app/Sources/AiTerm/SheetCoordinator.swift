@@ -132,7 +132,10 @@ final class SheetCoordinator {
         preparingSheet?.cancel()
         let git = self.git
         preparingSheet = Task {
-            let branch = try? await BackgroundWork.run { try git.run(["symbolic-ref", "--short", "HEAD"], in: project.path) }
+            // A detached HEAD (128) names no branch, and the line then names none.
+            let branch = await Log.git.attempt("Reading the branch of \(project.path)") {
+                try await BackgroundWork.run { try git.ask(["symbolic-ref", "--short", "HEAD"], in: project.path, none: [128]) }
+            } ?? nil
             guard !Task.isCancelled, canChangeWorkspace, sheet == nil, state.project(id: project.id) != nil else { return }
             sheet = .newTerminal(project, name: state.suggestedTerminalName(in: project.id), branch: branch ?? "")
         }

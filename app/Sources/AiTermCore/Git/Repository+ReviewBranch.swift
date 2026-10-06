@@ -40,7 +40,7 @@ extension Repository {
     /// asked at all (offline, refused credentials) the branch is kept: that proves nothing either way.
     public func releaseReviewBranch(_ branch: String, target: String) -> ReviewBranchRelease {
         guard hasOrigin, let local = sha("refs/heads/" + branch) else { return .untouched }
-        if let holder = (try? worktrees())?.first(where: { $0.branch == branch }) {
+        if let holder = Log.git.attempt("Listing the worktrees of \(path)", { try worktrees() })?.first(where: { $0.branch == branch }) {
             return .kept(.checkedOut(at: holder.path))
         }
         let onOrigin: [String: String]
@@ -79,7 +79,7 @@ extension Repository {
     /// stale value that was about to be trusted.
     private func fetched(_ commit: String, branch: String) -> Bool {
         if sha(commit) != nil { return true }
-        try? fetchFromOrigin(branch)
+        Log.git.attempt("Fetching \(branch) to compare it with origin's", level: .default) { try fetchFromOrigin(branch) }
         return sha(commit) != nil
     }
 

@@ -57,9 +57,12 @@ extension Repository {
             let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(Self.scratchPrefix + UUID().uuidString).path
             try git.run(["-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", scratch, branch], in: path,
                         timeout: GitRunner.checkoutTimeout, environment: ["GIT_LFS_SKIP_SMUDGE": "1"])
+            // One left behind is removed before the next pull or rebase (`checkoutsLessAbandonedScratch`).
             defer {
-                _ = try? git.run(["worktree", "remove", "--force", scratch], in: path, timeout: GitRunner.checkoutTimeout)
-                _ = try? git.run(["worktree", "prune"], in: path)
+                Log.git.attempt("Removing the rebase checkout \(scratch)") {
+                    try git.run(["worktree", "remove", "--force", scratch], in: path, timeout: GitRunner.checkoutTimeout)
+                }
+                Log.git.attempt("Pruning the worktrees of \(path)") { try git.run(["worktree", "prune"], in: path) }
             }
             try rebase(branch, onto: remote, in: scratch)
         }
@@ -83,9 +86,11 @@ extension Repository {
         }
         guard !abandoned.isEmpty else { return listed }
         for worktree in abandoned {
-            _ = try? git.run(["worktree", "remove", "--force", worktree.path], in: path, timeout: GitRunner.checkoutTimeout)
+            Log.git.attempt("Removing the abandoned rebase checkout \(worktree.path)") {
+                try git.run(["worktree", "remove", "--force", worktree.path], in: path, timeout: GitRunner.checkoutTimeout)
+            }
         }
-        _ = try? git.run(["worktree", "prune"], in: path)
+        Log.git.attempt("Pruning the worktrees of \(path)") { try git.run(["worktree", "prune"], in: path) }
         return try worktrees()
     }
 
@@ -99,13 +104,16 @@ extension Repository {
         do { try git.run(["rebase", "--quiet"] + pinned + [remote, branch], in: checkout, timeout: GitRunner.checkoutTimeout) }
         catch {
             guard !underWay, isRebasing(checkout) else { throw error }
-            _ = try? git.run(["rebase", "--abort"], in: checkout, timeout: GitRunner.checkoutTimeout)
+            Log.git.attempt("Aborting the conflicted rebase of \(branch) in \(checkout)") {
+                try git.run(["rebase", "--abort"], in: checkout, timeout: GitRunner.checkoutTimeout)
+            }
             throw WorktreeError.rebaseConflicted(branch)
         }
     }
 
     /// Whether a rebase is stopped in `checkout`: git keeps its state in `rebase-merge` (or, for
-    /// the old apply backend, `rebase-apply`) in that checkout's own git directory.
+    /// the old apply backend, `rebase-apply`) in that checkout's own git directory. A git that
+    /// cannot say is read as no rebase: the caller then throws the failure it already has.
     private func isRebasing(_ checkout: String) -> Bool {
         guard let paths = try? git.run(["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge", "--git-path", "rebase-apply"],
                                        in: checkout) else { return false }

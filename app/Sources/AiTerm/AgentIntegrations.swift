@@ -83,13 +83,11 @@ final class AgentIntegrations {
         let read = statusLineReadsStarted
         let installed = await BackgroundWork.run {
             if migrating {
-                do { try StatusLineOriginal.migrate(home: home) }
-                catch { NSLog("AiTerm: could not migrate the saved status line: \(error.localizedDescription)") }
+                Log.harness.attempt("Migrating the saved status line") { try StatusLineOriginal.migrate(home: home) }
                 // The shims are in the bundle and so are as new as the app, but read the port from a
                 // file only a driver's Install writes: until it has, an upgrade's status line posts
                 // to nothing and the footer's usage goes quiet.
-                do { try ShimPort.record(AiTermPaths.hookPort, home: home) }
-                catch { NSLog("AiTerm: could not record the hook port: \(error.localizedDescription)") }
+                Log.harness.attempt("Recording the hook port") { try ShimPort.record(AiTermPaths.hookPort, home: home) }
             }
             // The harness home this was given, never the default: in a test that is a temporary
             // directory, and the developer's own `~/.claude` says nothing about it.

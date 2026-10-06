@@ -63,7 +63,7 @@ public struct Repository: Sendable {
     /// ``detectDefaultBranch()``, or ``fallbackDefaultBranch`` when there is none or git cannot be
     /// asked — for a caller that must show some name and will be asked again.
     public func defaultBranch() -> String {
-        ((try? detectDefaultBranch()) ?? nil) ?? Self.fallbackDefaultBranch
+        (Log.git.attempt("Reading the default branch of \(path)") { try detectDefaultBranch() } ?? nil) ?? Self.fallbackDefaultBranch
     }
 
     /// Every branch the base-branch popup can offer: local branches most-recently-committed first,
@@ -73,7 +73,9 @@ public struct Repository: Sendable {
     public func branches() -> [String] {
         // One listing of both, newest first within each: the locals are the refs under `refs/heads/`
         // and the others, `origin`'s.
-        let listing = (try? git.run(["for-each-ref", "--format=%(refname)", "--sort=-committerdate", "refs/heads", "refs/remotes/origin"], in: path))
+        let listing = Log.git.attempt("Listing the branches of \(path)") {
+            try git.run(["for-each-ref", "--format=%(refname)", "--sort=-committerdate", "refs/heads", "refs/remotes/origin"], in: path)
+        }
             .map { $0.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let locals = listing.compactMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }
         let remotes = listing.compactMap { ref -> String? in
@@ -104,7 +106,7 @@ public struct Repository: Sendable {
 
     /// The commit `ref` names; `nil` when there is none or git could not be asked.
     func sha(_ ref: String) -> String? {
-        (try? commit(ref)) ?? nil
+        Log.git.attempt("Reading \(ref) in \(path)") { try commit(ref) } ?? nil
     }
 
     /// The commit `ref` names, `nil` when git says there is none (exit 1 under `--quiet`); thrown
@@ -113,16 +115,20 @@ public struct Repository: Sendable {
         try git.ask(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], in: path, none: [1])
     }
 
+    /// A git that cannot be asked answers no, as one that says no (exit 1) does.
     func isAncestor(_ ancestor: String, of commit: String) -> Bool {
         (try? git.run(["merge-base", "--is-ancestor", ancestor, commit], in: path)) != nil
     }
 
     /// How many commits `to` has that `from` lacks.
     func count(_ from: String, _ to: String) -> Int {
-        Int((try? git.run(["rev-list", "--count", from + ".." + to], in: path)) ?? "") ?? 0
+        Int(Log.git.attempt("Counting the commits from \(from) to \(to) in \(path)") {
+            try git.run(["rev-list", "--count", from + ".." + to], in: path)
+        } ?? "") ?? 0
     }
 
-    /// Whether the repository has a remote called `origin`.
+    /// Whether the repository has a remote called `origin`: git's answer is a failure (exit 2)
+    /// when it has none.
     var hasOrigin: Bool { (try? git.run(["remote", "get-url", "origin"], in: path)) != nil }
 
     /// `branch` fetched from origin into `origin/<branch>`. An explicit, forced refspec: `git fetch

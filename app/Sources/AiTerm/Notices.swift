@@ -1,5 +1,6 @@
 import Foundation
 import AiTermCore
+import os
 
 /// What the person is told about work once it has finished or failed: the banner above the list —
 /// a failed operation and the ways out it offers — and the completion toast. Every owner that has
@@ -53,7 +54,7 @@ final class Notices {
     func report(_ issue: OperationIssue) {
         guard !isStale(issue) else { return }
         if issue.actions.isEmpty, self.issue?.actions.isEmpty == false {
-            NSLog("AiTerm: held back, a question is waiting: \(issue.title) \(issue.reason ?? "")")
+            Log.ui.notice("Held back while a question is waiting: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
             deferredIssue = issue
             return
         }

@@ -53,8 +53,12 @@ struct UserConfigFile: Sendable {
         if let target = Self.danglingLinkTarget(url) { return .refused("links to \(target), which does not exist") }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return .missing }
-        guard !isDirectory.boolValue, let data = try? Data(contentsOf: target) else { return .refused("cannot be read") }
-        return .present(data)
+        guard !isDirectory.boolValue else { return .refused("cannot be read") }
+        do { return .present(try Data(contentsOf: target)) }
+        catch {
+            Log.harness.failed("Reading \(displayPath)", error)
+            return .refused("cannot be read")
+        }
     }
 
     /// The file as UTF-8 text, refused when it is not: merging "nothing" into it would replace

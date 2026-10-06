@@ -67,9 +67,16 @@ public final class DaemonSupervisor: Sendable {
     /// Emptied in place, never replaced: a daemon that already has the file open (an orphan about
     /// to be adopted, or one still exiting) would otherwise keep writing into an unlinked inode.
     private func truncateLog() {
-        try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        makeLogFolder()
         let fd = open(logURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
         if fd >= 0 { close(fd) }
+    }
+
+    /// Without it the helper still starts, with no log of its own (`openLog`).
+    private func makeLogFolder() {
+        Log.daemon.attempt("Making the helper's log folder") {
+            try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
     }
 
     /// Append-mode handle for the child's stdout+stderr. `O_APPEND` makes every write land at the
@@ -78,7 +85,7 @@ public final class DaemonSupervisor: Sendable {
     /// descriptors, exactly as before — a daemon that runs without a log is far better than one
     /// that cannot be started at all.
     private func openLog() -> FileHandle? {
-        try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        makeLogFolder()
         let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
         return fd >= 0 ? FileHandle(fileDescriptor: fd, closeOnDealloc: true) : nil
     }

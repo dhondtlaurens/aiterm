@@ -20,7 +20,7 @@ extension Repository {
     /// The reason the worktree at `worktreePath` is locked with. `nil` when it is unlocked or unknown
     /// to git, `""` when it is locked without a reason.
     func lockReason(of worktreePath: String) -> String? {
-        (try? worktree(at: worktreePath))?.lockReason
+        (Log.git.attempt("Listing the worktrees of \(path)") { try worktree(at: worktreePath) } ?? nil)?.lockReason
     }
 
     /// The worktree git lists at `worktreePath`, whatever symlinks either path goes through; `nil`
@@ -38,9 +38,10 @@ extension Repository {
     /// add. Nothing may assume git cleaned up after a failed add. The same holds for a review's.
     public func addTaskWorktree(slug: String, branch: String, base: String) throws -> String {
         let worktreePath = try prepareWorktree(slug: slug)
-        // Best-effort, so a new worktree starts from the remote's latest when it can.
+        // Best-effort, so a new worktree starts from the remote's latest when it can: offline, it
+        // starts from what was last fetched.
         let hasOrigin = hasOrigin
-        if hasOrigin { try? fetchFromOrigin(base) }
+        if hasOrigin { Log.git.attempt("Fetching \(base) before adding a worktree", level: .default) { try fetchFromOrigin(base) } }
         let start = hasOrigin && (try? git.run(["rev-parse", "--verify", "--quiet", "origin/\(base)"], in: path)) != nil ? "origin/\(base)" : base
         try git.run(["worktree", "add", "--lock", "--reason", Worktree.taskLockReason, "-b", branch, worktreePath, start], in: path,
                     timeout: GitRunner.checkoutTimeout)
@@ -57,7 +58,7 @@ extension Repository {
     /// anything origin lacks — this one is someone's merge request.
     public func addReviewWorktree(slug: String, branch: String) throws -> String {
         let hasOrigin = hasOrigin
-        if hasOrigin { try? fetchFromOrigin(branch) }
+        if hasOrigin { Log.git.attempt("Fetching \(branch) before adding a review", level: .default) { try fetchFromOrigin(branch) } }
         let local = sha("refs/heads/" + branch)
         let remote = hasOrigin ? sha("refs/remotes/origin/" + branch) : nil
         if let holder = try worktrees().first(where: { $0.branch == branch }) {
@@ -83,8 +84,10 @@ extension Repository {
         // works without an upstream — only a bare `git push` would need one — so a failed write
         // must not fail the review and strand its worktree.
         if remote != nil {
-            _ = try? git.run(["config", "branch.\(branch).remote", "origin"], in: path)
-            _ = try? git.run(["config", "branch.\(branch).merge", "refs/heads/" + branch], in: path)
+            Log.git.attempt("Setting \(branch)'s upstream") {
+                try git.run(["config", "branch.\(branch).remote", "origin"], in: path)
+                try git.run(["config", "branch.\(branch).merge", "refs/heads/" + branch], in: path)
+            }
         }
         return worktreePath
     }
@@ -108,7 +111,7 @@ extension Repository {
             try deleteLeftover(worktreePath)
         }
         // The checkout is gone either way, so a branch git refuses to delete must not skip the prune.
-        defer { _ = try? git.run(["worktree", "prune"], in: path) }
+        defer { Log.git.attempt("Pruning the worktrees of \(path)") { try git.run(["worktree", "prune"], in: path) } }
         if let b = deleteBranch { try git.run(["branch", force ? "-D" : "-d", b], in: path) }
     }
 
@@ -117,6 +120,7 @@ extension Repository {
     /// than stamping every survivor "aiterm task".
     private func removeRegistered(_ worktreePath: String, lockedWith lockReason: String?, force: Bool) throws {
         let reason = lockReason ?? Worktree.taskLockReason
+        // Refused for a worktree that is not locked, which is no reason to stop.
         _ = try? git.run(["worktree", "unlock", worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
         do { try git.run(["worktree", "remove"] + (force ? ["--force"] : []) + [worktreePath], in: path, timeout: GitRunner.checkoutTimeout) }
         catch {
@@ -125,8 +129,10 @@ extension Repository {
             // working tree". The checkout is gone; what is left is files nothing tracks.
             if (try? worktree(at: worktreePath) == nil) == true { return try deleteLeftover(worktreePath) }
             // A refused removal leaves a live task; restore its protection from pruning.
-            _ = try? git.run(["worktree", "lock", worktreePath] + (reason.isEmpty ? [] : ["--reason", reason]), in: path,
-                             timeout: GitRunner.checkoutTimeout)
+            Log.git.attempt("Locking \(worktreePath) again after its removal was refused") {
+                try git.run(["worktree", "lock", worktreePath] + (reason.isEmpty ? [] : ["--reason", reason]), in: path,
+                            timeout: GitRunner.checkoutTimeout)
+            }
             throw error
         }
     }

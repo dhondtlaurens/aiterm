@@ -42,8 +42,12 @@ enum HTTPJSON {
     static func decode<Value: Decodable>(_ type: Value.Type, _ request: URLRequest, session: URLSession,
                                          decoder: JSONDecoder = .snakeCase) async throws -> (value: Value, status: Int) {
         let (data, response) = try await send(request, session: session)
-        guard let value = try? decoder.decode(Value.self, from: data) else { throw Failure.undecodable(status: response.statusCode) }
-        return (value, response.statusCode)
+        do { return (try decoder.decode(Value.self, from: data), response.statusCode) }
+        catch {
+            // The person is told the answer was not what was expected; which field, only here.
+            Log.network.failed("Reading \(request.url?.path ?? "a response") as \(Value.self)", error)
+            throw Failure.undecodable(status: response.statusCode)
+        }
     }
 
     /// `decode` with each `Failure` turned into the client's own error by `mapping`; a cancellation

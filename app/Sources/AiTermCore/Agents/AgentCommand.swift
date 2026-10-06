@@ -74,7 +74,7 @@ public enum AgentCommand {
     /// The resolution and the append are ``ExcludeFile``'s, shared with a new worktree's.
     private static func excludeAitermDirectory(worktreePath: String, git: any GitRunning) {
         guard let excludeURL = ExcludeFile.url(forWorktreeOrRepo: worktreePath, git: git) else { return }
-        try? ExcludeFile.append(".aiterm/", to: excludeURL)
+        Log.git.attempt("Adding .aiterm/ to \(excludeURL.path)") { try ExcludeFile.append(".aiterm/", to: excludeURL) }
     }
 
     public static func composePrompt(userText: String?, ticket: JiraTicket?, appendTicket: Bool) -> String? {

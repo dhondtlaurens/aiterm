@@ -97,7 +97,10 @@ extension CreationModel where Kind == ReviewCreation {
     func loadCheckouts() async {
         let path = project.path
         let git = git
-        let found = try? await BackgroundWork.run { try Repository(path, git: git).worktrees() }
+        // Unknown, no checkout is found to own the branch, and git refuses the review's own if one does.
+        let found = await Log.git.attempt("Listing the worktrees of \(path)") {
+            try await BackgroundWork.run { try Repository(path, git: git).worktrees() }
+        }
         guard !Task.isCancelled else { return }
         kind.checkouts = found ?? []
         findOwningTask()

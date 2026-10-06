@@ -1,4 +1,5 @@
 import AppKit
+import AiTermCore
 
 /// The two things a row can hand a folder to. VS Code is looked up once by bundle id, so the
 /// badge and menu items can simply be absent when it is not installed.
@@ -9,7 +10,7 @@ enum ExternalApps {
     static func openInVSCode(path: String) {
         guard let app = vscode else { return }
         NSWorkspace.shared.open([URL(fileURLWithPath: path, isDirectory: true)], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
-            if let error { NSLog("AiTerm: open in VS Code failed: \(error)") }
+            if let error { Log.ui.failed("Opening \(path) in VS Code", error) }
         }
     }
 

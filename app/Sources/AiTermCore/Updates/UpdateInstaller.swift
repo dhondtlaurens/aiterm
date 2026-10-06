@@ -51,15 +51,18 @@ public enum UpdateInstaller {
     /// so a cleanup of `Updates/` that stops partway cannot report the same failure again.
     public static func takePreviousResult(in updates: URL) -> Int32? {
         let url = resultURL(in: updates)
+        // None is the usual answer: no helper ran.
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        try? FileManager.default.removeItem(at: url)
+        // Left behind, the same failure would be reported at the next launch.
+        Log.updates.attempt("Removing the install helper's result") { try FileManager.default.removeItem(at: url) }
         return Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     static func resultURL(in updates: URL) -> URL { updates.appendingPathComponent("result") }
 
     public static func removeLeftovers(in updates: URL) {
-        try? FileManager.default.removeItem(at: updates)
+        guard FileManager.default.fileExists(atPath: updates.path) else { return }
+        Log.updates.attempt("Removing the last update's leftovers") { try FileManager.default.removeItem(at: updates) }
     }
 
     static let script = #"""

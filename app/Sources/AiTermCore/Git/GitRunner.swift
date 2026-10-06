@@ -91,7 +91,7 @@ extension GitRunning {
     /// that does not exist, `128` for a `fatal:`: `nil` for one of `none`. Any other failure — a
     /// timeout, git not starting, a status nothing expects — says nothing about the answer and is
     /// thrown, so it is never mistaken for one.
-    func ask(_ args: [String], in dir: String, none: Set<Int32>) throws -> String? {
+    public func ask(_ args: [String], in dir: String, none: Set<Int32>) throws -> String? {
         do { return try run(args, in: dir) }
         catch let error as GitError where none.contains(error.code) { return nil }
     }

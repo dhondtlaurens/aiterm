@@ -67,7 +67,6 @@ public final class DaemonClient: Sendable {
     private let writer = DispatchQueue(label: "aiterm.socket-writer")
     private let requestTimeout: TimeInterval
     public let events: AsyncStream<DaemonEvent>
-    private static let log = Logger(subsystem: "com.laurensdhondt.aiterm", category: "daemon")
 
     public init(socketPath: String, requestTimeout: TimeInterval = 15, livenessTimeout: TimeInterval = 3) {
         self.socketPath = socketPath
@@ -272,7 +271,7 @@ public final class DaemonClient: Sendable {
             return true
         }
         guard due else { return }
-        log.error("Unreadable \(name, privacy: .public) event from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
+        Log.daemon.error("Unreadable \(name, privacy: .public) event from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
     }
 
     private func allocateID() -> Int {
