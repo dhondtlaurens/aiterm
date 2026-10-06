@@ -107,7 +107,9 @@ struct SheetPrimaryButton: View {
 }
 
 /// The foot of every sheet: Cancel — or Back, whatever `secondary` says — and the primary action
-/// at the trailing edge, with optional `status` text before them.
+/// at the trailing edge, with optional `status` text before them. A nil `secondary` or `primary` is
+/// an action the sheet does not offer at that moment, absent rather than disabled: the Backpack
+/// sheet has only Cancel while it connects, and only Done once it is safe.
 ///
 /// ⎋ is a hidden button of its own, not Cancel's key: an open list closes first — a button's key
 /// equivalent would beat the field's own ⎋, and in every other app that list is a window of its own,
@@ -115,11 +117,12 @@ struct SheetPrimaryButton: View {
 /// `closeList` closes one and says whether there was one to close — a picker's results, or the
 /// prompt editor's completion popup, whose own ⎋ the hidden button hears first; a sheet with no
 /// lists needs nothing, and ⎋ is Cancel. `cancel` guards itself when it must, as Back does while a create runs.
+/// With no `secondary` there is nothing for ⎋ to do, and it does nothing.
 ///
 /// A pattern, not a primitive: it encodes where *this app* puts a sheet's actions.
 struct SheetFooter<Status: View>: View {
-    let secondary: String
-    let primary: String
+    let secondary: String?
+    let primary: String?
     let canCancel: Bool
     let canSubmit: Bool
     let closeList: () -> Bool
@@ -127,7 +130,7 @@ struct SheetFooter<Status: View>: View {
     let submit: () -> Void
     let status: Status
 
-    init(secondary: String = "Cancel", primary: String, canCancel: Bool = true, canSubmit: Bool = true,
+    init(secondary: String? = "Cancel", primary: String?, canCancel: Bool = true, canSubmit: Bool = true,
          closeList: @escaping () -> Bool = { false }, cancel: @escaping () -> Void, submit: @escaping () -> Void,
          @ViewBuilder status: () -> Status = { EmptyView() }) {
         self.secondary = secondary; self.primary = primary; self.canCancel = canCancel; self.canSubmit = canSubmit
@@ -138,11 +141,13 @@ struct SheetFooter<Status: View>: View {
         HStack(spacing: Space.base) {
             status
             Spacer(minLength: Space.base)
-            Button(secondary, action: cancel).disabled(!canCancel)
-            SheetPrimaryButton(title: primary, enabled: canSubmit, action: submit)
+            if let secondary { Button(secondary, action: cancel).disabled(!canCancel) }
+            if let primary { SheetPrimaryButton(title: primary, enabled: canSubmit, action: submit) }
         }
         .controlSize(.large)
-        .overlay { Button("Close") { if !closeList() { cancel() } }.keyboardShortcut(.cancelAction).hidden() }
+        .overlay {
+            if secondary != nil { Button("Close") { if !closeList() { cancel() } }.keyboardShortcut(.cancelAction).hidden() }
+        }
     }
 }
 

@@ -52,7 +52,7 @@ Jira-to-agent workflow. Run through this list by hand:
 6. `Cmd+T` inside a task window: a second avatar appears on that task's row. Same in a terminal
    window — starting `codex` in the new tab adds its mark next to the one already there.
 7. Trigger an agent permission prompt: amber mark → answer it → spinner → **Stop** → done mark.
-8. Run Claude Code and Codex: the usage footer shows both vendors' limits.
+8. Run Claude Code and Codex: the footer's USAGE group shows both vendors' limits.
 9. Drag the sidebar: task windows re-snap. Close a task window: its sidebar row disappears while
    its worktree remains on disk.
 10. **Remove Task…**: the window closes, the worktree is removed, the branch is kept unless the

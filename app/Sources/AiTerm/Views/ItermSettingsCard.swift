@@ -89,20 +89,7 @@ struct ItermSettingsCard: View {
             if card.steps.isEmpty {
                 HelpText(ItermCardPresentation.summary)
             } else {
-                steps
-            }
-        }
-    }
-
-    private var steps: some View {
-        VStack(alignment: .leading, spacing: Space.snug) {
-            ForEach(Array(card.steps.enumerated()), id: \.offset) { index, step in
-                HStack(alignment: .firstTextBaseline, spacing: Space.base) {
-                    Text("\(index + 1)").font(Typography.mono).foregroundStyle(Palette.muted)
-                    Text(step).font(Typography.caption).foregroundStyle(Palette.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
+                NumberedSteps(card.steps)
             }
         }
     }

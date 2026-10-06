@@ -154,12 +154,13 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `FormField` | a label above its control; what the control hangs out of itself — a dropdown's results — draws over the lines after it |
 | `FrontToBackStack` | a `VStack` whose earlier children draw over its later ones, so an overhang (a picker's results, the completion popup) needs no `zIndex` at any level of a sheet. `FormField` is one; a sheet's fields and steps go in another |
 | `HelpText` | subordinate caption copy under a control, in a `tone`: `.secondary` (the default) or `.warning` — it inks itself, so colour it by tone, never by an outer `foregroundStyle` |
-| `Input` | a real `NSTextField` in the house field chrome, with its focus ring; `secure: true` (an `NSSecureTextField`) for a token. AppKit sizes it: SwiftUI's `TextField` read its height from a cache that could hand it another font's |
+| `Input` | a real `NSTextField` in the house field chrome, with its focus ring; `secure: true` (an `NSSecureTextField`) for a token; `caretAtEnd: true` puts the insertion point after a value filled in as if typed, where AppKit would select it all on focus (the Backpack sheet's saved password). AppKit sizes it: SwiftUI's `TextField` read its height from a cache that could hand it another font's |
 | `Select` | a real `NSPopUpButton` that fills its column |
 | `SegmentedControl` | a hand-built segmented control that can carry a logo. `style: .neutral` (a grey selection and the focus ring) or `.accent` (an accent selection on `.surface(.accent)`, no ring — the Settings tab bar); a segment `isSelectable` rejects is dimmed and disabled. It inks each label for its ground — the selection in the surface's ink, the rest in its secondary ink — so a label is plain `Text` |
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
-| `SidebarHeading` | `PROJECTS`, a divider's name, the usage footer's CONTEXT and USAGE: micro, uppercase, tracked, secondary ink |
+| `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac row `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -180,14 +181,44 @@ vendor needs both.
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `UsageFooter`, `UsageRing`, `SearchPicker`, `DropdownList`, `DropdownKeys`, `PickerResultRow`,
+`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `MacMode` (with `MacModeLine` and
+`MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
+`PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `CompletionHint`,
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
-`SettingsSwitch`, `IntegrationMark`, `HarnessSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`,
-`NameSheet`, `NewTaskSheet`, `NewReviewSheet`.
+`SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
+`InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`.
+
+**Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
+list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
+tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's row,
+always there. The Mac row is a `SymbolMark` in `.paper` style at `Size.vendorMark` (`macbook` at the
+desk, `iphone` in the backpack), the mode's name — `desk mode` or `backpack mode` — in `Palette.muted`, then at
+most one `StatusMark` at `Size.statusMark`, `Space.snug` after the name: the spinner while the mode
+switches, the done dot while it is on, the needs-input dot when it needs you, nothing at the desk. That
+mark is the row's one colour. A click opens the sheet at the desk and turns the mode off in the backpack;
+a right-click offers Mac Settings…; ⌘B does what the click does. The words, tooltip and VoiceOver
+sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
+
+Turning on is `BackpackSheet`, one `SheetLayout` with a `SheetSubtitle`, laid out in the order it
+is used. While a permission is missing, “This Mac” leads with `NumberedSteps` and an Allow… button.
+Then Hotspot, a `Select` of the networks one scan finds now — the remembered hotspot first and chosen
+once it shows up, scanned again every 5 s while no connect runs — beside a secure `Input` for the
+password, filled with the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty
+for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
+while nothing is chosen. “On the iPhone” follows as their help: three `NumberedSteps`, `receded`
+(text in `Palette.muted`) once a hotspot is chosen, full again while a connect waits for it.
+Connect (⌘↩) is disabled until both permissions are granted and a hotspot is chosen; it runs in
+place, the fields disabled, Cancel the only action, and two live checks appear under the steps — a
+`StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
+failed. A failure leaves the fields live and Connect retries; there is no Back. Once the Mac has
+joined and is held awake the body becomes a `Size.control` accent disc with a checkmark, “Safe to
+close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
+Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
+wear `BackpackController.symbol`, `iphone`.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -236,7 +267,9 @@ model is not redrawn either.
 the one trigger for every agent; a Codex skill picked there is written as its `$` mention.
 `SheetFooter` is the foot of every sheet — Cancel (or Back), a `SheetPrimaryButton` and optional
 status text — and owns what ⎋ means: an open list closes first (`closeList`), and only then is it
-Cancel, on a hidden button of its own so that *clicking* Cancel still cancels. `SheetPrimaryButton`
+Cancel, on a hidden button of its own so that *clicking* Cancel still cancels. An action a sheet does
+not offer at that moment is passed as nil and is absent, key and all: the Backpack sheet has Cancel
+alone while it connects and Done alone once it is safe, where ⎋ does nothing. `SheetPrimaryButton`
 is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows. No sheet restates either.
 
 `DropdownList` is the panel every dropdown hangs in — `menuChrome`, `Size.menuRow` rows, the accent
@@ -245,13 +278,13 @@ behind the highlighted one (the keyboard's or the pointer's), dimmed while press
 the field's). `SearchPicker`'s results and `PromptEditor`'s completion popup are both drawn and
 keyed through them.
 
-`SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or with
-⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
+`SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or
+with ⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
 saved service's last test failed (`ServiceTestRecord`), and on Agents otherwise; that is decided
 once, as the sheet opens, and a test answering afterwards never switches the tab.
 
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
-(`ItermSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
+(`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
 a title with optional check chips, a status line in one of three tones (ready, attention, idle)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:
@@ -274,6 +307,14 @@ iTerm2, or one line of `HelpText` when nothing is broken. Its status line is
 `ItermConnection.status`, and the banner above the sidebar opens with the same words — grey, or
 amber while iTerm2 refuses the connection. It stays a pattern: Settings is its only user and its
 layout is this app's.
+
+Integrations heads its cards in two `SettingsSection`s, Core (iTerm2, then the Mac) and Services (Jira,
+GitLab, GitHub), each title in `Typography.bodyEmphasis` as Interface heads its keyboard section.
+`MacSettingsCard` is a harness card's anatomy for the Mac: `macbook` in a `.paper` `SymbolMark`, the
+chips “Lid sleep” and “Network discovery”, one action named by its state — Allow… while something is
+missing, Remove once both are granted — and, below its rule, `NumberedSteps` for what is missing or one
+line of `HelpText` when nothing is. A missing permission does not move the tab Settings opens on.
+`NumberedSteps` is also the iTerm2 card's mending steps and the Backpack sheet's phone steps.
 
 `SettingsGroup(title:help:rows:)` is a group that connects and tests nothing — Sidebar size,
 Sidebar badges, each keyboard group: the card's box and rule without its mark, status line or
@@ -301,14 +342,14 @@ a `HelpText` line, and an "Add Project…" push button that runs the header's ow
 starts where the heading's does, and its spacing reads `scale`; the button is an AppKit bezel, so
 it steps from `.regular` at ×1 to `.large` above it rather than scaling.
 
-`UsageFooter` gives every window — its label, ring, number and reset — one tooltip and one
-VoiceOver label in words (`UsageLine.help`): "Weekly limit, 61 % used, resets Friday 23:33",
-"Context 84 % full".
-
 `UsageRing` is the ladder's first rung working as intended: a progress ring carries no AiTerm type
-and would make a fine primitive, but only `UsageFooter` draws one, so it stays a pattern until a
-second file needs it. It is drawn to `StatusMark`'s recipe — same diameter, same `size * 0.15`
-stroke, same round cap — so the sidebar's two round marks read as one family.
+and would make a fine primitive, but only the footer draws one, so it stays a pattern until a second
+file needs it. It is drawn to `StatusMark`'s recipe — same diameter, same `size * 0.15` stroke, same
+round cap — so the sidebar's two round marks read as one family.
+
+Every window in the footer — its label, ring, number and reset — has one tooltip and one VoiceOver
+label in words (`UsageLine.help`): “Weekly limit, 61 % used, resets Friday 23:33”, “Context 84 %
+full”. A reading at 80 % or more only turns amber.
 
 ## The artifact
 

@@ -8,7 +8,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case interface = "Interface"
     var id: Self { self }
 
-    /// ⌘1, ⌘2 and ⌘3 pick the tabs in the order the tab bar draws them.
+    /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
     var key: KeyEquivalent {
         KeyEquivalent(Character(String(Self.allCases.firstIndex(of: self)! + 1)))
     }
@@ -82,6 +82,8 @@ struct SettingsView: View {
     private var itermEnvironment: ItermEnvironment? { get { _itermEnvironment.wrappedValue } nonmutating set { _itermEnvironment.wrappedValue = newValue } }
     private var _itermTesting = State<Bool>(initialValue: false)
     private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
+    /// Backpack Mode: the Mac card shows its setup live.
+    let backpack: BackpackController
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,
          itermConnection: @escaping () -> ItermConnection,
@@ -90,7 +92,8 @@ struct SettingsView: View {
          setMatchItermBackground: @escaping (Bool) -> Void,
          setInterfaceSize: @escaping (InterfaceSize) -> Void,
          initialTab: SettingsTab? = nil,
-         testRecord: ServiceTestRecord = .shared) {
+         testRecord: ServiceTestRecord = .shared,
+         backpack: BackpackController = .inert()) {
         _tab = State(initialValue: initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
@@ -105,6 +108,7 @@ struct SettingsView: View {
         _badgeDetails = State(initialValue: preferences.badgeDetails)
         _interfaceSize = State(initialValue: preferences.interfaceSize)
         openingSize = preferences.interfaceSize
+        self.backpack = backpack
     }
 
     var body: some View {
@@ -132,6 +136,7 @@ struct SettingsView: View {
             testIterm()
             integrations.testConfigured()
             await harnessModel.load()
+            await backpack.refreshSetup()
         }
     }
 
@@ -161,41 +166,47 @@ struct SettingsView: View {
         }
     }
 
-    /// iTerm2 first: AiTerm does nothing without it, while Jira, GitLab and GitHub are optional.
+    /// Core first — what AiTerm needs from this machine: iTerm2, then the Mac Backpack Mode keeps
+    /// awake — then the optional services.
     private var integrationSettings: some View {
-        VStack(alignment: .leading, spacing: Space.block) {
-            ItermSettingsCard(card: ItermCardPresentation.card(for: itermConnection(), environment: itermEnvironment,
-                                                               testing: itermTesting))
-            ServiceCard(title: "Jira", service: .jira, connection: integrations.jira) { fields in
-                VStack(alignment: .leading, spacing: Space.block) {
-                    FormField("Site URL") { Input(placeholder: "https://yourcompany.atlassian.net", text: fields.site) }
-                    HStack(alignment: .top, spacing: Space.gap) {
-                        FormField("Email") { Input(placeholder: "you@company.com", text: fields.email) }
-                            .frame(maxWidth: .infinity)
-                        FormField("API token") { Input(placeholder: "Atlassian API token", text: fields.token, secure: true) }
-                            .frame(maxWidth: .infinity)
-                    }
-                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
-                }
+        VStack(alignment: .leading, spacing: Space.section) {
+            SettingsSection("Core") {
+                ItermSettingsCard(card: ItermCardPresentation.card(for: itermConnection(), environment: itermEnvironment,
+                                                                   testing: itermTesting))
+                MacSettingsCard(backpack: backpack)
             }
-            ServiceCard(title: "GitLab", service: .gitlab, connection: integrations.gitLab) { fields in
-                VStack(alignment: .leading, spacing: Space.block) {
-                    HStack(alignment: .top, spacing: Space.gap) {
-                        FormField("Host URL") { Input(placeholder: "https://gitlab.com", text: fields.host) }
-                            .frame(maxWidth: .infinity)
-                        FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
-                            .frame(maxWidth: .infinity)
+            SettingsSection("Services") {
+                ServiceCard(title: "Jira", service: .jira, connection: integrations.jira) { fields in
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        FormField("Site URL") { Input(placeholder: "https://yourcompany.atlassian.net", text: fields.site) }
+                        HStack(alignment: .top, spacing: Space.gap) {
+                            FormField("Email") { Input(placeholder: "you@company.com", text: fields.email) }
+                                .frame(maxWidth: .infinity)
+                            FormField("API token") { Input(placeholder: "Atlassian API token", text: fields.token, secure: true) }
+                                .frame(maxWidth: .infinity)
+                        }
+                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
-                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                 }
-            }
-            ServiceCard(title: "GitHub", service: .github, connection: integrations.gitHub) { fields in
-                VStack(alignment: .leading, spacing: Space.block) {
-                    FormField("Access token") {
-                        Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
+                ServiceCard(title: "GitLab", service: .gitlab, connection: integrations.gitLab) { fields in
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        HStack(alignment: .top, spacing: Space.gap) {
+                            FormField("Host URL") { Input(placeholder: "https://gitlab.com", text: fields.host) }
+                                .frame(maxWidth: .infinity)
+                            FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
+                                .frame(maxWidth: .infinity)
+                        }
+                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
-                    HelpText("Needs read access to pull requests.")
-                    if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                }
+                ServiceCard(title: "GitHub", service: .github, connection: integrations.gitHub) { fields in
+                    VStack(alignment: .leading, spacing: Space.block) {
+                        FormField("Access token") {
+                            Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
+                        }
+                        HelpText("Needs read access to pull requests.")
+                        if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
+                    }
                 }
             }
         }

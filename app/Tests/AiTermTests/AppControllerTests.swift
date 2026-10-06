@@ -9,6 +9,50 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct AppControllerTests {
+    /// The desk click opens the sheet once; ⌘B while it connects neither replaces the sheet, nor
+    /// opens another once it is gone, nor turns anything off. The hotspot is out
+    /// of range, so the connect keeps retrying and `busy` holds until the Cancel.
+    @Test func toggleWhileConnectingDoesNothing() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
+        let fake = FakeBackpack()
+        fake.wifi.inRange = ["Home"]
+        fake.wifi.joinSucceeds = false
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch(), backpackPorts: fake.ports)
+        let backpack = controller.backpack
+        controller.toggleBackpack()
+        guard case .backpack(let model)? = controller.sheet else { Issue.record("no sheet"); return }
+        let connecting = Task { await backpack.connect(network: "Phone", password: nil) }
+        await eventually(describing: "the connect to start") { backpack.busy }
+        controller.toggleBackpack()
+        guard case .backpack(let same)? = controller.sheet else { Issue.record("sheet replaced"); return }
+        #expect(same === model)
+        controller.sheet = nil
+        controller.toggleBackpack()
+        #expect(controller.sheet == nil, "no sheet while it connects")
+        #expect(backpack.busy && !backpack.isOn)
+        await backpack.cancelConnect()
+        await connecting.value
+        #expect(!backpack.isOn && !backpack.busy)
+    }
+
+    /// The mode ended itself and is rejoining Wi-Fi: no `busy`, but it switches, so a click does
+    /// nothing. Once the rejoin is over the click opens the sheet again.
+    @Test func toggleWhileTheSelfEndingRejoinRunsDoesNothing() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
+        let fake = FakeBackpack()
+        let controller = AppController(store: StateStore(url: url), preferences: .scratch(), backpackPorts: fake.ports)
+        let setup = BackpackSetup(sleepRule: true, location: true, network: "Phone")
+        controller.backpack.preview(state: .off, setup: setup, transition: .turningOff)
+        #expect(!controller.backpack.busy)
+        controller.toggleBackpack()
+        #expect(controller.sheet == nil, "no sheet while it switches")
+        controller.backpack.preview(state: .off, setup: setup, transition: nil)
+        controller.toggleBackpack()
+        guard case .backpack? = controller.sheet else { Issue.record("no sheet once it has switched"); return }
+    }
+
     @Test func failedLoadCannotSaveEmptyState() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -1291,8 +1335,8 @@ extension AppControllerTests {
         #expect(model.completions.all.contains { $0.name == "only-in-this-home" })
     }
 
-    /// Settings opens on the saved connections, read off the main actor: two Keychain items, and
-    /// a Keychain that asks for access would hold the whole app on it.
+    /// Settings opens on the saved connections, read off the main actor: a
+    /// Keychain that asks for access would hold the whole app on it.
     @Test func settingsReadsTheSavedConnectionsOffTheMainActor() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1305,7 +1349,7 @@ extension AppControllerTests {
                                        gitHubSettings: { nil })
         controller.presentSettings()
         await eventually { controller.sheet != nil }
-        guard case .settings(let saved, let gitLab, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
+        guard case .settings(let saved, let gitLab, _, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
         #expect(saved == jira && gitLab == nil)
         #expect(onMain.withLock { $0 } == [false, false])
     }

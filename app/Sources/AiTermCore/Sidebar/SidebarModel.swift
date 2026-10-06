@@ -22,7 +22,7 @@ public extension SessionState {
 public extension SessionInfo {
     /// The tab without what no row draws, for telling a change the rows draw from one they don't:
     /// most session events are a context fill, a model or a Codex spinner title. A field the rows —
-    /// or the usage footer's CONTEXT row — start to read has to stay here.
+    /// or the footer's `ctx` row — start to read has to stay here.
     var rowRelevant: SessionInfo {
         var row = self
         row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil

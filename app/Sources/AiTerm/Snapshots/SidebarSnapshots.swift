@@ -3,8 +3,9 @@ import AiTermUI
 import AiTermCore
 
 #if DEBUG
-/// The sidebar's rows at every size, the usage footer, the marks, and the sidebar's other states:
-/// a folded project, its banners, rows on their way out, a selected header, and no project at all.
+/// The sidebar's rows at every size, its footer and the Mac's row in every mode, the marks, and
+/// the sidebar's other states: a folded project, its banners, rows on their way out, a selected
+/// header, and no project at all.
 @MainActor
 enum SidebarSnapshots {
     /// The sidebar and its footer, drawn first.
@@ -21,10 +22,23 @@ enum SidebarSnapshots {
             scaled("sidebar-large.png", .large),
             scaled("sidebar-extra-large.png", .extraLarge),
             // A task stacking two providers draws only its active tab's provider.
-            Snapshot("usage-footer-agents.png") {
+            Snapshot("sidebar-footer-agents.png") {
                 let fixture = Fixture(), controller = fixture.controller()
                 controller.focus.browse(.task(fixture.working.id))
-                return footer(controller).frame(width: Size.sidebarWidth).background(Palette.sidebar)
+                return footer(controller).frame(width: Size.sidebarWidth).background(Palette.sidebar).surface(.sidebar)
+            },
+            // The Mac's row in every mode, for judging its one colour by eye.
+            Snapshot("sidebar-footer-mac.png") {
+                let modes: [MacMode] = [.desk, .turningOn, .on, .needsYou(.lostHotspot), .needsYou(.lowBattery(level: 13)), .turningOff]
+                return VStack(spacing: 0) {
+                    ForEach(modes.indices, id: \.self) { index in
+                        SidebarFooter(task: nil, rows: [],
+                                      mac: MacModePresentation.line(mode: modes[index], hotspot: "Laurens’s iPhone", wifi: "Office-WiFi"))
+                    }
+                }
+                .frame(width: Size.sidebarWidth)
+                .background(Palette.sidebar)
+                .surface(.sidebar)
             },
         ]
     }
@@ -108,11 +122,11 @@ enum SidebarSnapshots {
         ForEach(rows.entries) { SidebarView.rows(of: $0, in: rows, controller: controller) }
     }
 
-    /// The usage footer for the selected row.
-    private static func footer(_ controller: AppController) -> UsageFooter {
-        UsageFooter(task: controller.rows.usageRow(for: controller.focus.selection),
-                    rows: SidebarModel.usageVendorRows(controller.live.usage, now: Snapshots.clock.now,
-                                                       calendar: Snapshots.clock.calendar))
+    /// The sidebar's footer for the selected row, its Mac at the desk.
+    private static func footer(_ controller: AppController) -> SidebarFooter {
+        SidebarFooter(task: controller.rows.usageRow(for: controller.focus.selection),
+                      rows: SidebarModel.usageVendorRows(controller.live.usage, now: Snapshots.clock.now,
+                                                         calendar: Snapshots.clock.calendar))
     }
 
     /// The rows the list draws, inset as the List insets them, over the footer, which is a direct

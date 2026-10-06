@@ -27,7 +27,8 @@ struct LockedSidebarTests {
         #expect(controller.canChangeWorkspace == !locked)
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
-        host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
+        // Tall enough for the list to keep its rows beside SYSTEM and USAGE.
+        host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)

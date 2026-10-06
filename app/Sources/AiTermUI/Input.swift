@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 /// A plain text field dressed in the house field chrome; `secure` hides what is typed, for a token.
+/// `caretAtEnd` puts the insertion point after the text when the field is focused, where AppKit
+/// would select it all: for a value filled in as if typed — the Backpack sheet's saved password.
 ///
 /// The field is AppKit's own `NSTextField` (`NSSecureTextField` for `secure`), as tall as AppKit
 /// measures it for its font. SwiftUI's `TextField` takes its height from a line height SwiftUI
@@ -13,6 +15,7 @@ public struct Input: View {
     @Binding var text: String
     var monospaced: Bool
     var secure: Bool
+    var caretAtEnd: Bool
     @Environment(\.interfaceScale) private var scale
     // `@State` is a macro in the macOS 26 SDK and its SwiftUIMacros plugin ships only with Xcode;
     // this is the storage and accessor the macro would generate. Private, and so kept out of the
@@ -20,18 +23,25 @@ public struct Input: View {
     private var _focused = State(initialValue: false)
     private var focused: Bool { get { _focused.wrappedValue } nonmutating set { _focused.wrappedValue = newValue } }
 
-    public init(placeholder: String, text: Binding<String>, monospaced: Bool = false, secure: Bool = false) {
+    public init(placeholder: String, text: Binding<String>, monospaced: Bool = false, secure: Bool = false,
+                caretAtEnd: Bool = false) {
         self.placeholder = placeholder
         self._text = text
         self.monospaced = monospaced
         self.secure = secure
+        self.caretAtEnd = caretAtEnd
     }
 
     public var body: some View {
         InputField(placeholder: placeholder, text: Self.edits(to: $text), focused: _focused.projectedValue,
                    font: (monospaced ? Typography.monoCode : Typography.body).scaled(by: scale).nsFont,
-                   secure: secure)
+                   secure: secure, caretAtEnd: caretAtEnd)
             .fieldChrome(focused: focused)
+    }
+
+    /// The insertion point after the last character, nothing selected. In UTF-16, as `NSText` counts.
+    static func placeCaretAtEnd(of editor: NSText) {
+        editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
     }
 
     /// `binding`, passing on only real edits. A setter can have a side effect on the other end —
@@ -52,6 +62,8 @@ private struct InputField: NSViewRepresentable {
     let font: NSFont
     /// Read once, when the field is made: no `Input` changes between a token and plain text.
     let secure: Bool
+    /// The caret after the text on focus, rather than all of it selected (`Input.caretAtEnd`).
+    let caretAtEnd: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -118,7 +130,14 @@ private struct InputField: NSViewRepresentable {
 
         /// Focus arrives with the keyboard, not with the first edit: `controlTextDidBeginEditing`
         /// waits for a keystroke, which would leave a clicked field without its ring.
-        func focusBegan() { if !parent.focused { parent.focused = true } }
+        func focusBegan() {
+            if !parent.focused { parent.focused = true }
+            guard parent.caretAtEnd else { return }
+            // A turn later: AppKit selects the field's text as it hands it the keyboard.
+            Task { [weak self] in
+                if let editor = self?.field?.currentEditor() { Input.placeCaretAtEnd(of: editor) }
+            }
+        }
         func controlTextDidEndEditing(_ notification: Notification) { if parent.focused { parent.focused = false } }
 
         func controlTextDidChange(_ notification: Notification) {

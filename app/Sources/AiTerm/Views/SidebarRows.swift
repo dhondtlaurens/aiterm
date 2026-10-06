@@ -41,7 +41,7 @@ private struct AddMenu<Items: View>: View {
     }
 }
 
-/// `PROJECTS`, and the menu that adds one — or a divider.
+/// `PROJECTS`, and the menu that adds a project or a divider.
 struct SidebarHeader: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale

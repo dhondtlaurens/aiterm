@@ -6,7 +6,7 @@ import AiTermCore
 /// The app's composition root, and the one handle the views and the tests have on it. `init` builds
 /// every owner below, each handed in its initializer the owners it calls, so each is built after
 /// them: the workspace, the notices, the helper, the tabs, the tiling, the checkouts, the task
-/// remover, the selection, then the actions. What an owner tells one built after it goes out through
+/// remover, the selection, then the actions, and Backpack Mode last. What an owner tells one built after it goes out through
 /// its `on…` hooks, which the later owner adds itself to as it is built; the checkout monitor and
 /// the task remover, which each call the other, are the one pair joined after both exist
 /// (`CheckoutRemovals`). The sidebar's rows and the Dock badge are the controller's own. Everything
@@ -61,6 +61,9 @@ final class AppController {
     let agents: AgentIntegrations
     /// Every modal question the app asks goes through here, so tests answer them from a script.
     let prompter: Prompter
+    /// Backpack Mode: its state, setup and battery reading. The Mac row, its sheet, Settings ›
+    /// Integrations › Mac and the View menu's item read it.
+    let backpack: BackpackController
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
@@ -81,6 +84,9 @@ final class AppController {
     /// builds a controller. The app builds one with `live()`, the snapshots with `live` too and a few
     /// of its own, and a test with the convenience initializer in its target, whose defaults touch
     /// none of them. `peekDelay` is `RowFocus`'s; a test passes none, and awaits the peek instead.
+    /// `backpackPorts` are everything Backpack Mode touches — `sudo pmset`, Wi-Fi, the battery,
+    /// Location, the lid — and `backpackSecrets` where it keeps the hotspot's password;
+    /// `openLocationSettings` is where its Allow… sends the person once macOS will not ask.
     /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
     /// how long a completion toast stays up; `confirmsRemoval` is the last look at a checkout the
     /// monitor found gone (`TaskRemover`).
@@ -96,6 +102,9 @@ final class AppController {
          prompter: Prompter,
          setBadge: @escaping @MainActor (String?) -> Void,
          activateIterm: @escaping @MainActor () -> Void,
+         backpackPorts: BackpackPorts,
+         backpackSecrets: any SecretStore,
+         openLocationSettings: @escaping @MainActor () -> Void,
          peekDelay: Duration,
          checkoutPollInterval: Duration,
          toastLifetime: Duration,
@@ -144,6 +153,13 @@ final class AppController {
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher)
+        // Its settings sit with the Interface tab's, so a test's scratch preferences cover both; its
+        // 5 s check stays on while any tab in the workspace is working.
+        backpack = BackpackController(ports: backpackPorts,
+                                      settings: BackpackSettings(defaults: preferences.defaults, secrets: backpackSecrets),
+                                      agentsWorking: { live.sessions.contains { $0.state == .working } },
+                                      openLocationSettings: openLocationSettings,
+                                      toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         // The rows are derived again whenever something they are made of may have changed, and the
         // Dock badge recounted when they did or a removal moved.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
@@ -169,9 +185,12 @@ final class AppController {
     func loadWorkspace() throws { try workspace.load() }
     func restoreWorkspace() throws { try workspace.restoreBackup() }
 
-    /// Launch: the checkout monitor, the agent CLI probes and the helper, each once.
+    /// Launch: Backpack Mode's crash recovery, the checkout monitor, the agent CLI probes and the
+    /// helper, each once.
     func start() {
         guard workspaceLoaded, agentProbe == nil else { return }
+        let backpack = self.backpack
+        Task { await backpack.launch() }
         checkouts.startMonitoring()
         if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { report(BundleLocation.translocationWarning) }
         let agents = self.agents
@@ -180,15 +199,30 @@ final class AppController {
         helper.start()
     }
 
-    /// Stops everything `start()` started, the helper last: see `HelperLink.shutdown()`. A later
-    /// `start()` starts it all again.
+    /// Stops everything `start()` started, Backpack Mode first — closed before quit waits on
+    /// anything, so no turn-on can follow it — and the helper last: see `HelperLink.shutdown()`. A
+    /// later `start()` starts it all again.
     func shutdown() {
+        backpack.shutdown()
         agentProbe?.cancel()
         agentProbe = nil
         checkouts.stop()
         sheets.cancelPreparation()
         focus.cancel()
         helper.shutdown()
+    }
+
+    /// The Mac row's click and ⌘B. Backpack mode goes off at once; desk mode opens the sheet, unless
+    /// another one is up. Ignored while it switches — a connect or turn-off, or the rejoin after the
+    /// mode ended itself, which runs without `busy`.
+    func toggleBackpack() {
+        guard !backpack.busy, backpack.transition == nil else { return }
+        if backpack.isOn {
+            let backpack = self.backpack
+            Task { await backpack.turnOff() }
+        } else {
+            sheets.presentBackpack(backpack)
+        }
     }
 
     /// `windows`', forwarded for the tests: a window gone, as `window.closed` reports it.
@@ -270,7 +304,7 @@ final class AppController {
     // -- sheets ---------------------------------------------------------------------
     /// `sheets`', forwarded: the menus, the rows and the tests open a sheet here.
     var canPresentSettings: Bool { sheets.canPresentSettings }
-    func presentSettings() { sheets.presentSettings() }
+    func presentSettings(tab: SettingsTab? = nil) { sheets.presentSettings(tab: tab) }
     func presentJiraProjects(for project: Project) { sheets.presentJiraProjects(for: project) }
     func presentNewDivider() { sheets.presentNewDivider() }
     func presentRename(divider: SidebarDivider) { sheets.presentRename(divider: divider) }
@@ -295,7 +329,7 @@ final class AppController {
     func report(_ issue: OperationIssue) { notices.report(issue) }
     func report(_ message: String) { notices.report(message) }
     func dismissIssue() { notices.dismissIssue() }
-    func showToast(_ message: String) { notices.showToast(message) }
+    func showToast(_ message: String, symbol: String = "checkmark.circle.fill") { notices.showToast(message, symbol: symbol) }
 
     /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
     /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
@@ -386,7 +420,7 @@ final class AppController {
 extension AppController {
     /// The real wiring: the person's `state.json`, `~/.claude` and `~/.codex`, the app's bundle, the
     /// Keychain and a login shell for what they hold, modal alerts for questions, the Dock badge,
-    /// and iTerm2 handed focus — AiTerm is frontmost when a row is chosen, so macOS lets it hand
+    /// Backpack Mode's live ports — `sudo pmset`, CoreWLAN, IOKit, CoreLocation — and iTerm2 handed focus — AiTerm is frontmost when a row is chosen, so macOS lets it hand
     /// activation over. A caller that renders rather than runs (the snapshots) names what it
     /// replaces; everything else is what the app does.
     static func live(store: StateStore = StateStore(url: StateStore.defaultURL),
@@ -399,6 +433,7 @@ extension AppController {
                          NSRunningApplication.runningApplications(withBundleIdentifier: ItermPreferences.bundleIdentifier)
                              .first?.activate()
                      },
+                     backpackPorts: BackpackPorts = .live(),
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      }) -> AppController {
@@ -406,7 +441,11 @@ extension AppController {
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
-                      activateIterm: activateIterm, peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
+                      activateIterm: activateIterm, backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
+                      openLocationSettings: {
+                          NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
+                      },
+                      peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
     }
 }

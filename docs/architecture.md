@@ -62,7 +62,8 @@ Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  Hoo
 `AppController` is the composition root that builds the owners and forwards to them. Each owner
 is built after the owners it calls, which it is handed in its initializer, and is reached as a
 property of the controller; views read the owners directly. The controller keeps only the Dock
-badge, and the order the workspace's change hooks run in.
+badge, the order the workspace's change hooks run in, and ⌘B's choice — the Mac row's click — between
+turning Backpack Mode off and asking `sheets` for its sheet.
 
 | Owner | On the controller | What it holds |
 |---|---|---|
@@ -83,6 +84,7 @@ badge, and the order the workspace's change hooks run in.
 | `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and 2 s after the last pass ends |
 | `SidebarProjection` | `rows` | the sidebar's rows, derived from the workspace, `live.rowSessions` and the checkouts only when one of them changes what a row draws; the list, the Dock badge, Focus View and List View all read them |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the tab titles it sends after each checkout pass |
+| `BackpackController` | `backpack` | Backpack Mode: its state, setup and battery reading, its blocking work run on a thread of its own (`SerialThread`) |
 
 A change to the workspace runs its hooks once, in this order: the owners' own, added as each was
 built — `RowFocus`'s, which drops a selection whose row went, and each `PerRow`'s, which drops only
@@ -95,6 +97,29 @@ a removal saves its task windowless before it asks for the window to close, so a
 or an app that dies leaves a row to retry after a relaunch, and saves the row's going before it says
 "removed". A new task is saved before its window opens, a new project before its worktrees are
 offered, and the workspace at quit.
+
+### Backpack Mode
+
+`AiTermCore/Backpack/` decides; `BackpackController` drives it. Six ports, each faked in the
+tests: lid sleep (`sudo -n /usr/bin/pmset -a disablesleep 0|1`, allowed by `/etc/sudoers.d/aiterm`,
+which Settings › Integrations › Mac installs and removes through an `osascript` admin prompt after `visudo`
+checks it), Wi-Fi (CoreWLAN, `networksetup` as the fallback and for the known-network list),
+battery (IOKit), Location (CoreLocation: macOS hides Wi-Fi names without it), the installer and the
+lid (`AppleClamshellState` on `IOPMrootDomain`, which `ioreg` shows unprivileged).
+The hotspot's password lives in AiTerm's Keychain item: macOS will not hand another app an iPhone
+hotspot's saved one. Every 5 s it checks the network and the battery; off the network it rejoins
+at once, then after 5, 10, 20 and every 30 s. The check also takes whether any session in the
+workspace is working: after 2 minutes without one the mode turns itself off, and a turn-on with
+nothing working starts the same 2 minutes. On battery at or under 10 % it turns off too (a fixed
+cutoff, `BackpackSettings.cutoff`). macOS sleeps on the lid's close, not its state, so an ending with the lid already shut runs
+`pmset sleepnow` (no root needed) and leaves the Wi-Fi to rejoin on wake. After off, the Mac leaves the hotspot — or no network, which a failed join leaves — for the
+first of its preferred networks that one scan finds, never the hotspot; if none is in range it
+stays put. The Backpack sheet watches the lid and closes on an open → closed transition: with no
+connect running — before Connect, or after a failure — that is a Cancel, which puts back a Wi-Fi a
+failed join dropped; during one the attempt under way finishes, but no retry follows it.
+`backpack.engaged` in UserDefaults is written before `disablesleep 1` and cleared only after
+`disablesleep 0` succeeds: a failed restore is retried on every check, a launch that finds the
+marker puts sleep back, and quit closes the mode first, so no turn-on can follow it.
 
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
 socket; the app's tests record it in process instead.
@@ -186,6 +211,16 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
 ## What AiTerm writes, and where
+
+**Secrets** — one Keychain item, service `com.laurensdhondt.aiterm`, account `secrets`: a JSON
+object holding the Jira, GitLab and GitHub tokens and the Backpack hotspot's password, read once per
+launch (`Keychain.shared`), so macOS asks for access once. Tokens an earlier version kept in an item
+each move into it the first time it is missing. Settings' Save still checks every card before it
+writes and puts back what it wrote when the Keychain refuses one.
+
+**Backpack Mode** — `/etc/sudoers.d/aiterm`, only once the Mac card's Allow… is pressed, and
+removed by its Remove; the hotspot's name and the crash marker in UserDefaults
+(`backpack.network`, `backpack.engaged`).
 
 **Its own state** — `~/Library/Application Support/AiTerm/state.json` — projects, tasks,
 terminals, the sidebar frame, the last agent per project and the last model per agent. The legacy

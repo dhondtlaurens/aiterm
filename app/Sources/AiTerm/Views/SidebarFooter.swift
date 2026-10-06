@@ -2,12 +2,10 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Compact provider telemetry in two named groups split by a rule. First CONTEXT, the selected task
-/// or terminal: the mark of what runs in its active tab and that agent's context fill —
-/// `Ⓒ ◔ 42%`, or the shell's mark alone. The heading says what the number is, so the row carries no
-/// `ctx` label, and the room after the number is left for its note ("No context yet"). Then USAGE,
-/// one row per vendor with its account windows: `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With
-/// nothing selected the CONTEXT group and its rule are absent.
+/// The sidebar's foot, on the list's grid: SYSTEM, then USAGE, split by a rule. SYSTEM is the
+/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill — and
+/// (spec 2026-10-05) the Mac's mode. USAGE is one row per vendor with its account windows:
+/// `Ⓒ wk ◔ 84% Mon 21:00 · 5h ◔ 23% 16:40`. With nothing selected SYSTEM holds the Mac's row alone.
 ///
 /// It sits on the list's grid rather than its own (proposal A, 23 Sep 2026): the headings are the
 /// `PROJECTS` header's treatment, the rows are ``Size/menuRow`` like the header and `DividerRow`,
@@ -24,26 +22,37 @@ import AiTermCore
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold, whatever the agent is doing: an idle vendor's last reading is still its
 /// reading, and a dimmed ring beside a bright one reads as a different kind of mark.
-struct UsageFooter: View {
+struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
+    /// The Mac's mode, as one drawn line (spec 2026-10-05). The defaults draw a Mac at its desk.
+    var mac: MacModeLine = MacModePresentation.line(mode: .desk, hotspot: nil, wifi: nil)
+    /// A click on the Mac's row.
+    var toggleMac: () -> Void = {}
+    /// A right-click on it opens Mac Settings.
+    var openMacSettings: () -> Void = {}
     @Environment(\.interfaceScale) private var scale
+
+    /// The first group's heading. It holds more than the context now, so the context row names its
+    /// gauge with `ctx`.
+    static let systemHeading = "System"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let task {
-                group("Context") {
+            group(Self.systemHeading) {
+                if let task {
                     telemetryRow(task.agent) {
                         if let context = task.context {
-                            usageWindows([context], labelled: false)
+                            usageWindows([context])
                         } else if task.agent != .shell {
                             // A shell has no context to wait for; an agent has not reported yet.
                             Text("No context yet").foregroundStyle(Palette.muted)
                         }
                     }
                 }
-                Hairline()
+                macRow
             }
+            Hairline()
             group("Usage") {
                 ForEach(rows, id: \.vendor) { row in
                     telemetryRow(row.vendor.session) {
@@ -58,6 +67,31 @@ struct UsageFooter: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .top) { Hairline() }
+    }
+
+    /// The Mac's mode: its mark on the vendor marks' column, the name in `Palette.muted`, then the
+    /// one `StatusMark`, `Space.snug` after it. A click toggles; a right-click opens Settings.
+    private var macRow: some View {
+        HStack(alignment: .center, spacing: scale(Space.inset)) {
+            SymbolMark(symbol: mac.mode.symbol, size: scale(Size.vendorMark), style: .paper)
+            HStack(spacing: scale(Space.snug)) {
+                Text(mac.mode.name).foregroundStyle(Palette.muted)
+                if let mark = mac.mode.mark { StatusMark(status: mark, size: scale(Size.statusMark)) }
+            }
+            Spacer(minLength: 0)
+        }
+        .font(Typography.mono)
+        .monospacedDigit()
+        .lineLimit(1)
+        .frame(height: scale(Size.menuRow), alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: toggleMac)
+        .contextMenu { Button("Mac Settings…", action: openMacSettings) }
+        .help(mac.help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(mac.help)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, toggleMac)
     }
 
     /// Amber, like the iTerm2 banner's warning, for a feed that is broken; a quiet one's note recedes.
@@ -95,16 +129,15 @@ struct UsageFooter: View {
     /// A zero-spacing stack keeps punctuation and colour changes from adding invisible layout
     /// gaps; each segment's own spaces live inside its `Text`, so the ring sits in the gap the
     /// four-cell bar used to occupy. `usageVendorRows` supplies wk before 5h; this renderer
-    /// preserves that order. `labelled: false` drops the window's label where a heading already
-    /// names it — the CONTEXT row's `ctx`.
-    private func usageWindows(_ lines: [UsageLine], labelled: Bool = true) -> some View {
+    /// preserves that order. Every window names itself, the context row's `ctx` included.
+    private func usageWindows(_ lines: [UsageLine]) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                 if index > 0 { Text(" · ").foregroundStyle(Palette.muted).accessibilityHidden(true) }
                 // One element per window — label, ring, number and reset — read and hovered as its
                 // words: the glyphs alone say "wk", a ring and "Sat".
                 HStack(spacing: 0) {
-                    if labelled { Text(line.window.shortLabel + " ").foregroundStyle(Palette.muted) }
+                    Text(line.window.shortLabel + " ").foregroundStyle(Palette.muted)
                     UsageRing(percent: line.percent, warning: line.warning, size: scale(Size.statusMark))
                     Text(" \(line.percent)%")
                         .foregroundStyle(line.warning ? Palette.amber : Palette.text)

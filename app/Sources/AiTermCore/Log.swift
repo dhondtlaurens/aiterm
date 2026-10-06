@@ -27,6 +27,9 @@ public enum Log {
     public static let updates = Logger(subsystem: subsystem, category: "updates")
     /// What the person was told, or would have been: banners held back, apps that would not open.
     public static let ui = Logger(subsystem: subsystem, category: "ui")
+    /// Backpack Mode's tools: `sudo pmset`, the admin prompt, CoreWLAN and `networksetup`. Never
+    /// the hotspot's password, which `networksetup` is handed as an argument.
+    public static let backpack = Logger(subsystem: subsystem, category: "backpack")
 }
 
 /// An error that says more in a log line than in its description. `Log` sits below every folder

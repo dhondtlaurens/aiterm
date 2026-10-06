@@ -177,3 +177,49 @@ struct IntegrationMark: View {
         .frame(width: size, height: size)
     }
 }
+
+/// Numbered steps below a card's rule, or on a sheet: a `Typography.mono` number in
+/// `Palette.muted` beside a `Typography.caption` step, `Space.snug` apart. The iTerm2 card's mending
+/// steps, the Mac card's missing permissions and the Backpack sheet's phone steps.
+struct NumberedSteps: View {
+    let steps: [String]
+    /// Steps already done, kept as help: the text in `Palette.muted` like the numbers.
+    let receded: Bool
+
+    init(_ steps: [String], receded: Bool = false) {
+        self.steps = steps
+        self.receded = receded
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.snug) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .firstTextBaseline, spacing: Space.base) {
+                    Text("\(index + 1)").font(Typography.mono).foregroundStyle(Palette.muted)
+                    Text(step).font(Typography.caption).foregroundStyle(receded ? Palette.muted : Palette.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+}
+
+/// A heading over a tab's run of cards — Integrations' Core and Services — in
+/// `Typography.bodyEmphasis`, as Interface heads its keyboard section, `Space.block` above the cards.
+struct SettingsSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.block) {
+            Text(title).font(Typography.bodyEmphasis).foregroundStyle(Palette.text)
+            content
+        }
+    }
+}

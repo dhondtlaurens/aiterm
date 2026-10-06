@@ -19,6 +19,7 @@ carries one keyboard shortcut, so a second one hangs on a hidden button in an ov
 | ⌘R | New Review… | The same target and the same rules as New Task…. |
 | ⌘T | New Terminal… | The target project; any provider, a plain folder too. |
 | ⌘+ ⌘− ⌘0 | Zoom In, Zoom Out, Actual Size | The sidebar only — sheets keep Apple's sizes. ⌘= is a hidden alias of ⌘+, as in Safari. Off while a sheet is up. |
+| ⌘B | Backpack Mode | View menu, after the views. Backpack Mode: opens its sheet at the desk, turns it off in the backpack. Checked while on. |
 | ⌘Q | Quit | Flushes a sidebar move made in the last 150 ms, then takes the daemon down — an orphan would block the next launch's socket. |
 | ⌘Z | The standard Edit menu | Undo, Redo, Cut, Copy, Paste, Delete, Select All. Built by hand: without it no text field in any sheet could be edited normally. |
 

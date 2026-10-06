@@ -3,9 +3,9 @@ import AiTermUI
 import AiTermCore
 
 #if DEBUG
-/// Every step of the New Task and New Review sheets, a failed create's footer, and the `NameSheet`
-/// flows. The sheets need the fixture's project and tasks but no controller: each is handed a
-/// model of its own, as the app hands it one.
+/// Every step of the New Task and New Review sheets, a failed create's footer, the `NameSheet`
+/// flows, and Backpack Mode's sheet in each state. The sheets need the fixture's project and tasks
+/// but no controller: each is handed a model of its own, as the app hands it one.
 @MainActor
 enum SheetSnapshots {
     static var all: [Snapshot] {
@@ -37,7 +37,7 @@ enum SheetSnapshots {
                 NameSheet.newTerminal(project: Fixture().project, suggestedName: "shell 2", branch: "main", canCreate: true,
                                       createTerminal: { _ in })
             },
-        ] + nameSheets
+        ] + nameSheets + backpackSheets
     }
 
     static let tickets = [
@@ -171,6 +171,39 @@ enum SheetSnapshots {
                 return NameSheet.rename(.terminal(terminal), canSubmit: true, submit: { _ in })
             },
         ]
+    }
+
+    /// Backpack Mode's sheet in each of its states, on an inert controller set to draw it: its
+    /// `.task` — the load, the scans and the lid — does not run in an offscreen render.
+    private static var backpackSheets: [Snapshot] {
+        let ready = BackpackSetup(sleepRule: true, location: true, network: hotspot)
+        let safe = BackpackState.on(BackpackStatus(network: hotspot, joined: true, power: PowerReading(level: 64, onBattery: true)))
+        return [
+            backpackSheet("hotspot", setup: ready, chosen: hotspot),
+            backpackSheet("looking", setup: ready, chosen: nil),
+            backpackSheet("allow", setup: BackpackSetup(sleepRule: false, location: false, network: hotspot), chosen: hotspot),
+            backpackSheet("connecting", setup: ready, chosen: hotspot, started: true, phase: .keepingAwake, busy: true),
+            backpackSheet("not-found", setup: ready, chosen: hotspot, started: true, phase: .notInRange, busy: true),
+            backpackSheet("failed", setup: ready, chosen: hotspot, started: true, phase: .failed(.joinFailed(network: hotspot))),
+            backpackSheet("safe", setup: ready, chosen: hotspot, started: true, phase: .safe, state: safe),
+        ]
+    }
+
+    private static let hotspot = "Laurens’s iPhone"
+
+    /// `backpack-sheet-<name>.png`: the hotspot chosen as a scan would choose it, and Connect pressed
+    /// when `started`.
+    private static func backpackSheet(_ name: String, setup: BackpackSetup, chosen: String?, started: Bool = false,
+                                      phase: ConnectPhase? = nil, busy: Bool = false, state: BackpackState = .off) -> Snapshot {
+        Snapshot("backpack-sheet-\(name).png") {
+            let backpack = BackpackController.inert()
+            backpack.network = hotspot
+            backpack.preview(state: state, setup: setup, phase: phase, busy: busy)
+            let model = BackpackSheetModel(backpack: backpack)
+            model.choose(chosen)
+            if started { model.previewStarted() }
+            return BackpackSheet(model: model)
+        }
     }
 }
 #endif

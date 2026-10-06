@@ -7,7 +7,7 @@ struct ToastView: View {
     @Environment(\.interfaceScale) private var scale
 
     var body: some View {
-        Label(toast.message, systemImage: "checkmark.circle.fill")
+        Label(toast.message, systemImage: toast.symbol)
             .font(Typography.label)
             .foregroundStyle(Palette.text)
             .padding(.horizontal, scale(Space.gap))

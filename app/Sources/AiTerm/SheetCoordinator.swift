@@ -93,8 +93,16 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
+    /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
+    /// another sheet: ⌘B and the Mac row reach it while one may be up, and it refuses rather than
+    /// take that sheet's place, as Settings does.
+    func presentBackpack(_ backpack: BackpackController) {
+        guard sheet == nil else { return }
+        present(.backpack(BackpackSheetModel(backpack: backpack)))
+    }
+
     // -- sheets that read something first ----------------------------------------------
-    /// Settings opens on the saved connections, read off the main actor: two Keychain items and
+    /// Settings opens on the saved connections, read off the main actor: the Keychain and
     /// UserDefaults, which can take a moment, and a Keychain that asks for access longer still.
     /// Off behind another sheet, as the zoom and view items are: Settings would replace it, and a
     /// New Task draft with it.
@@ -103,14 +111,15 @@ final class SheetCoordinator {
     /// Not through `present`, which replaces whatever is up: Settings is the one sheet the app menu
     /// (⌘,) reaches while another is up, so it refuses rather than take that sheet's place, and it
     /// is put in the slot only once its connections are read — if the slot is still empty then.
-    func presentSettings() {
+    /// `tab` is the tab it opens on; nil is the one it opened on last.
+    func presentSettings(tab: SettingsTab? = nil) {
         guard canPresentSettings else { return }
         preparingSheet?.cancel()
         let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
         preparingSheet = Task {
             let saved = await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
             guard !Task.isCancelled, canPresentSettings else { return }
-            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub)
+            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: tab)
         }
     }
 

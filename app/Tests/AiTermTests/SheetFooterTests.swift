@@ -21,9 +21,10 @@ import Testing
         let window: NSWindow
     }
 
-    private func harness(listOpen: Bool = false, canSubmit: Bool = true, canCancel: Bool = true) -> Harness {
+    private func harness(listOpen: Bool = false, canSubmit: Bool = true, canCancel: Bool = true,
+                         secondary: String? = "Cancel", primary: String? = "Save") -> Harness {
         let calls = Calls(listOpen: listOpen)
-        let footer = SheetFooter(primary: "Save", canCancel: canCancel, canSubmit: canSubmit,
+        let footer = SheetFooter(secondary: secondary, primary: primary, canCancel: canCancel, canSubmit: canSubmit,
                                  closeList: { guard calls.listOpen else { return false }
                                               calls.listOpen = false; calls.closes += 1; return true },
                                  cancel: { calls.cancels += 1 }, submit: { calls.submits += 1 })
@@ -82,5 +83,23 @@ import Testing
         #expect(disabled.calls.submits == 0)
         press(36, "\r", in: enabled)
         #expect(enabled.calls.submits == 1, "a plain ↩ is not the primary action")
+    }
+
+    /// An action the sheet does not offer is absent, and so is its key: the Backpack sheet's Done
+    /// alone takes no ⎋, and its Cancel alone, while a connect runs, takes no ⌘↩.
+    @Test func anAbsentActionTakesNoKey() {
+        let done = harness(secondary: nil, primary: "Done")
+        defer { done.window.orderOut(nil) }
+        press(53, "\u{1b}", in: done)
+        #expect(done.calls.cancels == 0 && done.calls.closes == 0, "no Cancel, so ⎋ does nothing")
+        press(36, "\r", [.command], in: done)
+        #expect(done.calls.submits == 1)
+
+        let cancelOnly = harness(primary: nil)
+        defer { cancelOnly.window.orderOut(nil) }
+        press(36, "\r", [.command], in: cancelOnly)
+        #expect(cancelOnly.calls.submits == 0, "no primary action, so ⌘↩ does nothing")
+        press(53, "\u{1b}", in: cancelOnly)
+        #expect(cancelOnly.calls.cancels == 1)
     }
 }

@@ -26,7 +26,7 @@ public enum Space {
     /// The one off-rhythm step at this width: a control's own interior padding (a text field and
     /// the command block, horizontally), and, at the same width, the gap between a row's avatar and
     /// its text (`SidebarView`) and between a footer row's vendor mark and its text
-    /// (`UsageFooter`). Also the sidebar `List`'s own inset, which the usage footer — below the
+    /// (`SidebarFooter`). Also the sidebar `List`'s own inset, which the sidebar footer — below the
     /// list, not in it — adds back to line up with the rows. Off the 8 pt rhythm on purpose — at 8
     /// the text crowds the field's stroke, at 12 a short value looks lost.
     public static let inset: CGFloat = 10
@@ -66,7 +66,7 @@ public enum Size {
     /// two windows under 100%, the 5-hour one resetting today and the weekly one on a later day.
     /// Everything at 100% costs a digit per segment and clips — the accepted price of showing clock
     /// times rather than a countdown.
-    /// `UsageFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth` holds this honest.
+    /// `SidebarFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth` holds this honest.
     ///
     /// Was 395 while each vendor row also carried its `ctx` segment; that moved to the footer's
     /// task row, which carries nothing else, so the minimum came back to 360.
@@ -76,7 +76,7 @@ public enum Size {
     /// The click target the sidebar's trailing column is built from.
     public static let slot: CGFloat = 20
     /// A row in a menu, a dropdown or the completion popup; the sidebar's `PROJECTS` header and a
-    /// `DividerRow`; and a usage footer row and its CONTEXT and USAGE headings. Also the width a
+    /// `DividerRow`; and a sidebar footer row and its SYSTEM and USAGE headings. Also the width a
     /// picker's list toggle answers to clicks in (`SearchPicker`).
     public static let menuRow: CGFloat = 24
     /// A field, a pop-up button, a segmented track, a footer button — `.controlSize(.large)`.
@@ -90,9 +90,9 @@ public enum Size {
     /// A vendor mark in an avatar group, and the provider tile beside a project name. Also an
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18
-    /// A vendor mark outside an avatar group: the usage footer, the agent picker.
+    /// A vendor mark outside an avatar group: the sidebar footer, the agent picker.
     public static let vendorMark: CGFloat = 16
-    /// A status mark on a row, and the usage footer's ring drawn to its recipe. A row's mark sits in
+    /// A status mark on a row, and the sidebar footer's ring drawn to its recipe. A row's mark sits in
     /// the trailing column, so this is ``trailingGlyph``, declared as an alias; inside a count chip it
     /// is drawn at ``statusMarkSmall``.
     public static let statusMark = trailingGlyph

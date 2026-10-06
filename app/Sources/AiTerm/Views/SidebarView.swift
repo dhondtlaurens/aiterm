@@ -98,7 +98,7 @@ struct SidebarView: View {
                     RunLoop.main.perform { MainActor.assumeIsolated { proxy.scrollTo(id) } }
                 })
             }
-            SidebarUsageFooter(controller: controller)
+            SidebarFooterHost(controller: controller)
         }
         .overlay(alignment: .bottom) { SidebarToast(controller: controller) }
         .frame(minWidth: scale(Size.sidebarMinWidth))
@@ -118,11 +118,12 @@ struct SidebarView: View {
     }
 }
 
-/// The usage footer. The vendor rows are worked out here, from the usage, whether Claude's status
-/// line is AiTerm's, and the minute; the selected row's CONTEXT row in ``SelectedRowUsageFooter``,
-/// which alone reads the tabs, the context fills and the selection — so a session event redraws
-/// the footer without working out the vendor rows again.
-struct SidebarUsageFooter: View {
+/// The sidebar's foot, SYSTEM over USAGE. The vendor rows are worked out here, from the usage,
+/// whether Claude's status line is AiTerm's, and the minute; the selected row's context row and the
+/// Mac's row in ``SelectedRowSidebarFooter``, which alone reads the tabs, the context fills, the
+/// selection and Backpack Mode — so a session event redraws the footer without working out the
+/// vendor rows again.
+struct SidebarFooterHost: View {
     let controller: AppController
     @Environment(\.footerClock) private var footerClock
 
@@ -131,21 +132,27 @@ struct SidebarUsageFooter: View {
         // gains its weekday across midnight — so they are recomputed on the minute, not only
         // when the usage changes.
         TimelineView(.everyMinute) { context in
-            SelectedRowUsageFooter(controller: controller,
-                                   vendors: SidebarModel.usageVendorRows(controller.live.usage, now: footerClock?.now ?? context.date,
-                                                                         calendar: footerClock?.calendar ?? .current,
-                                                                         claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
+            SelectedRowSidebarFooter(controller: controller,
+                                     vendors: SidebarModel.usageVendorRows(controller.live.usage, now: footerClock?.now ?? context.date,
+                                                                           calendar: footerClock?.calendar ?? .current,
+                                                                           claudeStatusLineInstalled: controller.agents.claudeStatusLineInstalled))
         }
     }
 }
 
-/// ``UsageFooter`` with the selected row's CONTEXT row above the vendor rows it is handed.
-struct SelectedRowUsageFooter: View {
+/// ``SidebarFooter`` with the selected row's context row and the Mac's row over the vendor rows it
+/// is handed. A click on the Mac's row is ⌘B; a right-click opens Settings › Integrations.
+struct SelectedRowSidebarFooter: View {
     let controller: AppController
     let vendors: [UsageVendorRow]
 
     var body: some View {
-        UsageFooter(task: controller.rows.usageRow(for: controller.focus.selection), rows: vendors)
+        let backpack = controller.backpack
+        SidebarFooter(task: controller.rows.usageRow(for: controller.focus.selection), rows: vendors,
+                      mac: MacModePresentation.line(mode: MacMode(state: backpack.state, transition: backpack.transition),
+                                                    hotspot: backpack.network, wifi: backpack.currentNetwork),
+                      toggleMac: { controller.toggleBackpack() },
+                      openMacSettings: { controller.presentSettings(tab: .integrations) })
     }
 }
 
@@ -219,7 +226,7 @@ struct SidebarBanners: View {
 }
 
 /// One line — or a few — above the list, and the links that answer it. Its text starts where the
-/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the usage footer's does below.
+/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the sidebar footer's marks do below.
 /// `detail` follows `text` in `Palette.muted`: what happened, then why.
 ///
 /// Only the leading edge is shared. `trailing` and `vertical` (×1 tokens, scaled here) keep each
@@ -297,14 +304,17 @@ struct SidebarSheet: View {
                         case .terminal(let terminal): controller.rename(terminal: terminal, to: name)
                         }
                     })
-                case .settings(let jira, let gitLab, let gitHub):
+                case .settings(let jira, let gitLab, let gitHub, let tab):
                     SettingsView(jiraConfig: jira, gitLabConfig: gitLab, gitHubConfig: gitHub,
                                  harnessModel: controller.agents.harnessSettingsModel(),
                                  itermConnection: { controller.helper.itermConnection },
                                  checkIterm: controller.helper.checkIterm,
                                  preferences: controller.preferences,
                                  setMatchItermBackground: { controller.helper.setMatchItermBackground($0) },
-                                 setInterfaceSize: { controller.tiling.setInterfaceSize($0) })
+                                 setInterfaceSize: { controller.tiling.setInterfaceSize($0) },
+                                 initialTab: tab,
+                                 backpack: controller.backpack)
+                case .backpack(let model): BackpackSheet(model: model)
             }
         }
         .interfaceScale(.standard)

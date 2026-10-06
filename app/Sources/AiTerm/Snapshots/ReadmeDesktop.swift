@@ -71,7 +71,7 @@ struct ReadmeDesktop: View {
             state.tasks = tasks
         }
         controller.live.sessions = [
-            // The selected task: Claude Code in front, its context the footer's CONTEXT line.
+            // The selected task: Claude Code in front, its context the footer's `ctx` line.
             Fixture.session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38),
             Fixture.session("r2", "a1", refactor.id, "codex", "idle", 1, cwd: refactor.worktreePath),
             Fixture.session("r3", "a2", orphan.id, "grok", "done", 0, cwd: orphan.worktreePath, active: true),

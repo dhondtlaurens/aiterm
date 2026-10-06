@@ -183,6 +183,7 @@ public enum Palette {
         }
         return Color(nsColor: blended)
     }()
+
     /// A collapsed project's status-count chips (`StatusCountChips`): a fill and a stroke per
     /// status family, each a wash of that family's colour. The three pairs strengthen with urgency —
     /// idle and working in `muted`, needs-input in `amber`, done in `accent` — a deliberate

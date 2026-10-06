@@ -161,12 +161,12 @@ struct SidebarProjectionTests {
         #expect(written == ["1", nil])
     }
 
-    /// The footer's CONTEXT row reads the rows' tabs and the fills: a session event that moved a fill
+    /// The footer's context row reads the rows' tabs and the fills: a session event that moved a fill
     /// redraws it, one that moved only a model or a title does not, and neither does a sidebar move.
     @Test func theContextRowRedrawsForAFillAlone() throws {
         let controller = try controller()
         controller.focus.browse(.task(Self.taskId))
-        let footer = SelectedRowUsageFooter(controller: controller, vendors: [])
+        let footer = SelectedRowSidebarFooter(controller: controller, vendors: [])
         var event = tab()
         event.contextPercent = 40
         #expect(invalidates({ _ = footer.body }) { controller.live.handle(.sessionChanged(event)) })

@@ -36,8 +36,9 @@ final class Notices {
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
     /// what was kept and why. The id means an older delayed dismissal cannot hide a newer toast.
-    func showToast(_ message: String) {
-        let id = toastState.show(message)
+    /// `symbol` is the glyph in front of it: the checkmark, unless the toast names its own.
+    func showToast(_ message: String, symbol: String = "checkmark.circle.fill") {
+        let id = toastState.show(message, symbol: symbol)
         Task { [weak self, toastLifetime] in
             try? await Task.sleep(for: toastLifetime)
             guard !Task.isCancelled else { return }

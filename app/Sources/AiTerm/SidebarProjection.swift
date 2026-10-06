@@ -82,8 +82,8 @@ final class SidebarProjection {
         return true
     }
 
-    /// The usage footer's CONTEXT row for `row`: what runs in the task's or terminal's active tab
-    /// and its last-known `ctx`. With nothing selected there is no such row at all. Read from the
+    /// The footer's context row, under SYSTEM, for `row`: what runs in the task's or terminal's
+    /// active tab and its last-known `ctx`. With nothing selected there is no such row at all. Read from the
     /// rows' tabs, so a session event that moved only a fill redraws it through the fill alone.
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {
         let contexts = live.contextPercents(for: row)

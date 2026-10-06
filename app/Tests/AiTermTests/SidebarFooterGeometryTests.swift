@@ -6,7 +6,7 @@ import Testing
 @testable import AiTerm
 
 @MainActor
-struct UsageFooterGeometryTests {
+struct SidebarFooterGeometryTests {
     private let context = UsageLine(window: .context, percent: 84, reset: nil, warning: true)
     private let fiveHour = UsageLine(window: .fiveHour, percent: 84, reset: "16:40", warning: true)
     private let week = UsageLine(window: .weekly, percent: 84, reset: "Wed 16:28", warning: true)
@@ -24,14 +24,14 @@ struct UsageFooterGeometryTests {
     /// A note's ink follows the row's `warning`, never its wording: the same words on a row that
     /// is not a warning stay muted.
     @Test func aNoteIsAmberOnlyWhenTheRowIsAWarning() {
-        #expect(UsageFooter.noteInk(UsageVendorRow(vendor: .claude, lines: [], note: "Usage disconnected", warning: true)) == Palette.amber)
-        #expect(UsageFooter.noteInk(UsageVendorRow(vendor: .claude, lines: [], note: "Usage disconnected")) == Palette.muted)
-        #expect(UsageFooter.noteInk(UsageVendorRow(vendor: .codex, lines: [], note: "Reconnecting", warning: true)) == Palette.amber)
+        #expect(SidebarFooter.noteInk(UsageVendorRow(vendor: .claude, lines: [], note: "Usage disconnected", warning: true)) == Palette.amber)
+        #expect(SidebarFooter.noteInk(UsageVendorRow(vendor: .claude, lines: [], note: "Usage disconnected")) == Palette.muted)
+        #expect(SidebarFooter.noteInk(UsageVendorRow(vendor: .codex, lines: [], note: "Reconnecting", warning: true)) == Palette.amber)
     }
 
     private func host(_ rows: [UsageVendorRow], task: UsageTaskRow? = nil,
                       width: CGFloat = Size.sidebarMinWidth, scale: InterfaceScale = .standard) -> NSHostingView<AnyView> {
-        let view = AnyView(UsageFooter(task: task, rows: rows)
+        let view = AnyView(SidebarFooter(task: task, rows: rows)
             .interfaceScale(scale)
             .frame(width: width, alignment: .leading)
             .background(Color.black))
@@ -50,12 +50,12 @@ struct UsageFooterGeometryTests {
             UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil),
             UsageVendorRow(vendor: .codex, lines: [week, fiveHour], note: nil),
         ]
-        let expected = Space.tight + Size.menuRow * 3 + Space.base
+        // SYSTEM's heading and the Mac row, the rule, then USAGE's heading and two providers.
+        let expected = (Space.tight + Size.menuRow * 2 + Space.base) + 1 + (Space.tight + Size.menuRow * 3 + Space.base)
         #expect(abs(host(rows).fittingSize.height - expected) < 0.5)
     }
 
-    /// The CONTEXT group is the same shape with one row, then the 1 pt rule that divides it from
-    /// USAGE: 61 pt on top of the usage group.
+    /// With a task selected the context row adds one line to SYSTEM.
     @Test func theTaskRowAddsOneLineAndARule() {
         let rows = [
             UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil),
@@ -63,19 +63,20 @@ struct UsageFooterGeometryTests {
         ]
         let task = UsageTaskRow(agent: .claude, context: context)
         let usage = Space.tight + Size.menuRow * 3 + Space.base
-        let expected = usage + Space.tight + Size.menuRow * 2 + Space.base + 1
+        // SYSTEM's heading, the context row and the Mac row, then the rule.
+        let expected = usage + Space.tight + Size.menuRow * 3 + Space.base + 1
         #expect(abs(host(rows, task: task).fittingSize.height - expected) < 0.5)
     }
 
-    /// The context row is a vendor row with one unlabelled window — its heading already says
-    /// `ctx`: mark, ring and number, packed against the leading edge exactly as a vendor's `wk` is,
-    /// not pushed to the trailing edge, and with no title or avatar group beside it.
+    /// The context row is a vendor row with one window labelled `ctx`: mark, ring and number,
+    /// packed against the leading edge exactly as a vendor's `wk` is, not pushed to the trailing edge, and with no title or avatar group beside it.
     @Test func theTaskRowDrawsOnlyItsMarkAndContext() throws {
         let host = host([], task: UsageTaskRow(agent: .claude, context: context), width: 600)
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let label = ("ctx " as NSString).size(withAttributes: [.font: font]).width
         let text = (" 84%" as NSString).size(withAttributes: [.font: font]).width
-        let expected = Space.inset + Space.base + Size.vendorMark + Space.inset + Size.statusMark + text
-        // Below the CONTEXT heading, above the rule: the context row alone.
+        let expected = Space.inset + Space.base + Size.vendorMark + Space.inset + label + Size.statusMark + text
+        // Below the SYSTEM heading, above the rule: the context row alone.
         let top = Int(Space.tight + Size.menuRow)
         let right = try paintedWidth(host, band: top..<(top + Int(Size.menuRow)))
         #expect(abs(right - expected) < 2,
@@ -144,15 +145,17 @@ private extension UsageLine {
     var withoutReset: UsageLine { UsageLine(window: window, percent: percent, reset: nil, warning: warning) }
 }
 
-extension UsageFooterGeometryTests {
+extension SidebarFooterGeometryTests {
     /// The footer stretches to its container and its text leaves are not separate `NSView`s, so
     /// only the pixels say how wide the row's ink runs. Rasterise it over a backdrop far wider than
     /// the sidebar and find the rightmost painted column.
     private func paintedWidth(_ rows: [UsageVendorRow], width: CGFloat, scale: InterfaceScale = .standard) throws -> CGFloat {
-        // The 1 pt top hairline runs the footer's full width; the band below it holds the USAGE
-        // heading, which is narrower than any row, and the rows.
+        // Two 1 pt rules run the footer's full width: the top one, and the one between SYSTEM and
+        // USAGE. The band below the second holds the USAGE heading, which is narrower than any row,
+        // and the rows.
         let host = host(rows, width: width, scale: scale)
-        return try paintedWidth(host, band: 4..<Int(host.bounds.height.rounded(.up)))
+        let system = scale(Space.tight) + scale(Size.menuRow) * 2 + scale(Space.base)
+        return try paintedWidth(host, band: Int((system + 2).rounded(.up))..<Int(host.bounds.height.rounded(.up)))
     }
 
     /// `band` is in points from the top; it has to leave out every full-width rule.
@@ -160,8 +163,9 @@ extension UsageFooterGeometryTests {
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
-        let backdrop = try #require(bitmap.colorAt(x: bitmap.pixelsWide - 2, y: bitmap.pixelsHigh / 2))
         let band = Int(CGFloat(points.lowerBound) * scale)..<min(bitmap.pixelsHigh, Int(CGFloat(points.upperBound) * scale))
+        // Sampled inside the band, past the rows' ink: the footer's middle can land on a rule.
+        let backdrop = try #require(bitmap.colorAt(x: bitmap.pixelsWide - 2, y: (band.lowerBound + band.upperBound) / 2))
         for x in stride(from: bitmap.pixelsWide - 1, through: 0, by: -1) {
             for y in band where bitmap.colorAt(x: x, y: y).map({
                 abs($0.redComponent - backdrop.redComponent) > 0.02
@@ -172,5 +176,21 @@ extension UsageFooterGeometryTests {
             }
         }
         return 0
+    }
+
+    /// The first group is SYSTEM (spec 2026-10-05): with the Mac's row beside it, the heading no
+    /// longer says what the context number is, so its row carries `ctx` (measured in
+    /// `theTaskRowDrawsOnlyItsMarkAndContext`).
+    @Test func theFirstGroupIsSystem() {
+        #expect(SidebarFooter.systemHeading == "System")
+    }
+
+    /// SYSTEM is always there now: with nothing selected it still holds the Mac's row, one
+    /// `Size.menuRow` line in the group's padding, then the rule and USAGE.
+    @Test func withNothingSelectedSystemHoldsTheMacRow() {
+        let rows = [UsageVendorRow(vendor: .claude, lines: [week, fiveHour], note: nil)]
+        let usage = Space.tight + Size.menuRow * 2 + Space.base
+        let system = Space.tight + Size.menuRow * 2 + Space.base
+        #expect(abs(host(rows).fittingSize.height - (system + 1 + usage)) < 0.5)
     }
 }

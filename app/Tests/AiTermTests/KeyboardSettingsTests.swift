@@ -58,6 +58,21 @@ import Testing
         ])
     }
 
+    /// View › Backpack Mode, ⌘B, after the views, checked while the mode is on.
+    @Test func theViewMenuCarriesBackpackMode() throws {
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        let app = AiTermApp(controller: AppController(preferences: .scratch()))
+        app.buildMenu()
+        let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
+        let titles = view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title }
+        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "—", "Backpack Mode", "—"])
+        let item = try #require(view.items.first { $0.title == "Backpack Mode" })
+        #expect(Self.keys(of: item) == ["⌘", "B"])
+        #expect(app.validateMenuItem(item), "never disabled: a press that cannot turn it on answers with a toast")
+        #expect(item.state == .off)
+    }
+
     /// A row as the menu check compares it: its title and its keys.
     private struct Row: Hashable {
         let action: String, keys: [String]

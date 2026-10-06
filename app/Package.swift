@@ -5,7 +5,8 @@ let package = Package(
     name: "AiTerm",
     platforms: [.macOS("26.0")],
     targets: [
-        .target(name: "AiTermCore", path: "Sources/AiTermCore"),
+        .target(name: "AiTermCore", path: "Sources/AiTermCore",
+                linkerSettings: [.linkedFramework("CoreWLAN"), .linkedFramework("IOKit"), .linkedFramework("CoreLocation")]),
         .target(name: "AiTermUI", path: "Sources/AiTermUI", exclude: ["README.md"]),
         // Resources/ is not a SwiftPM resource: no code reads a resource bundle, and make-app.sh copies
         // the Info.plist and the icon from it into AiTerm.app itself.

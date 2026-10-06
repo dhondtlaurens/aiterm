@@ -118,7 +118,7 @@ extension UpdateController {
             currentVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             channel: BuildChannel(infoDictionary: bundle.infoDictionary),
             bundleURL: bundleURL, updatesDirectory: updates,
-            makeSource: { try ReleaseFeed.source(for: feed, secrets: Keychain()) },
+            makeSource: { try ReleaseFeed.source(for: feed, secrets: Keychain.shared) },
             checkReplaceable: { try UpdateInstaller.checkReplaceable(bundleURL) },
             stage: { image, version in
                 let requirement = try UpdateStager.designatedRequirement(of: bundleURL)
