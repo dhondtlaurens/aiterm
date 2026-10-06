@@ -50,6 +50,9 @@ enum GrokStatusLineConfig {
         return (index, false)
     }
 
+    /// Our shim is current only as Install writes it, this bundle's path quoted as `command(forShim:)`
+    /// quotes it; any other copy is outdated. Claude's card is more lenient, and says why
+    /// (`ClaudeSettings.isInstalled`).
     static func state(_ text: String?, shimPath: String) -> GrokStatusLineState {
         guard let text else { return .missing }
         let tables = TOMLStatements.tables(text)

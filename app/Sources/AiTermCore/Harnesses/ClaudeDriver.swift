@@ -16,10 +16,8 @@ struct ClaudeDriver: HarnessDriver {
         case .missing: return DriverProbe(.missing)
         case .refused(let reason): return .refused(file, reason)
         case .present(let data):
-            guard let object = ClaudeSettings.object(data) else { return .refused(file, "is not a JSON object") }
-            if let key = ClaudeSettings.unmergeableKey(object) {
-                return .refused(file, "sets \(key) in a form AiTerm cannot merge")
-            }
+            let object: [String: Any]
+            do { object = try ClaudeSettings.mergeable(data) } catch { return .refused(file, error.reason) }
             if ClaudeSettings.isInstalled(object, daemonPort: daemonPort, shimPath: shimPath) {
                 return DriverProbe(.current)
             }
@@ -35,7 +33,13 @@ struct ClaudeDriver: HarnessDriver {
         case .refused(let reason): throw file.refusal(reason)
         case .present(let contents): data = contents
         }
-        let (merged, original) = try ClaudeSettings.merge(data, hookURL: "http://127.0.0.1:\(daemonPort)" + Harness.claude.hookEndpoint, shimPath: shimPath)
+        let result: (Data, originalStatusLine: [String: Any]?)
+        do {
+            result = try ClaudeSettings.merge(data, hookURL: "http://127.0.0.1:\(daemonPort)" + Harness.claude.hookEndpoint, shimPath: shimPath)
+        } catch let refusal as ClaudeSettings.Unmergeable {
+            throw file.refusal(refusal.reason)
+        }
+        let (merged, original) = result
         let support = try AiTermPaths.migrateSupportDirectory(homeDirectory: home)
         try fileManager.createDirectory(at: support, withIntermediateDirectories: true)
         // T9-1 fix 4: save the original status line *before* writing the merged settings.json, so

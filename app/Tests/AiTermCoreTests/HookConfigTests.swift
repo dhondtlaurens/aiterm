@@ -272,12 +272,14 @@ import Foundation
         let malformedError = #expect(throws: (any Error).self) {
             _ = try ClaudeSettings.merge(Data("{nope".utf8), hookURL: "u", shimPath: "s")
         }
-        #expect(malformedError is HarnessDriverError, "malformed JSON must raise a typed error, not fall back to an empty object")
+        #expect(malformedError as? ClaudeSettings.Unmergeable == ClaudeSettings.Unmergeable(reason: "is not a JSON object"),
+                "malformed JSON must raise a typed error, not fall back to an empty object")
 
         let nonObjectError = #expect(throws: (any Error).self) {
             _ = try ClaudeSettings.merge(Data("[]".utf8), hookURL: "u", shimPath: "s")
         }
-        #expect(nonObjectError is HarnessDriverError, "a JSON array is not a settings object and must raise a typed error")
+        #expect(nonObjectError as? ClaudeSettings.Unmergeable == ClaudeSettings.Unmergeable(reason: "is not a JSON object"),
+                "a JSON array is not a settings object and must raise a typed error")
     }
 
     @Test func testClaudeMergeFromEmptyDataStillStartsEmpty() throws {

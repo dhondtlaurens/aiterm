@@ -39,7 +39,7 @@ public enum ClaudeSettings {
     /// `settings.json` as an object: no bytes, or none at all, is "no settings yet". Anything else
     /// that is not a JSON object — malformed JSON, or an array — is `nil` (T9-1 fix 1), and must
     /// never be merged as if empty: that would replace the user's settings with our entries alone.
-    static func object(_ json: Data?) -> [String: Any]? {
+    private static func object(_ json: Data?) -> [String: Any]? {
         guard let json, !json.isEmpty else { return [:] }
         return (try? JSONSerialization.jsonObject(with: json)) as? [String: Any]
     }
@@ -51,7 +51,7 @@ public enum ClaudeSettings {
     /// the file is refused instead, as Codex's is for `hooks.Stop = [...]`. Events AiTerm does not
     /// manage are never looked at, and a key set to JSON's `null` is one that is not set: the
     /// merge fills it in as it would a missing one.
-    static func unmergeableKey(_ settings: [String: Any]) -> String? {
+    private static func unmergeableKey(_ settings: [String: Any]) -> String? {
         if let value = set(settings["hooks"]) {
             guard let hooks = value as? [String: Any] else { return "hooks" }
             if let event = events.first(where: { event in set(hooks[event]).map { $0 as? [[String: Any]] == nil } ?? false }) {
@@ -65,15 +65,21 @@ public enum ClaudeSettings {
     /// `value`, unless it is missing or JSON's `null`.
     private static func set(_ value: Any?) -> Any? { value is NSNull ? nil : value }
 
-    static func refusal(key: String) -> HarnessDriverError {
-        .refused(path: "~/" + ClaudeDriver.settingsPath, reason: "sets \(key) in a form AiTerm cannot merge")
+    /// Why the merge will not touch a `settings.json`, finishing "it …": the one place the Claude
+    /// card's refusal is worded, which the probe shows and Install throws through the driver's
+    /// `UserConfigFile`, the file that knows its own path.
+    struct Unmergeable: Error, Equatable { let reason: String }
+
+    /// `settings.json` as an object the merge can extend, or why it cannot.
+    static func mergeable(_ json: Data?) throws(Unmergeable) -> [String: Any] {
+        guard let settings = object(json) else { throw Unmergeable(reason: "is not a JSON object") }
+        if let key = unmergeableKey(settings) { throw Unmergeable(reason: "sets \(key) in a form AiTerm cannot merge") }
+        return settings
     }
 
+    /// Throws `Unmergeable` for a file it must not rewrite.
     static func merge(_ json: Data?, hookURL: String, shimPath: String) throws -> (Data, originalStatusLine: [String: Any]?) {
-        guard var obj = object(json) else {
-            throw HarnessDriverError.refused(path: "~/" + ClaudeDriver.settingsPath, reason: "is not a JSON object")
-        }
-        if let key = unmergeableKey(obj) { throw refusal(key: key) }
+        var obj = try mergeable(json)
         var hooks = obj["hooks"] as? [String: Any] ?? [:]
         for event in retiredEvents {
             guard let entries = hooks[event] as? [[String: Any]] else { continue }
@@ -155,6 +161,14 @@ public enum ClaudeSettings {
     /// status line counts as current when it names this bundle's shim, or another copy of the shim
     /// that still runs — what the footer would call a working feed. A path that runs nothing, a
     /// moved or deleted bundle, is outdated: Repair repoints it.
+    ///
+    /// Grok's status line is current only at this bundle's exact path (`GrokStatusLineConfig`).
+    /// Claude's tolerates a runnable copy because a second judge reads it: the footer says whether
+    /// the Claude usage feed works by whether the shim it names can run
+    /// (`statusLineIsInstalled`), and a card that called that same line outdated would contradict
+    /// it — and, with another AiTerm build such as a worktree's running beside this one, offer a
+    /// Repair each would undo for the other. Nothing else judges Grok's line, so its card asks
+    /// for exactly what Install writes.
     static func isInstalled(_ settings: [String: Any], daemonPort: Int, shimPath: String,
                             isRunnable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) -> Bool {
         guard let hooks = settings["hooks"] as? [String: Any],
