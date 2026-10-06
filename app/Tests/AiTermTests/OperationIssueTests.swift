@@ -211,10 +211,10 @@ extension AppControllerTests {
                              worktreePath: fixture.root.path + "/other", baseBranch: "main", jira: nil, agent: .codex,
                              model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
                              createdAt: Date(timeIntervalSince1970: 0), windowId: "w")
-        fixture.controller.state.tasks.append(other)
+        fixture.controller.workspace.mutate { $0.tasks.append(other) }
         fixture.controller.report(OperationIssue(title: "Couldn’t reopen the window.", subject: other.id))
 
-        fixture.controller.state.tasks.removeAll { $0.id == other.id }
+        fixture.controller.workspace.mutate { state in state.tasks.removeAll { $0.id == other.id } }
         await fixture.controller.perform(.keepBranch(task.id))?.value
 
         #expect(fixture.controller.issue == nil)
@@ -285,7 +285,7 @@ extension AppControllerTests {
     @Test func theIssueGoesWhenItsRowsWindowCloses() async throws {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        fixture.controller.state.tasks[0].windowId = "w"
+        fixture.controller.workspace.mutate { $0.tasks[0].windowId = "w" }
 
         fixture.controller.handleWindowClosed("w")
 
@@ -311,8 +311,8 @@ extension AppControllerTests {
         var without = fixture.controller.state
         without.tasks = []
         // Saved twice, so the backup — the file as it was before a save — has no task either.
-        try fixture.controller.store.save(without)
-        try fixture.controller.store.save(without)
+        try fixture.controller.workspace.file.save(without)
+        try fixture.controller.workspace.file.save(without)
 
         try fixture.controller.restoreWorkspace()
 

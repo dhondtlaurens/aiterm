@@ -111,11 +111,13 @@ enum Snapshots {
             let controller = AppController.live(store: store, preferences: InterfacePreferences(defaults: Self.defaults),
                                                 harnessHome: Self.home, locateAgents: { nil }, setBadge: { _ in }, activateIterm: {},
                                                 scan: { _, _, _, _, _, _, _ in onDisk })
-            controller.state.append(project: project)
-            controller.state.append(divider: rule)
-            controller.state.append(project: personal)
-            controller.state.tasks = [working, other, piTask, grokTask]
-            controller.state.terminals = [terminal]
+            controller.workspace.mutate { state in
+                state.append(project: project)
+                state.append(divider: rule)
+                state.append(project: personal)
+                state.tasks = [working, other, piTask, grokTask]
+                state.terminals = [terminal]
+            }
             controller.live.sessions = [
                 // The selected task's window: two tabs in its worktree, one the user cd'd back to the
                 // repo root — the "+1" case.
@@ -210,12 +212,14 @@ enum Snapshots {
         let controller = AppController.live(store: store, preferences: InterfacePreferences(defaults: Fixture.defaults),
                                             harnessHome: Fixture.home, locateAgents: { nil }, setBadge: { _ in }, activateIterm: {},
                                             scan: { _, _, _, _, _, _, _ in onDisk })
-        controller.state.append(project: home)
-        controller.state.append(divider: SidebarDivider(id: UUID(), name: "Personal"))
-        controller.state.append(project: aiterm)
-        controller.state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
-        controller.state.append(project: acme)
-        controller.state.tasks = tasks
+        controller.workspace.mutate { state in
+            state.append(project: home)
+            state.append(divider: SidebarDivider(id: UUID(), name: "Personal"))
+            state.append(project: aiterm)
+            state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
+            state.append(project: acme)
+            state.tasks = tasks
+        }
         controller.live.sessions = [
             // The selected task: Claude Code in front, its context the footer's CONTEXT line.
             session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38),
@@ -508,9 +512,9 @@ enum Snapshots {
         let done = TaskItem(id: UUID(), projectId: project.id, title: "Ship the usage footer", branch: "feat/usage-footer",
                             worktreePath: "/r/.worktrees/w", baseBranch: "main", jira: nil, agent: .claude, model: "opus",
                             reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: clock.now, windowId: "w4")
-        controller.state.tasks = [working, other, idle, done]
+        controller.workspace.mutate { $0.tasks = [working, other, idle, done] }
         controller.live.sessions += [session("s6", "w4", done.id, "claude", "done", 0)].compactMap { $0 }
-        controller.state.projects[0].collapsed = true
+        controller.workspace.mutate { state in state.updateProject(id: state.projects[0].id) { $0.collapsed = true } }
         let collapsed = SidebarModel.sections(state: controller.state, sessions: controller.live.sessions,
                                               branchByCwd: controller.checkouts.branchByCwd, projectBranch: controller.checkouts.projectBranch,
                                               diffByTask: controller.checkouts.diffByTask)[0]
@@ -545,8 +549,8 @@ enum Snapshots {
     /// tasks `collapsedSidebar` rewrote.
     private static func removalRows(_ fixture: Fixture, to out: URL) {
         let controller = fixture.controller
-        controller.state.projects[0].collapsed = false
-        controller.state.tasks = [fixture.working, fixture.other, fixture.piTask, fixture.grokTask]
+        controller.workspace.mutate { state in state.updateProject(id: state.projects[0].id) { $0.collapsed = false } }
+        controller.workspace.mutate { $0.tasks = [fixture.working, fixture.other, fixture.piTask, fixture.grokTask] }
         controller.seedSnapshotRemoval(.removing, of: fixture.working.id)
         controller.seedSnapshotRemoval(.removing, of: fixture.piTask.id)
         controller.seedSnapshotRemoval(.closing, of: fixture.grokTask.id)
@@ -593,11 +597,11 @@ enum Snapshots {
             .frame(width: Size.sidebarWidth + 20)
             .background(Palette.sidebar)
         }
-        controller.state.projects[0].collapsed = false
+        controller.workspace.mutate { state in state.updateProject(id: state.projects[0].id) { $0.collapsed = false } }
         write(header(), to: out.appendingPathComponent("sidebar-header-selected.png"))
-        controller.state.projects[0].collapsed = true
+        controller.workspace.mutate { state in state.updateProject(id: state.projects[0].id) { $0.collapsed = true } }
         write(header(), to: out.appendingPathComponent("sidebar-header-selected-collapsed.png"))
-        controller.state.projects[0].collapsed = false
+        controller.workspace.mutate { state in state.updateProject(id: state.projects[0].id) { $0.collapsed = false } }
     }
 
     /// The sidebar with no project yet: the block under `PROJECTS`, at ×1 and at the largest size.

@@ -28,7 +28,7 @@ extension AppControllerTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.repo.path + "/.worktrees") == ["work"])
         #expect(fixture.controller.focus.selectedTaskId == fixture.task.id)
         // The task now has a merge request, so its row shows the badge.
-        let saved = try #require(try fixture.controller.store.load().tasks.first)
+        let saved = try #require(try fixture.controller.savedWorkspace().tasks.first)
         #expect(saved.mr == MergeRequestRef(iid: 7, title: "Work", url: "https://gitlab/x/-/merge_requests/7"))
         #expect(saved.kind == nil && saved.branch == "feat/work" && saved.worktreePath == fixture.task.worktreePath)
         #expect(fixture.controller.state.lastAgentByProject[fixture.project.id] == .claude)
@@ -141,7 +141,7 @@ extension AppControllerTests {
             try await fixture.controller.createReview(draft: fixture.draft, project: fixture.project)
         }
         #expect(fixture.controller.state.tasks == [fixture.task])
-        #expect(try fixture.controller.store.load().tasks == [fixture.task])
+        #expect(try fixture.controller.savedWorkspace().tasks == [fixture.task])
     }
 }
 
@@ -176,9 +176,11 @@ private struct ReviewFixture {
         self.draft = draft
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.loadWorkspace()
-        controller.state.projects = [project]
-        controller.state.tasks = [task]
-        #expect(controller.persist())
+        controller.workspace.mutate { state in
+            state.items = [.project(project)]
+            state.tasks = [task]
+        }
+        #expect(controller.workspace.flush())
     }
 
     func cleanUp() { try? FileManager.default.removeItem(at: root) }

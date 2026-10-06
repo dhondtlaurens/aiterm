@@ -19,7 +19,7 @@ struct SidebarInteractionTests {
                      firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "window-" + title)
         }
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Terminal", windowId: "terminal-window", createdAt: Date())
-        controller.state.projects = [project]; controller.state.tasks = tasks; controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }; controller.workspace.mutate { $0.terminals = [terminal] }
         controller.focus.browse(.task(tasks[0].id))
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
@@ -74,7 +74,7 @@ struct SidebarInteractionTests {
                      baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
                      firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "window-" + title)
         }
-        controller.state.projects = [project]; controller.state.tasks = tasks
+        controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }
         controller.focus.browse(.task(tasks[0].id))
         let server = RecordingDaemon()
         controller.helper.setDaemonClient(server)
@@ -165,10 +165,12 @@ struct SidebarInteractionTests {
         }
         let tasks = [task("a1", in: a), task("a2", in: a), task("b1", in: b), task("b2", in: b)]
         let terminal = TerminalItem(id: UUID(), projectId: b.id, name: "Terminal", windowId: "terminal-window", createdAt: Date())
-        controller.state.append(project: a)
-        controller.state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
-        controller.state.append(project: b)
-        controller.state.tasks = tasks; controller.state.terminals = [terminal]
+        controller.workspace.mutate { state in
+            state.append(project: a)
+            state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
+            state.append(project: b)
+        }
+        controller.workspace.mutate { $0.tasks = tasks }; controller.workspace.mutate { $0.terminals = [terminal] }
         controller.focus.browse(.task(tasks[1].id))
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
@@ -311,9 +313,9 @@ struct SidebarInteractionTests {
         try controller.loadWorkspace()
         let old = Project(id: UUID(), name: "Old", path: first.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let new = Project(id: UUID(), name: "New", path: second.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        controller.state.projects = [old]
+        controller.workspace.mutate { $0.items = [.project(old)] }
         controller.checkouts.refresh()
-        controller.state.projects = [new]
+        controller.workspace.mutate { $0.items = [.project(new)] }
         await controller.checkouts.refresh().value
         #expect(controller.checkouts.projectBranch == [new.id: "second"])
     }
@@ -327,9 +329,11 @@ struct SidebarInteractionTests {
             Project(id: UUID(), name: name, path: "/" + name, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: true)
         }
         let (a, b) = (project("a"), project("b"))
-        controller.state.append(project: a)
-        controller.state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
-        controller.state.append(project: b)
+        controller.workspace.mutate { state in
+            state.append(project: a)
+            state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
+            state.append(project: b)
+        }
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
@@ -354,7 +358,7 @@ struct SidebarInteractionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.loadWorkspace()
-        controller.state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
+        controller.workspace.mutate { $0.append(divider: SidebarDivider(id: UUID(), name: "Work")) }
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
@@ -370,8 +374,8 @@ struct SidebarInteractionTests {
         // Header, the block, the divider.
         #expect(list.numberOfRows == 3)
 
-        controller.state.append(project: Project(id: UUID(), name: "a", path: "/a", provider: .git, remoteUrl: nil,
-                                                 addedAt: Date(), collapsed: true))
+        controller.workspace.mutate { $0.append(project: Project(id: UUID(), name: "a", path: "/a", provider: .git, remoteUrl: nil,
+                                                                  addedAt: Date(), collapsed: true)) }
         settle(host, for: 0.05) // Absence: the row count is the same before and after.
         // Header, the divider, project a.
         #expect(list.numberOfRows == 3)

@@ -36,7 +36,7 @@ final class RowFocus {
     /// How long a peek waits before moving a window: long enough that arrowing past rows shows only
     /// the one the arrows stop on.
     let peekDelay: Duration
-    private let workspace: @MainActor () -> AppState
+    private let workspace: WorkspaceStore
     private let daemon: @MainActor () -> (any DaemonCommands)?
     private let taskFrame: @MainActor () -> Frame
     /// Brings iTerm2 forward once a chosen row's window is frontmost in it: the daemon raises the
@@ -51,7 +51,7 @@ final class RowFocus {
     private let notices: Notices
 
     init(peekDelay: Duration = .milliseconds(120),
-         workspace: @escaping @MainActor () -> AppState,
+         workspace: WorkspaceStore,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?,
          taskFrame: @escaping @MainActor () -> Frame,
          activateIterm: @escaping @MainActor () -> Void,
@@ -85,7 +85,7 @@ final class RowFocus {
 
     /// The row with this id, whichever kind it is — what the list's own selection hands over.
     func row(id: UUID) -> RowSelection? {
-        let state = workspace()
+        let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
         if state.project(id: id) != nil { return .project(id) }
@@ -196,7 +196,7 @@ final class RowFocus {
         if windowId == selfRaised { selfRaised = nil; return }
         // A delayed activation event must not overwrite a newer local selection.
         if activation != nil { return }
-        let state = workspace()
+        let state = workspace.state
         if let task = state.tasks.first(where: { $0.windowId == windowId }) {
             browse(.task(task.id))
         } else if let terminal = state.terminals.first(where: { $0.windowId == windowId }) {
@@ -215,7 +215,7 @@ final class RowFocus {
     }
 
     private func window(for row: RowSelection) -> String? {
-        let state = workspace()
+        let state = workspace.state
         return switch row {
         case .project: nil
         case .task(let id): state.task(id: id)?.windowId

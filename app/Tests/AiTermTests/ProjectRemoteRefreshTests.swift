@@ -14,7 +14,7 @@ extension AppControllerTests {
 
         #expect(fixture.controller.state.projects.first?.provider == .gitlab)
         #expect(fixture.controller.state.projects.first?.remoteUrl == "git@gitlab.example.com:group/app.git")
-        let saved = try fixture.controller.store.load().projects.first
+        let saved = try fixture.controller.savedWorkspace().projects.first
         #expect(saved?.provider == .gitlab)
         #expect(saved?.remoteUrl == "git@gitlab.example.com:group/app.git")
     }
@@ -40,10 +40,13 @@ extension AppControllerTests {
         try fixture.git.run(["remote", "add", "origin", "git@gitlab.example.com:group/app.git"], in: fixture.repo.path)
         await fixture.controller.checkouts.refresh().value
         try #require(fixture.controller.state.projects.first?.provider == .gitlab)
+        #expect(fixture.controller.workspace.flush())
         let written = try fixture.stateModified()
 
         await fixture.controller.checkouts.refresh().value
 
+        // A save the pass asked for would be written now rather than a moment later.
+        #expect(fixture.controller.workspace.flush())
         #expect(try fixture.stateModified() == written)
     }
 }
@@ -65,9 +68,9 @@ private struct RemoteFixture {
         stateURL = root.appendingPathComponent("state.json")
         controller = AppController(store: StateStore(url: stateURL), preferences: .scratch())
         try controller.loadWorkspace()
-        controller.state.projects = [Project(id: UUID(), name: "Repo", path: repo.path, provider: provider,
-                                             remoteUrl: remoteUrl, addedAt: Date(), collapsed: false)]
-        #expect(controller.persist())
+        controller.workspace.mutate { $0.append(project: Project(id: UUID(), name: "Repo", path: repo.path, provider: provider,
+                                                                  remoteUrl: remoteUrl, addedAt: Date(), collapsed: false)) }
+        #expect(controller.workspace.flush())
     }
 
     func stateModified() throws -> Date? {

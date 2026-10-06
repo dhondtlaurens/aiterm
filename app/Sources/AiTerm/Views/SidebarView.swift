@@ -35,7 +35,7 @@ struct SidebarView: View {
             ScrollViewReader { scroller in
                 List(selection: selection) {
                     SidebarHeader(controller: controller).selectionDisabled()
-                    if controller.state.projects.isEmpty {
+                    if !controller.state.hasProjects {
                         SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
                     }
                     let tasks = Dictionary(controller.state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -172,7 +172,7 @@ struct SidebarBanners: View {
 
     var body: some View {
         if let message = controller.persistenceError {
-            SidebarBanner(text: message, tone: .error, actions: [.init(title: "Retry Saving") { controller.persist() }])
+            SidebarBanner(text: message, tone: .error, actions: [.init(title: "Retry Saving") { controller.workspace.flush() }])
         }
         if let issue = controller.issue {
             SidebarBanner(text: issue.title, detail: issue.reason, tone: .error,

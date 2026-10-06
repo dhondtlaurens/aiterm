@@ -36,9 +36,10 @@ struct CheckoutMonitorTests {
                                   defaultBranch: [project.id: "develop"])
         var remotes: [[UUID: WorkspaceScan.Remote]] = [], removedTasks: [[TaskItem]] = []
         var titles: [([SessionTitle], [SessionInfo])] = []
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
         live.sessions = [tab]
-        let monitor = CheckoutMonitor(live: live, scan: scanning([found]), git: .hermetic(), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scanning([found]), git: .hermetic(), workspace: workspace,
                                       removalInFlight: { _ in false },
                                       onRemotes: { remotes.append($0) }, onRemovedTasks: { removedTasks.append($0) },
                                       onTitles: { titles.append(($0, $1)) })
@@ -74,8 +75,9 @@ struct CheckoutMonitorTests {
         state.append(project: project)
         let scans = ScanLog(holding: true)
         var remotes = 0
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("first"), result("second")]), git: .hermetic(), workspace: { state },
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("first"), result("second")]), git: .hermetic(), workspace: workspace,
                                       removalInFlight: { _ in false },
                                       onRemotes: { _ in remotes += 1 }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
@@ -102,9 +104,10 @@ struct CheckoutMonitorTests {
         state.append(project: project)
         let scans = ScanLog(delay: 0.15)
         let (applied, passApplied) = AsyncStream.makeStream(of: Void.self)
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), pollInterval: .milliseconds(10),
-                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: workspace, removalInFlight: { _ in false },
                                       onRemotes: { _ in passApplied.yield() }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
         defer { monitor.stop() }
 
@@ -120,9 +123,10 @@ struct CheckoutMonitorTests {
         var state = AppState.empty
         state.append(project: project)
         let scans = ScanLog(delay: 0.1)
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("main")]), pollInterval: .milliseconds(400),
-                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: workspace, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
         defer { monitor.stop() }
 
@@ -140,14 +144,15 @@ struct CheckoutMonitorTests {
         state.append(project: project)
         let scans = ScanLog(holding: true)
         var remotes = 0
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), git: .hermetic(), workspace: { state },
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), git: .hermetic(), workspace: workspace,
                                       removalInFlight: { _ in false },
                                       onRemotes: { _ in remotes += 1 }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
         let pass = monitor.refresh()
         try await waitForPass(1, of: scans)
-        state.tasks = [task("added")]
+        workspace.mutate { $0.tasks = [task("added")] }
         monitor.refresh()
         scans.release()
         await pass.value
@@ -165,9 +170,10 @@ struct CheckoutMonitorTests {
         let scans = ScanLog(holding: true)
         let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: nil, projectId: nil,
                               agent: .claude, model: nil, state: .idle, title: "", cwd: "/repo")
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
         live.sessions = [tab]
-        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), git: .hermetic(), workspace: { state },
+        let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("stale"), result("fresh")]), git: .hermetic(), workspace: workspace,
                                       removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
@@ -194,10 +200,11 @@ struct CheckoutMonitorTests {
         let scans = ScanLog()
         var sent: [[SessionTitle]] = []
         var inFlight: CheckedContinuation<Void, Never>?
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
         live.sessions = [tab]
         let monitor = CheckoutMonitor(live: live, scan: scans.scanner([result("one"), result("two"), result("three")]),
-                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: workspace, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in },
                                       onTitles: { titles, _ in
             sent.append(titles)
@@ -225,9 +232,10 @@ struct CheckoutMonitorTests {
         let found = WorkspaceScan(branchByCwd: ["/repo": "main"], projectBranch: [project.id: "main"],
                                   missingCheckouts: [], removedTasks: [], remotes: [:])
         let release = DispatchSemaphore(value: 0)
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
         let monitor = CheckoutMonitor(live: live, scan: { _, _, _, _, _, _, _ in _ = release.wait(timeout: .now() + 10); return found },
-                                      git: .hermetic(), workspace: { state }, removalInFlight: { _ in false },
+                                      git: .hermetic(), workspace: workspace, removalInFlight: { _ in false },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 
         let stopped = monitor.refresh()
@@ -251,8 +259,9 @@ struct CheckoutMonitorTests {
                                     diffByTask: [removing.id: diff, vanished.id: diff])
         let missing = WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [removing.id, vanished.id],
                                     removedTasks: [], remotes: [:])
-        let live = LiveSessions(workspace: { state }, sessionsChanged: { _ in })
-        let monitor = CheckoutMonitor(live: live, scan: scanning([present, missing]), git: .hermetic(), workspace: { state },
+        let workspace = WorkspaceStore.holding(state)
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { _ in })
+        let monitor = CheckoutMonitor(live: live, scan: scanning([present, missing]), git: .hermetic(), workspace: workspace,
                                       removalInFlight: { $0 == removing.id },
                                       onRemotes: { _ in }, onRemovedTasks: { _ in }, onTitles: { _, _ in })
 

@@ -14,23 +14,42 @@ struct SidebarTilingTests {
         return window
     }
 
-    /// A drag reports every pixel; the frame is saved once, when it has settled.
+    /// A drag reports every pixel; the frame is written to the workspace once, when it has settled.
     @Test func aMoveIsSavedOnceItSettles() async throws {
-        var saved: [CGRect] = []
-        let tiling = SidebarTiling(preferences: .scratch(), moveDelay: 0.02, tiledWindows: { [] }, daemon: { nil },
-                                   saveSidebarFrame: { saved.append($0) })
+        let workspace = WorkspaceStore.holding(.empty)
+        var changes = 0
+        workspace.onChange { changes += 1 }
+        let tiling = SidebarTiling(preferences: .scratch(), moveDelay: 0.02, workspace: workspace, daemon: { nil })
         let window = sidebarWindow()
         tiling.sidebarWindow = window
         window.setFrameOrigin(NSPoint(x: 40, y: 0))
         tiling.sidebarMoved()
         window.setFrameOrigin(NSPoint(x: 80, y: 0))
         tiling.sidebarMoved()
-        #expect(saved.isEmpty)
+        #expect(changes == 0)
 
-        try #require(await eventually { !saved.isEmpty })
+        try #require(await eventually { changes > 0 })
         // Absence: the first move's own, cancelled, delay would have fired by now.
         try await Task.sleep(for: .milliseconds(100))
-        #expect(saved == [window.frame])
+        #expect(changes == 1)
+        #expect(workspace.state.sidebarFrame == window.frame)
+    }
+
+    /// A sidebar that settles where it already was changes nothing, so nothing is saved.
+    @Test func aMoveBackToTheSavedFrameChangesNothing() {
+        let workspace = WorkspaceStore.holding(.empty)
+        let tiling = SidebarTiling(preferences: .scratch(), workspace: workspace, daemon: { nil })
+        let window = sidebarWindow()
+        tiling.sidebarWindow = window
+        tiling.sidebarMoved()
+        tiling.finishPendingMove()
+        var changes = 0
+        workspace.onChange { changes += 1 }
+
+        tiling.sidebarMoved()
+        tiling.finishPendingMove()
+
+        #expect(changes == 0)
     }
 
     /// Quitting mid-debounce still saves where the sidebar ended up, into the workspace.
@@ -48,6 +67,8 @@ struct SidebarTilingTests {
         controller.tiling.sidebarMoved()
         controller.tiling.finishPendingMove()
         #expect(controller.state.sidebarFrame == window.frame)
+        // As `applicationShouldTerminate` does next: the change is saved now, not a moment later.
+        #expect(controller.workspace.flush())
         #expect(try StateStore(url: dir.appendingPathComponent("state.json")).load().sidebarFrame == window.frame)
     }
 
@@ -60,11 +81,14 @@ struct SidebarTilingTests {
         let task = try fixture.addTask(windowId: "task-window")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Terminal", windowId: "terminal-window",
                                     createdAt: Date())
-        controller.state.terminals = [terminal]
-        controller.state.tasks.append(TaskItem(id: UUID(), projectId: fixture.project.id, title: "Closed", branch: "main",
-                                               worktreePath: fixture.repo.path, baseBranch: "main", jira: nil, agent: .codex,
-                                               model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
-                                               createdAt: Date(), windowId: nil))
+        let closed = TaskItem(id: UUID(), projectId: fixture.project.id, title: "Closed", branch: "main",
+                              worktreePath: fixture.repo.path, baseBranch: "main", jira: nil, agent: .codex,
+                              model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
+                              createdAt: Date(), windowId: nil)
+        controller.workspace.mutate { state in
+            state.terminals = [terminal]
+            state.tasks.append(closed)
+        }
         controller.helper.setDaemonClient(server)
         await controller.checkouts.refreshTask?.value
         let window = sidebarWindow()

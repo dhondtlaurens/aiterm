@@ -1,10 +1,41 @@
 import Foundation
+import Testing
 import Synchronization
 @testable import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
 
+extension WorkspaceStore {
+    /// A workspace that is never saved — never loaded, so nothing writes its file — holding `state`,
+    /// for an owner a test builds without a controller.
+    static func holding(_ state: AppState) -> WorkspaceStore {
+        let workspace = WorkspaceStore(file: StateStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("aiterm-test-unsaved-\(UUID().uuidString).json")))
+        workspace.mutate { $0 = state }
+        return workspace
+    }
+}
+
 extension AppController {
+    /// What the workspace file holds once the changes made so far are saved: the save they are
+    /// waiting on is made now, as quitting makes it, rather than a moment later.
+    func savedWorkspace() throws -> AppState {
+        #expect(workspace.flush(), "the workspace saves")
+        return try workspace.file.load()
+    }
+
+    /// Locks the workspace as a failed save does: a directory stands where the backup goes, so
+    /// the next save fails, and a change is saved into it — the sidebar's frame, which no test of
+    /// a locked workspace reads.
+    func breakSaving() throws {
+        let backup = workspace.file.backupURL
+        try? FileManager.default.removeItem(at: backup)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        workspace.mutate { $0.sidebarFrame = CGRect(x: 0, y: 0, width: 1, height: 1) }
+        #expect(!workspace.flush(), "saving fails")
+        #expect(!canChangeWorkspace)
+    }
+
     /// The controller a test builds: the bare home, no bundle — so there is no helper to find
     /// Python for — no login shell to find the agent CLIs, a workspace file nothing else uses, and
     /// no Keychain read for Settings. A test that needs a different one of them names it. A peek

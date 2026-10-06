@@ -60,8 +60,9 @@ import Foundation
         let moved = state.move(id: b.id, .up)
         #expect(moved)
         #expect(state.items.map(\.id) == [b.id, a.id, hidden])
-        state.projects = [a, b]
-        #expect(state.items.map(\.id) == [a.id, b.id, hidden], "the project setter refills project slots only")
+        let back = state.move(id: b.id, .down)
+        #expect(back)
+        #expect(state.items.map(\.id) == [a.id, b.id, hidden], "a move steps over drawn rows only")
 
         let entries = SidebarModel.entries(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
         #expect(entries.map(\.id) == [a.id, b.id])
@@ -80,7 +81,7 @@ import Foundation
         let t = TaskItem(id: UUID(), projectId: p.id, title: "Add graceful SIGTERM", branch: "feat/web-5447-graceful-sigterm", worktreePath: p.path + "/.worktrees/web-5447-graceful-sigterm", baseBranch: "main", jira: JiraRef(key: "WEB-5447", summary: "Add graceful SIGTERM", url: "https://x.atlassian.net/browse/WEB-5447"), agent: .claude, model: "opus", reasoning: "high", firstPrompt: nil, appendTicket: true, createdAt: Date(timeIntervalSince1970: 2), windowId: nil)
         let term = TerminalItem(id: UUID(), projectId: p.id, name: "Logs", windowId: "w7", createdAt: Date(timeIntervalSince1970: 3))
         var state = AppState.empty
-        state.projects = [p]; state.tasks = [t]; state.terminals = [term]
+        state.items = [.project(p)]; state.tasks = [t]; state.terminals = [term]
         state.lastAgentByProject[p.id] = .codex
         state.lastModelByAgent[.codex] = "gpt-5.6"
         let data = try JSONEncoder().encode(state)
@@ -238,7 +239,7 @@ import Foundation
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w2",
                                     createdAt: Date(timeIntervalSince1970: 0))
         var state = AppState.empty
-        state.projects = [project]; state.tasks = [task]; state.terminals = [terminal]
+        state.items = [.project(project)]; state.tasks = [task]; state.terminals = [terminal]
         let closedTask = state.closeWindow("w1")
         #expect(closedTask)
         #expect(state.tasks.isEmpty)
@@ -302,19 +303,14 @@ import Foundation
         #expect(state.items.map(\.id) == [a.id, rule.id, b.id])
     }
 
-    /// The setter is what `Snapshots.swift` and the test fixtures assign through: it refills the
-    /// project slots in order and leaves every divider where the user put it.
-    @Test func testAssigningProjectsKeepsDividersInTheirSlots() {
+    /// The empty sidebar's question: a divider alone is not a project.
+    @Test func hasProjectsCountsOnlyProjects() {
         var state = AppState.empty
-        let (a, b, c) = (project("a"), project("b"), project("c"))
-        let rule = SidebarDivider(id: UUID(), name: "Work")
-        state.append(project: a); state.append(divider: rule); state.append(project: b)
-        state.projects = [b, a]
-        #expect(state.items.map(\.id) == [b.id, rule.id, a.id])
-        state.projects = [b, a, c]
-        #expect(state.items.map(\.id) == [b.id, rule.id, a.id, c.id])
-        state.projects[0].collapsed = true
-        #expect(state.projects.map(\.collapsed) == [true, false, false])
+        #expect(!state.hasProjects)
+        state.append(divider: SidebarDivider(id: UUID(), name: "Work"))
+        #expect(!state.hasProjects)
+        state.append(project: project("a"))
+        #expect(state.hasProjects)
     }
 
     @Test func testMutatorsAddRenameAndRemoveWithoutDisturbingNeighbours() {

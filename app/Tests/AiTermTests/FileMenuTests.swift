@@ -14,7 +14,7 @@ import Testing
     private func controller() throws -> AppController {
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         try controller.loadWorkspace()
-        controller.state.projects = [git, folder]
+        controller.workspace.mutate { $0.items = [.project(git), .project(folder)] }
         return controller
     }
 
@@ -47,7 +47,7 @@ import Testing
         let controller = try controller()
         let work = task(in: git)
         let shell = TerminalItem(id: UUID(), projectId: git.id, name: "Terminal", windowId: nil, createdAt: Date())
-        controller.state.tasks = [work]; controller.state.terminals = [shell]
+        controller.workspace.mutate { $0.tasks = [work] }; controller.workspace.mutate { $0.terminals = [shell] }
 
         controller.focus.browse(.task(work.id))
         #expect(controller.targetProject == git)
@@ -71,7 +71,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
         let shell = TerminalItem(id: UUID(), projectId: folder.id, name: "Terminal", windowId: nil, createdAt: Date())
-        controller.state.terminals = [shell]
+        controller.workspace.mutate { $0.terminals = [shell] }
         controller.focus.browse(.terminal(shell.id))
         let items = try enabled(controller)
         #expect(items["New Task…"] == false)
@@ -83,7 +83,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()
         let work = task(in: git)
-        controller.state.tasks = [work]
+        controller.workspace.mutate { $0.tasks = [work] }
         controller.focus.browse(.task(work.id))
         controller.sheet = .newDivider
         #expect(try enabled(controller).values.allSatisfy { !$0 })

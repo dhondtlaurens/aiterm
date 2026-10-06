@@ -47,17 +47,14 @@ private struct CountedSet {
 @MainActor
 @Observable
 final class AppController {
-    var state = AppState.empty {
-        didSet {
-            live.pruneContexts()
-            pruneForgottenRows()
-            updateDockBadge()
-        }
-    }
-    let store: StateStore
-    private(set) var workspaceLoaded = false
-    private(set) var persistenceError: String?
-    var canChangeWorkspace: Bool { workspaceLoaded && persistenceError == nil }
+    /// The projects, dividers, tasks and terminals, and the one way they change: `workspace.mutate`,
+    /// which saves the change and tells the owners below that keep something per row.
+    let workspace: WorkspaceStore
+    /// `workspace`'s, forwarded: the views and the tests read them here.
+    var state: AppState { workspace.state }
+    var workspaceLoaded: Bool { workspace.loaded }
+    var persistenceError: String? { workspace.persistenceError }
+    var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
 
     var sheet: SheetKind?
     /// The banner above the list and the completion toast, and which report wins the banner.
@@ -152,7 +149,8 @@ final class AppController {
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner) {
         let link = ControllerLink()
-        self.store = store
+        let workspace = WorkspaceStore(file: store)
+        self.workspace = workspace
         self.preferences = preferences
         self.harnessHome = harnessHome
         self.git = git
@@ -161,7 +159,7 @@ final class AppController {
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
         let notices = Notices(toastLifetime: toastLifetime,
-                              isStale: { issue in link.controller.map { issue.isStale(in: $0.state) } ?? false },
+                              isStale: { $0.isStale(in: workspace.state) },
                               withdrawn: { link.controller?.clearStoppedNote(of: $0) })
         self.notices = notices
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
@@ -169,26 +167,16 @@ final class AppController {
                                 onAttach: { link.controller?.checkouts.refresh() }, // Retry checkout cleanup that waited for it.
                                 notices: notices)
         self.helper = helper
-        let tiling = SidebarTiling(preferences: preferences,
-            tiledWindows: {
-                guard let state = link.controller?.state else { return [] }
-                return state.tasks.compactMap(\.windowId) + state.terminals.compactMap(\.windowId)
-            },
-            daemon: { helper.daemon },
-            saveSidebarFrame: { frame in
-                link.controller?.state.sidebarFrame = frame
-                link.controller?.persist()
-            })
+        let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: { helper.daemon })
         self.tiling = tiling
-        focus = RowFocus(peekDelay: peekDelay, workspace: { link.controller?.state ?? .empty }, daemon: { helper.daemon },
+        focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: { helper.daemon },
                          taskFrame: { tiling.taskFrame() }, activateIterm: activateIterm,
                          isRemoving: { link.controller?.removals[$0]?.inProgress == true },
                          onWindowGone: { link.controller?.handleWindowClosed($0) },
                          notices: notices)
-        let live = LiveSessions(workspace: { link.controller?.state ?? .empty },
-                                sessionsChanged: { link.controller?.sessionsChanged($0) })
+        let live = LiveSessions(workspace: workspace, sessionsChanged: { link.controller?.sessionsChanged($0) })
         self.live = live
-        checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: { link.controller?.state ?? .empty },
+        checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
             removalInFlight: { id in
                 guard let controller = link.controller else { return false }
                 return controller.changingTasks.contains(id) && controller.removals[id]?.awaitsRetry != true
@@ -200,36 +188,22 @@ final class AppController {
         self.setBadge = setBadge
         self.activateIterm = activateIterm
         agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
-                                   rememberedModels: { link.controller?.state.lastModelByAgent ?? [:] },
+                                   rememberedModels: { workspace.state.lastModelByAgent },
                                    availableAgentsChanged: { link.controller?.sheet?.creationModel?.availableAgents = $0 })
+        // What a change to the workspace sets off, once per change, in this order: whatever named a
+        // row that has gone goes with it — its context fills, the banner about it, its removal's
+        // entry — and then the Dock badge counts what is left.
+        workspace.onChange { live.pruneContexts() }
+        workspace.onChange { notices.dropStale() }
+        workspace.onChange { link.controller?.pruneRemovals() }
+        workspace.onChange { link.controller?.updateDockBadge() }
         link.controller = self
     }
 
     // -- workspace ------------------------------------------------------------------
-    func loadWorkspace() throws {
-        guard !workspaceLoaded else { return }
-        state = try store.load()
-        workspaceLoaded = true
-    }
-
-    func restoreWorkspace() throws {
-        state = try store.restoreBackup()
-        workspaceLoaded = true
-        persistenceError = nil
-    }
-
-    @discardableResult
-    func persist() -> Bool {
-        guard workspaceLoaded else { return false }
-        do {
-            try store.save(state)
-            if persistenceError != nil { persistenceError = nil }
-            return true
-        } catch {
-            persistenceError = "Changes haven’t been saved. " + error.localizedDescription
-            return false
-        }
-    }
+    /// `workspace`'s, forwarded for the app's launch and the tests.
+    func loadWorkspace() throws { try workspace.load() }
+    func restoreWorkspace() throws { try workspace.restoreBackup() }
 
     /// Launch: the checkout monitor, the agent CLI probes and the helper, each once.
     func start() {
@@ -262,7 +236,7 @@ final class AppController {
             guard snapshot.connected else { return }
             // Only a successful connected snapshot establishes that a window is absent.
             // Reattach by stable task tags first, including a create whose reply was lost.
-            // Worked on a copy: every write to `state` is a sidebar re-render and a dock-badge update.
+            // Worked on a copy, which `commitClosedWindows` adopts in one change if anything differs.
             var next = state
             let tabByTask = Dictionary(snapshot.sessions.compactMap { tab in tab.taskUUID.map { ($0, tab) } },
                                        uniquingKeysWith: { first, _ in first })
@@ -296,17 +270,14 @@ final class AppController {
     /// rescan checkouts when a task went, and save.
     private func commitClosedWindows(_ next: AppState) {
         let tasksRemoved = next.tasks.count != state.tasks.count
-        state = next
+        workspace.mutate { $0 = next }
         if tasksRemoved { checkouts.refresh() }
         focus.dropStale()
-        persist()
     }
 
-    /// Whatever named a row that is gone goes with it — through `window.closed`, a removed project,
-    /// a restored backup or a removal — in this one place: the banner about it, and its removal's
-    /// entry. Runs on every write to `state`, so it writes only what changed.
-    private func pruneForgottenRows() {
-        notices.dropStale()
+    /// A removal's entry goes with its task — through `window.closed`, a removed project, a restored
+    /// backup or a removal. Runs on every change to the workspace, so it writes only what changed.
+    private func pruneRemovals() {
         guard !removals.isEmpty else { return }
         let kept = removals.filter { state.task(id: $0.key) != nil }
         if kept.count != removals.count { removals = kept }
@@ -318,7 +289,7 @@ final class AppController {
         updateDockBadge()
     }
 
-    /// Only a changed label is written to the dock: this runs on every write to `state`, `sessions`
+    /// Only a changed label is written to the dock: this runs on every change to the workspace, `sessions`
     /// and `removals`, several a second, and the label almost never changes. It counts what Focus
     /// View steps through, from the same rows.
     private func updateDockBadge() {
@@ -358,8 +329,9 @@ final class AppController {
         let provider = ProviderDetector.detect(remoteUrl: remote, repoPath: toplevel == nil ? nil : path).provider
         let project = Project(id: UUID(), name: URL(fileURLWithPath: path).lastPathComponent, path: path,
                               provider: provider, remoteUrl: remote, addedAt: Date(), collapsed: false)
-        state.append(project: project)
-        guard persist() else { return }
+        workspace.mutate { $0.append(project: project) }
+        // Its worktrees are offered for import once it is saved, and not at all if it cannot be.
+        guard workspace.flush() else { return }
         checkouts.refresh()
         if let toplevel, toplevel != picked { showToast("Added \(project.name), the repository around the folder you picked.") }
         await importWorktrees(for: project)
@@ -387,14 +359,14 @@ final class AppController {
         // `runModal` runs whatever was queued while the alert was up; the project can have gone.
         guard answer.confirmed, canChangeWorkspace, state.project(id: project.id) != nil else { return }
         let known = Set(state.tasks.map(\.worktreePath))
-        state.tasks += found.compactMap { worktree in
+        let imported = found.compactMap { worktree -> TaskItem? in
             guard let branch = worktree.branch, !known.contains(worktree.path) else { return nil }
             return TaskItem(id: UUID(), projectId: project.id, title: branch, branch: branch,
                      worktreePath: worktree.path, baseBranch: base, jira: nil, kind: Self.importedKind(worktree),
                      agent: agent, model: preference.model,
                      reasoning: preference.reasoning, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: nil)
         }
-        persist()
+        workspace.mutate { $0.tasks += imported }
     }
 
     /// Which kind an imported worktree is. This is the whole reason `managedWorktrees()` reports a
@@ -417,16 +389,14 @@ final class AppController {
     /// provider badge and every merge-request link are built from, so a stale one outlives the
     /// change indefinitely.
     private func applyRemotes(_ detected: [UUID: WorkspaceScan.Remote]) {
-        var next = state
-        for (id, found) in detected {
-            next.updateProject(id: id) { project in
-                guard project.provider != found.provider || project.remoteUrl != found.url else { return }
-                project.provider = found.provider; project.remoteUrl = found.url
+        workspace.mutate { state in
+            for (id, found) in detected {
+                state.updateProject(id: id) { project in
+                    guard project.provider != found.provider || project.remoteUrl != found.url else { return }
+                    project.provider = found.provider; project.remoteUrl = found.url
+                }
             }
         }
-        guard next != state else { return }
-        state = next
-        persist()
     }
 
     /// The connection is a Keychain read, so it is made off the main actor.
@@ -449,8 +419,7 @@ final class AppController {
         let linked = Self.linkedOnce(jiraProjects)
         guard canChangeWorkspace, let current = state.project(id: project.id),
               current.jiraProjects != linked else { return }
-        state.updateProject(id: project.id) { $0.jiraProjects = linked }
-        persist()
+        workspace.mutate { $0.updateProject(id: project.id) { $0.jiraProjects = linked } }
     }
 
     /// `jiraProjects` with every repeat of a project after its first dropped.
@@ -499,8 +468,7 @@ final class AppController {
     /// so it has no stored state worth flipping.
     func toggleCollapsed(_ project: Project) {
         guard canChangeWorkspace, state.project(id: project.id) != nil, hasRows(project) else { return }
-        state.updateProject(id: project.id) { $0.collapsed.toggle() }
-        persist()
+        workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
     }
 
     /// Whether the project has a task, review or terminal row — anything to fold.
@@ -536,17 +504,14 @@ final class AppController {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
     }
 
-    /// Stores `layout`'s collapsed states in one write to `state`, and saves only if one changed.
+    /// Stores `layout`'s collapsed states in one change to the workspace, which saves only if one changed.
     @discardableResult
     private func applyView(_ layout: [UUID: Bool]) -> Bool {
         guard canApplyView(layout) else { return false }
-        var next = state
-        for (id, collapsed) in layout {
-            next.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
-        }
-        if next != state {
-            state = next
-            persist()
+        workspace.mutate { state in
+            for (id, collapsed) in layout {
+                state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
+            }
         }
         return true
     }
@@ -569,11 +534,11 @@ final class AppController {
 
     /// Moves a project or a divider one slot along the sidebar. Only the item order changes: tasks
     /// and terminals stay attached by project id, so an expanded project's rows move with it and
-    /// its collapsed state is left untouched.
+    /// its collapsed state is left untouched. Whether it moved.
     @discardableResult
     func move(itemId: UUID, _ step: MoveStep) -> Bool {
-        guard canChangeWorkspace, state.move(id: itemId, step) else { return false }
-        return persist()
+        guard canChangeWorkspace else { return false }
+        return workspace.mutate { $0.move(id: itemId, step) }
     }
 
     /// Plan self-review (spec 4.6): removing a project only forgets it. Worktrees created for its
@@ -591,13 +556,12 @@ final class AppController {
             buttons: ["Remove", "Cancel"]))
         // The alert's modal loop runs whatever was queued meanwhile, a create among them.
         guard answer.confirmed, canChangeWorkspace, !refusesRemoval(of: project) else { return }
-        var next = state
-        next.tasks.removeAll { $0.projectId == project.id }
-        next.terminals.removeAll { $0.projectId == project.id }
-        next.removeItem(id: project.id)
-        state = next
+        workspace.mutate { state in
+            state.tasks.removeAll { $0.projectId == project.id }
+            state.terminals.removeAll { $0.projectId == project.id }
+            state.removeItem(id: project.id)
+        }
         focus.dropStale()
-        persist()
     }
 
     /// Says why `project` cannot be removed yet, if it cannot: work still in flight would land in a
@@ -627,14 +591,13 @@ final class AppController {
     /// A divider is pure workspace state: no daemon call, no window, nothing to undo but the label.
     func addDivider(name: String) {
         guard canChangeWorkspace else { return }
-        state.append(divider: SidebarDivider(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines)))
-        persist()
+        let divider = SidebarDivider(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        workspace.mutate { $0.append(divider: divider) }
     }
 
     func removeDivider(_ divider: SidebarDivider) {
         guard canChangeWorkspace else { return }
-        state.removeItem(id: divider.id)
-        persist()
+        workspace.mutate { $0.removeItem(id: divider.id) }
     }
 
     func presentRename(divider: SidebarDivider) {
@@ -650,8 +613,8 @@ final class AppController {
     /// An empty name is a real choice for a divider — the row draws a plain rule.
     func rename(divider: SidebarDivider, to name: String) {
         guard canChangeWorkspace else { return }
-        state.renameDivider(id: divider.id, to: name.trimmingCharacters(in: .whitespacesAndNewlines))
-        persist()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        workspace.mutate { $0.renameDivider(id: divider.id, to: trimmed) }
     }
 
     /// The title only. The branch, worktree, base branch and Jira link are untouched, and the
@@ -659,10 +622,8 @@ final class AppController {
     func rename(task: TaskItem, to name: String) {
         guard canChangeWorkspace else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let i = state.tasks.firstIndex(where: { $0.id == task.id }),
-              state.tasks[i].title != trimmed else { return }
-        state.tasks[i].title = trimmed
-        persist()
+        guard !trimmed.isEmpty, let i = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        workspace.mutate { $0.tasks[i].title = trimmed }
     }
 
     func presentRename(terminal: TerminalItem) {
@@ -676,10 +637,8 @@ final class AppController {
     func rename(terminal: TerminalItem, to name: String) {
         guard canChangeWorkspace else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let i = state.terminals.firstIndex(where: { $0.id == terminal.id }),
-              state.terminals[i].name != trimmed else { return }
-        state.terminals[i].name = trimmed
-        persist()
+        guard !trimmed.isEmpty, let i = state.terminals.firstIndex(where: { $0.id == terminal.id }) else { return }
+        workspace.mutate { $0.terminals[i].name = trimmed }
     }
 
     // -- sheets ---------------------------------------------------------------------
@@ -847,14 +806,13 @@ final class AppController {
             catch let error as DaemonError where error.isNotFound {}
         }
         if !opened { try await openWindow(for: current, command: command, with: daemon) }
-        var next = state
-        if let mr = draft.mr, let i = next.tasks.firstIndex(where: { $0.id == owner.id }) {
-            next.tasks[i].mr = MergeRequestRef(iid: mr.iid, title: mr.title, url: mr.url)
+        workspace.mutate { state in
+            if let mr = draft.mr, let i = state.tasks.firstIndex(where: { $0.id == owner.id }) {
+                state.tasks[i].mr = MergeRequestRef(iid: mr.iid, title: mr.title, url: mr.url)
+            }
+            state.rememberChoice(draft, projectId: owner.projectId)
         }
-        next.rememberChoice(draft, projectId: owner.projectId)
-        state = next
         focus.browse(.task(owner.id))
-        persist()
     }
 
     /// The row whose worktree has `branch` checked out, by git's own worktree listing.
@@ -884,13 +842,14 @@ final class AppController {
         defer { creatingProjects.remove(project.id) }
         let result = try await checkout()
         let task = result.task
-        var next = state
-        next.tasks.append(task)
-        next.rememberChoice(draft, projectId: project.id)
-        state = next
+        workspace.mutate { state in
+            state.tasks.append(task)
+            state.rememberChoice(draft, projectId: project.id)
+        }
         checkouts.refresh()
         focus.browse(.task(task.id))
-        guard persist() else { return }
+        // A row that could not be saved gets no window: a relaunch would not know the window was its.
+        guard workspace.flush() else { return }
         if let warning = result.launchWarning {
             report(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose Reopen Window, then start the agent manually.",
                                   reason: warning))
@@ -919,8 +878,7 @@ final class AppController {
             try? await closeWindow(wid, with: daemon)
             return
         }
-        state.tasks[i].windowId = wid
-        persist()
+        workspace.mutate { $0.tasks[i].windowId = wid }
     }
 
     /// Closes a window, treating one that is already gone as closed.
@@ -1121,16 +1079,14 @@ final class AppController {
         guard let daemon = helper.daemon, let i = state.tasks.firstIndex(where: { $0.id == task.id }),
               let wid = state.tasks[i].windowId else { return false }
         windowsLetGo.insert(task.id)
-        state.tasks[i].windowId = nil
         // Saved windowless too, so a removal that fails from here leaves a row to retry after a
         // relaunch, rather than one the next snapshot drops for its missing window.
-        persist()
+        workspace.mutate { $0.tasks[i].windowId = nil }
         do { try await closeWindow(wid, with: daemon) }
         catch {
             windowsLetGo.remove(task.id)
             if let j = state.tasks.firstIndex(where: { $0.id == task.id }), state.tasks[j].windowId == nil {
-                state.tasks[j].windowId = wid
-                persist()
+                workspace.mutate { $0.tasks[j].windowId = wid }
             }
             throw RemovalStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close (\(error)), so nothing was deleted."))
         }
@@ -1152,7 +1108,6 @@ final class AppController {
         if let refusal = result.branchRefusal {
             removals[task.id] = .stopped(note: "Not removed: branch kept", worktreeRemoved: true)
             report(.branchKept(task.branch, of: task.id, because: refusal))
-            persist()
             return
         }
         // The window the task has now: the one it had at the click can have closed, or come back.
@@ -1175,13 +1130,13 @@ final class AppController {
         if persistenceError == nil { showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? "")) }
     }
 
-    /// The row goes, and with it — `pruneForgottenRows` — the banner about it and its removal's entry.
+    /// The row goes, and with it — through the workspace's change hooks, set up in `init` — the
+    /// banner about it and its removal's entry.
     private func forget(task: TaskItem) {
-        state.tasks.removeAll { $0.id == task.id }
+        workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
         checkouts.forget(task: task.id)
         checkouts.refresh()
         focus.dropStale()
-        persist()
     }
 
     /// The tasks a checkout pass found gone, as they are now: one being changed, or waiting on a
@@ -1276,9 +1231,8 @@ final class AppController {
                     return
                 }
                 let item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: wid, createdAt: Date())
-                state.terminals.append(item)
+                workspace.mutate { $0.terminals.append(item) }
                 checkouts.refresh()
-                persist()
                 guard generation == focus.generation else { return }
                 focus.browse(.terminal(item.id))
                 activateIterm()
@@ -1305,8 +1259,7 @@ final class AppController {
                     try? await closeWindow(wid, with: daemon)
                     return
                 }
-                state.terminals[i].windowId = wid
-                persist()
+                workspace.mutate { $0.terminals[i].windowId = wid }
             } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
     }
@@ -1333,9 +1286,8 @@ final class AppController {
                 do { try await closeWindow(wid, with: daemon) }
                 catch { report(OperationIssue(title: "Couldn’t close the terminal.", error: error)); return }
             }
-            state.terminals.removeAll { $0.id == terminal.id }
+            workspace.mutate { $0.terminals.removeAll { $0.id == terminal.id } }
             focus.dropStale()
-            persist()
         }
     }
 

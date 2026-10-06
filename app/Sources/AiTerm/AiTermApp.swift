@@ -68,8 +68,8 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard controller.workspaceLoaded else { return .terminateNow }
         controller.tiling.finishPendingMove()
-        guard controller.persistenceError != nil else { return .terminateNow }
-        if controller.persist() { return .terminateNow }
+        // Changes wait a moment to be saved together; whatever is still waiting is saved now.
+        if controller.workspace.flush() { return .terminateNow }
         let answer = controller.prompter.ask(AlertPrompt(
             message: "Workspace changes haven’t been saved",
             detail: "Quit without saving to discard changes since the last save, or cancel to keep working.",
@@ -92,14 +92,14 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
                     detail: error.localizedDescription
                         + "\n\nRestoring a backup may omit recent changes. The original file will be preserved.",
                     buttons: ["Retry", "Restore Backup", "Reveal in Finder", "Quit"],
-                    unavailable: controller.store.hasValidBackup ? [] : ["Restore Backup"], escape: 3))
+                    unavailable: controller.workspace.file.hasValidBackup ? [] : ["Restore Backup"], escape: 3))
                 switch answer.button {
                 case 0: continue
                 case 1:
                     do { try controller.restoreWorkspace(); return true }
                     catch { controller.prompter.ask(AlertPrompt(message: error.localizedDescription)) }
                 case 2:
-                    NSWorkspace.shared.activateFileViewerSelecting([controller.store.url.deletingLastPathComponent()])
+                    NSWorkspace.shared.activateFileViewerSelecting([controller.workspace.file.url.deletingLastPathComponent()])
                 default: return false
                 }
             }

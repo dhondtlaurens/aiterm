@@ -10,23 +10,21 @@ final class SidebarTiling {
     /// Set once the app has made the window.
     weak var sidebarWindow: NSWindow?
     private let preferences: InterfacePreferences
-    /// The windows to tile, the daemon that moves them and where the sidebar's frame is saved: the
-    /// workspace's and the connection's.
-    private let tiledWindows: @MainActor () -> [String]
+    /// Where the sidebar's frame is saved and the windows to tile are listed, and the connection
+    /// that moves them.
+    private let workspace: WorkspaceStore
     private let daemon: @MainActor () -> (any DaemonCommands)?
-    private let saveSidebarFrame: @MainActor (CGRect) -> Void
     /// Trailing debounce for `sidebarMoved()`: `didMoveNotification` fires for every pixel of a
     /// drag, and each one would otherwise write state.json and re-frame every iTerm2 window.
     private var pendingMove: DispatchWorkItem?
     private let moveDelay: TimeInterval
 
-    init(preferences: InterfacePreferences, moveDelay: TimeInterval = 0.15, tiledWindows: @escaping @MainActor () -> [String],
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?, saveSidebarFrame: @escaping @MainActor (CGRect) -> Void) {
+    init(preferences: InterfacePreferences, moveDelay: TimeInterval = 0.15, workspace: WorkspaceStore,
+         daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
         self.moveDelay = moveDelay
         self.preferences = preferences
-        self.tiledWindows = tiledWindows
+        self.workspace = workspace
         self.daemon = daemon
-        self.saveSidebarFrame = saveSidebarFrame
     }
 
     private static let defaultSidebarRect = CGRect(x: 0, y: 0, width: 300, height: 800)
@@ -90,13 +88,16 @@ final class SidebarTiling {
     @discardableResult
     private func sidebarFrameChanged() -> Task<Void, Never>? {
         guard let window = sidebarWindow else { return nil }
-        saveSidebarFrame(window.frame)
+        let frame = window.frame
+        workspace.mutate { $0.sidebarFrame = frame }
         return snapAll()
     }
 
+    /// Puts every open task and terminal window beside the sidebar.
     private func snapAll() -> Task<Void, Never>? {
         guard let daemon = daemon() else { return nil }
-        let frame = taskFrame(), ids = tiledWindows()
+        let state = workspace.state
+        let frame = taskFrame(), ids = state.tasks.compactMap(\.windowId) + state.terminals.compactMap(\.windowId)
         return Task { for id in ids { try? await daemon.setFrame(windowId: id, frame: frame) } }
     }
 }

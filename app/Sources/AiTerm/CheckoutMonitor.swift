@@ -54,14 +54,14 @@ final class CheckoutMonitor {
     /// The saved workspace a pass reads, and where what it finds for that workspace goes: remotes
     /// to adopt, tasks whose checkout is gone, the tab titles to send. `removalInFlight` says which
     /// tasks are being removed, whose badge holds still while their checkout goes.
-    private let workspace: @MainActor () -> AppState
+    private let workspace: WorkspaceStore
     private let removalInFlight: @MainActor (UUID) -> Bool
     private let onRemotes: @MainActor ([UUID: WorkspaceScan.Remote]) -> Void
     private let onRemovedTasks: @MainActor ([TaskItem]) -> Void
     private let onTitles: @MainActor (_ titles: [SessionTitle], _ sessions: [SessionInfo]) async -> Void
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
-         workspace: @escaping @MainActor () -> AppState,
+         workspace: WorkspaceStore,
          removalInFlight: @escaping @MainActor (UUID) -> Bool,
          onRemotes: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void,
          onRemovedTasks: @escaping @MainActor ([TaskItem]) -> Void,
@@ -136,7 +136,7 @@ final class CheckoutMonitor {
             defer { if refreshGeneration == generation { refreshTask = nil } }
             while !Task.isCancelled {
                 trailingPassOwed = false
-                let inputs = ScanInputs(workspace: workspace(), cwds: live.sessions.map(\.effectiveCwd))
+                let inputs = ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd))
                 let branches = self.branches, remotes = self.remotes, diffs = self.diffs, scan = self.scan
                 let defaultBranches = self.defaultBranches
                 stalls.scope(projects: inputs.projects, tasks: inputs.tasks)
@@ -144,7 +144,7 @@ final class CheckoutMonitor {
                     scan(inputs.cwds, inputs.projects, inputs.tasks, branches, remotes, diffs, defaultBranches)
                 }
                 guard !Task.isCancelled, let scan = scanned else { return }
-                guard inputs == ScanInputs(workspace: workspace(), cwds: live.sessions.map(\.effectiveCwd)) else { continue }
+                guard inputs == ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd)) else { continue }
                 applyScan(scan)
                 onRemotes(scan.remotes)
                 onRemovedTasks(scan.removedTasks)
@@ -196,7 +196,7 @@ final class CheckoutMonitor {
     /// sync is out at a time; the titles of a pass that ends meanwhile wait behind it.
     private func syncTitles(_ scan: WorkspaceScan) {
         let sessions = live.sessions
-        let titles = SidebarModel.sessionTitles(state: workspace(), sessions: sessions, branchByCwd: scan.branchByCwd,
+        let titles = SidebarModel.sessionTitles(state: workspace.state, sessions: sessions, branchByCwd: scan.branchByCwd,
                                                 projectBranch: scan.projectBranch)
         pendingTitles = (titles, sessions)
         guard titleSync == nil else { return }

@@ -186,7 +186,7 @@ extension AppControllerTests {
         fixture.controller.helper.setDaemonClient(server)
         let first = try fixture.addTask(windowId: "first")
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "shell", createdAt: Date())
-        fixture.controller.state.terminals = [terminal]
+        fixture.controller.workspace.mutate { $0.terminals = [terminal] }
 
         let passed = fixture.controller.focus.peek(.task(first.id))
         let stopped = fixture.controller.focus.peek(.terminal(terminal.id))
@@ -221,7 +221,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let shown = try fixture.addTask(windowId: "work")
         let windowless = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        controller.state.terminals = [windowless]
+        controller.workspace.mutate { $0.terminals = [windowless] }
 
         await controller.focus.peek(.task(shown.id))?.value
         controller.focus.peek(.terminal(windowless.id))

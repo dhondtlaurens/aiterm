@@ -38,7 +38,7 @@ struct AgentIntegrationsTests {
         let settings = controller.agents.harnessSettingsModel()
         #expect(settings.rememberedModels().isEmpty)
 
-        controller.state.lastModelByAgent[.codex] = "gpt-5.6"
+        controller.workspace.mutate { $0.lastModelByAgent[.codex] = "gpt-5.6" }
         #expect(settings.rememberedModels() == [.codex: "gpt-5.6"])
     }
 }

@@ -63,7 +63,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "alive", createdAt: Date())
-        controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.terminals = [terminal] }
 
         let closing = controller.close(terminal: terminal)
         try await server.received("window.close")
@@ -85,7 +85,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
                             remoteUrl: nil, addedAt: Date(), collapsed: false)
-        controller.state.projects.append(other)
+        controller.workspace.mutate { $0.append(project: other) }
         let task = try fixture.addTask(windowId: "alive")
 
         let removal = controller.confirmRemove(task: task)
@@ -112,13 +112,13 @@ extension AppControllerTests {
 
         let opening = controller.newTerminal(project: fixture.project, name: "Shell")
         try await server.received("window.createTerminal")
-        controller.state.removeItem(id: fixture.project.id)
+        controller.workspace.mutate { $0.removeItem(id: fixture.project.id) }
         server.release()
         await opening?.value
 
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["terminal-window"])
         #expect(controller.state.terminals.isEmpty)
-        #expect(controller.persist())
+        #expect(controller.workspace.flush())
     }
 
     // -- removing a task: the alerts are reentrancy points ---------------------------------------
@@ -145,7 +145,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "alive", createdAt: Date())
-        controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.terminals = [terminal] }
         controller.focus.browse(.terminal(terminal.id))
 
         await controller.removeSelection()?.value
@@ -235,18 +235,18 @@ extension AppControllerTests {
         let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Import"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
-        controller.state.projects = []
-        #expect(controller.persist())
+        controller.workspace.mutate { $0.items = [] }
+        #expect(controller.workspace.flush())
         try fixture.git.run(["worktree", "add", "-q", "-b", "feat/old", fixture.repo.path + "/.worktrees/old"], in: fixture.repo.path)
         fixture.prompter.whileAsking = { _ in
-            if let added = controller.state.projects.first { controller.state.removeItem(id: added.id) }
+            if let added = controller.state.projects.first { controller.workspace.mutate { $0.removeItem(id: added.id) } }
         }
 
         await controller.addProject(path: fixture.repo.path)
 
         #expect(fixture.prompter.asked.map(\.message) == ["Import 1 worktree?"])
         #expect(controller.state.tasks.isEmpty)
-        #expect(controller.persist())
+        #expect(controller.workspace.flush())
     }
 
     // -- terminals and windows -----------------------------------------------------------------
@@ -261,7 +261,7 @@ extension AppControllerTests {
         let clicked = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         var reopened = clicked
         reopened.windowId = "alive"
-        controller.state.terminals = [reopened]
+        controller.workspace.mutate { $0.terminals = [reopened] }
 
         await controller.close(terminal: clicked)?.value
 
@@ -277,7 +277,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.terminals = [terminal] }
 
         let reopening = controller.reopen(terminal: terminal, project: fixture.project)
         try await server.received("window.createTerminal")
@@ -298,7 +298,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: "alive", createdAt: Date())
-        controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.terminals = [terminal] }
 
         let closing = controller.close(terminal: terminal)
         try await server.received("window.close")
@@ -318,11 +318,11 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(server)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.terminals = [terminal] }
 
         let reopening = controller.reopen(terminal: terminal, project: fixture.project)
         try await server.received("window.createTerminal")
-        controller.state.terminals = []
+        controller.workspace.mutate { $0.terminals = [] }
         server.release()
         await reopening?.value
 
@@ -454,7 +454,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         let task = try fixture.addTask(windowId: nil)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        controller.state.terminals = [terminal]
+        controller.workspace.mutate { $0.terminals = [terminal] }
         let presenters: [(String, () -> Void)] = [
             ("divider", { controller.presentNewDivider() }),
             ("rename divider", { controller.presentRename(divider: SidebarDivider(id: UUID(), name: "D")) }),
@@ -493,7 +493,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let task = try fixture.addTask(windowId: nil)
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        fixture.controller.state.terminals = [terminal]
+        fixture.controller.workspace.mutate { $0.terminals = [terminal] }
         #expect(fixture.controller.reopen(task: task) == nil)
         #expect(fixture.controller.reopen(terminal: terminal, project: fixture.project) == nil)
 
@@ -509,7 +509,7 @@ extension AppControllerTests {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        fixture.controller.state.terminals = [terminal]
+        fixture.controller.workspace.mutate { $0.terminals = [terminal] }
 
         #expect(fixture.controller.reopen(terminal: terminal, project: fixture.project) == nil)
 
@@ -536,7 +536,7 @@ extension AppControllerTests {
         let create = Task { try await controller.createTask(draft: fixture.draft("Gone"), project: fixture.project) }
         try await server.received("window.createTask")
 
-        controller.state.tasks = []
+        controller.workspace.mutate { $0.tasks = [] }
         server.release()
         try await create.value
 
@@ -572,8 +572,8 @@ struct RaceFixture {
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
                                    activateIterm: activateIterm)
         try controller.loadWorkspace()
-        controller.state.projects = [project]
-        #expect(controller.persist())
+        controller.workspace.mutate { $0.items = [.project(project)] }
+        #expect(controller.workspace.flush())
     }
 
     /// A task with a real worktree, saved.
@@ -584,8 +584,8 @@ struct RaceFixture {
                             worktreePath: checkout, baseBranch: "main", jira: nil, agent: .codex,
                             model: "model", reasoning: nil, firstPrompt: nil, appendTicket: false,
                             createdAt: Date(timeIntervalSince1970: 0), windowId: windowId)
-        controller.state.tasks.append(task)
-        #expect(controller.persist())
+        controller.workspace.mutate { $0.tasks.append(task) }
+        #expect(controller.workspace.flush())
         return task
     }
 

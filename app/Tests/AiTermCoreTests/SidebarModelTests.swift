@@ -144,7 +144,7 @@ import Synchronization
         let p = Project(id: UUID(), name: "acme-web", path: "/r", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let t = TaskItem(id: UUID(), projectId: p.id, title: "SIGTERM", branch: "feat/web-5447-sigterm", worktreePath: "/r/.worktrees/x", baseBranch: "main", jira: JiraRef(key: "WEB-5447", summary: "SIGTERM", url: "u"), agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: "w1")
         let term = TerminalItem(id: UUID(), projectId: p.id, name: "Terminal", windowId: "w9", createdAt: Date())
-        state.projects = [p]; state.tasks = [t]; state.terminals = [term]
+        state.items = [.project(p)]; state.tasks = [t]; state.terminals = [term]
         let sessions = [session("a", task: t.id.uuidString, agent: .claude, state: .working, tab: 0, cwd: "/r/.worktrees/x"),
                         session("b", task: t.id.uuidString, agent: .codex, state: .needsInput, tab: 1, cwd: "/r/.worktrees/x"),
                         session("c", task: nil, agent: .shell, state: .idle, tab: 0, window: "w9", project: p.id.uuidString, cwd: "/r")]
@@ -166,7 +166,7 @@ import Synchronization
         let t = TaskItem(id: UUID(), projectId: p.id, title: "T", branch: "feat/t", worktreePath: "/r/.worktrees/t", baseBranch: "main",
                          jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
                          createdAt: Date(), windowId: "w1")
-        state.projects = [p]; state.tasks = [t]
+        state.items = [.project(p)]; state.tasks = [t]
         let sessions = [session("a", task: t.id.uuidString.lowercased(), agent: .codex, state: .working, tab: 0),
                         session("b", task: "not-a-uuid", agent: .claude, state: .needsInput, tab: 1)]
         let row = SidebarModel.sections(state: state, sessions: sessions, branchByCwd: [:], projectBranch: [:])[0].tasks[0]
@@ -185,7 +185,7 @@ import Synchronization
         var state = AppState.empty
         let project = Project(id: UUID(), name: "p", path: "/p", provider: .git, remoteUrl: nil,
                               addedAt: Date(), collapsed: false)
-        state.projects = [project]
+        state.items = [.project(project)]
         func item(_ title: String, kind: TaskKind?) -> TaskItem {
             TaskItem(id: UUID(), projectId: project.id, title: title, branch: title,
                      worktreePath: "/p/.worktrees/\(title)", baseBranch: "main", jira: nil, kind: kind,
@@ -211,7 +211,7 @@ import Synchronization
         let p = Project(id: UUID(), name: "acme-web", path: "/r", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let first = TerminalItem(id: UUID(), projectId: p.id, name: "Terminal", windowId: "w1", createdAt: Date())
         let second = TerminalItem(id: UUID(), projectId: p.id, name: "Logs", windowId: "w2", createdAt: Date())
-        state.projects = [p]; state.terminals = [first, second]
+        state.items = [.project(p)]; state.terminals = [first, second]
         func rows(_ sessions: [SessionInfo]) -> [TerminalRow] {
             SidebarModel.sections(state: state, sessions: sessions, branchByCwd: ["/r": "main"], projectBranch: [p.id: "main"])[0].terminals
         }
@@ -238,7 +238,7 @@ import Synchronization
         var state = AppState.empty
         let p = Project(id: UUID(), name: "r", path: "/r", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let closed = TerminalItem(id: UUID(), projectId: p.id, name: "Terminal", windowId: nil, createdAt: Date())
-        state.projects = [p]; state.terminals = [closed]
+        state.items = [.project(p)]; state.terminals = [closed]
         let stranger = [session("a", task: nil, agent: .claude, state: .working, tab: 0, window: "w1", cwd: "/elsewhere")]
         let row = SidebarModel.sections(state: state, sessions: stranger, branchByCwd: ["/elsewhere": "other"], projectBranch: [:])[0].terminals[0]
         #expect(row.avatars == AvatarGroup(marks: [.shell], overflow: 0))
@@ -305,7 +305,7 @@ import Synchronization
         var state = AppState.empty
         let project = Project(id: UUID(), name: "repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let task = TaskItem(id: UUID(), projectId: project.id, title: "Task", branch: "feat/original", worktreePath: "/repo/.worktrees/original", baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w1")
-        state.projects = [project]; state.tasks = [task]
+        state.items = [.project(project)]; state.tasks = [task]
         let live = session("s1", task: task.id.uuidString, agent: .claude, state: .working, tab: 0,
                            cwd: task.worktreePath, agentCwd: "/repo/.worktrees/current")
         let unresolved = session("s2", task: task.id.uuidString, agent: .shell, state: .idle, tab: 1, cwd: "/Users/me")
@@ -518,7 +518,7 @@ import Synchronization
     @Test func testAReviewRowCarriesItsMergeRequest() {
         var state = AppState.empty
         let project = Project(id: UUID(), name: "p", path: "/tmp/p", provider: .gitlab, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        state.projects = [project]
+        state.items = [.project(project)]
         let mr = MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4")
         state.tasks = [TaskItem(id: UUID(), projectId: project.id, title: "Review gift card", branch: "feat-gift",
                                 worktreePath: "/tmp/wt", baseBranch: "main", jira: nil, kind: .review, mr: mr,
@@ -574,7 +574,7 @@ import Synchronization
         let task = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "feat/t", worktreePath: "/p/.worktrees/t",
                             baseBranch: base, jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
                             appendTicket: false, createdAt: Date(), windowId: nil)
-        state.projects = [project]; state.tasks = [task]
+        state.items = [.project(project)]; state.tasks = [task]
         return (state, task)
     }
 

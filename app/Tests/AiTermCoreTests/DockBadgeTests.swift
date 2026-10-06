@@ -28,7 +28,7 @@ import Testing
 
     private func state(tasks: [TaskItem], terminals: [TerminalItem] = []) -> AppState {
         var state = AppState.empty
-        state.projects = [project]; state.tasks = tasks; state.terminals = terminals
+        state.items = [.project(project)]; state.tasks = tasks; state.terminals = terminals
         return state
     }
 

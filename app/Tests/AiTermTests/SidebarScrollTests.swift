@@ -18,8 +18,10 @@ struct SidebarScrollTests {
         for index in 0..<20 {
             let project = Project(id: UUID(), name: "Repo \(index)", path: "/repo\(index)", provider: .git, remoteUrl: nil,
                                   addedAt: Date(), collapsed: index == 19)
-            controller.state.append(project: project)
-            controller.state.terminals.append(TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: nil, createdAt: Date()))
+            controller.workspace.mutate { state in
+                state.append(project: project)
+                state.terminals.append(TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: nil, createdAt: Date()))
+            }
         }
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
@@ -38,7 +40,7 @@ struct SidebarScrollTests {
         }
         let list = try #require(table(in: host))
         let last = try #require(controller.state.terminals.last)
-        controller.state.updateProject(id: last.projectId) { $0.collapsed = false }
+        controller.workspace.mutate { $0.updateProject(id: last.projectId) { $0.collapsed = false } }
         controller.focus.browse(.terminal(last.id))
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
 

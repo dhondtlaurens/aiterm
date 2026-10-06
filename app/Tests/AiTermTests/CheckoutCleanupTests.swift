@@ -68,7 +68,7 @@ extension AppControllerTests {
         // The window's own `window.closed` must not take the row while the removal runs.
         controller.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
-        #expect(try controller.store.load().tasks.map(\.windowId) == [nil], "saved windowless in case the removal fails")
+        #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil], "saved windowless in case the removal fails")
 
         server.release()
         await removal?.value
@@ -221,7 +221,7 @@ extension AppControllerTests {
         controller.checkouts.refresh()
         await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil }
         #expect(controller.state.tasks == [fixture.task])
-        #expect(try controller.store.load().tasks == [fixture.task])
+        #expect(try controller.savedWorkspace().tasks == [fixture.task])
         let server = RecordingDaemon()
         defer { controller.shutdown() }
         controller.helper.setDaemonClient(server)
@@ -269,7 +269,7 @@ extension AppControllerTests {
         try #require(server.closedWindowIds == ["alive"])
         if errorCode == "temporary_failure" {
             #expect(controller.state.tasks == [fixture.task])
-            #expect(try controller.store.load().tasks == [fixture.task])
+            #expect(try controller.savedWorkspace().tasks == [fixture.task])
             #expect(controller.removals == [fixture.task.id: .closing])
             server.failing = [:]
             await controller.checkouts.refresh().value
@@ -277,7 +277,7 @@ extension AppControllerTests {
         }
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.removals.isEmpty)
-        #expect(try controller.store.load().tasks.isEmpty)
+        #expect(try controller.savedWorkspace().tasks.isEmpty)
         #expect(server.closedWindowIds == (errorCode == "temporary_failure" ? ["alive", "alive"] : ["alive"]))
     }
 
@@ -320,7 +320,7 @@ extension AppControllerTests {
         // The removal's trailing branch refresh, and the poll's own pass, finish before a task is restored.
         await controller.checkouts.refreshTask?.value
         controller.shutdown()
-        controller.state.tasks = [fixture.task]
+        controller.workspace.mutate { $0.tasks = [fixture.task] }
         // Absence: ten poll intervals, in which a poll that outlived shutdown would have run.
         try await Task.sleep(for: .milliseconds(100))
         #expect(controller.state.tasks == [fixture.task])
@@ -340,7 +340,7 @@ extension AppControllerTests {
         await eventually { controller.state.tasks.isEmpty }
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.focus.selectedTaskId == nil)
-        #expect(try controller.store.load().tasks.isEmpty)
+        #expect(try controller.savedWorkspace().tasks.isEmpty)
         #expect(!controller.checkouts.missingCheckouts.contains(fixture.task.id))
         #expect(server.closedWindowIds == (windowOpen ? ["alive"] : []))
         // Observing removal must never delete the remaining branch.
@@ -371,7 +371,7 @@ extension AppControllerTests {
         controller.checkouts.refresh()
         await eventually { controller.checkouts.projectBranch[fixture.project.id] != nil || !controller.checkouts.missingCheckouts.isEmpty }
         #expect(controller.state.tasks == [fixture.task])
-        #expect(try controller.store.load().tasks == [fixture.task])
+        #expect(try controller.savedWorkspace().tasks == [fixture.task])
     }
 }
 
@@ -406,9 +406,11 @@ private struct CheckoutFixture {
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
                                 checkoutPollInterval: pollInterval)
         try controller.loadWorkspace()
-        controller.state.projects = [project]
-        controller.state.tasks = [task]
-        #expect(controller.persist())
+        controller.workspace.mutate { state in
+            state.items = [.project(project)]
+            state.tasks = [task]
+        }
+        #expect(controller.workspace.flush())
     }
 
     func cleanUp() { try? FileManager.default.removeItem(at: root) }

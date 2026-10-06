@@ -370,26 +370,12 @@ public struct AppState: Codable, Equatable, Sendable {
     public static let empty = AppState()
     public init() {}
 
-    /// The projects in `items`, in order.
-    ///
-    /// The setter refills the project slots in place, so a reorder or an edit leaves every divider
-    /// where the user put it and surplus projects land at the end. It exists so the sidebar's
-    /// readers, the snapshot fixtures and the tests keep working unchanged; the app's own add,
-    /// remove, edit and move paths go through the mutators below, which are exact.
-    public var projects: [Project] {
-        get { items.compactMap(\.project) }
-        set {
-            var incoming = newValue[...]
-            var rebuilt: [SidebarItem] = []
-            for item in items {
-                switch item {
-                case .divider, .unknown: rebuilt.append(item)
-                case .project: if let next = incoming.popFirst() { rebuilt.append(.project(next)) }
-                }
-            }
-            items = rebuilt + incoming.map(SidebarItem.project)
-        }
-    }
+    /// The projects in `items`, in order. Read-only: a project is added, edited, moved and removed
+    /// through the mutators below, which leave every divider where the person put it.
+    public var projects: [Project] { items.compactMap(\.project) }
+
+    /// Whether the sidebar has a project, without building the list to ask.
+    public var hasProjects: Bool { items.contains { $0.project != nil } }
 
     /// The project with `id`, found in `items` directly rather than through ``projects``, which
     /// rebuilds the whole list to answer.

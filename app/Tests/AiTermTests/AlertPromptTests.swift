@@ -45,7 +45,7 @@ import AiTermCore
                             worktreePath: fixture.repo.path + "/.worktrees/work", baseBranch: "main", jira: nil,
                             agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
                             createdAt: Date(), windowId: nil)
-        fixture.controller.state.tasks = [task]
+        fixture.controller.workspace.mutate { $0.tasks = [task] }
 
         #expect(fixture.controller.confirmRemove(task: task) == nil, "⎋ cancels")
         let asked = try #require(prompter.asked.first)
@@ -72,8 +72,8 @@ import AiTermCore
         let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "⎋"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
-        controller.state.projects = []
-        #expect(controller.persist())
+        controller.workspace.mutate { $0.items = [] }
+        #expect(controller.workspace.flush())
         try fixture.git.run(["worktree", "add", "-q", "-b", "feat/old", fixture.repo.path + "/.worktrees/old"], in: fixture.repo.path)
 
         await controller.addProject(path: fixture.repo.path)

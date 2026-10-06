@@ -28,10 +28,10 @@ final class LiveSessions {
     private var contextByRowId: [UUID: [AgentKind: Int]] = [:]
 
     /// The workspace the tabs are matched to rows in, and who hears of every change to `sessions`.
-    private let workspace: @MainActor () -> AppState
+    private let workspace: WorkspaceStore
     private let sessionsChanged: @MainActor ([SessionInfo]) -> Void
 
-    init(workspace: @escaping @MainActor () -> AppState, sessionsChanged: @escaping @MainActor ([SessionInfo]) -> Void) {
+    init(workspace: WorkspaceStore, sessionsChanged: @escaping @MainActor ([SessionInfo]) -> Void) {
         self.workspace = workspace
         self.sessionsChanged = sessionsChanged
     }
@@ -69,7 +69,7 @@ final class LiveSessions {
     /// The footer's first row: what runs in the task's or terminal's active tab and its last-known
     /// `ctx`. With nothing selected there is no such row at all.
     func usageRow(for row: RowSelection?) -> UsageTaskRow? {
-        let state = workspace(), contexts = contextPercents(for: row)
+        let state = workspace.state, contexts = contextPercents(for: row)
         switch row {
         case .task(let id):
             guard let task = state.task(id: id) else { return nil }
@@ -83,7 +83,7 @@ final class LiveSessions {
 
     /// Drops the values of rows the workspace no longer has; run on every change to it.
     func pruneContexts() {
-        let state = workspace()
+        let state = workspace.state
         let live = Set(state.tasks.map(\.id) + state.terminals.map(\.id))
         guard contextByRowId.keys.contains(where: { !live.contains($0) }) else { return }
         contextByRowId = contextByRowId.filter { live.contains($0.key) }
@@ -109,7 +109,7 @@ final class LiveSessions {
     /// A snapshot has no event timestamps, so it can only initialise an unseen provider value.
     /// Prefer that provider's active tab; its fullest known tab is the fallback.
     private func seedContexts(from sessions: [SessionInfo]) {
-        let state = workspace()
+        let state = workspace.state
         let reportingByRow = Dictionary(grouping: sessions.filter { $0.contextPercent != nil },
                                         by: { rowId(for: $0, in: state) })
         for case let (rowId?, reporting) in reportingByRow {
@@ -130,7 +130,7 @@ final class LiveSessions {
               old?.contextPercent != context || old?.taskId != session.taskId
                   || old?.windowId != session.windowId || old?.agent != session.agent,
               let provider = session.agent.agentKind,
-              let rowId = rowId(for: session, in: workspace()) else { return }
+              let rowId = rowId(for: session, in: workspace.state) else { return }
         setContext(context, row: rowId, provider: provider)
     }
 }

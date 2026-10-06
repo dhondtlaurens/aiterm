@@ -46,7 +46,7 @@ struct SidebarRowGeometryTests {
                      baseBranch: "main", jira: nil, agent: .claude, model: "sonnet", reasoning: nil,
                      firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: "w-" + title)
         }
-        controller.state.projects = [project]; controller.state.tasks = tasks
+        controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = tasks }
         controller.focus.browse(.task(tasks[0].id))
         controller.preferences.interfaceSize = size
 
@@ -120,7 +120,7 @@ struct SidebarContextMenuHighlightTests {
                             worktreePath: "/wt", baseBranch: "main", jira: nil, agent: .claude, model: "sonnet",
                             reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(),
                             windowId: "w-1")
-        controller.state.projects = [project]; controller.state.tasks = [task]
+        controller.workspace.mutate { $0.items = [.project(project)] }; controller.workspace.mutate { $0.tasks = [task] }
         controller.focus.browse(.task(task.id))
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))

@@ -20,8 +20,10 @@ struct LockedSidebarTests {
         let jira = JiraProjectRef(id: "10001", key: "SHOP", name: "Storefront", siteURL: URL(string: "https://example.atlassian.net")!)
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil,
                               addedAt: Date(), collapsed: false, jiraProjects: [jira])
-        controller.state.projects = [project]
-        controller.state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w", createdAt: Date())]
+        controller.workspace.mutate { state in
+            state.items = [.project(project)]
+            state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w", createdAt: Date())]
+        }
         #expect(controller.canChangeWorkspace == !locked)
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
@@ -70,8 +72,10 @@ struct LockedSidebarTests {
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
         if !locked { try controller.loadWorkspace() }
         let project = Project(id: UUID(), name: "Repo", path: "/repo", provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        controller.state.projects = [project]
-        controller.state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w", createdAt: Date())]
+        controller.workspace.mutate { state in
+            state.items = [.project(project)]
+            state.terminals = [TerminalItem(id: UUID(), projectId: project.id, name: "Shell", windowId: "w", createdAt: Date())]
+        }
         let entries = SidebarModel.entries(state: controller.state, sessions: [], branchByCwd: [:], projectBranch: [:], diffByTask: [:])
         guard case .project(let section)? = entries.first else { Issue.record("expected a project section"); return }
         let host = NSHostingView(rootView: ProjectHeaderRow(section: section, controller: controller).frame(width: 300))
