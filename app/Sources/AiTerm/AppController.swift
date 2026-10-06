@@ -3,45 +3,11 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// A task on its way out, as its row says it: removed by the person — its window, its worktree,
-/// maybe its branch — or closing because its worktree went outside AiTerm; or a removal that
-/// stopped short of the row, and why. It is the row's own, so the banner above the list can come
-/// and go — replaced by another report, or dismissed — without the row forgetting where it stands.
-enum TaskRemoval: Equatable {
-    case removing, closing
-    /// What the row says in place of its "Window closed" or "Worktree missing". `worktreeRemoved`
-    /// is a removal that got past the worktree: the row waits for the person's retry, and checkout
-    /// cleanup, which would forget a row whose checkout went, leaves it be.
-    case stopped(note: String, worktreeRemoved: Bool)
-
-    /// Still running: the row's window is closing, or gone.
-    var inProgress: Bool {
-        if case .stopped = self { false } else { true }
-    }
-
-    /// Stopped after its worktree went, so the row is held for a retry.
-    var awaitsRetry: Bool {
-        if case .stopped(_, true) = self { true } else { false }
-    }
-}
-
 /// The controller as the owners built in its `init` reach it: their closures capture this before
 /// the controller exists, and `init`'s last line points it at the controller.
 @MainActor
 private final class ControllerLink {
     weak var controller: AppController?
-}
-
-/// Ids held by work in flight, each as many times as that work is running: two terminals can
-/// open in one project at once, and the project is busy until both have.
-private struct CountedSet {
-    private var counts: [UUID: Int] = [:]
-    mutating func insert(_ id: UUID) { counts[id, default: 0] += 1 }
-    mutating func remove(_ id: UUID) {
-        guard let count = counts[id] else { return }
-        counts[id] = count > 1 ? count - 1 : nil
-    }
-    func contains(_ id: UUID) -> Bool { counts[id] != nil }
 }
 
 @MainActor
@@ -101,34 +67,18 @@ final class AppController {
     private let activateIterm: @MainActor () -> Void
     @ObservationIgnored private var dockBadgeLabel: String?
 
-    @ObservationIgnored private var creatingProjects = Set<UUID>()
-    /// Projects a new terminal's window, or a task's, is opening in: the project cannot be removed
-    /// from under either.
-    @ObservationIgnored private var creatingTerminals = CountedSet()
-    @ObservationIgnored private var openingTaskWindows = CountedSet()
-    @ObservationIgnored private var changingTasks = Set<UUID>()
-    /// The tasks being removed, and how, and the removals that stopped short of the row: what
-    /// their rows say. An entry goes with its task. Not observed: a row reads its own entry,
-    /// `removal(of:)`, so one task's removal redraws that task's row and no other.
-    @ObservationIgnored private(set) var removals: [UUID: TaskRemoval] = [:] {
-        didSet {
-            for id in Set(oldValue.keys).union(removals.keys) { rowRemovals[id] = removals[id] }
-            updateDockBadge()
-        }
-    }
-    /// `removals`, observed row by row.
-    private let rowRemovals: PerRow<TaskRemoval?>
-    /// Tasks whose removal has dropped their window before closing it (`closeWindowBeforeRemoval`),
-    /// until the removal ends.
-    @ObservationIgnored private var windowsLetGo = Set<UUID>()
-    /// The latest closing of a task whose checkout went outside AiTerm, while it runs.
-    @ObservationIgnored private(set) var closingTask: Task<Void, Never>?
-    /// Projects whose default branch is being pulled or rebased. Observed: the menu's Pull greys
-    /// while either runs.
-    private(set) var changingDefaultBranch = Set<UUID>()
-    /// What a terminal's window is doing, one thing at a time.
-    @ObservationIgnored private var changingTerminals: [UUID: TerminalChange] = [:]
-    private enum TerminalChange { case reopening, closing }
+    /// The work under way on each project, task and terminal: what one waits for before it starts,
+    /// and what a project's removal waits for.
+    let work: WorkInFlight
+    /// Removes tasks — the person's Remove, and the closing of one whose worktree went.
+    let remover: TaskRemover
+    /// Whether each project's default branch is being pulled or rebased, observed row by row: the
+    /// project's Pull greys while either runs.
+    private let defaultBranchRows: PerRow<Bool>
+    /// The projects whose default branch is being pulled or rebased. Not observed: a project's menu
+    /// reads its own, `isChangingDefaultBranch(_:)`.
+    var changingDefaultBranch: Set<UUID> { work.projects(running: .changingDefaultBranch) }
+    func isChangingDefaultBranch(_ projectId: UUID) -> Bool { defaultBranchRows[projectId] }
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -159,7 +109,8 @@ final class AppController {
         let link = ControllerLink()
         let workspace = WorkspaceStore(file: store)
         self.workspace = workspace
-        rowRemovals = PerRow(default: nil, workspace: workspace)
+        let work = WorkInFlight()
+        self.work = work
         self.preferences = preferences
         self.harnessHome = harnessHome
         self.git = git
@@ -169,7 +120,7 @@ final class AppController {
         self.gitHubSettings = gitHubSettings
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false },
-                              withdrawn: { link.controller?.clearStoppedNote(of: $0) })
+                              withdrawn: { link.controller?.remover.clearStoppedNote(of: $0) })
         self.notices = notices
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
                                 onEvent: { link.controller?.handleDaemonEvent($0) },
@@ -178,25 +129,32 @@ final class AppController {
         self.helper = helper
         let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: { helper.daemon })
         self.tiling = tiling
-        focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: { helper.daemon },
-                         taskFrame: { tiling.taskFrame() }, activateIterm: activateIterm,
-                         isRemoving: { link.controller?.removals[$0]?.inProgress == true },
-                         onWindowGone: { link.controller?.handleWindowClosed($0) },
-                         notices: notices)
+        let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: { helper.daemon },
+                             taskFrame: { tiling.taskFrame() }, activateIterm: activateIterm,
+                             isRemoving: { link.controller?.remover.isRemoving($0) == true },
+                             onWindowGone: { link.controller?.handleWindowClosed($0) },
+                             notices: notices)
+        self.focus = focus
         let live = LiveSessions(workspace: workspace, sessionsChanged: { link.controller?.sessionsChanged($0) },
                                 rowSessionsChanged: { link.controller?.refreshRows() })
         self.live = live
         let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
-            removalInFlight: { id in
-                guard let controller = link.controller else { return false }
-                return controller.changingTasks.contains(id) && controller.removals[id]?.awaitsRetry != true
-            },
+            removalInFlight: { link.controller?.remover.removalInFlight($0) == true },
             onRemotes: { link.controller?.applyRemotes($0) },
-            onRemovedTasks: { link.controller?.forgetRemovedCheckouts($0) },
+            onRemovedTasks: { link.controller?.remover.forgetRemovedCheckouts($0) },
             onTitles: { await helper.sendTitles($0, placedIn: $1) },
             rowsChanged: { link.controller?.refreshRows() })
         self.checkouts = checkouts
         rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
+        remover = TaskRemover(workspace: workspace, work: work, workflow: taskWorkflow, notices: notices, prompter: prompter,
+                              checkouts: checkouts, live: live, focus: focus, daemon: { helper.daemon },
+                              removalsChanged: { link.controller?.updateDockBadge() })
+        let defaultBranchRows = PerRow<Bool>(default: false, workspace: workspace)
+        self.defaultBranchRows = defaultBranchRows
+        // Unowned: the ledger holds the hook.
+        work.onChange { [unowned work] subject in
+            if case .project(let id) = subject { defaultBranchRows[id] = work.isRunning(.changingDefaultBranch, onProject: id) }
+        }
         self.prompter = prompter
         self.setBadge = setBadge
         self.activateIterm = activateIterm
@@ -213,7 +171,7 @@ final class AppController {
         workspace.onChange { [weak live] in live?.pruneContexts() }
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { link.controller?.refreshRows() }
-        workspace.onChange { link.controller?.pruneRemovals() }
+        workspace.onChange { link.controller?.remover.pruneRemovals() }
         link.controller = self
     }
 
@@ -259,7 +217,7 @@ final class AppController {
                                        uniquingKeysWith: { first, _ in first })
             // A task whose removal has let its window go is the removal's to settle: re-attached,
             // the window would take the row with it when it closes.
-            for index in next.tasks.indices where !windowsLetGo.contains(next.tasks[index].id) {
+            for index in next.tasks.indices where work.operation(onTask: next.tasks[index].id) != .removing(windowLetGo: true) {
                 if let session = tabByTask[next.tasks[index].id] { next.tasks[index].windowId = session.windowId }
             }
             let windows = Set(snapshot.sessions.map(\.windowId))
@@ -292,14 +250,6 @@ final class AppController {
         focus.dropStale()
     }
 
-    /// A removal's entry goes with its task — through `window.closed`, a removed project, a restored
-    /// backup or a removal. Runs on every change to the workspace, so it writes only what changed.
-    private func pruneRemovals() {
-        guard !removals.isEmpty else { return }
-        let kept = removals.filter { state.task(id: $0.key) != nil }
-        if kept.count != removals.count { removals = kept }
-    }
-
     /// Every write to the tabs, whichever event brought it.
     private func sessionsChanged(_ sessions: [SessionInfo]) {
         checkouts.sessionsChanged(sessions)
@@ -315,7 +265,7 @@ final class AppController {
     /// moved — a section changed, a removal started or ended — and the label almost never changes.
     /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let label = DockBadge.label(for: rows.sections, skippingTasks: leavingTasks)
+        let label = DockBadge.label(for: rows.sections, skippingTasks: remover.leavingTasks)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         setBadge(label)
@@ -471,9 +421,9 @@ final class AppController {
     /// toast, its failure the banner. Neither is shown for a project removed while git ran.
     private func changeDefaultBranch(of project: Project, _ run: @escaping () async throws -> String,
                                      failure: @escaping (Error) -> OperationIssue) -> Task<Void, Never>? {
-        guard changingDefaultBranch.insert(project.id).inserted else { return nil }
+        guard let token = work.begin(.changingDefaultBranch, onProject: project.id) else { return nil }
         return Task {
-            defer { changingDefaultBranch.remove(project.id) }
+            defer { work.end(token) }
             do {
                 let summary = try await run()
                 guard state.project(id: project.id) != nil else { return }
@@ -516,7 +466,7 @@ final class AppController {
         guard applyView(SidebarModel.focusView(sections)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = SidebarModel.firstNeedingAttention(sections, skippingTasks: leavingTasks) else { return nil }
+        guard let first = SidebarModel.firstNeedingAttention(sections, skippingTasks: remover.leavingTasks) else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
     /// ⌘L: opens every project with rows, in one save.
@@ -537,10 +487,6 @@ final class AppController {
         }
         return true
     }
-
-    /// The tasks on their way out, which Focus View and the Dock badge pass over: their windows are
-    /// closing.
-    private var leavingTasks: Set<UUID> { Set(removals.filter(\.value.inProgress).keys) }
 
     /// Whether `move` would do anything: the first row has no "up", the last no "down", and a
     /// locked workspace has neither. The menus grey their items on this.
@@ -584,13 +530,13 @@ final class AppController {
     /// project that is gone, and a row whose project is gone fails every save.
     private func refusesRemoval(of project: Project) -> Bool {
         let busy: String
-        if creatingProjects.contains(project.id) { busy = "A task is still being created in it." }
-        else if creatingTerminals.contains(project.id) { busy = "A terminal is still opening in it." }
-        else if openingTaskWindows.contains(project.id) { busy = "A window is still opening for one of its tasks." }
-        else if state.terminals.contains(where: { $0.projectId == project.id && changingTerminals[$0.id] != nil }) {
+        if work.isRunning(.creatingTask, onProject: project.id) { busy = "A task is still being created in it." }
+        else if work.isRunning(.openingTerminal, onProject: project.id) { busy = "A terminal is still opening in it." }
+        else if work.isRunning(.openingTaskWindow, onProject: project.id) { busy = "A window is still opening for one of its tasks." }
+        else if state.terminals.contains(where: { $0.projectId == project.id && work.operation(onTerminal: $0.id) != nil }) {
             busy = "One of its terminals is still opening or closing its window."
         }
-        else if state.tasks.contains(where: { $0.projectId == project.id && changingTasks.contains($0.id) }) {
+        else if state.tasks.contains(where: { $0.projectId == project.id && work.operation(onTask: $0.id) != nil }) {
             busy = "A task is still being changed."
         }
         else { return false }
@@ -800,10 +746,10 @@ final class AppController {
             throw ActionUnavailable("“\(owner.title)” has this branch, but its worktree is missing at \(owner.worktreePath). Restore it or remove the task.")
         }
         guard let daemon = helper.daemon else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        guard changingTasks.insert(owner.id).inserted else { throw ActionUnavailable("“\(owner.title)” is busy. Try again in a moment.") }
-        defer { changingTasks.remove(owner.id) }
-        openingTaskWindows.insert(owner.projectId)
-        defer { openingTaskWindows.remove(owner.projectId) }
+        guard let reviewing = work.begin(.reviewing, onTask: owner.id) else { throw ActionUnavailable("“\(owner.title)” is busy. Try again in a moment.") }
+        defer { work.end(reviewing) }
+        let opening = work.begin(.openingTaskWindow, onProject: owner.projectId)
+        defer { if let opening { work.end(opening) } }
         let command = try await taskWorkflow.reviewCommand(draft: draft, in: owner)
         guard let current = state.task(id: owner.id) else { throw ActionUnavailable("“\(owner.title)” was removed.") }
         // Checked again last thing: a checkout in the task's own tab can have moved it meanwhile.
@@ -852,10 +798,10 @@ final class AppController {
         guard canChangeWorkspace else {
             throw ActionUnavailable("Save or recover the workspace before creating a \(noun.lowercased()).")
         }
-        guard creatingProjects.insert(project.id).inserted else {
+        guard let creating = work.begin(.creatingTask, onProject: project.id) else {
             throw ActionUnavailable("A task or review is already being created in \(project.name). Try again once it is.")
         }
-        defer { creatingProjects.remove(project.id) }
+        defer { work.end(creating) }
         let result = try await checkout()
         let task = result.task
         workspace.mutate { state in
@@ -886,21 +832,15 @@ final class AppController {
     /// window gets none — the first prompt is never replayed. A row that went while the window opened
     /// cannot adopt it, so the window is closed rather than left behind with nothing to show it.
     private func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws {
-        openingTaskWindows.insert(task.projectId)
-        defer { openingTaskWindows.remove(task.projectId) }
+        let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
+        defer { if let opening { work.end(opening) } }
         let wid = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
                                                     agentCommand: command, frame: tiling.taskFrame())
         guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
-            try? await closeWindow(wid, with: daemon)
+            try? await daemon.closeWindowIfOpen(wid)
             return
         }
         workspace.mutate { $0.tasks[i].windowId = wid }
-    }
-
-    /// Closes a window, treating one that is already gone as closed.
-    private func closeWindow(_ windowId: String, with daemon: any DaemonCommands) async throws {
-        do { try await daemon.close(windowId: windowId) }
-        catch let error as DaemonError where error.isNotFound { }
     }
 
     /// Ruling T13-1: a task that still has a window has nothing to reopen — the menu item is hidden
@@ -910,19 +850,19 @@ final class AppController {
         guard canChangeWorkspace else { return nil }
         guard let current = state.task(id: task.id), current.windowId == nil else { return nil }
         guard let daemon = helper.daemon else { report(.disconnected("Reopen Window again")); return nil }
-        guard changingTasks.insert(task.id).inserted else { return nil }
+        guard let reopening = work.begin(.reopening, onTask: task.id) else { return nil }
         guard FileManager.default.fileExists(atPath: current.worktreePath) else {
-            changingTasks.remove(task.id)
+            work.end(reopening)
             report("Worktree missing at \(current.worktreePath). Restore it or use Remove \(current.kindName).")
             return nil
         }
         return Task {
-            defer { changingTasks.remove(task.id) }
+            defer { work.end(reopening) }
             guard canChangeWorkspace else { return }
             do {
                 try await openWindow(for: current, command: nil, with: daemon)
                 // "Kept; choose Reopen Window" was asking for exactly this.
-                clearStoppedNote(of: task.id)
+                remover.clearStoppedNote(of: task.id)
                 notices.dropIssues(about: task.id)
             } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
@@ -939,282 +879,32 @@ final class AppController {
     func dismissIssue() { notices.dismissIssue() }
     func showToast(_ message: String) { notices.showToast(message) }
 
-    /// The row's "Not removed" note for task `id`, if that removal stopped with nothing deleted. The
-    /// note is the banner's twin: when the banner about the task goes, the task is a task again.
-    private func clearStoppedNote(of id: UUID) {
-        if case .stopped(_, worktreeRemoved: false)? = removals[id] { removals[id] = nil }
-    }
-
-    /// Answers the banner. Keeping loses nothing and just finishes the removal; deleting drops
-    /// commits no other branch has, so it asks first. Rebasing rewrites only local commits and
-    /// aborts on a conflict, so it does not. Nil when nothing started: the question was declined,
-    /// or the task or project is gone or busy.
+    /// Answers the banner. Keeping or deleting a branch a removal kept is `remover`'s (see
+    /// `TaskRemover.keepBranch(of:)`). Rebasing rewrites only local commits and aborts on a
+    /// conflict, so it does not ask. Nil when nothing started: the question was declined, or the
+    /// task or project is gone or busy.
     @discardableResult
     func perform(_ action: OperationIssue.Action) -> Task<Void, Never>? {
         switch action {
-        case .keepBranch(let id):
-            guard let (task, project) = heldForRetry(id) else { return nil }
-            notices.clearIssue()
-            return remove(task, from: project, deleteBranch: false)
-        case .deleteBranch(let id):
-            guard let shown = state.task(id: id) else { return nil }
-            let base = shown.baseBranch.isEmpty ? "its base" : shown.baseBranch
-            let answer = prompter.ask(AlertPrompt(
-                message: "Delete branch \(shown.branch)?",
-                detail: "It has commits that aren’t on \(base). Deleting the branch deletes them too.",
-                buttons: ["Delete Branch", "Cancel"], defaultDeletes: true))
-            // The alert is a reentrancy point: act on the task as it is once it is answered.
-            guard answer.confirmed, let (task, project) = heldForRetry(id) else { return nil }
-            notices.clearIssue()
-            return remove(task, from: project, deleteBranch: true) { [taskWorkflow] in
-                try await taskWorkflow.deleteUnmergedBranch(of: task, in: project)
-            }
+        case .keepBranch(let id): return remover.keepBranch(of: id)
+        case .deleteBranch(let id): return remover.deleteBranch(of: id)
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return nil }
             return rebaseDefault(project: project)
         }
     }
 
-    /// The task and its project, now held in `changingTasks` for a removal's retry — only while
-    /// its removal is still waiting on one.
-    private func heldForRetry(_ id: UUID) -> (TaskItem, Project)? {
-        guard canChangeWorkspace, removals[id]?.awaitsRetry == true, let task = state.task(id: id),
-              let project = state.project(id: task.projectId), changingTasks.insert(id).inserted else { return nil }
-        return (task, project)
-    }
-
     // -- removing a task ------------------------------------------------------------
-    /// The task's removal, as its row draws it — what is in `removals` for it.
-    func removal(of id: UUID) -> TaskRemoval? { rowRemovals[id] }
+    /// `remover`'s, forwarded: the views and the tests reach a task's removal here.
+    var removals: [UUID: TaskRemoval] { remover.removals }
+    func removal(of id: UUID) -> TaskRemoval? { remover.removal(of: id) }
+    @discardableResult
+    func confirmRemove(task: TaskItem) -> Task<Void, Never>? { remover.confirmRemove(task: task) }
 
     #if DEBUG
     /// The snapshot renderer's rows mid-removal, drawn without running one.
-    func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { removals[id] = removal }
+    func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { remover.seedSnapshotRemoval(removal, of: id) }
     #endif
-
-    /// Whether the remove alert offers an "Also delete branch" checkbox. A review's branch is the
-    /// merge request's — GitLab deletes it on merge — so it never does.
-    ///
-    /// This is the courtesy, not the guarantee: `TaskWorkflow.remove` refuses a review's branch
-    /// deletion outright (Task 6), so a caller that asks anyway still gets nothing. Hiding the
-    /// checkbox here only keeps the alert from offering something that would be ignored.
-    static func offersBranchDeletion(for task: TaskItem) -> Bool { task.kind != .review }
-
-    /// Each alert here is a reentrancy point: `runModal` drains the main queue, so a snapshot, a
-    /// window closing or another Remove can run while it is up. What happens after an answer is
-    /// decided on the task as it is then — `task` is the row's copy, as old as the click.
-    @discardableResult
-    func confirmRemove(task: TaskItem) -> Task<Void, Never>? {
-        guard canChangeWorkspace, !changingTasks.contains(task.id), let shown = state.task(id: task.id),
-              state.project(id: shown.projectId) != nil else { return nil }
-        let answer = prompter.ask(AlertPrompt(
-            message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
-            detail: shown.kind == .review
-                ? "Deletes the worktree and closes its iTerm2 window. Its local branch goes too, unless it has commits origin lacks:\n\n\(shown.worktreePath)"
-                : "Deletes the worktree and closes its iTerm2 window:\n\n\(shown.worktreePath)",
-            buttons: ["Remove", "Cancel"],
-            checkbox: Self.offersBranchDeletion(for: shown) ? "Also delete branch \(shown.branch)" : nil,
-            defaultDeletes: true))
-        // A Remove started during the alert owns the removal now; this answer then does nothing.
-        guard answer.confirmed, canChangeWorkspace, let current = state.task(id: task.id),
-              let project = state.project(id: current.projectId), changingTasks.insert(task.id).inserted else { return nil }
-        return remove(current, from: project, deleteBranch: answer.checked)
-    }
-
-    /// The removal itself, for a task already held in `changingTasks`: its window, its worktree, its
-    /// branch when asked for, then its row. `before` runs first; if it throws, nothing else does. A
-    /// removal that stops says why on the row, which keeps it until the task goes or is removed again.
-    private func remove(_ task: TaskItem, from project: Project, deleteBranch: Bool,
-                        before: (() async throws -> Void)? = nil) -> Task<Void, Never> {
-        removals[task.id] = .removing
-        return Task {
-            defer {
-                changingTasks.remove(task.id)
-                windowsLetGo.remove(task.id)
-                if removals[task.id] == .removing { removals[task.id] = nil }
-            }
-            do {
-                try await before?()
-                // A canceled confirmation leaves the task as it was.
-                guard let result = try await removeWorktree(task: task, project: project, deleteBranch: deleteBranch) else { return }
-                await finishRemoval(of: task, after: result)
-            } catch RemovalStop.keptWithoutWindow {
-                removals[task.id] = .stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false)
-                report(OperationIssue(title: "\(task.kindName) kept. Its window had already closed.", subject: task.id))
-            } catch RemovalStop.windowStayedOpen(let why) {
-                removals[task.id] = .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)
-                report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: why, subject: task.id))
-            } catch {
-                removals[task.id] = .stopped(note: "Not removed", worktreeRemoved: false)
-                report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error, subject: task.id))
-            }
-        }
-    }
-
-    /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow`. A
-    /// worktree with uncommitted changes asks first, while the window is still open; nil means it
-    /// was kept. Unsaved work written after that check is only found once the window has closed:
-    /// kept then, the task has lost its window, and `RemovalStop.keptWithoutWindow` says so.
-    private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool) async throws -> TaskWorkflow.Removed? {
-        var task = task, force = false
-        if try await taskWorkflow.hasUnsavedWork(task: task, project: project) {
-            guard let still = confirmDeletingUnsavedWork(of: task) else { return nil }
-            task = still
-            force = true
-        }
-        let closed = try await closeWindowBeforeRemoval(of: task)
-        do { return try await taskWorkflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force) }
-        catch let error as GitError where error.refusedForUnsavedWork {
-            // Written after the check, before the window closed.
-            guard let still = confirmDeletingUnsavedWork(of: task) else {
-                if closed { throw RemovalStop.keptWithoutWindow }
-                return nil
-            }
-            return try await taskWorkflow.remove(task: still, project: project, deleteBranch: deleteBranch, force: true)
-        }
-    }
-
-    /// The task as it is once deleting its unsaved work is agreed to; nil when it is kept. The task
-    /// is still held, so no other removal started, but its row can have gone.
-    ///
-    /// Keeping is the default, on ↩ and ⎋ both; deleting is the plain grey button beside it, never
-    /// marked red — the red default is for a button ↩ can press.
-    private func confirmDeletingUnsavedWork(of task: TaskItem) -> TaskItem? {
-        let force = prompter.ask(AlertPrompt(
-            message: "The worktree has uncommitted changes",
-            detail: "Removing this worktree permanently deletes its uncommitted changes and untracked files.",
-            buttons: [task.kind == .review ? "Keep Review" : "Keep Task", "Delete Changes and Remove"], escape: 0))
-        guard force.button == 1, canChangeWorkspace else { return nil }
-        return state.task(id: task.id)
-    }
-
-    /// Closes the window the task has now, before git deletes its worktree: a process still running
-    /// there — a dev server's watcher — writes files back into a checkout being deleted, and git then
-    /// gives up halfway. The row drops the window first, so the window's own `window.closed` does
-    /// not take the row with it: the row stays until the removal is done, or for a retry if it fails.
-    /// A window that will not close is given back, and nothing is deleted. Without a daemon it is
-    /// left open, and `finishRemoval` asks for it to be closed by hand. True once a window closed.
-    private func closeWindowBeforeRemoval(of task: TaskItem) async throws -> Bool {
-        guard let daemon = helper.daemon, let i = state.tasks.firstIndex(where: { $0.id == task.id }),
-              let wid = state.tasks[i].windowId else { return false }
-        windowsLetGo.insert(task.id)
-        // Saved windowless too, and at once rather than a moment later: a removal that fails from
-        // here — or an app that dies before it ends — leaves a row to retry after a relaunch, rather
-        // than one the next snapshot drops for its missing window while its worktree is still there.
-        workspace.mutate { $0.tasks[i].windowId = nil }
-        workspace.flush()
-        do { try await closeWindow(wid, with: daemon) }
-        catch {
-            windowsLetGo.remove(task.id)
-            if let j = state.tasks.firstIndex(where: { $0.id == task.id }), state.tasks[j].windowId == nil {
-                workspace.mutate { $0.tasks[j].windowId = wid }
-            }
-            throw RemovalStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close (\(error)), so nothing was deleted."))
-        }
-        return true
-    }
-
-    /// Why a removal stopped before git deleted anything, told apart from git's refusals so the row
-    /// can say which it was.
-    private enum RemovalStop: Error {
-        /// `closeWindowBeforeRemoval`'s window would not close, so nothing was deleted.
-        case windowStayedOpen(ActionUnavailable)
-        /// Unsaved work turned up once the window had closed, and the person kept the task.
-        case keptWithoutWindow
-    }
-
-    /// With the worktree gone: a branch left behind, or a window that would not close, leaves the
-    /// row for a retry and says why; otherwise the row goes.
-    private func finishRemoval(of task: TaskItem, after result: TaskWorkflow.Removed) async {
-        if let refusal = result.branchRefusal {
-            removals[task.id] = .stopped(note: "Not removed: branch kept", worktreeRemoved: true)
-            report(.branchKept(task.branch, of: task.id, because: refusal))
-            return
-        }
-        // The window the task has now: the one it had at the click can have closed, or come back.
-        if let wid = state.task(id: task.id)?.windowId {
-            guard let daemon = helper.daemon else {
-                removals[task.id] = .stopped(note: "Worktree removed; close its window, then retry", worktreeRemoved: true)
-                checkouts.dropDiff(for: task.id)
-                report(OperationIssue(title: "Worktree removed. Close its iTerm2 window, then retry Remove \(task.kindName).", subject: task.id))
-                return
-            }
-            do { try await closeWindow(wid, with: daemon) }
-            catch {
-                removals[task.id] = .stopped(note: "Worktree removed; its window did not close", worktreeRemoved: true)
-                checkouts.dropDiff(for: task.id)
-                report(OperationIssue(title: "Worktree removed. Couldn’t close its window. Retry Remove \(task.kindName).", error: error, subject: task.id))
-                return
-            }
-        }
-        forget(task: task)
-        if persistenceError == nil { showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? "")) }
-    }
-
-    /// The row goes, and with it — through the workspace's change hooks, set up in `init` — the
-    /// banner about it and its removal's entry.
-    /// Saved at once: a removal says "removed" only once its row's going is on disk.
-    private func forget(task: TaskItem) {
-        workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
-        workspace.flush()
-        checkouts.forget(task: task.id)
-        checkouts.refresh()
-        focus.dropStale()
-    }
-
-    /// The tasks a checkout pass found gone, as they are now: one being changed, or waiting on a
-    /// removal's retry, is its workflow's to finish, and one whose checkout or project came back
-    /// while the pass ran stays. One whose agent is still mid-turn — it removed its own worktree
-    /// and is finishing up — waits: closing the window would kill it. The daemon settles such a
-    /// turn even when the agent's last hook cannot arrive (spec §10b), and the next pass closes it.
-    private func forgetRemovedCheckouts(_ removed: [TaskItem]) {
-        // A task still closing whose checkout came back is not closing any more.
-        let gone = Set(removed.map(\.id))
-        for (id, removal) in removals where removal == .closing && !gone.contains(id) && !changingTasks.contains(id) {
-            removals[id] = nil
-        }
-        for task in removed where state.tasks.contains(task) && !changingTasks.contains(task.id)
-                                  && removals[task.id]?.awaitsRetry != true && !turnInFlight(task.id) {
-            guard WorkspaceScan.checkoutRemovalIsConfirmed(task,
-                projectPath: state.project(id: task.projectId)?.path) else { continue }
-            automaticallyForgetRemovedTask(task.id)
-        }
-    }
-
-    private func turnInFlight(_ taskId: UUID) -> Bool {
-        live.sessions.contains { $0.taskUUID == taskId && ($0.state == .working || $0.state == .needsInput) }
-    }
-
-    /// Keep the window identity until closure succeeds; a missing daemon or failed
-    /// request is retried on the next poll/reconnect instead of orphaning the window. The row says
-    /// "Closing…" from the first try until the window closes or the checkout comes back — not
-    /// flickering back to "Worktree missing" between tries while iTerm2 is away.
-    private func automaticallyForgetRemovedTask(_ id: UUID) {
-        guard let task = state.task(id: id), !changingTasks.contains(id) else { return }
-        guard let windowId = task.windowId else {
-            forget(task: task)
-            showToast("\(task.kindName) closed because its worktree was removed.")
-            return
-        }
-        guard let daemon = helper.daemon else { return }
-        changingTasks.insert(id)
-        removals[id] = .closing
-        closingTask = Task {
-            defer { changingTasks.remove(id) }
-            // On failure the saved task remains visible, still closing, and the next poll retries.
-            guard (try? await closeWindow(windowId, with: daemon)) != nil else {
-                checkouts.dropDiff(for: id)
-                return
-            }
-            // A newer window association must not be forgotten by an old response.
-            guard state.task(id: id)?.windowId == windowId else {
-                if removals[id] == .closing { removals[id] = nil }
-                return
-            }
-            forget(task: task)
-            showToast("\(task.kindName) closed because its worktree was removed.")
-        }
-    }
 
     // -- terminals ------------------------------------------------------------------
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
@@ -1238,19 +928,19 @@ final class AppController {
         guard let daemon = helper.daemon else { report(.disconnected("creating the terminal")); return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty ? TerminalItem.suggestedName(existing: state.terminals.filter { $0.projectId == project.id }) : trimmed
-        creatingTerminals.insert(project.id)
+        let opening = work.begin(.openingTerminal, onProject: project.id)
         // Selected like a new task, and — unlike one — brought forward: an empty shell is only
         // useful once typed into. Neither if another row was chosen meanwhile.
         let generation = focus.generation
         return Task {
-            defer { creatingTerminals.remove(project.id) }
+            defer { if let opening { work.end(opening) } }
             guard canChangeWorkspace else { return }
             do {
                 let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, cwd: project.path, title: name, frame: tiling.taskFrame())
                 // Removal waits for this, but a restored backup replaces the whole workspace. A row
                 // whose project is gone would fail every save, so the window is closed, not adopted.
                 guard state.project(id: project.id) != nil else {
-                    try? await closeWindow(wid, with: daemon)
+                    try? await daemon.closeWindowIfOpen(wid)
                     return
                 }
                 let item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: wid, createdAt: Date())
@@ -1270,16 +960,15 @@ final class AppController {
         guard canChangeWorkspace else { return nil }
         guard let current = state.terminal(id: terminal.id), current.windowId == nil else { return nil }
         guard let daemon = helper.daemon else { report(.disconnected("Reopen Window again")); return nil }
-        guard changingTerminals[terminal.id] == nil else { return nil }
-        changingTerminals[terminal.id] = .reopening
+        guard let reopening = work.begin(.reopening, onTerminal: terminal.id) else { return nil }
         return Task {
-            defer { changingTerminals[terminal.id] = nil }
+            defer { work.end(reopening) }
             guard canChangeWorkspace else { return }
             do {
                 let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, cwd: project.path, title: current.name, frame: tiling.taskFrame())
                 // As for a task's window: a row that went meanwhile cannot adopt it.
                 guard let i = state.terminals.firstIndex(where: { $0.id == terminal.id }) else {
-                    try? await closeWindow(wid, with: daemon)
+                    try? await daemon.closeWindowIfOpen(wid)
                     return
                 }
                 workspace.mutate { $0.terminals[i].windowId = wid }
@@ -1294,19 +983,20 @@ final class AppController {
     @discardableResult
     func close(terminal: TerminalItem) -> Task<Void, Never>? {
         guard canChangeWorkspace, let current = state.terminal(id: terminal.id) else { return nil }
-        switch changingTerminals[terminal.id] {
+        switch work.operation(onTerminal: terminal.id) {
         case .closing: return nil // the Remove already in flight
         case .reopening:
             report("“\(current.name)” is still reopening its window. Try Remove Terminal again once it has.")
             return nil
-        case nil: changingTerminals[terminal.id] = .closing
+        case nil: break
         }
+        guard let closing = work.begin(.closing, onTerminal: terminal.id) else { return nil }
         return Task {
-            defer { changingTerminals[terminal.id] = nil }
+            defer { work.end(closing) }
             guard canChangeWorkspace else { return }
             if let wid = state.terminal(id: terminal.id)?.windowId {
                 guard let daemon = helper.daemon else { report(.disconnected("Remove Terminal again")); return }
-                do { try await closeWindow(wid, with: daemon) }
+                do { try await daemon.closeWindowIfOpen(wid) }
                 catch { report(OperationIssue(title: "Couldn’t close the terminal.", error: error)); return }
             }
             workspace.mutate { $0.terminals.removeAll { $0.id == terminal.id } }

@@ -36,10 +36,11 @@ final class RowFocus {
     private(set) var selection: RowSelection?
     /// Whether each row is selected, observed row by row: `selection`, mirrored.
     private let selectedRows: PerRow<Bool>
-    /// The request bringing the selected row's window forward, while one is in flight.
-    @ObservationIgnored private(set) var activation: Task<Void, Never>?
+    /// The request bringing the selected row's window forward, while one is in flight: a selection
+    /// write cancels it, and makes it stale.
+    private let activation = LatestTask()
     /// Moves on with every selection write, so work that started for an older one can tell.
-    @ObservationIgnored private(set) var generation = 0
+    var generation: Int { activation.generation }
     /// The window this app last asked iTerm2 to raise. Its `window.activated` is that request's echo,
     /// not news, and can arrive after the arrows have moved on to a row with no window.
     @ObservationIgnored private var selfRaised: String?
@@ -116,9 +117,7 @@ final class RowFocus {
 
     /// Every selection write: it makes whatever activation was in flight for the old one stale.
     private func setSelection(_ row: RowSelection?) {
-        generation += 1
-        activation?.cancel()
-        activation = nil
+        activation.cancel()
         let old = selection?.id
         selection = row
         guard row?.id != old else { return }
@@ -177,10 +176,8 @@ final class RowFocus {
         setSelection(row)
         let window = window(for: row)
         guard !isRemoving(row.id), let daemon = daemon(), window != nil || then != nil else { return nil }
-        let generation = generation, delay = focus ? nil : peekDelay
-        let isCurrent = { [unowned self] in !Task.isCancelled && generation == self.generation }
-        let task = Task {
-            defer { if generation == self.generation { activation = nil } }
+        let delay = focus ? nil : peekDelay
+        return activation.run { [self] isCurrent in
             if let window {
                 do {
                     if let delay { try await Task.sleep(for: delay) }
@@ -203,8 +200,6 @@ final class RowFocus {
             guard let then, isCurrent() else { return }
             await then(daemon)
         }
-        activation = task
-        return task
     }
 
     /// Keeps the selection aligned when iTerm2 is activated outside AiTerm — for example, by
@@ -215,7 +210,7 @@ final class RowFocus {
     func windowActivated(_ windowId: String) {
         if windowId == selfRaised { selfRaised = nil; return }
         // A delayed activation event must not overwrite a newer local selection.
-        if activation != nil { return }
+        if activation.task != nil { return }
         let state = workspace.state
         if let task = state.tasks.first(where: { $0.windowId == windowId }) {
             browse(.task(task.id))
@@ -231,7 +226,7 @@ final class RowFocus {
 
     /// Cancels an activation in flight, as the app stops.
     func cancel() {
-        activation?.cancel()
+        activation.cancel()
     }
 
     private func window(for row: RowSelection) -> String? {

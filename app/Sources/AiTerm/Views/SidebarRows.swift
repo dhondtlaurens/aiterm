@@ -158,7 +158,7 @@ struct ProjectHeaderRow: View {
                 Button("Pull \(controller.checkouts.defaultBranch[project.id] ?? "Default Branch")") {
                     controller.pullDefault(project: project)
                 }
-                .disabled(controller.changingDefaultBranch.contains(project.id))
+                .disabled(controller.isChangingDefaultBranch(project.id))
                 Divider()
             }
             // Disabled at the edges rather than absent: a menu that changes shape with the row's

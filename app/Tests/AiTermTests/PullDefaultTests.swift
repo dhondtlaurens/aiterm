@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -25,6 +27,24 @@ extension AppControllerTests {
         #expect(fixture.controller.changingDefaultBranch.isEmpty)
         #expect(fixture.controller.issue == nil)
         #expect(try fixture.git.run(["rev-parse", "main"], in: fixture.repo.path) == fixture.git.run(["rev-parse", "main"], in: other))
+    }
+
+    /// The project's Pull item greys while its pull runs: its own row hears of it, and no other.
+    @Test func aPullGreysItsOwnProjectsPullAlone() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller, other = UUID()
+        let ownHeard = Mutex(false), otherHeard = Mutex(false)
+        withObservationTracking { _ = controller.isChangingDefaultBranch(fixture.project.id) } onChange: { ownHeard.withLock { $0 = true } }
+        withObservationTracking { _ = controller.isChangingDefaultBranch(other) } onChange: { otherHeard.withLock { $0 = true } }
+
+        let pull = controller.pullDefault(project: fixture.project)
+        #expect(controller.isChangingDefaultBranch(fixture.project.id))
+        #expect(ownHeard.withLock { $0 })
+        #expect(!controller.isChangingDefaultBranch(other))
+        #expect(!otherHeard.withLock { $0 })
+        await pull?.value
+        #expect(!controller.isChangingDefaultBranch(fixture.project.id))
     }
 
     @Test func pullDefaultReportsWhyItCouldNot() async throws {

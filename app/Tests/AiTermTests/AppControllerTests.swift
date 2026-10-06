@@ -781,8 +781,8 @@ import Testing
                             worktreePath: "/tmp/wt2", baseBranch: "main", jira: nil,
                             agent: .claude, model: "sonnet", reasoning: nil, firstPrompt: nil, appendTicket: false,
                             createdAt: Date(), windowId: nil)
-        #expect(AppController.offersBranchDeletion(for: review) == false)
-        #expect(AppController.offersBranchDeletion(for: task) == true)
+        #expect(TaskRemover.offersBranchDeletion(for: review) == false)
+        #expect(TaskRemover.offersBranchDeletion(for: task) == true)
     }
 
     /// Removing a project deliberately leaves its worktrees on disk, so re-adding it re-imports
@@ -809,7 +809,7 @@ import Testing
         #expect(imported.count == 2, "both worktrees import: \(controller.state.tasks.map(\.branch))")
         #expect(imported["feat/mr-branch"] == .review, "the review's lock reason survives the round trip")
         #expect(imported["feat/a-task"] == TaskKind?.none, "a task stays a task")
-        #expect(controller.state.tasks.filter { $0.kind == .review }.allSatisfy { !AppController.offersBranchDeletion(for: $0) })
+        #expect(controller.state.tasks.filter { $0.kind == .review }.allSatisfy { !TaskRemover.offersBranchDeletion(for: $0) })
     }
 
     /// The base branch of an imported worktree is what git said the default branch is. When git

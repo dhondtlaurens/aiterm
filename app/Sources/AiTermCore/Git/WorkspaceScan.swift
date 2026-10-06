@@ -91,8 +91,9 @@ public struct WorkspaceScan: Equatable, Sendable {
 
     /// Whether a task's worktree is gone for good, rather than out of reach. Missing mounts, missing
     /// parents and permission errors are not deletion evidence; only "no such file" inside a readable
-    /// project and parent directory is.
-    public static func checkoutRemovalIsConfirmed(_ task: TaskItem, projectPath: String?) -> Bool {
+    /// project and parent directory is. Asked off the main actor, by the scan alone: a `stat` on a
+    /// mount that has stopped answering blocks whoever asks.
+    static func checkoutRemovalIsConfirmed(_ task: TaskItem, projectPath: String?) -> Bool {
         guard let projectPath else { return false }
         let parent = URL(fileURLWithPath: task.worktreePath).deletingLastPathComponent().path
         for path in [projectPath, parent] {

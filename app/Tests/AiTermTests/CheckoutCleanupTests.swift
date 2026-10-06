@@ -274,7 +274,7 @@ extension AppControllerTests {
 
         controller.live.sessions[0].state = .done
         await controller.checkouts.refresh().value
-        await controller.closingTask?.value
+        await controller.remover.waitForRemoval(of: fixture.task.id)
         #expect(server.closedWindowIds == [windowId])
         #expect(controller.state.tasks.isEmpty)
     }
@@ -290,7 +290,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
         await controller.checkouts.refresh().value
-        await controller.closingTask?.value
+        await controller.remover.waitForRemoval(of: fixture.task.id)
         try #require(server.closedWindowIds == ["alive"])
         if errorCode == "temporary_failure" {
             #expect(controller.state.tasks == [fixture.task])
@@ -298,7 +298,7 @@ extension AppControllerTests {
             #expect(controller.removals == [fixture.task.id: .closing])
             server.failing = [:]
             await controller.checkouts.refresh().value
-            await controller.closingTask?.value
+            await controller.remover.waitForRemoval(of: fixture.task.id)
         }
         #expect(controller.state.tasks.isEmpty)
         #expect(controller.removals.isEmpty)
@@ -317,7 +317,7 @@ extension AppControllerTests {
         let aside = fixture.root.appendingPathComponent("aside")
         try FileManager.default.moveItem(at: URL(fileURLWithPath: fixture.task.worktreePath), to: aside)
         await controller.checkouts.refresh().value
-        await controller.closingTask?.value
+        await controller.remover.waitForRemoval(of: fixture.task.id)
         try #require(controller.removals == [fixture.task.id: .closing])
 
         try FileManager.default.moveItem(at: aside, to: parent.appendingPathComponent("work"))
@@ -325,6 +325,26 @@ extension AppControllerTests {
 
         #expect(controller.removals.isEmpty)
         #expect(controller.state.tasks == [fixture.task])
+    }
+
+    /// A removal the pass confirmed off the main actor is acted on as confirmed: the cleanup does not
+    /// look at the disk again, where a `stat` on a mount that has stopped answering would hold up the
+    /// main actor. Here the worktree's parent has gone out of reach since the pass.
+    @Test func aConfirmedRemovalIsNotCheckedAgainOnTheMainActor() async throws {
+        let fixture = try CheckoutFixture(windowOpen: true)
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon()
+        defer { controller.shutdown() }
+        controller.helper.setDaemonClient(server)
+        try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
+        let parent = URL(fileURLWithPath: fixture.task.worktreePath).deletingLastPathComponent()
+        try FileManager.default.moveItem(at: parent, to: fixture.root.appendingPathComponent("offline-worktrees"))
+
+        controller.remover.forgetRemovedCheckouts([fixture.task])
+        await controller.remover.waitForRemoval(of: fixture.task.id)
+        #expect(server.closedWindowIds == ["alive"])
+        #expect(controller.state.tasks.isEmpty)
     }
 
     @Test func checkoutMonitorDetectsDeletionWithoutSessionChangesAndStopsOnShutdown() async throws {
