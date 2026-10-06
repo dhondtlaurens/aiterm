@@ -49,17 +49,21 @@ public enum ClaudeSettings {
     /// fails the cast for the whole array, so a merge would drop Emdash's valid entries beside it),
     /// or a `statusLine` that is not an object. Rewriting any of them would be silent data loss;
     /// the file is refused instead, as Codex's is for `hooks.Stop = [...]`. Events AiTerm does not
-    /// manage are never looked at.
+    /// manage are never looked at, and a key set to JSON's `null` is one that is not set: the
+    /// merge fills it in as it would a missing one.
     static func unmergeableKey(_ settings: [String: Any]) -> String? {
-        if let value = settings["hooks"] {
+        if let value = set(settings["hooks"]) {
             guard let hooks = value as? [String: Any] else { return "hooks" }
-            if let event = events.first(where: { event in hooks[event].map { $0 as? [[String: Any]] == nil } ?? false }) {
+            if let event = events.first(where: { event in set(hooks[event]).map { $0 as? [[String: Any]] == nil } ?? false }) {
                 return "hooks.\(event)"
             }
         }
-        if let line = settings["statusLine"], line as? [String: Any] == nil { return "statusLine" }
+        if let line = set(settings["statusLine"]), line as? [String: Any] == nil { return "statusLine" }
         return nil
     }
+
+    /// `value`, unless it is missing or JSON's `null`.
+    private static func set(_ value: Any?) -> Any? { value is NSNull ? nil : value }
 
     static func refusal(key: String) -> HarnessDriverError {
         .refused(path: "~/" + ClaudeDriver.settingsPath, reason: "sets \(key) in a form AiTerm cannot merge")

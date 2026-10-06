@@ -713,6 +713,23 @@ import Foundation
         try refusal(#"{"statusLine": "~/bin/line.sh"}"#, key: "statusLine")
     }
 
+    /// JSON's `null` says the key is unset, which is how a tool that clears a value writes it: the
+    /// merge fills it in as it would a missing key, rather than refusing the file.
+    @Test(arguments: [#"{"hooks": null, "model": "opus"}"#, #"{"hooks": {"Stop": null}}"#, #"{"statusLine": null}"#])
+    func aNullIsAnAbsentKeyNotARefusal(_ settings: String) throws {
+        let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let file = home.appendingPathComponent(".claude/settings.json")
+        try settings.write(to: file, atomically: true, encoding: .utf8)
+        let driver = ClaudeDriver(home: home, daemonPort: 47821, shimPath: "/Applications/AiTerm.app/shim.sh")
+
+        #expect(driver.probe() == DriverProbe(.missing))
+        try driver.install()
+        #expect(driver.probe() == DriverProbe(.current))
+        let support = home.appendingPathComponent("Library/Application Support/AiTerm")
+        #expect(!FileManager.default.fileExists(atPath: support.appendingPathComponent("statusline-original.cmd").path),
+                "a null status line is no original to keep")
+    }
+
     @Test func anEventAiTermDoesNotManageIsNeverARefusal() throws {
         let (data, _) = try ClaudeSettings.merge(
             Data(#"{"hooks": {"PostToolUse": "whatever"}}"#.utf8), hookURL: "u", shimPath: "s")
