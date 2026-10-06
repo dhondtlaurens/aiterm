@@ -77,7 +77,7 @@ struct HelperLinkTests {
 
         await link.setMatchItermBackground(!preferences.matchItermBackground)?.value
 
-        #expect(notices.issue == OperationIssue(title: "Couldn’t update the iTerm2 background.", reason: "test failure"))
+        #expect(notices.issue == OperationIssue(title: "Couldn’t update the iTerm2 background.", reason: "AiTerm’s helper ran into a problem."))
     }
 }
 

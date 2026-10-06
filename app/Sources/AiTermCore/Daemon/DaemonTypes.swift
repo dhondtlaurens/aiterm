@@ -63,11 +63,27 @@ public struct Usage: Codable, Equatable, Sendable {
 public struct UsageSnapshot: Codable, Equatable, Sendable { public var claude, codex: Usage?
     public static let empty = UsageSnapshot(claude: nil, codex: nil) }
 
-/// A request's failure: the daemon's error reply, or this client's own (`Code`).
+/// A request's failure: the daemon's error reply, or this client's own (`Code`). `message` is
+/// written for the protocol, or by Python — "no such window or session: w3", an exception's text —
+/// so it is what the log and a developer read (`description`); the person reads `userMessage`.
 public struct DaemonError: Error, Equatable, LocalizedError, CustomStringConvertible {
     public let code: Code, message: String
-    public var errorDescription: String? { message }
+    public var errorDescription: String? { userMessage }
     public var description: String { message }
+
+    /// The failure as a banner's reason says it, by its code (ARCH-07). A code only a newer helper
+    /// knows reads as the helper's problem, as `internal` does.
+    public var userMessage: String {
+        switch code {
+        case .itermUnavailable: "iTerm2 isn’t connected."
+        case .notFound: "The iTerm2 window or tab is already gone."
+        case .timeout: "AiTerm’s helper didn’t answer in time; it may still finish."
+        case .disconnected, .connect, .socket, .write, .connectionUsed: "AiTerm’s helper isn’t connected."
+        case .unknownMethod, .incompatible: "AiTerm’s helper is from another version."
+        case .badParams, .protocol: "AiTerm’s helper couldn’t read the request."
+        default: "AiTerm’s helper ran into a problem."
+        }
+    }
 
     public var isNotFound: Bool { code == .notFound }
     /// Either code a stale or mismatched helper answers with, as opposed to iTerm2 itself being

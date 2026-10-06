@@ -351,8 +351,27 @@ public final class DaemonClient: Sendable {
         var encoded = try JSONEncoder().encode(Envelope(id: id, method: method.rawValue, params: params))
         encoded.append(10)
         let data = encoded
-        guard data.count <= DaemonProtocol.maximumFrameBytes else { throw DaemonError(code: .protocol, message: "Request exceeds frame limit") }
-        return try await withTaskCancellationHandler {
+        guard data.count <= DaemonProtocol.maximumFrameBytes else {
+            throw Self.logged(DaemonError(code: .protocol, message: "Request exceeds frame limit"), method)
+        }
+        do { return try await exchange(id: id, method: method, data: data, as: type, ordered: ordered, isLivenessCheck: isLivenessCheck) }
+        catch let error as DaemonError { throw Self.logged(error, method) }
+    }
+
+    /// Every request that fails, with the helper's own words, which the person never reads
+    /// (`DaemonError.userMessage`). A window or tab already gone is routine — closed since the
+    /// last poll — and only an info line.
+    private static func logged(_ error: DaemonError, _ method: DaemonMethod) -> DaemonError {
+        Log.daemon.log(level: error.isNotFound ? .info : .error,
+                       "\(method.rawValue, privacy: .public) failed, \(error.code.rawValue, privacy: .public): \(error.message, privacy: .public)")
+        return error
+    }
+
+    /// One request sent and its reply awaited: registered in `pending`, timed, written, and
+    /// withdrawn if its task is cancelled.
+    private func exchange<R: Decodable & Sendable>(id: Int, method: DaemonMethod, data: Data, as type: R.Type,
+                                                   ordered: (@Sendable (R) -> DaemonEvent)?, isLivenessCheck: Bool) async throws -> R {
+        try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<R, Error>) in
                 let request = Pending(answer: { line, decoder, yield in
                     do {
@@ -441,7 +460,8 @@ public final class DaemonClient: Sendable {
         let snapshot = try await request(.workspaceSnapshot, params: Optional<NoParams>.none, as: DaemonSnapshot.self,
                                          ordered: { .snapshot($0) }, isLivenessCheck: false)
         guard snapshot.protocolVersion == DaemonProtocol.version else {
-            throw DaemonError(code: .incompatible, message: "Restart AiTerm with its matching bundled helper")
+            throw Self.logged(DaemonError(code: .incompatible, message: "The helper speaks protocol \(snapshot.protocolVersion), this app \(DaemonProtocol.version)"),
+                              .workspaceSnapshot)
         }
         return snapshot
     }

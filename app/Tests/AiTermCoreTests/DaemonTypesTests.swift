@@ -104,4 +104,27 @@ import Testing
             #expect(state.banner?.tone == (state == .refused("-1743") ? .warning : .info), "\(state)")
         }
     }
+
+    /// ARCH-07: a helper's message is written for the protocol or by Python — "no such window or
+    /// session: w3", an exception's text — and is logged, never shown. What the person reads is
+    /// said by the code, in a sentence of its own, whatever the message was; a code only a newer
+    /// helper knows still reads as one.
+    @Test func whatThePersonReadsIsSaidByTheCodeNotTheHelpersMessage() {
+        let message = "Traceback: KeyError('w3') in rpc_params"
+        let codes: [DaemonError.Code] = DaemonError.Code.daemonCodes
+            + [.incompatible, .timeout, .disconnected, .connectionUsed, .socket, .connect, .write, "a_newer_helpers_code"]
+        for code in codes {
+            let error = DaemonError(code: code, message: message)
+            #expect(!error.localizedDescription.contains("KeyError"), "\(code)")
+            #expect(error.localizedDescription.hasSuffix("."), "\(code) reads as a sentence")
+            #expect(error.description == message, "the message stays what the log and a developer read")
+        }
+        func said(_ code: DaemonError.Code) -> String { DaemonError(code: code, message: message).localizedDescription }
+        #expect(said(.itermUnavailable) == "iTerm2 isn’t connected.")
+        #expect(said(.notFound) == "The iTerm2 window or tab is already gone.")
+        #expect(said(.timeout) == "AiTerm’s helper didn’t answer in time; it may still finish.")
+        #expect(said(.disconnected) == "AiTerm’s helper isn’t connected.")
+        #expect(said(.unknownMethod) == "AiTerm’s helper is from another version.")
+        #expect(said(.internal) == "AiTerm’s helper ran into a problem.")
+    }
 }

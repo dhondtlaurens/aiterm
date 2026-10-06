@@ -26,10 +26,11 @@ import Testing
     }
 
     /// A failure's own words go in the title and the error's in the reason, never joined: git's by
-    /// its sentence rule, anything else by its description.
+    /// its sentence rule, the helper's by its code (ARCH-07), anything else by its description.
     @Test func anErrorIsTheReasonNotPartOfTheTitle() {
-        let daemon = OperationIssue(title: "Couldn’t reopen the window.", error: DaemonError(code: "x", message: "iTerm2 is busy"))
-        #expect(daemon == OperationIssue(title: "Couldn’t reopen the window.", reason: "iTerm2 is busy"))
+        let daemon = OperationIssue(title: "Couldn’t reopen the window.",
+                                    error: DaemonError(code: .itermUnavailable, message: "iTerm2 is not connected (RPC: activate)"))
+        #expect(daemon == OperationIssue(title: "Couldn’t reopen the window.", reason: "iTerm2 isn’t connected."))
         let git = GitError(args: ["worktree", "remove"], code: 128, stderr: "fatal: not a working tree")
         #expect(OperationIssue(title: "Couldn’t remove the task.", error: git).reason == "Not a working tree.")
     }
@@ -68,7 +69,7 @@ import Testing
         #expect(diverged.title == "Couldn’t pull the default branch.")
         #expect(diverged.actions == [.rebaseDefault(project)])
         #expect(diverged.reason?.hasSuffix(" Rebase puts yours on top of origin’s; nothing is pushed.") == true)
-        let other = OperationIssue.pullRefused(DaemonError(code: "x", message: "No network"), in: project)
-        #expect(other == OperationIssue(title: "Couldn’t pull the default branch.", reason: "No network"))
+        let other = OperationIssue.pullRefused(GitError(args: ["fetch"], code: 128, stderr: "fatal: unable to access 'origin'"), in: project)
+        #expect(other == OperationIssue(title: "Couldn’t pull the default branch.", reason: "Unable to access 'origin'."))
     }
 }

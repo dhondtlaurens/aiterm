@@ -120,7 +120,7 @@ extension AppControllerTests {
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/.git"))
         #expect(controller.state.tasks == [fixture.task], "the row keeps its window")
         #expect(controller.issue == OperationIssue(
-            title: "Couldn’t remove the task.", reason: "Its iTerm2 window did not close (test failure), so nothing was deleted.",
+            title: "Couldn’t remove the task.", reason: "Its iTerm2 window did not close, so nothing was deleted. AiTerm’s helper ran into a problem.",
             subject: fixture.task.id))
     }
 

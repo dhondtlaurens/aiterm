@@ -292,7 +292,8 @@ final class TaskRemover: CheckoutRemovals {
             if let j = workspace.state.tasks.firstIndex(where: { $0.id == task.id }), workspace.state.tasks[j].windowId == nil {
                 workspace.mutate { $0.tasks[j].windowId = wid }
             }
-            throw RemovalStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close (\(error)), so nothing was deleted."))
+            throw RemovalStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted. "
+                                                                 + OperationIssue.reason(of: error)))
         }
         return true
     }
