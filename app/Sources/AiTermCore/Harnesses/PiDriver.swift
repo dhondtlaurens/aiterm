@@ -38,9 +38,22 @@ struct PiDriver: HarnessDriver {
         case .missing: return DriverProbe(.missing)
         case .refused(let reason): return .refused(file, reason)
         case .present(let text):
-            let state = Self.state(of: text, expected: installed)
+            var state = Self.state(of: text, expected: installed)
+            // Written by Install for a daemon on another port: out of date, as an older schema is,
+            // and mended by a Repair that writes this one's.
+            if state == .invalidOwned, isInstalled(forSomePort: text) { state = .outdated }
             return state == .foreign ? .foreign(file) : DriverProbe(state)
         }
+    }
+
+    /// Whether `text` is what Install writes, with some port's digits where `source` has its
+    /// placeholder.
+    private func isInstalled(forSomePort text: String) -> Bool {
+        let pattern = #"\A"# + source.components(separatedBy: Self.portPlaceholder)
+            .map(NSRegularExpression.escapedPattern(for:)).joined(separator: "[0-9]{1,5}") + #"\z"#
+        // Every part of `source` is escaped, so the pattern always compiles.
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return false }
+        return expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
     func install() throws {

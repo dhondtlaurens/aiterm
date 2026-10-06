@@ -123,3 +123,15 @@ def test_runs_the_original_command_through_sh_without_reading_zshenv(home, daemo
     result = run_shim(home)
     assert (result.stdout, result.stderr) == ("mine", "")
     assert forwarded(daemon)
+
+
+@pytest.mark.parametrize("written", ["1@127.0.0.1:{port}", "{port}/elsewhere?", "{port}0", "0", "abc", " {port}"])
+def test_a_port_file_that_is_not_a_port_posts_nothing_and_still_runs_the_original(home, daemon, written):
+    # Only 1-65535 in digits is a port: anything else in the file would put a host, a path or a
+    # query into the URL curl is given.
+    (support_of(home) / "hook-port").write_text(written.format(port=daemon.server_port) + "\n")
+    (support_of(home) / "statusline-original.cmd").write_text("cat >/dev/null; printf 'mine'")
+    result = run_shim(home)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
+    time.sleep(0.5)
+    assert daemon.received == []

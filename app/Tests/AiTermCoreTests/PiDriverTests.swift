@@ -149,7 +149,8 @@ import Testing
     }
 
     /// The extension is installed with the daemon's port in place of its placeholder, and a file
-    /// written for another port is outdated-by-content, not current.
+    /// written for another port is outdated: Repair writes the daemon's, as for an older schema,
+    /// where a file whose body was changed is broken.
     @Test func theExtensionIsWrittenWithTheDaemonsPort() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -161,7 +162,10 @@ import Testing
                 == "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nconst endpoint = \"http://127.0.0.1:50123/hook/pi\";\n")
         #expect(driver(home, port: 50123, source: source).state == .current)
         // The daemon moved to another port: the file no longer matches what Install writes.
-        #expect(driver(home, port: 50124, source: source).state == .invalidOwned)
+        #expect(driver(home, port: 50124, source: source).state == .outdated)
+        try Data("// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nconst endpoint = \"http://evil:50123/hook/pi\";\n".utf8)
+            .write(to: url(home))
+        #expect(driver(home, port: 50124, source: source).state == .invalidOwned, "not a port but another host in its place")
         try driver(home, port: 50124, source: source).install()
         #expect(driver(home, port: 50124, source: source).state == .current)
         #expect(try String(contentsOf: url(home), encoding: .utf8).contains("127.0.0.1:50124/hook/pi"))

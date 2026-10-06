@@ -2,8 +2,10 @@ import Foundation
 import Synchronization
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct HarnessDiagnosticsTests {
+/// Blocking: two tests hold a fake PI launch on a semaphore, on a thread BackgroundWork took.
+@Suite(.blocking) struct HarnessDiagnosticsTests {
     private let model = AgentModel(id: "openai/model-x", label: "openai / model-x", detail: nil,
                                    efforts: ["high"], defaultEffort: "high")
 
@@ -308,6 +310,24 @@ extension HarnessDiagnosticsTests {
 
 extension HarnessDiagnosticsTests {
     private static let piTable = "provider model context max-out thinking images\nopenai model-x 128k 16k yes no\n"
+
+    /// The bundle's resources as the drivers take them — a script by its path once it can run,
+    /// PI's extension by its source — of the agents asked for: the launch, which asks only for
+    /// Claude's shim, reads no PI file.
+    @Test func theBundledResourcesAreThoseOfTheAgentsAskedFor() throws {
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-bundle-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let hooks = bundle.appendingPathComponent("hooks"), shim = hooks.appendingPathComponent("claude-statusline-shim.sh")
+        try FileManager.default.createDirectory(at: hooks, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: shim)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        try Data("// the extension\n".utf8).write(to: hooks.appendingPathComponent("pi-aiterm-status.ts"))
+
+        let every = HarnessResources.bundled(resourceURL: bundle)
+        #expect(every[.claude] == shim.path && every[.pi] == "// the extension\n")
+        let claudes = HarnessResources.bundled(resourceURL: bundle, for: [.claude])
+        #expect(claudes[.claude] == shim.path && claudes[.pi] == nil)
+    }
 
     private func piHome() throws -> (home: URL, resources: HarnessResources) {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-harness-pool-\(UUID().uuidString)")

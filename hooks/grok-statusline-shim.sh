@@ -15,7 +15,8 @@ IFS= read -r -d '' INPUT || true
 SUPPORT="$HOME/Library/Application Support/AiTerm"
 PORT=""
 [ -f "$SUPPORT/hook-port" ] && { PORT="$(<"$SUPPORT/hook-port")" 2>/dev/null; }
-if [ -n "$PORT" ]; then
+# Only a port, 1-65535 in digits, goes into the URL: a zsh pattern, so the check forks nothing.
+if [[ $PORT == <1-65535> ]]; then
   { printf '%s' "$INPUT" | curl -s -m 0.3 -X POST -H 'Content-Type: application/json' -H 'X-AiTerm-Hook: 1' -H "X-AiTerm-iTerm-Session: ${ITERM_SESSION_ID-}" -H 'Expect:' --data-binary @- "http://127.0.0.1:$PORT/statusline/grok"; } >/dev/null 2>&1 &
 fi
 ORIG_FILE="$SUPPORT/grok-statusline-original.cmd"

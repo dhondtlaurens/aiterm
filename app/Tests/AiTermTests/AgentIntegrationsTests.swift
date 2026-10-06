@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
@@ -86,6 +87,52 @@ struct AgentIntegrationsTests {
         await model.install(.claude)
 
         await eventually(describing: "the footer to stop saying the status line is gone") { claudeNote() == "No usage data yet" }
+    }
+}
+
+extension AgentIntegrationsTests {
+    /// Reads of Claude's settings start in order but finish on a pool: one that lands after a
+    /// newer one does not take back what the newer one found. Here the first read is held until
+    /// the second has been applied, then answers the opposite.
+    @Test func aStatusLineReadThatLandsLateDoesNotOverwriteANewerOne() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resources = root.appendingPathComponent("resources")
+        let shim = resources.appendingPathComponent("hooks/claude-statusline-shim.sh")
+        try FileManager.default.createDirectory(at: shim.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: shim, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        let reads = HeldFirstRead()
+        let agents = AgentIntegrations(harnessHome: root.appendingPathComponent("home"), bundledResourcesURL: resources,
+                                       locateAgents: { nil }, rememberedModels: { [:] },
+                                       statusLineIsInstalled: { _, _ in reads.answer() })
+
+        let late = Task { await agents.refreshStatusLineState() }
+        await eventually(describing: "the first read to be held") { reads.firstIsHeld }
+        await agents.refreshStatusLineState()
+        #expect(agents.claudeStatusLineInstalled == false)
+        reads.release()
+        await late.value
+
+        #expect(agents.claudeStatusLineInstalled == false, "the earlier read's answer landed last and was not applied")
+    }
+}
+
+/// Answers `true` to the first read once `release` is called, and `false` at once to every other.
+private final class HeldFirstRead: Sendable {
+    private let state = Mutex((reads: 0, held: false, released: false))
+    var firstIsHeld: Bool { state.withLock { $0.held } }
+    func release() { state.withLock { $0.released = true } }
+
+    func answer() -> Bool {
+        let first = state.withLock { state in
+            state.reads += 1
+            if state.reads == 1 { state.held = true }
+            return state.reads == 1
+        }
+        guard first else { return false }
+        while !state.withLock({ $0.released }) { Thread.sleep(forTimeInterval: 0.005) }
+        return true
     }
 }
 

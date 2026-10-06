@@ -76,3 +76,14 @@ def test_shim_without_a_recorded_port_posts_nothing_and_still_runs_the_original(
     assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
     time.sleep(0.5)
     assert daemon.received == []
+
+
+@pytest.mark.parametrize("written", ["1@127.0.0.1:{port}", "{port}/elsewhere?", "{port}0", "0", "abc", " {port}"])
+def test_shim_with_a_port_file_that_is_not_a_port_posts_nothing_and_still_runs_the_original(home, daemon, written):
+    support = home / "Library" / "Application Support" / "AiTerm"
+    (support / "hook-port").write_text(written.format(port=daemon.server_port) + "\n")
+    (support / "grok-statusline-original.cmd").write_text("cat >/dev/null; printf 'mine'")
+    result = run_shim(home)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
+    time.sleep(0.5)
+    assert daemon.received == []

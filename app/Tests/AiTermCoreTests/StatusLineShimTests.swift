@@ -112,6 +112,18 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: home.curlArguments.path))
     }
 
+    /// Only what `record` writes is the port recorded. Anything else in the file — a host, a path,
+    /// the port with space around it — the shims refuse, or might, so the driver's probe calls
+    /// that install outdated and a Repair writes the file again.
+    @Test func onlyWhatRecordWritesIsTheRecordedPort() throws {
+        let home = try makeHome(); defer { try? FileManager.default.removeItem(at: home.url) }
+        #expect(ShimPort.isRecorded(Self.port, home: home.url))
+        for written in ["1@127.0.0.1:\(Self.port)\n", " \(Self.port)\n", "\(Self.port)", "\(Self.port)\n\n"] {
+            try Data(written.utf8).write(to: AiTermPaths.hookPortURL(home: home.url))
+            #expect(!ShimPort.isRecorded(Self.port, home: home.url), "\(written.debugDescription) is not the recorded port")
+        }
+    }
+
     /// The shim spells the support folder in shell and nothing else of the app's: this pins that
     /// spelling to `AiTermPaths`, which writes the files it reads. The port is in no bundled file,
     /// and PI's extension takes it from the driver (`PiDriver.portPlaceholder`).

@@ -30,27 +30,39 @@ final class AgentIntegrations {
     /// which outlives any one sheet.
     private let rememberedModels: @MainActor () -> [AgentKind: String]
     private let harnessHome: URL
-    /// What the drivers install from the bundle, looked up once: the Settings service installs
-    /// them, and the footer's probe asks whether Claude Code still runs this bundle's shim.
-    private let resources: HarnessResources
+    private let bundledResourcesURL: URL?
+    /// Claude Code's status-line shim in the bundle, looked up once: the footer's probe asks whether
+    /// Claude Code still runs it.
+    private let claudeShim: String?
+    /// What the drivers install from the bundle, for the Settings service: looked up when Settings
+    /// first asks, not at launch, which need not wait on reading the PI extension.
+    @ObservationIgnored private lazy var resources = HarnessResources.bundled(resourceURL: bundledResourcesURL)
     /// Which agent CLIs the login shell finds, nil when it could not tell.
     private let locateAgents: @Sendable () -> Set<AgentKind>?
+    /// Whether Claude Code's settings in a home run a shim at a path: `ClaudeSettings`' answer, which
+    /// a test that orders two reads replaces.
+    private let statusLineIsInstalled: @Sendable (_ home: URL, _ shimPath: String) -> Bool
     @ObservationIgnored private var retainedHarnessSettings: HarnessSettingsModel?
 
     init(harnessHome: URL, bundledResourcesURL: URL?, locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
-         rememberedModels: @escaping @MainActor () -> [AgentKind: String]) {
+         rememberedModels: @escaping @MainActor () -> [AgentKind: String],
+         statusLineIsInstalled: @escaping @Sendable (_ home: URL, _ shimPath: String) -> Bool = {
+             ClaudeSettings.statusLineIsInstalled(home: $0, shimPath: $1)
+         }) {
         self.harnessHome = harnessHome
-        resources = .bundled(resourceURL: bundledResourcesURL)
+        self.bundledResourcesURL = bundledResourcesURL
+        claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]
         catalogue = ModelCatalogue(home: harnessHome, runner: .live)
         self.locateAgents = locateAgents
         self.rememberedModels = rememberedModels
+        self.statusLineIsInstalled = statusLineIsInstalled
     }
 
     /// Claude Code's status-line shim in the bundle, if it is there and can be run. Bundle lookups
     /// are optional because `swift run`, damaged copies and translocated apps do not necessarily
     /// contain installable resources. Settings reports that state instead of persisting a path
     /// that cannot work after launch.
-    var shimURL: URL? { resources[.claude].map(URL.init(fileURLWithPath:)) }
+    var shimURL: URL? { claudeShim.map(URL.init(fileURLWithPath:)) }
 
     /// The launch probes, together: the CLI lookup is a login shell costing the better part of a
     /// second, and the status line is a read of Claude's settings that need not wait for it.
@@ -78,7 +90,7 @@ final class AgentIntegrations {
     /// Off the main actor, both: `settings.json` is the user's file, of any size, and parsing it
     /// must not hold up the app.
     private func readStatusLine(migratingFirst migrating: Bool) async {
-        let shim = resources[.claude], home = harnessHome
+        let shim = claudeShim, home = harnessHome, isInstalled = statusLineIsInstalled
         statusLineReadsStarted += 1
         let read = statusLineReadsStarted
         let installed = await BackgroundWork.run {
@@ -91,7 +103,7 @@ final class AgentIntegrations {
             }
             // The harness home this was given, never the default: in a test that is a temporary
             // directory, and the developer's own `~/.claude` says nothing about it.
-            return shim.map { ClaudeSettings.statusLineIsInstalled(home: home, shimPath: $0) } ?? false
+            return shim.map { isInstalled(home, $0) } ?? false
         }
         guard !Task.isCancelled, read > statusLineReadsApplied else { return }
         statusLineReadsApplied = read
@@ -102,9 +114,14 @@ final class AgentIntegrations {
     /// catalogue survives a transient discovery failure and SwiftUI recomposing the sheet root does
     /// not probe again. The remembered models are read live for the same reason: it outlives a sheet.
     ///
-    /// `service` stands in for the real one in a test that must not launch a login shell.
+    /// `service` stands in for the real one in a test that must not launch a login shell. It is used
+    /// by the call that builds the model, the first; a later one is handed the model already built,
+    /// with the service it was built with, so passing one then is a mistake.
     func harnessSettingsModel(service: (any HarnessServicing)? = nil) -> HarnessSettingsModel {
-        if let retainedHarnessSettings { return retainedHarnessSettings }
+        if let retainedHarnessSettings {
+            assert(service == nil, "the Settings model is already built, with the service it was given first")
+            return retainedHarnessSettings
+        }
         let service = service ?? HarnessService(
             home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue, resources: resources)
         let settings = HarnessSettingsModel(

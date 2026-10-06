@@ -151,13 +151,16 @@ public struct HarnessResources: Equatable, Sendable {
 
     public subscript(agent: AgentKind) -> String? { resources[agent] }
 
-    public static func bundled(resourceURL: URL? = Bundle.main.resourceURL) -> HarnessResources {
+    /// The resources of `agents` — every agent's, unless a caller needs only some: the PI
+    /// extension's is a file read, where a script's is a look at its permissions.
+    public static func bundled(resourceURL: URL? = Bundle.main.resourceURL,
+                               for agents: [AgentKind] = AgentKind.allCases) -> HarnessResources {
         guard let resourceURL else {
             return HarnessResources([:], installationAllowed: false, unavailableReason: "AiTerm’s bundled drivers are unavailable.")
         }
         let hooks = resourceURL.appendingPathComponent("hooks")
         var resources: [AgentKind: String] = [:]
-        for agent in AgentKind.allCases { resources[agent] = agent.harness.bundledResource?.load(fromHooks: hooks) }
+        for agent in agents { resources[agent] = agent.harness.bundledResource?.load(fromHooks: hooks) }
         let translocated = BundleLocation.isTranslocated(resourceURL.path)
         return HarnessResources(resources, installationAllowed: !translocated,
                                 unavailableReason: translocated ? BundleLocation.translocationWarning : nil)
