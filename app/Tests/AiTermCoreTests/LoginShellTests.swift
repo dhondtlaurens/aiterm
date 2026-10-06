@@ -1,8 +1,9 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct LoginShellTests {
+@Suite(.blocking) struct LoginShellTests {
     /// `command -v` answers first, then `whence -p`, each line `name<TAB>answer`.
     private func located(_ output: String, names: [String] = ["claude", "codex", "pi"],
                          isExecutable: @escaping (String) -> Bool = LoginShell.isExecutableFile) -> [String: String]? {

@@ -15,6 +15,10 @@ import Testing
 /// that blocks costs only its own thread.
 ///
 /// A `@MainActor` test keeps to the main actor; this moves only what runs off it.
+///
+/// Every suite whose tests do blocking work off the main actor — a process waited for
+/// (`ProcessRunner`, `GitRunner`, a fixture's git), `Thread.sleep`, a semaphore — must be marked
+/// `@Suite(.blocking)`; nothing checks that it is.
 struct BlockingTrait: SuiteTrait, TestTrait, TestScoping {
     var isRecursive: Bool { true }
 

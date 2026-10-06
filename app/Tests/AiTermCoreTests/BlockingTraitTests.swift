@@ -29,6 +29,10 @@ private func currentQueue() -> String { String(cString: __dispatch_queue_get_lab
 }
 
 /// Without the trait a synchronous test runs on the pool: what makes the probe above mean something.
+///
+/// It leans on two things that are not this code's: libdispatch naming the pool's workers'
+/// queues "…cooperative", and the runner calling a synchronous test on that pool, as it does in
+/// parallel mode. If either changes, this fails first, and the probes above need another witness.
 @Suite struct UnmarkedTestPlacementTests {
     @Test func aSynchronousTestRunsOnThePool() {
         #expect(currentQueue().contains("cooperative"), "ran on \(currentQueue())")

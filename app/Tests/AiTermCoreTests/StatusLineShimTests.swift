@@ -6,7 +6,7 @@ import Testing
 /// The real `hooks/claude-statusline-shim.sh`, run in a temporary home with `curl` and `python3`
 /// replaced by recorders on `PATH`: nothing reaches a running daemon, and the test sees exactly
 /// what the shim would have started. Claude Code runs it on every status-line tick.
-@Suite struct StatusLineShimTests {
+@Suite(.blocking) struct StatusLineShimTests {
     /// Not the app's own, so a port the shim fell back to would show.
     static let port = 50123
 

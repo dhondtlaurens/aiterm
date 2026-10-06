@@ -1,8 +1,9 @@
 import Foundation
 import Testing
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
-@Suite struct CLIInstallerTests {
+@Suite(.blocking) struct CLIInstallerTests {
     @Test func eachHarnessInstallsThroughItsVendorsOwnScript() {
         #expect(AgentKind.claude.harness.installCommand == "curl -fsSL https://claude.ai/install.sh | bash")
         #expect(AgentKind.codex.harness.installCommand == "curl -fsSL https://chatgpt.com/codex/install.sh | sh")
