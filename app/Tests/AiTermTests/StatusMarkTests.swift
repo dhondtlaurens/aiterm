@@ -195,7 +195,9 @@ struct StatusMarkTests {
 
     /// A list recycles a row's cell: the view leaves its window and comes back, with the arc's
     /// state kept and its animation possibly dropped. The arc must be turning again, and back on
-    /// the clock's phase.
+    /// the clock's phase. A window keeps the animation through the swap, so this guards the
+    /// restart — it failed for an arc rewound in place — rather than reproducing a dropped
+    /// animation, which only a recycling list does: it passes without the restart too.
     @Test func aRecycledMarkTurnsAgainOnTheClock() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))

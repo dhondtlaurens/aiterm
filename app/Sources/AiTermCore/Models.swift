@@ -199,7 +199,9 @@ public enum SidebarItem: Codable, Identifiable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        switch (try? c.decodeIfPresent(String.self, forKey: .kind))?.flatMap(Kind.init(rawValue:)) {
+        // A kind that is missing, not a string, or one this build does not know is kept as it came.
+        let kind = (try? c.decode(String.self, forKey: .kind)).flatMap(Kind.init(rawValue:))
+        switch kind {
         case .project: self = .project(try c.decode(Project.self, forKey: .project))
         case .divider: self = .divider(try c.decode(SidebarDivider.self, forKey: .divider))
         case nil: self = .unknown(UnknownSidebarItem(raw: try decoder.singleValueContainer().decode(StoredJSON.self)))

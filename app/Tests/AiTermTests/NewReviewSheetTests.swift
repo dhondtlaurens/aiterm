@@ -300,6 +300,7 @@ import AiTermCore
         h.model.completions.visible = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
         settle(h.host)
         #expect(!descendants(of: NSTextView.self, in: h.host).isEmpty, "step 3: Prompt")
+        try #require(h.model.completions.isOpen, "the popup is open before ⎋")
 
         pressEscape(h)
         #expect(!h.model.completions.isOpen, "⎋ closed the popup")

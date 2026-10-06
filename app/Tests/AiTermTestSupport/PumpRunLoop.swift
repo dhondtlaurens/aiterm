@@ -12,6 +12,12 @@ import Testing
 ///
 /// Returns whether the condition held; a timeout is also recorded as an issue, as `eventually`'s is. `timeout` is `TestDeadline`'s: a pixel test that holds the
 /// main thread for seconds must not make a wait that would have passed fail.
+///
+/// The hosted suites that hold the main actor longest this way — StatusMarkTests,
+/// SidebarInteractionTests, SidebarRowGeometryTests — keep holding it rather than yielding between
+/// turns: another test's body run inside their stretch changed what they measure (an arc's phase
+/// against the clock, the key window and first responder, a deferred scroll). It is the waits that
+/// queue behind them that tolerate the hold instead: `eventually` does not charge a late turn.
 @MainActor @discardableResult
 func pumpRunLoop(describing what: @autoclosure () -> String = "the condition", timeout: TimeInterval = TestDeadline.seconds,
                  sourceLocation: SourceLocation = #_sourceLocation, until condition: () -> Bool) -> Bool {

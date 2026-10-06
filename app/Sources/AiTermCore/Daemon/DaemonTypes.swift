@@ -28,6 +28,8 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
 extension SessionInfo {
     /// Written by hand for `active` alone, which an older daemon leaves out; every other field is
     /// read as the synthesised decoder would. In an extension, so the memberwise initialiser stays.
+    /// `WireContractTests` reads the daemon's own sessions with it and compares each field with the
+    /// daemon's JSON, so a field this misreads, or a key it reads under another name, shows there.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sessionId = try c.decode(String.self, forKey: .sessionId)

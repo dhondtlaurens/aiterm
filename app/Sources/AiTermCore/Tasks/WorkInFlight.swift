@@ -11,6 +11,11 @@ import Foundation
 ///
 /// A class rather than a value: the owners that do the work — launches, removals, terminals, the
 /// pull — each start and end work on the same subjects, and each must see the others'.
+///
+/// On the main actor, the one type in Core that is: whether work may begin is checked and recorded
+/// in one turn, which a single actor makes so, and every owner that begins work, and every hook
+/// that hears of it and redraws a row, is on the main actor already. An actor of its own would
+/// make each `begin` an `await`, between the check before it and the work after it.
 @MainActor
 public final class WorkInFlight {
     public enum Subject: Hashable, Sendable {
