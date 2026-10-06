@@ -57,18 +57,23 @@ struct Lenient<Value: Decodable>: Decodable {
 }
 
 /// Drops the credentials from a redirect that leaves the first request's origin.
+///
+/// The completion-handler form, not the `async` one: URLSession runs an `async` delegate method as a
+/// task on Swift's cooperative pool, so the redirect waited for a free worker while the request's
+/// timeout ran — and with every worker busy (the parallel test runner parks them all in blocking
+/// tests for longer than the timeout) the hop timed out. This form runs on the session's own queue.
 private final class CredentialGuard: NSObject, URLSessionTaskDelegate, Sendable {
     let origin: URL?
     init(origin: URL?) { self.origin = origin }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest) async -> URLRequest? {
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         guard let url = request.url, let origin, url.isSameOrigin(as: origin) else {
             var request = request
             for header in HTTPJSON.credentialHeaders { request.setValue(nil, forHTTPHeaderField: header) }
-            return request
+            return completionHandler(request)
         }
-        return request
+        completionHandler(request)
     }
 }
 
