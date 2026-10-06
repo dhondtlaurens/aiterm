@@ -30,40 +30,43 @@ enum Logos {
     /// The four-colour tanuki as drawn on the design canvas (decision "GitLab B", 17 Sep 2026).
     static let gitlabFourColourSVG = ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/><path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></svg>"##
 
-    /// What an image is cached under: the whole of what it was built from, so two marks can never
-    /// share an entry. A brand is its name, since a body asks for its mark each time it runs and
-    /// hashing a path of kilobytes is what a path key would cost every time. The path's length rides
-    /// along, which costs nothing: two brands given one name by mistake are still two entries
-    /// unless their paths are the same size too, and `LogosTests` pins every brand's name apart.
-    private enum Key: Hashable {
-        case brand(name: String, pathLength: Int, fill: String)
-        case document(String)
-    }
+    /// A brand's mark is cached under its name and fill, since a body asks for its mark each time
+    /// it runs and hashing a path of kilobytes is what a path key would cost every time. The entry
+    /// keeps the path it was drawn from, and a hit counts only for that path: two brands given one
+    /// name by mistake are drawn apart, at the cost of a string comparison that is a pointer check
+    /// for the same brand — `Palette`'s paths are literals, one buffer however often read.
+    private struct BrandKey: Hashable { let name: String, fill: String }
 
     /// Main-actor state: every reader is a view's `body`.
-    @MainActor private static var cache: [Key: NSImage] = [:]
+    @MainActor private static var brands: [BrandKey: (path: String, image: NSImage)] = [:]
+    @MainActor private static var documents: [String: NSImage] = [:]
 
     /// A single-colour mark — the brand's path in a 24 × 24 viewBox, filled with `fill` —
     /// rasterised once per brand and fill. A brand with `evenOdd` gets `fill-rule="evenodd"` on its
     /// path: only Grok's mark needs it, whose inner cut renders filled under SVG's default nonzero
     /// winding rule.
     @MainActor static func image(brand: Brand, fill: String) -> NSImage? {
-        image(for: .brand(name: brand.name, pathLength: brand.path.utf8.count, fill: fill)) {
-            let rule = brand.evenOdd ? #" fill-rule="evenodd""# : ""
-            return #"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="\#(fill)"\#(rule) d="\#(brand.path)"/></svg>"#
+        let key = BrandKey(name: brand.name, fill: fill)
+        if let hit = brands[key], hit.path == brand.path { return hit.image }
+        let rule = brand.evenOdd ? #" fill-rule="evenodd""# : ""
+        guard let image = rasterise(#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="\#(fill)"\#(rule) d="\#(brand.path)"/></svg>"#) else {
+            return nil
         }
+        brands[key] = (brand.path, image)
+        return image
     }
 
     /// Any small SVG document, rasterised once.
     @MainActor static func image(svg: String) -> NSImage? {
-        image(for: .document(svg)) { svg }
+        if let hit = documents[svg] { return hit }
+        guard let image = rasterise(svg) else { return nil }
+        documents[svg] = image
+        return image
     }
 
-    @MainActor private static func image(for key: Key, svg: () -> String) -> NSImage? {
-        if let hit = cache[key] { return hit }
-        guard let image = NSImage(data: Data(svg().utf8)) else { return nil }
+    private static func rasterise(_ svg: String) -> NSImage? {
+        guard let image = NSImage(data: Data(svg.utf8)) else { return nil }
         image.isTemplate = false
-        cache[key] = image
         return image
     }
 }

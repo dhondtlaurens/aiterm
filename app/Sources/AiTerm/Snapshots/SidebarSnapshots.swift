@@ -14,27 +14,10 @@ enum SidebarSnapshots {
             Snapshot("sidebar-native.png", hostedOnly: true) {
                 SidebarView(controller: Fixture().controller()).frame(width: 340, height: 600)
             },
-            Snapshot("sidebar.png") {
-                let controller = Fixture().controller()
-                return VStack(alignment: .leading, spacing: Space.hairline) {
-                    // A stack of its own, so the inset reaches the rows as one block and the spacing
-                    // between them stays the outer stack's.
-                    VStack(alignment: .leading, spacing: Space.hairline) { listRows(controller) }
-                        .padding(.horizontal, Space.inset)
-                    Spacer()
-                    footer(controller)
-                }
-                // The rows' 10 pt inset stands in for the List's. The footer is a direct child of the
-                // real sidebar and gets its full width — it adds that inset back itself — so it is not
-                // padded here, and the frame carries the inset on top of `sidebarWidth`.
-                // The selected task adds the footer's CONTEXT group and its rule above USAGE; USAGE
-                // itself grew 26 pt over the old vendor block when it gained its heading and menu-row lines.
-                .frame(width: Size.sidebarWidth + 20,
-                       height: 352 + 26 + Size.menuRow + Size.projectRow
-                           + Space.tight + Size.menuRow * 2 + Space.base + 1)
-                .background(Palette.sidebar)
-            },
-            // The two larger sizes, for judging the scale by eye; ×1 is `sidebar.png` above.
+            // The rows and the footer at each size, as tall as they are: a frame of a fixed height
+            // clipped the `PROJECTS` heading off the top once the rows outgrew it.
+            scaled("sidebar.png", .standard),
+            // The two larger sizes, for judging the scale by eye.
             scaled("sidebar-large.png", .large),
             scaled("sidebar-extra-large.png", .extraLarge),
             // A task stacking two providers draws only its active tab's provider.
@@ -132,6 +115,9 @@ enum SidebarSnapshots {
                                                        calendar: Snapshots.clock.calendar))
     }
 
+    /// The rows the list draws, inset as the List insets them, over the footer, which is a direct
+    /// child of the real sidebar and adds that inset back itself — so the frame carries the inset
+    /// on top of `sidebarWidth`.
     private static func scaled(_ file: String, _ scale: InterfaceScale) -> Snapshot {
         Snapshot(file) {
             let controller = Fixture().controller()
@@ -148,8 +134,8 @@ enum SidebarSnapshots {
     }
 
     /// The fixture's tasks mid-removal — two removing, one closing, and one whose removal kept its
-    /// branch — with `selecting` selected, or the PI task. Only the task rows, in the projection's
-    /// order: the project's header and terminal have nothing to say about a removal.
+    /// branch — with `selecting` selected, or the PI task. Only the task rows, as the list draws
+    /// them: the project's header and terminal have nothing to say about a removal.
     private static func removal(_ file: String, selecting: KeyPath<Fixture, TaskItem>?) -> Snapshot {
         Snapshot(file) {
             let fixture = Fixture(), controller = fixture.controller()
@@ -161,9 +147,7 @@ enum SidebarSnapshots {
             if let selecting { controller.focus.browse(.task(fixture[keyPath: selecting].id)) }
             let rows = controller.rows
             return VStack(alignment: .leading, spacing: Space.hairline) {
-                ForEach(rows.sections[0].tasks) { row in
-                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
-                }
+                SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
             }
             .padding(.horizontal, Space.inset)
             .frame(width: Size.sidebarWidth + 20)

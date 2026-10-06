@@ -42,11 +42,17 @@ struct SidebarView: View {
                     TerminalRowView(row: row, terminal: rows.terminals[row.id], project: section.project, controller: controller)
                         .tag(row.id)
                 }
-                ForEach(section.tasks) { row in
-                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
-                        .tag(row.id)
-                }
+                taskRows(of: section, in: rows, controller: controller)
             }
+        }
+    }
+
+    /// A project's task rows, as the list draws them under its terminals: what the removal
+    /// snapshots stack on their own.
+    @ViewBuilder static func taskRows(of section: ProjectSection, in rows: SidebarProjection, controller: AppController) -> some View {
+        ForEach(section.tasks) { row in
+            TaskRowView(row: row, task: rows.tasks[row.id], controller: controller)
+                .tag(row.id)
         }
     }
 

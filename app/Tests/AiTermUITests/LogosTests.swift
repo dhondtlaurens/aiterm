@@ -33,11 +33,17 @@ struct LogosTests {
         #expect(Icon.hexString(Palette.markPaper) == "#FFFFFF")
     }
 
-    /// Two brands wrongly given one name are not drawn as each other while their paths differ in size.
+    /// Two brands wrongly given one name are not drawn as each other, whatever their paths: the
+    /// second here is as long as the first, which a key of the name and the path's length took for it.
     @Test func brandsSharingANameButNotAPathAreCachedApart() {
-        let first = Logos.image(brand: Brand("same", 0xFFFFFF, path: "M0 0h24v24H0z", fallbackSymbol: "circle"), fill: "#FFFFFF")
-        let second = Logos.image(brand: Brand("same", 0xFFFFFF, path: "M0 0h2v2H0z", fallbackSymbol: "circle"), fill: "#FFFFFF")
-        #expect(first != nil && second != nil)
-        #expect(first !== second)
+        for (one, other) in [("M0 0h24v24H0z", "M0 0h2v2H0z"), ("M0 0h24v24H0z", "M0 0h12v12H0z")] {
+            let name = "same-\(UUID().uuidString)"
+            let first = Logos.image(brand: Brand(name, 0xFFFFFF, path: one, fallbackSymbol: "circle"), fill: "#FFFFFF")
+            let second = Logos.image(brand: Brand(name, 0xFFFFFF, path: other, fallbackSymbol: "circle"), fill: "#FFFFFF")
+            #expect(first != nil && second != nil)
+            #expect(first !== second, "\(other) was drawn as \(one)")
+            #expect(Logos.image(brand: Brand(name, 0xFFFFFF, path: other, fallbackSymbol: "circle"), fill: "#FFFFFF") === second,
+                    "still rasterised once")
+        }
     }
 }
