@@ -12,7 +12,7 @@ import Foundation
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("state.json")
         let store = StateStore(url: url)
         var s = AppState.empty
-        s.projects = [Project(id: UUID(), name: "AiTerm", path: "/tmp/AiTerm", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: true)]
+        s.append(project: Project(id: UUID(), name: "AiTerm", path: "/tmp/AiTerm", provider: .git, remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: true))
         try store.save(s)
         #expect(try store.load() == s)
         #expect(!FileManager.default.fileExists(atPath: url.path + ".tmp"))
@@ -35,6 +35,66 @@ import Foundation
         try store.save(next)
         #expect(try Data(contentsOf: store.backupURL) == original)
         #expect(try store.load() == next)
+    }
+
+    /// A save after the store's own write does not read the file back to check it: it knows what it
+    /// wrote, and keeps those bytes as the backup. Proved with a primary nothing can read — the
+    /// same file, its permissions changed, which leaves its contents and modification time alone.
+    @Test func aSaveAfterItsOwnWriteDoesNotReadTheFileBack() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StateStore(url: dir.appendingPathComponent("state.json"))
+        try store.save(.empty)
+        let original = try Data(contentsOf: store.url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.url.path)
+        #expect(throws: (any Error).self) { try Data(contentsOf: store.url) }
+        var next = AppState.empty
+        next.lastModelByAgent[.claude] = "sonnet"
+
+        try store.save(next)
+
+        #expect(try Data(contentsOf: store.backupURL) == original)
+        // An atomic write keeps the replaced file's permissions.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: store.url.path)
+        #expect(try store.load() == next)
+    }
+
+    /// The same holds for the file it loaded: what `load` read and checked is the backup.
+    @Test func aSaveAfterALoadDoesNotReadTheFileBack() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try StateStore(url: dir.appendingPathComponent("state.json")).save(.empty)
+        let store = StateStore(url: dir.appendingPathComponent("state.json"))
+        let original = try Data(contentsOf: store.url)
+        #expect(try store.load() == .empty)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.url.path)
+        var next = AppState.empty
+        next.lastModelByAgent[.claude] = "sonnet"
+
+        try store.save(next)
+
+        #expect(try Data(contentsOf: store.backupURL) == original)
+    }
+
+    /// A file changed by anyone else since the store last wrote it is read and checked again: a
+    /// damaged one is not overwritten, and a good one becomes the backup.
+    @Test func aFileChangedOutsideTheStoreIsCheckedAgain() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StateStore(url: dir.appendingPathComponent("state.json"))
+        try store.save(.empty)
+        let damaged = Data("{broken".utf8)
+        try damaged.write(to: store.url)
+        #expect(throws: (any Error).self) { try store.save(.empty) }
+        #expect(try Data(contentsOf: store.url) == damaged)
+
+        var edited = AppState.empty
+        edited.lastModelByAgent[.codex] = "gpt"
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let outside = try encoder.encode(edited)
+        try outside.write(to: store.url)
+        try store.save(.empty)
+        #expect(try Data(contentsOf: store.backupURL) == outside)
     }
 
     @Test func corruptPrimaryIsNotOverwritten() throws {
@@ -103,10 +163,10 @@ import Foundation
         let terminal = TerminalItem(id: UUID(), projectId: project.id, name: "Shell",
                                     windowId: "w2", createdAt: Date(timeIntervalSince1970: 0))
         var valid = AppState.empty
-        valid.projects = [project]; valid.tasks = [task]; valid.terminals = [terminal]
+        valid.items = [.project(project)]; valid.tasks = [task]; valid.terminals = [terminal]
         try store.save(valid)
         let original = try Data(contentsOf: store.url)
-        var duplicateProject = valid; duplicateProject.projects.append(project)
+        var duplicateProject = valid; duplicateProject.append(project: project)
         var duplicateTask = valid; duplicateTask.tasks.append(task)
         var duplicateTerminal = valid; duplicateTerminal.terminals.append(terminal)
         var orphanTask = valid; orphanTask.tasks[0].projectId = UUID()
@@ -207,7 +267,7 @@ import Foundation
                             agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
                             appendTicket: false, createdAt: Date(timeIntervalSince1970: 0), windowId: nil)
         var known = AppState.empty
-        known.projects = [project]; known.tasks = [task]
+        known.items = [.project(project)]; known.tasks = [task]
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(known)) as? [String: Any])
         let folder: [String: Any] = ["kind": "folder", "folder": [
