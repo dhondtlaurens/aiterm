@@ -47,7 +47,7 @@ import AiTermCore
                             createdAt: Date(), windowId: nil)
         fixture.controller.workspace.mutate { $0.tasks = [task] }
 
-        #expect(fixture.controller.confirmRemove(task: task) == nil, "⎋ cancels")
+        #expect(await fixture.controller.confirmRemove(task: task) == nil, "⎋ cancels")
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Remove", "Cancel"])
         #expect(asked.defaultDeletes)
@@ -55,12 +55,12 @@ import AiTermCore
         #expect(fixture.controller.state.tasks == [task])
     }
 
-    @Test func theRemoveProjectAlertIsBlueBecauseItKeepsTheFiles() throws {
+    @Test func theRemoveProjectAlertIsBlueBecauseItKeepsTheFiles() async throws {
         let prompter = ScriptedPrompter(answering: "⎋")
         let fixture = try RaceFixture(prompter: prompter)
         defer { fixture.cleanUp() }
 
-        fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.confirmRemove(project: fixture.project)
 
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Remove", "Cancel"])

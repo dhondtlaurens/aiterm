@@ -37,13 +37,21 @@ struct AlertAnswer: Equatable {
 /// Where the app's modal questions go. `ModalPrompter` shows them; tests answer them from a script,
 /// which keeps every controller test in the ordinary test pass instead of driving real alerts.
 ///
-/// Never ask from inside a SwiftUI key handler: an alert run modally there comes up without its
-/// accessory view. Defer the call a turn with a `Task`, as ⌘⌫ on the list does.
+/// A question is an `await`. While it is up, anything else the app does can run — a snapshot, a
+/// window closing, another Remove — and it runs there, at a suspension Swift marks and the caller
+/// re-checks after, never in the middle of the caller's own code as a modal run loop nested under
+/// it would. The alert itself comes up on a later turn of the main run loop, so it is never run
+/// inside a SwiftUI key handler either, where one comes up without its accessory view.
 @MainActor
 protocol Prompter {
-    @discardableResult func ask(_ prompt: AlertPrompt) -> AlertAnswer
+    @discardableResult func ask(_ prompt: AlertPrompt) async -> AlertAnswer
+    /// The same question, answered before this returns: the alert runs modally right here, and
+    /// whatever was queued runs while it is up. Only for an AppKit callback that must answer before
+    /// it returns — the launch's unreadable workspace and the last update's failure, the quit's
+    /// unsaved changes — and never from a key handler.
+    @discardableResult func askBlocking(_ prompt: AlertPrompt) -> AlertAnswer
     /// A folder the person picked, or `nil` when they cancelled.
-    func chooseFolder(prompt: String) -> URL?
+    func chooseFolder(prompt: String) async -> URL?
 }
 
 @MainActor
@@ -72,7 +80,14 @@ struct ModalPrompter: Prompter {
         return alert
     }
 
-    func ask(_ prompt: AlertPrompt) -> AlertAnswer {
+    /// `askBlocking`, on the next turn of the main run loop rather than under the caller.
+    func ask(_ prompt: AlertPrompt) async -> AlertAnswer {
+        await withCheckedContinuation { answered in
+            RunLoop.main.perform { MainActor.assumeIsolated { answered.resume(returning: askBlocking(prompt)) } }
+        }
+    }
+
+    func askBlocking(_ prompt: AlertPrompt) -> AlertAnswer {
         let alert = Self.alert(for: prompt)
         // ⎋ for a safe default, which is holding ↩: pressed through the button, as a click would be.
         let monitor = prompt.escapeButton == 0 ? NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -87,10 +102,17 @@ struct ModalPrompter: Prompter {
                            checked: (alert.accessoryView as? NSButton)?.state == .on)
     }
 
-    func chooseFolder(prompt: String) -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        panel.prompt = prompt
-        return panel.runModal() == .OK ? panel.url : nil
+    /// Run modally, as `ask`'s alert is, on a later turn of the main run loop.
+    func chooseFolder(prompt: String) async -> URL? {
+        await withCheckedContinuation { chosen in
+            RunLoop.main.perform {
+                MainActor.assumeIsolated {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+                    panel.prompt = prompt
+                    chosen.resume(returning: panel.runModal() == .OK ? panel.url : nil)
+                }
+            }
+        }
     }
 }

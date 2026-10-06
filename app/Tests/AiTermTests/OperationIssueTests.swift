@@ -46,7 +46,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let before = fixture.controller.issue
 
-        #expect(fixture.controller.perform(.deleteBranch(task.id)) == nil)
+        #expect(await fixture.controller.perform(.deleteBranch(task.id)) == nil)
 
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(fixture.controller.issue == before)
@@ -65,7 +65,7 @@ extension AppControllerTests {
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.removals.isEmpty)
-        #expect(fixture.controller.perform(.keepBranch(task.id)) == nil, "nothing is left to keep")
+        #expect(await fixture.controller.perform(.keepBranch(task.id)) == nil, "nothing is left to keep")
     }
 
     /// Dismissing hides the banner, but the removal still waits on a retry, and its row says so.
@@ -298,7 +298,7 @@ extension AppControllerTests {
         let (fixture, _) = try await removedWithUnmergedBranch(answering: "Remove", "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
-        fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.confirmRemove(project: fixture.project)
 
         #expect(fixture.controller.state.projects.isEmpty)
         #expect(fixture.controller.issue == nil)

@@ -62,7 +62,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = controller.confirmRemove(task: fixture.task)
+        let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")
@@ -91,7 +91,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = controller.confirmRemove(task: fixture.task)
+        let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         // Saving breaks while the window closes: a directory stands where the backup goes.
         let backup = controller.workspace.file.backupURL
@@ -177,7 +177,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         try "draft\n".write(toFile: fixture.task.worktreePath + "/notes.txt", atomically: true, encoding: .utf8)
 
-        let removal = controller.confirmRemove(task: fixture.task)
+        let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/notes.txt"))
 
@@ -198,7 +198,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = controller.confirmRemove(task: fixture.task)
+        let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
                                                           sessions: [SessionInfo.stub(window: "alive", task: fixture.task)], usage: .empty)))
@@ -222,7 +222,7 @@ extension AppControllerTests {
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
 
-        let removal = controller.confirmRemove(task: fixture.task)
+        let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         try "late\n".write(toFile: fixture.task.worktreePath + "/late.txt", atomically: true, encoding: .utf8)
         server.release()
@@ -536,7 +536,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         #expect(controller.removals.isEmpty)
 
-        let removal = controller.confirmRemove(task: fixture.task)
+        let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         #expect(controller.removals == [fixture.task.id: .removing])
 

@@ -164,15 +164,16 @@ final class TaskRemover: CheckoutRemovals {
     /// checkbox here only keeps the alert from offering something that would be ignored.
     static func offersBranchDeletion(for task: TaskItem) -> Bool { task.kind != .review }
 
-    /// Each alert here is a reentrancy point: `runModal` drains the main queue, so a snapshot, a
-    /// window closing or another Remove can run while it is up. What happens after an answer is
-    /// decided on the task as it is then — `task` is the row's copy, as old as the click.
+    /// Each question here is an `await`: a snapshot, a window closing or another Remove can run
+    /// while it is up. What happens after an answer is decided on the task as it is then — `task`
+    /// is the row's copy, as old as the click. Nil when nothing started: the task was gone or busy,
+    /// the question was declined, or another Remove took the task while it was up.
     @discardableResult
-    func confirmRemove(task: TaskItem) -> Task<Void, Never>? {
+    func confirmRemove(task: TaskItem) async -> Task<Void, Never>? {
         let state = workspace.state
         guard workspace.canChangeWorkspace, work.operation(onTask: task.id) == nil, let shown = state.task(id: task.id),
               state.project(id: shown.projectId) != nil else { return nil }
-        let answer = prompter.ask(AlertPrompt(
+        let answer = await prompter.ask(AlertPrompt(
             message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
             detail: shown.kind == .review
                 ? "Deletes the worktree and closes its iTerm2 window. Its local branch goes too, unless it has commits origin lacks:\n\n\(shown.worktreePath)"
@@ -180,7 +181,8 @@ final class TaskRemover: CheckoutRemovals {
             buttons: ["Remove", "Cancel"],
             checkbox: Self.offersBranchDeletion(for: shown) ? "Also delete branch \(shown.branch)" : nil,
             defaultDeletes: true))
-        // A Remove started during the alert owns the removal now; this answer then does nothing.
+        // Still needed after the await: a Remove started during the alert owns the removal now, and
+        // this answer then does nothing; the task or its project can be gone, or the workspace locked.
         guard answer.confirmed, workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id),
               let project = workspace.state.project(id: current.projectId),
               let token = work.begin(.removing(windowLetGo: false), onTask: task.id) else { return nil }
@@ -197,14 +199,15 @@ final class TaskRemover: CheckoutRemovals {
 
     /// The banner's Delete: deleting drops commits no other branch has, so it asks first. Nil when
     /// the question was declined, or the task is gone, busy or no longer waiting on a retry.
-    func deleteBranch(of id: UUID) -> Task<Void, Never>? {
+    func deleteBranch(of id: UUID) async -> Task<Void, Never>? {
         guard let shown = workspace.state.task(id: id) else { return nil }
         let base = shown.baseBranch.isEmpty ? "its base" : shown.baseBranch
-        let answer = prompter.ask(AlertPrompt(
+        let answer = await prompter.ask(AlertPrompt(
             message: "Delete branch \(shown.branch)?",
             detail: "It has commits that aren’t on \(base). Deleting the branch deletes them too.",
             buttons: ["Delete Branch", "Cancel"], defaultDeletes: true))
-        // The alert is a reentrancy point: act on the task as it is once it is answered.
+        // Act on the task as it is once the alert is answered: across the await, a Keep or another
+        // Delete can have taken it, or its row gone.
         guard answer.confirmed, let (task, project, token) = heldForRetry(id) else { return nil }
         notices.clearIssue()
         return remove(task, from: project, deleteBranch: true, holding: token) { [workflow] in
@@ -259,7 +262,7 @@ final class TaskRemover: CheckoutRemovals {
                                 holding token: WorkInFlight.Token) async throws -> TaskWorkflow.Removed? {
         var task = task, force = false
         if try await workflow.hasUnsavedWork(task: task, project: project) {
-            guard let still = confirmDeletingUnsavedWork(of: task) else { return nil }
+            guard let still = await confirmDeletingUnsavedWork(of: task) else { return nil }
             task = still
             force = true
         }
@@ -267,7 +270,7 @@ final class TaskRemover: CheckoutRemovals {
         do { return try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force) }
         catch let error as GitError where error.refusedForUnsavedWork {
             // Written after the check, before the window closed.
-            guard let still = confirmDeletingUnsavedWork(of: task) else {
+            guard let still = await confirmDeletingUnsavedWork(of: task) else {
                 if closed { throw RemovalStop.keptWithoutWindow }
                 return nil
             }
@@ -276,12 +279,13 @@ final class TaskRemover: CheckoutRemovals {
     }
 
     /// The task as it is once deleting its unsaved work is agreed to; nil when it is kept. The task
-    /// is still held, so no other removal started, but its row can have gone.
+    /// is still held, so no other removal started, but across the question's await its row can have
+    /// gone, or the workspace locked.
     ///
     /// Keeping is the default, on ↩ and ⎋ both; deleting is the plain grey button beside it, never
     /// marked red — the red default is for a button ↩ can press.
-    private func confirmDeletingUnsavedWork(of task: TaskItem) -> TaskItem? {
-        let force = prompter.ask(AlertPrompt(
+    private func confirmDeletingUnsavedWork(of task: TaskItem) async -> TaskItem? {
+        let force = await prompter.ask(AlertPrompt(
             message: "The worktree has uncommitted changes",
             detail: "Removing this worktree permanently deletes its uncommitted changes and untracked files.",
             buttons: [task.kind == .review ? "Keep Review" : "Keep Task", "Delete Changes and Remove"], escape: 0))

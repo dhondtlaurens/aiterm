@@ -84,7 +84,7 @@ extension AppControllerTests {
             actions: [.rebaseDefault(fixture.project.id)]))
         #expect(OperationIssue.Action.rebaseDefault(fixture.project.id).title == "Rebase")
 
-        let rebase = fixture.controller.perform(.rebaseDefault(fixture.project.id))
+        let rebase = await fixture.controller.perform(.rebaseDefault(fixture.project.id))
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.isChangingDefaultBranch(fixture.project.id), "the menu's Pull main waits for it")
         await rebase?.value
@@ -102,7 +102,7 @@ extension AppControllerTests {
         fixture.controller.report(banner)
 
         let pull = fixture.controller.pullDefault(project: fixture.project)
-        #expect(fixture.controller.perform(.rebaseDefault(fixture.project.id)) == nil)
+        #expect(await fixture.controller.perform(.rebaseDefault(fixture.project.id)) == nil)
         #expect(fixture.controller.issue == banner)
         await pull?.value
     }
@@ -142,7 +142,7 @@ extension AppControllerTests {
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
 
         let pull = fixture.controller.pullDefault(project: fixture.project)
-        fixture.controller.confirmRemove(project: fixture.project)
+        await fixture.controller.confirmRemove(project: fixture.project)
         await pull?.value
 
         #expect(fixture.controller.state.projects.isEmpty)

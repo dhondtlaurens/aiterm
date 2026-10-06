@@ -11,8 +11,8 @@ import Testing
 private final class FakeSource: ReleaseSource, @unchecked Sendable {
     var result: Result<Release, UpdateError>
     var gate: AsyncStream<Void>?
-    /// Thrown by `latest()` or `download` instead of their scripted answer.
-    var latestError: Error?, downloadError: Error?
+    /// Thrown by `latest()` instead of its scripted answer.
+    var latestError: Error?
     private let record = Mutex<(latestCalls: Int, downloadedTo: URL?)>((0, nil))
     var latestCalls: Int { record.withLock { $0.latestCalls } }
     var downloadedTo: URL? { record.withLock { $0.downloadedTo } }
@@ -25,7 +25,6 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
     }
     func download(_ release: Release, to destination: URL) async throws {
         record.withLock { $0.downloadedTo = destination }
-        if let downloadError { throw downloadError }
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("dmg".utf8).write(to: destination)
     }
@@ -78,20 +77,14 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
             showProgress: { text in log.progress.append(text); return { log.dismissed += 1 } })
     }
 
-    /// Cancellation is never an alert, whether the check or the download was cancelled.
-    @Test func aCancelledCheckOrDownloadSaysNothing() async {
+    /// A cancelled check is never an alert. A download is never cancelled: the progress panel has
+    /// no Cancel, and nothing cancels the menu's task.
+    @Test func aCancelledCheckSaysNothing() async {
         let quiet = ScriptedPrompter(answering: "OK"), log = Log()
         let checking = FakeSource(.success(newer))
         checking.latestError = CancellationError()
         await controller(quiet, source: checking, log: log).checkForUpdates()
         #expect(quiet.asked.isEmpty)
-
-        let updating = ScriptedPrompter(answering: "Update")
-        let downloading = FakeSource(.success(newer))
-        downloading.downloadError = CancellationError()
-        await controller(updating, source: downloading, log: log).checkForUpdates()
-        #expect(updating.asked.map(\.message) == ["AiTerm 0.3.0 is available."])
-        #expect(log.terminated == 0)
     }
 
     @Test func upToDate() async {

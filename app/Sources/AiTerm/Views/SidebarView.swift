@@ -80,9 +80,10 @@ struct SidebarView: View {
                 // as U+007F: `KeyEquivalent.delete` is U+0008, which a key press never matches.
                 .onKeyPress("\u{7F}", phases: .down) { press in
                     guard press.modifiers == .command else { return .ignored }
-                    // Next turn, as a context-menu item runs: an alert run modally inside SwiftUI's
-                    // key handler came up without its "Also delete branch" checkbox.
-                    Task { controller.removeSelection() }
+                    // The question is asked a turn later, never inside SwiftUI's key handler, where
+                    // an alert run modally came up without its "Also delete branch" checkbox
+                    // (`Prompter`).
+                    Task { await controller.removeSelection() }
                     return .handled
                 }
                 .background(SidebarScrollFollower(focus: controller.focus) { id in
@@ -200,7 +201,7 @@ struct SidebarBanners: View {
         }
         if let issue = controller.issue {
             SidebarBanner(text: issue.title, detail: issue.reason, tone: .error,
-                          actions: issue.actions.map { action in .init(title: action.title) { controller.perform(action) } }
+                          actions: issue.actions.map { action in .init(title: action.title) { Task { await controller.perform(action) } } }
                               + [.init(title: "Dismiss") { controller.dismissIssue() }],
                           vertical: Space.base)
         }

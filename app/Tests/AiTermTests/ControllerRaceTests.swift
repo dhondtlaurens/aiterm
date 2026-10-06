@@ -19,7 +19,7 @@ extension AppControllerTests {
 
         let first = controller.newTerminal(project: fixture.project, name: "Shell")
         try await server.received("window.createTerminal")
-        controller.confirmRemove(project: fixture.project)
+        await controller.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(fixture.prompter.asked.first?.detail.contains("A terminal is still opening in it.") == true)
@@ -32,7 +32,7 @@ extension AppControllerTests {
         await second?.value
         #expect(controller.state.terminals.map(\.windowId) == ["terminal-window", "terminal-window-2"])
         #expect(controller.persistenceError == nil)
-        controller.confirmRemove(project: fixture.project)
+        await controller.confirmRemove(project: fixture.project)
         #expect(fixture.prompter.asked.last?.message == "Remove project “Repo”?", "free once both have opened")
     }
 
@@ -47,7 +47,7 @@ extension AppControllerTests {
 
         let reopening = controller.reopen(task: task)
         try await server.received("window.createTask")
-        controller.confirmRemove(project: fixture.project)
+        await controller.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.first?.detail.hasPrefix("A window is still opening for one of its tasks.") == true)
         server.release()
@@ -67,7 +67,7 @@ extension AppControllerTests {
 
         let closing = controller.close(terminal: terminal)
         try await server.received("window.close")
-        controller.confirmRemove(project: fixture.project)
+        await controller.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.first?.detail.hasPrefix("One of its terminals is still opening or closing its window.") == true)
         server.release()
@@ -88,10 +88,10 @@ extension AppControllerTests {
         controller.workspace.mutate { $0.append(project: other) }
         let task = try fixture.addTask(windowId: "alive")
 
-        let removal = controller.confirmRemove(task: task)
+        let removal = await controller.confirmRemove(task: task)
         try await server.received("window.close")
-        controller.confirmRemove(project: other)
-        controller.confirmRemove(project: fixture.project)
+        await controller.confirmRemove(project: other)
+        await controller.confirmRemove(project: fixture.project)
 
         #expect(fixture.prompter.asked.map(\.message).suffix(2) == ["Remove project “Other”?", "“Repo” can’t be removed yet"])
         #expect(fixture.prompter.asked.last?.detail.hasPrefix("A task is still being changed.") == true)
@@ -155,11 +155,11 @@ extension AppControllerTests {
     }
 
     /// With nothing selected the key does nothing.
-    @Test func removingNoSelectionDoesNothing() throws {
+    @Test func removingNoSelectionDoesNothing() async throws {
         let fixture = try RaceFixture(prompter: ScriptedPrompter())
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         _ = try fixture.addTask(windowId: "alive")
-        #expect(fixture.controller.removeSelection() == nil)
+        #expect(await fixture.controller.removeSelection() == nil)
         #expect(fixture.prompter.asked.isEmpty)
     }
 
@@ -195,10 +195,10 @@ extension AppControllerTests {
         fixture.prompter.whileAsking = { _ in
             guard !nested else { return }
             nested = true
-            nestedRemoval = controller.confirmRemove(task: task)
+            nestedRemoval = await controller.confirmRemove(task: task)
         }
 
-        #expect(controller.confirmRemove(task: task) == nil, "the nested Remove owns the removal")
+        #expect(await controller.confirmRemove(task: task) == nil, "the nested Remove owns the removal")
         await nestedRemoval?.value
 
         #expect(controller.state.tasks.isEmpty)

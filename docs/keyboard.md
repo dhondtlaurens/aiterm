@@ -131,5 +131,5 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 NSAlert gives ⎋ to a button titled Cancel by itself; any other safe button is handed it
 (`keyEquivalent` ⎋). A safe button that is also the default keeps ↩ — a button holds one key — and
 `ModalPrompter` answers ⎋ for it with a key monitor while the alert is up. An alert is never run
-inside a SwiftUI key handler: ⌘⌫ defers its Remove alert a turn, or it comes up without its
-checkbox.
+inside a SwiftUI key handler, where it comes up without its checkbox: a question is an `await`, and
+`ModalPrompter` brings its alert up a turn later, so ⌘⌫'s Remove alert is never inside one.

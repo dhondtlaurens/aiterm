@@ -51,7 +51,7 @@ struct SidebarHeader: View {
             SidebarHeading("Projects")
             Spacer()
             AddMenu(help: "Add project or divider", enabled: controller.canChangeWorkspace) {
-                Button("Add Project…") { controller.addProject() }
+                Button("Add Project…") { Task { await controller.addProject() } }
                 Button("Add Divider…") { controller.presentNewDivider() }
             }
         }
@@ -168,7 +168,7 @@ struct ProjectHeaderRow: View {
             Button("Move Down") { controller.move(itemId: project.id, .down) }
                 .disabled(!controller.canChangeWorkspace || !section.canMoveDown)
             Divider()
-            Button("Remove Project…", role: .destructive) { controller.confirmRemove(project: project) }
+            Button("Remove Project…", role: .destructive) { Task { await controller.confirmRemove(project: project) } }
                 .disabled(!controller.canChangeWorkspace)
         }
     }
@@ -395,7 +395,7 @@ struct TaskRowView: View {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
                     case .reopenWindow: Button(voiceOver.title(of: action)) { controller.reopen(task: task) }
-                    case .remove: Button(voiceOver.title(of: action)) { controller.confirmRemove(task: task) }
+                    case .remove: Button(voiceOver.title(of: action)) { Task { await controller.confirmRemove(task: task) } }
                     }
                 }
             }
@@ -422,7 +422,7 @@ struct TaskRowView: View {
                         .disabled(!controller.canChangeWorkspace || missing)
                     Divider()
                 }
-                Button("Remove \(task.kindName)…", role: .destructive) { controller.confirmRemove(task: task) }
+                Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.confirmRemove(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
         }

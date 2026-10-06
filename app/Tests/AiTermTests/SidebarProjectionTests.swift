@@ -155,7 +155,7 @@ struct SidebarProjectionTests {
         controller.live.handle(.sessionOpened(tab(.done)))
         #expect(written == ["1"])
 
-        let removal = try #require(controller.confirmRemove(task: task))
+        let removal = try #require(await controller.confirmRemove(task: task))
         await removal.value
         #expect(controller.state.tasks.isEmpty, "the task is removed")
         #expect(written == ["1", nil])

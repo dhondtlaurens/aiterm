@@ -11,18 +11,28 @@ import Testing
 final class ScriptedPrompter: Prompter {
     private var answers: [String]
     var checksTheCheckbox = false
-    /// Runs while a question is on screen, before it is answered. `NSAlert.runModal` drains the main
-    /// queue, so anything the app does can happen during a prompt; this is how a test makes it.
-    var whileAsking: ((AlertPrompt) -> Void)?
+    /// Runs while a question is on screen, before it is answered. A question is an `await`, so
+    /// anything the app does can happen during it; this is how a test makes it. Only `ask` runs it:
+    /// nothing races the launch's and the quit's blocking questions.
+    var whileAsking: (@MainActor (AlertPrompt) async -> Void)?
     var folder: URL?
     private(set) var asked: [AlertPrompt] = []
 
     init(answering answers: String...) { self.answers = answers }
     init(answering answers: [String]) { self.answers = answers }
 
-    func ask(_ prompt: AlertPrompt) -> AlertAnswer {
+    func ask(_ prompt: AlertPrompt) async -> AlertAnswer {
         asked.append(prompt)
-        whileAsking?(prompt)
+        await whileAsking?(prompt)
+        return answer(prompt)
+    }
+
+    func askBlocking(_ prompt: AlertPrompt) -> AlertAnswer {
+        asked.append(prompt)
+        return answer(prompt)
+    }
+
+    private func answer(_ prompt: AlertPrompt) -> AlertAnswer {
         let fallback = AlertAnswer(button: prompt.escapeButton ?? prompt.buttons.count - 1)
         guard !answers.isEmpty else {
             Issue.record("Unexpected prompt: \(prompt.message)")
@@ -47,5 +57,5 @@ final class ScriptedPrompter: Prompter {
     /// The prompts of the folder choosers the app opened.
     private(set) var folderPrompts: [String] = []
 
-    func chooseFolder(prompt: String) -> URL? { folderPrompts.append(prompt); return folder }
+    func chooseFolder(prompt: String) async -> URL? { folderPrompts.append(prompt); return folder }
 }

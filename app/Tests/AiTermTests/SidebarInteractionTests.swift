@@ -383,12 +383,14 @@ struct SidebarInteractionTests {
     }
 
     /// The block's button is the header's "Add Project…": it asks for a folder.
-    @Test func theEmptySidebarsButtonAsksForAFolder() throws {
+    @Test func theEmptySidebarsButtonAsksForAFolder() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let block = SidebarEmptyState(controller: fixture.controller)
         #expect(block.canAdd)
         block.add()
+        // The button starts the add in a `Task`, which asks once the test suspends.
+        await eventually { !fixture.prompter.folderPrompts.isEmpty }
         #expect(fixture.prompter.folderPrompts == ["Add Project"])
     }
 

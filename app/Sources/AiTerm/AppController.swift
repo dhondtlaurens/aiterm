@@ -211,8 +211,7 @@ final class AppController {
 
     // -- projects -------------------------------------------------------------------
     /// `projects`', forwarded: the menus, the rows and the tests reach a project's edits here.
-    @discardableResult
-    func addProject() -> Task<Void, Never>? { projects.addProject() }
+    func addProject() async { await projects.addProject() }
     func addProject(path: String) async { await projects.addProject(path: path) }
     func loadJiraProjects() async throws -> [JiraProjectRef] { try await projects.loadJiraProjects() }
     func setJiraProjects(_ jiraProjects: [JiraProjectRef], on project: Project) { projects.setJiraProjects(jiraProjects, on: project) }
@@ -223,7 +222,7 @@ final class AppController {
     func canMove(itemId: UUID, _ step: MoveStep) -> Bool { projects.canMove(itemId: itemId, step) }
     @discardableResult
     func move(itemId: UUID, _ step: MoveStep) -> Bool { projects.move(itemId: itemId, step) }
-    func confirmRemove(project: Project) { projects.confirmRemove(project: project) }
+    func confirmRemove(project: Project) async { await projects.confirmRemove(project: project) }
     func addDivider(name: String) { projects.addDivider(name: name) }
     func removeDivider(_ divider: SidebarDivider) { projects.removeDivider(divider) }
     func rename(divider: SidebarDivider, to name: String) { projects.rename(divider: divider, to: name) }
@@ -300,10 +299,10 @@ final class AppController {
     /// conflict, so it does not ask. Nil when nothing started: the question was declined, or the
     /// task or project is gone or busy.
     @discardableResult
-    func perform(_ action: OperationIssue.Action) -> Task<Void, Never>? {
+    func perform(_ action: OperationIssue.Action) async -> Task<Void, Never>? {
         switch action {
         case .keepBranch(let id): return remover.keepBranch(of: id)
-        case .deleteBranch(let id): return remover.deleteBranch(of: id)
+        case .deleteBranch(let id): return await remover.deleteBranch(of: id)
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return nil }
             return projects.rebaseDefault(project: project)
@@ -315,7 +314,7 @@ final class AppController {
     var removals: [UUID: TaskRemoval] { remover.removals }
     func removal(of id: UUID) -> TaskRemoval? { remover.removal(of: id) }
     @discardableResult
-    func confirmRemove(task: TaskItem) -> Task<Void, Never>? { remover.confirmRemove(task: task) }
+    func confirmRemove(task: TaskItem) async -> Task<Void, Never>? { await remover.confirmRemove(task: task) }
 
     #if DEBUG
     /// The snapshot renderer's rows mid-removal, drawn without running one.
@@ -362,8 +361,8 @@ final class AppController {
             if projects.hasRows(project) {
                 toggleCollapsed(project)
             } else {
-                // Next turn, as ⌘⌫'s alert: the menu runs modally, and not inside SwiftUI's key
-                // handler.
+                // Next turn, as an alert comes up (`Prompter`): the menu runs modally, and not
+                // inside SwiftUI's key handler.
                 RunLoop.main.perform { MainActor.assumeIsolated { self.openRowMenu(project.id) } }
             }
             return nil
@@ -374,8 +373,8 @@ final class AppController {
     /// ⌘⌫ on the list: the selected row's own Remove, as its context menu has it — a task or a
     /// review asks first, a terminal just closes.
     @discardableResult
-    func removeSelection() -> Task<Void, Never>? {
-        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return confirmRemove(task: task) }
+    func removeSelection() async -> Task<Void, Never>? {
+        if let task = focus.selectedTaskId.flatMap(state.task(id:)) { return await confirmRemove(task: task) }
         if let terminal = focus.selectedTerminalId.flatMap(state.terminal(id:)) { return close(terminal: terminal) }
         return nil
     }

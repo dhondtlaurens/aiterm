@@ -70,7 +70,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         controller.tiling.finishPendingMove()
         // Changes wait a moment to be saved together; whatever is still waiting is saved now.
         if controller.workspace.flush() { return .terminateNow }
-        let answer = controller.prompter.ask(AlertPrompt(
+        let answer = controller.prompter.askBlocking(AlertPrompt(
             message: "Workspace changes haven’t been saved",
             detail: "Quit without saving to discard changes since the last save, or cancel to keep working.",
             buttons: ["Cancel Quit", "Quit Without Saving"], escape: 0))
@@ -87,7 +87,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         while true {
             do { try controller.loadWorkspace(); return true }
             catch {
-                let answer = controller.prompter.ask(AlertPrompt(
+                let answer = controller.prompter.askBlocking(AlertPrompt(
                     message: "AiTerm couldn’t open your workspace",
                     detail: error.localizedDescription
                         + "\n\nRestoring a backup may omit recent changes. The original file will be preserved.",
@@ -97,7 +97,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
                 case 0: continue
                 case 1:
                     do { try controller.restoreWorkspace(); return true }
-                    catch { controller.prompter.ask(AlertPrompt(message: error.localizedDescription)) }
+                    catch { controller.prompter.askBlocking(AlertPrompt(message: error.localizedDescription)) }
                 case 2:
                     NSWorkspace.shared.activateFileViewerSelecting([controller.workspace.file.url.deletingLastPathComponent()])
                 default: return false
@@ -177,7 +177,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func newTask() { if let project = controller.targetProject { controller.presentNewTask(project: project) } }
     @objc func newReview() { if let project = controller.targetProject { controller.presentNewReview(project: project) } }
     @objc func newTerminal() { if let project = controller.targetProject { controller.presentNewTerminal(project: project) } }
-    @objc func addProject() { controller.addProject() }
+    @objc func addProject() { Task { await controller.addProject() } }
     @objc func addDivider() { controller.presentNewDivider() }
     @objc func zoomIn() { changeInterfaceSize(to: controller.preferences.interfaceSize.bigger) }
     @objc func zoomOut() { changeInterfaceSize(to: controller.preferences.interfaceSize.smaller) }

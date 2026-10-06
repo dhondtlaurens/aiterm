@@ -46,22 +46,22 @@ final class UpdateController {
         defer { if !handedOff { isBusy = false } }
         // A dev build's ad-hoc signature could never verify a release, and replacing a build/
         // bundle with a release would lose what was being tried out, so it never asks.
-        if channel == .dev { return report(UpdateError.devBuild) }
+        if channel == .dev { return await report(UpdateError.devBuild) }
         // A translocated copy is read-only, so no helper could replace it.
-        if BundleLocation.isTranslocated(bundleURL.path) { return report(UpdateError.translocated) }
-        guard let current = currentVersion.flatMap(ReleaseVersion.init) else { return report(UpdateError.noFeed) }
+        if BundleLocation.isTranslocated(bundleURL.path) { return await report(UpdateError.translocated) }
+        guard let current = currentVersion.flatMap(ReleaseVersion.init) else { return await report(UpdateError.noFeed) }
         let source: any ReleaseSource
-        do { source = try makeSource() } catch { return report(error) }
+        do { source = try makeSource() } catch { return await report(error) }
 
         switch await UpdateCheck.run(source: source, current: current) {
         case .current(let version):
-            prompter.ask(AlertPrompt(message: "You’re on the latest version (\(version))."))
+            await prompter.ask(AlertPrompt(message: "You’re on the latest version (\(version))."))
         case .failed(let error):
-            report(error)
+            await report(error)
         case .cancelled:
             return
         case .available(let release):
-            let answer = prompter.ask(AlertPrompt(message: "AiTerm \(release.version) is available.", buttons: ["Update", "Later"], escape: 1))
+            let answer = await prompter.ask(AlertPrompt(message: "AiTerm \(release.version) is available.", buttons: ["Update", "Later"], escape: 1))
             guard answer.confirmed else { return }
             handedOff = await update(to: release, from: source)
         }
@@ -69,7 +69,7 @@ final class UpdateController {
 
     /// True once the install helper is running and the app has been asked to quit.
     private func update(to release: Release, from source: any ReleaseSource) async -> Bool {
-        do { try checkReplaceable() } catch { report(error); return false }
+        do { try checkReplaceable() } catch { await report(error); return false }
         let image = updatesDirectory.appendingPathComponent("AiTerm-\(release.version).dmg")
         let staged: URL
         do {
@@ -79,13 +79,11 @@ final class UpdateController {
             // `hdiutil`, `ditto` and `codesign` block for seconds, which the cooperative pool must not.
             let stage = self.stage
             staged = try await BackgroundWork.run { try stage(image, release.version) }
-        } catch is CancellationError {
-            return false
         } catch {
-            report(error)
+            await report(error)
             return false
         }
-        do { try install(staged) } catch { report(error); return false }
+        do { try install(staged) } catch { await report(error); return false }
         terminate()
         return true
     }
@@ -93,15 +91,19 @@ final class UpdateController {
     /// On launch: say why the last update didn't install, if it didn't, then clear `Updates/` —
     /// the replaced app, the helper and its result are only needed until the next version runs.
     func finishPreviousUpdate() {
+        // At launch, before the sidebar's window: the alert is answered before the launch goes on.
         if let status = UpdateInstaller.takePreviousResult(in: updatesDirectory), status != 0 {
-            report(UpdateError.installAborted(status))
+            prompter.askBlocking(AlertPrompt(message: Self.message(for: UpdateError.installAborted(status))))
         }
         UpdateInstaller.removeLeftovers(in: updatesDirectory)
     }
 
-    private func report(_ error: Error) {
-        let message = (error as? UpdateError)?.message ?? error.localizedDescription
-        prompter.ask(AlertPrompt(message: message))
+    private func report(_ error: Error) async {
+        await prompter.ask(AlertPrompt(message: Self.message(for: error)))
+    }
+
+    private static func message(for error: Error) -> String {
+        (error as? UpdateError)?.message ?? error.localizedDescription
     }
 }
 

@@ -51,10 +51,11 @@ final class ProjectActions {
     // -- adding a project ---------------------------------------------------------------
     /// The folder chooser adds the project at once: its Jira projects are linked afterwards, from
     /// the project's context menu, and none linked means New Task searches every Jira project.
-    @discardableResult
-    func addProject() -> Task<Void, Never>? {
-        guard canChangeWorkspace, let url = prompter.chooseFolder(prompt: "Add Project"), canChangeWorkspace else { return nil }
-        return Task { await addProject(path: url.path) }
+    /// Whether the workspace can still change once a folder is picked is `addProject(path:)`'s
+    /// first question.
+    func addProject() async {
+        guard canChangeWorkspace, let url = await prompter.chooseFolder(prompt: "Add Project") else { return }
+        await addProject(path: url.path)
     }
 
     /// The repository a picked folder belongs to, added with its remote, then the offer to import
@@ -72,7 +73,7 @@ final class ProjectActions {
         }
         guard canChangeWorkspace, let (toplevel, path, remote) = inspection else { return }
         if let existing = state.projects.first(where: { $0.path == path }) {
-            prompter.ask(AlertPrompt(message: "\(existing.name) is already in your projects", detail: existing.path))
+            await prompter.ask(AlertPrompt(message: "\(existing.name) is already in your projects", detail: existing.path))
             return
         }
         let provider = ProviderDetector.detect(remoteUrl: remote, repoPath: toplevel == nil ? nil : path).provider
@@ -102,10 +103,10 @@ final class ProjectActions {
         guard canChangeWorkspace, state.project(id: project.id) != nil,
               let (found, detected, preference) = imports, !found.isEmpty else { return }
         let base = detected ?? Repository.fallbackDefaultBranch
-        let answer = prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
+        let answer = await prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
                                               detail: "Adds existing worktrees as tasks without starting agents.",
                                               buttons: ["Import", "Skip"], escape: 1))
-        // `runModal` runs whatever was queued while the alert was up; the project can have gone.
+        // Anything can run across the await, and the project can have gone.
         guard answer.confirmed, canChangeWorkspace, state.project(id: project.id) != nil else { return }
         let known = Set(state.tasks.map(\.worktreePath))
         let imported = found.compactMap { worktree -> TaskItem? in
@@ -256,18 +257,18 @@ final class ProjectActions {
     /// Plan self-review (spec 4.6): removing a project only forgets it. Worktrees created for its
     /// tasks stay on disk — the alert lists them so nothing disappears silently — and no git
     /// command runs.
-    func confirmRemove(project: Project) {
-        guard canChangeWorkspace, !refusesRemoval(of: project) else { return }
+    func confirmRemove(project: Project) async {
+        guard canChangeWorkspace, await !refusesRemoval(of: project) else { return }
         let tasks = state.tasks.filter { $0.projectId == project.id }
         let paths = tasks.map(\.worktreePath)
-        let answer = prompter.ask(AlertPrompt(
+        let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
             detail: paths.isEmpty
                 ? "Removes the project from AiTerm. Files are kept and terminal windows stay open."
                 : "Removes the project, tasks, and terminals from AiTerm. Files and windows are kept, including these worktrees:\n\n" + paths.joined(separator: "\n"),
             buttons: ["Remove", "Cancel"]))
-        // The alert's modal loop runs whatever was queued meanwhile, a create among them.
-        guard answer.confirmed, canChangeWorkspace, !refusesRemoval(of: project) else { return }
+        // Anything can run across the await, a create in the project among them.
+        guard answer.confirmed, canChangeWorkspace, await !refusesRemoval(of: project) else { return }
         workspace.mutate { state in
             state.tasks.removeAll { $0.projectId == project.id }
             state.terminals.removeAll { $0.projectId == project.id }
@@ -277,7 +278,7 @@ final class ProjectActions {
 
     /// Says why `project` cannot be removed yet, if it cannot: work still in flight would land in a
     /// project that is gone, and a row whose project is gone fails every save.
-    private func refusesRemoval(of project: Project) -> Bool {
+    private func refusesRemoval(of project: Project) async -> Bool {
         let busy: String
         if work.isRunning(.creatingTask, onProject: project.id) { busy = "A task is still being created in it." }
         else if work.isRunning(.openingTerminal, onProject: project.id) { busy = "A terminal is still opening in it." }
@@ -289,7 +290,7 @@ final class ProjectActions {
             busy = "A task is still being changed."
         }
         else { return false }
-        prompter.ask(AlertPrompt(message: "“\(project.name)” can’t be removed yet", detail: busy + " Try again in a moment."))
+        await prompter.ask(AlertPrompt(message: "“\(project.name)” can’t be removed yet", detail: busy + " Try again in a moment."))
         return true
     }
 

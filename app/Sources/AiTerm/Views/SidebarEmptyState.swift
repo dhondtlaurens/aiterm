@@ -33,6 +33,6 @@ struct SidebarEmptyState: View {
 extension SidebarEmptyState {
     /// The block wired to the controller: its button is the header's "Add project".
     init(controller: AppController) {
-        self.init(canAdd: controller.canChangeWorkspace, add: { controller.addProject() })
+        self.init(canAdd: controller.canChangeWorkspace, add: { Task { await controller.addProject() } })
     }
 }

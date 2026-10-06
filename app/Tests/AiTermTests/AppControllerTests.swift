@@ -82,7 +82,7 @@ import Testing
         controller.presentNewTask(project: project)
         controller.presentNewTerminal(project: project)
         #expect(controller.newTerminal(project: project, name: "Shell") == nil)
-        controller.confirmRemove(project: project)
+        await controller.confirmRemove(project: project)
         #expect(controller.sheet == nil)
         #expect(controller.state == original)
         let draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
@@ -346,7 +346,7 @@ import Testing
         try FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)
         fixture.prompter.folder = inside
 
-        await controller.addProject()?.value
+        await controller.addProject()
 
         #expect(controller.sheet == nil)
         #expect(fixture.prompter.asked.isEmpty, "the OK-only “Adding the repository folder” alert is gone")
@@ -364,7 +364,7 @@ import Testing
         #expect(controller.workspace.flush())
         fixture.prompter.folder = fixture.repo
 
-        await controller.addProject()?.value
+        await controller.addProject()
 
         #expect(controller.sheet == nil)
         #expect(controller.state.projects.map(\.path) == [fixture.repo.path])
@@ -387,7 +387,7 @@ import Testing
         defer { fixture.cleanUp() }
         fixture.prompter.folder = fixture.repo
 
-        await fixture.controller.addProject()?.value
+        await fixture.controller.addProject()
 
         #expect(fixture.prompter.asked.map(\.message) == ["Repo is already in your projects"])
         #expect(fixture.controller.state.projects == [fixture.project])
@@ -1291,14 +1291,14 @@ extension AppControllerTests {
 
     /// A test that builds a controller and never scripts its prompter must fail when the app asks a
     /// question, not open a modal `NSAlert` that blocks the run: the default answers nothing.
-    @Test func aTestControllerFailsAnUnexpectedQuestionRatherThanAskingModally() {
+    @Test func aTestControllerFailsAnUnexpectedQuestionRatherThanAskingModally() async {
         let controller = AppController(preferences: .scratch())
         let prompter = controller.prompter as? ScriptedPrompter
         #expect(prompter != nil, "the test initializer's prompter is scripted, not modal")
 
         var answer: AlertAnswer?
-        withKnownIssue("the prompter was not told to expect a question") {
-            answer = controller.prompter.ask(AlertPrompt(message: "Remove task?", buttons: ["Remove", "Cancel"], escape: 1))
+        await withKnownIssue("the prompter was not told to expect a question") {
+            answer = await controller.prompter.ask(AlertPrompt(message: "Remove task?", buttons: ["Remove", "Cancel"], escape: 1))
         }
         #expect(answer?.button == 1, "it answers with the button ⎋ gives")
         #expect(prompter?.asked.map(\.message) == ["Remove task?"])
