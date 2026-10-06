@@ -79,6 +79,20 @@ struct WorkspaceStoreTests {
                 "nothing changed, so nothing was written")
     }
 
+    /// A hook taken out — a `PerRow` that went before the workspace — runs no more, and the others
+    /// still run in their order.
+    @Test func aRemovedHookRunsNoMore() throws {
+        let (workspace, dir) = try loadedStore(saveDelay: .seconds(60))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var heard: [String] = []
+        workspace.onChange { heard.append("first") }
+        let second = workspace.onChange { heard.append("second") }
+        workspace.onChange { heard.append("third") }
+        workspace.removeHook(second)
+        workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
+        #expect(heard == ["first", "third"])
+    }
+
     /// Until the file has loaded nothing is saved — not even by a flush — so a workspace that failed
     /// to load is never overwritten with what was in memory.
     @Test func nothingIsSavedBeforeTheWorkspaceLoads() async throws {

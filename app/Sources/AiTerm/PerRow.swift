@@ -15,18 +15,31 @@ import AiTermCore
 /// A row's cell is made the first time it is read or given a value other than the default. It goes
 /// once its row has left the workspace and holds the default again, at the workspace's next change;
 /// the owner clears what it held for a gone row, so a cell outlives its row by a change at most.
+///
+/// A cell can go before the sidebar has stopped drawing its row: this runs among the workspace's
+/// change hooks, wherever it was added, and SwiftUI can evaluate a row on its way out once more.
+/// That is safe because only a cell holding the default goes: a row read after its cell went makes
+/// a new one, which holds the same default — the view draws what it drew — and goes at the next
+/// change. A cell holding anything else stays until its owner clears it.
 @MainActor
 final class PerRow<Value: Equatable> {
     private let defaultValue: Value
     private var cells: [UUID: RowCell<Value>] = [:]
+    private weak var workspace: WorkspaceStore?
+    private var hook: WorkspaceStore.Hook?
 
     init(default value: Value, workspace: WorkspaceStore) {
         defaultValue = value
+        self.workspace = workspace
         // Its own hook rather than one of the controller's ordered ones: it drops only cells no row
         // reads, so where it runs among them changes nothing.
-        workspace.onChange { [weak self, weak workspace] in
+        hook = workspace.onChange { [weak self, weak workspace] in
             if let self, let workspace { dropGone(from: workspace.state) }
         }
+    }
+
+    isolated deinit {
+        if let hook { workspace?.removeHook(hook) }
     }
 
     /// The row's value. Read in a view's body, it is that row's alone to observe.

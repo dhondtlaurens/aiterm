@@ -33,7 +33,8 @@ final class WorkspaceStore {
     let file: StateStore
     @ObservationIgnored private let writer: WorkspaceWriter
     /// Run once per change, in the order they were added.
-    @ObservationIgnored private var hooks: [@MainActor () -> Void] = []
+    @ObservationIgnored private var hooks: [(hook: Hook, run: @MainActor () -> Void)] = []
+    @ObservationIgnored private var hookCount = 0
     /// Moves on with every change: the writer skips a save of a revision the file already holds,
     /// and a result that arrives after a newer revision's is old news.
     @ObservationIgnored private var revision = 0
@@ -44,9 +45,23 @@ final class WorkspaceStore {
         writer = WorkspaceWriter(file: file, delay: saveDelay)
     }
 
+    /// A hook added by `onChange`, for taking it out again.
+    struct Hook: Equatable {
+        fileprivate let serial: Int
+    }
+
     /// Adds `hook` to what runs after every change, after the ones added before it.
-    func onChange(_ hook: @escaping @MainActor () -> Void) {
-        hooks.append(hook)
+    @discardableResult
+    func onChange(_ hook: @escaping @MainActor () -> Void) -> Hook {
+        hookCount += 1
+        let added = Hook(serial: hookCount)
+        hooks.append((added, hook))
+        return added
+    }
+
+    /// Takes out a hook added by `onChange`, for an owner that goes before the workspace does.
+    func removeHook(_ hook: Hook) {
+        hooks.removeAll { $0.hook == hook }
     }
 
     /// Changes the workspace: `body` edits a copy, which becomes `state` in one write — once a
@@ -106,7 +121,7 @@ final class WorkspaceStore {
     }
 
     private func changed() {
-        for hook in hooks { hook() }
+        for hook in hooks { hook.run() }
     }
 
     /// A save's result, unless it is old news: a newer revision's result has been heard, or this
