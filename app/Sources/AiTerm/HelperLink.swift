@@ -44,7 +44,7 @@ final class HelperLink {
     }
 
     /// Finds Python — a login shell costing the better part of a second — and starts the helper
-    /// with it; the connection follows once the helper is up. A bundle without the helper is
+    /// with it; the connection follows once the helper listens. A bundle without the helper is
     /// known at once, and is not worth that lookup.
     func start() {
         guard !running else { return }
@@ -96,8 +96,9 @@ final class HelperLink {
         // `.adopted` is a daemon a previous (non-gracefully ended) app left behind, still serving
         // the socket. Nothing distinguishes it from one we started: iTerm2 window ids are iTerm2's
         // own, so the `windowId`s in `state.json` keep resolving, and the session list is rebuilt
-        // from iTerm2 on the next poll.
-        case .running, .adopted:
+        // from iTerm2 on the next poll. A child of ours is connected to once it listens, not when it
+        // is spawned: until then there is no socket to reach.
+        case .listening, .adopted:
             if connection == nil {
                 connection = DaemonConnection(socketPath: socketPath,
                     onClient: { [weak self] in self?.setDaemonClient($0) },
@@ -109,7 +110,7 @@ final class HelperLink {
         // banner as it was rather than blanking a message that still applies. From the second
         // failure on the daemon is genuinely stuck, and the log is the only way to find out why.
         case .failed(let attempt, let msg): if attempt >= 2 { itermConnection = .helperFailing(msg) }
-        case .starting, .stopped: break
+        case .starting, .running, .stopped: break
         }
     }
 

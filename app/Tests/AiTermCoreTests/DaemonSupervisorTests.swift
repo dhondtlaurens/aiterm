@@ -296,6 +296,32 @@ final class DaemonSupervisorTests {
         #expect(startsAfterFirstAdoption() >= 1, "a vanished adopted daemon must be replaced, got \(box.states)")
     }
 
+    // CS-4: the app connects when the supervisor says the daemon is there. A daemon binds its
+    // socket only after Python has imported `iterm2` and started asyncio, so reporting it on spawn
+    // sent the first connect into a missing socket: a "Reconnecting to AiTerm's helper…" banner on
+    // every cold launch, and the first snapshot a full backoff step late.
+    @Test func testTheDaemonIsReportedListeningOnlyOnceItsSocketAcceptsConnections() async {
+        let box = StateBox()
+        let socketPath = "/tmp/ready-\(UUID().uuidString.prefix(8)).sock"
+        let listening = Mutex<[Bool]>([])
+        let script = "import socket,sys,time\ntime.sleep(0.3)\ns=socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[1]);s.listen()\ntime.sleep(30)"
+        let sup = DaemonSupervisor(python: URL(fileURLWithPath: "/usr/bin/python3"), daemonDir: URL(fileURLWithPath: "/tmp"), socketPath: socketPath,
+                                   arguments: ["-c", script, socketPath], logURL: logURL) { state in
+            if case .listening = state { listening.withLock { $0.append(SocketProbe.isLive(path: socketPath)) } }
+            box.append(state)
+        }
+        defer { try? FileManager.default.removeItem(atPath: socketPath) }
+        sup.start()
+        await eventually { !listening.withLock { $0.isEmpty } }
+        sup.stop()
+
+        #expect(listening.withLock { $0 } == [true], "the app must be told to connect only to a socket that accepts, got \(box.states)")
+        let order = box.states.compactMap { state -> String? in
+            switch state { case .running: "running"; case .listening: "listening"; default: nil }
+        }
+        #expect(order == ["running", "listening"])
+    }
+
     // Final review item A: a daemon that keeps exiting is only diagnosable if its stdout and stderr
     // land somewhere the banner can point at, so the child's output must reach the log file.
     @Test func testDaemonOutputIsWrittenToTheLogFile() async {

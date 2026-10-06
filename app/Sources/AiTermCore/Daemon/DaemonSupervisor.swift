@@ -7,9 +7,13 @@ import Darwin
 /// hop onto it, and the termination handler and timed work items run on it), which is what makes
 /// sharing it safe.
 public final class DaemonSupervisor: @unchecked Sendable {
-    /// `.adopted` means a daemon we did not start is serving the socket, so there is no child
-    /// process of ours to supervise — the app connects to it exactly as it would to `.running`.
-    public enum State: Equatable, Sendable { case stopped, starting, running(pid: Int32), adopted, failed(attempt: Int, message: String) }
+    /// `.running` is a spawned child; `.listening` is that child once its socket accepts
+    /// connections, which is when the app connects. `.adopted` means a daemon we did not start is
+    /// serving the socket, so there is no child process of ours to supervise — the app connects to
+    /// it exactly as it would to `.listening`.
+    public enum State: Equatable, Sendable {
+        case stopped, starting, running(pid: Int32), listening(pid: Int32), adopted, failed(attempt: Int, message: String)
+    }
 
     /// Mirrors `EXIT_ALREADY_RUNNING` in `daemon/aitermd/__main__.py`: the daemon's way of saying
     /// "another instance already owns this socket", which is a reason to adopt that instance, not
@@ -25,8 +29,8 @@ public final class DaemonSupervisor: @unchecked Sendable {
     private var attempt = 0
     private var stopping = false
     private var startedAt = Date.distantPast
-    /// Whichever timed action is outstanding — a backoff restart or an adopted-daemon liveness
-    /// probe. Only ever one, and `stop()` cancels it.
+    /// Whichever timed action is outstanding — a probe for a new child's socket, a backoff restart
+    /// or an adopted-daemon liveness probe. Only ever one, and `stop()` cancels it.
     private var pendingWork: DispatchWorkItem?
     private let queue = DispatchQueue(label: "aiterm.supervisor")
 
@@ -124,6 +128,26 @@ public final class DaemonSupervisor: @unchecked Sendable {
         do { try p.run() } catch { recordFailure(message: error.localizedDescription); return }
         process = p; startedAt = Date()
         onStateChange(.running(pid: p.processIdentifier))
+        awaitListening(p)
+    }
+
+    /// Probes the socket until the child accepts on it, then reports `.listening`. A daemon binds
+    /// its socket only once Python has imported `iterm2` and started asyncio, a tenth of a second
+    /// or more after the spawn: an app that connected on `.running` met a missing socket, said
+    /// "Reconnecting to AiTerm’s helper…" on every launch and waited out a one-second backoff for
+    /// its first snapshot. A probe is a bare `connect()`, so asking often costs nothing; after the
+    /// first few seconds a child that is still not listening is asked less often. A child that
+    /// exits first is `exited(_:)`'s, which cancels the probe.
+    private func awaitListening(_ child: Process, since spawn: Date = Date()) {
+        let elapsed = Date().timeIntervalSince(spawn)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, !self.stopping, child === self.process else { return }
+            self.pendingWork = nil
+            if SocketProbe.isLive(path: self.socketPath) { self.onStateChange(.listening(pid: child.processIdentifier)) }
+            else { self.awaitListening(child, since: spawn) }
+        }
+        pendingWork = workItem
+        queue.asyncAfter(deadline: .now() + (elapsed < 5 ? 0.02 : 0.5), execute: workItem)
     }
 
     /// Not `private`, so a test can hand it a foreign `Process` to prove the guard below. The app
@@ -136,6 +160,8 @@ public final class DaemonSupervisor: @unchecked Sendable {
         // Without this guard, that stale callback would restart or adopt on top of the process
         // that already replaced it.
         guard !stopping, proc === process else { return }
+        // A child that exits before it listens leaves its socket probe behind.
+        pendingWork?.cancel(); pendingWork = nil
         // A daemon that refused to start because one is already running is not a crash: the app
         // wants *that* daemon. Restarting instead is what produced the "Daemon keeps exiting"
         // loop, since every retry hit the same live socket.
