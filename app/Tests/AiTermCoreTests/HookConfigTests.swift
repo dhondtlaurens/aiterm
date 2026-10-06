@@ -294,7 +294,7 @@ import Foundation
         #expect(CodexHookConfig.merge(result, hookURL: "http://127.0.0.1:47821") == result)
     }
 
-    // MARK: - T9-1 fix 1: an unreadable/non-object settings.json must never be silently replaced
+    // MARK: - An unreadable/non-object settings.json must never be silently replaced
 
     @Test func testClaudeMergeThrowsOnUnparsableSettingsInsteadOfReplacingIt() {
         let malformedError = #expect(throws: (any Error).self) {
@@ -317,7 +317,7 @@ import Foundation
         #expect(original == nil)
     }
 
-    // MARK: - T9-1 fix 2: a moved app bundle must not make the shim recurse into itself
+    // MARK: - A moved app bundle must not make the shim recurse into itself
 
     @Test func testClaudeMergeRepointsAMovedShimWithoutRecordingItAsAForeignOriginal() throws {
         let settingsWithOldShimPath = """
@@ -331,7 +331,7 @@ import Foundation
         #expect(original == nil, "the old shim path is recognised as ours by filename and must never be saved as a foreign original (that would make the shim recurse into itself)")
     }
 
-    // MARK: - T9-1 fix 3: Codex marker handling must never trap and must never eat user content
+    // MARK: - Codex marker handling must never trap and must never eat user content
 
     @Test func testCodexMergeHandlesEndMarkerBeforeBeginWithoutCrashingAndKeepsUserContent() {
         let corrupted = "keep-me = true\n" + CodexHookConfig.end + "\n" + CodexHookConfig.begin + "\n" + "trailing-line = true\n"
@@ -352,7 +352,7 @@ import Foundation
         #expect(merged.components(separatedBy: CodexHookConfig.end).count == 2, "exactly one well-formed block, not two")
     }
 
-    // MARK: - T9-1 fix 4: write the original status line before settings.json so a crash in between can't lose it
+    // MARK: - Write the original status line before settings.json so a crash in between can't lose it
 
     @Test func testInstallWritesOriginalStatusLineBeforeSettingsFileSurvivesASettingsWriteFailure() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-home-\(UUID().uuidString)")
@@ -688,7 +688,7 @@ import Foundation
         #expect(ClaudeDriver(home: home, daemonPort: 47821, shimPath: "/new/AiTerm.app/hooks/claude-statusline-shim.sh").state == .current)
     }
 
-    // MARK: - CH-11: the Claude merge refuses what it cannot merge
+    // MARK: - The Claude merge refuses what it cannot merge
 
     private func refusal(_ settings: String, key: String) throws {
         let home = try temporaryHome(); defer { try? FileManager.default.removeItem(at: home) }
@@ -762,7 +762,7 @@ import Foundation
         #expect(none == nil)
     }
 
-    // MARK: - CH-12: TOML gaps
+    // MARK: - TOML the Codex merge cannot extend, or cannot parse
 
     @Test(arguments: [
         ("[hooks.Stop.hooks]\ntype = \"command\"\n", "hooks.Stop"),

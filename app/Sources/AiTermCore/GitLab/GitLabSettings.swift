@@ -7,7 +7,7 @@ public enum GitLabSettings {
         return GitLabConfig(hostURL: url, token: token)
     }
 
-    /// The token goes in first, exactly as `JiraSettings.save` does (ruling T13-1). If the store
+    /// The token goes in first, exactly as `JiraSettings.save` does. If the store
     /// refuses it, the host is left alone, so the saved settings never describe credentials that
     /// are not there.
     @discardableResult

@@ -26,7 +26,7 @@ public enum ClaudeSettings {
         ["matcher": "", "hooks": [hook(hookURL: hookURL)]]
     }
 
-    /// Our shim, recognised by filename as well as by exact path (T9-1 fix 2): a moved app bundle
+    /// Our shim, recognised by filename as well as by exact path: a moved app bundle
     /// leaves the old path in `settings.json`, and that command is still ours, not a foreign tool's.
     static func isOurShim(_ command: String, shimPath: String) -> Bool {
         command == shimPath || URL(fileURLWithPath: command).lastPathComponent == URL(fileURLWithPath: shimPath).lastPathComponent
@@ -37,7 +37,7 @@ public enum ClaudeSettings {
     static let jsonOptions: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
 
     /// `settings.json` as an object: no bytes, or none at all, is "no settings yet". Anything else
-    /// that is not a JSON object — malformed JSON, or an array — is `nil` (T9-1 fix 1), and must
+    /// that is not a JSON object — malformed JSON, or an array — is `nil`, and must
     /// never be merged as if empty: that would replace the user's settings with our entries alone.
     private static func object(_ json: Data?) -> [String: Any]? {
         guard let json, !json.isEmpty else { return [:] }

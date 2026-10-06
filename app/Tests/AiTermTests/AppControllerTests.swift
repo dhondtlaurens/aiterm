@@ -771,7 +771,7 @@ import Testing
     }
 
     /// The alert-level courtesy. The guarantee is `TaskWorkflow.remove`'s own refusal, tested in
-    /// Task 6; this only proves the checkbox is never offered for a review.
+    /// `TaskWorkflowTests`; this only proves the checkbox is never offered for a review.
     @Test @MainActor func testReviewRemovalNeverOffersToDeleteTheBranch() {
         let review = TaskItem(id: UUID(), projectId: UUID(), title: "Review gift card", branch: "feat-gift",
                               worktreePath: "/tmp/wt", baseBranch: "main", jira: nil, kind: .review, mr: nil,
@@ -830,12 +830,12 @@ import Testing
         #expect(controller.state.projects.count == 1, "the project itself is added")
         #expect(prompter.asked.isEmpty)
         #expect(controller.state.tasks.isEmpty, "no task is saved with a guessed base branch")
-        // ARCH-06: the offer is made only now, so the person is told it was not.
+        // The offer is made only now, so the person is told it was not.
         #expect(controller.issue?.title == "Couldn’t check repo for worktrees to import.")
         #expect(controller.issue?.reason == "Git timed out after \(GitRunner.localTimeout) s.")
     }
 
-    /// Task 38 review: once the workspace can no longer be saved, no import could be made either,
+    /// Once the workspace can no longer be saved, no import could be made either,
     /// so a check for worktrees that fails meanwhile is not reported: the banner over the failed
     /// save is what matters, as a pick that fails then is not reported either.
     @Test func aFailedImportCheckIsNotReportedOnceTheWorkspaceCannotChange() async throws {
@@ -860,7 +860,7 @@ import Testing
         #expect(controller.issue == nil, "got \(String(describing: controller.issue))")
     }
 
-    /// ARCH-06: a git that cannot say whether the folder is a repository — it timed out, or would
+    /// A git that cannot say whether the folder is a repository — it timed out, or would
     /// not start — is not a folder outside one. Nothing is added, and the banner says why, where
     /// the pick used to do nothing at all.
     @Test func aProjectGitCannotInspectIsReportedNotSilentlyDropped() async throws {

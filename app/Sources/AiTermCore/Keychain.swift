@@ -4,7 +4,7 @@ import Security
 public protocol SecretStore {
     func get(_ key: String) -> String?
     /// `false` when the secret could not be stored, so a caller can say so instead of silently
-    /// losing the token (ruling T13-1).
+    /// losing the token.
     @discardableResult func set(_ key: String, _ value: String?) -> Bool
 }
 
@@ -28,7 +28,7 @@ public final class Keychain: SecretStore {
     }
 
     /// Updates in place when the item exists and adds it otherwise, rather than deleting first: a
-    /// delete that succeeds followed by an add that fails would throw the secret away (ruling T13-1).
+    /// delete that succeeds followed by an add that fails would throw the secret away.
     @discardableResult
     public func set(_ key: String, _ value: String?) -> Bool {
         guard let value else {

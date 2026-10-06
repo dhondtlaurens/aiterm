@@ -101,7 +101,7 @@ import Darwin
         #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: "one\r\ntwo") == "claude --model opus 'one\ntwo'")
     }
 
-    /// Ruling P3: writing the long prompt must also add `.aiterm/` to the worktree repository's
+    /// Writing the long prompt must also add `.aiterm/` to the worktree repository's
     /// exclude file, resolved via `git rev-parse --git-path info/exclude` run in the worktree
     /// (a worktree's `info/exclude` lives in the common dir, not `<worktree>/.git/info/exclude`).
     @Test func testLongPromptExcludesAitermDirectory() throws {
@@ -119,7 +119,7 @@ import Darwin
         #expect(exclude.contains(".aiterm/"))
     }
 
-    /// Ruling P3, linked-worktree case: for a real `.worktrees/<slug>` linked worktree (created via
+    /// The same for a linked worktree: for a real `.worktrees/<slug>` linked worktree (created via
     /// `addTaskWorktree`, as production code does), `git rev-parse --git-path info/exclude` run
     /// inside the linked worktree returns an *absolute* path into the main repo's common dir, not a
     /// path relative to the worktree. Verifies the absolute-path branch of `excludeAitermDirectory`

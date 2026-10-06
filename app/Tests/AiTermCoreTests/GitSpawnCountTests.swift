@@ -145,7 +145,7 @@ import Testing
         #expect(merged.answer && merged.spawns == 1)
         let unknown = try counted { try Repository(repo, git: recording).isMerged("feat/x", into: "gone") }
         #expect(!unknown.answer && unknown.spawns == 2, "the local and the origin ref, neither of which exists")
-        // Task 38 review: a git that could not answer has not said no.
+        // A git that could not answer has not said no.
         #expect(throws: GitError.self) { try Repository(repo, git: TimingOutGitRunner(["merge-base"])).isMerged("feat/x", into: "main") }
     }
 

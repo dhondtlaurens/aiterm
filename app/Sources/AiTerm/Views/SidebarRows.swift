@@ -415,7 +415,7 @@ struct TaskRowView: View {
                 if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: task.worktreePath) } }
                 if let jira = task.jira { Button("Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
-                // Ruling T13-1: "Reopen window" only when there is nothing to come back to; a task whose
+                // "Reopen window" only when there is nothing to come back to; a task whose
                 // window is still open would otherwise get a second one.
                 if task.windowId == nil, !removing {
                     Button("Reopen Window") { controller.reopen(task: task) }
@@ -590,7 +590,7 @@ struct TaskRowAccessibility: Equatable {
         label = branch.isEmpty ? title : "\(title), \(branch)"
         kindName = task?.kindName ?? "Task"
         guard let task, canChangeWorkspace, !removing else { actions = []; return }
-        // Ruling T13-1, as in the menu: a window still open has nothing to reopen.
+        // As in the menu: a window still open has nothing to reopen.
         actions = (task.windowId == nil && !missing ? [.reopenWindow] : []) + [.remove]
     }
 }

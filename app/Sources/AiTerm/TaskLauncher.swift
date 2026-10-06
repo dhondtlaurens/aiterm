@@ -157,7 +157,7 @@ final class TaskLauncher {
         workspace.mutate { $0.tasks[i].windowId = wid }
     }
 
-    /// Ruling T13-1: a task that still has a window has nothing to reopen — the menu item is hidden
+    /// A task that still has a window has nothing to reopen — the menu item is hidden
     /// in that case, and a stale click is ignored rather than leaking a second window.
     @discardableResult
     func reopen(task: TaskItem) -> Task<Void, Never>? {

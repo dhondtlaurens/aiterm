@@ -150,7 +150,7 @@ private let neverAbandoned: TimeInterval = 3600
                 "a stale child's exit must not be treated as the supervised process crashing, got \(box.states)")
     }
 
-    // T11-2 finding 1: stop() must not return until the daemon process is actually gone. Enqueuing
+    // stop() must not return until the daemon process is actually gone. Enqueuing
     // `terminate()` on the supervisor's queue is not enough: `applicationWillTerminate` returns,
     // the app exits, and the daemon is orphaned holding the socket the next launch needs.
     @Test func testStopTerminatesTheProcessBeforeReturning() async {
@@ -173,7 +173,7 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(kill(pid, 0) != 0, "stop() returned while the daemon process was still alive")
     }
 
-    // T14-1: the daemon runs from inside the signed app bundle (PYTHONPATH), so it must not be
+    // The daemon runs from inside the signed app bundle (PYTHONPATH), so it must not be
     // allowed to write `__pycache__` there — that breaks `codesign --verify --deep --strict`.
     @Test func testSupervisorDisablesBytecodeWritingInTheDaemonEnvironment() async throws {
         let out = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("aiterm-env-\(UUID().uuidString).txt")
@@ -221,10 +221,9 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(env["PYTHONUNBUFFERED"] == "1" && env["PYTHONDONTWRITEBYTECODE"] == "1")
     }
 
-    // T5-1 finding 1: a `python` that can never be launched (Process.run() throws every attempt)
-    // must still escalate the backoff counter (1, 2, ...) instead of retrying forever at
-    // Backoff.delay(attempt: -1) == 1s.
-    // T5-1 finding 2: stop() must leave no later .starting/.running/.failed callback once it has
+    // A `python` that can never be launched (Process.run() throws every attempt) must still
+    // escalate the backoff counter (1, 2, ...) instead of retrying forever at
+    // Backoff.delay(attempt: -1) == 1s. And stop() must leave no later .starting/.running/.failed callback once it has
     // reported .stopped, i.e. a pending scheduled restart must not fire after stop().
     @Test func testSupervisorEscalatesBackoffOnLaunchFailureAndStopsCleanly() async {
         let box = StateBox()
@@ -300,7 +299,7 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(startsAfterFirstAdoption() >= 1, "a vanished adopted daemon must be replaced, got \(box.states)")
     }
 
-    // CS-4: the app connects when the supervisor says the daemon is there. A daemon binds its
+    // The app connects when the supervisor says the daemon is there. A daemon binds its
     // socket only after Python has imported `iterm2` and started asyncio, so reporting it on spawn
     // sent the first connect into a missing socket: a "Reconnecting to AiTerm's helper…" banner on
     // every cold launch, and the first snapshot a full backoff step late.
@@ -347,7 +346,7 @@ private let neverAbandoned: TimeInterval = 3600
         if let pid = firstPid() { await eventually(describing: "the child that never listened to be ended") { kill(pid, 0) != 0 } }
     }
 
-    // T11-2 holds for a child given up on as well: `stop()` returns only once it is gone, though it
+    // So it does for a child given up on: `stop()` returns only once it is gone, though it
     // is no longer the supervised process and is waiting out its own grace before SIGKILL.
     @Test func testStopEndsAChildGivenUpOnThatIgnoresSIGTERM() async {
         let box = StateBox()
@@ -381,7 +380,7 @@ private let neverAbandoned: TimeInterval = 3600
         #expect(logText().contains("hello-from-daemon"), "the daemon's output must reach \(logURL.path), got “\(logText())”")
     }
 
-    // CS-14: a daemon that still has the old file open (an orphan about to be adopted, or one
+    // A daemon that still has the old file open (an orphan about to be adopted, or one
     // still exiting) must keep writing into the file the banner points at, so the log is emptied
     // in place rather than replaced.
     //

@@ -73,8 +73,9 @@ public struct DaemonError: Error, Equatable, LocalizedError, CustomStringConvert
     public var errorDescription: String? { userMessage }
     public var description: String { message }
 
-    /// The failure as a banner's reason says it, by its code (ARCH-07). A code only a newer helper
-    /// knows reads as the helper's problem, as `internal` does.
+    /// The failure as a banner's reason says it, by its code — never the helper's own message, which
+    /// is written for the protocol or by Python. A code only a newer helper knows reads as the
+    /// helper's problem, as `internal` does.
     public var userMessage: String {
         switch code {
         case .itermUnavailable: "iTerm2 isn’t connected."

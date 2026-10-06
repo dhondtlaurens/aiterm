@@ -139,7 +139,7 @@ public final class DaemonSupervisor: Sendable {
     static func daemonEnvironment(inheriting inherited: [String: String], daemonDir: URL) -> [String: String] {
         var env = ProcessRunner.withoutLaunchIdentity(inherited)
         env["PYTHONPATH"] = daemonDir.path; env["PYTHONUNBUFFERED"] = "1"
-        // Ruling T14-1: PYTHONPATH points inside the signed app bundle. Without this, the daemon
+        // PYTHONPATH points inside the signed app bundle. Without this, the daemon
         // writes `__pycache__/*.pyc` next to its own modules on every launch, which breaks the
         // bundle's code signature (`codesign --verify --deep --strict` fails after the first run).
         env["PYTHONDONTWRITEBYTECODE"] = "1"

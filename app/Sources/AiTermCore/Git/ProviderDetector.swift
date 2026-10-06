@@ -42,7 +42,7 @@ public enum ProviderDetector {
         // (SourceHut, kernel.org) or a deep path (Azure DevOps: `org/project/_git/repo`).
         if let host, isKnownNotGitLab(host) { return .git }
         if let host, host == "gitlab.com" || host.hasPrefix("git.") || host.hasPrefix("gitlab.") { return .gitlab }
-        // Ruling T2-1: the subgroup rule only applies when the remote actually has a host; a
+        // The subgroup rule only applies when the remote actually has a host; a
         // host-less (local filesystem) remote never classifies as GitLab by path shape.
         if host != nil, path.split(separator: "/").count > 2 { return .gitlab }
         if let repoPath, looksLikeGitLabCheckout(repoPath) { return .gitlab }

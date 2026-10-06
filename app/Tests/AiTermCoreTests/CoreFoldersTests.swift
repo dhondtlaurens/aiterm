@@ -8,7 +8,7 @@ import Testing
 /// service (Git, Daemon, Hooks, Jira, GitHub, GitLab) sit on that; Agents, Harnesses, Workspace,
 /// Sidebar, Tasks and Updates on those; Interface and Geometry on top. A folder may name another's
 /// types only if that one names none of its own, directly or round a loop: a loop is what would
-/// stop Core being split into targets along its folders (ARCH-12).
+/// stop Core being split into targets along its folders.
 ///
 /// A folder names a type when its code, comments and string literals left out, spells a name that
 /// another folder declares at the top level of a file (a type, a typealias, a non-private global).

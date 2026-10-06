@@ -54,7 +54,7 @@ final class ReviewCreation: CreationKind {
 typealias ReviewCreationModel = CreationModel<ReviewCreation>
 
 extension CreationModel where Kind == ReviewCreation {
-    // Ruling 3: `searchMergeRequests` is required. A default that silently returned no merge
+    // `searchMergeRequests` is required. A default that silently returned no merge
     // requests would make a misconfigured sheet look merely empty rather than broken, and every
     // real call site passes `ReviewCreationModel.searcher(gitLab:gitHub:remote:)` anyway.
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default

@@ -104,7 +104,7 @@ while True:
         #expect(activeClients == count)
     }
 
-    /// A11: iTerm2 connecting asks the helper for a fresh snapshot, whose reply comes back through
+    /// iTerm2 connecting asks the helper for a fresh snapshot, whose reply comes back through
     /// the event stream. Waiting for it before reading on held every event behind it — a closed
     /// window, a session's status — for as long as the helper took, up to the request timeout.
     @Test func eventsAfterItermConnectsDoNotWaitForItsSnapshot() async throws {
@@ -168,7 +168,7 @@ with c:
         #expect(states.first == .helperMismatch, "a snapshot the app cannot decode must not be blamed on iTerm2 being unreachable, got \(states)")
     }
 
-    /// Task 37 review: a helper that sends an event this app knows but cannot read sends it again
+    /// A helper that sends an event this app knows but cannot read sends it again
     /// on every connection. That is a helper this app cannot speak to, as an unreadable snapshot
     /// is — not an unreachable one — and a connection that ends that soon after its snapshot does
     /// not earn a fresh backoff: the retries slow down rather than reconnecting once a second.
@@ -185,7 +185,7 @@ with c:
         #expect(Array(attempts.prefix(3)) == [0, 0, 0])
     }
 
-    /// Task 38 review: after a connection that ended as a mismatch, the next one's snapshot is not
+    /// After a connection that ended as a mismatch, the next one's snapshot is not
     /// shown until that connection has held — each retry at a helper that will end the same way
     /// would otherwise flash "Connected to iTerm2" between two "from another version"s.
     @Test func aMismatchedHelperIsNotShownConnectedAgainUntilAConnectionHolds() async throws {

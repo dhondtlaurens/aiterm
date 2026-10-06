@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 
-/// The app's half of the wire contract with the daemon (CS-3, ARCH-05). The daemon's suite
+/// The app's half of the wire contract with the daemon. The daemon's suite
 /// (`daemon/tests/test_wire_contract.py`) writes a golden frame of every event, reply and error
 /// code, as a running daemon sends them, and a manifest of its names, into `daemon/tests/wire/`,
 /// and fails while those differ from what it sends. Here each frame is read with the decoders

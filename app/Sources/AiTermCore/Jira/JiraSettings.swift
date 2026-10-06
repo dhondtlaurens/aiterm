@@ -6,7 +6,7 @@ public enum JiraSettings {
         return JiraConfig(siteURL: url, email: email, token: token)
     }
 
-    /// Ruling T13-1: the token goes in first. If the store refuses it, the site and the email are
+    /// The token goes in first. If the store refuses it, the site and the email are
     /// left alone, so the saved settings never describe credentials that are not there.
     @discardableResult
     public static func save(_ cfg: JiraConfig?, store: SecretStore = Keychain(), defaults: UserDefaults = .standard) -> Bool {

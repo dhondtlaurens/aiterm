@@ -267,7 +267,7 @@ import Darwin
         #expect(throws: (any Error).self) { try Repository(repo, git: git).addTaskWorktree(slug: "x", branch: "feat/x", base: "main") }
     }
 
-    /// Regression test for T3-3: `GitRunner.run` used to read stdout to EOF, then stderr to EOF,
+    /// `GitRunner.run` used to read stdout to EOF, then stderr to EOF,
     /// then `waitUntilExit()`. A pipe's kernel buffer is ~64 KB; a child that writes more than
     /// that to stderr while `run` is still blocked draining stdout would fill the stderr pipe,
     /// block the child on its next stderr write, and deadlock `run` forever (classic `Process`
@@ -442,7 +442,7 @@ import Darwin
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
     }
 
-    /// Task 38 review: a git that could not say whether one side contains the other — it timed
+    /// A git that could not say whether one side contains the other — it timed
     /// out — has not said the branch diverged. The review fails with git's reason.
     @Test func aReviewWhoseBranchGitCannotCompareFailsWithGitsReason() throws {
         let repo = try repoWithRemoteOnlyBranch()
@@ -595,7 +595,7 @@ import Darwin
         #expect(Repository(repo, git: git).releaseReviewBranch("feat/mr-branch", target: "main") == .kept(.checkedOut(at: path)))
     }
 
-    /// Task 38 review: a git that could not say whether the branch's commits are on origin's — or
+    /// A git that could not say whether the branch's commits are on origin's — or
     /// whether there is an origin — has not said they are not: the branch is kept, and the reason
     /// is git's, not "0 commits not on origin" or nothing at all.
     @Test func aReviewBranchGitCannotJudgeIsKeptWithGitsReason() throws {

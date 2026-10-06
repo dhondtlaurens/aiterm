@@ -26,7 +26,7 @@ import Testing
     }
 
     /// A failure's own words go in the title and the error's in the reason, never joined: git's by
-    /// its sentence rule, the helper's by its code (ARCH-07), anything else by its description.
+    /// its sentence rule, the helper's by its code, anything else by its description.
     @Test func anErrorIsTheReasonNotPartOfTheTitle() {
         let daemon = OperationIssue(title: "Couldn’t reopen the window.",
                                     error: DaemonError(code: .itermUnavailable, message: "iTerm2 is not connected (RPC: activate)"))

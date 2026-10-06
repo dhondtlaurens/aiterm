@@ -105,7 +105,7 @@ import Testing
         }
     }
 
-    /// ARCH-07: a helper's message is written for the protocol or by Python — "no such window or
+    /// A helper's message is written for the protocol or by Python — "no such window or
     /// session: w3", an exception's text — and is logged, never shown. What the person reads is
     /// said by the code, in a sentence of its own, whatever the message was; a code only a newer
     /// helper knows still reads as one.

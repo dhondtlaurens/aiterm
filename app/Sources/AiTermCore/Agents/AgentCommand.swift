@@ -65,7 +65,7 @@ public enum AgentCommand {
             || prompt.unicodeScalars.contains { $0 != "\n" && ($0.value < 0x20 || $0.value == 0x7F) }
     }
 
-    /// Ruling P3: best-effort addition of `.aiterm/` to the worktree's repository exclude file.
+    /// Best-effort addition of `.aiterm/` to the worktree's repository exclude file.
     /// A worktree's own `info/exclude` lives in the *common* dir, so we resolve the actual file
     /// via `git rev-parse --git-path info/exclude` run in the worktree, rather than assuming
     /// `<worktreePath>/.git/info/exclude` (which is a file, not a directory, in a worktree

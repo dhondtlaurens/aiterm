@@ -120,7 +120,7 @@ struct SidebarTilingTests {
         #expect(snapped.sorted() == ["task-window", "terminal-window"])
     }
 
-    /// A14: a re-tiling for a newer frame cancels one still under way, so the windows that one had
+    /// A re-tiling for a newer frame cancels one still under way, so the windows that one had
     /// not reached yet are framed once, for the newer frame, rather than by whichever reply is last.
     @Test func aNewerReTilingCancelsTheOneUnderWay() async throws {
         let (fixture, server, window, _, _) = try await tiledWorkspace(holding: "window.setFrame")

@@ -74,7 +74,7 @@ import Darwin
         #expect(try sha("main", in: repo) == before)
     }
 
-    /// Task 38 review: a git that could not say whether one tip contains the other — it timed out —
+    /// A git that could not say whether one tip contains the other — it timed out —
     /// has not said the branches diverged. The pull fails with git's reason, and moves nothing.
     @Test func aPullGitCannotCompareFailsWithGitsReasonNotAsDiverged() throws {
         try push(1, from: other)

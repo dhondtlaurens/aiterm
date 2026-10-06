@@ -138,7 +138,7 @@ final class TaskRemover: CheckoutRemovals {
     /// merge request's — GitLab deletes it on merge — so it never does.
     ///
     /// This is the courtesy, not the guarantee: `TaskWorkflow.remove` refuses a review's branch
-    /// deletion outright (Task 6), so a caller that asks anyway still gets nothing. Hiding the
+    /// deletion outright, so a caller that asks anyway still gets nothing. Hiding the
     /// checkbox here only keeps the alert from offering something that would be ignored.
     static func offersBranchDeletion(for task: TaskItem) -> Bool { task.kind != .review }
 

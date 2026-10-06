@@ -158,7 +158,7 @@ final class DaemonClientTests {
         #expect(u2.claude == nil)
     }
 
-    /// ARCH-05: a known event this app cannot read leaves what it was about stale until the next
+    /// A known event this app cannot read leaves what it was about stale until the next
     /// snapshot, which only a reconnect brings, so the client drops the connection and its owner
     /// reconnects to a fresh one. An event it does not know is a newer helper's: it passes as
     /// `.unknown`, and the connection stays.
@@ -321,7 +321,7 @@ time.sleep(5)
         catch { #expect((error as? DaemonError)?.code == .timeout, sourceLocation: sourceLocation) }
     }
 
-    /// CS-6: a daemon whose loop is stuck keeps its socket open and its process alive, so neither
+    /// A daemon whose loop is stuck keeps its socket open and its process alive, so neither
     /// the reader nor the supervisor notices. Two timeouts in a row prompt a liveness check, and a
     /// check that goes unanswered as well drops the connection so its owner reconnects.
     @Test func aHelperThatAnswersNothingIsDropped() async throws {
