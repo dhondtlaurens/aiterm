@@ -68,7 +68,8 @@ extension AppControllerTests {
         // The window's own `window.closed` must not take the row while the removal runs.
         controller.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
-        #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil], "saved windowless in case the removal fails")
+        #expect(try controller.workspace.file.load().tasks.map(\.windowId) == [nil],
+                "on disk windowless before the close was sent, in case the app dies before the removal ends")
 
         server.release()
         await removal?.value
@@ -77,6 +78,30 @@ extension AppControllerTests {
         #expect(server.closedWindowIds == ["alive"], "closed once")
         #expect(controller.issue == nil)
         #expect(controller.toastState.toast?.message == "Task removed.")
+    }
+
+    /// The row's going is saved before "Task removed." says so: a removal whose save fails says
+    /// nothing of the kind, and the workspace locks with the save's error instead.
+    @Test func aRemovalWhoseSaveFailsDoesNotSayItWasRemoved() async throws {
+        let fixture = try CheckoutFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon(holding: "window.close")
+        defer { server.release(); controller.shutdown() }
+        controller.helper.setDaemonClient(server)
+
+        let removal = controller.confirmRemove(task: fixture.task)
+        try await server.received("window.close")
+        // Saving breaks while the window closes: a directory stands where the backup goes.
+        let backup = controller.workspace.file.backupURL
+        try? FileManager.default.removeItem(at: backup)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        server.release()
+        await removal?.value
+
+        #expect(controller.state.tasks.isEmpty)
+        #expect(controller.persistenceError != nil)
+        #expect(controller.toastState.toast == nil)
     }
 
     /// A window that will not close keeps its worktree: nothing was deleted, so nothing is half done.

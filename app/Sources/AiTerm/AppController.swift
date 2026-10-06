@@ -1079,9 +1079,11 @@ final class AppController {
         guard let daemon = helper.daemon, let i = state.tasks.firstIndex(where: { $0.id == task.id }),
               let wid = state.tasks[i].windowId else { return false }
         windowsLetGo.insert(task.id)
-        // Saved windowless too, so a removal that fails from here leaves a row to retry after a
-        // relaunch, rather than one the next snapshot drops for its missing window.
+        // Saved windowless too, and at once rather than a moment later: a removal that fails from
+        // here — or an app that dies before it ends — leaves a row to retry after a relaunch, rather
+        // than one the next snapshot drops for its missing window while its worktree is still there.
         workspace.mutate { $0.tasks[i].windowId = nil }
+        workspace.flush()
         do { try await closeWindow(wid, with: daemon) }
         catch {
             windowsLetGo.remove(task.id)
@@ -1132,8 +1134,10 @@ final class AppController {
 
     /// The row goes, and with it — through the workspace's change hooks, set up in `init` — the
     /// banner about it and its removal's entry.
+    /// Saved at once: a removal says "removed" only once its row's going is on disk.
     private func forget(task: TaskItem) {
         workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
+        workspace.flush()
         checkouts.forget(task: task.id)
         checkouts.refresh()
         focus.dropStale()
