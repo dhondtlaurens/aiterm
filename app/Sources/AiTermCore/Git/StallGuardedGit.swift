@@ -12,6 +12,12 @@ import Synchronization
 /// treat it as they treat any timeout: the last known value stands and nothing is stored as an
 /// answer. Other projects are untouched. After the backoff the next command runs for real.
 ///
+/// The caches that back off per directory (``WatchedFileCache``, ``RepositoryProbe``) or per
+/// worktree (``DiffStatResolver``) record those synthetic timeouts as their own, and hold their key
+/// back from when they got one. So a directory first asked about late in a project's stall is held
+/// back up to a backoff past the stall's end — about 30 s longer than the project. Harmless: the project was just unreachable, and the last known
+/// value stands meanwhile, as it would for a timeout of the directory's own.
+///
 /// A directory belongs to the project whose folder, or whose task's worktree, it is in or under
 /// (``scope(projects:tasks:)``); any other directory is a project of its own.
 ///

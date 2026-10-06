@@ -1362,7 +1362,6 @@ private final class ScanCounter: Sendable {
     func increment() { passes.withLock { $0 += 1 } }
 }
 
-/// A git that times out whenever it is asked for the default branch's name, as it does under load.
 /// `DefaultBranchFailingGit`, whose failing read first waits for `open()`, so a test acts while
 /// the import's git is still running.
 private final class GatedDefaultBranchGit: GitRunning {
@@ -1380,6 +1379,7 @@ private final class GatedDefaultBranchGit: GitRunning {
     }
 }
 
+/// A git that times out whenever it is asked for the default branch's name, as it does under load.
 private struct DefaultBranchFailingGit: GitRunning {
     let inner: any GitRunning = GitRunner.hermetic()
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {

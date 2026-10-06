@@ -60,7 +60,7 @@ import Testing
     @Test func everyWayOfAskingEndsInTheOneRequirement() throws {
         let recording = RecordingGitRunner()
         try recording.run(["status"], in: "/")
-        try recording.run(["status"], in: "/", timeout: 3, environment: ["GIT_LFS_SKIP_SMUDGE": "1"])
+        _ = try recording.run(["status"], in: "/", timeout: 3, environment: ["GIT_LFS_SKIP_SMUDGE": "1"])
         try recording.runRemote(["fetch"], in: "/")
         #expect(try recording.ask(["rev-parse"], in: "/", none: [1]) == "")
         #expect(recording.calls.map(\.args) == [["status"], ["status"], GitRunner.stallGuard + ["fetch"], ["rev-parse"]])
