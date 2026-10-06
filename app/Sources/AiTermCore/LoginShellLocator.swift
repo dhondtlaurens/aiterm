@@ -34,7 +34,7 @@ public final class LoginShellLocator: Sendable {
 
     /// `shell` runs a command in the login shell (`LoginShell.run`); a test passes its own, and
     /// counts the shells it is asked to start.
-    public init(names: [String] = AgentKind.allCases.map(\.rawValue),
+    public init(names: [String] = AgentKind.allCases.map(\.harness.executable),
                 shell: @escaping @Sendable (String) -> String? = { LoginShell.run($0) },
                 isExecutable: @escaping @Sendable (String) -> Bool = { LoginShell.isExecutableFile($0) }) {
         self.names = LoginShell.askable(names)

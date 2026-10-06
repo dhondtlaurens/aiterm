@@ -35,7 +35,7 @@ struct ClaudeDriver: HarnessDriver {
         case .refused(let reason): throw file.refusal(reason)
         case .present(let contents): data = contents
         }
-        let (merged, original) = try ClaudeSettings.merge(data, hookURL: "http://127.0.0.1:\(daemonPort)/hook/claude", shimPath: shimPath)
+        let (merged, original) = try ClaudeSettings.merge(data, hookURL: "http://127.0.0.1:\(daemonPort)" + Harness.claude.hookEndpoint, shimPath: shimPath)
         let support = try AiTermPaths.migrateSupportDirectory(homeDirectory: home)
         try fileManager.createDirectory(at: support, withIntermediateDirectories: true)
         // T9-1 fix 4: save the original status line *before* writing the merged settings.json, so
@@ -62,5 +62,5 @@ struct ClaudeDriver: HarnessDriver {
         try file.write(merged)
     }
 
-    func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(agent: .claude) }
+    func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(endpoint: Harness.claude.hookEndpoint) }
 }

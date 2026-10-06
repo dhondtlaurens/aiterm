@@ -282,10 +282,8 @@ import AiTermCore
         })
 
         for resources in [
-            HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: nil,
-                             installationAllowed: true, unavailableReason: nil),
-            HarnessResources(claudeShimPath: "/missing/shim", piExtensionSource: "owned", grokShimPath: nil,
-                             installationAllowed: false,
+            HarnessResources([:], installationAllowed: true, unavailableReason: nil),
+            HarnessResources([.claude: "/missing/shim", .pi: "owned"], installationAllowed: false,
                              unavailableReason: BundleLocation.translocationWarning),
         ] {
             let service = HarnessService(home: home, daemonPort: 47821, runner: runner,

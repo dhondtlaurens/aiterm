@@ -16,9 +16,9 @@ import Testing
             return try JSONSerialization.data(withJSONObject: ["ok": true, "testId": id])
         }
         let client = HarnessTestClient(transport: transport)
-        let claude = await client.testHTTP(agent: .claude)
-        let codex = await client.testHTTP(agent: .codex)
-        let grok = await client.testHTTP(agent: .grok)
+        let claude = await client.testHTTP(endpoint: Harness.claude.hookEndpoint)
+        let codex = await client.testHTTP(endpoint: Harness.codex.hookEndpoint)
+        let grok = await client.testHTTP(endpoint: Harness.grok.hookEndpoint)
         #expect(claude.passed)
         #expect(codex.passed)
         #expect(grok.passed)
@@ -34,12 +34,12 @@ import Testing
             }
             return try JSONSerialization.data(withJSONObject: ["ok": true, "testId": "someone-else"])
         }
-        let wrongResult = await HarnessTestClient(transport: wrong).testHTTP(agent: .claude)
+        let wrongResult = await HarnessTestClient(transport: wrong).testHTTP(endpoint: Harness.claude.hookEndpoint)
         #expect(!wrongResult.passed)
         #expect(wrongResult.explanation == "AiTerm did not receive the test event.")
         #expect(wrongResult.checks.map(\.passed) == [true, false])
 
-        let failedResult = await HarnessTestClient(transport: .failing).testHTTP(agent: .codex)
+        let failedResult = await HarnessTestClient(transport: .failing).testHTTP(endpoint: Harness.codex.hookEndpoint)
         #expect(!failedResult.passed)
         #expect(failedResult.explanation == "AiTerm’s helper is unavailable.")
         #expect(failedResult.checks.map(\.id) == [.daemon, .delivery])

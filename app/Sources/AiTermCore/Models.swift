@@ -34,37 +34,13 @@ public enum SessionState: String, Codable, Equatable, Sendable {
 }
 
 public extension SessionAgent {
-    /// The agent behind a tab, or `nil` for a plain shell.
-    var agentKind: AgentKind? {
-        switch self {
-        case .claude: return .claude
-        case .codex: return .codex
-        case .grok: return .grok
-        case .pi: return .pi
-        case .shell: return nil
-        }
-    }
+    /// The agent behind a tab, or `nil` for a plain shell: each agent's tab has its name.
+    var agentKind: AgentKind? { AgentKind(rawValue: rawValue) }
 }
 
 public extension AgentKind {
     /// The mark a tab running this agent draws.
-    var session: SessionAgent {
-        switch self {
-        case .claude: return .claude
-        case .codex: return .codex
-        case .grok: return .grok
-        case .pi: return .pi
-        }
-    }
-
-    var displayName: String {
-        switch self {
-        case .claude: return "Claude Code"
-        case .codex: return "Codex"
-        case .grok: return "Grok Build"
-        case .pi: return "PI"
-        }
-    }
+    var session: SessionAgent { harness.session }
 }
 
 /// A Jira project whose tickets belong to an AiTerm project.

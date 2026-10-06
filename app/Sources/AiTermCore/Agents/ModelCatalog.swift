@@ -27,13 +27,13 @@ public enum ModelCatalog {
     public static func claudeModels(catalogJSON: Data?, settingsJSON: Data?, claudeJSON: Data?) -> [AgentModel] {
         var out = claudeCatalogModels(catalogJSON)
         if out.isEmpty {
-            out = claudeAliases.map { AgentModel(id: $0, label: $0.capitalized, detail: nil, efforts: claudeEfforts, defaultEffort: "high") }
+            out = claudeAliases.map { AgentModel(id: $0, label: $0.capitalized, detail: nil, efforts: claudeEfforts, defaultEffort: Harness.claude.defaultEffort) }
         }
         func add(_ model: AgentModel) { if !out.contains(where: { $0.id == model.id }) { out.append(model) } }
 
         if let data = settingsJSON, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let models = obj["availableModels"] as? [String] {
-            for id in models { add(AgentModel(id: id, label: id, detail: nil, efforts: claudeEfforts, defaultEffort: "high")) }
+            for id in models { add(AgentModel(id: id, label: id, detail: nil, efforts: claudeEfforts, defaultEffort: Harness.claude.defaultEffort)) }
         }
         if let data = claudeJSON, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let options = obj["additionalModelOptionsCache"] as? [[String: Any]] {
@@ -44,10 +44,27 @@ public enum ModelCatalog {
                 // at all falls back to the legacy three.
                 let base = out.first { $0.id == id.prefix(while: { $0 != "[" }) }
                 add(AgentModel(id: id, label: (option["label"] as? String) ?? id, detail: option["description"] as? String,
-                               efforts: base?.efforts ?? claudeEfforts, defaultEffort: base.map(\.defaultEffort) ?? "high"))
+                               efforts: base?.efforts ?? claudeEfforts, defaultEffort: base.map(\.defaultEffort) ?? Harness.claude.defaultEffort))
             }
         }
         return out
+    }
+
+    /// Claude's models as `home` keeps them, read now.
+    static func claudeModels(home: URL) -> [AgentModel] {
+        claudeModels(catalogJSON: claudeCatalogURL(home: home).flatMap { try? Data(contentsOf: $0) },
+                     settingsJSON: try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
+                     claudeJSON: try? Data(contentsOf: home.appendingPathComponent(".claude.json")))
+    }
+
+    /// The files `claudeModels(home:)` reads. The catalogue directory is listed with every
+    /// catalogue in it, because which one is read depends on all their dates.
+    static func claudeSources(home: URL) -> [String] {
+        let directory = home.appendingPathComponent(".claude/cache/model-catalog").path
+        let catalogues = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
+            .filter { $0.hasSuffix("-cc.json") }.sorted().map { directory + "/" + $0 }
+        return [directory] + catalogues + [home.appendingPathComponent(".claude/settings.json").path,
+                                           home.appendingPathComponent(".claude.json").path]
     }
 
     /// `catalog.config.models[]` of the cached model catalogue, in the order `/model` shows them.
@@ -105,6 +122,17 @@ public enum ModelCatalog {
         return codexConfigModels(configTOML: configTOML)
     }
 
+    /// Codex's models as `home` keeps them, read now.
+    static func codexModels(home: URL) -> [AgentModel] {
+        codexModels(modelsCacheJSON: try? Data(contentsOf: home.appendingPathComponent(".codex/models_cache.json")),
+                    configTOML: try? String(contentsOf: home.appendingPathComponent(".codex/config.toml"), encoding: .utf8))
+    }
+
+    /// The files `codexModels(home:)` reads.
+    static func codexSources(home: URL) -> [String] {
+        [home.appendingPathComponent(".codex/models_cache.json").path, home.appendingPathComponent(".codex/config.toml").path]
+    }
+
     /// The root `model` and each `profiles.<name>.model`, in file order, by the key's full path:
     /// a header or dotted key names them alike, and a `model = …` line inside a multi-line string
     /// is not one.
@@ -119,77 +147,6 @@ public enum ModelCatalog {
             }
         }
         if ids.isEmpty { ids = ["gpt-5.6"] }
-        return ids.map { AgentModel(id: $0, label: $0, detail: nil, efforts: codexEfforts, defaultEffort: "medium") }
-    }
-
-    // -- lookup ---------------------------------------------------------------------
-
-    /// The models an agent keeps on disk in `home`, read now. PI keeps none — its list is a launch
-    /// of its CLI — so it has no file catalogue. `ModelCatalogue` is what the app asks: it covers
-    /// PI, and keeps what it read until one of these files changes (`sources(for:home:)`).
-    static func fileModels(for agent: AgentKind, home: URL) -> [AgentModel]? {
-        switch agent {
-        case .claude:
-            return claudeModels(catalogJSON: claudeCatalogURL(home: home).flatMap { try? Data(contentsOf: $0) },
-                                settingsJSON: try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
-                                claudeJSON: try? Data(contentsOf: home.appendingPathComponent(".claude.json")))
-        case .codex:
-            return codexModels(modelsCacheJSON: try? Data(contentsOf: home.appendingPathComponent(".codex/models_cache.json")),
-                               configTOML: try? String(contentsOf: home.appendingPathComponent(".codex/config.toml"), encoding: .utf8))
-        case .grok:
-            return GrokModelCatalog.models(home: home)
-        case .pi:
-            return nil
-        }
-    }
-
-    /// The files `fileModels(for:home:)` reads for `agent`, in a fixed order. Claude's catalogue
-    /// directory is listed with every catalogue in it, because which one is read depends on all
-    /// their dates. PI's are where it keeps its sign-ins and custom models, which is what its list
-    /// is made from, beside the CLI itself: an upgrade can change the list too.
-    static func sources(for agent: AgentKind, home: URL, executable: String?) -> [String] {
-        func path(_ relative: String) -> String { home.appendingPathComponent(relative).path }
-        switch agent {
-        case .claude:
-            let directory = path(".claude/cache/model-catalog")
-            let catalogues = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
-                .filter { $0.hasSuffix("-cc.json") }.sorted().map { directory + "/" + $0 }
-            return [directory] + catalogues + [path(".claude/settings.json"), path(".claude.json")]
-        case .codex:
-            return [path(".codex/models_cache.json"), path(".codex/config.toml")]
-        case .grok:
-            return [path(".grok/models_cache.json"), path(".grok/config.toml")]
-        case .pi:
-            let cli = executable.map { [$0, ($0 as NSString).resolvingSymlinksInPath] } ?? []
-            return [path(".pi/agent"), path(".pi/agent/auth.json"), path(".pi/agent/models.json"),
-                    path(".pi/agent/settings.json")] + cli
-        }
-    }
-
-    /// The reasoning levels for the picked model. Both CLIs publish them per model now, so the
-    /// agent's own list is only the answer when no model is picked, or when the picked model comes
-    /// from a source that carries no levels (the aliases, `availableModels`). A model that
-    /// publishes *no* levels — Haiku, whose catalogue entry says `thinking: none` — is not that
-    /// case: it genuinely takes no reasoning flag, and returning an empty list says so.
-    public static func efforts(for agent: AgentKind, model: AgentModel?) -> [String] {
-        guard let model else {
-            switch agent {
-            case .claude: return claudeEfforts
-            case .codex: return codexEfforts
-            case .grok: return ["low", "medium", "high", "xhigh"]
-            case .pi: return PiModelCatalog.thinkingLevels
-            }
-        }
-        return model.efforts
-    }
-
-    public static func defaultEffort(for agent: AgentKind, model: AgentModel?) -> String? {
-        guard let model else {
-            switch agent {
-            case .claude, .grok: return "high"
-            case .codex, .pi: return "medium"
-            }
-        }
-        return model.defaultEffort
+        return ids.map { AgentModel(id: $0, label: $0, detail: nil, efforts: codexEfforts, defaultEffort: Harness.codex.defaultEffort) }
     }
 }

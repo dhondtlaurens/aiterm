@@ -36,7 +36,7 @@ struct CodexDriver: HarnessDriver {
         try file.write(Data(merged.utf8))
     }
 
-    func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(agent: .codex) }
+    func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(endpoint: Harness.codex.hookEndpoint) }
 
     /// Why AiTerm's `[[hooks.<event>]]` tables cannot be appended, when they cannot.
     private static func unmergeable(_ text: String) -> String? {

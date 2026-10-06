@@ -46,14 +46,20 @@ public enum PiModelCatalog {
                               label: "\(fields[0]) / \(fields[1])",
                               detail: "\(fields[2]) context · \(fields[3]) max · \(imageText)",
                               efforts: supportsThinking ? thinkingLevels : [],
-                              defaultEffort: supportsThinking ? "medium" : nil)
+                              defaultEffort: supportsThinking ? Harness.pi.defaultEffort : nil)
         }
     }
 
     /// PI's models, from `pi --list-models`. `ModelCatalogue` is what the app asks; it keeps them.
     static func discover(runner: HarnessCommandRunner) throws -> [AgentModel] {
-        guard let executable = runner.locate("pi") else { throw PiModelCatalogError.unavailable }
+        guard let executable = runner.locate(Harness.pi.executable) else { throw PiModelCatalogError.unavailable }
         return try discover(executable: executable, runner: runner)
+    }
+
+    /// Where PI keeps its sign-ins and custom models, which is what its list is made from.
+    static func sources(home: URL) -> [String] {
+        [".pi/agent", ".pi/agent/auth.json", ".pi/agent/models.json", ".pi/agent/settings.json"]
+            .map { home.appendingPathComponent($0).path }
     }
 
     /// `discover` with the CLI a probe has already found.

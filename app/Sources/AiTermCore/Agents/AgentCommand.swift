@@ -21,16 +21,7 @@ public enum AgentCommand {
     /// footer preview can never drift from the command that is actually run. Every word goes
     /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
     static func invocation(agent: AgentKind, model: String, reasoning: String?) -> [String] {
-        words(agent: agent, model: model, reasoning: reasoning).map(shellWord)
-    }
-
-    private static func words(agent: AgentKind, model: String, reasoning: String?) -> [String] {
-        switch agent {
-        case .claude: return ["claude", "--model", model] + (reasoning.map { ["--effort", $0] } ?? [])
-        case .codex: return ["codex", "--dangerously-bypass-approvals-and-sandbox", "-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
-        case .grok: return ["grok", "-m", model] + (reasoning.map { ["--reasoning-effort", $0] } ?? [])
-        case .pi: return ["pi", "--model", model] + (reasoning.map { ["--thinking", $0] } ?? [])
-        }
+        agent.harness.launchWords(model: model, reasoning: reasoning).map(shellWord)
     }
 
     /// The exact command a task would launch, built without touching the disk: a prompt that goes

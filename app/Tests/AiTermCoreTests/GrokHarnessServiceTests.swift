@@ -9,8 +9,7 @@ import Testing
         HarnessService(home: home, daemonPort: 47821,
                        runner: HarnessCommandRunner(locate: { $0 == "grok" ? "/bin/sh" : nil },
                                                     run: { _, _, _, _ in ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false) }),
-                       resources: HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: shim,
-                                                   installationAllowed: true, unavailableReason: nil))
+                       resources: HarnessResources([.grok: shim], installationAllowed: true, unavailableReason: nil))
     }
 
     func home(withModels: Bool) throws -> URL {

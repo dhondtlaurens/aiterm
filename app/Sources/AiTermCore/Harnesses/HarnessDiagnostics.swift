@@ -129,54 +129,37 @@ public extension HarnessSnapshot {
         if health == .unavailable { return "\(agent.displayName) CLI is unavailable." }
         if let explanation = DriverProbe(integrationState).explanation { return explanation }
         if modelsAreStale { return "The model catalogue couldn’t be refreshed." }
-        if models.isEmpty { return agent.noModelsExplanation }
+        if models.isEmpty { return agent.harness.noModelsExplanation }
         return "Ready."
     }
 }
 
-public extension AgentKind {
-    /// What the harness card and the task sheets say when the agent lists no models: how to get
-    /// some, where the CLI has a way.
-    var noModelsExplanation: String {
-        switch self {
-        case .pi: return "No PI providers are signed in — run /login in PI."
-        case .grok: return "No Grok models — run grok once to sign in and fetch them."
-        case .claude, .codex: return "No models are available."
-        }
-    }
-}
-
+/// What the drivers install from the app bundle, and whether this copy of AiTerm may install them.
 public struct HarnessResources: Equatable, Sendable {
-    public var claudeShimPath: String?
-    public var piExtensionSource: String?
-    public var grokShimPath: String?
+    /// Each harness's bundled resource as its driver takes it (`Harness.bundledResource`): a
+    /// shim's path, the PI extension's source. An agent missing here has no driver to install,
+    /// unless its driver needs nothing from the bundle (Codex's).
+    private var resources: [AgentKind: String]
     public var installationAllowed: Bool
     public var unavailableReason: String?
 
-    public init(claudeShimPath: String?, piExtensionSource: String?, grokShimPath: String?,
-                installationAllowed: Bool, unavailableReason: String?) {
-        self.claudeShimPath = claudeShimPath
-        self.piExtensionSource = piExtensionSource
-        self.grokShimPath = grokShimPath
+    public init(_ resources: [AgentKind: String], installationAllowed: Bool, unavailableReason: String?) {
+        self.resources = resources
         self.installationAllowed = installationAllowed
         self.unavailableReason = unavailableReason
     }
 
+    public subscript(agent: AgentKind) -> String? { resources[agent] }
+
     public static func bundled(resourceURL: URL? = Bundle.main.resourceURL) -> HarnessResources {
         guard let resourceURL else {
-            return HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: nil,
-                                    installationAllowed: false,
-                                    unavailableReason: "AiTerm’s bundled drivers are unavailable.")
+            return HarnessResources([:], installationAllowed: false, unavailableReason: "AiTerm’s bundled drivers are unavailable.")
         }
-        let shim = resourceURL.appendingPathComponent("hooks/claude-statusline-shim.sh")
-        let extensionURL = resourceURL.appendingPathComponent("hooks/pi-aiterm-status.ts")
-        let grokShim = resourceURL.appendingPathComponent("hooks/grok-statusline-shim.sh")
+        let hooks = resourceURL.appendingPathComponent("hooks")
+        var resources: [AgentKind: String] = [:]
+        for agent in AgentKind.allCases { resources[agent] = agent.harness.bundledResource?.load(fromHooks: hooks) }
         let translocated = BundleLocation.isTranslocated(resourceURL.path)
-        return HarnessResources(
-            claudeShimPath: FileManager.default.isExecutableFile(atPath: shim.path) ? shim.path : nil,
-            piExtensionSource: try? String(contentsOf: extensionURL, encoding: .utf8),
-            grokShimPath: FileManager.default.isExecutableFile(atPath: grokShim.path) ? grokShim.path : nil,
-            installationAllowed: !translocated,
-            unavailableReason: translocated ? BundleLocation.translocationWarning : nil)
+        return HarnessResources(resources, installationAllowed: !translocated,
+                                unavailableReason: translocated ? BundleLocation.translocationWarning : nil)
     }
 }

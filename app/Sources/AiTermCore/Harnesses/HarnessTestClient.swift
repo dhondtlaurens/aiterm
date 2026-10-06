@@ -50,9 +50,10 @@ public struct HarnessTestClient: Sendable {
         self.daemonPort = daemonPort
     }
 
-    public func testHTTP(agent: AgentKind) async -> HarnessTestResult {
-        guard agent != .pi,
-              let url = URL(string: "http://127.0.0.1:\(daemonPort)/hook/\(agent.rawValue)") else {
+    /// Posts a test event to `endpoint`, the daemon's path for a driver's events, as an HTTP
+    /// driver's hook would.
+    public func testHTTP(endpoint: String) async -> HarnessTestResult {
+        guard let url = URL(string: "http://127.0.0.1:\(daemonPort)" + endpoint) else {
             return HarnessTestResult(checks: [deliveryCheck(passed: false, explanation: "AiTerm did not receive the test event.")])
         }
         let daemon = await daemonCheck(url: url)
@@ -78,14 +79,14 @@ public struct HarnessTestClient: Sendable {
     }
 
     public func testPi(extensionPath: String) async -> HarnessTestResult {
-        guard let url = URL(string: "http://127.0.0.1:\(daemonPort)/hook/pi") else {
+        guard let url = URL(string: "http://127.0.0.1:\(daemonPort)" + Harness.pi.hookEndpoint) else {
             return HarnessTestResult(checks: [deliveryCheck(passed: false, explanation: "AiTerm did not receive the test event.")])
         }
         let daemon = await daemonCheck(url: url)
         guard daemon.passed else { return HarnessTestResult(checks: [daemon, skippedDeliveryCheck()]) }
         // Both launch processes, which the cooperative pool must not wait on.
         let runner = self.runner
-        guard let executable = try? await BackgroundWork.run({ runner.locate("pi") }) else {
+        guard let executable = try? await BackgroundWork.run({ runner.locate(Harness.pi.executable) }) else {
             return HarnessTestResult(checks: [daemon, deliveryCheck(passed: false, explanation: "PI CLI is unavailable.")])
         }
         let id = UUID().uuidString

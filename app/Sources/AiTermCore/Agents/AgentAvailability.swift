@@ -13,7 +13,7 @@ public enum AgentAvailability {
     /// `nil` when the login shell itself failed or ran out of time: that says nothing about which
     /// agents exist, and an empty set would block every New Task sheet until the app is relaunched.
     public static func installed(locator: LoginShellLocator = .shared) -> Set<AgentKind>? {
-        locator.current().map { Set($0.executables.keys.compactMap(AgentKind.init)) }
+        locator.current().map { answers in Set(AgentKind.allCases.filter { answers.executables[$0.harness.executable] != nil }) }
     }
 
     /// `preferred` when it is installed, else the first agent that is. An empty `available` is an

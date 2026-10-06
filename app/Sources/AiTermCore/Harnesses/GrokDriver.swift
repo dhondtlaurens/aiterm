@@ -65,5 +65,5 @@ struct GrokDriver: HarnessDriver {
                                          original: GrokStatusLineConfig.originalURL(home: home), shimPath: shimPath)
     }
 
-    func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(agent: .grok) }
+    func test(with client: HarnessTestClient) async -> HarnessTestResult { await client.testHTTP(endpoint: Harness.grok.hookEndpoint) }
 }

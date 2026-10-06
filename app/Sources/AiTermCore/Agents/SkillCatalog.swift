@@ -73,70 +73,15 @@ public enum SkillCatalog {
     }
 
     private static func discover(agent: AgentKind, projectPath: String?, home: URL, walk: Walk) -> [AgentCompletion] {
-        func skills(in root: URL, namespace: String?, source: AgentCompletion.Source, hidingNonInvocable: Bool = false) -> [AgentCompletion] {
-            Self.skills(in: root, namespace: namespace, source: source, hidingNonInvocable: hidingNonInvocable, walk: walk)
-        }
-        func commands(in root: URL, namespace: String?, source: AgentCompletion.Source, depth: Int = maxDepth) -> [AgentCompletion] {
-            Self.commands(in: root, namespace: namespace, source: source, depth: depth, walk: walk)
-        }
-        func pluginCompletions(under userRoot: URL, hidingNonInvocable: Bool = false) -> [AgentCompletion] {
-            Self.pluginCompletions(under: userRoot, hidingNonInvocable: hidingNonInvocable, walk: walk)
-        }
-        func piSkills(in root: URL, source: AgentCompletion.Source) -> [AgentCompletion] {
-            Self.piSkills(in: root, source: source, walk: walk)
-        }
         var found: [AgentCompletion] = []
-        switch agent {
-        case .claude:
-            let userRoot = home.appendingPathComponent(".claude")
-            // Claude Code, like Grok, keeps a `user-invocable: false` skill out of its `/` menu.
-            found += skills(in: userRoot.appendingPathComponent("skills"), namespace: nil, source: .user, hidingNonInvocable: true)
-            found += commands(in: userRoot.appendingPathComponent("commands"), namespace: nil, source: .user)
-            found += pluginCompletions(under: userRoot, hidingNonInvocable: true)
-            if let projectPath {
-                let projectRoot = URL(fileURLWithPath: projectPath).appendingPathComponent(".claude")
-                found += skills(in: projectRoot.appendingPathComponent("skills"), namespace: nil, source: .project, hidingNonInvocable: true)
-                found += commands(in: projectRoot.appendingPathComponent("commands"), namespace: nil, source: .project)
-            }
-        case .codex:
-            // Codex follows the Agent Skills standard, `.agents/skills` in the home and the repo.
-            // Its own home still holds the built-ins (`skills/.system`), what its skill installer
-            // adds and its (deprecated) custom prompts, which it runs as `/prompts:<name>`; none of
-            // those has a project-level twin.
-            let userRoot = home.appendingPathComponent(".codex")
-            found += skills(in: userRoot.appendingPathComponent("skills"), namespace: nil, source: .user)
-            found += skills(in: home.appendingPathComponent(".agents/skills"), namespace: nil, source: .user)
-            found += commands(in: userRoot.appendingPathComponent("prompts"), namespace: "prompts", source: .user)
-            found += pluginCompletions(under: userRoot)
-            if let projectPath {
-                found += skills(in: URL(fileURLWithPath: projectPath).appendingPathComponent(".agents/skills"), namespace: nil, source: .project)
-            }
-        case .pi:
-            let piRoot = home.appendingPathComponent(".pi/agent")
-            found += piSkills(in: piRoot.appendingPathComponent("skills"), source: .user)
-            found += piSkills(in: home.appendingPathComponent(".agents/skills"), source: .user)
-            found += commands(in: piRoot.appendingPathComponent("prompts"), namespace: nil, source: .user)
-            if let projectPath {
-                let root = URL(fileURLWithPath: projectPath)
-                found += piSkills(in: root.appendingPathComponent(".pi/skills"), source: .project)
-                found += piSkills(in: root.appendingPathComponent(".agents/skills"), source: .project)
-                found += commands(in: root.appendingPathComponent(".pi/prompts"), namespace: nil, source: .project)
-            }
-        case .grok:
-            // Grok reads skills and flat commands from .grok, .agents and (Claude compatibility)
-            // .claude, globally and in the project; only `commands/*.md` itself is a command
-            // (08-skills.md). Its bundled skills come after the user's, which override them.
-            for dot in [".grok", ".agents", ".claude"] {
-                found += skills(in: home.appendingPathComponent("\(dot)/skills"), namespace: nil, source: .user, hidingNonInvocable: true)
-                found += commands(in: home.appendingPathComponent("\(dot)/commands"), namespace: nil, source: .user, depth: 0)
-            }
-            found += skills(in: home.appendingPathComponent(".grok/bundled/skills"), namespace: nil, source: .builtIn, hidingNonInvocable: true)
-            if let projectPath {
-                let root = URL(fileURLWithPath: projectPath)
-                for dot in [".grok", ".agents", ".claude"] {
-                    found += skills(in: root.appendingPathComponent("\(dot)/skills"), namespace: nil, source: .project, hidingNonInvocable: true)
-                    found += commands(in: root.appendingPathComponent("\(dot)/commands"), namespace: nil, source: .project, depth: 0)
-                }
+        for root in agent.harness.skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
+            switch root.kind {
+            case .skills(let namespace, let hidingNonInvocable):
+                found += skills(in: root.url, namespace: namespace, source: root.source, hidingNonInvocable: hidingNonInvocable, walk: walk)
+            case .commands(let namespace, let depth):
+                found += commands(in: root.url, namespace: namespace, source: root.source, depth: depth, walk: walk)
+            case .plugins(let hidingNonInvocable):
+                found += pluginCompletions(under: root.url, hidingNonInvocable: hidingNonInvocable, walk: walk)
             }
         }
 
@@ -151,13 +96,6 @@ public enum SkillCatalog {
             skills(in: plugin.url.appendingPathComponent("skills"), namespace: plugin.name, source: .plugin(plugin.name),
                    hidingNonInvocable: hidingNonInvocable, walk: walk)
                 + commands(in: plugin.url.appendingPathComponent("commands"), namespace: plugin.name, source: .plugin(plugin.name), walk: walk)
-        }
-    }
-
-    private static func piSkills(in root: URL, source: AgentCompletion.Source, walk: Walk) -> [AgentCompletion] {
-        skills(in: root, namespace: nil, source: source, walk: walk).map { item in
-            AgentCompletion(name: item.name.hasPrefix("skill:") ? item.name : "skill:" + item.name,
-                            kind: item.kind, detail: item.detail, source: item.source)
         }
     }
 
@@ -387,11 +325,10 @@ public enum SkillCatalog {
         return CompletionTrigger(query: query, range: start..<caret)
     }
 
-    /// What a picked completion writes into the prompt. Codex runs a skill as a `$` mention and
-    /// keeps `/` for its commands — `/prompts:<name>` among them — so its skills are written with
-    /// `$`; every other agent runs both from `/`.
+    /// What a picked completion writes into the prompt: a command after `/`, a skill after its
+    /// agent's sigil — `$` for Codex, which keeps `/` for its commands, and `/` for the others.
     public static func invocation(of item: AgentCompletion, for agent: AgentKind) -> String {
-        let sigil = agent == .codex && item.kind == .skill ? "$" : "/"
-        return sigil + item.name
+        let sigil = item.kind == .skill ? agent.harness.skillSigil : "/"
+        return String(sigil) + item.name
     }
 }

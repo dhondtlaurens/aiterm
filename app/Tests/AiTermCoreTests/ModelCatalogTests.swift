@@ -156,9 +156,9 @@ import Foundation
     /// covers it.)
     @Test func testEffortsFollowTheModel() {
         let model = AgentModel(id: "gpt-5.6-sol", label: "Sol", detail: nil, efforts: ["low", "high"], defaultEffort: "high")
-        #expect(ModelCatalog.efforts(for: .codex, model: model) == ["low", "high"])
-        #expect(ModelCatalog.efforts(for: .codex, model: nil) == ModelCatalog.codexEfforts)
-        #expect(ModelCatalog.efforts(for: .claude, model: nil) == ModelCatalog.claudeEfforts)
+        #expect(AgentKind.codex.harness.efforts(for: model) == ["low", "high"])
+        #expect(AgentKind.codex.harness.efforts(for: nil) == ModelCatalog.codexEfforts)
+        #expect(AgentKind.claude.harness.efforts(for: nil) == ModelCatalog.claudeEfforts)
     }
 
     /// Claude Code 2.1.251+ drives `/model` from a signed catalogue it caches under
@@ -180,8 +180,8 @@ import Foundation
         let haiku = ModelCatalog.claudeModels(catalogJSON: Fixtures.claudeCatalog, settingsJSON: nil, claudeJSON: nil).last
         #expect(haiku?.efforts == [])
         #expect(haiku?.defaultEffort == nil)
-        #expect(ModelCatalog.efforts(for: .claude, model: haiku) == [])
-        #expect(ModelCatalog.defaultEffort(for: .claude, model: haiku) == nil)
+        #expect(AgentKind.claude.harness.efforts(for: haiku) == [])
+        #expect(AgentKind.claude.harness.defaultEffort(for: haiku) == nil)
     }
 
     /// The extras in `~/.claude.json` are still merged in after the catalogue — the 1M-context
@@ -222,8 +222,8 @@ import Foundation
     /// The reasoning levels must follow the Claude model too, not a single static list.
     @Test func testClaudeEffortsFollowTheModel() {
         let fable = ModelCatalog.claudeModels(catalogJSON: Fixtures.claudeCatalog, settingsJSON: nil, claudeJSON: nil)[0]
-        #expect(ModelCatalog.efforts(for: .claude, model: fable) == ["low", "medium", "high", "xhigh", "max"])
-        #expect(ModelCatalog.efforts(for: .claude, model: nil) == ModelCatalog.claudeEfforts, "no model picked: the legacy three")
+        #expect(AgentKind.claude.harness.efforts(for: fable) == ["low", "medium", "high", "xhigh", "max"])
+        #expect(AgentKind.claude.harness.efforts(for: nil) == ModelCatalog.claudeEfforts, "no model picked: the legacy three")
     }
 
     /// The cache file is named per org and per surface; the sheet must find the `-cc` one (Claude

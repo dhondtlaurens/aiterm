@@ -18,8 +18,7 @@ import Testing
         HarnessService(home: home, daemonPort: 47821,
                        runner: HarnessCommandRunner(locate: { _ in "/bin/sh" },
                                                     run: { _, _, _, _ in ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false) }),
-                       resources: HarnessResources(claudeShimPath: shim, piExtensionSource: nil, grokShimPath: nil,
-                                                   installationAllowed: true, unavailableReason: nil))
+                       resources: HarnessResources([.claude: shim], installationAllowed: true, unavailableReason: nil))
     }
 
     @Test(arguments: [(AgentKind.claude, ".claude/settings.json"), (AgentKind.codex, ".codex/config.toml")])

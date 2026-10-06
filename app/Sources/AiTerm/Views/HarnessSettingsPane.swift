@@ -86,14 +86,14 @@ struct HarnessSettingsPane: View {
             Button(action) { Task { await model.install(snapshot.agent) } }
                 .disabled(model.running.contains(snapshot.agent) || !snapshot.canInstall)
                 .help(snapshot.health == .unavailable
-                      ? "Runs \(CLIInstaller.command(for: snapshot.agent)), then installs AiTerm’s driver." : "")
+                      ? "Runs \(snapshot.agent.harness.installCommand), then installs AiTerm’s driver." : "")
         }
     }
 
     @ViewBuilder
     private func defaults(_ snapshot: HarnessSnapshot) -> some View {
         if snapshot.models.isEmpty {
-            HelpText(snapshot.agent.noModelsExplanation)
+            HelpText(snapshot.agent.harness.noModelsExplanation)
         } else {
             let preference = model.preferences[snapshot.agent]
             let options = HarnessCardPresentation.modelOptions(snapshot.models, preference: preference)

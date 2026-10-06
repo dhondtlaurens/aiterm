@@ -43,10 +43,9 @@ public actor HarnessService {
                                             daemonPort: daemonPort)
         var drivers: [AgentKind: any HarnessDriver] = [:]
         if resources.installationAllowed {
-            drivers[.claude] = resources.claudeShimPath.map { ClaudeDriver(home: home, daemonPort: daemonPort, shimPath: $0) }
-            drivers[.codex] = CodexDriver(home: home, daemonPort: daemonPort)
-            drivers[.grok] = resources.grokShimPath.map { GrokDriver(home: home, daemonPort: daemonPort, shimPath: $0) }
-            drivers[.pi] = resources.piExtensionSource.map { PiDriver(home: home, source: $0) }
+            for agent in AgentKind.allCases {
+                drivers[agent] = agent.harness.makeDriver(home, daemonPort, resources[agent])
+            }
         }
         self.drivers = drivers
     }
@@ -58,7 +57,8 @@ public actor HarnessService {
     /// and for PI reading them is a launch.
     private func probe(_ agent: AgentKind, reusingCatalogueOf earlier: HarnessSnapshot?) async -> HarnessSnapshot {
         let runner = self.runner
-        guard let executable = try? await BackgroundWork.run({ runner.locate(agent.rawValue) }),
+        let name = agent.harness.executable
+        guard let executable = try? await BackgroundWork.run({ runner.locate(name) }),
               LoginShell.isExecutableFile(executable) else {
             return .reduce(agent: agent, cliAvailable: false, integrationState: .notChecked,
                                     models: [], checks: [HarnessCheck(.cli, passed: false,
@@ -81,7 +81,7 @@ public actor HarnessService {
         }
         let models = catalogue.models, stale = catalogue.stale
         checks.append(catalogue.check ?? HarnessCheck(
-            .models, passed: !models.isEmpty, explanation: models.isEmpty ? agent.noModelsExplanation : nil))
+            .models, passed: !models.isEmpty, explanation: models.isEmpty ? agent.harness.noModelsExplanation : nil))
         return .reduce(agent: agent, cliAvailable: true, integrationState: integration,
                                 models: models, modelsAreStale: stale, checks: checks)
     }

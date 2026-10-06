@@ -57,9 +57,7 @@ import Testing
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" },
                                           run: { _, _, _, _ in results.next() })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: source, grokShimPath: nil,
-                                                                 installationAllowed: true,
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true,
                                                                  unavailableReason: nil))
 
         let current = await service.probe(.pi)
@@ -81,7 +79,7 @@ import Testing
         let runner = HarnessCommandRunner(locate: { _ in folder.path },
                                           run: { _, _, _, _ in ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false) })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true", piExtensionSource: nil, grokShimPath: nil,
+                                     resources: HarnessResources([.claude: "/usr/bin/true"],
                                                                  installationAllowed: true, unavailableReason: nil))
         #expect(await service.probe(.pi).health == .unavailable)
     }
@@ -103,9 +101,7 @@ import Testing
                                         stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: source, grokShimPath: nil,
-                                                                 installationAllowed: true,
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true,
                                                                  unavailableReason: nil))
 
         let current = await service.probe(.pi)
@@ -127,9 +123,7 @@ import Testing
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" },
                                           run: { _, _, _, _ in throw CocoaError(.fileReadUnknown) })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: source, grokShimPath: nil,
-                                                                 installationAllowed: true,
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true,
                                                                  unavailableReason: nil))
 
         let snapshot = await service.probe(.pi)
@@ -152,8 +146,7 @@ import Testing
                                  stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n", grokShimPath: "/usr/bin/true",
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\n", .grok: "/usr/bin/true"],
                                                                  installationAllowed: true,
                                                                  unavailableReason: nil))
         for agent in AgentKind.allCases {
@@ -178,9 +171,7 @@ import Testing
                                  stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: source, grokShimPath: nil,
-                                                                 installationAllowed: true,
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true,
                                                                  unavailableReason: nil))
 
         let before = await service.probe(.pi)
@@ -210,9 +201,7 @@ import Testing
                                  stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: source, grokShimPath: nil,
-                                                                 installationAllowed: true,
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true,
                                                                  unavailableReason: nil))
 
         let snapshot = await service.probe(.pi)
@@ -241,9 +230,7 @@ import Testing
             ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false)
         })
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true",
-                                                                 piExtensionSource: nil, grokShimPath: nil,
-                                                                 installationAllowed: true,
+                                     resources: HarnessResources([.claude: "/usr/bin/true"], installationAllowed: true,
                                                                  unavailableReason: nil))
 
         let claude = await service.probe(.claude)
@@ -270,8 +257,7 @@ import Testing
         let runner = HarnessCommandRunner(locate: { _ in "/usr/bin/true" }, run: { _, _, _, _ in
             ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: false)
         })
-        let resources = HarnessResources(claudeShimPath: "/usr/bin/true", piExtensionSource: nil, grokShimPath: nil,
-                                         installationAllowed: true, unavailableReason: nil)
+        let resources = HarnessResources([.claude: "/usr/bin/true"], installationAllowed: true, unavailableReason: nil)
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
                                      resources: resources, testTransport: transport)
 
@@ -307,7 +293,7 @@ extension HarnessDiagnosticsTests {
             return try JSONSerialization.data(withJSONObject: ["ok": true, "daemonTestId": object?["_aiterm_daemon_test_id"] ?? ""])
         }
         let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                     resources: HarnessResources(claudeShimPath: "/usr/bin/true", piExtensionSource: source, grokShimPath: nil,
+                                     resources: HarnessResources([.claude: "/usr/bin/true", .pi: source],
                                                                  installationAllowed: true, unavailableReason: nil),
                                      testTransport: transport)
 
@@ -328,8 +314,7 @@ extension HarnessDiagnosticsTests {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let source = "// AiTerm PI extension schema: \(PiDriver.schemaVersion)\nexport default function aiterm() {}\n"
         try PiDriver(home: home, source: source).install()
-        return (home, HarnessResources(claudeShimPath: "/usr/bin/true", piExtensionSource: source, grokShimPath: nil,
-                                       installationAllowed: true, unavailableReason: nil))
+        return (home, HarnessResources([.claude: "/usr/bin/true", .pi: source], installationAllowed: true, unavailableReason: nil))
     }
 
     /// Installing the driver changes nothing about which models PI lists, so the install's last

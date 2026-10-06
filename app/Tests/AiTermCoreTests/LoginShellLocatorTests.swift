@@ -43,8 +43,7 @@ import Testing
                               stderr: "", timedOut: false)
             }, forgetLocations: { locator.forget() })
             let service = HarnessService(home: home, daemonPort: 47821, runner: runner,
-                                         resources: HarnessResources(claudeShimPath: nil, piExtensionSource: nil, grokShimPath: nil,
-                                                                     installationAllowed: false, unavailableReason: "Not in a test."))
+                                         resources: HarnessResources([:], installationAllowed: false, unavailableReason: "Not in a test."))
             let opening = Task {
                 await withTaskGroup(of: (AgentKind, Bool).self) { group in
                     for agent in AgentKind.allCases { group.addTask { (agent, await service.probe(agent).health != .unavailable) } }

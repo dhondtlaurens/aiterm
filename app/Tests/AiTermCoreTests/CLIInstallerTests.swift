@@ -4,13 +4,13 @@ import Testing
 
 @Suite struct CLIInstallerTests {
     @Test func eachHarnessInstallsThroughItsVendorsOwnScript() {
-        #expect(CLIInstaller.command(for: .claude) == "curl -fsSL https://claude.ai/install.sh | bash")
-        #expect(CLIInstaller.command(for: .codex) == "curl -fsSL https://chatgpt.com/codex/install.sh | sh")
-        #expect(CLIInstaller.command(for: .pi) == "curl -fsSL https://pi.dev/install.sh | sh")
+        #expect(AgentKind.claude.harness.installCommand == "curl -fsSL https://claude.ai/install.sh | bash")
+        #expect(AgentKind.codex.harness.installCommand == "curl -fsSL https://chatgpt.com/codex/install.sh | sh")
+        #expect(AgentKind.pi.harness.installCommand == "curl -fsSL https://pi.dev/install.sh | sh")
     }
 
     @Test func grokUsesXAIsInstaller() {
-        #expect(CLIInstaller.command(for: .grok) == "curl -fsSL https://x.ai/cli/install.sh | bash")
+        #expect(AgentKind.grok.harness.installCommand == "curl -fsSL https://x.ai/cli/install.sh | bash")
     }
 
     /// A login shell, so the installer sees the `PATH` the task window will have: Codex's decides
@@ -27,7 +27,7 @@ import Testing
         let call = try #require(calls.all.first)
         #expect(calls.all.count == 1)
         #expect(call.executable == "/bin/zsh")
-        #expect(call.arguments == ["-lic", "set -o pipefail; " + CLIInstaller.command(for: .codex)])
+        #expect(call.arguments == ["-lic", "set -o pipefail; " + AgentKind.codex.harness.installCommand])
         #expect(call.environment["CODEX_NON_INTERACTIVE"] == "1")
         #expect(call.timeout >= 300)
     }
@@ -66,7 +66,7 @@ import Testing
         #expect(await service.probe(.codex).health == .unavailable)
         let snapshot = try await service.install(.codex)
 
-        #expect(installed.all.map(\.arguments) == [["-lic", "set -o pipefail; " + CLIInstaller.command(for: .codex)]])
+        #expect(installed.all.map(\.arguments) == [["-lic", "set -o pipefail; " + AgentKind.codex.harness.installCommand]])
         #expect(snapshot.health != .unavailable)
         #expect(snapshot.integrationState == .current)
     }
@@ -139,8 +139,7 @@ import Testing
                 == "Claude Code installed, but `claude` isn’t on your login shell’s PATH.")
     }
 
-    private let resources = HarnessResources(claudeShimPath: "/usr/bin/true", piExtensionSource: nil,
-                                             grokShimPath: nil, installationAllowed: true, unavailableReason: nil)
+    private let resources = HarnessResources([.claude: "/usr/bin/true"], installationAllowed: true, unavailableReason: nil)
 
     private func temporaryHome() throws -> URL {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-cli-install-\(UUID().uuidString)")

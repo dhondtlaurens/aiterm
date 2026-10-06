@@ -7,7 +7,7 @@ import Synchronization
 ///
 /// Reading a list is not free. Claude's means parsing `~/.claude.json`, often megabytes; PI's is a
 /// launch of its CLI, up to a five-second deadline. So what was read is kept, against stamps of the
-/// files it came from (`ModelCatalog.sources`), and read again only when one of them has changed:
+/// files it came from (`ModelListing.sources`), and read again only when one of them has changed:
 /// a sheet opened twice, or an agent picked twice, costs a `stat` of each. A read that failed is
 /// never kept — the next one tries again — and the last list that was read stands in for it.
 ///
@@ -46,14 +46,16 @@ public final class ModelCatalogue: Sendable {
         self.runner = runner
     }
 
-    /// `agent`'s models. `executable` is PI's CLI when the caller has already found it. Without
-    /// `refreshing`, a list read before is answered while its files are unchanged; Settings'
-    /// probe refreshes, because it is the place that says whether PI can be launched at all.
+    /// `agent`'s models. `executable` is the CLI, for a list that is a launch of it (PI's), when
+    /// the caller has already found it. Without `refreshing`, a list read before is answered while
+    /// its files are unchanged; Settings' probe refreshes, because it is the place that says
+    /// whether PI can be launched at all.
     public func read(_ agent: AgentKind, executable: String? = nil, refreshing: Bool = false) -> Reading {
-        let cli = agent == .pi ? executable ?? runner.locate("pi") : nil
-        if agent == .pi, cli == nil { return fallback(agent, failure: .unavailable) }
+        let harness = agent.harness, listing = harness.models
+        let cli = listing.launchesCLI ? executable ?? runner.locate(harness.executable) : nil
+        if listing.launchesCLI, cli == nil { return fallback(agent, failure: .unavailable) }
         // Stamped before the read, so a file that changes while it runs is read again next time.
-        let stamps = FileStamps(ModelCatalog.sources(for: agent, home: home, executable: cli))
+        let stamps = FileStamps(listing.sources(home: home, executable: cli))
         let (cached, read) = state.withLock { state -> ([AgentModel]?, Int) in
             state.reads += 1
             guard !refreshing, let entry = state.entries[agent], entry.stamps == stamps else { return (nil, state.reads) }
@@ -61,12 +63,7 @@ public final class ModelCatalogue: Sendable {
         }
         if let cached { return Reading(models: cached) }
         do {
-            let models: [AgentModel]
-            if let cli {
-                models = try PiModelCatalog.discover(executable: cli, runner: runner)
-            } else {
-                models = ModelCatalog.fileModels(for: agent, home: home) ?? []
-            }
+            let models = try listing.read(home: home, executable: cli, runner: runner)
             state.withLock { state in
                 guard read > state.entries[agent]?.read ?? 0 else { return }
                 state.entries[agent] = Entry(stamps: stamps, models: models, read: read)

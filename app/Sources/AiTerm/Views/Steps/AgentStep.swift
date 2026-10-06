@@ -53,7 +53,7 @@ struct AgentStep: View {
     /// A catalogue that could not be read says why — "PI couldn’t be launched." — rather than
     /// suggesting a sign-in that would not help.
     static func modelPlaceholder(agent: AgentKind, catalogueLoaded: Bool, failure: String? = nil) -> String {
-        catalogueLoaded ? failure ?? agent.noModelsExplanation : "Loading models…"
+        catalogueLoaded ? failure ?? agent.harness.noModelsExplanation : "Loading models…"
     }
 
     var selectedModel: AgentModel? { models.first { $0.id == model } }

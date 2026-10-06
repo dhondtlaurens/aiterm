@@ -24,9 +24,9 @@ public extension AgentDraft {
     mutating func setModel(_ id: String, catalog: [AgentModel]) {
         model = id
         let picked = catalog.first { $0.id == id }
-        let efforts = ModelCatalog.efforts(for: agent, model: picked)
-        if let current = reasoning, efforts.contains(current) { return }
-        reasoning = ModelCatalog.defaultEffort(for: agent, model: picked)
+        let harness = agent.harness
+        if let current = reasoning, harness.efforts(for: picked).contains(current) { return }
+        reasoning = harness.defaultEffort(for: picked)
     }
 }
 

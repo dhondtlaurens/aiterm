@@ -156,7 +156,7 @@ public enum ClaudeSettings {
         guard let hooks = settings["hooks"] as? [String: Any],
               let command = statusLineCommand(settings),
               command == shimPath || (isOurShim(command, shimPath: shimPath) && isRunnable(command)) else { return false }
-        let hookURL = "http://127.0.0.1:\(daemonPort)/hook/claude"
+        let hookURL = "http://127.0.0.1:\(daemonPort)" + Harness.claude.hookEndpoint
         // A retired hook still in place is an outdated install: repairing it is what removes it.
         let retiredRemain = retiredEvents.contains { (hooks[$0] as? [[String: Any]])?.contains(where: holdsOurHook) == true }
         return !retiredRemain && events.allSatisfy { event in

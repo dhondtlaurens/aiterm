@@ -4,11 +4,14 @@ import Foundation
 /// own `/model` picker shows, read from disk so a probe starts no process. `[models]` in
 /// `~/.grok/config.toml` names the default model and reasoning effort.
 enum GrokModelCatalog {
-    static let fallbackEffort = "high"
-
     static func models(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [AgentModel] {
         models(modelsCacheJSON: try? Data(contentsOf: home.appendingPathComponent(".grok/models_cache.json")),
                configTOML: try? String(contentsOf: home.appendingPathComponent(".grok/config.toml"), encoding: .utf8))
+    }
+
+    /// The files `models(home:)` reads.
+    static func sources(home: URL) -> [String] {
+        [home.appendingPathComponent(".grok/models_cache.json").path, home.appendingPathComponent(".grok/config.toml").path]
     }
 
     static func models(modelsCacheJSON: Data?, configTOML: String?) -> [AgentModel] {
@@ -28,7 +31,7 @@ enum GrokModelCatalog {
             // Grok lists the strongest first; the other pickers read weakest to strongest.
             let efforts: [String] = supported ? Array(levels.compactMap { $0["value"] as? String }.reversed()) : []
             let marked = levels.first { $0["default"] as? Bool == true }?["value"] as? String
-            let own = marked ?? (info["reasoning_effort"] as? String) ?? fallbackEffort
+            let own = marked ?? (info["reasoning_effort"] as? String) ?? Harness.grok.defaultEffort
             let defaultEffort: String? = efforts.isEmpty ? nil
                 : (preferredEffort.flatMap { efforts.contains($0) ? $0 : nil } ?? (efforts.contains(own) ? own : efforts.last))
             let model = AgentModel(id: id, label: (info["name"] as? String) ?? id,
