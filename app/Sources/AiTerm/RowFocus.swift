@@ -47,7 +47,8 @@ final class RowFocus {
     private let isRemoving: @MainActor (UUID) -> Bool
     /// A window a request found already gone.
     private let onWindowGone: @MainActor (String) -> Void
-    private let report: @MainActor (OperationIssue) -> Void
+    /// Where a window that would not come forward is reported.
+    private let notices: Notices
 
     init(peekDelay: Duration = .milliseconds(120),
          workspace: @escaping @MainActor () -> AppState,
@@ -56,7 +57,7 @@ final class RowFocus {
          activateIterm: @escaping @MainActor () -> Void,
          isRemoving: @escaping @MainActor (UUID) -> Bool,
          onWindowGone: @escaping @MainActor (String) -> Void,
-         report: @escaping @MainActor (OperationIssue) -> Void) {
+         notices: Notices) {
         self.peekDelay = peekDelay
         self.workspace = workspace
         self.daemon = daemon
@@ -64,7 +65,7 @@ final class RowFocus {
         self.activateIterm = activateIterm
         self.isRemoving = isRemoving
         self.onWindowGone = onWindowGone
-        self.report = report
+        self.notices = notices
     }
 
     var selectedTaskId: UUID? {
@@ -176,7 +177,7 @@ final class RowFocus {
                 } catch is CancellationError { return }
                 catch {
                     if selfRaised == window { selfRaised = nil }
-                    report(OperationIssue(title: failure + ".", error: error))
+                    notices.report(OperationIssue(title: failure + ".", error: error))
                 }
             }
             guard let then, isCurrent() else { return }

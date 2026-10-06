@@ -27,20 +27,20 @@ final class HelperLink {
     /// one) and of a request that failed where no caller is waiting to say so.
     private let onEvent: @MainActor (DaemonEvent) -> Void
     private let onAttach: @MainActor () -> Void
-    private let reportError: @MainActor (OperationIssue) -> Void
+    private let notices: Notices
     private let findPython: @Sendable () -> URL?
 
     init(socketPath: String = AiTermPaths.socketPath, bundledResourcesURL: URL?, preferences: InterfacePreferences,
          findPython: @escaping @Sendable () -> URL? = { PythonLocator.find() },
          onEvent: @escaping @MainActor (DaemonEvent) -> Void, onAttach: @escaping @MainActor () -> Void,
-         reportError: @escaping @MainActor (OperationIssue) -> Void) {
+         notices: Notices) {
         self.socketPath = socketPath
         self.findPython = findPython
         self.bundledResourcesURL = bundledResourcesURL
         self.preferences = preferences
         self.onEvent = onEvent
         self.onAttach = onAttach
-        self.reportError = reportError
+        self.notices = notices
     }
 
     /// Finds Python — a login shell costing the better part of a second — and starts the helper
@@ -156,7 +156,7 @@ final class HelperLink {
         let enabled = preferences.matchItermBackground
         return Task {
             do { try await daemon.setMatchItermBackground(enabled) }
-            catch { reportError(OperationIssue(title: "Couldn’t update the iTerm2 background.", error: error)) }
+            catch { notices.report(OperationIssue(title: "Couldn’t update the iTerm2 background.", error: error)) }
         }
     }
 

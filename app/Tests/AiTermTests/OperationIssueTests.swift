@@ -249,6 +249,22 @@ extension AppControllerTests {
         #expect(controller.issue == nil)
     }
 
+    /// A failure about the task held back behind a question about it is as answered by the reopen:
+    /// taking the question down must not put the failure up in its place.
+    @Test func reopeningATaskDropsAReportAboutItHeldBehindTheBanner() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)], subject: task.id))
+        controller.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
+
+        await controller.reopen(task: task)?.value
+
+        #expect(controller.issue == nil)
+    }
+
     /// A reopen that fails changed nothing about why the removal stopped.
     @Test func aFailedReopenKeepsTheNote() async throws {
         let fixture = try RaceFixture()

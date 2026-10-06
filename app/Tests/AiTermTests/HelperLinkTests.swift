@@ -6,10 +6,9 @@ import Testing
 
 @MainActor
 struct HelperLinkTests {
-    private func link(preferences: InterfacePreferences? = nil,
-                      errors: @escaping @MainActor (OperationIssue) -> Void = { _ in }) -> HelperLink {
+    private func link(preferences: InterfacePreferences? = nil, notices: Notices? = nil) -> HelperLink {
         HelperLink(bundledResourcesURL: nil, preferences: preferences ?? .scratch(), onEvent: { _ in }, onAttach: {},
-                   reportError: errors)
+                   notices: notices ?? .aboutNoRows())
     }
 
     private let tab = SessionInfo(sessionId: "s", windowId: "w", tabIndex: 0, taskId: UUID().uuidString, projectId: nil,
@@ -59,7 +58,7 @@ struct HelperLinkTests {
         let lookups = Mutex(0)
         let link = HelperLink(bundledResourcesURL: nil, preferences: .scratch(),
                               findPython: { lookups.withLock { $0 += 1 }; return nil },
-                              onEvent: { _ in }, onAttach: {}, reportError: { _ in })
+                              onEvent: { _ in }, onAttach: {}, notices: .aboutNoRows())
         link.start()
         defer { link.shutdown() }
         #expect(link.itermConnection == .helperMissing)
@@ -78,16 +77,23 @@ struct HelperLinkTests {
         #expect(daemon.requests("sessions.setTitles").count == 2)
     }
 
-    /// Nobody waits on the background send, so its failure is reported to the controller.
+    /// Nobody waits on the background send, so its failure goes to the banner.
     @Test func aBackgroundTheDaemonRefusedIsReported() async {
         let daemon = RecordingDaemon(failing: ["interface.setMatchItermBackground": "temporary_failure"])
-        var errors: [OperationIssue] = []
+        let notices = Notices.aboutNoRows()
         let preferences = InterfacePreferences.scratch()
-        let link = link(preferences: preferences, errors: { errors.append($0) })
+        let link = link(preferences: preferences, notices: notices)
         link.setDaemonClient(daemon)
 
         await link.setMatchItermBackground(!preferences.matchItermBackground)?.value
 
-        #expect(errors == [OperationIssue(title: "Couldn’t update the iTerm2 background.", reason: "test failure")])
+        #expect(notices.issue == OperationIssue(title: "Couldn’t update the iTerm2 background.", reason: "test failure"))
+    }
+}
+
+private extension Notices {
+    /// Notices with no workspace behind them: nothing they are told about is ever gone.
+    static func aboutNoRows() -> Notices {
+        Notices(toastLifetime: .seconds(10), isStale: { _ in false }, withdrawn: { _ in })
     }
 }

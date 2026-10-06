@@ -60,13 +60,8 @@ final class AppController {
     var canChangeWorkspace: Bool { workspaceLoaded && persistenceError == nil }
 
     var sheet: SheetKind?
-    /// The failed operation the banner above the list shows. Set through `report`, cleared by
-    /// `dismissIssue`, by an action that answers it, or once the task or project it names is gone.
-    private(set) var issue: OperationIssue?
-    /// The latest report that had nothing to offer while `issue` held a question: it waits here, and
-    /// takes the banner once the question is answered or dismissed. Not drawn, so not observed.
-    @ObservationIgnored private var deferredIssue: OperationIssue?
-    private(set) var toastState = ToastState()
+    /// The banner above the list and the completion toast, and which report wins the banner.
+    let notices: Notices
 
     /// The helper process, the connection to it and how far it reaches iTerm2.
     let helper: HelperLink
@@ -89,8 +84,6 @@ final class AppController {
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
     let git: any GitRunning
-    /// How long a completion toast stays up.
-    private let toastLifetime: Duration
     /// The home whose agent configuration the sheets read — models, skills, commands. The
     /// person's own in the app; a test's is a bare directory of its own.
     private let harnessHome: URL
@@ -163,15 +156,18 @@ final class AppController {
         self.preferences = preferences
         self.harnessHome = harnessHome
         self.git = git
-        self.toastLifetime = toastLifetime
         taskWorkflow = TaskWorkflow(git: git)
         self.jiraSettings = jiraSettings
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
+        let notices = Notices(toastLifetime: toastLifetime,
+                              isStale: { issue in link.controller.map { issue.isStale(in: $0.state) } ?? false },
+                              withdrawn: { link.controller?.clearStoppedNote(of: $0) })
+        self.notices = notices
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
                                 onEvent: { link.controller?.handleDaemonEvent($0) },
                                 onAttach: { link.controller?.checkouts.refresh() }, // Retry checkout cleanup that waited for it.
-                                reportError: { link.controller?.report($0) })
+                                notices: notices)
         self.helper = helper
         let tiling = SidebarTiling(preferences: preferences,
             tiledWindows: {
@@ -188,7 +184,7 @@ final class AppController {
                          taskFrame: { tiling.taskFrame() }, activateIterm: activateIterm,
                          isRemoving: { link.controller?.removals[$0]?.inProgress == true },
                          onWindowGone: { link.controller?.handleWindowClosed($0) },
-                         report: { link.controller?.report($0) })
+                         notices: notices)
         let live = LiveSessions(workspace: { link.controller?.state ?? .empty },
                                 sessionsChanged: { link.controller?.sessionsChanged($0) })
         self.live = live
@@ -257,17 +253,6 @@ final class AppController {
         helper.shutdown()
     }
 
-    /// Completion feedback disappears on its own, after long enough to read a sentence — some say
-    /// what was kept and why. The id means an older delayed dismissal cannot hide a newer toast.
-    func showToast(_ message: String) {
-        let id = toastState.show(message)
-        Task { [weak self, toastLifetime] in
-            try? await Task.sleep(for: toastLifetime)
-            guard !Task.isCancelled else { return }
-            self?.toastState.dismiss(id: id)
-        }
-    }
-
     // -- what the helper reports ----------------------------------------------------
     /// The helper's events, after `helper` has taken its own.
     private func handleDaemonEvent(_ event: DaemonEvent) {
@@ -321,8 +306,7 @@ final class AppController {
     /// a restored backup or a removal — in this one place: the banner about it, and its removal's
     /// entry. Runs on every write to `state`, so it writes only what changed.
     private func pruneForgottenRows() {
-        if deferredIssue?.isStale(in: state) == true { deferredIssue = nil }
-        if let issue, issue.isStale(in: state) { clearIssue() }
+        notices.dropStale()
         guard !removals.isEmpty else { return }
         let kept = removals.filter { state.task(id: $0.key) != nil }
         if kept.count != removals.count { removals = kept }
@@ -487,7 +471,7 @@ final class AppController {
     private func rebaseDefault(project: Project) -> Task<Void, Never>? {
         let rebase = changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.rebaseDefaultBranch(of: project).summary },
                                          failure: { OperationIssue(title: "Couldn’t rebase the default branch.", error: $0) })
-        if rebase != nil { clearIssue() }
+        if rebase != nil { notices.clearIssue() }
         return rebase
     }
 
@@ -964,53 +948,24 @@ final class AppController {
                 try await openWindow(for: current, command: nil, with: daemon)
                 // "Kept; choose Reopen Window" was asking for exactly this.
                 clearStoppedNote(of: task.id)
-                if issue?.subject == task.id { clearIssue() }
-                if deferredIssue?.subject == task.id { deferredIssue = nil }
+                notices.clearIssues(about: task.id)
             } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
     }
 
     // -- the banner ------------------------------------------------------------------
-    /// Shows `issue` above the list, in place of whatever was there — unless it is about a task or
-    /// project that has gone while the work it reports was running, or it offers nothing while a
-    /// question with answers is still up: a background failure must not take "Branch X kept" and
-    /// its Keep or Delete from someone who has not answered yet. It waits (the newest one) until
-    /// the question is gone, and is logged meanwhile. The toast cannot carry it: it is the
-    /// completion toast, a checkmark and all.
-    func report(_ issue: OperationIssue) {
-        guard !issue.isStale(in: state) else { return }
-        if issue.actions.isEmpty, self.issue?.actions.isEmpty == false {
-            NSLog("AiTerm: held back, a question is waiting: \(issue.title) \(issue.reason ?? "")")
-            deferredIssue = issue
-            return
-        }
-        if let shown = self.issue, shown.subject != issue.subject { clearStoppedNote(of: shown) }
-        self.issue = issue
-    }
-    /// A failure with nothing to offer but Dismiss.
-    func report(_ message: String) { report(OperationIssue(title: message)) }
+    /// `notices`', forwarded: the controller's own work reports through these, and the views and
+    /// tests reach the banner and the toast here. An owner split out of the controller takes
+    /// `notices` itself, as `HelperLink` and `RowFocus` do.
+    var issue: OperationIssue? { notices.issue }
+    var toastState: ToastState { notices.toastState }
+    func report(_ issue: OperationIssue) { notices.report(issue) }
+    func report(_ message: String) { notices.report(message) }
+    func dismissIssue() { notices.dismissIssue() }
+    func showToast(_ message: String) { notices.showToast(message) }
 
-    /// Dismissed, a removal that stopped with nothing deleted is just a task again. One that got
-    /// past its worktree still waits on a retry, and its row keeps saying so.
-    func dismissIssue() {
-        if let issue { clearStoppedNote(of: issue) }
-        clearIssue()
-    }
-
-    /// Takes the banner down, and puts up what was held back behind it, if its row is still there.
-    private func clearIssue() {
-        issue = nil
-        guard let held = deferredIssue else { return }
-        deferredIssue = nil
-        if !held.isStale(in: state) { issue = held }
-    }
-
-    /// The row's "Not removed" note for the task `issue` is about, if that removal stopped with
-    /// nothing deleted. The note is the banner's twin: when the banner goes, the task is a task again.
-    private func clearStoppedNote(of issue: OperationIssue) {
-        if let id = issue.subject { clearStoppedNote(of: id) }
-    }
-
+    /// The row's "Not removed" note for task `id`, if that removal stopped with nothing deleted. The
+    /// note is the banner's twin: when the banner about the task goes, the task is a task again.
     private func clearStoppedNote(of id: UUID) {
         if case .stopped(_, worktreeRemoved: false)? = removals[id] { removals[id] = nil }
     }
@@ -1024,7 +979,7 @@ final class AppController {
         switch action {
         case .keepBranch(let id):
             guard let (task, project) = heldForRetry(id) else { return nil }
-            clearIssue()
+            notices.clearIssue()
             return remove(task, from: project, deleteBranch: false)
         case .deleteBranch(let id):
             guard let shown = state.task(id: id) else { return nil }
@@ -1035,7 +990,7 @@ final class AppController {
                 buttons: ["Delete Branch", "Cancel"], defaultDeletes: true))
             // The alert is a reentrancy point: act on the task as it is once it is answered.
             guard answer.confirmed, let (task, project) = heldForRetry(id) else { return nil }
-            clearIssue()
+            notices.clearIssue()
             return remove(task, from: project, deleteBranch: true) { [taskWorkflow] in
                 try await taskWorkflow.deleteUnmergedBranch(of: task, in: project)
             }
