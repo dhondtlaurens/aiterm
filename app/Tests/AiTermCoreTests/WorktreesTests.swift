@@ -250,6 +250,18 @@ import Darwin
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/dup"))
     }
 
+    /// Not every failed add leaves nothing: one whose `post-checkout` hook fails is reported as a
+    /// failure, yet git keeps the checkout — and keeps it locked, the lock being part of the add.
+    @Test func anAddWhoseHookFailsLeavesALockedWorktree() throws {
+        let hook = repo + "/.git/hooks/post-checkout"
+        try FileManager.default.createDirectory(atPath: repo + "/.git/hooks", withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 1\n".write(toFile: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook)
+        #expect(throws: GitError.self) { try Worktrees.create(repo: repo, slug: "hooked", branch: "feat/hooked", base: "main", git: git) }
+        let left = try Worktrees.listed(repo: repo, git: git).first { $0.branch == "feat/hooked" }
+        #expect(left?.lockReason == Worktrees.taskLockReason)
+    }
+
     @Test func testRefusesSymlinkedWorktreesDir() throws {
         try FileManager.default.createSymbolicLink(atPath: repo + "/.worktrees", withDestinationPath: "/tmp")
         #expect(throws: (any Error).self) { try Worktrees.create(repo: repo, slug: "x", branch: "feat/x", base: "main", git: git) }

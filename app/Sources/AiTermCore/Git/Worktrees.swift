@@ -343,6 +343,12 @@ public enum Worktrees {
         (try? git.run(["check-ref-format", "--branch", name], in: "/")) != nil
     }
 
+    /// A task's worktree on a new `branch` from `base` — origin's when there is one — locked as
+    /// the task's from the moment git makes it.
+    ///
+    /// A `worktree add` that fails can still leave a worktree behind: git keeps the checkout when
+    /// only its `post-checkout` hook failed, and keeps it *locked*, since the lock is part of the
+    /// add. Nothing may assume git cleaned up after a failed add. The same holds for `checkout`.
     public static func create(repo: String, slug: String, branch: String, base: String, git: any GitRunning) throws -> String {
         let path = try prepare(repo: repo, slug: slug, git: git)
         let hasOrigin = fetchFromOrigin(base, repo: repo, git: git)
@@ -382,8 +388,11 @@ public enum Worktrees {
                     timeout: GitRunner.checkoutTimeout)
         // So that a plain `git push` from the review lands on origin's branch. Written as config
         // rather than asked of `--track` or `--set-upstream-to`, which refuse an `origin/<branch>`
-        // that `remote.origin.fetch` does not cover — a single-branch clone's.
-        if created || remote != nil {
+        // that `remote.origin.fetch` does not cover — a single-branch clone's. Only when origin has
+        // the branch, which a created one always does. Best-effort: the checkout exists by now and
+        // works without an upstream — only a bare `git push` would need one — so a failed write
+        // must not fail the review and strand its worktree.
+        if remote != nil {
             _ = try? git.run(["config", "branch.\(branch).remote", "origin"], in: repo)
             _ = try? git.run(["config", "branch.\(branch).merge", "refs/heads/" + branch], in: repo)
         }
