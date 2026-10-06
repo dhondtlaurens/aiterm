@@ -174,6 +174,7 @@ final class DaemonClientTests {
         server.push(event: "window.closed", payload: ["windowId": "w1"])
         guard case .event(let end) = await nextEvent(box) else { Issue.record("timed out waiting for the stream to end"); return }
         #expect(end == nil, "neither the unreadable event nor any after it is passed on")
+        #expect(client.ending == .unreadable, "its owner can tell a helper it cannot read from one that went away")
     }
 
     /// The branch a row shows is resolved from `effectiveCwd`, never from `cwd`: iTerm2 only ever
@@ -202,16 +203,19 @@ final class DaemonClientTests {
 
         guard case .event(let end) = await nextEvent(box) else { Issue.record("the event stream never ended after the connection closed"); return }
         #expect(end == nil)
+        #expect(client.ending == .closedByHelper)
     }
 
     @Test func testDisconnectEndsTheEventStream() async throws {
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
         let box = EventBox(client.events)
+        #expect(client.ending == nil, "a stream still running has not ended")
         client.disconnect()
 
         guard case .event(let end) = await nextEvent(box) else { Issue.record("the event stream never ended after disconnect()"); return }
         #expect(end == nil)
+        #expect(client.ending == .closedHere)
     }
 
     @Test func silentRequestTimesOutAndDoesNotPoisonSubsequentRequests() async throws {
@@ -330,6 +334,7 @@ time.sleep(5)
         await timeOut(client)
         guard case .event(let end) = await nextEvent(box) else { Issue.record("a wedged helper kept its connection"); return }
         #expect(end == nil)
+        #expect(client.ending == .unresponsive)
         #expect(server.received.contains { $0["method"] as? String == DaemonClient.livenessCheck.rawValue })
     }
 
@@ -399,7 +404,7 @@ time.sleep(5)
         let box = EventBox(client.events)
         var received = 0
         while case .event(let event) = await nextEvent(box) {
-            guard event != nil else { #expect(received == 512); return }
+            guard event != nil else { #expect(received == 512); #expect(client.ending == .dropped); return }
             received += 1
         }
         Issue.record("Overflow must finish the stream")
@@ -412,6 +417,7 @@ time.sleep(5)
         let box = EventBox(client.events)
         guard case .event(let end) = await nextEvent(box) else { Issue.record("Stream remained open"); return }
         #expect(end == nil)
+        #expect(client.ending == .unreadable)
     }
 
     @Test func testConnectToMissingSocketThrows() {

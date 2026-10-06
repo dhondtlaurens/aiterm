@@ -44,6 +44,8 @@ public final class DaemonClient: Sendable {
         var used = false
         /// `nil` once the stream has been finished: a stale reader's `yield` is then a no-op.
         var events: AsyncStream<DaemonEvent>.Continuation?
+        /// Why the stream was finished: set by the disconnect that finished it, and never again.
+        var ending: Ending?
     }
     private let state: Mutex<State>
     /// A helper whose loop is stuck still has its process and its socket, so neither the supervisor
@@ -67,6 +69,24 @@ public final class DaemonClient: Sendable {
     private let writer = DispatchQueue(label: "aiterm.socket-writer")
     private let requestTimeout: TimeInterval
     public let events: AsyncStream<DaemonEvent>
+    /// Why `events` ended, once it has: its owner tells a helper this app cannot read from one
+    /// that has gone away.
+    public enum Ending: Equatable, Sendable {
+        /// `disconnect()`: this app let it go.
+        case closedHere
+        /// The helper closed its end, or the socket failed under it.
+        case closedByHelper
+        /// A line this app could not read: no frame at all, one longer than a frame may be, or an
+        /// event it knows in a shape it does not — what a helper of another version sends.
+        case unreadable
+        /// Events came faster than they were taken, and one was dropped.
+        case dropped
+        /// The helper went quiet and did not answer the liveness check.
+        case unresponsive
+        /// A request could not be written whole.
+        case writeFailed
+    }
+    public var ending: Ending? { state.withLock { $0.ending } }
 
     public init(socketPath: String, requestTimeout: TimeInterval = 15, livenessTimeout: TimeInterval = 3) {
         self.socketPath = socketPath
@@ -124,11 +144,16 @@ public final class DaemonClient: Sendable {
     /// finishing it) also makes later `yield`s from a stale `readLoop` no-ops, which is the same
     /// guarantee the `generation` bump gives the socket side. A client is single-use once
     /// disconnected: reconnecting it would not revive the stream, so callers make a new client.
-    public func disconnect() {
+    public func disconnect() { disconnect(because: .closedHere) }
+
+    /// `disconnect()`, saying why: the first disconnect, the one that finishes the stream, is
+    /// what `ending` says.
+    private func disconnect(because reason: Ending) {
         let (waiting, continuation) = state.withLock { state in
             let f = state.fd; state.fd = -1; state.generation += 1
             let waiting = state.pending; state.pending = [:]; state.checkingLiveness = false
             let continuation = state.events; state.events = nil
+            if continuation != nil { state.ending = reason }
             // The reader takes this lock before closing: shutdown must happen before
             // it can release the descriptor number for another socket to reuse.
             if f >= 0 { shutdown(f, SHUT_RDWR) }
@@ -156,6 +181,7 @@ public final class DaemonClient: Sendable {
         // The bytes at the front of `buffer` already searched for a newline: only what a read adds
         // is searched, so a large frame arriving in pieces is not rescanned from its start each time.
         var searched = 0
+        var ending = Ending.closedByHelper
         reading: while true {
             let n = read(fd, &chunk, chunk.count)
             if n < 0 {
@@ -168,15 +194,26 @@ public final class DaemonClient: Sendable {
             var searchFrom = buffer.startIndex + searched
             while let nl = buffer[searchFrom...].firstIndex(of: 10) {
                 let line = buffer[lineStart..<nl]
-                guard line.count <= DaemonProtocol.maximumFrameBytes,
-                      let header = try? decoder.decode(Header.self, from: line) else { break reading }
+                let header: Header
+                do {
+                    guard line.count <= DaemonProtocol.maximumFrameBytes else { throw FrameTooLong() }
+                    header = try decoder.decode(Header.self, from: line)
+                } catch {
+                    Self.logUnreadable("line", error)
+                    ending = .unreadable
+                    break reading
+                }
                 dispatch(header, line: line, decoder: decoder)
                 lineStart = nl + 1; searchFrom = lineStart
             }
             // Once per read rather than per line: only an unfinished line is carried over.
             buffer.removeSubrange(buffer.startIndex..<lineStart)
             searched = buffer.count
-            if buffer.count > DaemonProtocol.maximumFrameBytes { break }
+            if buffer.count > DaemonProtocol.maximumFrameBytes {
+                Self.logUnreadable("line", FrameTooLong())
+                ending = .unreadable
+                break
+            }
         }
         // This thread is the sole owner of `fd` (the parameter): `connect()` handed it over and
         // `disconnect()` only shuts it down, so the close below is the one and only close. Clear
@@ -193,7 +230,11 @@ public final class DaemonClient: Sendable {
         // helper that was simply gone). `DaemonConnection` already treats an `events` stream that
         // ends without cancellation as `.helperUnreachable`.
         guard stillCurrent else { return }
-        disconnect()
+        disconnect(because: ending)
+    }
+
+    private struct FrameTooLong: Error, CustomStringConvertible {
+        var description: String { "longer than \(DaemonProtocol.maximumFrameBytes) bytes" }
     }
 
     private func dispatch(_ header: Header, line: Data, decoder: JSONDecoder) {
@@ -217,8 +258,8 @@ public final class DaemonClient: Sendable {
             // What the event was about is left as it was, and stays so until a snapshot, which
             // only a connection's start brings: drop this one, as for a dropped event, and let
             // its owner reconnect to a fresh snapshot.
-            Self.logUnreadable(name, error)
-            disconnect()
+            Self.logUnreadable("\(name) event", error)
+            disconnect(because: .unreadable)
         }
     }
 
@@ -227,7 +268,7 @@ public final class DaemonClient: Sendable {
     private func yield(_ event: DaemonEvent) {
         if case .dropped = state.withLock({ $0.events })?.yield(event) {
             // An incomplete event history is not trustworthy. Reconnect to a fresh snapshot.
-            disconnect()
+            disconnect(because: .dropped)
         }
     }
 
@@ -258,9 +299,9 @@ public final class DaemonClient: Sendable {
         }
     }
 
-    /// When each event was last logged as unreadable. A helper that sends a shape this app cannot
-    /// read sends it every time it sends that event, and each time this client reconnects to it,
-    /// so each event's failure is logged at most once a minute.
+    /// When each event, or a line that is none, was last logged as unreadable. A helper that sends
+    /// a shape this app cannot read sends it every time it sends that event, and each time this
+    /// client reconnects to it, so each one's failure is logged at most once a minute.
     private static let unreadableLogged = Mutex<[String: ContinuousClock.Instant]>([:])
 
     private static func logUnreadable(_ name: String, _ error: Error) {
@@ -271,7 +312,7 @@ public final class DaemonClient: Sendable {
             return true
         }
         guard due else { return }
-        Log.daemon.error("Unreadable \(name, privacy: .public) event from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
+        Log.daemon.error("Unreadable \(name, privacy: .public) from the helper, so reconnecting to a fresh snapshot (logged at most once a minute): \(String(describing: error), privacy: .public)")
     }
 
     private func allocateID() -> Int {
@@ -305,7 +346,7 @@ public final class DaemonClient: Sendable {
     /// far as `pending` is on a client already disconnected.
     private func checkLiveness() async {
         do { _ = try await request(Self.livenessCheck, params: Optional<NoParams>.none, as: Empty.self, ordered: nil, isLivenessCheck: true) }
-        catch let error as DaemonError where error.code == .timeout { disconnect() }
+        catch let error as DaemonError where error.code == .timeout { disconnect(because: .unresponsive) }
         catch {}
     }
 
@@ -399,7 +440,7 @@ public final class DaemonClient: Sendable {
                     defer { Darwin.close(socket) }
                     if let error = Self.writeAll(fd: socket, data: data) {
                         failRequest(id, error: error)
-                        disconnect() // a partial JSON frame cannot safely be followed by another
+                        disconnect(because: .writeFailed) // a partial JSON frame cannot safely be followed by another
                     }
                 }
             }

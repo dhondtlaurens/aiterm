@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -167,6 +168,54 @@ with c:
         #expect(states.first == .helperMismatch, "a snapshot the app cannot decode must not be blamed on iTerm2 being unreachable, got \(states)")
     }
 
+    /// Task 37 review: a helper that sends an event this app knows but cannot read sends it again
+    /// on every connection. That is a helper this app cannot speak to, as an unreadable snapshot
+    /// is — not an unreachable one — and a connection that ends that soon after its snapshot does
+    /// not earn a fresh backoff: the retries slow down rather than reconnecting once a second.
+    @Test func aHelperWhoseEventsCannotBeReadIsAMismatchAndItsRetriesBackOff() async throws {
+        let (attempts, states) = try await retries(steadyAfter: .seconds(5))
+        #expect(Array(attempts.prefix(3)) == [0, 1, 2], "each short-lived connection climbs the backoff")
+        #expect(states.contains(.helperMismatch), "got \(states)")
+        #expect(!states.contains(.helperUnreachable), "a helper that answered is not unreachable, got \(states)")
+    }
+
+    /// A connection that held long enough is a helper that works: its end starts the backoff over.
+    @Test func aConnectionThatHeldStartsTheBackoffOver() async throws {
+        let (attempts, _) = try await retries(steadyAfter: .zero)
+        #expect(Array(attempts.prefix(3)) == [0, 0, 0])
+    }
+
+    /// The backoff's first attempts, and every status said, against a helper that answers each
+    /// connection's snapshot and then sends a `session.changed` this app cannot read.
+    private func retries(steadyAfter: Duration) async throws -> (attempts: [Int], states: [ItermConnection]) {
+        let server = try await PythonSocketServer.start(script: """
+import json,socket,sys
+s=socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1]);s.listen()
+while True:
+ c,_=s.accept()
+ with c:
+  f=c.makefile('rb')
+  for line in f:
+   m=json.loads(line)
+   result={'protocolVersion':1,'connected':True,'sessions':[],'usage':{'claude':None,'codex':None}}
+   c.sendall((json.dumps({'id':m['id'],'result':result})+'\\n').encode())
+   # session.changed without the session it is about: a shape this app cannot read.
+   c.sendall((json.dumps({'event':'session.changed','payload':{'sessionId':'s1'}})+'\\n').encode())
+  f.close()
+""")
+        defer { server.stop() }
+        var states: [ItermConnection] = []
+        let attempts = Attempts()
+        let connection = DaemonConnection(socketPath: server.path, onClient: { _ in },
+                                          onStatus: { if states.last != $0 { states.append($0) } }, onEvent: { _ in },
+                                          backoff: { attempts.record($0); return 0.01 }, steadyAfter: steadyAfter)
+        connection.start()
+        defer { connection.stop() }
+        await eventually { attempts.all.count >= 3 }
+        return (attempts.all, states)
+    }
+
     @Test func refusedITerm2AuthenticationIsAWarningFromTheSnapshotAndFromTheEvent() async throws {
         let server = try await PythonSocketServer.start(script: """
 import json,socket,sys,time
@@ -242,4 +291,11 @@ with c:
         #expect(answers() == [#"{"cookie": "c1", "key": "k", "requestId": 7}"#, #"{"cookie": "c2", "key": "k", "requestId": 8}"#])
         #expect(asked == 2)
     }
+}
+
+/// The backoff's attempts, as the connection asks for them from its retry loop.
+private final class Attempts: Sendable {
+    private let asked = Mutex<[Int]>([])
+    var all: [Int] { asked.withLock { $0 } }
+    func record(_ attempt: Int) { asked.withLock { $0.append(attempt) } }
 }

@@ -13,12 +13,15 @@ final class DaemonConnection {
     private let requestCookie: () async -> ItermCookieAnswer
     /// The pause before retry number `attempt`; a test passes a short one.
     private let backoff: @Sendable (_ attempt: Int) -> TimeInterval
+    /// How long a connection must hold after its snapshot for its end to start the backoff over.
+    private let steadyAfter: Duration
     private var lifetime: Task<Void, Never>?
     private var client: DaemonClient?
 
     init(socketPath: String, onClient: @escaping @MainActor (DaemonClient?) -> Void,
          onStatus: @escaping @MainActor (ItermConnection) -> Void, onEvent: @escaping @MainActor (DaemonEvent) -> Void,
          backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) },
+         steadyAfter: Duration = .seconds(5),
          requestCookie: @escaping () async -> ItermCookieAnswer = ItermCookie.request) {
         self.socketPath = socketPath
         self.onClient = onClient
@@ -26,6 +29,7 @@ final class DaemonConnection {
         self.onEvent = onEvent
         self.requestCookie = requestCookie
         self.backoff = backoff
+        self.steadyAfter = steadyAfter
     }
 
     /// The retry loop holds this connection for as long as it runs, so releasing the connection
@@ -49,13 +53,14 @@ final class DaemonConnection {
         while !Task.isCancelled {
             let connection = DaemonClient(socketPath: socketPath)
             client = connection
+            var attached: ContinuousClock.Instant?
             do {
                 try await BackgroundWork.run { try connection.connect() }
                 let snapshot = try await connection.snapshot()
                 try Task.checkCancellation()
                 onClient(connection)
                 onStatus(ItermConnection.forSnapshot(snapshot))
-                attempt = 0
+                attached = .now
                 // A request can reach this client twice, in a snapshot and as its event; each asks
                 // iTerm2 for a single-use cookie, so answer it once.
                 var answered = Set<Int>()
@@ -86,7 +91,9 @@ final class DaemonConnection {
                     }
                     onEvent(event)
                 }
-                if !Task.isCancelled { onStatus(.helperUnreachable) }
+                // A helper that sent what this app cannot read sends it again on the next connection:
+                // one this app cannot speak to, as with a snapshot it cannot read, not one gone away.
+                if !Task.isCancelled { onStatus(connection.ending == .unreadable ? .helperMismatch : .helperUnreachable) }
             } catch {
                 if !Task.isCancelled {
                     // A helper we cannot fully understand — a stale protocol version, or a snapshot
@@ -102,6 +109,10 @@ final class DaemonConnection {
             connection.disconnect()
             if client === connection { client = nil; onClient(nil) }
             guard !Task.isCancelled else { break }
+            // A connection that held is a helper that works, and its end starts the backoff over.
+            // One that ended moments after its snapshot will end so again: each retry waits longer,
+            // rather than reconnecting to it once a second.
+            if let attached, ContinuousClock.now - attached >= steadyAfter { attempt = 0 }
             do { try await Task.sleep(for: .seconds(backoff(attempt))) }
             catch { break }
             attempt += 1
