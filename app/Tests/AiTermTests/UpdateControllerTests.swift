@@ -11,8 +11,6 @@ import Testing
 private final class FakeSource: ReleaseSource, @unchecked Sendable {
     var result: Result<Release, UpdateError>
     var gate: AsyncStream<Void>?
-    /// Thrown by `latest()` instead of its scripted answer.
-    var latestError: Error?
     private let record = Mutex<(latestCalls: Int, downloadedTo: URL?)>((0, nil))
     var latestCalls: Int { record.withLock { $0.latestCalls } }
     var downloadedTo: URL? { record.withLock { $0.downloadedTo } }
@@ -20,7 +18,6 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
     func latest() async throws -> Release {
         record.withLock { $0.latestCalls += 1 }
         if let gate { for await _ in gate { break } }
-        if let latestError { throw latestError }
         return try result.get()
     }
     func download(_ release: Release, to destination: URL) async throws {
@@ -75,16 +72,6 @@ private final class FakeSource: ReleaseSource, @unchecked Sendable {
             install: { log.installed.append($0) },
             terminate: { log.terminated += 1 },
             showProgress: { text in log.progress.append(text); return { log.dismissed += 1 } })
-    }
-
-    /// A cancelled check is never an alert. A download is never cancelled: the progress panel has
-    /// no Cancel, and nothing cancels the menu's task.
-    @Test func aCancelledCheckSaysNothing() async {
-        let quiet = ScriptedPrompter(answering: "OK"), log = Log()
-        let checking = FakeSource(.success(newer))
-        checking.latestError = CancellationError()
-        await controller(quiet, source: checking, log: log).checkForUpdates()
-        #expect(quiet.asked.isEmpty)
     }
 
     @Test func upToDate() async {

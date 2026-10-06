@@ -14,17 +14,7 @@ private struct ThrowingSource: ReleaseSource {
     func download(_ release: Release, to destination: URL) async throws {}
 }
 
-private struct CancelledSource: ReleaseSource {
-    func latest() async throws -> Release { throw CancellationError() }
-    func download(_ release: Release, to destination: URL) async throws {}
-}
-
 @Suite struct UpdateCheckTests {
-    /// A cancelled check is nobody's error: there is nothing to tell the person.
-    @Test func aCancelledCheckIsCancelledNotFailed() async {
-        #expect(await UpdateCheck.run(source: CancelledSource(), current: current) == .cancelled)
-    }
-
     let url = URL(string: "https://github.com/octocat/hello/releases/download/v0.3.0/AiTerm-0.3.0.dmg")!
     func release(_ v: String) -> Release { Release(version: ReleaseVersion(v)!, assetURL: url) }
     let current = ReleaseVersion("0.2.0")!

@@ -245,7 +245,8 @@ final class ProjectActions {
     /// tasks stay on disk — the alert lists them so nothing disappears silently — and no git
     /// command runs.
     func confirmRemove(project: Project) async {
-        guard canChangeWorkspace, await !refusesRemoval(of: project) else { return }
+        guard canChangeWorkspace else { return }
+        if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
         let tasks = state.tasks.filter { $0.projectId == project.id }
         let paths = tasks.map(\.worktreePath)
         let answer = await prompter.ask(AlertPrompt(
@@ -254,8 +255,10 @@ final class ProjectActions {
                 ? "Removes the project from AiTerm. Files are kept and terminal windows stay open."
                 : "Removes the project, tasks, and terminals from AiTerm. Files and windows are kept, including these worktrees:\n\n" + paths.joined(separator: "\n"),
             buttons: ["Remove", "Cancel"]))
-        // Anything can run across the await, a create in the project among them.
-        guard answer.confirmed, canChangeWorkspace, await !refusesRemoval(of: project) else { return }
+        // Anything can run across the await, a create in the project among them, so it is asked
+        // again — and the answer acted on in the same turn, with nothing able to start in between.
+        guard answer.confirmed, canChangeWorkspace else { return }
+        if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
         workspace.mutate { state in
             state.tasks.removeAll { $0.projectId == project.id }
             state.terminals.removeAll { $0.projectId == project.id }
@@ -263,22 +266,25 @@ final class ProjectActions {
         }
     }
 
-    /// Says why `project` cannot be removed yet, if it cannot: work still in flight would land in a
-    /// project that is gone, and a row whose project is gone fails every save.
-    private func refusesRemoval(of project: Project) async -> Bool {
-        let busy: String
-        if work.isRunning(.creatingTask, onProject: project.id) { busy = "A task is still being created in it." }
-        else if work.isRunning(.openingTerminal, onProject: project.id) { busy = "A terminal is still opening in it." }
-        else if work.isRunning(.openingTaskWindow, onProject: project.id) { busy = "A window is still opening for one of its tasks." }
-        else if state.terminals.contains(where: { $0.projectId == project.id && work.operation(onTerminal: $0.id) != nil }) {
-            busy = "One of its terminals is still opening or closing its window."
+    /// Why `project` cannot be removed yet, if it cannot: work still in flight would land in a
+    /// project that is gone, and a row whose project is gone fails every save. Synchronous, so the
+    /// caller that finds nothing removes the project before anything else can start.
+    private func busyReason(of project: Project) -> String? {
+        if work.isRunning(.creatingTask, onProject: project.id) { return "A task is still being created in it." }
+        if work.isRunning(.openingTerminal, onProject: project.id) { return "A terminal is still opening in it." }
+        if work.isRunning(.openingTaskWindow, onProject: project.id) { return "A window is still opening for one of its tasks." }
+        if state.terminals.contains(where: { $0.projectId == project.id && work.operation(onTerminal: $0.id) != nil }) {
+            return "One of its terminals is still opening or closing its window."
         }
-        else if state.tasks.contains(where: { $0.projectId == project.id && work.operation(onTask: $0.id) != nil }) {
-            busy = "A task is still being changed."
+        if state.tasks.contains(where: { $0.projectId == project.id && work.operation(onTask: $0.id) != nil }) {
+            return "A task is still being changed."
         }
-        else { return false }
+        return nil
+    }
+
+    /// Tells the person that `project` cannot be removed yet, and why.
+    private func refuseRemoval(of project: Project, because busy: String) async {
         await prompter.ask(AlertPrompt(message: "“\(project.name)” can’t be removed yet", detail: busy + " Try again in a moment."))
-        return true
     }
 
     // -- dividers and renames ---------------------------------------------------------------

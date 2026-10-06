@@ -58,8 +58,6 @@ final class UpdateController {
             await prompter.ask(AlertPrompt(message: "You’re on the latest version (\(version))."))
         case .failed(let error):
             await report(error)
-        case .cancelled:
-            return
         case .available(let release):
             let answer = await prompter.ask(AlertPrompt(message: "AiTerm \(release.version) is available.", buttons: ["Update", "Later"], escape: 1))
             guard answer.confirmed else { return }
