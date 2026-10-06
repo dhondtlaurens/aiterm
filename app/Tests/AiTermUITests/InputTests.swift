@@ -22,12 +22,13 @@ struct InputTests {
         #expect(writes == 1)
     }
 
-    /// A field is as tall as AppKit measures it for its font. SwiftUI's own single-line
-    /// `TextField` takes its height from a line height it caches under the font object's address,
-    /// and a font freed and replaced at that address reads the old font's height: a body field
-    /// drawn after the monospaced branch field came out a point short in a few launches in a
-    /// hundred. Here `NSLayoutManager`, which that cache is filled from, answers wrong while the
-    /// field is laid out — a stale entry on demand — and the field must not notice.
+    /// A field is as tall as AppKit measures it for its font — a guard against going back to
+    /// SwiftUI's own `TextField`. That one takes its single-line height from a line height SwiftUI
+    /// caches under the font object's address, and a font freed and replaced at that address reads
+    /// the old font's height: a body field drawn after the monospaced branch field came out a
+    /// point short in a few launches in a hundred. Here `NSLayoutManager`, which that cache is
+    /// filled from, answers wrong while the field is laid out — a stale entry on demand — which
+    /// SwiftUI's field takes for its height and AppKit's never asks for.
     @Test(arguments: [false, true]) func aFieldIsAsTallAsAppKitMeasuresIt(monospaced: Bool) throws {
         let host = NSHostingView(rootView: Input(placeholder: "Name", text: .constant("shell 2"), monospaced: monospaced)
             .frame(width: 240))
@@ -77,6 +78,43 @@ struct InputTests {
         window.makeFirstResponder(nil)
         settle(host)
         #expect(try brightness(of: host, at: ring) == 0, "the field lost the keyboard and kept its ring")
+    }
+
+    /// A plain ↩ in a field does nothing (docs/keyboard.md): AppKit ends the field's editing and
+    /// selects its text again, the field keeps the keyboard, and so it keeps its ring.
+    @Test(arguments: [false, true]) func returnLeavesTheFieldWithTheKeyboardAndItsRing(secure: Bool) throws {
+        let (window, host) = Self.host(StatefulInput(state: TextState(), secure: secure).padding(8).background(Color.black))
+        defer { window.orderOut(nil) }
+        let field = try #require(host.firstSubview(of: NSTextField.self))
+        let ring = NSPoint(x: 7.5, y: host.bounds.midY)
+        window.makeFirstResponder(field)
+        settle(host)
+
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        settle(host)
+        #expect(field.currentEditor() != nil, "↩ took the keyboard from the field")
+        #expect(try brightness(of: host, at: ring) > 0, "↩ put the ring out while the field kept the keyboard")
+    }
+
+    /// ⌘Z is an edit too: what the field shows after an undo is what the caller holds.
+    @Test(arguments: [false, true]) func anUndoneEditReachesTheBinding(secure: Bool) throws {
+        let state = TextState()
+        let (window, host) = Self.host(StatefulInput(state: state, secure: secure))
+        defer { window.orderOut(nil) }
+        let field = try #require(host.firstSubview(of: NSTextField.self))
+        window.makeFirstResponder(field)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))
+        settle(host)
+        #expect(state.text == "abc")
+
+        let undo = try #require(editor.undoManager)
+        #expect(undo.canUndo)
+        undo.undo()
+        settle(host)
+        #expect(field.currentEditor()?.string == "")
+        #expect(state.text == "", "the field shows the undone text and the caller still holds the edit")
     }
 
     private final class TextState: ObservableObject {

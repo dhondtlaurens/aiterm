@@ -79,6 +79,7 @@ private struct InputField: NSViewRepresentable {
         field.font = font
         field.placeholderString = placeholder
         field.stringValue = text
+        context.coordinator.field = field
         return field
     }
 
@@ -92,7 +93,28 @@ private struct InputField: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: InputField
-        init(_ parent: InputField) { self.parent = parent }
+        weak var field: NSTextField?
+        private var undoObservers: [NSObjectProtocol] = []
+
+        init(_ parent: InputField) {
+            self.parent = parent
+            super.init()
+            // An undo or a redo changes the field editor's text without the change notification a
+            // keystroke sends, so the caller would go on holding the text the person just undid.
+            // The window's undo manager is shared, hence the check that the change was this field's.
+            undoObservers = [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange].map {
+                NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.editorChanged() }
+                }
+            }
+        }
+
+        isolated deinit { undoObservers.forEach(NotificationCenter.default.removeObserver) }
+
+        private func editorChanged() {
+            guard let editor = field?.currentEditor() else { return }
+            parent.text = editor.string
+        }
 
         /// Focus arrives with the keyboard, not with the first edit: `controlTextDidBeginEditing`
         /// waits for a keystroke, which would leave a clicked field without its ring.
@@ -106,14 +128,20 @@ private struct InputField: NSViewRepresentable {
     }
 }
 
-/// `FocusableTextField`'s report of taking the keyboard, for a field that hides what is typed.
+/// `FocusableTextField`'s report of having the keyboard, for a field that hides what is typed.
 final class FocusableSecureTextField: NSSecureTextField {
-    /// Called when the field takes the keyboard.
+    /// Called when the field takes the keyboard, and when it keeps it through the end of an edit.
     var onFocus: (() -> Void)?
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became { onFocus?() }
         return became
+    }
+
+    /// See `FocusableTextField.textDidEndEditing(_:)`.
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        if currentEditor() != nil { onFocus?() }
     }
 }

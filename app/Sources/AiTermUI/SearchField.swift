@@ -65,7 +65,7 @@ public struct SearchField: NSViewRepresentable {
 /// picked item is cleared). Retrying at window attachment makes that request deterministic.
 public final class FocusableTextField: NSTextField {
     var wantsFocus = false
-    /// Called when the field takes the keyboard.
+    /// Called when the field takes the keyboard, and when it keeps it through the end of an edit.
     var onFocus: (() -> Void)?
 
     public override func viewDidMoveToWindow() {
@@ -77,6 +77,14 @@ public final class FocusableTextField: NSTextField {
         let became = super.becomeFirstResponder()
         if became { onFocus?() }
         return became
+    }
+
+    /// A plain ↩ ends the edit — the delegate hears `controlTextDidEndEditing` and drops focus —
+    /// and AppKit then selects the text again without a new `becomeFirstResponder`: the field
+    /// still has the keyboard, so it says so again, or its ring would stay out while it is typed in.
+    public override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        if currentEditor() != nil { onFocus?() }
     }
 
     func focusIfNeeded() {

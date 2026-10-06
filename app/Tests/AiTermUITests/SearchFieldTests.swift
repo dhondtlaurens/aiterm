@@ -46,6 +46,24 @@ import SwiftUI
         #expect(!state.focused, "the field lost the keyboard and still reports focus")
     }
 
+    /// A ↩ that no popup takes ends the field's editing, but AppKit selects its text again and the
+    /// field keeps the keyboard — so it still reports focus, and keeps its ring.
+    @Test func returnLeavesTheFieldFocused() throws {
+        let state = FieldState()
+        let (window, host) = Self.host(StatefulField(state: state))
+        defer { window.orderOut(nil) }
+        let field = try #require(host.firstSubview(of: FocusableTextField.self))
+        window.makeFirstResponder(field)
+        settle(host)
+        #expect(state.focused)
+
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        settle(host)
+        #expect(field.currentEditor() != nil, "↩ took the keyboard from the field")
+        #expect(state.focused, "the field kept the keyboard and stopped reporting focus")
+    }
+
     /// The placeholder follows the view: a picker reused for another list re-words its prompt.
     @Test func thePlaceholderFollowsTheView() throws {
         let state = FieldState()
