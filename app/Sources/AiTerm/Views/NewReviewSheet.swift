@@ -134,7 +134,7 @@ struct NewReviewSheet: View {
         return step == 1 || model.agentIsReady
     }
 
-    // A branch that is already a task's opens in that task (see `AppController.createReview`), and
+    // A branch that is already a task's opens in that task (see `TaskLauncher.createReview`), and
     // each of these says so before anything is created — never a surprise after.
 
     /// Where the review opens, on steps 1 and 3, once it has a branch: the task that already has it,

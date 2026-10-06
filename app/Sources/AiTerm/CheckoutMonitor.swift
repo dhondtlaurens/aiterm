@@ -9,6 +9,10 @@ import AiTermCore
 @MainActor
 @Observable
 final class CheckoutMonitor {
+    /// The removals a pass defers to: the task remover, which sets itself here (see `CheckoutRemovals`).
+    /// Without one, no task counts as being removed and a removed checkout is nobody's to close.
+    @ObservationIgnored weak var removals: (any CheckoutRemovals)?
+
     /// Every directory a tab is in, mapped to the branch checked out there. `BranchResolver` makes
     /// a pass a `stat` per directory rather than a git call.
     private(set) var branchByCwd: [String: String] = [:]
@@ -58,24 +62,14 @@ final class CheckoutMonitor {
     private let stalls: StallGuardedGit
     private let live: LiveSessions
     /// The saved workspace a pass reads, and where what it finds for that workspace goes: remotes
-    /// to adopt, tasks whose checkout is gone, the tab titles to send. `removalInFlight` says which
-    /// tasks are being removed, whose badge holds still while their checkout goes.
+    /// to adopt (`onRemotes`), tasks whose checkout is gone (`removals`), the tab titles to send.
     private let workspace: WorkspaceStore
-    private let removalInFlight: @MainActor (UUID) -> Bool
-    private let onRemotes: @MainActor ([UUID: WorkspaceScan.Remote]) -> Void
-    private let onRemovedTasks: @MainActor ([TaskItem]) -> Void
+    @ObservationIgnored private var remotesHooks: [@MainActor ([UUID: WorkspaceScan.Remote]) -> Void] = []
     private let onTitles: @MainActor ([SessionTitle]) async -> Void
-    /// Who hears that a map the sidebar's rows are drawn from — `branchByCwd`, `projectBranch`,
-    /// `diffByTask` — changed: once for each pass or call that changed any of them.
-    private let rowsChanged: @MainActor () -> Void
+    @ObservationIgnored private var rowsHooks: [@MainActor () -> Void] = []
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
-         workspace: WorkspaceStore,
-         removalInFlight: @escaping @MainActor (UUID) -> Bool,
-         onRemotes: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void,
-         onRemovedTasks: @escaping @MainActor ([TaskItem]) -> Void,
-         onTitles: @escaping @MainActor ([SessionTitle]) async -> Void,
-         rowsChanged: @escaping @MainActor () -> Void = {}) {
+         workspace: WorkspaceStore, onTitles: @escaping @MainActor ([SessionTitle]) async -> Void) {
         self.live = live
         self.scan = scan
         self.pollInterval = pollInterval
@@ -87,11 +81,23 @@ final class CheckoutMonitor {
         diffs = DiffStatResolver(git: guarded); defaultBranches = DefaultBranchResolver(git: guarded, probe: probe)
         self.workspace = workspace
         missingRows = PerRow(default: false, workspace: workspace)
-        self.removalInFlight = removalInFlight
-        self.onRemotes = onRemotes
-        self.onRemovedTasks = onRemovedTasks
         self.onTitles = onTitles
-        self.rowsChanged = rowsChanged
+        live.onSessionsChanged { [weak self] in self?.sessionsChanged($0) }
+    }
+
+    /// Adds `hook` to what hears the remotes each pass read, to adopt those that changed.
+    func onRemotes(_ hook: @escaping @MainActor ([UUID: WorkspaceScan.Remote]) -> Void) {
+        remotesHooks.append(hook)
+    }
+
+    /// Adds `hook` to what hears that a map the sidebar's rows are drawn from — `branchByCwd`,
+    /// `projectBranch`, `diffByTask` — changed: once for each pass or call that changed any of them.
+    func onRowsChanged(_ hook: @escaping @MainActor () -> Void) {
+        rowsHooks.append(hook)
+    }
+
+    private func rowsChanged() {
+        for hook in rowsHooks { hook() }
     }
 
     /// Polls the saved checkouts until `stop()`, even when neither the agent nor the daemon sends
@@ -122,7 +128,7 @@ final class CheckoutMonitor {
 
     /// A change to the tabs can move a row's branch — an agent that entered a worktree shows up as
     /// a new `agentCwd` — so a pass runs when the change is one a pass reads (``WorkspaceScan/SessionGate``).
-    func sessionsChanged(_ sessions: [SessionInfo]) {
+    private func sessionsChanged(_ sessions: [SessionInfo]) {
         if sessionGate.admits(sessions) { refresh() }
     }
 
@@ -158,8 +164,8 @@ final class CheckoutMonitor {
                 guard !Task.isCancelled, let scan = scanned else { return }
                 guard inputs == ScanInputs(workspace: workspace.state, cwds: live.sessions.map(\.effectiveCwd)) else { continue }
                 let branchesMoved = applyScan(scan)
-                onRemotes(scan.remotes)
-                onRemovedTasks(scan.removedTasks)
+                for hook in remotesHooks { hook(scan.remotes) }
+                removals?.forgetRemovedCheckouts(scan.removedTasks)
                 if retainDiffsDuringRemoval(scan) || branchesMoved { rowsChanged() }
                 syncTitles(scan)
                 if !trailingPassOwed { return }
@@ -209,7 +215,7 @@ final class CheckoutMonitor {
     /// Once removal fails, the row remains and the missing diff is shown. Says whether a diff changed.
     private func retainDiffsDuringRemoval(_ scan: WorkspaceScan) -> Bool {
         var next = scan.diffByTask
-        for id in scan.missingCheckouts where removalInFlight(id) {
+        for id in scan.missingCheckouts where removals?.removalInFlight(id) == true {
             if let previous = diffByTask[id] { next[id] = previous }
         }
         guard diffByTask != next else { return false }
@@ -243,4 +249,15 @@ private struct ScanInputs: Equatable {
         projects = workspace.projects
         tasks = workspace.tasks
     }
+}
+
+/// The removals a checkout pass defers to: the task remover's. The remover refreshes the monitor and
+/// drops its diffs, so it is built after it and cannot be handed to it; it sets itself as the
+/// monitor's `removals` instead — the one pair of owners that each call the other.
+@MainActor
+protocol CheckoutRemovals: AnyObject {
+    /// Whether the task's diff holds still while its checkout goes.
+    func removalInFlight(_ id: UUID) -> Bool
+    /// The tasks a pass found gone, as the pass found them.
+    func forgetRemovedCheckouts(_ removed: [TaskItem])
 }

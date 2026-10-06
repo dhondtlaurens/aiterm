@@ -13,10 +13,10 @@ final class LiveSessions {
             let rows = sessions.map(Self.rowRelevant)
             if rows != rowSessions {
                 rowSessions = rows
-                rowSessionsChanged()
+                for hook in rowSessionsHooks { hook() }
             }
             seedContexts(from: sessions)
-            sessionsChanged(sessions)
+            for hook in sessionsHooks { hook(sessions) }
         }
     }
     /// The tabs as the sidebar's rows read them — where each is, which row it belongs to, its
@@ -30,18 +30,24 @@ final class LiveSessions {
     /// new to say; selection only controls whether those values are shown.
     private var contextByRowId: [UUID: [AgentKind: Int]] = [:]
 
-    /// The workspace the tabs are matched to rows in, who hears of every change to `sessions`, and
-    /// who hears only of the changes to `rowSessions` — the sidebar's rows and the Dock badge, which
-    /// a context fill or a spinner title leaves as they were.
+    /// The workspace the tabs are matched to rows in.
     private let workspace: WorkspaceStore
-    private let sessionsChanged: @MainActor ([SessionInfo]) -> Void
-    private let rowSessionsChanged: @MainActor () -> Void
+    @ObservationIgnored private var sessionsHooks: [@MainActor ([SessionInfo]) -> Void] = []
+    @ObservationIgnored private var rowSessionsHooks: [@MainActor () -> Void] = []
 
-    init(workspace: WorkspaceStore, sessionsChanged: @escaping @MainActor ([SessionInfo]) -> Void,
-         rowSessionsChanged: @escaping @MainActor () -> Void = {}) {
+    init(workspace: WorkspaceStore) {
         self.workspace = workspace
-        self.sessionsChanged = sessionsChanged
-        self.rowSessionsChanged = rowSessionsChanged
+    }
+
+    /// Adds `hook` to what hears of every change to `sessions`.
+    func onSessionsChanged(_ hook: @escaping @MainActor ([SessionInfo]) -> Void) {
+        sessionsHooks.append(hook)
+    }
+
+    /// Adds `hook` to what hears only of the changes to `rowSessions` — the sidebar's rows and the
+    /// Dock badge, which a context fill or a spinner title leaves as they were.
+    func onRowSessionsChanged(_ hook: @escaping @MainActor () -> Void) {
+        rowSessionsHooks.append(hook)
     }
 
     /// The session and usage events; every other event is someone else's and is ignored.

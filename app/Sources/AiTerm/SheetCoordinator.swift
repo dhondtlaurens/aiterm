@@ -31,15 +31,13 @@ final class SheetCoordinator {
     private let gitLabSettings: @Sendable () -> GitLabConfig?
     private let gitHubSettings: @Sendable () -> GitHubConfig?
     /// What the creation sheets' Create runs.
-    private let createTask: @MainActor (TaskDraft, Project) async throws -> Void
-    private let createReview: @MainActor (ReviewDraft, Project) async throws -> Void
+    private let launcher: TaskLauncher
 
     init(workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         createTask: @escaping @MainActor (TaskDraft, Project) async throws -> Void,
-         createReview: @escaping @MainActor (ReviewDraft, Project) async throws -> Void) {
+         launcher: TaskLauncher) {
         self.workspace = workspace
         self.checkouts = checkouts
         self.agents = agents
@@ -48,8 +46,7 @@ final class SheetCoordinator {
         self.jiraSettings = jiraSettings
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
-        self.createTask = createTask
-        self.createReview = createReview
+        self.launcher = launcher
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -120,10 +117,12 @@ final class SheetCoordinator {
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
     /// terminal opens in the project folder and starts no agent. The branch the destination line
     /// names is the project checkout's, as the checkout monitor read it on its last pass — the
-    /// branch the terminal's row and tab titles will show — so the sheet opens at once. Before the
-    /// monitor's first pass git is asked, off the main actor; the branch is read here rather than in
-    /// the sheet, for the same reason `TaskDraft` is (see `SheetKind`): SwiftUI re-creates a
-    /// sheet's root view on every state change of the presenting view.
+    /// branch the terminal's row and tab titles will show — so the sheet opens at once, with a branch
+    /// as old as that pass: one checked out since shows on the row once the next pass reads it, not
+    /// on a sheet already open. Before the monitor's first pass git is asked, off the main actor; the
+    /// branch is read here rather than in the sheet, for the same reason `TaskDraft` is (see
+    /// `SheetKind`): SwiftUI re-creates a sheet's root view on every state change of the presenting
+    /// view.
     func presentNewTerminal(project: Project) {
         guard canChangeWorkspace, state.project(id: project.id) != nil else { return }
         if let branch = checkouts.projectBranch[project.id] {
@@ -196,19 +195,19 @@ final class SheetCoordinator {
     /// why it is empty if reading it failed; `jira` is the connection read when the sheet was prepared.
     func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                            jira: JiraConfig?) -> TaskCreationModel {
-        let models = agents.catalogue, createTask = self.createTask
+        let models = agents.catalogue, launcher = self.launcher
         return TaskCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: { [agents] in agents.availableAgents },
                           rememberedModels: state.lastModelByAgent,
                           catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
                           initialCatalogueFailure: catalogueFailure, git: git,
                           canChangeWorkspace: { [weak workspace] in workspace?.canChangeWorkspace == true },
                           searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
-                          createTask: { try await createTask($0, project) })
+                          createTask: { try await launcher.createTask(draft: $0, project: project) })
     }
 
     private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                                  gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
-        let models = agents.catalogue, createReview = self.createReview
+        let models = agents.catalogue, launcher = self.launcher
         return ReviewCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: { [agents] in agents.availableAgents },
                             rememberedModels: state.lastModelByAgent,
                             catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
@@ -219,6 +218,6 @@ final class SheetCoordinator {
                             },
                             codeHost: MergeRequestSearch.host(for: remote),
                             searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
-                            createReview: { try await createReview($0, project) })
+                            createReview: { try await launcher.createReview(draft: $0, project: project) })
     }
 }

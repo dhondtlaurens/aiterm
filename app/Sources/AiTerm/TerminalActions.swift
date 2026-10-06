@@ -65,7 +65,7 @@ final class TerminalActions {
         }
     }
 
-    /// The terminal twin of `AppController.reopen(task:)`: a new window in the project's own
+    /// The terminal twin of `TaskLauncher.reopen(task:)`: a new window in the project's own
     /// directory, adopted by the row that lost its window.
     @discardableResult
     func reopen(terminal: TerminalItem, project: Project) -> Task<Void, Never>? {
@@ -113,7 +113,6 @@ final class TerminalActions {
                 catch { notices.report(OperationIssue(title: "Couldn’t close the terminal.", error: error)); return }
             }
             workspace.mutate { $0.terminals.removeAll { $0.id == terminal.id } }
-            focus.dropStale()
         }
     }
 }

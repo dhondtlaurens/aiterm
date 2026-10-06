@@ -9,8 +9,8 @@ import Foundation
 /// subject, and ends with `end` and the token `begin` handed out: one piece of work's end can never
 /// end another's. Owners that draw from it hear of each change to a subject through `onChange`.
 ///
-/// A class rather than a value: the controller and the owners split out of it each start and end
-/// work on the same subjects, and each must see the others'.
+/// A class rather than a value: the owners that do the work — launches, removals, terminals, the
+/// pull — each start and end work on the same subjects, and each must see the others'.
 @MainActor
 final class WorkInFlight {
     enum Subject: Hashable {

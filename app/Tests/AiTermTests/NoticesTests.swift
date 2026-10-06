@@ -15,9 +15,9 @@ struct NoticesTests {
     }
 
     private func notices(_ rows: Rows, toastLifetime: Duration = .seconds(10)) -> Notices {
-        Notices(toastLifetime: toastLifetime,
-                isStale: { issue in issue.subject.map(rows.gone.contains) ?? false },
-                withdrawn: { rows.withdrawn.append($0) })
+        let notices = Notices(toastLifetime: toastLifetime, isStale: { issue in issue.subject.map(rows.gone.contains) ?? false })
+        notices.onWithdrawn { rows.withdrawn.append($0) }
+        return notices
     }
 
     private let task = UUID(), other = UUID()

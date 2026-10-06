@@ -57,8 +57,7 @@ final class RowFocus {
     /// Whether a task is on its way out. Its row can be selected, but its window — closing, or
     /// gone — is never raised.
     private let isRemoving: @MainActor (UUID) -> Bool
-    /// A window a request found already gone.
-    private let onWindowGone: @MainActor (String) -> Void
+    @ObservationIgnored private var windowGoneHooks: [@MainActor (String) -> Void] = []
     /// Where a window that would not come forward is reported.
     private let notices: Notices
 
@@ -68,7 +67,6 @@ final class RowFocus {
          taskFrame: @escaping @MainActor () -> Frame,
          activateIterm: @escaping @MainActor () -> Void,
          isRemoving: @escaping @MainActor (UUID) -> Bool,
-         onWindowGone: @escaping @MainActor (String) -> Void,
          notices: Notices) {
         self.peekDelay = peekDelay
         self.workspace = workspace
@@ -76,9 +74,16 @@ final class RowFocus {
         self.taskFrame = taskFrame
         self.activateIterm = activateIterm
         self.isRemoving = isRemoving
-        self.onWindowGone = onWindowGone
         self.notices = notices
         selectedRows = PerRow(default: false, workspace: workspace)
+        // Whatever took the selected row away — a window closed, a removal, a project removed, a
+        // terminal closed — the selection goes with it, in the same change.
+        workspace.onChange { [weak self] in self?.dropStale() }
+    }
+
+    /// Adds `hook` to what hears of a window a request found already gone.
+    func onWindowGone(_ hook: @escaping @MainActor (String) -> Void) {
+        windowGoneHooks.append(hook)
     }
 
     /// Whether the row with this id is selected — a header, a task or a terminal. What a row's body
@@ -190,7 +195,7 @@ final class RowFocus {
                     activateIterm()
                 } catch let error as DaemonError where error.isNotFound {
                     if selfRaised == window { selfRaised = nil }
-                    onWindowGone(window)
+                    for hook in windowGoneHooks { hook(window) }
                 } catch is CancellationError { return }
                 catch {
                     if selfRaised == window { selfRaised = nil }
@@ -220,7 +225,7 @@ final class RowFocus {
     }
 
     /// Drops a selection whose row has gone.
-    func dropStale() {
+    private func dropStale() {
         if let selection, row(id: selection.id) == nil { browse(nil) }
     }
 

@@ -3,13 +3,14 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// The controller as the owners built in its `init` reach it: their closures capture this before
-/// the controller exists, and `init`'s last line points it at the controller.
-@MainActor
-private final class ControllerLink {
-    weak var controller: AppController?
-}
-
+/// The app's composition root, and the one handle the views and the tests have on it. `init` builds
+/// every owner below, each handed in its initializer the owners it calls, so each is built after
+/// them: the workspace, the notices, the helper, the tabs, the tiling, the checkouts, the task
+/// remover, the selection, then the actions. What an owner tells one built after it goes out through
+/// its `on…` hooks, which the later owner adds itself to as it is built; the checkout monitor and
+/// the task remover, which each call the other, are the one pair joined after both exist
+/// (`CheckoutRemovals`). The sidebar's rows and the Dock badge are the controller's own. Everything
+/// else here forwards to the owner that does it.
 @MainActor
 @Observable
 final class AppController {
@@ -29,6 +30,10 @@ final class AppController {
         get { sheets.sheet }
         set { sheets.sheet = newValue }
     }
+    /// The projects, dividers and names: every edit that is the workspace's alone, and the pull.
+    let projects: ProjectActions
+    /// Tasks and reviews created, and their windows opened and reopened.
+    let launcher: TaskLauncher
     /// A project's terminals: a new one, a reopened window, a terminal closed.
     let terminals: TerminalActions
     /// The banner above the list and the completion toast, and which report wins the banner.
@@ -36,6 +41,8 @@ final class AppController {
 
     /// The helper process, the connection to it and how far it reaches iTerm2.
     let helper: HelperLink
+    /// What the helper reports, kept in step with the workspace: the windows iTerm2 no longer has.
+    let windows: WindowReconciler
     /// The tabs, usage and context fills the helper reports.
     let live: LiveSessions
     /// The branches, missing checkouts and diffs on disk, read by a pass every two seconds.
@@ -58,10 +65,6 @@ final class AppController {
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
     let git: any GitRunning
-    /// Reads the saved Jira connection — the Keychain and UserDefaults — off the main actor, for a
-    /// project's Jira projects sheet.
-    private let jiraSettings: @Sendable () -> JiraConfig?
-    private let taskWorkflow: TaskWorkflow
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
     @ObservationIgnored private var dockBadgeLabel: String?
@@ -71,11 +74,6 @@ final class AppController {
     let work: WorkInFlight
     /// Removes tasks — the person's Remove, and the closing of one whose worktree went.
     let remover: TaskRemover
-    /// Whether each project's default branch is being pulled or rebased, observed row by row: the
-    /// project's Pull greys while either runs.
-    private let defaultBranchRows: PerRow<Bool>
-    /// Whether the project's default branch is being pulled or rebased, as its menu reads it.
-    func isChangingDefaultBranch(_ projectId: UUID) -> Bool { defaultBranchRows[projectId] }
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
     /// Nothing here has a default: every dependency that reaches outside the process — the state
@@ -104,81 +102,64 @@ final class AppController {
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner,
          confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval) {
-        let link = ControllerLink()
-        let workspace = WorkspaceStore(file: store)
-        self.workspace = workspace
-        let work = WorkInFlight()
-        self.work = work
-        self.preferences = preferences
-        self.git = git
-        taskWorkflow = TaskWorkflow(git: git)
-        self.jiraSettings = jiraSettings
+        let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
-                              isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false },
-                              withdrawn: { link.controller?.remover.clearStoppedNote(of: $0) })
-        self.notices = notices
+                              isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
         let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
-                                onEvent: { link.controller?.handleDaemonEvent($0) },
-                                onAttach: { link.controller?.checkouts.refresh() }, // Retry checkout cleanup that waited for it.
                                 notices: notices)
-        self.helper = helper
-        let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: { helper.daemon })
-        self.tiling = tiling
-        let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: { helper.daemon },
-                             taskFrame: { tiling.taskFrame() }, activateIterm: activateIterm,
-                             isRemoving: { link.controller?.remover.isRemoving($0) == true },
-                             onWindowGone: { link.controller?.handleWindowClosed($0) },
-                             notices: notices)
-        self.focus = focus
-        let live = LiveSessions(workspace: workspace, sessionsChanged: { link.controller?.sessionsChanged($0) },
-                                rowSessionsChanged: { link.controller?.refreshRows() })
-        self.live = live
+        let daemon: @MainActor () -> (any DaemonCommands)? = { helper.daemon }
+        let live = LiveSessions(workspace: workspace)
+        let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: daemon)
         let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
-            removalInFlight: { link.controller?.remover.removalInFlight($0) == true },
-            onRemotes: { link.controller?.applyRemotes($0) },
-            onRemovedTasks: { link.controller?.remover.forgetRemovedCheckouts($0) },
-            onTitles: { await helper.sendTitles($0) },
-            rowsChanged: { link.controller?.refreshRows() })
-        self.checkouts = checkouts
-        rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
-        remover = TaskRemover(workspace: workspace, work: work, workflow: taskWorkflow, notices: notices, prompter: prompter,
-                              checkouts: checkouts, live: live, focus: focus, daemon: { helper.daemon },
-                              confirmsRemoval: confirmsRemoval, removalsChanged: { link.controller?.updateDockBadge() })
-        let defaultBranchRows = PerRow<Bool>(default: false, workspace: workspace)
-        self.defaultBranchRows = defaultBranchRows
-        // Unowned: the ledger holds the hook.
-        work.onChange { [unowned work] subject in
-            if case .project(let id) = subject { defaultBranchRows[id] = work.isRunning(.changingDefaultBranch, onProject: id) }
-        }
-        self.prompter = prompter
-        self.setBadge = setBadge
+                                        onTitles: { await helper.sendTitles($0) })
+        let remover = TaskRemover(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
+                                  checkouts: checkouts, live: live, daemon: daemon, confirmsRemoval: confirmsRemoval)
+        let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
+                             activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent })
+        let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
+                                    tiling: tiling, remover: remover, workflow: workflow, git: git, daemon: daemon)
+        self.workspace = workspace
+        self.work = work
+        self.notices = notices
+        self.helper = helper
+        self.live = live
+        self.tiling = tiling
+        self.checkouts = checkouts
+        self.remover = remover
+        self.focus = focus
         self.agents = agents
+        self.launcher = launcher
+        self.preferences = preferences
+        self.prompter = prompter
+        self.git = git
+        self.setBadge = setBadge
+        rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
+        windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus)
+        projects = ProjectActions(workspace: workspace, work: work, notices: notices, prompter: prompter, checkouts: checkouts,
+                                  agents: agents, git: git, workflow: workflow, jiraSettings: jiraSettings)
         terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
-                                    tiling: tiling, daemon: { helper.daemon }, activateIterm: activateIterm)
+                                    tiling: tiling, daemon: daemon, activateIterm: activateIterm)
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                                  createTask: { draft, project in
-                                      guard let controller = link.controller else { throw CancellationError() }
-                                      try await controller.createTask(draft: draft, project: project)
-                                  },
-                                  createReview: { draft, project in
-                                      guard let controller = link.controller else { throw CancellationError() }
-                                      try await controller.createReview(draft: draft, project: project)
-                                  })
+                                  launcher: launcher)
+        // The rows are derived again whenever something they are made of may have changed, and the
+        // Dock badge recounted when they did or a removal moved.
+        live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
+        checkouts.onRowsChanged { [weak self] in self?.refreshRows() }
+        remover.onRemovalsChanged { [weak self] in self?.updateDockBadge() }
         // What a change to the workspace sets off, once per change, in this order: whatever named a
         // row that has gone goes with it — its context fills and the banner about it — then the rows
         // are derived again if they changed, with the Dock badge counting what is left, and only
         // then does a gone task's removal entry go. The entry is what keeps a task on its way out
         // from being counted, so it outlasts the task's row in the sections: the other way round,
-        // the badge would count the row once more between the two. Weak, as the link is: the
-        // workspace outlives none of them, and each of them holds it.
+        // the badge would count the row once more between the two. Weak: the workspace outlives
+        // none of them, and each of them holds it.
         workspace.onChange { [weak live] in live?.pruneContexts() }
         workspace.onChange { [weak notices] in notices?.dropStale() }
-        workspace.onChange { link.controller?.refreshRows() }
-        workspace.onChange { link.controller?.remover.pruneRemovals() }
-        link.controller = self
+        workspace.onChange { [weak self] in self?.refreshRows() }
+        workspace.onChange { [weak remover] in remover?.pruneRemovals() }
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -208,59 +189,10 @@ final class AppController {
         helper.shutdown()
     }
 
-    // -- what the helper reports ----------------------------------------------------
-    /// The helper's events, after `helper` has taken its own.
-    private func handleDaemonEvent(_ event: DaemonEvent) {
-        live.handle(event)
-        switch event {
-        case .snapshot(let snapshot):
-            guard snapshot.connected else { return }
-            // Only a successful connected snapshot establishes that a window is absent.
-            // Reattach by stable task tags first, including a create whose reply was lost.
-            // Worked on a copy, which `commitClosedWindows` adopts in one change if anything differs.
-            var next = state
-            let tabByTask = Dictionary(snapshot.sessions.compactMap { tab in tab.taskUUID.map { ($0, tab) } },
-                                       uniquingKeysWith: { first, _ in first })
-            // A task whose removal has let its window go is the removal's to settle: re-attached,
-            // the window would take the row with it when it closes.
-            for index in next.tasks.indices where work.operation(onTask: next.tasks[index].id) != .removing(windowLetGo: true) {
-                if let session = tabByTask[next.tasks[index].id] { next.tasks[index].windowId = session.windowId }
-            }
-            let windows = Set(snapshot.sessions.map(\.windowId))
-            let closed = Set((next.tasks.compactMap(\.windowId) + next.terminals.compactMap(\.windowId))
-                .filter { !windows.contains($0) })
-            for wid in closed { next.closeWindow(wid) }
-            guard next != state else { return }
-            commitClosedWindows(next)
-        case .itermConnected, .itermDisconnected, .itermAuthFailed, .itermCookieRequested: break // last observations remain visible while uncertain
-        case .windowActivated(let wid): focus.windowActivated(wid)
-        case .windowClosed(let wid): handleWindowClosed(wid)
-        case .sessionOpened, .sessionChanged, .sessionClosed, .usageChanged, .unknown: break // `live`'s, or nobody's
-        }
-    }
+    /// `windows`', forwarded for the tests: a window gone, as `window.closed` reports it.
+    func handleWindowClosed(_ windowId: String?) { windows.handleWindowClosed(windowId) }
 
-    func handleWindowClosed(_ windowId: String?) {
-        guard let windowId else { return }
-        var next = state
-        guard next.closeWindow(windowId) else { return }
-        commitClosedWindows(next)
-    }
-
-    /// The one closed-window transition — for `window.closed`, a connected snapshot and a request
-    /// that found its window gone: adopt the new workspace, drop a selection whose row went with it,
-    /// rescan checkouts when a task went, and save.
-    private func commitClosedWindows(_ next: AppState) {
-        let tasksRemoved = next.tasks.count != state.tasks.count
-        workspace.mutate { $0 = next }
-        if tasksRemoved { checkouts.refresh() }
-        focus.dropStale()
-    }
-
-    /// Every write to the tabs, whichever event brought it.
-    private func sessionsChanged(_ sessions: [SessionInfo]) {
-        checkouts.sessionsChanged(sessions)
-    }
-
+    // -- the rows and the Dock badge ------------------------------------------------
     /// Something the rows are made of may have changed: they are derived again if it did, and the
     /// badge recounted if a section changed.
     private func refreshRows() {
@@ -278,177 +210,27 @@ final class AppController {
     }
 
     // -- projects -------------------------------------------------------------------
-    /// The folder chooser adds the project at once: its Jira projects are linked afterwards, from
-    /// the project's context menu, and none linked means New Task searches every Jira project.
+    /// `projects`', forwarded: the menus, the rows and the tests reach a project's edits here.
     @discardableResult
-    func addProject() -> Task<Void, Never>? {
-        guard canChangeWorkspace, let url = prompter.chooseFolder(prompt: "Add Project"), canChangeWorkspace else { return nil }
-        return Task { await addProject(path: url.path) }
-    }
-
-    /// The repository a picked folder belongs to, added with its remote, then the offer to import
-    /// its worktrees. A folder inside a repository adds the repository itself, and a toast says so;
-    /// one already in the workspace is refused.
-    func addProject(path picked: String) async {
-        guard canChangeWorkspace else { return }
-        let git = self.git
-        let inspection = try? await BackgroundWork.run {
-            let top = try Repository.toplevel(of: picked, git: git)
-            let path = top ?? picked
-            // A lookup that fails adds the project without a remote, which the checkout monitor's
-            // next pass finds and adopts; it is not worth refusing the folder over.
-            return (top, path, top == nil ? nil : try? Repository(path, git: git).remoteUrl())
-        }
-        guard canChangeWorkspace, let (toplevel, path, remote) = inspection else { return }
-        if let existing = state.projects.first(where: { $0.path == path }) {
-            prompter.ask(AlertPrompt(message: "\(existing.name) is already in your projects", detail: existing.path))
-            return
-        }
-        let provider = ProviderDetector.detect(remoteUrl: remote, repoPath: toplevel == nil ? nil : path).provider
-        let project = Project(id: UUID(), name: URL(fileURLWithPath: path).lastPathComponent, path: path,
-                              provider: provider, remoteUrl: remote, addedAt: Date(), collapsed: false)
-        workspace.mutate { $0.append(project: project) }
-        // Its worktrees are offered for import once it is saved, and not at all if it cannot be.
-        guard workspace.flush() else { return }
-        checkouts.refresh()
-        if let toplevel, toplevel != picked { showToast("Added \(project.name), the repository around the folder you picked.") }
-        await importWorktrees(for: project)
-    }
-
-    private func importWorktrees(for project: Project) async {
-        guard project.provider != .none else { return }
-        let git = self.git, catalogue = agents.catalogue
-        let agent = state.lastAgentByProject[project.id] ?? .claude
-        let remembered = state.lastModelByAgent[agent]
-        let imports = try? await BackgroundWork.run {
-            let repository = Repository(project.path, git: git)
-            return (try repository.managedWorktrees(), try repository.detectDefaultBranch(),
-                    ModelSettings.resolve(for: agent, catalog: catalogue.read(agent).models, remembered: remembered))
-        }
-        // A default branch git could not be asked for throws above, and nothing is offered: the offer is
-        // made only when the project is added, so it is not made at all rather than saving "main" into
-        // every imported task for a timeout. A repository with no default branch to name is another matter.
-        guard canChangeWorkspace, state.project(id: project.id) != nil,
-              let (found, detected, preference) = imports, !found.isEmpty else { return }
-        let base = detected ?? Repository.fallbackDefaultBranch
-        let answer = prompter.ask(AlertPrompt(message: "Import \(found.count) worktree\(found.count == 1 ? "" : "s")?",
-                                              detail: "Adds existing worktrees as tasks without starting agents.",
-                                              buttons: ["Import", "Skip"], escape: 1))
-        // `runModal` runs whatever was queued while the alert was up; the project can have gone.
-        guard answer.confirmed, canChangeWorkspace, state.project(id: project.id) != nil else { return }
-        let known = Set(state.tasks.map(\.worktreePath))
-        let imported = found.compactMap { worktree -> TaskItem? in
-            guard let branch = worktree.branch, !known.contains(worktree.path) else { return nil }
-            return TaskItem(id: UUID(), projectId: project.id, title: branch, branch: branch,
-                     worktreePath: worktree.path, baseBranch: base, jira: nil, kind: Self.importedKind(worktree),
-                     agent: agent, model: preference.model,
-                     reasoning: preference.reasoning, firstPrompt: nil, appendTicket: true, createdAt: Date(), windowId: nil)
-        }
-        workspace.mutate { $0.tasks += imported }
-    }
-
-    /// Which kind an imported worktree is. This is the whole reason `managedWorktrees()` reports a
-    /// lock reason: removing a project leaves its worktrees on disk, so re-adding it re-imports
-    /// them, and an import that guessed `.task` for a review would hand `confirmRemove(task:)` an
-    /// "Also delete branch" checkbox over a merge request's branch — the one thing this app must
-    /// never do.
-    ///
-    /// The lock reason a review's worktree is made with is the authority. The `review-` directory
-    /// prefix is a weaker fallback for a worktree whose lock was dropped by hand or lost in a copy
-    /// of the repository; it can mislabel a task on a branch like `feat/review-dashboard`, which
-    /// costs that task its delete-branch checkbox and nothing else. The costs are not symmetric.
-    private static func importedKind(_ worktree: Worktree) -> TaskKind? {
-        if worktree.lockReason == Worktree.reviewLockReason { return .review }
-        return URL(fileURLWithPath: worktree.path).lastPathComponent.hasPrefix("review-") ? .review : nil
-    }
-
-    /// Adopts a remote added, changed or removed after the project itself was — `git remote add` in
-    /// a terminal is not something the app can be told about, and the stored value is what the
-    /// provider badge and every merge-request link are built from, so a stale one outlives the
-    /// change indefinitely.
-    private func applyRemotes(_ detected: [UUID: WorkspaceScan.Remote]) {
-        workspace.mutate { state in
-            for (id, found) in detected {
-                state.updateProject(id: id) { project in
-                    guard project.provider != found.provider || project.remoteUrl != found.url else { return }
-                    project.provider = found.provider; project.remoteUrl = found.url
-                }
-            }
-        }
-    }
-
-    /// The connection is a Keychain read, so it is made off the main actor.
-    func loadJiraProjects() async throws -> [JiraProjectRef] {
-        guard let config = try await BackgroundWork.run(jiraSettings) else {
-            throw ActionUnavailable("Connect Jira in Settings › Integrations to choose a Jira project.")
-        }
-        return try await JiraClient(config: config).projects()
-    }
-
-    /// Replaces the project's linked Jira projects with `jiraProjects`, each once, in their order.
-    /// An empty list unlinks them all.
-    func setJiraProjects(_ jiraProjects: [JiraProjectRef], on project: Project) {
-        let linked = Self.linkedOnce(jiraProjects)
-        guard canChangeWorkspace, let current = state.project(id: project.id),
-              current.jiraProjects != linked else { return }
-        workspace.mutate { $0.updateProject(id: project.id) { $0.jiraProjects = linked } }
-    }
-
-    /// `jiraProjects` with every repeat of a project after its first dropped.
-    private static func linkedOnce(_ jiraProjects: [JiraProjectRef]) -> [JiraProjectRef] {
-        var seen = Set<String>()
-        return jiraProjects.filter { seen.insert($0.id).inserted }
-    }
-
-    /// "Pull main": the project's default branch brought to origin's, fast-forward only. Git's
-    /// own state, not the workspace's, so a locked workspace does not stop it.
+    func addProject() -> Task<Void, Never>? { projects.addProject() }
+    func addProject(path: String) async { await projects.addProject(path: path) }
+    func loadJiraProjects() async throws -> [JiraProjectRef] { try await projects.loadJiraProjects() }
+    func setJiraProjects(_ jiraProjects: [JiraProjectRef], on project: Project) { projects.setJiraProjects(jiraProjects, on: project) }
+    func isChangingDefaultBranch(_ projectId: UUID) -> Bool { projects.isChangingDefaultBranch(projectId) }
     @discardableResult
-    func pullDefault(project: Project) -> Task<Void, Never>? {
-        changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.pullDefaultBranch(of: project).toast },
-                            failure: { .pullRefused($0, in: project.id) })
-    }
+    func pullDefault(project: Project) -> Task<Void, Never>? { projects.pullDefault(project: project) }
+    func toggleCollapsed(_ project: Project) { projects.toggleCollapsed(project) }
+    func canMove(itemId: UUID, _ step: MoveStep) -> Bool { projects.canMove(itemId: itemId, step) }
+    @discardableResult
+    func move(itemId: UUID, _ step: MoveStep) -> Bool { projects.move(itemId: itemId, step) }
+    func confirmRemove(project: Project) { projects.confirmRemove(project: project) }
+    func addDivider(name: String) { projects.addDivider(name: name) }
+    func removeDivider(_ divider: SidebarDivider) { projects.removeDivider(divider) }
+    func rename(divider: SidebarDivider, to name: String) { projects.rename(divider: divider, to: name) }
+    func rename(task: TaskItem, to name: String) { projects.rename(task: task, to: name) }
+    func rename(terminal: TerminalItem, to name: String) { projects.rename(terminal: terminal, to: name) }
 
-    /// The banner's Rebase, after "Pull main" found the branches diverged. Held like a pull, so
-    /// the menu's Pull main waits for it.
-    private func rebaseDefault(project: Project) -> Task<Void, Never>? {
-        let rebase = changeDefaultBranch(of: project, { [taskWorkflow] in try await taskWorkflow.rebaseDefaultBranch(of: project).toast },
-                                         failure: { OperationIssue(title: "Couldn’t rebase the default branch.", error: $0) })
-        if rebase != nil { notices.clearIssue() }
-        return rebase
-    }
-
-    /// A pull or a rebase of `project`'s default branch, one at a time: the result's `.toast` is the
-    /// toast, its failure the banner. Neither is shown for a project removed while git ran.
-    private func changeDefaultBranch(of project: Project, _ run: @escaping () async throws -> String,
-                                     failure: @escaping (Error) -> OperationIssue) -> Task<Void, Never>? {
-        guard let token = work.begin(.changingDefaultBranch, onProject: project.id) else { return nil }
-        return Task {
-            defer { work.end(token) }
-            do {
-                let summary = try await run()
-                guard state.project(id: project.id) != nil else { return }
-                showToast(summary)
-                checkouts.refresh()
-            } catch {
-                guard state.project(id: project.id) != nil else { return }
-                report(failure(error))
-            }
-        }
-    }
-
-    /// A project with no task or terminal draws collapsed and stays that way (`ProjectSection.collapsed`),
-    /// so it has no stored state worth flipping.
-    func toggleCollapsed(_ project: Project) {
-        guard canChangeWorkspace, state.project(id: project.id) != nil, hasRows(project) else { return }
-        workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
-    }
-
-    /// Whether the project has a task, review or terminal row — anything to fold.
-    func hasRows(_ project: Project) -> Bool {
-        state.tasks.contains(where: { $0.projectId == project.id })
-            || state.terminals.contains(where: { $0.projectId == project.id })
-    }
-
+    // -- Focus View and List View -----------------------------------------------------
     /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
     /// would otherwise land, and with no project that has rows (`SidebarModel.focusView`).
     var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections)) }
@@ -476,111 +258,11 @@ final class AppController {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
     }
 
-    /// Stores `layout`'s collapsed states in one change to the workspace, which saves only if one changed.
     @discardableResult
     private func applyView(_ layout: [UUID: Bool]) -> Bool {
         guard canApplyView(layout) else { return false }
-        workspace.mutate { state in
-            for (id, collapsed) in layout {
-                state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
-            }
-        }
+        projects.setCollapsed(layout)
         return true
-    }
-
-    /// Whether `move` would do anything: the first row has no "up", the last no "down", and a
-    /// locked workspace has neither. The menus grey their items on this.
-    func canMove(itemId: UUID, _ step: MoveStep) -> Bool {
-        canChangeWorkspace && state.canMove(id: itemId, step)
-    }
-
-    /// Moves a project or a divider one slot along the sidebar. Only the item order changes: tasks
-    /// and terminals stay attached by project id, so an expanded project's rows move with it and
-    /// its collapsed state is left untouched. Whether it moved.
-    @discardableResult
-    func move(itemId: UUID, _ step: MoveStep) -> Bool {
-        guard canChangeWorkspace else { return false }
-        return workspace.mutate { $0.move(id: itemId, step) }
-    }
-
-    /// Plan self-review (spec 4.6): removing a project only forgets it. Worktrees created for its
-    /// tasks stay on disk — the alert lists them so nothing disappears silently — and no git
-    /// command runs.
-    func confirmRemove(project: Project) {
-        guard canChangeWorkspace, !refusesRemoval(of: project) else { return }
-        let tasks = state.tasks.filter { $0.projectId == project.id }
-        let paths = tasks.map(\.worktreePath)
-        let answer = prompter.ask(AlertPrompt(
-            message: "Remove project “\(project.name)”?",
-            detail: paths.isEmpty
-                ? "Removes the project from AiTerm. Files are kept and terminal windows stay open."
-                : "Removes the project, tasks, and terminals from AiTerm. Files and windows are kept, including these worktrees:\n\n" + paths.joined(separator: "\n"),
-            buttons: ["Remove", "Cancel"]))
-        // The alert's modal loop runs whatever was queued meanwhile, a create among them.
-        guard answer.confirmed, canChangeWorkspace, !refusesRemoval(of: project) else { return }
-        workspace.mutate { state in
-            state.tasks.removeAll { $0.projectId == project.id }
-            state.terminals.removeAll { $0.projectId == project.id }
-            state.removeItem(id: project.id)
-        }
-        focus.dropStale()
-    }
-
-    /// Says why `project` cannot be removed yet, if it cannot: work still in flight would land in a
-    /// project that is gone, and a row whose project is gone fails every save.
-    private func refusesRemoval(of project: Project) -> Bool {
-        let busy: String
-        if work.isRunning(.creatingTask, onProject: project.id) { busy = "A task is still being created in it." }
-        else if work.isRunning(.openingTerminal, onProject: project.id) { busy = "A terminal is still opening in it." }
-        else if work.isRunning(.openingTaskWindow, onProject: project.id) { busy = "A window is still opening for one of its tasks." }
-        else if state.terminals.contains(where: { $0.projectId == project.id && work.operation(onTerminal: $0.id) != nil }) {
-            busy = "One of its terminals is still opening or closing its window."
-        }
-        else if state.tasks.contains(where: { $0.projectId == project.id && work.operation(onTask: $0.id) != nil }) {
-            busy = "A task is still being changed."
-        }
-        else { return false }
-        prompter.ask(AlertPrompt(message: "“\(project.name)” can’t be removed yet", detail: busy + " Try again in a moment."))
-        return true
-    }
-
-    // -- dividers and renames -------------------------------------------------------
-    /// A divider is pure workspace state: no daemon call, no window, nothing to undo but the label.
-    func addDivider(name: String) {
-        guard canChangeWorkspace else { return }
-        let divider = SidebarDivider(id: UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines))
-        workspace.mutate { $0.append(divider: divider) }
-    }
-
-    func removeDivider(_ divider: SidebarDivider) {
-        guard canChangeWorkspace else { return }
-        workspace.mutate { $0.removeItem(id: divider.id) }
-    }
-
-    /// An empty name is a real choice for a divider — the row draws a plain rule.
-    func rename(divider: SidebarDivider, to name: String) {
-        guard canChangeWorkspace else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        workspace.mutate { $0.renameDivider(id: divider.id, to: trimmed) }
-    }
-
-    /// The title only. The branch, worktree, base branch and Jira link are untouched, and the
-    /// iTerm2 window keeps its own title — it carries the branch, not the task's name.
-    func rename(task: TaskItem, to name: String) {
-        guard canChangeWorkspace else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let i = state.tasks.firstIndex(where: { $0.id == task.id }) else { return }
-        workspace.mutate { $0.tasks[i].title = trimmed }
-    }
-
-    /// The row's name, and the one its window is opened with on Reopen. Nothing in iTerm2 changes:
-    /// its tabs are titled with their branch (`SidebarModel.sessionTitles`), not with this name,
-    /// and the window's profile name is set once, as it opens. An empty name keeps the old one.
-    func rename(terminal: TerminalItem, to name: String) {
-        guard canChangeWorkspace else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let i = state.terminals.firstIndex(where: { $0.id == terminal.id }) else { return }
-        workspace.mutate { $0.terminals[i].name = trimmed }
     }
 
     // -- sheets ---------------------------------------------------------------------
@@ -597,157 +279,15 @@ final class AppController {
     func presentNewTerminal(project: Project) { sheets.presentNewTerminal(project: project) }
 
     // -- tasks ----------------------------------------------------------------------
-    func createTask(draft: TaskDraft, project: Project) async throws {
-        try await create(draft, kind: .task, in: project) { try await self.taskWorkflow.create(draft: draft, project: project) }
-    }
-
-    /// A branch already checked out in a task's worktree — or an earlier review's — is reviewed
-    /// there; any other gets a worktree of its own, on the branch (see `Repository.addReviewWorktree`). Which
-    /// is asked of git now, not of the saved rows: a task's worktree can have moved to another branch.
-    func createReview(draft: ReviewDraft, project: Project) async throws {
-        if let owner = try await checkoutOwner(of: draft.branch, in: project) {
-            return try await openReview(draft, in: owner, project: project)
-        }
-        try await create(draft, kind: .review, in: project) { try await self.taskWorkflow.createReview(draft: draft, project: project) }
-    }
-
-    /// The review as a tab in `owner`'s window, running the reviewer in the task's worktree — or
-    /// the window itself, reopened with the reviewer, when the task has none. Nothing is written
-    /// to disk and no row is added, so closing the tab ends the review and there is nothing whose
-    /// removal could reach the task's worktree or branch. For the same reason every failure is the
-    /// sheet's: the draft is still there to retry.
-    private func openReview(_ draft: ReviewDraft, in owner: TaskItem, project: Project) async throws {
-        guard canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before opening a review.") }
-        guard FileManager.default.fileExists(atPath: owner.worktreePath) else {
-            throw ActionUnavailable("“\(owner.title)” has this branch, but its worktree is missing at \(owner.worktreePath). Restore it or remove the task.")
-        }
-        guard let daemon = helper.daemon else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        guard let reviewing = work.begin(.reviewing, onTask: owner.id) else { throw ActionUnavailable("“\(owner.title)” is busy. Try again in a moment.") }
-        defer { work.end(reviewing) }
-        let opening = work.begin(.openingTaskWindow, onProject: owner.projectId)
-        defer { if let opening { work.end(opening) } }
-        let command = try await taskWorkflow.reviewCommand(draft: draft, in: owner)
-        guard let current = state.task(id: owner.id) else { throw ActionUnavailable("“\(owner.title)” was removed.") }
-        // Checked again last thing: a checkout in the task's own tab can have moved it meanwhile.
-        // Its worktree is never switched back — the review would take over someone's checkout.
-        guard try await checkoutOwner(of: draft.branch, in: project)?.id == owner.id else {
-            throw ActionUnavailable("“\(owner.title)” no longer has \(draft.branch) checked out. Try again to review it where it is now.")
-        }
-        var opened = false
-        if let wid = current.windowId {
-            do {
-                _ = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command)
-                opened = true
-                try? await daemon.activate(windowId: wid)
-            }
-            // Closed since the last poll: reopened below, as a task with no window is.
-            catch let error as DaemonError where error.isNotFound {}
-        }
-        if !opened { try await openWindow(for: current, command: command, with: daemon) }
-        workspace.mutate { state in
-            if let mr = draft.mr, let i = state.tasks.firstIndex(where: { $0.id == owner.id }) {
-                state.tasks[i].mr = MergeRequestRef(iid: mr.iid, title: mr.title, url: mr.url)
-            }
-            state.rememberChoice(draft, projectId: owner.projectId)
-        }
-        focus.browse(.task(owner.id))
-    }
-
-    /// The row whose worktree has `branch` checked out, by git's own worktree listing.
-    private func checkoutOwner(of branch: String, in project: Project) async throws -> TaskItem? {
-        guard !branch.isEmpty else { return nil }
-        let git = self.git, repo = project.path
-        let worktrees = try await BackgroundWork.run { try Repository(repo, git: git).worktrees() }
-        return state.task(checkingOut: branch, in: project.id, worktrees: worktrees)
-    }
-
-    /// Commits the new row's identity before any terminal effect. A created task is never a failed
-    /// form submission: the sheet closes, and any recovery is offered on the existing row.
-    ///
-    /// The new row is selected and its window opens beside the sidebar, but iTerm2 is not brought
-    /// forward: the agent is already working on the prompt, so the keyboard stays in the sidebar,
-    /// as after a peek, and Return commits. A new terminal, which has nothing running, does come
-    /// forward (see `TerminalActions.newTerminal(project:name:)`).
-    private func create(_ draft: some AgentDraft, kind: TaskKind, in project: Project,
-                        checkout: () async throws -> TaskWorkflow.Created) async throws {
-        let noun = kind == .review ? "Review" : "Task"
-        guard canChangeWorkspace else {
-            throw ActionUnavailable("Save or recover the workspace before creating a \(noun.lowercased()).")
-        }
-        guard let creating = work.begin(.creatingTask, onProject: project.id) else {
-            throw ActionUnavailable("A task or review is already being created in \(project.name). Try again once it is.")
-        }
-        defer { work.end(creating) }
-        let result = try await checkout()
-        let task = result.task
-        workspace.mutate { state in
-            state.tasks.append(task)
-            state.rememberChoice(draft, projectId: project.id)
-        }
-        checkouts.refresh()
-        focus.browse(.task(task.id))
-        // A row that could not be saved gets no window: a relaunch would not know the window was its.
-        guard workspace.flush() else { return }
-        if let warning = result.launchWarning {
-            report(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose Reopen Window, then start the agent manually.",
-                                  reason: warning))
-            return
-        }
-        guard let daemon = helper.daemon else {
-            report("\(noun) created. Once AiTerm reconnects, choose Reopen Window and start the agent manually.")
-            return
-        }
-        do { try await openWindow(for: task, command: result.command, with: daemon) }
-        catch {
-            report(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened. Wait for reconnection or choose Reopen Window.",
-                                  error: error))
-        }
-    }
-
-    /// A task's window, in its worktree, adopted by the row. `command` launches its agent; a reopened
-    /// window gets none — the first prompt is never replayed. A row that went while the window opened
-    /// cannot adopt it, so the window is closed rather than left behind with nothing to show it.
-    private func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws {
-        let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
-        defer { if let opening { work.end(opening) } }
-        let wid = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
-                                                    agentCommand: command, frame: tiling.taskFrame())
-        guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
-            try? await daemon.closeWindowIfOpen(wid)
-            return
-        }
-        workspace.mutate { $0.tasks[i].windowId = wid }
-    }
-
-    /// Ruling T13-1: a task that still has a window has nothing to reopen — the menu item is hidden
-    /// in that case, and a stale click is ignored rather than leaking a second window.
+    /// `launcher`'s, forwarded: the rows' menus and the tests start a task here.
+    func createTask(draft: TaskDraft, project: Project) async throws { try await launcher.createTask(draft: draft, project: project) }
+    func createReview(draft: ReviewDraft, project: Project) async throws { try await launcher.createReview(draft: draft, project: project) }
     @discardableResult
-    func reopen(task: TaskItem) -> Task<Void, Never>? {
-        guard canChangeWorkspace else { return nil }
-        guard let current = state.task(id: task.id), current.windowId == nil else { return nil }
-        guard let daemon = helper.daemon else { report(.disconnected("Reopen Window again")); return nil }
-        guard let reopening = work.begin(.reopening, onTask: task.id) else { return nil }
-        guard FileManager.default.fileExists(atPath: current.worktreePath) else {
-            work.end(reopening)
-            report("Worktree missing at \(current.worktreePath). Restore it or use Remove \(current.kindName).")
-            return nil
-        }
-        return Task {
-            defer { work.end(reopening) }
-            guard canChangeWorkspace else { return }
-            do {
-                try await openWindow(for: current, command: nil, with: daemon)
-                // "Kept; choose Reopen Window" was asking for exactly this.
-                remover.clearStoppedNote(of: task.id)
-                notices.dropIssues(about: task.id)
-            } catch { report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
-        }
-    }
+    func reopen(task: TaskItem) -> Task<Void, Never>? { launcher.reopen(task: task) }
 
     // -- the banner ------------------------------------------------------------------
-    /// `notices`', forwarded: the controller's own work reports through these, and the views and
-    /// tests reach the banner and the toast here. An owner split out of the controller takes
-    /// `notices` itself, as `HelperLink` and `RowFocus` do.
+    /// `notices`', forwarded: the views and the tests reach the banner and the toast here. The
+    /// owners above report to `notices` itself.
     var issue: OperationIssue? { notices.issue }
     var toastState: ToastState { notices.toastState }
     func report(_ issue: OperationIssue) { notices.report(issue) }
@@ -766,7 +306,7 @@ final class AppController {
         case .deleteBranch(let id): return remover.deleteBranch(of: id)
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return nil }
-            return rebaseDefault(project: project)
+            return projects.rebaseDefault(project: project)
         }
     }
 
@@ -819,7 +359,7 @@ final class AppController {
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
-            if hasRows(project) {
+            if projects.hasRows(project) {
                 toggleCollapsed(project)
             } else {
                 // Next turn, as ⌘⌫'s alert: the menu runs modally, and not inside SwiftUI's key

@@ -19,16 +19,18 @@ final class Notices {
     private let toastLifetime: Duration
     /// Whether an issue names a task or a project the workspace no longer has.
     private let isStale: @MainActor (OperationIssue) -> Bool
-    /// The banner about a task was dismissed, or replaced by one about something else: whatever its
-    /// row says in the banner's stead goes with it.
-    private let withdrawn: @MainActor (UUID) -> Void
+    /// Who hears that the banner about a task was dismissed, or replaced by one about something else.
+    @ObservationIgnored private var withdrawnHooks: [@MainActor (UUID) -> Void] = []
 
-    init(toastLifetime: Duration,
-         isStale: @escaping @MainActor (OperationIssue) -> Bool,
-         withdrawn: @escaping @MainActor (UUID) -> Void) {
+    init(toastLifetime: Duration, isStale: @escaping @MainActor (OperationIssue) -> Bool) {
         self.toastLifetime = toastLifetime
         self.isStale = isStale
-        self.withdrawn = withdrawn
+    }
+
+    /// Adds `hook` to what hears that the banner about a task was dismissed, or replaced by one
+    /// about something else: whatever the task's row says in the banner's stead goes with it.
+    func onWithdrawn(_ hook: @escaping @MainActor (UUID) -> Void) {
+        withdrawnHooks.append(hook)
     }
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
@@ -93,6 +95,7 @@ final class Notices {
     }
 
     private func withdraw(_ issue: OperationIssue) {
-        if let subject = issue.subject { withdrawn(subject) }
+        guard let subject = issue.subject else { return }
+        for hook in withdrawnHooks { hook(subject) }
     }
 }

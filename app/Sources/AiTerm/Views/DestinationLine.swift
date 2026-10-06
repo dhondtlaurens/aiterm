@@ -5,7 +5,9 @@ import AiTermCore
 /// Where a sheet's window opens, in the one format every such sheet uses:
 /// `Opens in iTerm2 · <project>/<worktree path in it, if any> · <branch>`, or, for a review that
 /// opens in a task that already has its branch, `Opens in iTerm2 · task “<title>” · <branch>`.
-/// A branch not known yet — a detached checkout — is left out rather than drawn empty.
+/// A branch not known — none named yet, or a detached checkout New Terminal asked git about before
+/// the checkout monitor's first pass (after it, the monitor names one by its short sha) — is left
+/// out rather than drawn empty.
 struct Destination: Equatable {
     /// What stands between "Opens in iTerm2" and the branch.
     let place: String

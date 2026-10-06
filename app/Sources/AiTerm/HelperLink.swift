@@ -4,7 +4,7 @@ import AiTermCore
 /// The app's link to its helper: the daemon process, the socket connection to it and how far the
 /// chain to iTerm2 reaches. Process health, socket health and iTerm2's own availability are kept
 /// apart — a running helper is not a connected one. Every event the connection delivers goes on to
-/// `onEvent` once the link has taken what is its own.
+/// the `onEvent` hooks once the link has taken what is its own.
 @MainActor
 @Observable
 final class HelperLink {
@@ -23,24 +23,32 @@ final class HelperLink {
     /// The bundle's resources, where the daemon's package is.
     private let bundledResourcesURL: URL?
     private let preferences: InterfacePreferences
-    /// Who hears the events, of a daemon attaching (with checkout cleanup that may have waited for
-    /// one) and of a request that failed where no caller is waiting to say so.
-    private let onEvent: @MainActor (DaemonEvent) -> Void
-    private let onAttach: @MainActor () -> Void
+    /// Who hears the events, and of a daemon attaching: the owners built after the link, which
+    /// add themselves (`onEvent`, `onAttach`).
+    @ObservationIgnored private var eventHooks: [@MainActor (DaemonEvent) -> Void] = []
+    @ObservationIgnored private var attachHooks: [@MainActor () -> Void] = []
+    /// Where a request that failed with no caller waiting to say so is reported.
     private let notices: Notices
     private let findPython: @Sendable () -> URL?
 
     init(socketPath: String = AiTermPaths.socketPath, bundledResourcesURL: URL?, preferences: InterfacePreferences,
          findPython: @escaping @Sendable () -> URL? = { PythonLocator.find() },
-         onEvent: @escaping @MainActor (DaemonEvent) -> Void, onAttach: @escaping @MainActor () -> Void,
          notices: Notices) {
         self.socketPath = socketPath
         self.findPython = findPython
         self.bundledResourcesURL = bundledResourcesURL
         self.preferences = preferences
-        self.onEvent = onEvent
-        self.onAttach = onAttach
         self.notices = notices
+    }
+
+    /// Adds `hook` to what hears every event the connection delivers, once the link has taken its own.
+    func onEvent(_ hook: @escaping @MainActor (DaemonEvent) -> Void) {
+        eventHooks.append(hook)
+    }
+
+    /// Adds `hook` to what hears that a daemon attached.
+    func onAttach(_ hook: @escaping @MainActor () -> Void) {
+        attachHooks.append(hook)
     }
 
     /// Finds Python — a login shell costing the better part of a second — and starts the helper
@@ -87,7 +95,7 @@ final class HelperLink {
         // The iTerm2 background waits for the attach snapshot: the daemon can apply it only with
         // iTerm2 connected, and says so there — or later, with `.itermConnected`.
         awaitingAttachSnapshot = client != nil
-        if client != nil { onAttach() }
+        if client != nil { for hook in attachHooks { hook() } }
     }
 
     private func supervisorChanged(_ st: DaemonSupervisor.State) {
@@ -115,7 +123,7 @@ final class HelperLink {
     }
 
     /// Every event the connection delivers: what reaches iTerm2 is the link's, and everything goes
-    /// on to `onEvent`.
+    /// on to the `onEvent` hooks.
     func handle(_ event: DaemonEvent) {
         switch event {
         // A daemon that already has iTerm2 — adopted, or reached again after the socket dropped —
@@ -127,7 +135,7 @@ final class HelperLink {
             sendItermBackground()
         default: break
         }
-        onEvent(event)
+        for hook in eventHooks { hook(event) }
     }
 
     /// Settings' test of the iTerm2 connection. A fresh snapshot comes back through the event

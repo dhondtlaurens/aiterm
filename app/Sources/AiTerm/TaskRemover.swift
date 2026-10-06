@@ -25,14 +25,14 @@ enum TaskRemoval: Equatable {
 
 /// Takes tasks out of the workspace: the person's Remove — its window, its worktree, its branch when
 /// asked for, then its row, and the retries a removal that stopped short offers — and the closing of
-/// a task whose worktree went outside AiTerm, which the checkout monitor reports.
+/// a task whose worktree went outside AiTerm, which the checkout monitor reports (`CheckoutRemovals`).
 ///
 /// Each removal holds its task in `WorkInFlight` while it runs, as `.removing` or `.closing`: that
 /// is the task's lock, what its row says meanwhile, and whether a snapshot may give the task back a
 /// window the removal has let go. What a removal leaves the row saying once it ends — a removal that
 /// stopped, a close to try again — is kept here, until the task goes or is removed again.
 @MainActor
-final class TaskRemover {
+final class TaskRemover: CheckoutRemovals {
     /// What each task's row says about its removal: the work running on it, or else what its last
     /// removal left. Kept whole for whatever reads it whole — the Dock badge, the checkout monitor,
     /// the tests — and mirrored row by row into `rows`, which the rows read.
@@ -67,10 +67,8 @@ final class TaskRemover {
     private let prompter: Prompter
     private let checkouts: CheckoutMonitor
     private let live: LiveSessions
-    private let focus: RowFocus
     private let daemon: @MainActor () -> (any DaemonCommands)?
-    /// Told whenever a row's removal changes: a task on its way out is not counted on the Dock.
-    private let removalsChanged: @MainActor () -> Void
+    private var removalsHooks: [@MainActor () -> Void] = []
 
     /// Whether a task's checkout — at `projectPath`'s project, if it still has one — is gone for good.
     typealias ConfirmsRemoval = @Sendable (_ task: TaskItem, _ projectPath: String?) -> Bool
@@ -79,10 +77,8 @@ final class TaskRemover {
     static let diskConfirmsRemoval: ConfirmsRemoval = { WorkspaceScan.checkoutRemovalIsConfirmed($0, projectPath: $1) }
 
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
-         checkouts: CheckoutMonitor, live: LiveSessions, focus: RowFocus,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?,
-         confirmsRemoval: @escaping ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
-         removalsChanged: @escaping @MainActor () -> Void) {
+         checkouts: CheckoutMonitor, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
+         confirmsRemoval: @escaping ConfirmsRemoval) {
         self.workspace = workspace
         self.work = work
         self.workflow = workflow
@@ -90,14 +86,20 @@ final class TaskRemover {
         self.prompter = prompter
         self.checkouts = checkouts
         self.live = live
-        self.focus = focus
         self.daemon = daemon
         self.confirmsRemoval = confirmsRemoval
-        self.removalsChanged = removalsChanged
         rows = PerRow(default: nil, workspace: workspace)
         work.onChange { [weak self] subject in
             if case .task(let id) = subject { self?.refresh(id) }
         }
+        notices.onWithdrawn { [weak self] in self?.clearStoppedNote(of: $0) }
+        checkouts.removals = self
+    }
+
+    /// Adds `hook` to what hears that a row's removal changed: a task on its way out is not counted
+    /// on the Dock.
+    func onRemovalsChanged(_ hook: @escaping @MainActor () -> Void) {
+        removalsHooks.append(hook)
     }
 
     /// The task's removal, as its row draws it.
@@ -150,7 +152,7 @@ final class TaskRemover {
         guard removals[id] != now else { return }
         removals[id] = now
         rows[id] = now
-        removalsChanged()
+        for hook in removalsHooks { hook() }
     }
 
     // -- the person's Remove ------------------------------------------------------------
@@ -352,15 +354,14 @@ final class TaskRemover {
         }
     }
 
-    /// The row goes, and with it — through the workspace's change hooks — the banner about it and
-    /// what its last removal left. Saved at once: a removal says "removed" only once its row's going
-    /// is on disk.
+    /// The row goes, and with it — through the workspace's change hooks — the banner about it, the
+    /// selection if it was the row, and what its last removal left. Saved at once: a removal says
+    /// "removed" only once its row's going is on disk.
     private func forget(task: TaskItem) {
         workspace.mutate { $0.tasks.removeAll { $0.id == task.id } }
         workspace.flush()
         checkouts.forget(task: task.id)
         checkouts.refresh()
-        focus.dropStale()
     }
 
     /// The task's removal or closing has ended: it no longer holds the task.

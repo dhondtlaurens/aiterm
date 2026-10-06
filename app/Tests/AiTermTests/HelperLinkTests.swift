@@ -7,8 +7,7 @@ import Testing
 @MainActor
 struct HelperLinkTests {
     private func link(preferences: InterfacePreferences? = nil, notices: Notices? = nil) -> HelperLink {
-        HelperLink(bundledResourcesURL: nil, preferences: preferences ?? .scratch(), onEvent: { _ in }, onAttach: {},
-                   notices: notices ?? .aboutNoRows())
+        HelperLink(bundledResourcesURL: nil, preferences: preferences ?? .scratch(), notices: notices ?? .aboutNoRows())
     }
 
     private let title = SessionTitle(sessionId: "s", title: "feat/a")
@@ -49,7 +48,7 @@ struct HelperLinkTests {
         let lookups = Mutex(0)
         let link = HelperLink(bundledResourcesURL: nil, preferences: .scratch(),
                               findPython: { lookups.withLock { $0 += 1 }; return nil },
-                              onEvent: { _ in }, onAttach: {}, notices: .aboutNoRows())
+                              notices: .aboutNoRows())
         link.start()
         defer { link.shutdown() }
         #expect(link.itermConnection == .helperMissing)
@@ -85,6 +84,6 @@ struct HelperLinkTests {
 private extension Notices {
     /// Notices with no workspace behind them: nothing they are told about is ever gone.
     static func aboutNoRows() -> Notices {
-        Notices(toastLifetime: .seconds(10), isStale: { _ in false }, withdrawn: { _ in })
+        Notices(toastLifetime: .seconds(10), isStale: { _ in false })
     }
 }
