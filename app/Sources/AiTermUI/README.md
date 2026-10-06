@@ -245,8 +245,11 @@ is the built-in or one AiTerm must not edit) shows no action at all. Over a miss
 one it writes the driver whether or not it is already installed, so it can be overwritten. A Jira,
 GitLab or GitHub card holding saved credentials trails a Disconnect, which empties its fields and marks the
 service for removal: Save removes the saved site or host and the Keychain token, Cancel keeps
-everything. Save is all or nothing: it checks every card before it writes any, so a card that cannot
-save (a mistyped URL) leaves the others, Disconnects included, undone and the sheet open. The iTerm2 card has no fields: below its divider it lists the numbered steps that mend
+everything. Save is all or nothing: it checks every card before it writes any, so while one card
+cannot save (a mistyped URL) nothing is written at all — a Disconnect or a new connection on
+another card is not applied either — and the sheet stays open saying why. A write the Keychain
+refuses puts back the ones this Save made before it, and the footer names any service the Keychain
+would not let it put back. The iTerm2 card has no fields: below its divider it lists the numbered steps that mend
 the first broken link to iTerm2, or one line of `HelpText` when nothing is broken. Its status line
 is `ItermConnection.status`, and the banner above the sidebar opens with the same words — grey,
 or amber while iTerm2 refuses the connection. It stays a pattern: Settings is its only user and its

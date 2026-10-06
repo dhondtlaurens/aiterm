@@ -199,69 +199,74 @@ final class IntegrationSettingsModel: ObservableObject {
 
     /// One card's change, checked and not yet made.
     private struct PendingWrite {
+        /// The service the card is for, as a refused undo names it.
+        let service: String
         /// Writes the change to the store; `false` when the store refused it.
         let write: () -> Bool
-        /// Puts the store back as the card opened it, for a later card's write failing.
-        let undo: () -> Void
+        /// Puts the store back as the card opened it, for a later card's write failing; `false`
+        /// when the store refused that too.
+        let undo: () -> Bool
         /// Notes the new saved config and the last test that goes with it.
         let commit: () -> Void
         let failure: String
     }
 
+    /// A card whose fields cannot make a connection, with what the card says about it.
+    private struct InvalidCard: Error { let message: String }
+
     /// What Save would do for one card: store what is typed, remove what Disconnect left blank, or
     /// nothing. Throws the card's message while its fields cannot make a connection; nothing is
     /// written here. `saved` and `failed` are where the card's config and last test answer are kept.
     private func pending<Fields: ServiceFields>(
-        _ card: ServiceConnection<Fields>, saved: ReferenceWritableKeyPath<IntegrationSettingsModel, Fields.Config?>,
+        _ card: ServiceConnection<Fields>, service: String, saved: ReferenceWritableKeyPath<IntegrationSettingsModel, Fields.Config?>,
         failed: ReferenceWritableKeyPath<ServiceTestRecord, Bool>,
         write: @escaping (Fields.Config?) -> Bool, saveFailure: String, removeFailure: String
-    ) throws -> PendingWrite? {
+    ) throws(InvalidCard) -> PendingWrite? {
         let before = self[keyPath: saved]
         if card.fields.hasInput {
-            guard let config = card.fields.config else { throw SaveFailure(message: card.invalidURL) }
+            guard let config = card.fields.config else { throw InvalidCard(message: card.invalidURL) }
             let testFailed = card.test?.failed == true
-            return PendingWrite(write: { write(config) }, undo: { _ = write(before) },
+            return PendingWrite(service: service, write: { write(config) }, undo: { write(before) },
                                 commit: { [self] in self[keyPath: saved] = config; record[keyPath: failed] = testFailed },
                                 failure: saveFailure)
         }
         guard card.disconnecting else { return nil }
-        return PendingWrite(write: { write(nil) }, undo: { _ = write(before) },
+        return PendingWrite(service: service, write: { write(nil) }, undo: { write(before) },
                             commit: { [self] in self[keyPath: saved] = nil; record[keyPath: failed] = false },
                             failure: removeFailure)
     }
-
-    private struct SaveFailure: Error { let message: String }
 
     /// Stores every service with anything typed, Jira first, and removes every service
     /// disconnected and left blank. All or nothing: every card is checked before the first write,
     /// so a card that cannot save leaves the others as they were, and a write the Keychain refuses
     /// puts back the ones made before it. `nil` when all of it was done; else what stopped it, for
-    /// the sheet's footer. Both are optional, so blank fields store nothing.
+    /// the sheet's footer — and which services stayed changed, if the Keychain refused to put
+    /// them back too. Both are optional, so blank fields store nothing.
     func save() -> String? {
         let writes: [PendingWrite]
-        do {
+        do throws(InvalidCard) {
             writes = [
-                try pending(jira, saved: \.savedJira, failed: \.jiraFailed,
+                try pending(jira, service: "Jira", saved: \.savedJira, failed: \.jiraFailed,
                             write: { JiraSettings.save($0, store: self.store, defaults: self.defaults) },
                             saveFailure: "Couldn’t save the API token to the Keychain",
                             removeFailure: "Couldn’t remove the API token from the Keychain"),
-                try pending(gitLab, saved: \.savedGitLab, failed: \.gitLabFailed,
+                try pending(gitLab, service: "GitLab", saved: \.savedGitLab, failed: \.gitLabFailed,
                             write: { GitLabSettings.save($0, store: self.store, defaults: self.defaults) },
                             saveFailure: "Couldn’t save the GitLab token to the Keychain",
                             removeFailure: "Couldn’t remove the GitLab token from the Keychain"),
-                try pending(gitHub, saved: \.savedGitHub, failed: \.gitHubFailed,
+                try pending(gitHub, service: "GitHub", saved: \.savedGitHub, failed: \.gitHubFailed,
                             write: { GitHubSettings.save($0, store: self.store) },
                             saveFailure: "Couldn’t save the GitHub token to the Keychain",
                             removeFailure: "Couldn’t remove the GitHub token from the Keychain"),
             ].compactMap { $0 }
-        } catch let failure as SaveFailure {
-            return failure.message
         } catch {
-            return error.localizedDescription
+            return error.message
         }
         for (index, change) in writes.enumerated() where !change.write() {
-            writes[..<index].reversed().forEach { $0.undo() }
-            return change.failure
+            // Every undo is tried, in reverse, even after one is refused: each puts back its own service.
+            let stuck = writes[..<index].reversed().filter { !$0.undo() }.map(\.service).reversed()
+            guard !stuck.isEmpty else { return change.failure }
+            return "\(change.failure) and couldn’t put back the \(stuck.joined(separator: " and ")) settings"
         }
         writes.forEach { $0.commit() }
         return nil

@@ -285,6 +285,61 @@ import AiTermCore
         #expect(defaults.string(forKey: "jira.site") == nil)
     }
 
+    /// A replaced config is put back as it was, not removed: Jira saved as A and typed in as B, then
+    /// GitLab refused, leaves A in the Keychain and the defaults.
+    @Test func aReplacedConfigIsPutBackWhenALaterWriteIsRefused() {
+        let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
+        JiraSettings.save(Self.jira, store: memory, defaults: defaults)
+        let store = RefusingKeySecretStore(wrapping: memory, refusing: "gitlab.token")
+        let m = model(jira: Self.jira, store: store, defaults: defaults)
+        let other = JiraConfig(siteURL: URL(string: "https://other.atlassian.net")!, email: "you@example.com", token: "t2")
+        m.jira.fields = JiraFields(other)
+        m.gitLab.fields = GitLabFields(Self.gitLab)
+        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        #expect(JiraSettings.load(store: memory, defaults: defaults) == Self.jira)
+        #expect(memory.get("jira.token") == Self.jira.token)
+        #expect(defaults.string(forKey: "jira.site") == Self.site.absoluteString)
+    }
+
+    /// A Save that fails — a card that cannot save, or a write the Keychain refuses — leaves what
+    /// Settings opens on next as it was: the record of each saved service's last test.
+    @Test func aFailedSaveLeavesTheTestRecordUntouched() {
+        let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
+        JiraSettings.save(Self.jira, store: memory, defaults: defaults)
+        let store = RefusingKeySecretStore(wrapping: memory, refusing: "gitlab.token")
+        let record = ServiceTestRecord()
+        record.jiraFailed = true
+        let m = model(jira: Self.jira, store: store, defaults: defaults, record: record)
+        m.jira.disconnect()
+        m.gitLab.fields.host = "gitlab"
+        m.gitLab.fields.token = "gl-token"
+        #expect(m.save() == "Enter a valid GitLab host URL")
+        #expect(record.jiraFailed && !record.gitLabFailed)
+
+        m.gitLab.fields = GitLabFields(Self.gitLab)
+        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain")
+        #expect(record.jiraFailed && !record.gitLabFailed, "a removed Jira would have cleared its flag")
+    }
+
+    /// Putting back an earlier write can itself be refused; the footer then says which service
+    /// was left changed rather than only what stopped the Save.
+    @Test func anUndoTheKeychainRefusesIsSaid() {
+        let memory = MemorySecretStore(), defaults = ScratchDefaults.make()
+        // Jira's token lands; every write after it — GitLab's, then Jira's undo — is refused.
+        let store = CountingSecretStore(wrapping: memory, allowing: 1)
+        let m = model(store: store, defaults: defaults)
+        m.jira.fields = JiraFields(Self.jira)
+        m.gitLab.fields = GitLabFields(Self.gitLab)
+        #expect(m.save() == "Couldn’t save the GitLab token to the Keychain and couldn’t put back the Jira settings")
+
+        // Two earlier writes left changed are both named.
+        let both = model(store: CountingSecretStore(wrapping: MemorySecretStore(), allowing: 2), defaults: ScratchDefaults.make())
+        both.jira.fields = JiraFields(Self.jira)
+        both.gitLab.fields = GitLabFields(Self.gitLab)
+        both.gitHub.fields = GitHubFields(Self.gitHub)
+        #expect(both.save() == "Couldn’t save the GitHub token to the Keychain and couldn’t put back the Jira and GitLab settings")
+    }
+
     /// A saved service's test answer is remembered for the next opening; a test of fields not yet
     /// saved is not, until Save stores them.
     @Test func aSavedServicesLastTestIsRemembered() async {
@@ -343,4 +398,17 @@ private final class RefusingKeySecretStore: SecretStore {
     init(wrapping wrapped: SecretStore, refusing key: String) { self.wrapped = wrapped; refused = key }
     func get(_ key: String) -> String? { wrapped.get(key) }
     func set(_ key: String, _ value: String?) -> Bool { key == refused ? false : wrapped.set(key, value) }
+}
+
+/// A store that takes the first `allowing` writes and refuses every one after.
+private final class CountingSecretStore: SecretStore {
+    private let wrapped: SecretStore
+    private var remaining: Int
+    init(wrapping wrapped: SecretStore, allowing count: Int) { self.wrapped = wrapped; remaining = count }
+    func get(_ key: String) -> String? { wrapped.get(key) }
+    func set(_ key: String, _ value: String?) -> Bool {
+        guard remaining > 0 else { return false }
+        remaining -= 1
+        return wrapped.set(key, value)
+    }
 }
