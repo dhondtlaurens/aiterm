@@ -23,16 +23,27 @@ import Testing
 /// runner has started — over ten seconds of their bodies, at the start of the app's run — and the
 /// thing it waits for, due on the same actor a moment after the check was, queues right behind it.
 /// Charged in full, that queue alone timed out a wait whose condition held at the very next check.
+///
+/// The wall clock still has the last word: a wait that has lasted ``wallClockFactor`` times its
+/// timeout ends there, whatever it was charged, so a condition that never holds on a host that
+/// stays busy fails within a minute rather than as long as the host is busy.
 @discardableResult
 func eventually(describing what: @autoclosure () -> String = "the condition", timeout: TimeInterval = TestDeadline.seconds,
                 every interval: Duration = .milliseconds(5), sourceLocation: SourceLocation = #_sourceLocation,
                 isolation: isolated (any Actor)? = #isolation, _ condition: () -> Bool) async -> Bool {
-    let budget = Duration.seconds(timeout)
-    var waited = Duration.zero, checked = ContinuousClock.now
+    let budget = Duration.seconds(timeout), started = ContinuousClock.now
+    var waited = Duration.zero, checked = started
     while !condition() {
         if Task.isCancelled { return false }
         if waited >= budget {
             Issue.record("Timed out after \(timeout) s waiting for \(what())", sourceLocation: sourceLocation)
+            return false
+        }
+        let elapsed = ContinuousClock.now - started
+        if elapsed >= budget * wallClockFactor {
+            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            Issue.record("Timed out after \(timeout) s waiting for \(what()) (wall clock: \(String(format: "%.1f", seconds)) s)",
+                         sourceLocation: sourceLocation)
             return false
         }
         try? await Task.sleep(for: interval)
@@ -47,6 +58,10 @@ func eventually(describing what: @autoclosure () -> String = "the condition", ti
 /// kept from its turn — its actor, or Swift's cooperative pool, busy with other tests' work —
 /// rather than anything the condition was given; a loaded machine's jitter stays well below it.
 private let lateTurn = Duration.milliseconds(100)
+
+/// How many times its timeout `eventually` waits by the wall clock before it gives up, however
+/// little of that it was charged: a minute, for `TestDeadline`'s ten seconds.
+let wallClockFactor = 6
 
 /// `eventually` for a synchronous test that waits on threads it started: the wait blocks the test's
 /// own thread rather than suspending, so neither it nor what it waits for needs another worker of

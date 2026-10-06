@@ -4,17 +4,34 @@ import Testing
 
 /// `eventually` charges its timeout for time the condition had, not for time its caller waited
 /// for a turn.
-@MainActor struct EventuallyTests {
-    /// The main actor is held past the whole timeout while the wait is between checks, and what it
-    /// waits for comes due in that time. Once the actor is free, the next check sees it: the turn
-    /// the wait was kept from is not charged to the condition.
+///
+/// Serialized: each test holds the main actor on purpose, and the hold of one is a late turn of
+/// the other, which the wall-clock ceiling counts.
+@MainActor @Suite(.serialized) struct EventuallyTests {
+    /// The main actor is held past the whole timeout (but short of the wall-clock ceiling) while
+    /// the wait is between checks, and what it waits for comes due in that time. Once the actor is
+    /// free, the next check sees it: the turn the wait was kept from is not charged to the condition.
     @Test func aCallerKeptFromItsTurnIsNotChargedForIt() async {
         var done = false
         /// What another main-actor test's synchronous body does to this one.
-        func holdTheActor() { Thread.sleep(forTimeInterval: 0.5) }
+        func holdTheActor() { Thread.sleep(forTimeInterval: 0.6) }
         Task { try? await Task.sleep(for: .milliseconds(20)); done = true }
         Task { try? await Task.sleep(for: .milliseconds(1)); holdTheActor() }
-        #expect(await eventually(timeout: 0.2) { done })
+        #expect(await eventually(timeout: 0.3) { done })
+    }
+
+    /// A wait kept from its turns past `wallClockFactor` times its timeout ends there, though it
+    /// was charged less than the timeout: the actor is held once, for longer than that, so the
+    /// check after it has been charged a single late turn.
+    @Test func aWaitStopsAtTheWallClockCeilingWhateverItWasCharged() async {
+        let timeout = 0.2, hold = timeout * Double(wallClockFactor) + 0.1
+        func holdTheActor() { Thread.sleep(forTimeInterval: hold) }
+        Task { holdTheActor() } // Runs once the wait first suspends.
+        await withKnownIssue {
+            #expect(await eventually(timeout: timeout) { false } == false)
+        } matching: { issue in
+            issue.description.contains("(wall clock: ")
+        }
     }
 
     /// A condition that never holds still times out, with an issue at the caller.
