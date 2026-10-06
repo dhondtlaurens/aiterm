@@ -19,7 +19,7 @@ extension Repository {
 
     /// The reason the worktree at `worktreePath` is locked with. `nil` when it is unlocked or unknown
     /// to git, `""` when it is locked without a reason.
-    public func lockReason(of worktreePath: String) -> String? {
+    func lockReason(of worktreePath: String) -> String? {
         (try? worktree(at: worktreePath))?.lockReason
     }
 
