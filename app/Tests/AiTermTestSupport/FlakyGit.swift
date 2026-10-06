@@ -19,7 +19,7 @@ final class FlakyGitRunner: GitRunning {
 
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         let fail = state.withLock { $0.calls += 1; return $0.failing }
-        if fail { throw GitError(args: args, code: 15, stderr: "git timed out after \(timeout) s") }
+        if fail { throw GitError(args: args, code: 15, stderr: "git timed out after \(timeout) s", timedOut: true) }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

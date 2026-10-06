@@ -45,4 +45,11 @@ struct GitErrorTests {
         #expect(!GitError(args: ["worktree", "remove", "/r/.worktrees/x"], code: 128, stderr: "fatal: not a working tree").refusedForUnsavedWork)
         #expect(!GitError(args: ["branch", "-d", "x"], code: 1, stderr: refusal).refusedForUnsavedWork)
     }
+
+    /// A timeout is the runner's deadline, which it says in a flag of its own: a remote's error that
+    /// happens to read "timed out after" — curl's — is a failure git answered with, not a stall.
+    @Test func onlyTheRunnersDeadlineIsATimeout() {
+        let curl = "fatal: unable to access 'https://example.com/a.git/': Connection timed out after 10001 milliseconds"
+        #expect(!GitError(args: ["fetch"], code: 128, stderr: curl).timedOut)
+    }
 }

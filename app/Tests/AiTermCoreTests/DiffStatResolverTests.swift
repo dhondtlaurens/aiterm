@@ -281,29 +281,48 @@ struct DiffStatResolverTests {
         #expect(utimensat(AT_FDCWD, path, &times, 0) == 0)
     }
 
-    /// An untracked file is counted once: what its lines came to is kept against its `lstat`. The
-    /// proof is a file rewritten in place to a different count at the size and modification time it
-    /// had — only a re-read would see it — and then a change to either, which is seen.
-    @Test func anUntrackedFileWhoseStatIsUnchangedIsNotReadAgain() throws {
-        let clock = TestClock()
+    /// Counts the untracked files the resolver reads, reading them as it would.
+    private final class Reads: Sendable {
+        private let count = Mutex(0)
+        var total: Int { count.withLock { $0 } }
+        func read(_ path: String, size: Int) -> Data? {
+            count.withLock { $0 += 1 }
+            return DiffStatResolver.contents(of: path, size: size)
+        }
+    }
+
+    /// An untracked file is counted once: what its lines came to is kept against its `lstat`, and
+    /// it is read again only when that changes — its modification time, its size, or its change
+    /// time, which a `chmod` moves and which a rewrite that put the old modification time back
+    /// cannot help moving.
+    @Test func anUntrackedFileIsReadAgainOnlyWhenItsStatChanges() throws {
+        let clock = TestClock(), reads = Reads()
         let (_, worktree) = try makeRepo()
         let file = worktree + "/new.txt"
         try write("a\nb\n", to: file)
-        var before = stat()
-        #expect(lstat(file, &before) == 0)
-        let resolver = DiffStatResolver(git: .hermetic(), now: { clock.now }, ttl: 5)
+        let resolver = DiffStatResolver(git: .hermetic(), now: { clock.now }, ttl: 5, untrackedCap: .standard, contents: reads.read)
         func expired() -> DiffStat? { clock.advance(by: 6); return resolver.diff(for: worktree, base: "main") }
         #expect(resolver.diff(for: worktree, base: "main") == DiffStat(added: 2, removed: 0))
+        #expect(reads.total == 1)
+        #expect(expired() == DiffStat(added: 2, removed: 0))
+        #expect(reads.total == 1, "the same stat, so the count that was kept")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file)
+        #expect(expired() == DiffStat(added: 2, removed: 0))
+        #expect(reads.total == 2, "a new change time is read again")
+        var before = stat()
+        #expect(lstat(file, &before) == 0)
         let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: file))
         try handle.write(contentsOf: Data("a\n\n\n".utf8))
         try handle.close()
         setModified(file, to: before.st_mtimespec)
-        #expect(expired() == DiffStat(added: 2, removed: 0), "the same stat, so the count that was kept")
+        #expect(expired() == DiffStat(added: 3, removed: 0), "rewritten at the size and modification time it had")
+        #expect(reads.total == 3)
         setModified(file, to: timespec(tv_sec: before.st_mtimespec.tv_sec + 2, tv_nsec: before.st_mtimespec.tv_nsec))
-        #expect(expired() == DiffStat(added: 3, removed: 0), "a new modification time is read again")
+        #expect(expired() == DiffStat(added: 3, removed: 0))
+        #expect(reads.total == 4, "a new modification time is read again")
         try write("a\n\n\n\n\n", to: file)
-        setModified(file, to: timespec(tv_sec: before.st_mtimespec.tv_sec + 2, tv_nsec: before.st_mtimespec.tv_nsec))
         #expect(expired() == DiffStat(added: 5, removed: 0), "and so is a new size")
+        #expect(reads.total == 5)
     }
 
     /// The caps stop the count in the same place whether the files were read or remembered.
@@ -432,7 +451,7 @@ private final class TimesOut: GitRunning {
     }
 
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
-        if args.first == command, failing { throw GitError(args: args, code: 15, stderr: "git \(command) timed out after \(timeout) s") }
+        if args.first == command, failing { throw GitError(args: args, code: 15, stderr: "git \(command) timed out after \(timeout) s", timedOut: true) }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

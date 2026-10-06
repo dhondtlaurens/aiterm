@@ -31,9 +31,20 @@ public final class DiffStatResolver: @unchecked Sendable {
     private struct Entry { var value: DiffStat?; var at: Date }
     /// What an untracked file counted as, and the `lstat` of the file it was counted from.
     private struct Counted { var stamp: Stamp; var lines: Int? }
-    /// What a rewrite of a file changes: the modification time to the nanosecond, the size, and the
-    /// inode, which a file replaced rather than edited has a new one of.
-    private struct Stamp: Equatable { var seconds: Int, nanoseconds: Int, size: Int, inode: UInt64 }
+    /// What a rewrite of a file changes: the modification time to the nanosecond, the size, the
+    /// inode, which a file replaced rather than edited has a new one of, and the change time, which
+    /// a rewrite that puts the old modification time back (`touch -r`, an unpacked archive) still
+    /// moves and no one can set.
+    private struct Stamp: Equatable {
+        /// Both times in nanoseconds since the epoch.
+        var modified: Int, changed: Int, size: Int, inode: UInt64
+
+        init(_ info: stat) {
+            modified = info.st_mtimespec.tv_sec * 1_000_000_000 + info.st_mtimespec.tv_nsec
+            changed = info.st_ctimespec.tv_sec * 1_000_000_000 + info.st_ctimespec.tv_nsec
+            size = Int(info.st_size); inode = UInt64(info.st_ino)
+        }
+    }
     /// A merge-base, `nil` when the base could not be found, and the refs it was computed from, as
     /// they stood just before.
     private struct MergeBase { var refs: FileStamps; var commit: String? }
@@ -51,13 +62,16 @@ public final class DiffStatResolver: @unchecked Sendable {
     private let ttl: TimeInterval
     private let cap: UntrackedCap
     private let failureBackoff: TimeInterval
+    /// Reads an untracked file to count its lines: ``contents(of:size:)``, which a test wraps to
+    /// count what is read.
+    private let contents: @Sendable (_ path: String, _ size: Int) -> Data?
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     private var mergeBases: [String: MergeBase] = [:]
     /// Per checkout, the files the last pass counted, by path.
     private var counted: [String: [String: Counted]] = [:]
     /// When git last ran out of time on a checkout.
-    private var timeouts: [String: Date] = [:]
+    private var timeouts: [String: TimedOut] = [:]
 
     /// Untracked files bigger than this are skipped rather than read: a line count is not worth a
     /// stray dump or build artifact that escaped `.gitignore`.
@@ -68,8 +82,10 @@ public final class DiffStatResolver: @unchecked Sendable {
     }
 
     init(git: any GitRunning, now: @escaping @Sendable () -> Date = Date.init, ttl: TimeInterval = 5, untrackedCap: UntrackedCap,
-         failureBackoff: TimeInterval = TimedOut.backoff) {
+         failureBackoff: TimeInterval = TimedOut.backoff,
+         contents: @escaping @Sendable (_ path: String, _ size: Int) -> Data? = DiffStatResolver.contents(of:size:)) {
         self.git = git; self.now = now; self.ttl = ttl; self.cap = untrackedCap; self.failureBackoff = failureBackoff
+        self.contents = contents
     }
 
     /// The diff of `worktree` against `base`, or `nil` when there is no base, it cannot be found
@@ -80,7 +96,7 @@ public final class DiffStatResolver: @unchecked Sendable {
         lock.lock()
         let known = entries[key]
         if let known, now().timeIntervalSince(known.at) < ttl { lock.unlock(); return known.value }
-        if let failedAt = timeouts[key], now().timeIntervalSince(failedAt) < failureBackoff { lock.unlock(); return known?.value }
+        if let timeout = timeouts[key], timeout.isPending(now: now(), backoff: failureBackoff) { lock.unlock(); return known?.value }
         lock.unlock()
         do {
             let value = try read(worktree, base: base, key: key)
@@ -89,7 +105,7 @@ public final class DiffStatResolver: @unchecked Sendable {
         } catch {
             // Git ran out of time, which is no answer: the diff last known stands, and is not
             // asked about again until the backoff is over.
-            lock.lock(); timeouts[key] = now(); lock.unlock()
+            lock.lock(); timeouts[key] = TimedOut(error, at: now()); lock.unlock()
             return known?.value
         }
     }
@@ -213,10 +229,10 @@ public final class DiffStatResolver: @unchecked Sendable {
             guard info.st_mode & S_IFMT == S_IFREG, size <= Self.untrackedByteLimit else { continue }
             guard bytes + size <= cap.bytes else { break }
             bytes += size
-            let stamp = Stamp(seconds: info.st_mtimespec.tv_sec, nanoseconds: info.st_mtimespec.tv_nsec, size: size, inode: UInt64(info.st_ino))
+            let stamp = Stamp(info)
             // The stamp is from before the read, so a file that changes during it is read again next time.
             let result = before[path].flatMap { $0.stamp == stamp ? $0 : nil }
-                ?? Counted(stamp: stamp, lines: Self.contents(of: file, size: size).flatMap(Self.lineCount))
+                ?? Counted(stamp: stamp, lines: contents(file, size).flatMap(Self.lineCount))
             after[path] = result
             total += result.lines ?? 0
         }

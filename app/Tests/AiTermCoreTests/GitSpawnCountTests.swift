@@ -211,6 +211,6 @@ private final class HungMount: GitRunning {
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         guard hanging, dir == folder || dir.hasPrefix(folder + "/") else { return try inner.run(args, in: dir, timeout: timeout, environment: environment) }
         count.withLock { $0 += 1 }
-        throw GitError(args: args, code: 15, stderr: "git \(args.first ?? "") timed out after \(timeout) s")
+        throw GitError(args: args, code: 15, stderr: "git \(args.first ?? "") timed out after \(timeout) s", timedOut: true)
     }
 }

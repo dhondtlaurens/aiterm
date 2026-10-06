@@ -20,7 +20,8 @@ public final class StallGuardedGit: GitRunning {
     private struct State {
         /// Folder and the project it belongs to, longest folder first so the nearest owner wins.
         var owners: [(folder: String, project: String)] = []
-        var stalls: [String: Date] = [:]
+        /// The timeout that stalled each project.
+        var stalls: [String: TimedOut] = [:]
     }
 
     private let inner: any GitRunning
@@ -35,37 +36,49 @@ public final class StallGuardedGit: GitRunning {
     }
 
     /// Which project each folder belongs to: the projects' own, and their tasks' worktrees, which
-    /// are not always under the project's folder (an imported worktree can be anywhere).
+    /// are not always under the project's folder (an imported worktree can be anywhere). Folders
+    /// are compared without trailing slashes, and an empty one — a task with no worktree path —
+    /// owns nothing: as a prefix it would own every folder there is.
     public func scope(projects: [Project], tasks: [TaskItem]) {
-        let paths = Dictionary(projects.map { ($0.id, $0.path) }, uniquingKeysWith: { first, _ in first })
-        var owners = projects.map { (folder: $0.path, project: $0.path) }
-        for task in tasks { if let project = paths[task.projectId] { owners.append((task.worktreePath, project)) } }
+        let paths = Dictionary(projects.map { ($0.id, Self.folder($0.path)) }, uniquingKeysWith: { first, _ in first })
+        var owners = paths.values.map { (folder: $0, project: $0) }
+        for task in tasks { if let project = paths[task.projectId] { owners.append((Self.folder(task.worktreePath), project)) } }
+        owners.removeAll { $0.folder.isEmpty || $0.project.isEmpty }
         owners.sort { $0.folder.count > $1.folder.count }
         state.withLock { $0.owners = owners }
     }
 
+    /// `path` less its trailing slashes, so `/a/b/` and `/a/b` are one folder.
+    private static func folder(_ path: String) -> String {
+        var folder = path
+        while folder.hasSuffix("/") { folder.removeLast() }
+        return folder
+    }
+
     public func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         let project = state.withLock { state -> String in
-            state.owners.first { dir == $0.folder || dir.hasPrefix($0.folder + "/") }?.project ?? dir
+            state.owners.first { dir == $0.folder || dir.hasPrefix($0.folder + "/") }?.project ?? Self.folder(dir)
         }
-        if let since = stalledSince(project) {
-            throw GitError(args: args, code: 15, stderr: "git was not run: a git in \(project) timed out after \(Int(timeout)) s \(Int(now().timeIntervalSince(since))) s ago")
+        if let stall = stall(of: project) {
+            // The timeout that stalled the project, not this command's deadline, which it never met.
+            let ago = Int(now().timeIntervalSince(stall.at))
+            throw GitError(args: args, code: 15, stderr: "git was not run: \(stall.error.stderr) in \(project) \(ago) s ago", timedOut: true)
         }
         do { return try inner.run(args, in: dir, timeout: timeout, environment: environment) }
-        catch let error as GitError where error.timedOut {
-            let at = now()
+        catch {
+            guard let stall = TimedOut(error, at: now()) else { throw error }
             state.withLock { state in
-                state.stalls = state.stalls.filter { at.timeIntervalSince($0.value) < backoff }
-                state.stalls[project] = at
+                state.stalls = state.stalls.filter { $0.value.isPending(now: stall.at, backoff: backoff) }
+                state.stalls[project] = stall
             }
             throw error
         }
     }
 
-    private func stalledSince(_ project: String) -> Date? {
+    private func stall(of project: String) -> TimedOut? {
         state.withLock { state in
-            guard let since = state.stalls[project], now().timeIntervalSince(since) < backoff else { return nil }
-            return since
+            guard let stall = state.stalls[project], stall.isPending(now: now(), backoff: backoff) else { return nil }
+            return stall
         }
     }
 }

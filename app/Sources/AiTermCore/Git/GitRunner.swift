@@ -2,7 +2,13 @@ import Foundation
 
 public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertible {
     public let args: [String], code: Int32, stderr: String
-    public init(args: [String], code: Int32, stderr: String) { self.args = args; self.code = code; self.stderr = stderr }
+    /// Git ran out of time (see ``GitRunner``): a hung mount or a machine under load, which says
+    /// nothing about what was asked, unlike a status git answers with. Set by whoever enforced the
+    /// deadline, never read from `stderr`, where a remote's own "timed out" can appear.
+    public let timedOut: Bool
+    public init(args: [String], code: Int32, stderr: String, timedOut: Bool = false) {
+        self.args = args; self.code = code; self.stderr = stderr; self.timedOut = timedOut
+    }
     public var errorDescription: String? { description }
     public var description: String { stderr.isEmpty ? "Git exited with status \(code)." : stderr }
 
@@ -29,10 +35,6 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
         guard !items.isEmpty else { return "" }
         return " " + items.prefix(3).joined(separator: ", ") + (items.count > 3 ? " and \(items.count - 3) more" : "")
     }
-
-    /// Git ran out of time (see ``GitRunner``): a hung mount or a machine under load, which says
-    /// nothing about what was asked, unlike a status git answers with.
-    public var timedOut: Bool { stderr.contains("timed out after") }
 
     /// `git worktree remove` refusing a checkout with uncommitted or untracked files — the one
     /// refusal that `--force` answers, after asking.
@@ -137,7 +139,7 @@ public struct GitRunner: GitRunning {
                                            in: URL(fileURLWithPath: dir), timeout: timeout)
         if result.timedOut {
             throw GitError(args: args, code: result.status,
-                           stderr: "\(Self.command(args)) timed out after \(String(format: "%g", timeout)) s")
+                           stderr: "\(Self.command(args)) timed out after \(String(format: "%g", timeout)) s", timedOut: true)
         }
         guard result.status == 0 else {
             throw GitError(args: args, code: result.status, stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))

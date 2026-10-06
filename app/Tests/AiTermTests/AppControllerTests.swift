@@ -1260,7 +1260,7 @@ private struct DefaultBranchFailingGit: GitRunning {
     let inner: any GitRunning = GitRunner.hermetic()
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         // The one command that reads `origin/HEAD` and the usual names.
-        if args.first == "for-each-ref", args.contains("refs/remotes/origin/HEAD") { throw GitError(args: args, code: 15, stderr: "git timed out after \(timeout) s") }
+        if args.first == "for-each-ref", args.contains("refs/remotes/origin/HEAD") { throw GitError(args: args, code: 15, stderr: "git timed out after \(timeout) s", timedOut: true) }
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }

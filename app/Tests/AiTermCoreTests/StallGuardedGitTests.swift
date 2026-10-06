@@ -14,7 +14,7 @@ struct StallGuardedGitTests {
 
         func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
             let hangs = state.withLock { $0.asked.append(dir); return $0.hung.contains(dir) }
-            if hangs { throw GitError(args: args, code: 15, stderr: "git status timed out after \(Int(timeout)) s") }
+            if hangs { throw GitError(args: args, code: 15, stderr: "git status timed out after \(Int(timeout)) s", timedOut: true) }
             return "ok"
         }
     }
@@ -60,6 +60,45 @@ struct StallGuardedGitTests {
         stub.hang("/mnt/one", false)
         #expect((try? guarded.run(["status"], in: "/mnt/one")) == "ok")
         #expect((try? guarded.run(["status"], in: "/mnt/one/sub")) == "ok", "and the stall is over for good")
+    }
+
+    /// A skipped command says what stalled the project — the command that ran out of time, and
+    /// after how long — not its own deadline, which it never ran into.
+    @Test func aSkippedCommandReportsTheTimeoutThatStalledTheProject() {
+        let clock = TestClock(), stub = Stub()
+        let guarded = StallGuardedGit(stub, now: { clock.now })
+        guarded.scope(projects: [project("/mnt/one")], tasks: [])
+        stub.hang("/mnt/one", true)
+        _ = try? guarded.run(["status"], in: "/mnt/one", timeout: 10)
+        clock.advance(by: 3)
+        let error = #expect(throws: GitError.self) { try guarded.run(["worktree", "add"], in: "/mnt/one", timeout: 300) }
+        #expect(error?.timedOut == true)
+        #expect(error?.stderr == "git was not run: git status timed out after 10 s in /mnt/one 3 s ago")
+    }
+
+    /// A task with no worktree path owns no folder — not every folder there is.
+    @Test func anEmptyWorktreePathOwnsNothing() {
+        let clock = TestClock(), stub = Stub()
+        let guarded = StallGuardedGit(stub, now: { clock.now })
+        let one = project("/mnt/one")
+        guarded.scope(projects: [one], tasks: [task(one, "")])
+        stub.hang("/mnt/one", true)
+        _ = try? guarded.run(["status"], in: "/mnt/one")
+        #expect((try? guarded.run(["status"], in: "/unrelated")) == "ok")
+    }
+
+    /// A folder written with a trailing slash, a project's or a worktree's, is the same folder.
+    @Test func aTrailingSlashIsTheSameFolder() {
+        let clock = TestClock(), stub = Stub()
+        let guarded = StallGuardedGit(stub, now: { clock.now })
+        let one = project("/mnt/one/")
+        guarded.scope(projects: [one], tasks: [task(one, "/elsewhere/imported//")])
+        stub.hang("/mnt/one", true)
+        _ = try? guarded.run(["status"], in: "/mnt/one")
+        for dir in ["/mnt/one/", "/mnt/one/.worktrees/a", "/elsewhere/imported", "/elsewhere/imported/src"] {
+            #expect(throws: GitError.self, "\(dir) is the stalled project's") { try guarded.run(["status"], in: dir) }
+        }
+        #expect(stub.asked == ["/mnt/one"])
     }
 
     /// A refusal is an answer, not a stall.

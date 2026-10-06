@@ -98,7 +98,7 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: directory) }
         let started = Date()
         #expect { try git.run(["fetch", "--quiet", "origin"], in: directory, timeout: 0.5) } throws: { error in
-            GitError.reason(of: error) == "git fetch timed out after 0.5 s"
+            GitError.reason(of: error) == "git fetch timed out after 0.5 s" && (error as? GitError)?.timedOut == true
         }
         #expect(Date().timeIntervalSince(started) < 3)
         #expect { try git.run(["-c", "user.name=t", "worktree", "add", "x"], in: directory, timeout: 0.2) } throws: { error in

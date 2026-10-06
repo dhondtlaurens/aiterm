@@ -14,7 +14,7 @@ struct WatchedFileCacheTests {
         return (path, file)
     }
 
-    private func timeout() -> GitError { GitError(args: ["status"], code: 15, stderr: "git status timed out after 10 s") }
+    private func timeout() -> GitError { GitError(args: ["status"], code: 15, stderr: "git status timed out after 10 s", timedOut: true) }
 
     private final class Calls: Sendable {
         private let counts = Mutex((locate: 0, read: 0))
