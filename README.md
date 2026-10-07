@@ -34,6 +34,20 @@ After that, *AiTerm › Check for Updates…* installs newer versions in place.
 iTerm2 asks once to allow AiTerm's API connection; the sidebar shows "Waiting for iTerm2…" until
 you do.
 
+### Let your AI set it up
+
+Paste this into Claude Code, Codex or another coding agent:
+
+    Install AiTerm on this Mac for me by following
+    https://raw.githubusercontent.com/dhondtlaurens/aiterm/main/docs/ai-install.md
+
+The agent checks the requirements, then downloads the latest release and verifies its checksum. It
+copies the app to Applications, clears the download flag so macOS doesn't ask you to *Open Anyway*,
+and switches on iTerm2's Python API. It asks before installing a missing requirement, with or
+without Homebrew. It stops
+for the clicks only you can make, such as iTerm2's permission dialog and the agent hooks in
+Settings. The steps it follows are in [docs/ai-install.md](docs/ai-install.md).
+
 ## What AiTerm changes on your machine
 
 - **Agent hooks** — nothing until you press **Install** on an agent's card in *Settings › Agents*;
