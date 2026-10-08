@@ -72,7 +72,7 @@ extension DividerRow {
     }
 }
 
-/// A project's header: disclosure, provider, name and its one Jira badge — or, collapsed, the status counts
+/// A project's header: disclosure, provider, name and its Jira badge — or, collapsed, the status counts
 /// of the rows it is hiding — and the menu that adds a terminal, task or review. An empty project
 /// has nothing to disclose, so like a leaf in a Finder outline it draws no chevron and does not
 /// toggle; the chevron's column stays, so its name lines up with its neighbours'.
@@ -109,8 +109,8 @@ struct ProjectHeaderRow: View {
                 HeaderChevron(collapsed: section.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
                     .opacity(section.isEmpty ? 0 : 1)
                 ProviderIcon(provider: project.provider)
-                // The name, then its one Jira badge, `Space.gap` apart as a task row's quiet badges
-                // and branch are. The badge keeps its width; the name is what truncates.
+                // The name, then its Jira badge and any `+n`, `Space.gap` apart as a task row's quiet
+                // badges and branch are. They keep their width; the name is what truncates.
                 HStack(spacing: scale(Space.gap)) {
                     HeaderTitle(text: project.name)
                     if let badge = ProjectJiraBadge.badge(for: project, showsKey: controller.preferences.badgeDetails.jiraProject) {
@@ -536,44 +536,46 @@ extension EnvironmentValues {
 }
 #endif
 
-/// A project header's `ProjectJiraBadge`, drawn: a quiet `Badge` that opens the one project, or a
-/// menu of them ending in the context menu's "Jira Projects…", greyed as it is there while the
-/// workspace is locked.
+/// A project header's `ProjectJiraBadge`, drawn as `BranchLabelView` draws a branch and its `+n`: a
+/// quiet `Badge` opening the first project, then — `Space.snug` after it — a boxed `+n` `Badge` whose
+/// menu offers every project and ends in the context menu's "Jira Projects…", greyed as it is there
+/// while the workspace is locked.
 private struct ProjectJiraBadgeView: View {
     let badge: ProjectJiraBadge
     let canChangeWorkspace: Bool
     let editProjects: () -> Void
+    @Environment(\.interfaceScale) private var scale
 
     var body: some View {
-        switch badge.target {
-        case .project(let url):
+        HStack(spacing: scale(Space.snug)) {
             Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet,
-                  action: { ExternalApps.open(link: url.absoluteString) })
-        case .menu(let items):
-            Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet,
-                  accessibilityLabel: badge.accessibilityLabel) {
-                ForEach(items, id: \.url) { item in
-                    Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
+                  action: { ExternalApps.open(link: badge.url.absoluteString) })
+            if let overflow = badge.overflow {
+                Badge(overflow.label, help: overflow.help, accessibilityLabel: overflow.accessibilityLabel) {
+                    ForEach(overflow.items, id: \.url) { item in
+                        Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
+                    }
+                    Divider()
+                    Button("Jira Projects…", action: editProjects).disabled(!canChangeWorkspace)
                 }
-                Divider()
-                Button("Jira Projects…", action: editProjects).disabled(!canChangeWorkspace)
             }
         }
     }
 }
 
-/// The one Jira badge a project row wears beside its own name, however many Jira projects it links:
-/// one project's key, which opens it, or several projects' count, which opens a menu of them. One
-/// mark per row, so the badges never take the room the name needs. A presentational value rather
-/// than an expression inside the row, so the rule — what the badge says, and where it points — is
-/// testable without rendering the sidebar, the way `TaskRowBadges` is.
+/// The Jira badge a project row wears beside its own name: the first linked Jira project's key,
+/// which opens it, and — when the project links more — a `+n` after it, the way a branch label
+/// counts a window's other branches, whose menu offers every one of them. A presentational value
+/// rather than an expression inside the row, so the rule — what the badge says, and where it points —
+/// is testable without rendering the sidebar, the way `TaskRowBadges` is.
 struct ProjectJiraBadge: Equatable {
-    /// What a click on the badge does.
-    enum Target: Equatable {
-        /// Opens the one linked project.
-        case project(URL)
-        /// Offers the linked projects, in the order they were linked, each opening its own.
-        case menu([MenuItem])
+    /// The `+n` after the first project's key, for a project that links more than one.
+    struct Overflow: Equatable {
+        let label: String
+        let help: String
+        let accessibilityLabel: String
+        /// Every linked project, the first included, in the order they were linked.
+        let items: [MenuItem]
     }
 
     struct MenuItem: Equatable {
@@ -581,40 +583,45 @@ struct ProjectJiraBadge: Equatable {
         let url: URL
     }
 
-    /// One project's key, unless the Interface tab has turned the project key off and the mark
-    /// stands alone; several projects' count, which is not a key and so stays.
+    /// The first project's key, unless the Interface tab has turned the project key off and the
+    /// mark stands alone.
     let label: String?
     let help: String
-    /// What VoiceOver reads in place of the label, when the label alone would say too little.
-    let accessibilityLabel: String?
-    let target: Target
+    let url: URL
+    /// The rest, when there is more than one; not a key, so the key switch leaves it.
+    let overflow: Overflow?
 
     /// The project's badge, or none when it links no Jira project.
     static func badge(for project: Project, showsKey: Bool = true) -> ProjectJiraBadge? {
-        let jira = project.jiraProjects
-        switch jira.count {
-        case 0: return nil
-        case 1: return ProjectJiraBadge(jira: jira[0], showsKey: showsKey)
-        default: return ProjectJiraBadge(several: jira)
-        }
+        guard let first = project.jiraProjects.first else { return nil }
+        return ProjectJiraBadge(jira: first, showsKey: showsKey, overflow: Overflow(project.jiraProjects))
     }
 
     init(jira: JiraProjectRef, showsKey: Bool = true) {
+        self.init(jira: jira, showsKey: showsKey, overflow: nil)
+    }
+
+    private init(jira: JiraProjectRef, showsKey: Bool, overflow: Overflow?) {
         label = showsKey ? jira.key : nil
-        target = .project(jira.browseURL)
-        accessibilityLabel = nil
+        url = jira.browseURL
         // The row shows the key only; the project's full name is worth a hover, and the URL beside
         // it is what every other badge in the sidebar puts there. A badge without its key names it
         // there too.
         help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") — \(jira.browseURL.absoluteString)"
+        self.overflow = overflow
     }
+}
 
-    private init(several jira: [JiraProjectRef]) {
-        label = "\(jira.count)"
-        target = .menu(jira.map { MenuItem(title: "\($0.key) — \($0.name)", url: $0.browseURL) })
-        // A count says nothing on its own: the hover names every project, and VoiceOver every key.
+extension ProjectJiraBadge.Overflow {
+    /// The `+n` for `jira`, or none when there is nothing past the first.
+    init?(_ jira: [JiraProjectRef]) {
+        let rest = Array(jira.dropFirst())
+        guard !rest.isEmpty else { return nil }
+        label = "+\(rest.count)"
+        items = jira.map { .init(title: "\($0.key) — \($0.name)", url: $0.browseURL) }
+        // A count says nothing on its own: the hover names every project, and VoiceOver the rest.
         help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
-        accessibilityLabel = "\(jira.count) Jira projects: \(jira.keyList)"
+        accessibilityLabel = "\(rest.count) more Jira \(rest.count == 1 ? "project" : "projects"): \(rest.keyList)"
     }
 }
 

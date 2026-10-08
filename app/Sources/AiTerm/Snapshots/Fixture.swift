@@ -42,8 +42,8 @@ struct Fixture {
     let onDisk: WorkspaceScan
 
     init() {
-        // Linked to two Jira projects, so the sidebar snapshot carries a project row's Jira count
-        // badge; `dotfiles` below is linked to none, which is the other half of that rule.
+        // Linked to two Jira projects, so the sidebar snapshot carries a project row's Jira key and its
+        // +n; `dotfiles` below is linked to none, which is the other half of that rule.
         let site = URL(string: "https://example.atlassian.net")!
         project = Project(id: UUID(), name: "acme-storefront", path: FileManager.default.currentDirectoryPath,
                           provider: .gitlab, remoteUrl: "git@gitlab.example/acme/storefront.git", addedAt: Snapshots.clock.now, collapsed: false,
