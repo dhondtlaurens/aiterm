@@ -1,5 +1,3 @@
-import Foundation
-
 /// The footer's token counts after `ctx` (proposal A, 8 Oct 2026): `in 936k · out 5.6k`, and one
 /// sentence for their tooltip and VoiceOver. The footer formats nothing itself.
 public extension TokenTally {
@@ -7,7 +5,7 @@ public extension TokenTally {
     static let inputLabel = "in", outputLabel = "out"
 
     /// At most four glyphs, rounded down, so the row never claims more than was spent and never
-    /// prints `1000k`: `840`, `5.6k` (`5k`, not `5.0k`), `936k`, `3.2M`, `12M`.
+    /// prints `1000k`: `840`, `5.6k` (`5k`, not `5.0k`), `936k`, `3.2M`, `12M`, `1.2B`.
     static func short(_ count: Int) -> String {
         let count = max(0, count)
         switch count {
@@ -15,14 +13,19 @@ public extension TokenTally {
         case ..<10_000: return tenths(count / 100) + "k"
         case ..<1_000_000: return "\(count / 1_000)k"
         case ..<10_000_000: return tenths(count / 100_000) + "M"
-        default: return "\(count / 1_000_000)M"
+        case ..<1_000_000_000: return "\(count / 1_000_000)M"
+        case ..<10_000_000_000: return tenths(count / 100_000_000) + "B"
+        default: return "\(count / 1_000_000_000)B"
         }
     }
 
     /// The pair in words: "Input 936,018 tokens, 99 % from cache · output 5,625 tokens · subagents
     /// included". A cache share the harness cannot tell apart is left out, not read as 0 %.
     var help: String {
-        let share = cached.flatMap { cached in input > 0 ? ", \(min(100, cached * 100 / input)) % from cache" : nil } ?? ""
+        let share = cached.flatMap { cached in
+            // In doubles so a huge tally cannot trap on overflow; clamped so a stray count never reads as more than all or less than none.
+            input > 0 ? ", \(min(100, Int((Double(max(0, cached)) / Double(input) * 100).rounded(.down)))) % from cache" : nil
+        } ?? ""
         return "Input \(Self.grouped(input)) tokens\(share) · output \(Self.grouped(output)) tokens · subagents included"
     }
 

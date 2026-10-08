@@ -5,8 +5,8 @@ import Testing
     /// At most four glyphs, rounded down: the row never claims more than was spent, and never
     /// prints `1000k` or `5.0k` (proposal A, 8 Oct 2026).
     @Test(arguments: zip(
-        [0, 840, 999, 1_000, 5_099, 5_625, 9_999, 10_000, 936_018, 999_999, 1_000_000, 3_283_279, 9_999_999, 12_400_000, -3],
-        ["0", "840", "999", "1k", "5k", "5.6k", "9.9k", "10k", "936k", "999k", "1M", "3.2M", "9.9M", "12M", "0"]))
+        [0, 840, 999, 1_000, 5_099, 5_625, 9_999, 10_000, 936_018, 999_999, 1_000_000, 3_283_279, 9_999_999, 12_400_000, -3, 99_999, 99_999_999, 999_999_999, 1_000_000_000, 1_234_000_000, 12_400_000_000],
+        ["0", "840", "999", "1k", "5k", "5.6k", "9.9k", "10k", "936k", "999k", "1M", "3.2M", "9.9M", "12M", "0", "99k", "99M", "999M", "1B", "1.2B", "12B"]))
     func shortCounts(count: Int, expected: String) {
         #expect(TokenTally.short(count) == expected)
     }
@@ -21,6 +21,12 @@ import Testing
     @Test func anUnknownCacheShareIsLeftOut() {
         #expect(TokenTally(input: 12, cached: nil, output: 3).help == "Input 12 tokens · output 3 tokens · subagents included")
         #expect(TokenTally(input: 0, cached: 0, output: 0).help == "Input 0 tokens · output 0 tokens · subagents included")
+    }
+
+    /// A count that cannot be a share of the input is held to none or all, never negative or over 100 %.
+    @Test func theCacheShareStaysBetweenNoneAndAll() {
+        #expect(TokenTally(input: 100, cached: 250, output: 1).help.contains(", 100 % from cache"))
+        #expect(TokenTally(input: 100, cached: -5, output: 1).help.contains(", 0 % from cache"))
     }
 
     /// Thousands are split by commas on every Mac, whatever its locale.
