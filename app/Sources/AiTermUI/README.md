@@ -149,7 +149,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 
 | Type | What it is |
 |---|---|
-| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows |
+| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows; `action` makes it a button, `menu` a menu — a project header's count of Jira projects — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
 | `Icon` | every mark, at a size: an SF Symbol (its glyph's own width, in the surface's ink unless tinted), a vendor `Brand` (a `size` square, in its colour unless tinted), or a full-colour artwork that carries its own fallback (`.gitlabTanuki`, `.piBadge`). The one way the app draws a logo — no fill travels as a hex string |
 | `FormField` | a label above its control; what the control hangs out of itself — a dropdown's results — draws over the lines after it |
 | `FrontToBackStack` | a `VStack` whose earlier children draw over its later ones, so an overhang (a picker's results, the completion popup) needs no `zIndex` at any level of a sheet. `FormField` is one; a sheet's fields and steps go in another |
@@ -249,6 +249,14 @@ task or review, a terminal (from its row's context menu or VoiceOver actions: "R
 terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraProjectSheet` is
 reached only from a project's context menu: Add Project… has no sheet, the folder chooser adds the
 project at once, and a folder inside a repository adds that repository with a toast saying so.
+
+A project header wears **one** quiet Jira `Badge` beside its name, however many Jira projects it
+links (proposal B, 8 Oct 2026): one project's key, which opens that project, or several projects'
+count, which opens a menu of them — `KEY — Name` per project in the order they were linked, each
+opening its own, then "Jira Projects…", greyed while the workspace is locked. The count stays when
+Settings › Interface turns the project key off, since it is not a key; its tooltip names every
+project and VoiceOver every key. `ProjectJiraBadge` decides all of it, tested without rendering;
+`ProjectJiraBadgeView` draws it. One mark per row, so linking projects never takes the name's room.
 
 **Alerts** are `NSAlert`s, described by an `AlertPrompt`: one default button, on ↩, blue — or red
 (`defaultDeletes`, `hasDestructiveAction`) when it deletes files or commits — and every other

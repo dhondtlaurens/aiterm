@@ -3,7 +3,8 @@ import SwiftUI
 /// The 16 pt neutral-wash chip a sidebar row draws for a ticket key, a vendor mark or a `+n`
 /// overflow count — one shape in place of the three types (`EditorBadge`, `JiraChip`,
 /// `BranchLabelView`'s `+n` chip) that each redrew it. `action` carries whether the badge is a
-/// button, so a badge with no action draws its shape only.
+/// button, so a badge with no action draws its shape only; `menu` makes it open a menu instead — a
+/// project header's count of Jira projects — the same chip, hovered the same way.
 ///
 /// A `diff` extends the badge with signed line counts after its icon and label — `[mark] +12 −3`,
 /// the VS Code badge on a row whose checkout has moved from the branch it started at. An empty diff
@@ -27,6 +28,9 @@ public struct Badge: View {
     private let icon: IconSource?
     private let help: String?
     private let action: (() -> Void)?
+    private let menu: AnyView?
+    /// What VoiceOver reads in place of the label, when the label alone says too little — a count.
+    private let accessibilityText: String?
     /// Exists for the Settings check chips, whose checkmark is green and whose warning is amber.
     /// Off the accent it replaces the icon's own ink; on the accent it yields to white like
     /// everything else on a selected row.
@@ -78,14 +82,34 @@ public struct Badge: View {
                 iconTint: Color? = nil,
                 diff: Diff? = nil,
                 style: Style = .boxed,
+                accessibilityLabel: String? = nil,
                 action: (() -> Void)? = nil) {
+        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, style: style,
+                  accessibilityLabel: accessibilityLabel, action: action, menu: nil)
+    }
+
+    /// A badge that opens a menu of `items` when clicked.
+    public init<Items: View>(_ label: String? = nil,
+                             icon: IconSource? = nil,
+                             help: String? = nil,
+                             style: Style = .boxed,
+                             accessibilityLabel: String? = nil,
+                             @ViewBuilder menu items: () -> Items) {
+        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, style: style,
+                  accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
+    }
+
+    private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, style: Style,
+                 accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
         self.label = label
         self.icon = icon
         self.help = help
         self.iconTint = iconTint
         self.diff = diff.flatMap { $0.isEmpty ? nil : $0 }
         self.style = style
+        self.accessibilityText = accessibilityLabel
         self.action = action
+        self.menu = menu
     }
 
     /// The wash a badge draws, isolated as a pure function so the colour rule is testable without
@@ -104,17 +128,27 @@ public struct Badge: View {
     }
 
     public var body: some View {
-        // `fixedSize` on both: a badge is a chip at its own width, never squeezed or stretched by
-        // the row around it, whether or not it is a button.
-        if let action {
+        // `fixedSize` on all three: a badge is a chip at its own width, never squeezed or stretched
+        // by the row around it, whether or not it is a button.
+        if let menu {
+            // `AddMenu`'s recipe: a menu with no bezel and no indicator, so the label is the chip.
+            Menu { menu } label: { shape }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .onHover { hovered = $0 }
+                .ifHelp(help)
+                .ifAccessibilityLabel(accessibilityText ?? label ?? help)
+        } else if let action {
             Button(action: action) { shape }
                 .buttonStyle(.plain)
                 .fixedSize()
                 .onHover { hovered = $0 }
                 .ifHelp(help)
-                .ifAccessibilityLabel(label ?? help)
+                .ifAccessibilityLabel(accessibilityText ?? label ?? help)
         } else {
-            shape.fixedSize().ifHelp(help).ifAccessibilityLabel(label ?? help)
+            shape.fixedSize().ifHelp(help).ifAccessibilityLabel(accessibilityText ?? label ?? help)
         }
     }
 

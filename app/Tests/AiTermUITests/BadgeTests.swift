@@ -93,9 +93,25 @@ struct BadgeTests {
         #expect(Self.width(Badge("main", diff: diff)) > Self.width(Badge("main")))
     }
 
+    /// A badge that opens a menu is the same chip as one that runs an action: the menu adds no
+    /// bezel, no indicator and no padding of its own, at any scale.
+    @Test func aMenuBadgeIsTheSameChipAsAButtonBadge() {
+        for scale in InterfaceScale.all {
+            let button = Self.size(Badge("3", icon: .brand(Palette.jira), style: .quiet, action: {}), scale)
+            let menu = Self.size(Badge("3", icon: .brand(Palette.jira), style: .quiet, menu: { Button("SHOP — Storefront") {} }), scale)
+            #expect(menu == button, "at ×\(scale.factor)")
+        }
+    }
+
     private static func width(_ badge: Badge) -> CGFloat {
         let host = NSHostingView(rootView: badge)
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.width
+    }
+
+    private static func size(_ badge: Badge, _ scale: InterfaceScale) -> CGSize {
+        let host = NSHostingView(rootView: badge.interfaceScale(scale))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize
     }
 }

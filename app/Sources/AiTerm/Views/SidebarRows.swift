@@ -72,7 +72,7 @@ extension DividerRow {
     }
 }
 
-/// A project's header: disclosure, provider, name and Jira badges — or, collapsed, the status counts
+/// A project's header: disclosure, provider, name and its one Jira badge — or, collapsed, the status counts
 /// of the rows it is hiding — and the menu that adds a terminal, task or review. An empty project
 /// has nothing to disclose, so like a leaf in a Finder outline it draws no chevron and does not
 /// toggle; the chevron's column stays, so its name lines up with its neighbours'.
@@ -109,15 +109,14 @@ struct ProjectHeaderRow: View {
                 HeaderChevron(collapsed: section.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
                     .opacity(section.isEmpty ? 0 : 1)
                 ProviderIcon(provider: project.provider)
-                // The name, then one badge per linked Jira project, all `Space.gap` apart as a task
-                // row's quiet badges and branch are: the name's gap to the first badge is the same as
-                // one badge's gap to the next. They keep their width; the name is what truncates.
+                // The name, then its one Jira badge, `Space.gap` apart as a task row's quiet badges
+                // and branch are. The badge keeps its width; the name is what truncates.
                 HStack(spacing: scale(Space.gap)) {
                     HeaderTitle(text: project.name)
-                    ForEach(ProjectJiraBadge.badges(for: project, showsKey: controller.preferences.badgeDetails.jiraProject),
-                            id: \.key) { badge in
-                        Badge(badge.label, icon: .brand(Palette.jira), help: badge.help,
-                              style: .quiet, action: { ExternalApps.open(link: badge.url.absoluteString) })
+                    if let badge = ProjectJiraBadge.badge(for: project, showsKey: controller.preferences.badgeDetails.jiraProject) {
+                        ProjectJiraBadgeView(badge: badge, canChangeWorkspace: controller.canChangeWorkspace) {
+                            controller.presentJiraProjects(for: project)
+                        }
                     }
                 }
                 Spacer(minLength: scale(Space.tight))
@@ -537,30 +536,85 @@ extension EnvironmentValues {
 }
 #endif
 
-/// One of the Jira badges a project row wears beside its own name, one per linked Jira project. A
-/// presentational value rather than an expression inside the row, so the rule — which badges a
-/// project gets, and where each points — is testable without rendering the sidebar, the way
-/// `TaskRowBadges` is.
+/// A project header's `ProjectJiraBadge`, drawn: a quiet `Badge` that opens the one project, or a
+/// menu of them ending in the context menu's "Jira Projects…", greyed as it is there while the
+/// workspace is locked.
+private struct ProjectJiraBadgeView: View {
+    let badge: ProjectJiraBadge
+    let canChangeWorkspace: Bool
+    let editProjects: () -> Void
+
+    var body: some View {
+        switch badge.target {
+        case .project(let url):
+            Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet,
+                  action: { ExternalApps.open(link: url.absoluteString) })
+        case .menu(let items):
+            Badge(badge.label, icon: .brand(Palette.jira), help: badge.help, style: .quiet,
+                  accessibilityLabel: badge.accessibilityLabel) {
+                ForEach(items, id: \.url) { item in
+                    Button(item.title) { ExternalApps.open(link: item.url.absoluteString) }
+                }
+                Divider()
+                Button("Jira Projects…", action: editProjects).disabled(!canChangeWorkspace)
+            }
+        }
+    }
+}
+
+/// The one Jira badge a project row wears beside its own name, however many Jira projects it links:
+/// one project's key, which opens it, or several projects' count, which opens a menu of them. One
+/// mark per row, so the badges never take the room the name needs. A presentational value rather
+/// than an expression inside the row, so the rule — what the badge says, and where it points — is
+/// testable without rendering the sidebar, the way `TaskRowBadges` is.
 struct ProjectJiraBadge: Equatable {
-    let key: String
-    /// The key, unless the Interface tab has turned the project key off; the mark then stands alone.
+    /// What a click on the badge does.
+    enum Target: Equatable {
+        /// Opens the one linked project.
+        case project(URL)
+        /// Offers the linked projects, in the order they were linked, each opening its own.
+        case menu([MenuItem])
+    }
+
+    struct MenuItem: Equatable {
+        let title: String
+        let url: URL
+    }
+
+    /// One project's key, unless the Interface tab has turned the project key off and the mark
+    /// stands alone; several projects' count, which is not a key and so stays.
     let label: String?
     let help: String
-    let url: URL
+    /// What VoiceOver reads in place of the label, when the label alone would say too little.
+    let accessibilityLabel: String?
+    let target: Target
 
-    /// The project's badges, in the order its Jira projects were linked.
-    static func badges(for project: Project, showsKey: Bool = true) -> [ProjectJiraBadge] {
-        project.jiraProjects.map { ProjectJiraBadge(jira: $0, showsKey: showsKey) }
+    /// The project's badge, or none when it links no Jira project.
+    static func badge(for project: Project, showsKey: Bool = true) -> ProjectJiraBadge? {
+        let jira = project.jiraProjects
+        switch jira.count {
+        case 0: return nil
+        case 1: return ProjectJiraBadge(jira: jira[0], showsKey: showsKey)
+        default: return ProjectJiraBadge(several: jira)
+        }
     }
 
     init(jira: JiraProjectRef, showsKey: Bool = true) {
-        key = jira.key
         label = showsKey ? jira.key : nil
-        url = jira.browseURL
+        target = .project(jira.browseURL)
+        accessibilityLabel = nil
         // The row shows the key only; the project's full name is worth a hover, and the URL beside
         // it is what every other badge in the sidebar puts there. A badge without its key names it
         // there too.
-        help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") — \(url.absoluteString)"
+        help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") — \(jira.browseURL.absoluteString)"
+    }
+
+    private init(several jira: [JiraProjectRef]) {
+        label = "\(jira.count)"
+        target = .menu(jira.map { MenuItem(title: "\($0.key) — \($0.name)", url: $0.browseURL) })
+        // A count says nothing on its own: the hover names every project, and VoiceOver every key.
+        help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
+        accessibilityLabel = "\(jira.count) Jira projects: \(jira.keyList)"
     }
 }
 
