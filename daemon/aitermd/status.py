@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from .claude_subagents import TranscriptTail
 from .hook_events import HookEvent
-from .models import END_OF_TURN_SURVIVES_CWD_LOSS, SessionInfo, State
+from .models import END_OF_TURN_SURVIVES_CWD_LOSS, SessionInfo, State, TokenTally
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -158,7 +158,8 @@ class StatusEngine:
         return released + ([session_id] if self.reg.set_state(session_id, kind) else [])
 
     def apply_metadata(self, session_id: str, *, model: str | None = None, reasoning: str | None = None,
-                       context: int | None = None, cwd: str | None = None) -> list[str]:
+                       context: int | None = None, cwd: str | None = None, tokens: TokenTally | None = None,
+                       transcript: str | None = None) -> list[str]:
         """What an agent reports beside its state: each value present replaces the session's, and
         an absent one leaves it be. Returns the sessions that changed."""
         s = self.reg.get(session_id)
@@ -177,6 +178,12 @@ class StatusEngine:
             # Codex conversation overwrite each other.
             own = [other for other in self.reg.for_task(s.task_id) if other.agent == s.agent] if s.task_id else [s]
             changed += [other.session_id for other in own if self.reg.set_context(other.session_id, context)]
+        if transcript and self.reg.set_transcript(session_id, transcript) and self.reg.set_tokens(session_id, None):
+            # Another transcript is another conversation (a /clear): its count starts from nothing
+            # rather than show the last one's until the next read.
+            changed.append(session_id)
+        if tokens is not None and self.reg.set_tokens(session_id, tokens):
+            changed.append(session_id)
         return changed
 
     def reset_turn(self, session_id: str) -> None:

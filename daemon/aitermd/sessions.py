@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import PROJECT_TAG, TASK_TAG, AgentKind, RawSession, SessionInfo, State, classify_agent
+from .models import PROJECT_TAG, TASK_TAG, AgentKind, RawSession, SessionInfo, State, TokenTally, classify_agent
 
 
 @dataclass(slots=True)
@@ -50,7 +50,7 @@ class SessionRegistry:
             # or context, nor send Cmd+T into the worktree an exited Claude had entered.
             if info.agent == old.agent and info.job_pid == old.job_pid:
                 info.model, info.reasoning, info.agent_cwd = old.model, old.reasoning, old.agent_cwd
-                info.context_percent = old.context_percent
+                info.context_percent, info.tokens, info.transcript = old.context_percent, old.tokens, old.transcript
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -101,6 +101,20 @@ class SessionRegistry:
         if s is None or s.context_percent == percent:
             return False
         s.context_percent = percent
+        return True
+
+    def set_tokens(self, session_id: str, tokens: TokenTally | None) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.tokens == tokens:
+            return False
+        s.tokens = tokens
+        return True
+
+    def set_transcript(self, session_id: str, transcript: str) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.transcript == transcript:
+            return False
+        s.transcript = transcript
         return True
 
     def set_model(self, session_id: str, model: str | None) -> bool:

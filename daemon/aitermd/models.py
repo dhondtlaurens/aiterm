@@ -3,6 +3,7 @@ import math
 import os
 import re
 import shlex
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -138,6 +139,33 @@ class RawSession:
     active: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class TokenTally:
+    """What one conversation has spent so far, its subagents and background workers included.
+    `input` counts every input token, cache reads and writes among them; `cached` is that share,
+    None when the harness cannot tell it apart; `output` counts reasoning among it. A compaction
+    empties the window, not the bill: within a conversation these only grow."""
+    input: int
+    cached: int | None
+    output: int
+
+    def __add__(self, other: TokenTally) -> TokenTally:
+        # A share unknown in one part is unknown in the whole, rather than read as none.
+        cached = None if self.cached is None or other.cached is None else self.cached + other.cached
+        return TokenTally(self.input + other.input, cached, self.output + other.output)
+
+    @staticmethod
+    def combined(parts: Iterable[TokenTally]) -> TokenTally | None:
+        """The sum of `parts`, or None for no parts at all: a conversation before its first reply."""
+        total: TokenTally | None = None
+        for part in parts:
+            total = part if total is None else total + part
+        return total
+
+    def to_json(self) -> dict[str, Any]:
+        return {"input": self.input, "cached": self.cached, "output": self.output}
+
+
 @dataclass
 class SessionInfo:
     session_id: str
@@ -164,6 +192,12 @@ class SessionInfo:
     # The provider's last-known context fill within this task, 0-100. The status engine shares it
     # across sibling tabs running the same provider; an unassociated session retains its own value.
     context_percent: int | None = None
+    # What the tab's conversation has spent, subagents and background workers included. The tab's
+    # own: two tabs running one provider are two conversations, so unlike context it is never shared.
+    tokens: TokenTally | None = None
+    # Where a Claude conversation writes its transcript, which its tokens are summed from. Neither
+    # sent nor compared: only the service's tally reads it.
+    transcript: str | None = field(default=None, compare=False)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -171,6 +205,7 @@ class SessionInfo:
             "taskId": self.task_id, "projectId": self.project_id, "agent": self.agent, "model": self.model,
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
+            "tokens": self.tokens.to_json() if self.tokens else None,
         }
 
 

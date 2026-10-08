@@ -1,7 +1,7 @@
 import pytest
 from aitermd.models import (
-    AGENT_BINARIES, END_OF_TURN_SURVIVES_CWD_LOSS, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, Usage, UsageWindow,
-    classify_agent,
+    AGENT_BINARIES, END_OF_TURN_SURVIVES_CWD_LOSS, HARNESS_BY_AGENT, USAGE_VENDORS, Frame, SessionInfo, TokenTally, Usage,
+    UsageWindow, classify_agent,
 )
 
 
@@ -70,8 +70,22 @@ def test_session_info_json_is_camel_case_and_drops_job_pid():
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": "claude-opus-5", "reasoning": None,
         "state": "working", "title": "✳ Claude Code", "cwd": "/repo",
-        "agentCwd": "/repo/.worktrees/x", "active": False, "contextPercent": None,
+        "agentCwd": "/repo/.worktrees/x", "active": False, "contextPercent": None, "tokens": None,
     }
+
+
+def test_a_token_tally_is_sent_with_its_cached_share():
+    s = SessionInfo("s1", "w1", 0, None, None, "claude", None, "working", "", "/repo", 1,
+                    tokens=TokenTally(936_018, 935_988, 5_625), transcript="/t/s.jsonl")
+    assert s.to_json()["tokens"] == {"input": 936_018, "cached": 935_988, "output": 5_625}
+    assert "transcript" not in s.to_json()
+
+
+def test_tallies_add_and_an_unknown_cached_share_stays_unknown():
+    assert TokenTally(10, 4, 1) + TokenTally(5, 2, 3) == TokenTally(15, 6, 4)
+    assert TokenTally(10, 4, 1) + TokenTally(5, None, 3) == TokenTally(15, None, 4)
+    assert TokenTally.combined([]) is None
+    assert TokenTally.combined([TokenTally(1, 1, 1), TokenTally(2, 0, 2), TokenTally(3, 1, 0)]) == TokenTally(6, 2, 3)
 
 
 def test_usage_json():

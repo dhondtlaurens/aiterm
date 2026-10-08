@@ -1,4 +1,4 @@
-from aitermd.models import RawSession
+from aitermd.models import RawSession, TokenTally
 from aitermd.sessions import SessionRegistry
 
 
@@ -12,7 +12,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": None, "reasoning": None, "state": "idle", "title": "zsh", "cwd": "/home",
-        "agentCwd": None, "active": False, "contextPercent": None})
+        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None})
 
 
 def test_untagged_session_in_tagged_window_inherits_task():
@@ -132,6 +132,30 @@ def test_context_survives_the_next_iterm_snapshot():
 
     assert reg.get("a").context_percent == 42
     assert reg.get("a").to_json()["contextPercent"] == 42
+
+
+def test_tokens_and_transcript_survive_the_next_iterm_snapshot():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x")])
+    assert reg.set_tokens("a", TokenTally(10, 4, 2)) is True
+    assert reg.set_tokens("a", TokenTally(10, 4, 2)) is False
+    assert reg.set_transcript("a", "/t/a.jsonl") is True
+
+    reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/y")])
+
+    assert reg.get("a").tokens == TokenTally(10, 4, 2)
+    assert reg.get("a").transcript == "/t/a.jsonl"
+
+
+def test_tokens_do_not_survive_a_tab_starting_another_agent():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="a", cmd="claude", pid=1, cwd="/x")])
+    reg.set_tokens("a", TokenTally(10, 4, 2))
+    reg.set_transcript("a", "/t/a.jsonl")
+
+    reg.apply_snapshot([raw(sid="a", cmd="codex", pid=2, cwd="/x")])
+
+    assert reg.get("a").tokens is None and reg.get("a").transcript is None
 
 
 def test_reasoning_survives_the_next_iterm_snapshot_and_is_published():

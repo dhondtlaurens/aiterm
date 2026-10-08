@@ -14,6 +14,18 @@ import Testing
         #expect(codex.reasoning == nil)
     }
 
+    /// A session carries what its conversation has spent; an older daemon, or a tab whose agent has
+    /// not replied yet, sends none, and the cached share may be unknown.
+    @Test func sessionTokensDecodeWhenPresentAndDefaultToNilWhenAbsent() throws {
+        let counted = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"working","title":"","cwd":"/repo","tokens":{"input":936018,"cached":935988,"output":5625}}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(counted.utf8)).tokens
+                == TokenTally(input: 936_018, cached: 935_988, output: 5_625))
+        let unknownShare = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"grok","model":null,"state":"working","title":"","cwd":"/repo","tokens":{"input":12,"cached":null,"output":3}}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(unknownShare.utf8)).tokens?.cached == nil)
+        let none = #"{"sessionId":"s2","windowId":"w1","tabIndex":1,"taskId":null,"projectId":null,"agent":"shell","model":null,"state":"idle","title":"","cwd":"/repo"}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(none.utf8)).tokens == nil)
+    }
+
     /// C4: a daemon built from a different worktree can send a `SessionAgent`/`SessionState` raw
     /// value this app has never heard of. Decoding it to `.shell`/`.idle` keeps that one session
     /// from failing the whole snapshot, instead of a `.helperUnreachable` reconnect loop.

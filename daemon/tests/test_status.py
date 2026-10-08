@@ -2,7 +2,7 @@ import pytest
 from aitermd import status
 from aitermd.claude_subagents import TranscriptTail
 from aitermd.hook_events import HookEvent
-from aitermd.models import RawSession
+from aitermd.models import RawSession, TokenTally
 from aitermd.sessions import SessionRegistry
 from aitermd.status import StatusEngine, path_is_missing
 
@@ -297,6 +297,28 @@ def test_context_signal_replaces_the_tasks_value_when_a_tab_rereports_the_same_n
     assert engine.apply_metadata("b", context=18) == ["a"]
     assert [session.context_percent for session in reg.for_task("t1")] == [18, 18]
     assert engine.apply_metadata("b", context=18) == []
+
+
+def test_tokens_stay_on_their_own_tab():
+    reg = SessionRegistry()
+    reg.apply_snapshot([
+        RawSession("a", "w1", 0, "claude", 1, "", "/x", {"aiterm_task": "t1"}),
+        RawSession("b", "w1", 1, "claude", 2, "", "/x", {"aiterm_task": "t1"}),
+    ])
+    engine = StatusEngine(reg, Clock())
+
+    assert engine.apply_metadata("a", tokens=TokenTally(10, 4, 2)) == ["a"]
+    assert reg.get("a").tokens == TokenTally(10, 4, 2) and reg.get("b").tokens is None
+    assert engine.apply_metadata("a", tokens=TokenTally(10, 4, 2)) == []
+
+
+def test_a_new_transcript_starts_the_tally_over(eng):
+    engine, reg = eng
+    engine.apply_metadata("s1", transcript="/t/first.jsonl", tokens=TokenTally(10, 4, 2))
+    assert engine.apply_metadata("s1", transcript="/t/first.jsonl") == []
+
+    assert engine.apply_metadata("s1", transcript="/t/second.jsonl") == ["s1"]
+    assert reg.get("s1").tokens is None and reg.get("s1").transcript == "/t/second.jsonl"
 
 
 @pytest.mark.parametrize("before", ["idle", "done", "working"])
