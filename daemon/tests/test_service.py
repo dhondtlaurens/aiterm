@@ -16,7 +16,7 @@ from aitermd import service
 from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
-from aitermd.models import Frame
+from aitermd.models import Frame, TokenTally
 from tests.conftest import wait_until
 from tests.fake_iterm import FakeIterm
 
@@ -339,6 +339,28 @@ async def test_tick_reads_codex_context_after_a_hook_identifies_the_thread(stack
     await svc.tick()
 
     assert svc.registry.get(sid).context_percent == 26
+
+
+async def test_tick_tallies_a_claude_conversation_and_its_subagents(stack, tmp_path):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "claude", job_pid=120, title="Claude")
+    await svc.tick()
+    transcript = tmp_path / "projects" / "c1.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "model": "claude-opus-5", "usage": {
+        "input_tokens": 2, "cache_creation_input_tokens": 8, "cache_read_input_tokens": 90, "output_tokens": 7}}}) + "\n")
+    child = tmp_path / "projects" / "c1" / "subagents" / "agent-a1.jsonl"
+    child.parent.mkdir(parents=True)
+    child.write_text(json.dumps({"type": "assistant", "message": {"id": "a1", "model": "claude-haiku-5", "usage": {
+        "input_tokens": 50, "output_tokens": 3}}}) + "\n")
+    await svc.hook_router.handle_hook("/statusline", {"session_id": "c1", "cwd": "/wt", "transcript_path": str(transcript),
+                                                      "_aiterm_iterm_session_id": sid})
+
+    await svc.tick()
+
+    assert svc.registry.get(sid).tokens == TokenTally(150, 98, 10)
 
 
 async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack):

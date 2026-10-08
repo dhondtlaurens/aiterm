@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 from . import protocol
 from .claude_sessions import ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
+from .claude_tokens import ClaudeTranscriptTallies
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
 from .hook_router import HookRouter
@@ -20,7 +21,7 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, param, require_iterm
 from .rpc_server import RpcServer
-from .models import HARNESS_BY_AGENT, SessionInfo
+from .models import HARNESS_BY_AGENT, SessionInfo, TokenTally
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, path_is_missing
 from .usage import UsageStore, parse_codex_rate_limits
@@ -47,6 +48,9 @@ OFF_LOOP_CHECK_SECONDS = 1.0
 # still stuck from an earlier tick holds back the other kind as well, rather than race it on a
 # second worker thread.
 CODEX_READ = "the Codex rollout read"
+# A tick's Claude transcript reads, which share ClaudeTranscriptTallies' cursors: a read still stuck
+# from an earlier tick holds the next one back rather than race it on a second worker thread.
+CLAUDE_READ = "the Claude transcript read"
 
 T = TypeVar("T")
 
@@ -88,6 +92,7 @@ class Service:
         self._last_good_tick = 0
         self._path_missing = path_missing
         self.subagent_transcripts = SubagentTranscripts()
+        self.claude_tallies = ClaudeTranscriptTallies()
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}
@@ -279,6 +284,8 @@ class Service:
                 self._corroborate(s, threads, changed)
         with _logged("reading the Codex rollouts"):
             changed += await self._apply_codex_contexts(threads)
+        with _logged("reading the Claude transcripts"):
+            changed += await self._apply_claude_tallies()
         with _logged("settling orphaned sessions"):
             changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
         with _logged("releasing dead subagents"):
@@ -327,6 +334,35 @@ class Service:
         for session_id, thread_id in threads.items():
             if (context := contexts.get(thread_id)) is not None:
                 changed += self.status.apply_metadata(session_id, context=context)
+        return changed
+
+    async def _apply_claude_tallies(self) -> list[str]:
+        """The sessions whose Claude conversation has spent more since the last tick. A transcript
+        grows to megabytes and its first read is whole, so it is read on a worker thread, which keeps
+        what it read for the next tick even when this one stops waiting."""
+        transcripts = {s.session_id: s.transcript for s in self.registry.all() if s.transcript}
+        if not transcripts:
+            # Nothing to read. The cache is pruned by the next read that has transcripts, on the
+            # worker thread: pruning here could race a read an earlier tick left running.
+            return []
+        tallies = self.claude_tallies
+
+        def read() -> dict[str, TokenTally | None]:
+            found: dict[str, TokenTally | None] = {}
+            for transcript in set(transcripts.values()):
+                try:  # another process's file: one that cannot be read costs only its own conversation
+                    found[transcript] = tallies.tally(transcript)
+                except Exception:  # noqa: BLE001
+                    log.exception("reading the Claude transcript %s failed", transcript)
+            tallies.retain(set(transcripts.values()))
+            return found
+
+        none: dict[str, TokenTally | None] = {}
+        found = await self._off_loop(CLAUDE_READ, read, none)
+        changed: list[str] = []
+        for session_id, transcript in transcripts.items():
+            if (tally := found.get(transcript)) is not None:
+                changed += self.status.apply_metadata(session_id, tokens=tally)
         return changed
 
     async def _missing_paths(self, paths: set[str]) -> frozenset[str]:
