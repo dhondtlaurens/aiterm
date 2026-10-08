@@ -194,7 +194,9 @@ vendor needs both.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
-tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's rows,
+tab's mark, the `UsageRing` and the percentage, then that tab's spend, `in 936k · out 5.6k`, from
+`TokenTally.short`: labels muted, numbers in `Palette.text`, no ring and never amber, its subagents and
+background workers included; a shell draws its mark alone), then the Mac's rows,
 always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark` in
 `.paper` style at `Size.vendorMark` with `macbook`: `cpu ◔ 23% · ram ◔ 61%`, and `bat ◔ 64%` while the
 Mac runs on its battery, drawn by the same renderer as `ctx` and the vendor windows. `MachineMonitor`
@@ -358,6 +360,8 @@ Every window in the footer — its label, ring, number and reset — has one too
 label in words (`UsageLine.help`): “Weekly limit, 61 % used, resets Friday 23:33”, “Context 84 %
 full”, “CPU 87 % busy, slowed by heat”. A vendor's or the context's reading turns amber at 80 % or
 more; the Mac's, on macOS's warnings above.
+The token counts are one element with one sentence (`TokenTally.help`): “Input 936,018 tokens, 99 % from
+cache · output 5,625 tokens · subagents included”.
 
 ## The artifact
 
