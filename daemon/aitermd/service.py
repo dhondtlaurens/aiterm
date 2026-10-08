@@ -80,6 +80,7 @@ class Service:
         self.hooks.on_post = self.hook_router.handle_hook
         self.windows = WindowManager(iterm, self.registry, self.tick)
         self.supervisor.on_connected = self.windows.forget_titles
+        self.supervisor.on_launched_connected = self.windows.capture_startup_window
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame and window.activate each leave a state the next one replaces, and the app
         # sends them from separate tasks; requests are answered concurrently, so they take this in
@@ -278,6 +279,7 @@ class Service:
                 await self.rpc.broadcast(protocol.SESSION_CLOSED, {"sessionId": sid})
         windows_after = {s.window_id for s in self.registry.all()}
         for wid in windows_before - windows_after:
+            self.windows.forget_window(wid)
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
         threads: dict[str, str] = {}

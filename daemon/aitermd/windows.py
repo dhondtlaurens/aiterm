@@ -35,6 +35,11 @@ class WindowManager:
         # seen during the request left the title on the tab the session was leaving.
         self._titles_in_flight: set[str] = set()
         self.match_iterm_background = False
+        # Background-only ownership: the untagged startup window is not a project or task.
+        # Window ids admit new tabs; session ids let a moved tab restore its original background
+        # without adopting the unrelated window it moved into.
+        self._startup_windows: set[str] = set()
+        self._startup_sessions: set[str] = set()
         # Requests are answered concurrently, and each of these two sets a state the next one
         # replaces: held in turn, in the order they came, so the last one sent is the one that stays.
         # A new window or tab reads the background under its lock too: a toggle holding it has
@@ -46,6 +51,29 @@ class WindowManager:
         """A closed session's title and creation mark."""
         self.forget_title(session_id)
         self._self_created.discard(session_id)
+        self._startup_sessions.discard(session_id)
+
+    def forget_window(self, window_id: str) -> None:
+        self._startup_windows.discard(window_id)
+
+    async def capture_startup_window(self) -> None:
+        """Called only after AiTerm launches iTerm2, before announcing the connection.
+
+        A single window is the default startup case. Several may be a restored workspace:
+        do not guess which is ours, nor adopt a later unrelated window if startup made none.
+        iTerm2 was not running before this launch, so the last one's windows and sessions are
+        gone: forgotten here, even those that closed before a poll saw them.
+        """
+        async with self._background_lock:
+            self._startup_windows.clear()
+            self._startup_sessions.clear()
+            sessions = await self.iterm.snapshot()
+            if len({s.window_id for s in sessions}) != 1:
+                return
+            self._startup_windows.update(s.window_id for s in sessions)
+            self._startup_sessions.update(s.session_id for s in sessions)
+            if self.match_iterm_background:
+                await self.iterm.set_aiterm_background([s.session_id for s in sessions], True)
 
     def forget_title(self, session_id: str) -> None:
         """A session that moved keeps its id but not its tab's title, so it is applied again."""
@@ -96,6 +124,8 @@ class WindowManager:
             self._creating_in[wid] -= 1
             if not self._creating_in[wid]:
                 del self._creating_in[wid]
+        if wid in self._startup_windows:
+            self._startup_sessions.add(sid)
         await self._set_up_created(sid, cmd)
         return {"sessionId": sid}
 
@@ -132,7 +162,8 @@ class WindowManager:
             # Refresh first: an iTerm2 tab created just before this request belongs to its tagged
             # window even if the regular two-second poll has not observed it yet.
             await guard(self.tick())
-            session_ids = [s.session_id for s in self.registry.all() if s.task_id or s.project_id]
+            session_ids = [s.session_id for s in self.registry.all()
+                           if s.task_id or s.project_id or s.session_id in self._startup_sessions]
             await guard(self.iterm.set_aiterm_background(session_ids, enabled))
             self.match_iterm_background = enabled
         return {}
@@ -234,11 +265,14 @@ class WindowManager:
             if tags:
                 cwd = self._anchor_cwd(new.window_id, exclude=session_id)
                 await self.iterm.set_session_tags(session_id, tags)
-                async with self._background_lock:
-                    if self.match_iterm_background:
-                        await self.iterm.set_aiterm_background([session_id], True)
-                if cwd:
-                    await self.iterm.send_text(session_id, f" cd {shlex.quote(cwd)} && clear\n")
+            async with self._background_lock:
+                startup = new.window_id in self._startup_windows
+                if startup:
+                    self._startup_sessions.add(session_id)
+                if (tags or startup) and self.match_iterm_background:
+                    await self.iterm.set_aiterm_background([session_id], True)
+            if tags and cwd:
+                await self.iterm.send_text(session_id, f" cd {shlex.quote(cwd)} && clear\n")
             await self.tick()
         except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
             log.exception("on_new_session failed for %s", session_id)

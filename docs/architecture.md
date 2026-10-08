@@ -313,7 +313,11 @@ window creation, or snapshots, so windows, sheets, alerts, and native controls s
 appearance regardless of macOS settings. Appearance is not a preference; the retired saved
 value is removed at launch. Semantic colors retain increased-contrast support, alongside
 reduced-motion and reduced-transparency behavior. The optional dark background for managed
-iTerm2 sessions remains a separate setting.
+iTerm2 sessions remains a separate setting. When the daemon launches iTerm2, it also includes
+its single startup window and tabs opened in that window, without assigning a project or task.
+This background-only ownership lasts for the daemon's lifetime; disabling the setting restores
+the sessions' original backgrounds. An already-running iTerm2 is not adopted, and a launch
+that restores several windows is left alone rather than guessing which one is the startup window.
 
 Git, workspace writes, and iTerm2 still cannot share a transaction. A crash between checkout
 creation and its first save can leave an unrecorded checkout; re-add the project to import it.

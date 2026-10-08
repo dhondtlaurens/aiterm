@@ -4,7 +4,7 @@ import asyncio
 import itertools
 from collections.abc import Awaitable, Callable
 
-from aitermd.iterm_bridge import ItermAuthFailed, ItermPort, ItermUnavailable
+from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable
 from aitermd.models import Frame, RawSession
 
 
@@ -24,6 +24,8 @@ class FakeIterm:
         self.closed = False
         # Set to make connect() fail the way a refused cookie request does, iTerm2 running.
         self.auth_error: str | None = None
+        # Set to make the next connect() fail the way a running iTerm2 that does not answer does.
+        self.connect_error: ItermUnavailable | None = None
         self.windows: dict[str, dict] = {}       # window_id -> {"frame": Frame, "sessions": [session_id], "active": bool}
         self.sessions: dict[str, RawSession] = {}
         self.sent: list[tuple[str, str]] = []
@@ -43,8 +45,11 @@ class FakeIterm:
     async def connect(self) -> str | None:
         if self.auth_error is not None:
             raise ItermAuthFailed(self.auth_error)
+        if (error := self.connect_error) is not None:
+            self.connect_error = None
+            raise error
         if not self._connected:
-            raise ItermUnavailable("iTerm2 not running")
+            raise ItermNotRunning("iTerm2 not running")
         return "3.7.2"
 
     def is_connected(self) -> bool:

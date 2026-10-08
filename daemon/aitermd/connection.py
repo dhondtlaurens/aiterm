@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from . import protocol
-from .iterm_bridge import ItermAuthFailed, ItermPort, ItermUnavailable, use_cookie
+from .iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, use_cookie
 from .rpc_params import optional_param, param
 
 log = logging.getLogger(__name__)
@@ -50,6 +50,11 @@ class ItermSupervisor:
         self.reconnect_sleep = reconnect_sleep
         # Called on every successful connect, before `iterm.connected` goes out.
         self.on_connected: Callable[[], None] | None = None
+        # Capture the startup window only after our own launch, before the app can send its
+        # background preference in response to iterm.connected.
+        self.on_launched_connected: Callable[[], Awaitable[None]] | None = None
+        # Whether the last failed connect found iTerm2 not running, rather than not answering.
+        self._not_running = False
         self.version: str | None = None
         # Why iTerm2 last refused the daemon, for as long as it keeps refusing; and how many times
         # in a row, which sets the backoff.
@@ -124,7 +129,7 @@ class ItermSupervisor:
             self._reconnect_task.cancel()
         self._reconnect_task = asyncio.get_running_loop().create_task(self._reconnect_loop())
 
-    async def _try_connect(self) -> bool:
+    async def _try_connect(self, *, launched: bool = False) -> bool:
         try:
             await self._cookie_from_app()
             self.version = await self.iterm.connect()
@@ -133,7 +138,7 @@ class ItermSupervisor:
             return False
         except ItermUnavailable as exc:
             log.info("iTerm2 unavailable: %s", exc)
-            self._auth_failures = 0
+            self._auth_failures, self._not_running = 0, isinstance(exc, ItermNotRunning)
             if self.auth_error is not None:
                 # No longer refused, merely absent: withdraw the warning, back to "Reconnecting…".
                 self.auth_error = None
@@ -142,6 +147,11 @@ class ItermSupervisor:
         self._auth_failures, self.auth_error = 0, None
         if self.on_connected:
             self.on_connected()
+        if launched and self.on_launched_connected:
+            try:
+                await self.on_launched_connected()
+            except Exception:  # noqa: BLE001 - cosmetic setup must not prevent a connection
+                log.exception("capturing the iTerm2 startup window failed")
         await self.broadcast(protocol.ITERM_CONNECTED, {"version": self.version})
         return True
 
@@ -166,7 +176,7 @@ class ItermSupervisor:
         while (reply := await self._request_cookie()) is None:
             log.warning("the app did not answer the iTerm2 cookie request; asking again")
         if reply.get("notRunning"):
-            raise ItermUnavailable("iTerm2 not running")
+            raise ItermNotRunning("iTerm2 not running")
         if error := reply.get("error"):
             raise ItermAuthFailed(error)
         self.apply_cookie(reply["cookie"], reply["key"])
@@ -214,14 +224,16 @@ class ItermSupervisor:
         # for the initial startup-connect failure), on the first attempt that
         # finds it absent, then keep retrying at a fixed interval. A refused
         # cookie means iTerm2 is running: it is not launched, and the retries
-        # back off (see `_retry_delay`).
-        launched = False
+        # back off (see `_retry_delay`). Only a launch that found iTerm2 not
+        # running opened its startup window: one that merely did not answer
+        # (a timeout, a dropped socket) is brought forward with its own windows.
+        launched = ours = False
         while True:
             try:
-                if await self._try_connect():
+                if await self._try_connect(launched=ours):
                     return
                 if not launched and not self._auth_failures:
-                    launched = True
+                    launched, ours = True, self._not_running
                     await self.launch_iterm()
             except Exception:  # noqa: BLE001 - nothing may end the loop while iTerm2 is away
                 log.exception("reconnect attempt failed")

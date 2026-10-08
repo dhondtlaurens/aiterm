@@ -57,6 +57,11 @@ class ItermAuthFailed(ItermUnavailable):
     so the service backs off and tells the app, instead of treating it as iTerm2 still starting."""
 
 
+class ItermNotRunning(ItermUnavailable):
+    """iTerm2 is not running at all, as opposed to running but not answering: only a launch made
+    after this one opens iTerm2's startup window rather than bringing an open one forward."""
+
+
 def request_cookie(runner_class: type | None = None) -> None:
     """Puts an API cookie in the environment for `iterm2.Connection`, the way
     `iterm2.auth.authenticate` does, but keeps the reason when iTerm2 refuses. The library swallows
@@ -82,7 +87,7 @@ def request_cookie(runner_class: type | None = None) -> None:
             reply = iterm2.auth.request_cookie_and_key(False, None, runner)
     except iterm2.auth.AuthenticationException as exc:
         if str(exc) == "iTerm2 not running":
-            raise ItermUnavailable(str(exc)) from exc
+            raise ItermNotRunning(str(exc)) from exc
         raise ItermAuthFailed(_applescript_error(runners[-1]) or str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - the library's own error parsing raises on stderr it cannot match
         raise ItermAuthFailed((_applescript_error(runners[-1]) if runners else None) or f"cookie request failed: {exc}") from exc
