@@ -48,6 +48,13 @@ def finite_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def whole_count(value: Any) -> int | None:
+    """A token count from another process's JSON: a finite number no lower than zero, as an int.
+    Anything else -- a string, a bool, a negative -- is no count at all, never zero."""
+    number = finite_number(value)
+    return int(number) if number is not None and number >= 0 else None
+
+
 def _window(d: Any, percent_key: str) -> UsageWindow | None:
     """One rate-limit window: a used percentage (a float) and `resets_at` (epoch seconds). Anything
     that is not a number is not a window."""

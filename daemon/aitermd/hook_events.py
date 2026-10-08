@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, NamedTuple
 
-from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, Transition, Usage
-from .usage import finite_number, parse_claude_rate_limits
+from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, TokenTally, Transition, Usage
+from .usage import finite_number, parse_claude_rate_limits, whole_count
 
 NEEDS_INPUT_NOTIFICATIONS = {"permission_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog"}
 SIMPLE_EVENTS: dict[str, Transition] = {"UserPromptSubmit": "working", "Stop": "done", "PermissionRequest": "needsInput"}
@@ -41,6 +41,10 @@ class HookEvent:
     # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
     # depends on which event bound it (SessionResolver.bind).
     event_name: str | None = None
+    # What the session has spent, subagents included, when the harness says it in its own posts (PI).
+    tokens: TokenTally | None = None
+    # The Claude conversation's transcript, which its tokens are summed from (claude_tokens).
+    transcript: str | None = None
 
 
 def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:
@@ -94,6 +98,12 @@ def _session_start(p: dict[str, Any]) -> Transition | None:
 
 
 def parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
+    ev = _parse_claude_hook(p)
+    # Every Claude hook names its conversation's transcript, which its token tally is read from.
+    return replace(ev, transcript=_transcript(p)) if ev is not None else None
+
+
+def _parse_claude_hook(p: dict[str, Any]) -> HookEvent | None:
     # Grok also runs ~/.claude/settings.json hooks. Its payload carries `hookEventName`, which Claude
     # never sends; today Grok refuses our http:// hooks, and this keeps a future Grok from counting as Claude.
     if not isinstance(p, dict) or "hookEventName" in p:
@@ -147,6 +157,10 @@ PI_EVENTS: dict[str, Transition | None] = {
     "ui_prompt_end": "promptEnd",
     "model_select": None,
     "thinking_level_select": None,
+    # Token reports that are not a turn's start or end: the session's own turn closing, and a
+    # subagent's totals moving while the session itself waits.
+    "turn_end": None,
+    "tokens": None,
     # PI has no subagents of its own; the extension relays pi-subagents' `subagents:*` bus events.
     "subagent_start": "subagentStart",
     "subagent_stop": "subagentStop",
@@ -162,6 +176,43 @@ PI_NEW_CONVERSATION_REASONS = frozenset({"startup", "new", "resume", "fork"})
 def _clamped_percent(value: Any) -> int | None:
     number = finite_number(value)
     return max(0, min(100, round(number))) if number is not None else None
+
+
+def _transcript(p: dict[str, Any]) -> str | None:
+    """A Claude conversation's transcript as its hooks and status line name it: an absolute `.jsonl`
+    path, the one shape whose subagents directory can be found beside it."""
+    path = _nonempty_string(p.get("transcript_path"))
+    return path if path is not None and os.path.isabs(path) and path.endswith(".jsonl") else None
+
+
+def _tally(input_tokens: Any, cached: int | None, output_tokens: Any) -> TokenTally | None:
+    """A tally from the two totals, or None unless both are counts. The cached share is passed
+    already checked: one that is not a count is unknown, not zero."""
+    if (spent_in := whole_count(input_tokens)) is None or (spent_out := whole_count(output_tokens)) is None:
+        return None
+    return TokenTally(spent_in, cached, spent_out)
+
+
+def _grok_tokens(p: dict[str, Any]) -> TokenTally | None:
+    """Grok's session totals. Its usage ledger keeps a subagent's calls on the parent session too
+    (a parent's modelCalls are its own plus its child's), so these already hold the whole tree.
+    `session_input_tokens` counts the cache; `session_usage` splits it out once a call has been made."""
+    cw = p.get("context_window")
+    if not isinstance(cw, dict):
+        return None
+    usage, cached = cw.get("session_usage"), None
+    if isinstance(usage, dict):
+        read, written = whole_count(usage.get("cache_read_input_tokens")), whole_count(usage.get("cache_creation_input_tokens"))
+        if read is not None and written is not None:
+            cached = read + written
+    return _tally(cw.get("session_input_tokens"), cached, cw.get("session_output_tokens"))
+
+
+def _pi_tokens(value: Any) -> TokenTally | None:
+    """The tally PI's extension sends: the session's own and its subagents' (hooks/pi-aiterm-status.ts)."""
+    if not isinstance(value, dict):
+        return None
+    return _tally(value.get("input"), whole_count(value.get("cached")), value.get("output"))
 
 
 def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
@@ -186,6 +237,7 @@ def parse_pi_hook(p: dict[str, Any]) -> HookEvent | None:
         iterm_session_id=_nonempty_string(p.get(ITERM_SESSION_FIELD)),
         reasoning=_nonempty_string(p.get("reasoning")),
         context_percent=_clamped_percent(p.get("context_percent")),
+        tokens=_pi_tokens(p.get("tokens")),
         event_name=name,
     )
 
@@ -291,6 +343,10 @@ class StatusLine(NamedTuple):
     model: str | None
     reasoning: str | None
     context_percent: int | None
+    # What the session has spent, when the status line says it (Grok). Claude's does not: its
+    # `total_*` counts are the window's fill now, and its spend is summed from `transcript`.
+    tokens: TokenTally | None = None
+    transcript: str | None = None
 
 
 def _object_field(p: dict[str, Any], key: str, field: str) -> str | None:
@@ -305,6 +361,7 @@ def parse_claude_statusline(p: dict[str, Any], now: int) -> StatusLine:
         _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd")),
         _nonempty_string(p.get(ITERM_SESSION_FIELD)),
         _object_field(p, "model", "id"), None, _context_percent(p),
+        transcript=_transcript(p),
     )
 
 
@@ -313,6 +370,7 @@ def parse_grok_statusline(p: dict[str, Any], now: int) -> StatusLine:
         None, _nonempty_string(p.get("session_id")), _nonempty_string(p.get("cwd")),
         _nonempty_string(p.get(ITERM_SESSION_FIELD)),
         _object_field(p, "model", "id"), _object_field(p, "effort", "level"), _context_percent(p),
+        tokens=_grok_tokens(p),
     )
 
 

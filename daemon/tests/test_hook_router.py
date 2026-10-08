@@ -4,7 +4,7 @@ import pytest
 
 from aitermd.claude_sessions import ClaudeSessionFiles
 from aitermd.hook_router import HookRouter
-from aitermd.models import RawSession
+from aitermd.models import RawSession, TokenTally
 from aitermd.publisher import Publisher
 from aitermd.resolver import SessionResolver
 from aitermd.sessions import SessionRegistry
@@ -306,3 +306,18 @@ async def test_a_hook_that_already_places_triggers_no_tick(hooks):
     await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/wt",
                                      "_aiterm_iterm_session_id": sid})
     assert hooks.ticks == 0
+
+
+async def test_a_statusline_tick_carrying_only_tokens_lands_on_its_tab(hooks):
+    [sid] = hooks.tabs(("s1", "grok", 101))
+    await hooks.post("/statusline/grok", {"session_id": "g", "cwd": "/wt", "_aiterm_iterm_session_id": sid,
+                                          "context_window": {"session_input_tokens": 12, "session_output_tokens": 3}})
+    assert hooks.registry.get(sid).tokens == TokenTally(12, None, 3)
+    assert [payload["tokens"] for _, payload in hooks.events] == [{"input": 12, "cached": None, "output": 3}]
+
+
+async def test_a_statusline_tick_carrying_only_a_transcript_is_remembered(hooks):
+    [sid] = hooks.tabs(("s1", "claude", 101))
+    await hooks.post("/statusline", {"session_id": "c", "cwd": "/wt", "_aiterm_iterm_session_id": sid,
+                                     "transcript_path": "/p/c.jsonl"})
+    assert hooks.registry.get(sid).transcript == "/p/c.jsonl"

@@ -41,14 +41,17 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            # The model, reasoning and context all arrive from one session, so one resolution serves
-            # them. Status keeps the model on that session and promotes context to the task's latest
-            # value. A tick can carry either without the other: `context_window` is present from
-            # the first turn, while `model` only appears once Claude has settled on one.
-            if (tick.model or tick.reasoning or tick.context_percent is not None) and (
+            # The model, reasoning, context and spend all arrive from one session, so one resolution
+            # serves them. Status keeps the model and the spend on that session and promotes context
+            # to the task's latest value. A tick can carry any of them without the rest:
+            # `context_window` is present from the first turn, `model` only once Claude has settled on
+            # one, and a Grok tick between turns may carry nothing new but its totals.
+            if (tick.model or tick.reasoning or tick.context_percent is not None or tick.tokens is not None
+                    or tick.transcript) and (
                     sid := self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)):
                 await self.publisher.session_changed(self.status.apply_metadata(
-                    sid, model=tick.model, reasoning=tick.reasoning, context=tick.context_percent))
+                    sid, model=tick.model, reasoning=tick.reasoning, context=tick.context_percent,
+                    tokens=tick.tokens, transcript=tick.transcript))
             return None
         # Tool text and Stop hooks are telemetry, never checkout-removal authority.
         # Leave shell commands intact; explicit cleanup belongs to the app's Remove action.
@@ -65,7 +68,8 @@ class HookRouter:
         # The post came from the agent itself, so its cwd is the agent's — the only source
         # there is for a Codex or PI session, neither of which has a polled session file.
         changed = self.status.apply_metadata(sid, model=ev.model, reasoning=ev.reasoning,
-                                             context=ev.context_percent, cwd=ev.cwd)
+                                             context=ev.context_percent, cwd=ev.cwd,
+                                             tokens=ev.tokens, transcript=ev.transcript)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
         starts_elsewhere = ev.kind == "sessionStart" and sid != self.resolver.resolve_directly(

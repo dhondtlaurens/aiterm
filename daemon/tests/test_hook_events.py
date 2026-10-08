@@ -1,5 +1,5 @@
 import pytest
-from aitermd.models import UsageWindow
+from aitermd.models import TokenTally, UsageWindow
 from aitermd.hook_events import (
     StatusLine, parse_claude_hook, parse_codex_hook, parse_claude_statusline, parse_grok_hook, parse_grok_statusline,
     parse_pi_hook,
@@ -55,6 +55,8 @@ def test_codex_hook_mapping():
     ("agent_settled", "done"),
     ("model_select", None),
     ("thinking_level_select", None),
+    ("turn_end", None),
+    ("tokens", None),
 ])
 def test_pi_hook_mapping(name, kind):
     event = parse_pi_hook({**PI_BASE, "hook_event_name": name})
@@ -440,3 +442,53 @@ def test_an_event_carries_the_name_its_harness_gave_it(parse, payload):
     # The resolver binds a Codex thread by which event bound it, from the event rather than the raw body.
     ev = parse(payload)
     assert ev is not None and ev.event_name == payload["hook_event_name"]
+
+
+GROK_TOTALS = {"session_input_tokens": 8_181_637, "session_output_tokens": 41_002,
+               "session_usage": {"input_tokens": 90_000, "cache_creation_input_tokens": 1_637,
+                                 "cache_read_input_tokens": 8_090_000, "output_tokens": 41_002}}
+
+
+def test_grok_statusline_carries_the_sessions_totals_with_its_subagents():
+    tick = parse_grok_statusline({"session_id": "g", "context_window": GROK_TOTALS}, now=1)
+    assert tick.tokens == TokenTally(8_181_637, 8_091_637, 41_002)
+
+
+def test_grok_totals_before_the_split_have_an_unknown_cached_share():
+    cw = {"session_input_tokens": 12, "session_output_tokens": 3}
+    assert parse_grok_statusline({"context_window": cw}, now=1).tokens == TokenTally(12, None, 3)
+
+
+@pytest.mark.parametrize("cw", [None, "x", {}, {"session_input_tokens": "12", "session_output_tokens": 3},
+                                {"session_input_tokens": 12}, {"session_input_tokens": -1, "session_output_tokens": 3}])
+def test_grok_totals_are_none_when_unusable(cw):
+    payload = {} if cw is None else {"context_window": cw}
+    assert parse_grok_statusline(payload, now=1).tokens is None
+
+
+def test_claude_statusline_names_the_conversations_transcript_and_no_totals():
+    tick = parse_claude_statusline({"session_id": "c", "transcript_path": "/p/c.jsonl",
+                                    "context_window": {"total_input_tokens": 15_500, "total_output_tokens": 1_200}}, now=1)
+    # Claude's `total_*` are the window's fill now, not the conversation's spend: never a tally.
+    assert tick.transcript == "/p/c.jsonl" and tick.tokens is None
+
+
+@pytest.mark.parametrize("path", ["relative/c.jsonl", "/p/c.json", "", ["/p/c.jsonl"], None])
+def test_a_transcript_must_be_an_absolute_jsonl_path(path):
+    assert parse_claude_statusline({"transcript_path": path}, now=1).transcript is None
+
+
+@pytest.mark.parametrize("name", ["UserPromptSubmit", "Stop", "PermissionRequest", "SessionStart"])
+def test_every_claude_hook_names_its_conversations_transcript(name):
+    event = parse_claude_hook({"hook_event_name": name, "session_id": "c", "cwd": "/wt", "transcript_path": "/p/c.jsonl"})
+    assert event is not None and event.transcript == "/p/c.jsonl"
+
+
+def test_pi_reports_the_sessions_tally():
+    event = parse_pi_hook({**PI_BASE, "hook_event_name": "turn_end", "tokens": {"input": 168, "cached": 135, "output": 13}})
+    assert event.kind is None and event.tokens == TokenTally(168, 135, 13)
+
+
+@pytest.mark.parametrize("tokens", [None, "x", {"input": 1}, {"input": "1", "output": 2}])
+def test_pi_tokens_are_none_when_unusable(tokens):
+    assert parse_pi_hook({**PI_BASE, "hook_event_name": "tokens", "tokens": tokens}).tokens is None

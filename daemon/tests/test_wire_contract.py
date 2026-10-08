@@ -142,7 +142,8 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         mark = app.mark()
         await svc.hook_router.handle_hook("/hook/pi", {
             "hook_event_name": "agent_start", "session_id": "pi-wire", "cwd": WORKTREE + "/app", "model": "claude-opus-5",
-            "reasoning": "high", "context_percent": 42, "_aiterm_iterm_session_id": pi})
+            "reasoning": "high", "context_percent": 42,
+            "tokens": {"input": 936018, "cached": 935988, "output": 5625}, "_aiterm_iterm_session_id": pi})
         events[protocol.SESSION_CHANGED] = await app.event(protocol.SESSION_CHANGED, mark)
 
         mark = app.mark()
