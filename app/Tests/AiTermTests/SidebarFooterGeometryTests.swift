@@ -148,7 +148,60 @@ struct SidebarFooterGeometryTests {
         #expect(abs(atMinimum - natural) < 1,
                 "at ×\(scale.factor) the row paints \(natural) pt unconstrained but only \(atMinimum) pt at the \(minimum) pt sidebar minimum, so it is truncating")
     }
-}
+
+    private let counts = TokenTally(input: 936_018, cached: 935_988, output: 5_625)
+
+    /// What SwiftUI lays out for text drawn as separate `Text` runs: each run's advance is rounded up
+    /// to a whole point, so five runs set up to four points wider than the same glyphs as one
+    /// string (measured: `in 936k · out 5.6k` is 122.4 pt as one string and 125 pt as the footer's
+    /// five runs). The counts are drawn in runs, for their inks, so the expectation is the runs'.
+    private func laidOut(_ runs: [String]) -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        return runs.map { ($0 as NSString).size(withAttributes: [.font: font]).width.rounded(.up) }.reduce(0, +)
+    }
+
+    /// The counts ride on the context row: SYSTEM is as tall with them as without.
+    @Test func theCountsShareTheContextRow() {
+        let with = host([], task: UsageTaskRow(agent: .claude, context: context, tokens: counts)).fittingSize.height
+        let without = host([], task: UsageTaskRow(agent: .claude, context: context)).fittingSize.height
+        #expect(abs(with - without) < 0.5)
+    }
+
+    /// After the ring and the fill come ` · in 936k · out 5.6k`, in the row's own run: no gap opens
+    /// between `ctx` and the counts, and the counts draw no ring of their own.
+    @Test func theCountsFollowTheContextInItsRun() throws {
+        let host = host([], task: UsageTaskRow(agent: .claude, context: context, tokens: counts), width: 600)
+        let text = laidOut(["ctx ", " 84%", " · ", "in ", "936k", " · ", "out ", "5.6k"])
+        let expected = Space.inset + Space.base + Size.vendorMark + Space.inset + text + Size.statusMark
+        let top = Int(Space.tight + Size.menuRow)
+        let right = try paintedWidth(host, band: top..<(top + Int(Size.menuRow)))
+        #expect(abs(right - expected) < 2, "the row's ink ends at \(right) pt; ctx and the counts end at \(expected) pt")
+    }
+
+    /// An agent can report its spend before its window (Grok, until it knows the model): the counts
+    /// then stand alone, with no separator in front and no "No context yet".
+    @Test func theCountsStandAloneBeforeAContext() throws {
+        let host = host([], task: UsageTaskRow(agent: .grok, context: nil, tokens: counts), width: 600)
+        let text = laidOut(["in ", "936k", " · ", "out ", "5.6k"])
+        let expected = Space.inset + Space.base + Size.vendorMark + Space.inset + text
+        let top = Int(Space.tight + Size.menuRow)
+        let right = try paintedWidth(host, band: top..<(top + Int(Size.menuRow)))
+        #expect(abs(right - expected) < 2, "the row's ink ends at \(right) pt; the counts alone end at \(expected) pt")
+    }
+
+    /// The widest context row — a full window and both counts at their widest — paints whole at the
+    /// sidebar's narrowest, at every size.
+    @Test(arguments: InterfaceScale.all)
+    func theWidestContextRowFitsTheMinimumSidebarWidth(scale: InterfaceScale) throws {
+        let task = UsageTaskRow(agent: .claude, context: UsageLine(window: .context, percent: 100, reset: nil, warning: true),
+                                tokens: TokenTally(input: 999_999, cached: 0, output: 999_999))
+        let top = Int(scale(Space.tight) + scale(Size.menuRow))
+        let band = top..<(top + Int(scale(Size.menuRow)))
+        let natural = try paintedWidth(host([], task: task, width: 900, scale: scale), band: band)
+        let atMinimum = try paintedWidth(host([], task: task, width: scale(Size.sidebarMinWidth), scale: scale), band: band)
+        #expect(abs(atMinimum - natural) < 1,
+                "at ×\(scale.factor) the ctx row paints \(natural) pt unconstrained but only \(atMinimum) pt at the minimum")
+    }}
 
 private extension UsageLine {
     var withoutReset: UsageLine { UsageLine(window: window, percent: percent, reset: nil, warning: warning) }

@@ -96,14 +96,16 @@ struct Fixture {
             // The selected task's window: two tabs in its worktree, one the user cd'd back to the
             // repo root — the "+1" case.
             // The active tab supplies the initial last-known context for this selected task.
-            Self.session("s1", "w1", working.id, "claude", "working", 0, cwd: working.worktreePath, active: true, context: 37),
+            Self.session("s1", "w1", working.id, "claude", "working", 0, cwd: working.worktreePath, active: true, context: 37,
+                         tokens: TokenTally(input: 936_018, cached: 935_988, output: 5_625)),
             Self.session("s2", "w1", working.id, "claude", "idle", 1, cwd: working.worktreePath, context: 91),
             Self.session("s3", "w1", working.id, "codex", "idle", 2, cwd: "/r", context: 64),
             // The other task's agent left its worktree entirely — the drift case.
             Self.session("s4", "w2", other.id, "codex", "needsInput", 0, cwd: "/r", active: true),
             Self.session("s5", "w2", other.id, "shell", "idle", 1, cwd: "/r"),
             Self.session("s7", "w5", piTask.id, "pi", "working", 0, cwd: piTask.worktreePath,
-                         active: true, context: 84, model: piTask.model, reasoning: piTask.reasoning),
+                         active: true, context: 84, tokens: TokenTally(input: 3_283_279, cached: 3_093_248, output: 18_391),
+                         model: piTask.model, reasoning: piTask.reasoning),
             Self.session("s8", "w6", grokTask.id, "grok", "working", 0, cwd: grokTask.worktreePath,
                          active: true, context: 37, model: grokTask.model, reasoning: grokTask.reasoning),
         ].compactMap { $0 }
@@ -136,14 +138,15 @@ struct Fixture {
     /// `SessionInfo`'s memberwise initialiser is internal to AiTermCore, so the fixtures come in
     /// the same way the daemon's do: as JSON.
     static func session(_ id: String, _ window: String, _ task: UUID, _ agent: String, _ state: String, _ tab: Int,
-                        cwd: String = "/r", active: Bool = false, context: Int? = nil,
+                        cwd: String = "/r", active: Bool = false, context: Int? = nil, tokens: TokenTally? = nil,
                         model: String? = nil, reasoning: String? = nil) -> SessionInfo? {
+        let counts = tokens.map { #"{"input":\#($0.input),"cached":\#($0.cached.map(String.init) ?? "null"),"output":\#($0.output)}"# } ?? "null"
         let json = """
         {"sessionId":"\(id)","windowId":"\(window)","tabIndex":\(tab),"taskId":"\(task.uuidString)","projectId":null,
          "agent":"\(agent)","model":\(model.map { "\"\($0)\"" } ?? "null"),
          "reasoning":\(reasoning.map { "\"\($0)\"" } ?? "null"),
          "state":"\(state)","title":"\(agent)","cwd":"\(cwd)","active":\(active),
-         "contextPercent":\(context.map(String.init) ?? "null")}
+         "contextPercent":\(context.map(String.init) ?? "null"),"tokens":\(counts)}
         """
         return try? JSONDecoder().decode(SessionInfo.self, from: Data(json.utf8))
     }
