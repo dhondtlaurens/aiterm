@@ -44,6 +44,8 @@ PI reports the same state machine through its public extension events:
 | `subagent_start` / `subagent_stop` | working | Relayed from pi-subagents' `subagents:started`, `:completed` and `:failed`, and tracked per child id like Claude's. The extension keeps its last session past `session_shutdown`, so a child that ends after it is still reported. |
 | `model_select` | model | Updates the full `provider/model` identifier. |
 | `thinking_level_select` | reasoning | Updates PI's current thinking level. |
+| `turn_end` | metadata | One of the run's turns ended: carries the session's tally, its subagents' included, and moves no state. A child session records its spend in the extension's ledger instead and posts nothing. |
+| `tokens` | metadata | A subagent's spend moved: the session's tally again, with that child's latest record. |
 
 These extension events use the existing urgency and unread rules; PI does not introduce a fifth
 state. In particular, `agent_settled` stays Done until the row is seen, just like Claude Code and

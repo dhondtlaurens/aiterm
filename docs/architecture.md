@@ -210,6 +210,15 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
+**Token counts** are each tab's own, its subagents' included and nothing counted twice. Claude's are
+summed from the transcript and every `subagents/**/agent-*.jsonl` beside it, one reply per
+`message.id` across the tree, each field the most any of its lines said, so a fork's copy of a
+parent's reply adds nothing. Codex's are the newest `total_token_usage` of the thread's rollout and
+of every rollout descended from it, by the `session_meta` lineage. Grok's are the status line's
+session totals, whose ledger already holds its subagents'. PI's extension posts its own: the
+session's entries without a tool result's usage, where pi-subagents hangs a child's, plus a
+process-wide ledger of what each subagent has spent.
+
 ## What AiTerm writes, and where
 
 **Secrets** — one Keychain item, service `com.laurensdhondt.aiterm`, account `secrets`: a JSON
@@ -239,7 +248,7 @@ status line counts as current only when it names this bundle's shim or a copy th
 eight events go to a file AiTerm owns outright, `~/.grok/hooks/aiterm.json`, written atomically
 rather than merged; only its status line merges into `~/.grok/config.toml`'s `[ui.status_line]`
 table, saving a foreign command to `grok-statusline-original.cmd` first. The PI extension goes to
-`~/.pi/agent/extensions/aiterm-status.ts`, schema 4, written with the hook port in place of its placeholder.
+`~/.pi/agent/extensions/aiterm-status.ts`, schema 5, written with the hook port in place of its placeholder.
 The two status-line shims run from the bundle and read the port from `hook-port` in the support folder,
 which each of their drivers' Install writes (launch writes it too, for an upgrade); a shim with no port
 posts nothing, and a card whose file does not hold the daemon's port is outdated.
