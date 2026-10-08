@@ -49,6 +49,8 @@ def test_a_child_session_reports_nothing(phases):
 def test_background_subagents_are_relayed_once_against_the_root_session(phases):
     assert _events(phases["background"]) == [
         ("subagent_start", "root", "a1"), ("subagent_start", "root", "a2"),
+        # The child's agent_settled records its tally; the root reports the sum at once.
+        ("tokens", "root", None),
         ("agent_settled", "root", None),
         ("subagent_stop", "root", "a1"), ("subagent_stop", "root", "a2"),
     ]
@@ -77,6 +79,20 @@ def test_a_stale_context_is_dropped_rather_than_thrown(phases):
     assert phases["stale"] == []
 
 
+SESSION_AND_CHILD = {"input": 168, "cached": 135, "output": 13}
+
+
+def test_a_subagents_turn_reports_the_session_and_its_subagents_tokens(phases):
+    child_moved, turn_end = phases["tokens"]
+    assert (child_moved["hook_event_name"], child_moved["session_id"]) == ("tokens", "root")
+    assert (turn_end["hook_event_name"], turn_end["session_id"]) == ("turn_end", "root")
+    assert child_moved["tokens"] == turn_end["tokens"] == SESSION_AND_CHILD
+
+
+def test_every_report_from_the_session_carries_its_tokens(phases):
+    assert all(post["tokens"] == SESSION_AND_CHILD for post in phases["tokens"] + phases["background"][3:])
+
+
 def test_every_report_goes_to_the_port_the_driver_wrote(phases):
     urls = {post["_url"] for phase in ("startup", "background", "after_shutdown") for post in phases[phase]}
     assert urls == {f"http://127.0.0.1:{PORT}/hook/pi"}
@@ -88,8 +104,8 @@ def test_the_bundled_extension_names_the_port_only_as_the_placeholder():
 
 
 def test_handlers_do_not_hand_pi_the_network_promise(phases):
-    # Against a daemon that never answers, each of the seven handlers returned at once.
-    assert phases["returned"] == ["nothing"] * 7
+    # Against a daemon that never answers, each of the eight handlers returned at once.
+    assert phases["returned"] == ["nothing"] * 8
 
 
 def test_the_driver_test_still_gets_the_promise_it_waits_on(phases):

@@ -27,13 +27,13 @@ function activate(factory) {
 }
 
 // PI throws from every ctx getter once its session is gone.
-function context(sessionId, hasUI) {
+function context(sessionId, hasUI, entries = []) {
 	let stale = false;
 	const live = (value) => { if (stale) throw new Error("stale ctx"); return value; };
 	return {
 		get hasUI() { return live(hasUI); },
 		get cwd() { return live("/wt"); },
-		get sessionManager() { return live({ getSessionId: () => sessionId }); },
+		get sessionManager() { return live({ getSessionId: () => sessionId, getEntries: () => entries }); },
 		get model() { return live({ provider: "openai", id: "model-x" }); },
 		get thinkingLevel() { return live("high"); },
 		getContextUsage: () => live({ percent: 12 }),
@@ -53,8 +53,17 @@ async function phase(name, steps) {
 const { default: factory } = await import(process.argv[2]);
 const root = activate(factory);
 const child = activate(factory);
-const rootCtx = context("root", true);
-const childCtx = context("child", false);
+// The root spent 115 input (105 of it cache) and 7 output on one reply, and 3 + 2 compacting.
+// Its tool result carries 1000/1000 that pi-subagents' `reportUsage` hung there: a child's spend
+// the ledger already counts, so it must not be counted again. The child spent 50 (30 cache) and 4.
+const rootEntries = [
+	{ type: "message", message: { role: "assistant", usage: { input: 10, cacheRead: 100, cacheWrite: 5, output: 7 } } },
+	{ type: "message", message: { role: "toolResult", usage: { input: 1000, output: 1000 } } },
+	{ type: "compaction", usage: { input: 3, output: 2 } },
+];
+const childEntries = [{ type: "message", message: { role: "assistant", usage: { input: 20, cacheRead: 30, output: 4 } } }];
+const rootCtx = context("root", true, rootEntries);
+const childCtx = context("child", false, childEntries);
 
 await phase("startup", async () => {
 	await root("session_start", rootCtx, { reason: "startup" });
@@ -70,6 +79,10 @@ await phase("background", async () => {
 	await root("agent_settled", rootCtx);
 	bus.emit("subagents:completed", { id: "a1" });
 	bus.emit("subagents:failed", { id: "a2" });
+});
+await phase("tokens", async () => {
+	await child("turn_end", childCtx);
+	await root("turn_end", rootCtx);
 });
 // A child that outlives its session's shutdown (a reload, say) still reports while PI keeps the ctx.
 await phase("after_shutdown", async () => {
@@ -102,7 +115,7 @@ const returned = async (steps) => {
 };
 stalled = true;
 const handlerCtx = context("root", true);
-const handlers = ["session_start", "agent_start", "agent_settled", "ui_prompt_start", "ui_prompt_end"];
+const handlers = ["session_start", "agent_start", "agent_settled", "ui_prompt_start", "ui_prompt_end", "turn_end"];
 phases.returned = await returned(handlers.map((name) => () => root(name, handlerCtx, { reason: "startup" })));
 phases.returned.push(...await returned([
 	() => root("model_select", handlerCtx, { model: { provider: "p", id: "m" } }),

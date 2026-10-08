@@ -4,7 +4,7 @@ import Foundation
 /// tool's. It is AiTerm's when its first line carries the schema marker.
 struct PiDriver: HarnessDriver {
     static let path = ".pi/agent/extensions/aiterm-status.ts"
-    static let schemaVersion = 4
+    static let schemaVersion = 5
     private static let markerPrefix = "// AiTerm PI extension schema: "
     /// Where the bundled extension names the hook port, which Install fills in: a copy of the file
     /// in PI's home cannot read the app's constant, and one that named another port than the

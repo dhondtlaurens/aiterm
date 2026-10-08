@@ -44,6 +44,12 @@ import Testing
         #expect(PiDriver.state(of: ownedSource(version: 1), expected: nil) == .outdated)
     }
 
+    /// Schema 5 sends the session's tokens with its subagents', so a schema-4 install reads as out of
+    /// date and Settings offers to update it.
+    @Test func aSchemaFourInstallIsOutdated() {
+        #expect(PiDriver.state(of: ownedSource(version: 4), expected: nil) == .outdated)
+    }
+
     /// Schema 3 forwards `session_start`'s reason and keeps the last ctx in `relay`, so a schema-2
     /// install reads as out of date and Repair (a plain reinstall) brings it to schema 3.
     @Test func aSchemaTwoInstallIsOutdatedAndRepairInstallsTheCurrentSchema() throws {
