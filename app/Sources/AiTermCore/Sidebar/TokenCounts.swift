@@ -23,8 +23,10 @@ public extension TokenTally {
     /// included". A cache share the harness cannot tell apart is left out, not read as 0 %.
     var help: String {
         let share = cached.flatMap { cached in
-            // In doubles so a huge tally cannot trap on overflow; clamped so a stray count never reads as more than all or less than none.
-            input > 0 ? ", \(min(100, Int((Double(max(0, cached)) / Double(input) * 100).rounded(.down)))) % from cache" : nil
+            // Exact integer floors (a Double would read 29 of 100 as 28 %), the count held between none and all first so a
+            // stray one never reads as a negative or over-full share, and split so the multiplication cannot overflow.
+            let part = min(max(0, cached), input)
+            return input > 0 ? ", \(part / input * 100 + part % input * 100 / input) % from cache" : nil
         } ?? ""
         return "Input \(Self.grouped(input)) tokens\(share) · output \(Self.grouped(output)) tokens · subagents included"
     }

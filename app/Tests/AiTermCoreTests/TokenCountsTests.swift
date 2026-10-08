@@ -29,6 +29,12 @@ import Testing
         #expect(TokenTally(input: 100, cached: -5, output: 1).help.contains(", 0 % from cache"))
     }
 
+    /// The share is an exact floor: 29 of 100 reads 29 %, not the 28 a floating-point division would give.
+    @Test func theCacheShareIsAnExactFloor() {
+        #expect(TokenTally(input: 100, cached: 29, output: 1).help
+                == "Input 100 tokens, 29 % from cache · output 1 tokens · subagents included")
+    }
+
     /// Thousands are split by commas on every Mac, whatever its locale.
     @Test func groupedCounts() {
         #expect(TokenTally.grouped(0) == "0")
