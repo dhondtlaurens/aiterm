@@ -423,6 +423,24 @@ import Synchronization
 
     // MARK: - context
 
+    /// The counts are the active tab's own, never another tab's: two Claude tabs are two conversations.
+    @Test func theCountsAreTheActiveTabsOwn() {
+        let id = UUID()
+        let sessions = [tab(id, .claude, 0), tab(id, .claude, 1, active: true)]
+        let counts = ["s0": TokenTally(input: 9, cached: 0, output: 9), "s1": TokenTally(input: 936_018, cached: 935_988, output: 5_625)]
+        let row = SidebarModel.usageTaskRow(taskId: id, agent: .claude, sessions: sessions, contexts: [.claude: 42], tokens: counts)
+        #expect(row.tokens == counts["s1"])
+    }
+
+    /// A shell tab, or a task whose window is closed, has no conversation and no counts.
+    @Test func aShellTabHasNoCounts() {
+        let id = UUID()
+        let counts = ["s0": TokenTally(input: 9, cached: 0, output: 9), "s1": TokenTally(input: 1, cached: 0, output: 1)]
+        #expect(SidebarModel.usageTaskRow(taskId: id, agent: .claude, sessions: [tab(id, .claude, 0), tab(id, .shell, 1, active: true)],
+                                          contexts: [:], tokens: counts).tokens == nil)
+        #expect(SidebarModel.usageTaskRow(taskId: UUID(), agent: .claude, sessions: [], contexts: [:], tokens: counts).tokens == nil)
+    }
+
     /// The footer's first row is the selected task's active tab: that tab's agent mark and its
     /// provider's context fill. Other providers' fills in the same task are not drawn.
     @Test func testTheTaskRowFollowsTheActiveTab() {

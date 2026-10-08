@@ -177,4 +177,22 @@ struct SidebarProjectionTests {
             controller.workspace.mutate { $0.sidebarFrame = CGRect(x: 0, y: 0, width: 300, height: 800) }
         })
     }
+
+    /// The counts redraw the footer and nothing else: they are not part of a row, so the rows are not
+    /// derived again; and a model or a title moving leaves the footer be.
+    @Test func theCountsRedrawTheFooterAlone() throws {
+        let controller = try controller()
+        controller.focus.browse(.task(Self.taskId))
+        let footer = SelectedRowSidebarFooter(controller: controller, vendors: [])
+        var event = tab()
+        event.active = true
+        controller.live.handle(.sessionChanged(event))
+        let rows = controller.live.rowSessions
+        event.tokens = TokenTally(input: 936_018, cached: 935_988, output: 5_625)
+        #expect(invalidates({ _ = footer.body }) { controller.live.handle(.sessionChanged(event)) })
+        #expect(controller.rows.usageRow(for: .task(Self.taskId))?.tokens == event.tokens)
+        #expect(controller.live.rowSessions == rows)
+        event.model = "sonnet"; event.title = "✳ thinking"
+        #expect(!invalidates({ _ = footer.body }) { controller.live.handle(.sessionChanged(event)) })
+    }
 }

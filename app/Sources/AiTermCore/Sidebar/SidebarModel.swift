@@ -21,11 +21,11 @@ public extension SessionState {
 
 public extension SessionInfo {
     /// The tab without what no row draws, for telling a change the rows draw from one they don't:
-    /// most session events are a context fill, a model or a Codex spinner title. A field the rows —
+    /// most session events are a context fill, a token count, a model or a Codex spinner title. A field the rows —
     /// or the footer's `ctx` row — start to read has to stay here.
     var rowRelevant: SessionInfo {
         var row = self
-        row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
+        row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil; row.tokens = nil
         return row
     }
 }
@@ -180,11 +180,15 @@ public struct UsageVendorRow: Equatable, Sendable {
     public var vendor: AgentKind; public var lines: [UsageLine]; public var note: String?
     public var warning = false
 }
-/// The footer's first row: what runs in the selected task's or terminal's active tab and its `ctx`
-/// line — absent for a shell, and until an agent has reported a context fill for the row.
+/// The footer's first row: what runs in the selected task's or terminal's active tab, its `ctx` line
+/// and what its conversation has spent — each absent for a shell, and until the agent has reported it.
 public struct UsageTaskRow: Equatable, Sendable {
     public var agent: SessionAgent; public var context: UsageLine?
-    public init(agent: SessionAgent, context: UsageLine?) { self.agent = agent; self.context = context }
+    /// The active tab's own counts, its subagents and background workers included.
+    public var tokens: TokenTally?
+    public init(agent: SessionAgent, context: UsageLine?, tokens: TokenTally? = nil) {
+        self.agent = agent; self.context = context; self.tokens = tokens
+    }
 }
 
 /// A sidebar row that can have a window: a task (or review), or a terminal. Focus View steps
@@ -435,30 +439,31 @@ public enum SidebarModel {
     }
 
     /// The selected task — or review — as the footer's first row: whatever runs in its active tab,
-    /// and that provider's last-known fill from `contexts`. A shell tab has no fill even while
-    /// another tab of the task has one. A task whose window is closed shows its own `agent`.
+    /// that provider's last-known fill from `contexts`, and that tab's own counts from `tokens`, by
+    /// session. A shell tab has neither even while another tab of the task has both. A task whose
+    /// window is closed shows its own `agent`, with its last fill and no counts.
     public static func usageTaskRow(taskId: UUID, agent: AgentKind, sessions: [SessionInfo],
-                                    contexts: [AgentKind: Int]) -> UsageTaskRow {
-        usageRow(sessions.filter { $0.taskUUID == taskId }, fallback: agent.session,
-                 contexts: contexts)
+                                    contexts: [AgentKind: Int], tokens: [String: TokenTally] = [:]) -> UsageTaskRow {
+        usageRow(sessions.filter { $0.taskUUID == taskId }, fallback: agent.session, contexts: contexts, tokens: tokens)
     }
 
     /// The selected terminal as the footer's first row, on the same rules as ``usageTaskRow``. Its
     /// tabs carry no task tag, so they are matched by window, as its avatars are. A terminal has no
     /// agent of its own: with its window closed it is a shell.
     public static func usageTerminalRow(windowId: String?, sessions: [SessionInfo],
-                                        contexts: [AgentKind: Int]) -> UsageTaskRow {
+                                        contexts: [AgentKind: Int], tokens: [String: TokenTally] = [:]) -> UsageTaskRow {
         let own = windowId.map { wid in sessions.filter { $0.windowId == wid } } ?? []
-        return usageRow(own, fallback: .shell, contexts: contexts)
+        return usageRow(own, fallback: .shell, contexts: contexts, tokens: tokens)
     }
 
     /// Until the daemon has said which tab is current, the first tab stands in for it.
-    private static func usageRow(_ own: [SessionInfo], fallback: SessionAgent, contexts: [AgentKind: Int]) -> UsageTaskRow {
+    private static func usageRow(_ own: [SessionInfo], fallback: SessionAgent, contexts: [AgentKind: Int],
+                                 tokens: [String: TokenTally]) -> UsageTaskRow {
         let tab = own.first(where: \.active) ?? own.min { $0.tabIndex < $1.tabIndex }
         let agent = tab?.agent ?? fallback
         return UsageTaskRow(agent: agent, context: agent.agentKind.flatMap { contexts[$0] }.map {
             UsageLine(window: .context, percent: $0, reset: nil, warning: $0 >= warningThreshold)
-        })
+        }, tokens: agent == .shell ? nil : tab.flatMap { tokens[$0.sessionId] })
     }
 
     /// The statusline's `fmt_reset`: 24-hour local time, with a weekday prefix only across a date

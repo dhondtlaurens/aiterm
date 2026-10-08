@@ -17,6 +17,8 @@ final class LiveSessions {
             }
             let state = workspace.state
             updateContexts { $0.seed(from: sessions, in: state) }
+            let counts = Dictionary(sessions.compactMap { s in s.tokens.map { (s.sessionId, $0) } }, uniquingKeysWith: { _, last in last })
+            if counts != tokens { tokens = counts }
             for hook in sessionsHooks { hook(sessions) }
         }
     }
@@ -29,6 +31,9 @@ final class LiveSessions {
     /// The context fill each row last reported, per provider. Written only when a value moves:
     /// session events arrive several a second, and every write re-renders the sidebar.
     private var contexts = SessionContexts()
+    /// What each tab's conversation has spent, by session: its own, never promoted across a row as a
+    /// context fill is. Written only when a count moves, so a model or a title leaves the footer be.
+    private(set) var tokens: [String: TokenTally] = [:]
 
     /// The workspace the tabs are matched to rows in.
     private let workspace: WorkspaceStore
