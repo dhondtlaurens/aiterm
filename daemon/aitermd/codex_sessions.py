@@ -4,17 +4,21 @@ import json
 import math
 import time
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .usage import finite_number
+from .models import TokenTally
+from .usage import finite_number, whole_count
 
 # How often the whole sessions tree is listed again. In between, only the rollouts last seen to be
 # the newest, the tracked threads' own and today's directory are looked at: a new session writes
 # under today's date, and a resumed one appends to a rollout already known.
 LIST_SECONDS = 30.0
 RECENT_KEPT = 8
+# How many day directories after a thread's own are searched for its children: one long-running
+# thread may outlive a few midnights, and a listing that grew without bound would cost every tick.
+CHILD_DAYS = 31
 
 # What every `token_count` record contains, so a line without it can be skipped unparsed.
 _TOKEN_COUNT = b'"token_count"'
@@ -33,6 +37,13 @@ class CodexSessionFiles:
         self._recent: list[Path] = []
         # Thread id -> the rollout as last parsed, and the fill it gave.
         self._context: dict[str, tuple[Stamp, int | None]] = {}
+        # Each rollout's (thread id, session id, parent thread id), from its first record, which
+        # never changes. One entry per file, so it is not pruned.
+        self._lineage: dict[Path, tuple[str | None, str | None, str | None]] = {}
+        # Rollout -> its stamp as last read, and the total it gave.
+        self._totals: dict[Path, tuple[Stamp, TokenTally | None]] = {}
+        # Thread id -> the rollouts of its subagents as last found, for `retain`.
+        self._children: dict[str, list[Path]] = {}
         # The rollouts `rate_limits()` last consulted, by (path, mtime), and what they said: the
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
         self._limits_seen: tuple[tuple[Path, int], ...] | None = None
@@ -40,9 +51,12 @@ class CodexSessionFiles:
 
     def retain(self, session_ids: set[str]) -> None:
         """Drops what is cached for threads no tab is running any more."""
-        for cache in (self._paths, self._missed, self._context):
+        for cache in (self._paths, self._missed, self._context, self._children):
             for session_id in cache.keys() - session_ids:
                 del cache[session_id]
+        kept = {*self._paths.values(), *(p for paths in self._children.values() for p in paths)}
+        for path in self._totals.keys() - kept:
+            del self._totals[path]
 
     def context_percent(self, session_id: str) -> int | None:
         path = self._path_for(session_id)
@@ -72,6 +86,82 @@ class CodexSessionFiles:
             if not math.isfinite(percent):
                 continue
             return max(0, min(100, round(percent)))
+        return None
+
+    def tally(self, thread_id: str) -> TokenTally | None:
+        """What the thread has spent with its subagents'. Codex keeps each child's tokens in the
+        child's own rollout and none in the parent's (a review child's 798,760 against its parent's
+        whole 24,212), so the parent's total alone would leave them out."""
+        path = self._path_for(thread_id)
+        if path is None:
+            return None
+        children = self._children[thread_id] = self._descendants(thread_id, path)
+        return TokenTally.combined(total for p in (path, *children) if (total := self._total(p)) is not None)
+
+    def _descendants(self, thread_id: str, path: Path) -> list[Path]:
+        """The rollouts started under `thread_id` at any depth: a child names its parent thread
+        (`parent_thread_id`, or its spawn's) and its conversation's root (`session_id`). A child starts
+        after its parent, so only the parent's day directory and the ones since are looked in."""
+        lineages = {p: self._lineage_of(p) for p in self._list_days_since(path) if p != path}
+        family, found = {thread_id}, set()
+        grew = True
+        while grew:
+            grew = False
+            for p, (own, root, parent) in lineages.items():
+                if p not in found and own != thread_id and (root in family or parent in family):
+                    found.add(p)
+                    grew = True
+                    if own:
+                        family.add(own)
+        return sorted(found)
+
+    def _list_days_since(self, path: Path) -> list[Path]:
+        """The rollouts in `path`'s day directory and each one after it, up to today (local or UTC)."""
+        try:
+            first = date(*map(int, path.relative_to(self.root).parts[:3]))
+        except (ValueError, TypeError):
+            return []
+        last = max(date.today(), datetime.now(UTC).date())
+        found: list[Path] = []
+        for offset in range(min((last - first).days, CHILD_DAYS) + 1):
+            with contextlib.suppress(OSError):
+                found += (self.root / f"{first + timedelta(days=offset):%Y/%m/%d}").glob("rollout-*.jsonl")
+        return found
+
+    def _lineage_of(self, path: Path) -> tuple[str | None, str | None, str | None]:
+        if (known := self._lineage.get(path)) is not None:
+            return known
+        lineage = _read_lineage(path)
+        if lineage is not None:  # a file without its first line yet is asked again next time
+            self._lineage[path] = lineage
+        return lineage or (None, None, None)
+
+    def _total(self, path: Path) -> TokenTally | None:
+        """The rollout's own spend, cached until the file changes."""
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        stamp = (path, st.st_mtime_ns, st.st_size)
+        if (cached := self._totals.get(path)) is not None and cached[0] == stamp:
+            return cached[1]
+        total = self._read_total(path)
+        self._totals[path] = (stamp, total)
+        return total
+
+    def _read_total(self, path: Path) -> TokenTally | None:
+        """The newest `total_token_usage`. Its `input_tokens` already counts the cache
+        (`total_tokens` = input + output in every rollout measured)."""
+        for _, payload in self._token_counts(path):
+            info = payload.get("info")
+            usage = info.get("total_token_usage") if isinstance(info, dict) else None
+            if not isinstance(usage, dict):
+                continue
+            spent_in, spent_out = whole_count(usage.get("input_tokens")), whole_count(usage.get("output_tokens"))
+            if spent_in is None or spent_out is None:
+                continue
+            read, written = whole_count(usage.get("cached_input_tokens")), whole_count(usage.get("cache_write_input_tokens")) or 0
+            return TokenTally(spent_in, None if read is None else read + written, spent_out)
         return None
 
     def rate_limits(self) -> tuple[dict[str, Any], int | None] | None:
@@ -206,3 +296,36 @@ def _epoch(timestamp: Any) -> int | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return int(parsed.timestamp())
+
+
+def _read_lineage(path: Path) -> tuple[str | None, str | None, str | None] | None:
+    """A rollout's (thread id, session id, parent thread id) from its first record, the session's
+    meta; three Nones for a file that starts with anything else, and None while its first line is
+    still being written."""
+    try:
+        with path.open("rb") as stream:
+            line = stream.readline()
+    except OSError:
+        return None
+    if not line.endswith(b"\n"):
+        return None
+    try:
+        record = json.loads(line)
+    except (UnicodeDecodeError, ValueError):
+        return (None, None, None)
+    payload = record.get("payload") if isinstance(record, dict) and record.get("type") == "session_meta" else None
+    if not isinstance(payload, dict):
+        return (None, None, None)
+    return (_string(payload.get("id")), _string(payload.get("session_id")),
+            _string(payload.get("parent_thread_id")) or _spawned_by(payload.get("source")))
+
+
+def _spawned_by(source: Any) -> str | None:
+    """The parent a spawned subagent names in `source.subagent.thread_spawn`."""
+    for key in ("subagent", "thread_spawn"):
+        source = source.get(key) if isinstance(source, dict) else None
+    return _string(source.get("parent_thread_id")) if isinstance(source, dict) else None
+
+
+def _string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None

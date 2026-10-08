@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
+from aitermd.models import TokenTally
 
 
 def write_rollout(root, session_id, records, day="2026/09/22"):
@@ -26,6 +27,21 @@ def token_count(total_tokens, context_window):
             },
         },
     }
+
+
+def meta(thread_id, *, session_id=None, parent=None, spawned_by=None):
+    payload = {"id": thread_id, "session_id": session_id or thread_id}
+    if parent:
+        payload["parent_thread_id"] = parent
+    if spawned_by:
+        payload["source"] = {"subagent": {"thread_spawn": {"parent_thread_id": spawned_by, "depth": 1}}}
+    return {"type": "session_meta", "payload": payload}
+
+
+def totals(input_tokens, cached, output):
+    return {"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {
+        "input_tokens": input_tokens, "cached_input_tokens": cached, "cache_write_input_tokens": 0,
+        "output_tokens": output, "total_tokens": input_tokens + output}}}}
 
 
 def test_reads_latest_valid_context_for_the_exact_codex_session(tmp_path):
@@ -234,3 +250,45 @@ def test_matching_lines_are_found_whichever_block_they_straddle(tmp_path, block_
         found = list(CodexSessionFiles._lines_reverse(path, b'"token_count"', block_size))
 
         assert found == [lines[6], lines[4], lines[1]]
+
+
+def test_a_threads_tally_is_its_newest_total(tmp_path):
+    root = tmp_path / "sessions"
+    write_rollout(root, "t1", [meta("t1"), totals(100, 60, 5), totals(3_283_279, 3_093_248, 18_391)])
+    assert CodexSessionFiles(root).tally("t1") == TokenTally(3_283_279, 3_093_248, 18_391)
+
+
+def test_review_spawned_and_nested_children_are_added_and_strangers_are_not(tmp_path):
+    root = tmp_path / "sessions"
+    write_rollout(root, "t1", [meta("t1"), totals(1_000, 900, 10)])
+    write_rollout(root, "review", [meta("review", session_id="t1", parent="t1"), totals(800, 700, 20)])
+    write_rollout(root, "spawn", [meta("spawn", session_id="t1", spawned_by="t1"), totals(400, 300, 30)])
+    write_rollout(root, "grandchild", [meta("grandchild", parent="spawn"), totals(40, 0, 4)])
+    write_rollout(root, "stranger", [meta("stranger"), totals(9_999, 0, 999)])
+    assert CodexSessionFiles(root).tally("t1") == TokenTally(2_240, 1_900, 64)
+
+
+def test_a_child_written_on_a_later_day_is_found(tmp_path):
+    root = tmp_path / "sessions"
+    write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)], day="2026/09/22")
+    write_rollout(root, "late", [meta("late", parent="t1"), totals(5, 0, 1)], day="2026/09/23")
+    assert CodexSessionFiles(root).tally("t1") == TokenTally(15, 0, 2)
+
+
+def test_a_rollout_without_totals_adds_nothing(tmp_path):
+    root = tmp_path / "sessions"
+    write_rollout(root, "t1", [meta("t1")])
+    assert CodexSessionFiles(root).tally("t1") is None
+    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 1, 1)])
+    assert CodexSessionFiles(root).tally("t1") == TokenTally(5, 1, 1)
+
+
+def test_totals_are_not_reread_until_a_rollout_changes(tmp_path, monkeypatch):
+    root, reads = tmp_path / "sessions", []
+    write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
+    files = CodexSessionFiles(root)
+    original = files._read_total
+    monkeypatch.setattr(files, "_read_total", lambda path: (reads.append(path), original(path))[1])
+    files.tally("t1")
+    files.tally("t1")
+    assert len(reads) == 1

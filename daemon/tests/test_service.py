@@ -330,15 +330,25 @@ async def test_tick_reads_codex_context_after_a_hook_identifies_the_thread(stack
 
     rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-context.jsonl"
     rollout.parent.mkdir(parents=True)
-    rollout.write_text(json.dumps({
-        "type": "event_msg", "payload": {"type": "token_count", "info": {
+    rollout.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "session_meta", "payload": {"id": "thread-context", "session_id": "thread-context"}},
+        {"type": "event_msg", "payload": {"type": "token_count", "info": {
             "last_token_usage": {"total_tokens": 66_020}, "model_context_window": 258_400,
-        }},
-    }) + "\n")
+            "total_token_usage": {"input_tokens": 70_000, "cached_input_tokens": 60_000, "output_tokens": 900},
+        }}},
+    ]) + "\n")
+    child = rollout.parent / "rollout-2026-09-22T09-30-00-review-child.jsonl"
+    child.write_text("\n".join(json.dumps(record) for record in [
+        {"type": "session_meta", "payload": {"id": "review-child", "session_id": "thread-context",
+                                             "parent_thread_id": "thread-context"}},
+        {"type": "event_msg", "payload": {"type": "token_count", "info": {
+            "total_token_usage": {"input_tokens": 800, "cached_input_tokens": 700, "output_tokens": 20}}}},
+    ]) + "\n")
 
     await svc.tick()
 
     assert svc.registry.get(sid).context_percent == 26
+    assert svc.registry.get(sid).tokens == TokenTally(70_800, 60_700, 920)
 
 
 async def test_tick_tallies_a_claude_conversation_and_its_subagents(stack, tmp_path):

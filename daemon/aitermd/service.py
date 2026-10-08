@@ -43,7 +43,7 @@ POLL_SECONDS = 2.0
 # How long a tick waits for a check it runs on a worker thread: the orphan directories, the subagent
 # transcripts, the Codex rollouts.
 OFF_LOOP_CHECK_SECONDS = 1.0
-# Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill -- run
+# Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill and spend -- run
 # under this one off-loop name. They share CodexSessionFiles' caches, which nothing locks, so a read
 # still stuck from an earlier tick holds back the other kind as well, rather than race it on a
 # second worker thread.
@@ -283,7 +283,7 @@ class Service:
             with _logged(f"corroborating session {s.session_id}"):
                 self._corroborate(s, threads, changed)
         with _logged("reading the Codex rollouts"):
-            changed += await self._apply_codex_contexts(threads)
+            changed += await self._apply_codex_rollouts(threads)
         with _logged("reading the Claude transcripts"):
             changed += await self._apply_claude_tallies()
         with _logged("settling orphaned sessions"):
@@ -294,7 +294,7 @@ class Service:
     def _corroborate(self, s: SessionInfo, threads: dict[str, str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
         not, and to `threads` the Codex thread it runs, by session. A step that raises keeps the
-        changes before it. The Codex rollout is not read here: see `_apply_codex_contexts`."""
+        changes before it. The Codex rollout is not read here: see `_apply_codex_rollouts`."""
         if s.agent == "shell":
             if s.state != "idle":
                 changed += self.status.agent_exited(s.session_id)
@@ -311,29 +311,29 @@ class Service:
             if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
                 threads[s.session_id] = thread_id
 
-    async def _apply_codex_contexts(self, threads: dict[str, str]) -> list[str]:
-        """The sessions whose context fill their Codex rollout changed, and the rollouts' cache pruned
-        to the threads still running. A rollout grows without bound and a hung mount can stall its
-        read, so it is read on a worker thread: everything that touches the cache runs there."""
+    async def _apply_codex_rollouts(self, threads: dict[str, str]) -> list[str]:
+        """The sessions whose context fill or spend their Codex rollouts changed, and the rollouts'
+        caches pruned to the threads still running. A rollout grows without bound and a hung mount can
+        stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
         if (files := self.codex_files) is None:
             return []
 
-        def read() -> dict[str, int | None]:
-            contexts: dict[str, int | None] = {}
+        def read() -> dict[str, tuple[int | None, TokenTally | None]]:
+            readings: dict[str, tuple[int | None, TokenTally | None]] = {}
             for thread_id in set(threads.values()):
                 try:  # another process's file: one that cannot be read costs only its own thread
-                    contexts[thread_id] = files.context_percent(thread_id)
+                    readings[thread_id] = (files.context_percent(thread_id), files.tally(thread_id))
                 except Exception:  # noqa: BLE001
-                    log.exception("reading the Codex rollout of thread %s failed", thread_id)
+                    log.exception("reading the Codex rollouts of thread %s failed", thread_id)
             files.retain(set(threads.values()))
-            return contexts
+            return readings
 
-        none: dict[str, int | None] = {}
-        contexts = await self._off_loop(CODEX_READ, read, none)
+        none: dict[str, tuple[int | None, TokenTally | None]] = {}
+        readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
-            if (context := contexts.get(thread_id)) is not None:
-                changed += self.status.apply_metadata(session_id, context=context)
+            context, tally = readings.get(thread_id, (None, None))
+            changed += self.status.apply_metadata(session_id, context=context, tokens=tally)
         return changed
 
     async def _apply_claude_tallies(self) -> list[str]:
