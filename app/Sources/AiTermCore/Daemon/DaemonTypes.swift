@@ -49,7 +49,9 @@ extension SessionInfo {
         agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
         active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
         contextPercent = try c.decodeIfPresent(Int.self, forKey: .contextPercent)
-        tokens = try c.decodeIfPresent(TokenTally.self, forKey: .tokens)
+        // Read leniently: a tally this app cannot read — a count too large for an `Int`, a daemon of
+        // another shape — costs only these counts, not the session and the snapshot it came in.
+        tokens = (try? c.decodeIfPresent(TokenTally.self, forKey: .tokens)) ?? nil
     }
 }
 

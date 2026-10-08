@@ -51,7 +51,7 @@ import Testing
     }
 
     /// Schema 3 forwards `session_start`'s reason and keeps the last ctx in `relay`, so a schema-2
-    /// install reads as out of date and Repair (a plain reinstall) brings it to schema 3.
+    /// install reads as out of date and Repair (a plain reinstall) brings it to the current schema.
     @Test func aSchemaTwoInstallIsOutdatedAndRepairInstallsTheCurrentSchema() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }

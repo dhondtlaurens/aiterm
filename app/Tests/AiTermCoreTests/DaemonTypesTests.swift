@@ -26,6 +26,17 @@ import Testing
         #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(none.utf8)).tokens == nil)
     }
 
+    /// A tally the app cannot read — a count too large for an `Int`, or not a tally at all — costs
+    /// only that session's counts, never the session or the snapshot it came in.
+    @Test func aSessionWhoseTokensCannotBeReadStillDecodesWithoutThem() throws {
+        for tokens in [#"{"input":1e30,"cached":null,"output":3}"#, #""many""#] {
+            let json = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"claude","model":null,"state":"working","title":"","cwd":"/repo","tokens":"# + tokens + "}"
+            let session = try JSONDecoder().decode(SessionInfo.self, from: Data(json.utf8))
+            #expect(session.sessionId == "s1")
+            #expect(session.tokens == nil)
+        }
+    }
+
     /// C4: a daemon built from a different worktree can send a `SessionAgent`/`SessionState` raw
     /// value this app has never heard of. Decoding it to `.shell`/`.idle` keeps that one session
     /// from failing the whole snapshot, instead of a `.helperUnreachable` reconnect loop.

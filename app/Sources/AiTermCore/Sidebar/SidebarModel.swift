@@ -463,7 +463,11 @@ public enum SidebarModel {
         let agent = tab?.agent ?? fallback
         return UsageTaskRow(agent: agent, context: agent.agentKind.flatMap { contexts[$0] }.map {
             UsageLine(window: .context, percent: $0, reset: nil, warning: $0 >= warningThreshold)
-        }, tokens: agent == .shell ? nil : tab.flatMap { tokens[$0.sessionId] })
+        }, tokens: agent == .shell ? nil : tab.flatMap { tokens[$0.sessionId] }.flatMap {
+            // Nothing in and nothing out (PI's tally from a session's start) is no counts yet, never
+            // `in 0 · out 0`. Dropped here, not by the daemon: a PI /new's zeros still replace an old tally.
+            $0.input == 0 && $0.output == 0 ? nil : $0
+        })
     }
 
     /// The statusline's `fmt_reset`: 24-hour local time, with a weekday prefix only across a date

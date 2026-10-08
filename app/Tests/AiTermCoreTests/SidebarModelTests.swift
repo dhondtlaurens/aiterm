@@ -441,6 +441,20 @@ import Synchronization
         #expect(SidebarModel.usageTaskRow(taskId: UUID(), agent: .claude, sessions: [], contexts: [:], tokens: counts).tokens == nil)
     }
 
+    /// A tally of nothing in and nothing out — PI reports one from a session's start — is no counts
+    /// at all, never `in 0 · out 0`; a tally with either side spent still shows.
+    @Test func aTallyOfNothingInAndNothingOutHasNoCounts() {
+        let id = UUID()
+        let row = { (tally: TokenTally) in
+            SidebarModel.usageTaskRow(taskId: id, agent: .pi, sessions: [self.tab(id, .pi, 0, active: true)],
+                                      contexts: [:], tokens: ["s0": tally]).tokens
+        }
+        #expect(row(TokenTally(input: 0, cached: 0, output: 0)) == nil)
+        #expect(row(TokenTally(input: 0, cached: nil, output: 0)) == nil)
+        #expect(row(TokenTally(input: 0, cached: 0, output: 3)) == TokenTally(input: 0, cached: 0, output: 3))
+        #expect(row(TokenTally(input: 12, cached: nil, output: 0)) == TokenTally(input: 12, cached: nil, output: 0))
+    }
+
     /// The footer's first row is the selected task's active tab: that tab's agent mark and its
     /// provider's context fill. Other providers' fills in the same task are not drawn.
     @Test func testTheTaskRowFollowsTheActiveTab() {
