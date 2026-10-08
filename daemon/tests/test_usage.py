@@ -82,6 +82,8 @@ def test_parse_codex_rejects_non_finite_numbers(bad):
 @pytest.mark.parametrize("value,expected", [
     (0, 0), (936_018, 936_018), (12.0, 12),
     (-1, None), (True, None), ("12", None), (None, None), (float("inf"), None), (float("nan"), None),
+    # Above 2**53 a double cannot hold every whole number, and 1e30 is no Swift Int at all.
+    (2**53, 2**53), (2**53 + 1, None), (1e30, None),
 ])
 def test_a_whole_count_is_a_finite_non_negative_number(value, expected):
     assert whole_count(value) == expected

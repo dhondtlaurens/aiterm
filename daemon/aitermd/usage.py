@@ -48,11 +48,18 @@ def finite_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+# The most a count may be: the largest whole number a double holds exactly. A finite 1e30 would
+# otherwise reach the wire as a 31-digit int, which the app's `Int` cannot decode.
+MAX_WHOLE_COUNT = 2**53
+
+
 def whole_count(value: Any) -> int | None:
-    """A token count from another process's JSON: a finite number no lower than zero, as an int.
-    Anything else -- a string, a bool, a negative -- is no count at all, never zero."""
+    """A token count from another process's JSON: a finite number from zero to MAX_WHOLE_COUNT, as
+    an int. Anything else -- a string, a bool, a negative, a count no session could reach -- is no
+    count at all, never zero."""
     number = finite_number(value)
-    return int(number) if number is not None and number >= 0 else None
+    # Compared as given, not as the float: 2**53 + 1 rounds to 2**53 as a double.
+    return int(number) if number is not None and 0 <= value <= MAX_WHOLE_COUNT else None
 
 
 def _window(d: Any, percent_key: str) -> UsageWindow | None:

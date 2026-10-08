@@ -93,6 +93,9 @@ class Service:
         self._path_missing = path_missing
         self.subagent_transcripts = SubagentTranscripts()
         self.claude_tallies = ClaudeTranscriptTallies()
+        # The Codex thread each tab ran at the last tick, by session: a tab that moves to a thread with
+        # no totals yet (/new, /resume) must drop the old thread's, which no reading replaces.
+        self._codex_threads: dict[str, str] = {}
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}
@@ -321,10 +324,19 @@ class Service:
         def read() -> dict[str, tuple[int | None, TokenTally | None]]:
             readings: dict[str, tuple[int | None, TokenTally | None]] = {}
             for thread_id in set(threads.values()):
-                try:  # another process's file: one that cannot be read costs only its own thread
-                    readings[thread_id] = (files.context_percent(thread_id), files.tally(thread_id))
+                # Another process's file: one that cannot be read costs only its own thread, and only
+                # the reading that failed -- a tally that raises still lets the context through.
+                context: int | None = None
+                tally: TokenTally | None = None
+                try:
+                    context = files.context_percent(thread_id)
                 except Exception:  # noqa: BLE001
-                    log.exception("reading the Codex rollouts of thread %s failed", thread_id)
+                    log.exception("reading the Codex context of thread %s failed", thread_id)
+                try:
+                    tally = files.tally(thread_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("reading the Codex tally of thread %s failed", thread_id)
+                readings[thread_id] = (context, tally)
             files.retain(set(threads.values()))
             return readings
 
@@ -333,7 +345,12 @@ class Service:
         changed: list[str] = []
         for session_id, thread_id in threads.items():
             context, tally = readings.get(thread_id, (None, None))
+            # None is no reading, which apply_metadata leaves alone; on a new thread it is no spend yet.
+            if tally is None and self._codex_threads.get(session_id) != thread_id and self.registry.set_tokens(session_id, None):
+                changed.append(session_id)
             changed += self.status.apply_metadata(session_id, context=context, tokens=tally)
+        # Only the tabs running Codex now: a closed or quit one's binding goes with it.
+        self._codex_threads = dict(threads)
         return changed
 
     async def _apply_claude_tallies(self) -> list[str]:
@@ -361,7 +378,10 @@ class Service:
         found = await self._off_loop(CLAUDE_READ, read, none)
         changed: list[str] = []
         for session_id, transcript in transcripts.items():
-            if (tally := found.get(transcript)) is not None:
+            # The tab may have moved on while the read ran (/clear, /resume), its tokens already reset:
+            # the old conversation's tally must not be written back onto the new one.
+            if ((tally := found.get(transcript)) is not None and (s := self.registry.get(session_id)) is not None
+                    and s.transcript == transcript):
                 changed += self.status.apply_metadata(session_id, tokens=tally)
         return changed
 

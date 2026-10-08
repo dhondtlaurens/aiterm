@@ -42,6 +42,14 @@ def test_subagents_of_every_kind_are_added_and_a_forks_copied_replies_are_not(tm
     assert ClaudeTranscriptTallies().tally(str(transcript)) == TokenTally(1_018, 900, 55)
 
 
+def test_a_forks_copy_of_a_replys_partial_line_never_lowers_the_parents_final_count(tmp_path):
+    transcript = tmp_path / "s.jsonl"
+    append(transcript, reply("m1", fresh=2, read=90, output=21), reply("m1", fresh=2, read=90, output=238))
+    # The fork copied only the reply's first content block, and its file is read after the parent's.
+    append(subagent(transcript, "fork"), reply("m1", fresh=2, read=90, output=21))
+    assert ClaudeTranscriptTallies().tally(str(transcript)) == TokenTally(92, 90, 238)
+
+
 def test_a_workflows_subagents_one_directory_deeper_are_counted(tmp_path):
     transcript = tmp_path / "s.jsonl"
     append(transcript, reply("p1", fresh=10, output=1))

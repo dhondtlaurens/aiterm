@@ -30,8 +30,9 @@ class _Cursor:
 class _Conversation:
     cursors: dict[Path, _Cursor] = field(default_factory=dict)
     # Each reply's (input, cached, output) by `message.id`. Claude writes a reply as one line per
-    # content block, each repeating its usage and the last with the final output count, so the last
-    # line read wins. Kept across the whole tree: a forked subagent copies its parent's replies.
+    # content block, each repeating its usage and the last with the final output count, so each field
+    # keeps the most any of its lines said. Kept across the whole tree: a forked subagent copies its
+    # parent's replies, and a fork read after the parent may hold only a reply's partial first line.
     replies: dict[str, tuple[int, int, int]] = field(default_factory=dict)
     stamps: tuple[Stamp, ...] | None = None
     tally: TokenTally | None = None
@@ -110,7 +111,11 @@ class ClaudeTranscriptTallies:
         *lines, cursor.partial = (cursor.partial + chunk).split(b"\n")
         for line in lines:
             if _USAGE in line and (reply := cls._reply(line)) is not None:
-                conversation.replies[reply[0]] = reply[1]
+                reply_id, spent = reply
+                kept = conversation.replies.get(reply_id)
+                # The most of each field, not the last line read: a count only ever grows.
+                conversation.replies[reply_id] = spent if kept is None else (
+                    max(kept[0], spent[0]), max(kept[1], spent[1]), max(kept[2], spent[2]))
 
     @staticmethod
     def _reply(line: bytes) -> tuple[str, tuple[int, int, int]] | None:
