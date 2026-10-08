@@ -4,7 +4,7 @@ A native macOS sidebar that turns iTerm2 into a workspace for coding agents: **p
 (git worktrees) → agent tabs**, with each agent's status and usage at a glance. It drives the real
 iTerm2 through its Python API — AiTerm does not embed a terminal.
 
-<img src="docs/desktop.png" alt="AiTerm beside iTerm2: the sidebar lists a home folder and the aiterm (GitHub) and acme projects under Personal and Work dividers, with Claude Code, Codex, Grok Build and PI tasks and a merge-request review; beside it, the selected task's iTerm2 window shows Claude Code mid-refactor">
+<img src="docs/desktop.png" alt="AiTerm beside iTerm2: the sidebar lists a home folder and the aiterm (GitHub) and acme projects under Personal and Work dividers, with Claude Code, Codex, Grok Build and PI tasks and a merge-request review, and its footer the selected task's context and tokens, the Mac's load in backpack mode and the agents' usage; beside it, the selected task's iTerm2 window shows Claude Code mid-refactor">
 
 - Start a task from a Jira ticket: AiTerm creates the worktree and branch, opens an iTerm2 window
   and launches the agent with your prompt.

@@ -43,7 +43,11 @@ enum Snapshots {
         let out = URL(fileURLWithPath: dir)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
-        for snapshot in regressionSet + [ReadmeDesktop.snapshot] where hosted || !snapshot.hostedOnly {
+        // `AITERM_SNAPSHOT_ONLY` names the one image to draw: `scripts/readme-picture.sh` draws
+        // just the README's.
+        let only = ProcessInfo.processInfo.environment["AITERM_SNAPSHOT_ONLY"]
+        for snapshot in regressionSet + [ReadmeDesktop.snapshot]
+        where (hosted || !snapshot.hostedOnly) && (only == nil || only == snapshot.file) {
             write(snapshot.view(), to: out.appendingPathComponent(snapshot.file))
         }
 
@@ -53,7 +57,8 @@ enum Snapshots {
 
     private static func write(_ view: some View, to url: URL) {
         if hosted {
-            let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark).environment(\.footerClock, clock))
+            let host = NSHostingView(rootView: view.environment(\.colorScheme, .dark).environment(\.footerClock, clock)
+                .environment(\.stillSpinners, true))
             let size = host.fittingSize
             host.frame = CGRect(origin: .zero, size: size)
             let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -81,7 +86,7 @@ enum Snapshots {
             return
         }
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark).environment(\.snapshotRendering, true)
-            .environment(\.footerClock, clock))
+            .environment(\.footerClock, clock).environment(\.stillSpinners, true))
         renderer.scale = 2
         // `colorScheme` reaches SwiftUI; an AppKit colour resolves against the drawing appearance,
         // which is the app's only while `Appearance.apply` has run. Pinned here, the images are
@@ -116,10 +121,18 @@ struct Snapshot {
 /// `SheetLayout` then lays its content out flat and clipped instead.
 private struct SnapshotRenderingKey: EnvironmentKey { static let defaultValue = false }
 
+/// Set for every image: a working mark's arc stands still at one angle rather than turning from
+/// the wall clock's phase, so two runs draw the same pixels.
+private struct StillSpinnersKey: EnvironmentKey { static let defaultValue = false }
+
 extension EnvironmentValues {
     var snapshotRendering: Bool {
         get { self[SnapshotRenderingKey.self] }
         set { self[SnapshotRenderingKey.self] = newValue }
+    }
+    var stillSpinners: Bool {
+        get { self[StillSpinnersKey.self] }
+        set { self[StillSpinnersKey.self] = newValue }
     }
 }
 #endif

@@ -94,7 +94,13 @@ private struct TurningArc: View {
     let color: Color
     var _start = State(initialValue: StatusMark.spinnerRotation(at: Date()))
     var _turning = State(initialValue: false)
-    private var start: Double { _start.wrappedValue }
+    #if DEBUG
+    /// Snapshots draw the arc still, at the top right, rather than from the wall clock's phase.
+    @Environment(\.stillSpinners) private var still
+    #else
+    private let still = false
+    #endif
+    private var start: Double { still ? 300 : _start.wrappedValue }
     private var turning: Bool {
         get { _turning.wrappedValue }
         nonmutating set { _turning.wrappedValue = newValue }
@@ -107,6 +113,7 @@ private struct TurningArc: View {
         Circle().trim(from: 0, to: 0.15).stroke(color, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
             .rotationEffect(.degrees(start + (turning ? 360 : 0)))
             .onAppear {
+                guard !still else { return }
                 withAnimation(.linear(duration: StatusMark.spinDuration).repeatForever(autoreverses: false)) {
                     turning = true
                 }

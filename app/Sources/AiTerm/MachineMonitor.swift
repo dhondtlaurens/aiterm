@@ -53,4 +53,9 @@ final class MachineMonitor {
         if next != lines { lines = next }
         return pause
     }
+
+    #if DEBUG
+    /// The snapshot renderer's readings, which no sampling replaces: it never starts the monitor.
+    func seedSnapshotLines(_ lines: [UsageLine]) { self.lines = lines }
+    #endif
 }

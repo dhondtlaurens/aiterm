@@ -50,11 +50,24 @@ Publishes a version that **Check for Updates…** will offer:
 
 It refuses unless it runs on a clean `main` equal to `origin/main`, `origin` is
 `github.com/dhondtlaurens/aiterm`, the version is newer than every `v*` tag, `gh` is logged in to
-github.com, the "AiTerm Release" certificate is in the keychain and Python is 3.11 or newer. It
-then builds with that certificate, stamps the version and a build number (19 plus one more than the
+github.com, the "AiTerm Release" certificate is in the keychain, Python is 3.11 or newer and
+`readme-picture.sh --check` finds `docs/desktop.png` up to date. It then builds with that certificate, stamps the version and a build number (19 plus one more than the
 number of `v*` tags — see `docs/releasing.md`) into the built bundle only, wraps it with
 `make-dmg.sh`, pushes the tag `v<version>` and publishes the GitHub release with
 `AiTerm-<version>.dmg` attached.
+
+## `readme-picture.sh`
+
+Draws the README's picture, `ReadmeDesktop` — the real sidebar over a fixture of its own, beside a
+drawn iTerm2 window — and writes it to `docs/desktop.png`:
+
+    scripts/readme-picture.sh            redraw docs/desktop.png
+    scripts/readme-picture.sh --check    fail if docs/desktop.png differs from a fresh drawing
+
+It runs `snapshots.sh` hosted, drawing only that image, into `build/readme-picture`. The snapshots
+hold every working mark's arc still and read a fixed clock, so two runs draw the same bytes and any
+difference is a visual change. A real window draws it, so the main display must be Retina; on a 1×
+display the script refuses rather than write a half-size picture. `release.sh` runs the check.
 
 ## `swift.sh`
 

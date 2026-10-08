@@ -134,7 +134,7 @@ enum SidebarSnapshots {
 
     /// The Mac's readings a snapshot draws, fixed: on mains at the desk; on battery in the bag, and
     /// throttled, swapping and near the cutoff once it needs you for the battery.
-    private static func machine(_ mode: MacMode) -> [UsageLine] {
+    static func machine(_ mode: MacMode) -> [UsageLine] {
         switch mode {
         case .desk: [UsageLine(window: .cpu, percent: 23, warning: false), UsageLine(window: .ram, percent: 61, warning: false)]
         case .needsYou(.lowBattery(let level)):
