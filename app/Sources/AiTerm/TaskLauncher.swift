@@ -16,6 +16,9 @@ final class TaskLauncher {
     private let workflow: TaskWorkflow
     private let git: any GitRunning
     private let daemon: @MainActor () -> (any DaemonCommands)?
+    /// Each task's reopen while it runs: choosing its row again meanwhile waits on this one, rather
+    /// than finding nothing to wait for and losing the raise.
+    private var reopens: [UUID: Task<Void, Never>] = [:]
 
     init(workspace: WorkspaceStore, work: WorkInFlight, notices: Notices, checkouts: CheckoutMonitor, focus: RowFocus,
          tiling: SidebarTiling, remover: TaskRemover, workflow: TaskWorkflow, git: any GitRunning,
@@ -187,8 +190,8 @@ final class TaskLauncher {
             return nil
         }
         let commands = Self.resumeCommands(for: current)
-        return Task {
-            defer { work.end(reopening) }
+        let running = Task {
+            defer { work.end(reopening); reopens[task.id] = nil }
             guard canChangeWorkspace else { return }
             do {
                 guard let wid = try await openWindow(for: current, command: commands.first, with: daemon) else { return }
@@ -205,11 +208,15 @@ final class TaskLauncher {
                 }
             } catch { notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
+        reopens[task.id] = running
+        return running
     }
 
     /// A task row chosen — a click or ↩ — while its window is closed: the window is reopened, unless the
-    /// row says its worktree is missing, which a reopen could only fail on. Nil when nothing opens.
+    /// row says its worktree is missing, which a reopen could only fail on. A reopen already under way
+    /// is the answer again, so a second choice waits on it too. Nil when nothing opens.
     private func reopenChosen(_ id: UUID) -> Task<Void, Never>? {
+        if let running = reopens[id] { return running }
         guard !checkouts.isMissing(id), let task = state.task(id: id) else { return nil }
         return reopen(task: task)
     }

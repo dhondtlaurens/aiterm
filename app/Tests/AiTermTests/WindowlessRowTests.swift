@@ -59,6 +59,45 @@ extension AppControllerTests {
         #expect(focus.seen.isEmpty)
     }
 
+    /// A second click or ↩ while the window opens waits on the same reopen: one window, raised once.
+    @Test func choosingAWindowlessTaskTwiceWhileItReopensRaisesItOnce() async throws {
+        let focus = ItermFocus()
+        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let server = RecordingDaemon(holding: "window.createTask")
+        focus.server = server
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+
+        let first = fixture.controller.focus.select(.task(task.id))
+        try await server.received("window.createTask")
+        let second = fixture.controller.focus.select(.task(task.id))
+        #expect(second != nil, "the second choice waits on the reopen under way")
+        server.release()
+        await first?.value
+        await second?.value
+
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened")
+        #expect(server.requests("window.createTask").count == 1)
+        #expect(server.requests("window.activate").count == 1)
+        #expect(focus.seen.count == 1)
+    }
+
+    /// A row on its way out is selected and nothing more: its window is closing, or gone.
+    @Test func choosingATaskBeingRemovedReopensNothing() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        fixture.controller.seedSnapshotRemoval(.removing, of: task.id)
+
+        await fixture.controller.focus.select(.task(task.id))?.value
+
+        #expect(server.requests("window.createTask").isEmpty)
+        #expect(fixture.controller.focus.selectedTaskId == task.id)
+    }
+
     /// A row that says its worktree is missing has nothing to reopen into: it is selected, as before.
     @Test func choosingATaskWhoseCheckoutIsMissingReopensNothing() async throws {
         let fixture = try RaceFixture()
