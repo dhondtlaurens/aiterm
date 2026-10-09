@@ -152,23 +152,28 @@ final class TaskLauncher {
         }
     }
 
-    /// A task's window, in its worktree, adopted by the row. `command` launches its agent; a reopened
-    /// window gets none — the first prompt is never replayed. A row that went while the window opened
-    /// cannot adopt it, so the window is closed rather than left behind with nothing to show it.
-    private func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws {
+    /// A task's window, in its worktree, adopted by the row: its id, or nil when the row went while the
+    /// window opened — it cannot adopt it, so the window is closed rather than left behind with nothing
+    /// to show it. `command` is what the window's first tab runs: the agent at creation, a resumed
+    /// conversation on a reopen, or nothing — the first prompt is never replayed.
+    @discardableResult
+    private func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
         defer { if let opening { work.end(opening) } }
         let wid = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
                                                     agentCommand: command, frame: tiling.taskFrame())
         guard let i = state.tasks.firstIndex(where: { $0.id == task.id }) else {
             try? await daemon.closeWindowIfOpen(wid)
-            return
+            return nil
         }
         workspace.mutate { $0.tasks[i].windowId = wid }
+        return wid
     }
 
-    /// A task that still has a window has nothing to reopen — the menu item is hidden
-    /// in that case, and a stale click is ignored rather than leaking a second window.
+    /// Opens the window a task lost, in its worktree, resuming the conversations its tabs last showed
+    /// (`TaskItem.conversations`): the first in the window's own tab, each other in a tab of its own,
+    /// in their order. With none known it is a plain shell. A task that still has a window has nothing
+    /// to reopen, and a stale request is ignored rather than leaking a second window.
     @discardableResult
     func reopen(task: TaskItem) -> Task<Void, Never>? {
         guard canChangeWorkspace else { return nil }
@@ -180,15 +185,35 @@ final class TaskLauncher {
             notices.report("Worktree missing at \(current.worktreePath). Restore it or use Remove \(current.kindName).")
             return nil
         }
+        let commands = Self.resumeCommands(for: current)
         return Task {
             defer { work.end(reopening) }
             guard canChangeWorkspace else { return }
             do {
-                try await openWindow(for: current, command: nil, with: daemon)
+                guard let wid = try await openWindow(for: current, command: commands.first, with: daemon) else { return }
                 // "Kept; choose Reopen Window" was asking for exactly this.
                 remover.clearStoppedNote(of: task.id)
                 notices.dropIssues(about: task.id)
+                for command in commands.dropFirst() {
+                    do { _ = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command) }
+                    catch {
+                        notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", error: error,
+                                                      subject: task.id))
+                        break
+                    }
+                }
             } catch { notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
+        }
+    }
+
+    /// Each remembered conversation's resume command, in tab order; one with no id is skipped, since
+    /// there is nothing to resume. The task's own agent resumes on the model and reasoning it was
+    /// launched with; another — started in a tab by hand — on its defaults.
+    static func resumeCommands(for task: TaskItem) -> [String] {
+        task.conversations.filter { !$0.id.isEmpty }.map { conversation in
+            let launched = conversation.agent == task.agent
+            return AgentCommand.resume(agent: conversation.agent, conversation: conversation.id,
+                                       model: launched ? task.model : nil, reasoning: launched ? task.reasoning : nil)
         }
     }
 }
