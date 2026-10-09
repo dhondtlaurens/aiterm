@@ -58,6 +58,7 @@ final class RowFocus {
     /// gone — is never raised.
     private let isRemoving: @MainActor (UUID) -> Bool
     @ObservationIgnored private var windowGoneHooks: [@MainActor (String) -> Void] = []
+    @ObservationIgnored private var selectionHooks: [@MainActor (RowSelection?) -> Void] = []
     /// Where a window that would not come forward is reported.
     private let notices: Notices
     /// The selection's own workspace hook, taken out again when the selection goes, as `PerRow`'s is.
@@ -90,6 +91,12 @@ final class RowFocus {
     /// Adds `hook` to what hears of a window a request found already gone.
     func onWindowGone(_ hook: @escaping @MainActor (String) -> Void) {
         windowGoneHooks.append(hook)
+    }
+
+    /// Adds `hook` to what hears that another row — or none — is now selected: once per selection
+    /// write that changes the row, by an arrow key, a click, a new row or a row that went.
+    func onSelectionChanged(_ hook: @escaping @MainActor (RowSelection?) -> Void) {
+        selectionHooks.append(hook)
     }
 
     /// Whether the row with this id is selected — a header, a task or a terminal. What a row's body
@@ -134,6 +141,7 @@ final class RowFocus {
         guard row?.id != old else { return }
         if let old { selectedRows[old] = false }
         if let new = row?.id { selectedRows[new] = true }
+        for hook in selectionHooks { hook(row) }
     }
 
     /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a
