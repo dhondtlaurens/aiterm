@@ -310,7 +310,7 @@ first in the window's tab, each other in a tab of its own. A window replaces the
 once every agent tab in it names its own conversation, so a reopened window whose agents start one
 by one never shrinks it. The command is the harness's resume arguments (`Harness.resumeArguments`)
 and, for the task's own agent, the launch arguments it was started with — model and reasoning, and
-Codex's approval bypass; any other agent, started by hand, resumes without them. With none known
+Codex's approval bypass; any other agent, started by hand, resumes without them, and so does a task with no saved model, so no Codex bypass either. With none known
 the window is a shell, and the first prompt is never replayed. A row whose checkout is missing is
 not reopened. Removing a task explicitly also removes its worktree. A daemon disconnect alone does
 not close or forget tasks.

@@ -59,7 +59,7 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key would do it without a word. |
+| ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key would close the window first: iTerm2 reports it afterwards, and AiTerm then asks Remove's question a second later, as for any closed window. |
 | ← → | Fold and open a project, Finder-style | Dropped: ↩ on a header folds or opens it, as a click on its label does. ⌘L opens every project. |
 
 ## New Task and New Review sheets
