@@ -191,7 +191,7 @@ import Darwin
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.apply(ticket: JiraTicket(key: "WEB-1", summary: "Thing", description: "Do it", issueType: "Task", status: nil, url: "https://x/browse/WEB-1"))
         d.promptText = "/plan"
-        let task = try TaskCreator.create(draft: d, project: project, git: .hermetic())
+        let task = try TaskCreator.create(draft: d, project: project, git: .hermetic()).task
         #expect(task.worktreePath == repo + "/.worktrees/web-1-thing")
         #expect(task.branch == "feat/web-1-thing"); #expect(task.jira?.key == "WEB-1"); #expect(task.title == "Thing")
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/.git"))
@@ -201,7 +201,7 @@ import Darwin
     @Test func testBranchWithoutAsciiStillGetsItsOwnWorktreeDirectory() throws {
         var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
         d.setTitle("x"); d.setBranch("feat/日本語")
-        let task = try TaskCreator.create(draft: d, project: project, git: .hermetic())
+        let task = try TaskCreator.create(draft: d, project: project, git: .hermetic()).task
         let worktreesDir = repo + "/.worktrees/"
         #expect(task.worktreePath.hasPrefix(worktreesDir))
         #expect(task.worktreePath.count > worktreesDir.count, "the slug must never be empty: \(task.worktreePath)")
@@ -215,7 +215,7 @@ import Darwin
         for type in ["feat", "fix", "chore"] {
             var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
             d.setTitle("Login"); d.setBranch("\(type)/login")
-            paths.append(try TaskCreator.create(draft: d, project: project, git: .hermetic()).worktreePath)
+            paths.append(try TaskCreator.create(draft: d, project: project, git: .hermetic()).task.worktreePath)
         }
         #expect(paths == ["login", "login-2", "login-3"].map { repo + "/.worktrees/" + $0 })
     }
@@ -243,7 +243,7 @@ import Darwin
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.apply(mr: Self.mergeRequest)
         d.promptText = "/code-review"
-        let task = try TaskCreator.createReview(draft: d, project: project, git: .hermetic())
+        let task = try TaskCreator.createReview(draft: d, project: project, git: .hermetic()).task
 
         #expect(task.kind == .review, "a review must be recognisable as one; nothing else distinguishes it")
         #expect(task.worktreePath == repo + "/.worktrees/review-mr-branch")
@@ -266,7 +266,7 @@ import Darwin
             try git.run(["branch", branch], in: repo)
             var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
             d.setTitle("Card"); d.setBranch(branch)
-            paths.append(try TaskCreator.createReview(draft: d, project: project, git: .hermetic()).worktreePath)
+            paths.append(try TaskCreator.createReview(draft: d, project: project, git: .hermetic()).task.worktreePath)
         }
         #expect(paths == ["review-card", "review-card-2"].map { repo + "/.worktrees/" + $0 })
     }
@@ -276,7 +276,7 @@ import Darwin
         var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
         d.setTitle("Look at Sam's branch")
         d.setBranch("feat/teammate-work")
-        let task = try TaskCreator.createReview(draft: d, project: project, git: .hermetic())
+        let task = try TaskCreator.createReview(draft: d, project: project, git: .hermetic()).task
         #expect(task.kind == .review)
         #expect(task.mr == nil)
         #expect(task.baseBranch == "", "no merge request means nothing to land on")
@@ -310,5 +310,61 @@ import Darwin
         let e = #expect(throws: (any Error).self) { try TaskCreator.create(draft: d, project: project, git: .hermetic()) }
         #expect(e as? TaskCreator.Failure == .emptyModel)
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/no-model"))
+    }
+
+    // -- .worktreeinclude ------------------------------------------------------------
+
+    /// `.env` ignored and listed in `.worktreeinclude`, both committed, and in the checkout.
+    private func includeDotEnv() throws {
+        try ".env\n".write(toFile: repo + "/.gitignore", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: repo + "/.worktreeinclude", atomically: true, encoding: .utf8)
+        try git.run(["add", ".gitignore", ".worktreeinclude"], in: repo)
+        try git.run(["commit", "-q", "-m", "include .env"], in: repo)
+        try "SECRET=1\n".write(toFile: repo + "/.env", atomically: true, encoding: .utf8)
+    }
+
+    /// Copied right after `git worktree add`, so the agent the window starts finds it there.
+    @Test func aNewTaskStartsWithWhatItsWorktreeIncludeSelects() throws {
+        try includeDotEnv()
+        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
+        d.setTitle("With env")
+        #expect(d.copiesWorktreeInclude, "ticked unless the person unticks it")
+        let made = try TaskCreator.create(draft: d, project: project, git: .hermetic())
+        #expect(made.worktreeInclude == .complete)
+        #expect(try String(contentsOfFile: made.task.worktreePath + "/.env", encoding: .utf8) == "SECRET=1\n")
+    }
+
+    @Test func anUntickedDraftCopiesNothing() throws {
+        try includeDotEnv()
+        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
+        d.setTitle("Without env")
+        d.copiesWorktreeInclude = false
+        let made = try TaskCreator.create(draft: d, project: project, git: .hermetic())
+        #expect(made.worktreeInclude == .complete)
+        #expect(!FileManager.default.fileExists(atPath: made.task.worktreePath + "/.env"))
+    }
+
+    @Test func aNewReviewStartsWithThemToo() throws {
+        try includeDotEnv()
+        try git.run(["branch", "feat/mr-branch"], in: repo)
+        var d = ReviewDraft.initial(project: project, state: .empty, home: bareHome, defaults: defaults)
+        d.apply(mr: Self.mergeRequest)
+        #expect(d.copiesWorktreeInclude)
+        let made = try TaskCreator.createReview(draft: d, project: project, git: .hermetic())
+        #expect(made.worktreeInclude == .complete)
+        #expect(try String(contentsOfFile: made.task.worktreePath + "/.env", encoding: .utf8) == "SECRET=1\n")
+    }
+
+    /// The checkout exists by the time a file fails to copy: the task is made all the same, and
+    /// the file is named for the app to say.
+    @Test func aFileThatCannotBeCopiedNeverFailsTheCreate() throws {
+        try includeDotEnv()
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: repo + "/.env")
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: repo + "/.env") }
+        var d = TaskDraft.initial(project: project, state: .empty, git: git, home: bareHome, defaults: defaults)
+        d.setTitle("Unreadable env")
+        let made = try TaskCreator.create(draft: d, project: project, git: .hermetic())
+        #expect(made.worktreeInclude == .notCopied([".env"]))
+        #expect(FileManager.default.fileExists(atPath: made.task.worktreePath + "/.git"))
     }
 }

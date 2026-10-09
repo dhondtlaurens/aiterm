@@ -7,6 +7,9 @@ public struct ReviewDraft: AgentDraft, Equatable, Sendable {
     public private(set) var title = "", branch = ""
     public var agent: AgentKind, model: String, reasoning: String?
     public var promptText = ""
+    /// As `TaskDraft.copiesWorktreeInclude`. Only read when the review gets a worktree of its own:
+    /// one that opens in the task that has its branch makes none.
+    public var copiesWorktreeInclude = true
     private var titleEdited = false, branchEdited = false
 
     public init(mr: MergeRequest?, agent: AgentKind, model: String, reasoning: String?) {

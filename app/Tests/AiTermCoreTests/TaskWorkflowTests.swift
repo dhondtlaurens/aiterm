@@ -31,6 +31,7 @@ import Testing
         draft.promptText = "line one\tTabbed, so it is read from a file"
         let created = try await TaskWorkflow(git: .hermetic()).create(draft: draft, project: project)
         #expect(created.launchWarning == nil)
+        #expect(created.worktreeInclude == .complete, "a project without a .worktreeinclude has nothing left out")
         #expect(created.command?.contains(".aiterm/first-prompt.md") == true)
         #expect(FileManager.default.fileExists(atPath: created.task.worktreePath + "/.aiterm/first-prompt.md"))
     }

@@ -7,6 +7,10 @@ public struct TaskDraft: AgentDraft, Equatable, Sendable {
     public private(set) var title = "", branchType = BranchType.feat, branchName = ""
     public var baseBranch: String, agent: AgentKind, model: String, reasoning: String?
     public var promptText = "", appendTicket = true
+    /// Whether the new worktree starts with what the project's `.worktreeinclude` selects: step 1's
+    /// checkbox, ticked unless the person unticks it. `TaskCreator` reads the files again when it
+    /// creates, so one made after the sheet opened still comes.
+    public var copiesWorktreeInclude = true
     private var titleEdited = false, branchEdited = false, typeEdited = false
 
     public var branch: String { "\(branchType.rawValue)/\(branchName)" }
@@ -85,29 +89,47 @@ public enum TaskCreator {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    public static func create(draft: TaskDraft, project: Project, git: any GitRunning) throws -> TaskItem {
+    /// A task or review made: its row, and what copying its `.worktreeinclude` came to — which the
+    /// app says when something was left out. Never a failure of the create.
+    public struct Made: Sendable {
+        public let task: TaskItem
+        public let worktreeInclude: WorktreeInclude.Outcome
+    }
+
+    public static func create(draft: TaskDraft, project: Project, git: any GitRunning) throws -> Made {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
         let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path)
-        let path = try Repository(project.path, git: git).addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
-        return TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
-                        jira: draft.ticket.map { JiraRef(key: $0.key, summary: $0.summary, url: $0.url) }, agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                        firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket, createdAt: Date(), windowId: nil)
+        let repository = Repository(project.path, git: git)
+        let path = try repository.addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
+        let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
+                            jira: draft.ticket.map { JiraRef(key: $0.key, summary: $0.summary, url: $0.url) }, agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
+                            firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: draft.appendTicket, createdAt: Date(), windowId: nil)
+        return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
     }
 
-    public static func createReview(draft: ReviewDraft, project: Project, git: any GitRunning) throws -> TaskItem {
+    public static func createReview(draft: ReviewDraft, project: Project, git: any GitRunning) throws -> Made {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,
               BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
         let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path)
-        let path = try Repository(project.path, git: git).addReviewWorktree(slug: slug, branch: draft.branch)
-        return TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
-                        baseBranch: draft.mr?.targetBranch ?? "", jira: nil, kind: .review,
-                        mr: draft.mr.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },
-                        agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
-                        firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: false,
-                        createdAt: Date(), windowId: nil)
+        let repository = Repository(project.path, git: git)
+        let path = try repository.addReviewWorktree(slug: slug, branch: draft.branch)
+        let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
+                            baseBranch: draft.mr?.targetBranch ?? "", jira: nil, kind: .review,
+                            mr: draft.mr.map { MergeRequestRef(iid: $0.iid, title: $0.title, url: $0.url) },
+                            agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
+                            firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: false,
+                            createdAt: Date(), windowId: nil)
+        return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
+    }
+
+    /// What the project's `.worktreeinclude` selects, copied into the new worktree when the draft
+    /// kept step 1's checkbox: after `git worktree add`, before the window opens, so the agent
+    /// starts with the files.
+    private static func copyIncludes(_ wanted: Bool, from repository: Repository, into worktree: String) -> WorktreeInclude.Outcome {
+        wanted ? WorktreeInclude.copy(from: repository, into: worktree) : .complete
     }
 }

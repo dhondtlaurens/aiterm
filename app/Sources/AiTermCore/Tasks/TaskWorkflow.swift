@@ -7,6 +7,9 @@ public struct TaskWorkflow: Sendable {
         public let task: TaskItem
         public let command: String?
         public let launchWarning: String?
+        /// What copying the project's `.worktreeinclude` came to, for the app to say when something
+        /// was left out.
+        public let worktreeInclude: WorktreeInclude.Outcome
     }
     public struct Removed: Sendable {
         /// The checkout is gone. A failed branch deletion remains independently retryable.
@@ -57,16 +60,16 @@ public struct TaskWorkflow: Sendable {
     /// Makes the checkout, then the agent command for it. A command that cannot be built is a
     /// launch warning, never a failure: it must not discard a real checkout.
     private func checkOut(_ draft: some AgentDraft & Sendable, prompt: String?,
-                          _ make: @escaping @Sendable (any GitRunning) throws -> TaskItem) async throws -> Created {
+                          _ make: @escaping @Sendable (any GitRunning) throws -> TaskCreator.Made) async throws -> Created {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
-            let task = try make(git)
+            let made = try make(git), task = made.task
             do {
                 let command = try AgentCommand.build(agent: draft.agent, model: draft.model, reasoning: draft.reasoning,
                                                      prompt: prompt, worktreePath: task.worktreePath, git: git)
-                return Created(task: task, command: command, launchWarning: nil)
+                return Created(task: task, command: command, launchWarning: nil, worktreeInclude: made.worktreeInclude)
             } catch {
-                return Created(task: task, command: nil, launchWarning: error.localizedDescription)
+                return Created(task: task, command: nil, launchWarning: error.localizedDescription, worktreeInclude: made.worktreeInclude)
             }
         }
     }
