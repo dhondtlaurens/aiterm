@@ -80,6 +80,28 @@ public struct GitLabClient: Sendable {
             .compactMap { $0.value?.mergeRequest }
     }
 
+    /// How many discussions one page of `reviewThreads` asks for, and how many pages it reads at
+    /// most: a thousand threads, past which a merge request is not being reviewed by hand.
+    static let discussionsPerPage = 100, discussionPages = 10
+
+    /// The merge request's review threads: its discussions that can be resolved, and how many of
+    /// them are. Read a page at a time until one comes back short — GitLab's paging headers are not
+    /// read, `HTTPJSON` hands back the body and the status only — and at most `discussionPages`.
+    /// Read-only, as everything this client does.
+    public func reviewThreads(project: String, iid: Int) async throws -> ReviewThreads {
+        let path = "/api/v4/projects/" + Self.encodedProject(project) + "/merge_requests/\(iid)/discussions"
+        var resolutions: [Bool] = []
+        for page in 1...Self.discussionPages {
+            let query = [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)),
+                         URLQueryItem(name: "page", value: String(page))]
+            let discussions = try await get([Lenient<DiscussionPayload>].self, path: path, query: query,
+                                            notFound: .projectNotFound(project))
+            resolutions += discussions.compactMap { $0.value?.resolution }
+            if discussions.count < Self.discussionsPerPage { break }
+        }
+        return ReviewThreads(resolutions: resolutions)
+    }
+
     static func iid(_ text: String) -> Int? {
         guard text.range(of: #"^!?\d+$"#, options: .regularExpression) != nil else { return nil }
         return Int(text.hasPrefix("!") ? String(text.dropFirst()) : text)
@@ -113,5 +135,18 @@ private struct MergeRequestPayload: Decodable {
     var mergeRequest: MergeRequest {
         MergeRequest(iid: iid, title: title, sourceBranch: sourceBranch, targetBranch: targetBranch,
                      author: author?.name, state: state ?? "opened", draft: draft ?? false, url: webUrl)
+    }
+}
+
+/// The fields of a discussion `reviewThreads` counts.
+private struct DiscussionPayload: Decodable {
+    struct Note: Decodable { var resolvable: Bool?, resolved: Bool? }
+    var notes: [Note]?
+
+    /// Whether the discussion is resolved — every note in it that can be resolved, is — or nil
+    /// when none can be: a plain comment, a system note. Those are not threads.
+    var resolution: Bool? {
+        let resolvable = (notes ?? []).filter { $0.resolvable == true }
+        return resolvable.isEmpty ? nil : resolvable.allSatisfy { $0.resolved == true }
     }
 }

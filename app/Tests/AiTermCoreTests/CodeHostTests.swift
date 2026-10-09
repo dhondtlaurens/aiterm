@@ -15,4 +15,10 @@ import Testing
         #expect(CodeHost.gitHub.name == "GitHub")
         #expect(CodeHost.gitLab.name == "GitLab")
     }
+
+    /// One flag per thread, true when it is resolved: how both hosts' answers are counted.
+    @Test func threadsCountTheResolvedOfAll() {
+        #expect(ReviewThreads(resolutions: [true, false, true, false, false]) == ReviewThreads(resolved: 2, total: 5))
+        #expect(ReviewThreads(resolutions: []) == ReviewThreads(resolved: 0, total: 0))
+    }
 }

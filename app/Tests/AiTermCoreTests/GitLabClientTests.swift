@@ -124,4 +124,62 @@ import Foundation
         #expect(try await client.testConnection() == "sam.rivera")
         #expect(stub.lastRequest!.url!.absoluteString == "https://git.example.net/api/v4/user")
     }
+
+    /// The `page` a discussions request asked for. Not `query.contains("page=1")`: `per_page=100`
+    /// contains that too.
+    private static func page(of request: URLRequest) -> String? {
+        request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first { $0.name == "page" }?.value
+    }
+
+    private static func discussions(_ notes: [[[String: Any]]]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: notes.map { ["id": UUID().uuidString, "notes": $0] })
+    }
+
+    /// A merge request's threads are its resolvable discussions: a plain comment or a system note
+    /// cannot be resolved and is not one; a discussion is resolved once every resolvable note in it is.
+    @Test func reviewThreadsCountTheResolvableDiscussions() async throws {
+        let body = try Self.discussions([
+            [["resolvable": true, "resolved": true]],
+            [["resolvable": true, "resolved": true], ["resolvable": true, "resolved": false]],
+            [["resolvable": false, "resolved": false]],
+            [["resolvable": false, "system": true]],
+            [["resolvable": true, "resolved": false]],
+        ])
+        let (client, stub) = makeClient { _ in (200, body) }
+        #expect(try await client.reviewThreads(project: "web/acme-web", iid: 4) == ReviewThreads(resolved: 1, total: 3))
+        let req = try #require(stub.lastRequest)
+        #expect(req.httpMethod == "GET")
+        #expect(req.value(forHTTPHeaderField: "PRIVATE-TOKEN") == "tok")
+        #expect(req.url?.absoluteString == "https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests/4/discussions?per_page=100&page=1")
+    }
+
+    /// Review focus 4: a page as long as asked for may have another after it; a shorter one is the last.
+    @Test func reviewThreadsReadEveryPageUntilAShortOne() async throws {
+        let full = try Self.discussions(Array(repeating: [["resolvable": true, "resolved": true]], count: 100))
+        let last = try Self.discussions([[["resolvable": true, "resolved": false]]])
+        let (client, stub) = makeClient { request in (200, Self.page(of: request) == "1" ? full : last) }
+        #expect(try await client.reviewThreads(project: "web/acme-web", iid: 4) == ReviewThreads(resolved: 100, total: 101))
+        #expect(stub.requests.map(Self.page(of:)) == ["1", "2"])
+    }
+
+    /// Review focus 4: a host that never answers a short page is read ten pages deep and no further.
+    @Test func reviewThreadsStopAtTenPages() async throws {
+        let full = try Self.discussions(Array(repeating: [["resolvable": true, "resolved": false]], count: 100))
+        let (client, stub) = makeClient { _ in (200, full) }
+        #expect(try await client.reviewThreads(project: "p", iid: 4) == ReviewThreads(resolved: 0, total: 1000))
+        #expect(stub.requests.count == GitLabClient.discussionPages)
+    }
+
+    @Test func reviewThreadsMapStatusesLikeEveryOtherRead() async {
+        await #expect(throws: GitLabError.unauthorized) {
+            _ = try await makeClient { _ in (401, Data()) }.client.reviewThreads(project: "p", iid: 4)
+        }
+        await #expect(throws: GitLabError.projectNotFound("p")) {
+            _ = try await makeClient { _ in (404, Data()) }.client.reviewThreads(project: "p", iid: 4)
+        }
+        await #expect(throws: GitLabError.decoding) {
+            _ = try await makeClient { _ in (200, Data("<html>".utf8)) }.client.reviewThreads(project: "p", iid: 4)
+        }
+    }
 }
