@@ -33,6 +33,16 @@ enum SheetSnapshots {
                 }
             },
             Snapshot("sheet-git-error.png") { gitError() },
+            // A review's branch git refused, with the footer's fix for it.
+            Snapshot("review-switch-folder.png") {
+                refusedReview(WorktreeError.branchInProjectFolder("feat-gift-card", at: "/Users/sam/Sites/acme-storefront",
+                                                                  switchTo: "main", hasChanges: false))
+            },
+            Snapshot("review-folder-changes.png") {
+                refusedReview(WorktreeError.branchInProjectFolder("feat-gift-card", at: "/Users/sam/Sites/acme-storefront",
+                                                                  switchTo: "main", hasChanges: true))
+            },
+            Snapshot("review-rebase.png") { refusedReview(WorktreeError.branchDiverged("feat-gift-card", local: 2, remote: 5)) },
             Snapshot("terminal.png") {
                 NameSheet.newTerminal(project: Fixture().project, suggestedName: "shell 2", branch: "main", canCreate: true,
                                       createTerminal: { _ in })
@@ -134,7 +144,7 @@ enum SheetSnapshots {
         let model = ReviewCreationModel(project: Fixture().project, draft: ReviewDraft(mr: nil, agent: .claude, model: task.model, reasoning: task.reasoning),
                                         home: Fixture.home, catalogue: Fixture.catalogue, defaults: Fixture.defaults,
                                         git: Fixture.git, owningTask: { branch, _ in branch == owner?.branch ? owner : nil },
-                                        searchMergeRequests: { _ in mergeRequests }, createReview: { _ in })
+                                        searchMergeRequests: { _ in mergeRequests }, createReview: { _ in }, recover: { _ in })
         model.results = mergeRequests
         prepare(model)
         return NewReviewSheet(model: model).seeded(step: step, mergeRequestsOpen: mergeRequestsOpen)
@@ -149,8 +159,16 @@ enum SheetSnapshots {
         let fatal = "fatal: 'feat/pay-214-apple-pay' is already used by worktree at '\(path)/.worktrees/pay-214-apple-pay'"
         let refused = CreationFailure(GitError(args: ["worktree", "add", "\(path)/.worktrees/review-pay-214-apple-pay", "feat/pay-214-apple-pay"],
                                                code: 128, stderr: "Preparing worktree (checking out 'feat/pay-214-apple-pay')\n" + fatal))
-        return CreationFooter(step: 3, error: refused, availableAgents: [.claude],
-                              createLabel: "Create Review", creating: false, canAdvance: true, closeList: { false }, back: {}, advance: {})
+        return footer(refused)
+    }
+
+    /// New Review's footer after git refused the review's branch for `error`.
+    private static func refusedReview(_ error: WorktreeError) -> some View { footer(CreationFailure(error)) }
+
+    /// Step 3's footer showing `failure`, as wide as a sheet.
+    private static func footer(_ failure: CreationFailure) -> some View {
+        CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: "Create Review", creating: false,
+                       canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {})
             .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised)
     }
 

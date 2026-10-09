@@ -367,12 +367,80 @@ import Darwin
     /// its review opens in the task — so whatever still has it is refused with where it is.
     @Test func testCheckoutRefusesABranchCheckedOutElsewhereAndCreatesNothing() throws {
         let repo = try repoWithRemoteOnlyBranch()
-        _ = try git.run(["checkout", "-q", "feat/mr-branch"], in: repo)
-        #expect(throws: WorktreeError.branchCheckedOut("feat/mr-branch", at: repo)) {
+        let elsewhere = URL(fileURLWithPath: repo).deletingLastPathComponent().path + "/elsewhere"
+        _ = try git.run(["worktree", "add", "-q", elsewhere, "feat/mr-branch"], in: repo)
+        #expect(throws: WorktreeError.branchCheckedOut("feat/mr-branch", at: elsewhere)) {
             try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         }
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
-        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/mr-branch", "the checkout is untouched")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: elsewhere) == "feat/mr-branch", "the checkout is untouched")
+    }
+
+    /// The project's own folder is the person's, so it is refused like any other checkout — but
+    /// with the default branch it could be switched to, and whether it has changes that forbid it.
+    @Test func aBranchCheckedOutInTheProjectFolderIsRefusedWithTheBranchToSwitchTo() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        _ = try git.run(["checkout", "-q", "feat/mr-branch"], in: repo)
+        #expect(throws: WorktreeError.branchInProjectFolder("feat/mr-branch", at: repo, switchTo: "main", hasChanges: false)) {
+            try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        }
+        try "draft\n".write(toFile: repo + "/notes.txt", atomically: true, encoding: .utf8)
+        #expect(throws: WorktreeError.branchInProjectFolder("feat/mr-branch", at: repo, switchTo: "main", hasChanges: true)) {
+            try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        }
+        #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/mr-branch", "the folder is untouched")
+    }
+
+    /// The default branch itself has nothing to switch to: it is refused as any checkout is.
+    @Test func theDefaultBranchCheckedOutInTheProjectFolderOffersNoSwitch() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        #expect(throws: WorktreeError.branchCheckedOut("main", at: repo)) {
+            try Repository(repo, git: git).addReviewWorktree(slug: "review-main", branch: "main")
+        }
+    }
+
+    /// The footer's Switch: the folder moves to the default branch, the reviewed branch keeps its
+    /// commits, and the review can then have it.
+    @Test func switchingTheProjectFolderFreesTheBranchForAReview() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        _ = try git.run(["checkout", "-q", "feat/mr-branch"], in: repo)
+        let tip = try sha("feat/mr-branch", in: repo)
+        try Repository(repo, git: git).switchProjectFolder(off: "feat/mr-branch", to: "main")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "main")
+        #expect(try sha("feat/mr-branch", in: repo) == tip)
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/mr-branch")
+    }
+
+    /// Changes made since the sheet offered the switch are not carried to the other branch: the
+    /// switch is refused again, with them, and the folder stays where it was.
+    @Test func switchingAProjectFolderWithChangesIsRefusedAndMovesNothing() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        _ = try git.run(["checkout", "-q", "feat/mr-branch"], in: repo)
+        try "draft\n".write(toFile: repo + "/notes.txt", atomically: true, encoding: .utf8)
+        #expect(throws: WorktreeError.branchInProjectFolder("feat/mr-branch", at: repo, switchTo: "main", hasChanges: true)) {
+            try Repository(repo, git: git).switchProjectFolder(off: "feat/mr-branch", to: "main")
+        }
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/mr-branch")
+        #expect(FileManager.default.fileExists(atPath: repo + "/notes.txt"))
+    }
+
+    /// The folder is named by its own name, and what the switch would do — or why it can't — said.
+    @Test func aBranchInTheProjectFolderSaysWhatSwitchingWouldDo() {
+        let folder = "/Users/sam/Sites/acme-storefront"
+        #expect(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: false).errorDescription
+                == "“shop-412” is checked out in acme-storefront itself. Switch that folder to main, and the review gets a worktree of its own.")
+        #expect(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: true).errorDescription
+                == "“shop-412” is checked out in acme-storefront, with uncommitted changes. Commit or stash them there, then review it.")
+    }
+
+    /// A folder someone already moved off the branch has nothing left to switch.
+    @Test func switchingAProjectFolderThatLeftTheBranchDoesNothing() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
+        try Repository(repo, git: git).switchProjectFolder(off: "feat/mr-branch", to: "main")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/elsewhere")
     }
 
     /// The bare repository `repoWithRemoteOnlyBranch` made as the clone's origin.
@@ -435,11 +503,27 @@ import Darwin
         let mine = try sha("HEAD", in: repo)
         _ = try git.run(["checkout", "-q", "main"], in: repo)
         _ = try pushNewCommitToMRBranch(of: repo)
-        #expect(throws: WorktreeError.branchDiverged("feat/mr-branch")) {
+        #expect(throws: WorktreeError.branchDiverged("feat/mr-branch", local: 1, remote: 1)) {
             try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
         }
         #expect(try sha("feat/mr-branch", in: repo) == mine)
         #expect(!FileManager.default.fileExists(atPath: repo + "/.worktrees/review-mr-branch"))
+    }
+
+    /// The footer's Rebase: the local commits replayed on origin's, in a checkout of its own since
+    /// the branch is checked out nowhere, and the review then takes the branch as it is ahead.
+    @Test func rebasingADivergedReviewBranchPutsItsCommitsOnOrigins() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        _ = try git.run(["branch", "-q", "--track", "feat/mr-branch", "origin/feat/mr-branch"], in: repo)
+        _ = try git.run(["checkout", "-q", "feat/mr-branch"], in: repo)
+        try commit("mine", in: repo)
+        _ = try git.run(["checkout", "-q", "main"], in: repo)
+        let theirs = try pushNewCommitToMRBranch(of: repo)
+        #expect(try Repository(repo, git: git).rebaseOntoOrigin("feat/mr-branch") == BranchRebase(branch: "feat/mr-branch", ahead: 1))
+        #expect(try sha("feat/mr-branch~1", in: repo) == theirs, "origin's commits are under the local one")
+        #expect(try git.run(["log", "-1", "--format=%s", "feat/mr-branch"], in: repo) == "mine")
+        let path = try Repository(repo, git: git).addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/mr-branch")
     }
 
     /// A git that could not say whether one side contains the other — it timed

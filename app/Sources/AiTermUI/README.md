@@ -241,7 +241,11 @@ New terminal under its field; nothing else writes where a window opens.
 line, footer and its keys, the loads on appear — generic over the sheet's `CreationKind`; each
 sheet hands it values and keeps its own first step. A failed create shows its error as a sentence in
 the footer — git's failure lines through `GitError.sentence`, as the banner has them — with git's
-whole output in the tooltip (`CreationFailure`).
+whole output in the tooltip (`CreationFailure`). A review's branch git refused offers its fix at the
+footer's leading edge, in `SheetFooter`'s `status` slot: **Switch to main** when the branch is checked
+out in the project's own folder and that folder has no uncommitted changes, **Rebase** when the local
+branch and origin's have diverged. A plain button with no key — ⌘↩ stays the create — that runs the
+fix and then the create it stopped (`CreationFailure.Recovery`).
 
 `NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",

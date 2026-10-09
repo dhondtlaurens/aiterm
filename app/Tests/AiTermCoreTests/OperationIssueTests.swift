@@ -65,7 +65,7 @@ import Testing
     /// with its error and no way out.
     @Test func onlyADivergedPullOffersTheRebase() {
         let project = UUID()
-        let diverged = OperationIssue.pullRefused(WorktreeError.defaultBranchDiverged("main", local: 1, remote: 2), in: project)
+        let diverged = OperationIssue.pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 2), in: project)
         #expect(diverged.title == "Couldn’t pull the default branch.")
         #expect(diverged.actions == [.rebaseDefault(project)])
         #expect(diverged.reason?.hasSuffix(" Rebase puts yours on top of origin’s; nothing is pushed.") == true)

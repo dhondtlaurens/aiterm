@@ -135,10 +135,26 @@ public struct TaskWorkflow: Sendable {
     }
 
     /// The rebase a diverged pull offers, on the same queue.
-    public func rebaseDefaultBranch(of project: Project) async throws -> DefaultBranchRebase {
+    public func rebaseDefaultBranch(of project: Project) async throws -> BranchRebase {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
             try Repository(project.path, git: git).rebaseDefaultBranch()
+        }
+    }
+
+    /// The rebase a review's diverged branch offers, on the same queue.
+    public func rebaseOntoOrigin(_ branch: String, in project: Project) async throws -> BranchRebase {
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) {
+            try Repository(project.path, git: git).rebaseOntoOrigin(branch)
+        }
+    }
+
+    /// The switch a review of a branch in the project's own folder offers, on the same queue.
+    public func switchProjectFolder(of project: Project, off branch: String, to target: String) async throws {
+        let git = git
+        try await BackgroundWork.run(on: Self.queue) {
+            try Repository(project.path, git: git).switchProjectFolder(off: branch, to: target)
         }
     }
 

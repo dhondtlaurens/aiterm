@@ -117,7 +117,7 @@ extension AppControllerTests {
             catalogue: { _ in [AgentModel(id: "sonnet", label: "Sonnet", detail: nil, efforts: [], defaultEffort: nil)] },
             defaults: ScratchDefaults.make(), git: .hermetic(),
             owningTask: { branch, checkouts in controller.state.task(checkingOut: branch, in: projectId, worktrees: checkouts) },
-            searchMergeRequests: { _ in [] }, createReview: { _ in submitted = true })
+            searchMergeRequests: { _ in [] }, createReview: { _ in submitted = true }, recover: { _ in })
         await model.loadAgentCatalogue()
         await model.loadCheckouts()
         #expect(model.owningTask?.id == fixture.task.id)

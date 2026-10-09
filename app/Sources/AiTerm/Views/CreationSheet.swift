@@ -48,7 +48,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
         } footer: {
             CreationFooter(step: step, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
-                           closeList: closeOpenList, back: back, advance: advance)
+                           closeList: closeOpenList, back: back, advance: advance, recover: recover)
         }
         .task { await model.search(text: "") }
         .task(id: model.draft.agent) { await model.loadAgentCatalogue() }
@@ -83,6 +83,9 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
 
     /// Already past the button's event by the time it dismisses: the create is awaited first.
     private func create() { Task { if await model.create() { dismiss() } } }
+
+    /// The footer's fix for the last failure, and the create after it, dismissing as `create` does.
+    private func recover() { Task { if await model.recoverAndCreate() { dismiss() } } }
 }
 
 /// The command preview under steps 2 and 3: the one part of the frame that reads the prompt, so a

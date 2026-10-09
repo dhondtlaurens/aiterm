@@ -16,7 +16,7 @@ extension DefaultBranchPull {
     }
 }
 
-extension DefaultBranchRebase {
+extension BranchRebase {
     /// The toast that says it. Never pushed: that stays the person's to do.
     var toast: String {
         switch ahead {
