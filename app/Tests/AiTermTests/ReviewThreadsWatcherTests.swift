@@ -202,13 +202,22 @@ struct ReviewThreadsWatcherTests {
         #expect(reader.asked.count <= asked + 1)
     }
 
-    /// The controller's watcher reads with the connections it was built with; a test's are none,
-    /// so a review is read and wears no count.
+    /// The controller's watcher reads the connections Settings saved — both hosts', once per pass and
+    /// off the main actor, as a Keychain that asks for access must not hold the app. A test's
+    /// connections are none, so no request leaves the process and the review wears no count.
     @Test func theControllerReadsWithItsConnections() async {
-        let controller = AppController(preferences: .scratch())
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gitLabOnMain = Mutex<[Bool]>([]), gitHubOnMain = Mutex<[Bool]>([])
+        let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       harnessHome: root, bundledResourcesURL: nil,
+                                       gitLabSettings: { gitLabOnMain.withLock { $0.append(Thread.isMainThread) }; return nil },
+                                       gitHubSettings: { gitHubOnMain.withLock { $0.append(Thread.isMainThread) }; return nil })
         let item = review(87)
         controller.workspace.mutate { $0.tasks = [item] }
         await controller.reviewThreads.refresh().value
+        #expect(gitLabOnMain.withLock { $0 } == [false])
+        #expect(gitHubOnMain.withLock { $0 } == [false])
         #expect(controller.reviewThreads.threads(of: item.id) == nil)
     }
 }
