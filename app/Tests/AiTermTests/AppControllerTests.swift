@@ -562,7 +562,7 @@ import Testing
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
     }
 
-    @Test func observedClosesRemoveItemsClearSelectionAndPreserveCheckout() throws {
+    @Test func observedClosesKeepTasksWindowlessTakeTerminalsAndPreserveCheckouts() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
@@ -584,9 +584,9 @@ import Testing
         controller.workspace.mutate { $0 = state }
         controller.focus.browse(.task(task.id))
         controller.handleWindowClosed("w1")
-        #expect(controller.focus.selectedTaskId == nil)
-        #expect(controller.state.tasks.isEmpty)
-        #expect(try controller.savedWorkspace().tasks.isEmpty)
+        #expect(controller.focus.selectedTaskId == task.id, "the row stays, and so does its selection")
+        #expect(controller.state.tasks.map(\.windowId) == [nil])
+        #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil])
         #expect(FileManager.default.fileExists(atPath: worktree.path))
         // A stale not_found response for the old window cannot clear its replacement.
         var replacement = task
@@ -609,7 +609,7 @@ import Testing
         #expect(try store.load() == controller.state)
     }
 
-    @Test func disconnectedSnapshotPreservesAssociationsAndConnectedSnapshotReattachesOrRemoves() throws {
+    @Test func disconnectedSnapshotPreservesAssociationsAndConnectedSnapshotReattachesOrClears() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
@@ -628,9 +628,9 @@ import Testing
         #expect(controller.state.tasks[0].windowId == "recovered")
         controller.focus.browse(.task(task.id))
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)))
-        #expect(controller.state.tasks.isEmpty)
-        #expect(controller.focus.selectedTaskId == nil)
-        #expect(try controller.savedWorkspace().tasks.isEmpty)
+        #expect(controller.state.tasks.map(\.windowId) == [nil], "the task stays, windowless")
+        #expect(controller.focus.selectedTaskId == task.id)
+        #expect(try controller.savedWorkspace().tasks.map(\.windowId) == [nil])
     }
 
     @Test func providerContextsSurviveTabChangesAndHideOutsideTasks() throws {

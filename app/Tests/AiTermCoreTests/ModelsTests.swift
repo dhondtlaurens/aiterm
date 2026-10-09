@@ -274,7 +274,9 @@ import Foundation
         #expect(try JSONDecoder().decode(SessionAgent.self, from: Data("\"shell\"".utf8)) == .shell)
     }
 
-    @Test func closedWindowRemovesMatchingItemsAndIgnoresStaleEvents() throws {
+    /// A window iTerm2 no longer has leaves its task's row windowless — "Window closed", reopened when
+    /// chosen — and takes a terminal's; a stale report leaves a newer window be.
+    @Test func aClosedWindowLeavesItsTaskWindowlessAndTakesItsTerminal() throws {
         let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git,
                               remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
         let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
@@ -286,26 +288,28 @@ import Foundation
                                     createdAt: Date(timeIntervalSince1970: 0))
         var state = AppState.empty
         state.items = [.project(project)]; state.tasks = [task]; state.terminals = [terminal]
-        let closedTask = state.closeWindow("w1")
-        #expect(closedTask)
-        #expect(state.tasks.isEmpty)
+        state.tasks[0].conversations = [TaskConversation(agent: .claude, id: "c1")]
+        let closed1 = state.closeWindow("w1")
+        #expect(closed1)
+        #expect(state.tasks[0].conversations == [TaskConversation(agent: .claude, id: "c1")], "what a reopen resumes stays")
+        #expect(state.tasks.map(\.id) == [task.id] && state.tasks.map(\.windowId) == [nil], "the task stays, windowless")
         #expect(state.terminals.count == 1)
-        let duplicateClose = state.closeWindow("w1")
-        #expect(!duplicateClose)
+        let closed2 = state.closeWindow("w1")
+        #expect(!closed2, "a second report changes nothing")
         var replacement = task
         replacement.windowId = "w3"
         state.tasks = [replacement]
-        let staleClose = state.closeWindow("w1")
-        #expect(!staleClose)
+        let closed3 = state.closeWindow("w1")
+        #expect(!closed3, "a stale report leaves the newer window be")
         #expect(state.tasks[0].windowId == "w3")
-        let closedTerminal = state.closeWindow("w2")
-        #expect(closedTerminal)
+        let closed4 = state.closeWindow("w2")
+        #expect(closed4)
         #expect(state.terminals.isEmpty)
-        let closedReplacement = state.closeWindow("w3")
-        #expect(closedReplacement)
+        let closed5 = state.closeWindow("w3")
+        #expect(closed5)
+        #expect(state.tasks.map(\.windowId) == [nil])
         let rows = SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])
-        #expect(rows.first?.tasks.isEmpty == true)
-        #expect(state.tasks.isEmpty)
+        #expect(rows.first?.tasks.map(\.id) == [task.id])
     }
 
     /// The regression guard for the whole saved workspace. Both new properties must stay `Optional`:

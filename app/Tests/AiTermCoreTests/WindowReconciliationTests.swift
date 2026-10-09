@@ -34,8 +34,8 @@ import Testing
         #expect(state.reconciled(with: snapshot([], connected: false), lettingGo: []) == state)
     }
 
-    /// A row whose window the snapshot lists stays; one whose window it lacks goes, task or terminal.
-    @Test func rowsWhoseWindowsAreGoneGo() {
+    /// A task whose window the snapshot lacks stays, windowless; a terminal whose window it lacks goes.
+    @Test func aTaskWhoseWindowIsGoneStaysWindowlessAndATerminalGoes() {
         let (kept, gone) = (task(window: "w1"), task(window: "w9"))
         let (open, closed) = (terminal(window: "w2"), terminal(window: "w8"))
         let windowless = terminal(window: nil)
@@ -43,7 +43,8 @@ import Testing
         state.tasks = [kept, gone]
         state.terminals = [open, closed, windowless]
         let next = state.reconciled(with: snapshot([tab("a", window: "w1", task: kept), tab("b", window: "w2")]), lettingGo: [])
-        #expect(next.tasks == [kept])
+        #expect(next.tasks.map(\.id) == [kept.id, gone.id])
+        #expect(next.tasks.map(\.windowId) == ["w1", nil])
         #expect(next.terminals == [open, windowless], "a row with no window has none to lose")
     }
 

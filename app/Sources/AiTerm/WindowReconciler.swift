@@ -2,8 +2,8 @@ import Foundation
 import AiTermCore
 
 /// What the helper reports, kept in step with the workspace: the tabs and usage go to `live`, a
-/// window iTerm2 raised selects its row, and a window iTerm2 no longer has leaves the row that had
-/// it — told by `window.closed`, by a connected snapshot, or by a request that found it gone. A
+/// window iTerm2 raised selects its row, and a window iTerm2 no longer has — told by `window.closed`, by a
+/// connected snapshot, or by a request that found it gone — leaves its task's row windowless and takes a terminal's. A
 /// task whose removal has let its window go is the removal's to settle, and is left be. Each task
 /// remembers the conversations its window's tabs show, which a reopen resumes.
 @MainActor
@@ -62,11 +62,9 @@ final class WindowReconciler {
     }
 
     /// The one closed-window transition — for `window.closed`, a connected snapshot and a request
-    /// that found its window gone: adopt the new workspace — whose change hooks drop a selection
-    /// whose row went with it — rescan checkouts when a task went, and save.
+    /// that found its window gone: adopt the new workspace, whose change hooks drop a selection whose
+    /// row went with it, and save. A task keeps its row, so nothing a checkout pass reads changes.
     private func commitClosedWindows(_ next: AppState) {
-        let tasksRemoved = next.tasks.count != state.tasks.count
         workspace.mutate { $0 = next }
-        if tasksRemoved { checkouts.refresh() }
     }
 }

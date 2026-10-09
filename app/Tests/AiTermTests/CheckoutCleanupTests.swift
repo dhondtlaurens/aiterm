@@ -239,6 +239,27 @@ extension AppControllerTests {
         #expect(controller.removals.isEmpty)
     }
 
+    /// The cleanup's own close is announced as `window.closed` before the daemon answers it, which now
+    /// leaves the row windowless rather than gone: the row is still that close's to forget.
+    @Test func aCleanupWhoseWindowsCloseArrivesFirstStillForgetsTheTask() async throws {
+        let fixture = try CheckoutFixture(windowOpen: true)
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        let server = RecordingDaemon(holding: "window.close")
+        defer { server.release(); controller.shutdown() }
+        controller.helper.setDaemonClient(server)
+        try fixture.git.run(["worktree", "remove", fixture.task.worktreePath], in: fixture.repo.path)
+
+        controller.checkouts.refresh()
+        try await server.received("window.close")
+        controller.handleWindowClosed("alive")
+        #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless while the close is answered")
+        server.release()
+
+        await eventually(describing: "the task forgotten") { controller.state.tasks.isEmpty }
+        #expect(controller.toastState.toast?.message == "Task closed because its worktree was removed.")
+    }
+
     @Test func deletedCheckoutKeepsWindowIdentityWhileDaemonIsUnavailable() async throws {
         let fixture = try CheckoutFixture(windowOpen: true)
         defer { fixture.cleanUp() }

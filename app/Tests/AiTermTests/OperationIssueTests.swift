@@ -281,17 +281,18 @@ extension AppControllerTests {
         #expect(controller.removals[task.id] == note)
     }
 
-    /// The row can go by other ways than its removal's; the banner about it and its note go too.
-    @Test func theIssueGoesWhenItsRowsWindowCloses() async throws {
+    /// A row whose window closes stays, windowless, so what its removal left stays with it.
+    @Test func theIssueStaysWhenItsRowsWindowCloses() async throws {
         let (fixture, task) = try await removedWithUnmergedBranch(answering: "Remove")
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.workspace.mutate { $0.tasks[0].windowId = "w" }
+        let issue = fixture.controller.issue
 
         fixture.controller.handleWindowClosed("w")
 
-        #expect(fixture.controller.state.task(id: task.id) == nil)
-        #expect(fixture.controller.issue == nil)
-        #expect(fixture.controller.removals.isEmpty)
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == nil)
+        #expect(fixture.controller.issue == issue && issue != nil)
+        #expect(fixture.controller.removals[task.id] != nil)
     }
 
     @Test func theIssueGoesWithItsProject() async throws {

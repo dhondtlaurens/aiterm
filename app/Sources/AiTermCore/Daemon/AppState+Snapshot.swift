@@ -7,8 +7,8 @@ public extension AppState {
     /// Each task first takes the window of a tab tagged with it — a create whose reply was lost, or
     /// a window iTerm2 renumbered, is found again by the tag — except a task in `lettingGo`: its
     /// removal has let its window go, and re-attached, the window would take the row with it when
-    /// it closes. Then every task and terminal whose window the snapshot does not list goes, as
-    /// `closeWindow` takes it.
+    /// it closes. Then every task whose window the snapshot does not list is left windowless, and every
+    /// such terminal goes, as `closeWindow` has them.
     func reconciled(with snapshot: DaemonSnapshot, lettingGo: Set<UUID>) -> AppState {
         guard snapshot.connected else { return self }
         var next = self

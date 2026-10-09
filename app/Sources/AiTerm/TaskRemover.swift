@@ -109,8 +109,7 @@ final class TaskRemover: CheckoutRemovals {
     func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { outcomes[id] = removal }
     #endif
 
-    /// A removal's entry goes with its task — through `window.closed`, a removed project, a restored
-    /// backup or a removal. Runs on every change to the workspace, so it writes only what changed.
+    /// A removal's entry goes with its task — through a removed project, a restored backup or a removal. Runs on every change to the workspace, so it writes only what changed.
     func pruneRemovals() {
         guard !outcomes.isEmpty else { return }
         let state = workspace.state
@@ -417,8 +416,9 @@ final class TaskRemover: CheckoutRemovals {
                 checkouts.dropDiff(for: id)
                 return
             }
-            // A newer window association must not be forgotten by an old response.
-            guard workspace.state.task(id: id)?.windowId == windowId else { return }
+            // A newer window association must not be forgotten by an old response. The close's own
+            // `window.closed` can arrive before its answer and leave the row windowless: still this close's.
+            guard let current = workspace.state.task(id: id), current.windowId == windowId || current.windowId == nil else { return }
             forget(task: task)
             notices.showToast("\(task.kindName) closed because its worktree was removed.")
         }
