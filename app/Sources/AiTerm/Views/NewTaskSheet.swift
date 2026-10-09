@@ -89,6 +89,12 @@ struct NewTaskSheet: View {
                     Select(values: baseBranchChoices, selection: $model.draft.baseBranch, label: { $0 }, monospaced: true)
                 }.frame(width: Self.baseBranchWidth)
             }
+
+            // The step's last field, so it sits above the destination line `CreationSheet` draws
+            // after the step: a choice about the worktree, among the fields.
+            if !model.worktreeIncludes.isEmpty {
+                WorktreeIncludeToggle(files: model.worktreeIncludes, isOn: $model.draft.copiesWorktreeInclude)
+            }
         }
     }
 

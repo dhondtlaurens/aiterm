@@ -13,6 +13,10 @@ enum SheetSnapshots {
             Snapshot("step1-closed.png") { taskSheet(step: 1, draft: draft()) },
             Snapshot("step1-empty.png") { taskSheet(step: 1, draft: draft(), ticketsOpen: true) },
             Snapshot("step1-picked.png") { taskSheet(step: 1, draft: picked(), ticketsOpen: true) },
+            // A project whose .worktreeinclude selects files: the checkbox above the destination line.
+            Snapshot("step1-worktreeinclude.png") {
+                taskSheet(step: 1, draft: picked(), worktreeIncludes: [".env", "certs/dev.pem"])
+            },
             Snapshot("step2-agent.png") { taskSheet(step: 2, draft: picked()) },
             Snapshot("step3-prompt.png") {
                 var draft = picked()
@@ -30,6 +34,13 @@ enum SheetSnapshots {
                 return reviewSheet(step: 1, owner: working) {
                     $0.draft.setTitle(working.title)
                     $0.draft.setBranch(working.branch)
+                }
+            },
+            // A review that gets a worktree of its own offers the same checkbox.
+            Snapshot("review-step1-worktreeinclude.png") {
+                reviewSheet(step: 1) {
+                    $0.draft.apply(mr: mergeRequests[0])
+                    $0.worktreeIncludes = [".env", "certs/dev.pem"]
                 }
             },
             Snapshot("sheet-git-error.png") { gitError() },
@@ -74,9 +85,13 @@ enum SheetSnapshots {
         return draft
     }
 
-    /// New Task on `step`, its ticket search answered with `tickets`.
-    private static func taskSheet(step: Int, draft: TaskDraft, ticketsOpen: Bool = false) -> NewTaskSheet {
-        NewTaskSheet(model: taskModel(draft)).seeded(step: step, ticketsOpen: ticketsOpen)
+    /// New Task on `step`, its ticket search answered with `tickets`, and `worktreeIncludes` as if
+    /// the project's `.worktreeinclude` had selected them.
+    private static func taskSheet(step: Int, draft: TaskDraft, ticketsOpen: Bool = false,
+                                  worktreeIncludes: [String] = []) -> NewTaskSheet {
+        let model = taskModel(draft)
+        model.worktreeIncludes = worktreeIncludes
+        return NewTaskSheet(model: model).seeded(step: step, ticketsOpen: ticketsOpen)
     }
 
     private static func taskModel(_ draft: TaskDraft) -> TaskCreationModel {

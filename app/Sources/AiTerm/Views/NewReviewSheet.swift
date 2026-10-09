@@ -78,6 +78,13 @@ struct NewReviewSheet: View {
                              onPick: { choice in model.draft.setBranch(choice.name) },
                              toggleHelp: { $0 ? "Hide branches" : "Show all branches" })
             }
+
+            // As New Task's: the step's last field, above the destination line — and only when
+            // the review gets a worktree of its own.
+            let includes = Self.worktreeIncludes(model.worktreeIncludes, owner: model.owningTask)
+            if !includes.isEmpty {
+                WorktreeIncludeToggle(files: includes, isOn: $model.draft.copiesWorktreeInclude)
+            }
         }
     }
 
@@ -148,6 +155,10 @@ struct NewReviewSheet: View {
     }
 
     static func createLabel(owner: TaskItem?) -> String { owner.map { "Open in \($0.kindName)" } ?? "Create Review" }
+
+    /// What step 1's checkbox offers: the project's `.worktreeinclude` files, or none when the
+    /// review opens in `owner`, the task that already has its branch — no worktree is made there.
+    static func worktreeIncludes(_ files: [String], owner: TaskItem?) -> [String] { owner == nil ? files : [] }
 }
 
 #if DEBUG

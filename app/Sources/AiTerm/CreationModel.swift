@@ -240,6 +240,23 @@ final class CreationModel<Kind: CreationKind> {
         branches = found
     }
 
+    /// What the project's `.worktreeinclude` selects, read when the sheet opens, off the main actor
+    /// as the branches are: the files step 1's checkbox copies and its tooltip names. Empty — and
+    /// the checkbox absent — when the project has no such file, nothing matches, or git could not
+    /// say. Create reads them again (`TaskCreator`), so this is only what the sheet offers.
+    var worktreeIncludes: [String] = []
+
+    func loadWorktreeIncludes() async {
+        let repository = Repository(project.path, git: git)
+        let found = await BackgroundWork.run {
+            Log.git.attempt("Listing what \(WorktreeInclude.fileName) selects in \(repository.path)") {
+                try WorktreeInclude.matches(in: repository)
+            } ?? []
+        }
+        guard !Task.isCancelled else { return }
+        worktreeIncludes = found
+    }
+
     func cancelSearch() {
         searchGeneration += 1
         searchTask?.cancel()
