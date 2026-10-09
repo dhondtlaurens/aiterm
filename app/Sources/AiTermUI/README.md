@@ -184,7 +184,7 @@ vendor needs both.
 `NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
-`PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `CompletionHint`,
+`PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
@@ -236,6 +236,11 @@ sheet does, never a path. Every sheet that opens a window ends its content with 
 the project alone for New terminal, `task “<title>”` in place of the path for a review that opens in
 the task that has its branch. New Task and New Review draw it on steps 1 and 3 (`Destination`),
 New terminal under its field; nothing else writes where a window opens.
+Above it, on step 1 of New Task and New Review, the step's last field is `WorktreeIncludeToggle`
+when the project's `.worktreeinclude` selects files and a worktree will be made: “Copy files
+listed in .worktreeinclude”, a `.checkbox` `Toggle` in `Typography.body` as step 3's “Include Jira
+ticket details” is, ticked, with no caption; its tooltip lists the files. It is left out, not
+disabled, otherwise — and for a review that opens in the task that has its branch.
 
 `CreationSheet` is the frame New Task and New Review share — step bar, command preview, destination
 line, footer and its keys, the loads on appear — generic over the sheet's `CreationKind`; each

@@ -238,6 +238,13 @@ terminals, the sidebar frame, the last agent per project and the last model per 
 **Worktrees** — One per task, under `<repo>/.worktrees/<slug>`. Removing a task removes the
 worktree and optionally the branch; removing a *project* only forgets it and lists the worktrees
 it is leaving behind.
+A new task's or review's worktree starts with the gitignored files the project's `.worktreeinclude`
+selects (`WorktreeInclude`: untracked files its `.gitignore`-syntax patterns match that git also
+ignores, listed in the project's checkout): right after `git worktree add`, before the window opens,
+each is cloned to the same path, never over a file already there. What could not be copied is said
+in the sidebar banner (three files by name, then how many more, or that the file could not be read),
+and the task is created all the same.
+Step 1's checkbox, ticked by default, turns it off for one task; there is no setting.
 
 **Agent configuration** — Eight Claude events and six Codex events, plus the status-line command.
 Merge-only, marked as AiTerm's, with `.aiterm-backup` beside each file. A file that already holds

@@ -791,8 +791,8 @@
   #p-jira-projects .pair { display: inline-flex; align-items: center; gap: var(--space-snug); flex: none; }
   #p-jira-projects .ai-badge.quiet .more { margin-left: var(--space-tight); }
 
-  /* --- 9 Oct 2026 proposals: review threads · a closed window keeps its task · .worktreeinclude */
-  #p-threads .dq, #p-keep-task .dq, #p-worktreeinclude .dq { font-size: 13px; margin-top: var(--space-margin); }
+  /* --- 9 Oct 2026 proposals: review threads · a closed window keeps its task */
+  #p-threads .dq, #p-keep-task .dq { font-size: 13px; margin-top: var(--space-margin); }
   .mk-row .st.done { background: var(--accent); }
   .mk-row .q .th { display: inline-flex; align-items: center; gap: var(--space-hairline); margin-left: var(--space-tight); }
   .mk-row .q svg.g { width: 10px; height: 10px; }
@@ -814,23 +814,6 @@
   .walk { margin: var(--space-block) 0 0; padding-left: var(--space-block); color: var(--muted);
           display: flex; flex-direction: column; gap: var(--space-snug); }
   .walk b { color: var(--text); font-weight: 600; }
-  /* New Task's first step, abridged: FormFields Space.block apart in Sheet.width. The checkbox is
-     AppKit's, approximated; its label is Typography.body, as "Include Jira ticket details" is. */
-  .mk-sheet .stepbar { display: flex; align-items: center; gap: var(--space-base); font: 12px/1 var(--font); color: var(--muted); }
-  .mk-sheet .stepbar b { color: var(--text); font-weight: 600; }
-  .mk-sheet .stepbar i { flex: 1; height: 1px; background: var(--border); }
-  .mk-sheet .row3 { display: flex; gap: var(--space-gap); }
-  .mk-sheet .row3 > * { min-width: 0; }
-  .mk-sheet .mono { font: 12px/1 var(--mono); }
-  .mk-sheet .btn.primary { background: var(--accent); color: #FFFFFF; }
-  .mk-check { display: flex; flex-direction: column; gap: var(--space-tight); }
-  .mk-check .cb { display: flex; align-items: center; gap: var(--space-snug); font: 13px/1 var(--font); color: var(--text); }
-  .mk-check .box { width: 14px; height: 14px; border-radius: 3px; background: var(--accent); flex: none;
-                   display: flex; align-items: center; justify-content: center; }
-  .mk-check .box.off { background: var(--control-active); }
-  .mk-check .mk-help { padding-left: 20px; }
-  .mk-check.new { outline: 1px dashed var(--amber); outline-offset: 3px; }
-  .mk-dest { font: 11px/1.4 var(--font); color: var(--muted); }
 </style>
 </head>
 <body>
@@ -2160,6 +2143,7 @@
             <tr><td>LaneChip</td><td>A ticket's or merge request's lane on its service's <code>Brand.wash</code>, in <code>Typography.label</code>, <code>Size.chip</code> tall at <code>Radius.chip</code>, <code>Space.snug</code> across — not amber, which means "needs attention", and not a <code>Badge</code>, which sets its label in the mono chip face on a neutral wash.</td><td>SearchPicker.swift</td></tr>
             <tr><td>AgentStep</td><td>Step 2 of both creation sheets: the <code>AgentSegmented</code> picker above the model and reasoning <code>Select</code>s, with an amber note naming any CLI missing from the login shell's PATH.</td><td>Steps/AgentStep.swift</td></tr>
             <tr><td>PromptStep</td><td>Step 3 of both creation sheets: <code>PromptEditor</code> with its placeholder overlay and <code>CompletionPopup</code>, plus a trailing slot the sheet fills — New Task puts its "include ticket details" checkbox there, New Review passes nothing.</td><td>Steps/PromptStep.swift</td></tr>
+            <tr><td>WorktreeIncludeToggle</td><td>The last field of step 1 on New Task and New Review, above the <code>DestinationLine</code>: “Copy files listed in .worktreeinclude”, a <code>.checkbox</code> toggle in <code>Typography.body</code> as step 3's “Include Jira ticket details” is, ticked, with no caption; its tooltip lists the files it copies. Drawn only when the project's <code>.worktreeinclude</code> selects files and a worktree will be made — not for a review that opens in the task that has its branch.</td><td>WorktreeIncludeToggle.swift</td></tr>
             <tr><td>CompletionHint</td><td>The line under the prompt editor saying what <code>/</code> opens — the one trigger for every agent; a Codex skill picked there is written as its <code>$</code> mention.</td><td>PromptEditor.swift</td></tr>
             <tr><td>NativeRowHighlight</td><td>Keeps AppKit's list selection live for keyboard navigation while dropping its drawing, so the row's own pill draws every state.</td><td>NativeRowHighlight.swift</td></tr>
             <tr><td>UsageRing</td><td>The fill beside a telemetry number, closing clockwise from twelve at <code>Size.statusMark</code>. Drawn to <code>StatusMark</code>'s recipe — same diameter, same <code>size * 0.15</code> stroke, same round cap — so the sidebar's round marks read as one family. A pattern, not a primitive: the ladder promotes at a second call site, and only the footer draws one.</td><td>SidebarFooter.swift</td></tr>
@@ -2200,8 +2184,8 @@
             <tr><td>KeyboardSettingsPane</td><td>The "Keyboard shortcuts" section at the foot of Interface, read-only: a <code>Typography.bodyEmphasis</code> heading over "Shortcuts can’t be changed yet.", then one <code>SettingsGroup</code> per <code>KeyBindingGroup</code>, the action in <code>Typography.body</code> and its keys in <code>Kbd</code> at the trailing edge, read out as key names. The groups run from the widest reach to the narrowest — Switching apps (macOS's ⌘⇥, labelled as macOS's), Anywhere in AiTerm, Sidebar, Sheets, Lists and the prompt. Anywhere in AiTerm is the menu bar's keys in their menus' order, the File menu's plain-⌘ create keys first — Add Project… ⌘P, Add Divider… ⌘D, New Task… ⌘N, New Review… ⌘R, New Terminal… ⌘T. The Sidebar's are ↑ ↓ to peek at a row's window, a plain ↩ to go to it, fold or open a project, or open an empty one's menu, and ⌘⌫ to remove; ⌘↩ belongs to the sheets. In Lists and the prompt, <code>/</code> is the one key for commands and skills. The table is <code>KeyBindings.all</code>, written by hand; a row that mirrors a menu item carries that item's exact title, and <code>KeyboardSettingsTests</code> checks titles, keys and modifiers against the menu bar.</td><td>KeyboardSettingsPane.swift</td></tr>
             <tr><td>HarnessSettingsPane</td><td>The Agents tab: one <code>SettingsCard</code> per harness, a <code>VendorMark</code> for its mark, <code>Badge</code> chips for its CLI and driver, its one Install, Repair or Reinstall action, and the default model and reasoning <code>Select</code>s as its fields; a footnote says Settings tests each agent when it opens.</td><td>HarnessSettingsPane.swift</td></tr>
             <tr><td>NameSheet</td><td>One field, one name — every flow whose whole question is what to call something: Add divider (its button Add Divider), New terminal, and Rename for a task or review, a terminal and a divider, each rename's title, field and sentence from <code>RenameTarget</code>. A single <code>FormField</code> inside <code>SheetLayout</code> and <code>SheetActionRow</code>, with a <code>SheetSubtitle</code> and an optional <code>HelpText</code> slot, ⌘↩ confirming, and the name trimmed before it reaches its caller; an empty rename keeps the old name.</td><td>NameSheet.swift</td></tr>
-            <tr><td>NewTaskSheet</td><td>The three-step task sheet — Ticket, then the shared <code>AgentStep</code> and <code>PromptStep</code>. Step 1 is a <code>SearchPicker</code> over Jira — every linked Jira project at once, named in its placeholder ("Search APP and OPS by key or title"), or every project when none is linked — a task name, and the new and base branches.</td><td>NewTaskSheet.swift</td></tr>
-            <tr><td>NewReviewSheet</td><td>Its sibling, for reviewing a branch that already exists — Branch, then the same <code>AgentStep</code> and <code>PromptStep</code>. Step 1 is two <code>SearchPicker</code>s: an optional GitLab merge request, which fills the name and branch, and the branch itself. No base branch, and no ticket checkbox on step 3.</td><td>NewReviewSheet.swift</td></tr>
+            <tr><td>NewTaskSheet</td><td>The three-step task sheet — Ticket, then the shared <code>AgentStep</code> and <code>PromptStep</code>. Step 1 is a <code>SearchPicker</code> over Jira — every linked Jira project at once, named in its placeholder ("Search APP and OPS by key or title"), or every project when none is linked — a task name, the new and base branches, and — when the project's <code>.worktreeinclude</code> selects files — a <code>WorktreeIncludeToggle</code> above the destination line.</td><td>NewTaskSheet.swift</td></tr>
+            <tr><td>NewReviewSheet</td><td>Its sibling, for reviewing a branch that already exists — Branch, then the same <code>AgentStep</code> and <code>PromptStep</code>. Step 1 is two <code>SearchPicker</code>s: an optional GitLab merge request, which fills the name and branch, and the branch itself, then a <code>WorktreeIncludeToggle</code> when the review gets a worktree of its own. No base branch, and no ticket checkbox on step 3.</td><td>NewReviewSheet.swift</td></tr>
             <tr><td>NewTerminalSheet</td><td>The shortest sibling: a <code>NameSheet</code> carrying this flow's copy, and its <code>DestinationLine</code> — the project and its branch — under the field.</td><td>NewTerminalSheet.swift</td></tr>
           </tbody>
         </table>
@@ -2248,7 +2232,6 @@
       <svg width="0" height="0" style="position: absolute" aria-hidden="true">
       <symbol id="p-bubble" viewBox="0 0 10 10"><path d="M2 1.8h6a1 1 0 0 1 1 1v3.4a1 1 0 0 1-1 1H4.6L2.6 8.8V7.2H2a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></symbol>
       <symbol id="p-check" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4.2" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M3.1 5.2l1.3 1.3 2.6-2.8" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-      <symbol id="p-tick" viewBox="0 0 10 10"><path d="M2.2 5.3l1.9 1.9 3.8-4.2" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     </svg>
       <p class="eyebrow proposal-flag">Proposal · Review row: how many threads are resolved · 9 Oct 2026 · final round</p>
       <h2>Show on a review how many of its threads are resolved</h2>
@@ -2352,45 +2335,6 @@
           activation of a windowless task calls <code>TaskLauncher.reopen</code>, which passes that command where it passes nil today.</li>
         <li><b>Docs move with it.</b> <code>docs/architecture.md</code>'s closing rule and the <code>window.closed</code> event's line,
           and <code>docs/keyboard.md</code>'s ↩.</li>
-      </ul>
-    </div>
-
-    <div class="section" id="p-worktreeinclude">
-      <p class="eyebrow proposal-flag">Proposal · New Task and New Review: copy what .worktreeinclude lists · 9 Oct 2026 · final round</p>
-      <h2>Bring a project's ignored files into a new worktree, when the project asks for it</h2>
-      <p class="why">A worktree holds only what git tracks, so <code>.env</code> and local certificates are missing until copied by
-        hand. <code>.worktreeinclude</code> says which ones to bring: not a formal standard, but the file Claude Code, Conductor and
-        PostHog Desktop already read — <code>.gitignore</code>'s syntax, at the repository's root, selecting only files git ignores
-        and the main checkout has. AiTerm reads the same file; there is nothing to set up.</p>
-
-      <h3 class="dq">Where the checkbox goes</h3>
-      <div class="options">
-<div class="option pick"><header><span class="letter">A</span><h3>Above the destination line</h3><span class="rec">Recommended</span></header><p>One checkbox, ticked, no caption: “Copy files listed in .worktreeinclude”, in <code>Typography.body</code> like step 3's “Include Jira ticket details”. It sits with the fields, because it is a choice about the worktree; the destination line stays last, as every sheet that opens a window ends its content with it. Absent — not disabled — when the project has no <code>.worktreeinclude</code> or nothing matches. New Review shows it when it creates a worktree, and not when it opens in the task that has its branch.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="hd"><div class="ttl">New task in acme-storefront</div><div class="stepbar"><b>1 Task</b><i></i><span>2 Agent</span><i></i><span>3 Prompt</span></div></div><div class="rule"></div><div class="bd"><div class="mk-ff"><span class="lbl">Jira ticket (optional)</span><div class="mk-field"><svg width="13" height="13" viewBox="0 0 24 24" fill="var(--jira)" aria-hidden="true"><use href="#p-jira"/></svg><span class="k">PAY-214</span><span class="t">Apple Pay button on checkout</span></div></div><div class="mk-ff"><span class="lbl">Task name</span><div class="mk-field"><span class="t">[Checkout] Apple Pay button</span></div></div><div class="row3"><div class="mk-ff" style="width:96px"><span class="lbl">Type</span><div class="mk-field mono"><span class="t">feat</span></div></div><div class="mk-ff" style="flex:1"><span class="lbl">New branch</span><div class="mk-field mono"><span class="t">pay-214-apple-pay</span></div></div><div class="mk-ff" style="width:150px"><span class="lbl">Base branch</span><div class="mk-field mono"><span class="t">main</span></div></div></div><div class="mk-check new"><div class="cb"><span class="box"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><use href="#p-tick"/></svg></span>Copy files listed in .worktreeinclude</div></div><div class="mk-dest">Opens in iTerm2 · acme-storefront/.worktrees/pay-214-apple-pay · feat/pay-214-apple-pay</div></div><div class="ft"><span class="btn">Cancel</span><span class="btn primary">Next</span></div></div></div><figcaption>A · New Task, step 1</figcaption></figure></div></div>
-<div class="option"><header><span class="letter">B</span><h3>Below it</h3></header><p>The checkbox closes the step. It breaks the sheets' rule that the destination line ends the content, and it reads as a note about where the window opens rather than as a choice.</p><div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="hd"><div class="ttl">New task in acme-storefront</div><div class="stepbar"><b>1 Task</b><i></i><span>2 Agent</span><i></i><span>3 Prompt</span></div></div><div class="rule"></div><div class="bd"><div class="mk-ff"><span class="lbl">Jira ticket (optional)</span><div class="mk-field"><svg width="13" height="13" viewBox="0 0 24 24" fill="var(--jira)" aria-hidden="true"><use href="#p-jira"/></svg><span class="k">PAY-214</span><span class="t">Apple Pay button on checkout</span></div></div><div class="mk-ff"><span class="lbl">Task name</span><div class="mk-field"><span class="t">[Checkout] Apple Pay button</span></div></div><div class="row3"><div class="mk-ff" style="width:96px"><span class="lbl">Type</span><div class="mk-field mono"><span class="t">feat</span></div></div><div class="mk-ff" style="flex:1"><span class="lbl">New branch</span><div class="mk-field mono"><span class="t">pay-214-apple-pay</span></div></div><div class="mk-ff" style="width:150px"><span class="lbl">Base branch</span><div class="mk-field mono"><span class="t">main</span></div></div></div><div class="mk-dest">Opens in iTerm2 · acme-storefront/.worktrees/pay-214-apple-pay · feat/pay-214-apple-pay</div><div class="mk-check new"><div class="cb"><span class="box"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><use href="#p-tick"/></svg></span>Copy files listed in .worktreeinclude</div></div></div><div class="ft"><span class="btn">Cancel</span><span class="btn primary">Next</span></div></div></div><figcaption>B · New Task, step 1</figcaption></figure></div></div>
-      </div>
-
-      <h3 class="dq">Every state (with A)</h3>
-      <div class="table-scroll"><table class="patterns">
-        <thead><tr><th>State</th><th>Step 1</th></tr></thead>
-        <tbody>
-          <tr><td>no .worktreeinclude</td><td class="to">no checkbox, as today</td></tr>
-          <tr><td>a file, nothing matches</td><td class="to">no checkbox: nothing would be copied</td></tr>
-          <tr><td>matches</td><td class="to">ticked; the tooltip lists the files</td></tr>
-          <tr><td>unticked</td><td class="to">the worktree is created without them</td></tr>
-          <tr><td>a review in an existing task</td><td class="to">no checkbox: no worktree is created</td></tr>
-          <tr><td>a copy fails</td><td class="to">the task is still created; a toast names what was not copied</td></tr>
-        </tbody>
-      </table></div>
-
-      <h3 class="dq">How it would be built</h3>
-      <ul class="impl">
-        <li><b>Core: a job of its own in the worktree code.</b> <code>WorktreeInclude</code>, beside <code>ExcludeFile</code>: two git
-          calls on the main checkout — the untracked files the patterns match (<code>ls-files -o -i -X</code>), kept to those git
-          ignores — and an APFS copy (<code>clonefile</code>) into the new worktree, never over a file already there.</li>
-        <li><b>The draft carries the choice.</b> The creation model reads the matches when the sheet opens, off the main actor, as it
-          reads branches; <code>TaskCreator</code> copies after <code>git worktree add</code>, before the window opens, so the agent
-          starts with them.</li>
-        <li><b>No setting.</b> The file is the setting; the checkbox is the one-off exception.</li>
       </ul>
     </div>
 
