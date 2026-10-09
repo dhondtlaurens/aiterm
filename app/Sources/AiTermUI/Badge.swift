@@ -10,6 +10,10 @@ import SwiftUI
 /// the VS Code badge on a row whose checkout has moved from the branch it started at. An empty diff
 /// draws nothing extra, so a caller can pass one unconditionally.
 ///
+/// A `suffix` closes the badge with an icon and a short text — `[bubble] 2/5`, a merge request's
+/// resolved review threads of all of them — both in the label's ink, so on a quiet badge they sit
+/// back with it and on the accent they turn white with it.
+///
 /// A `.quiet` badge drops the box at rest: its mark and text sit on the row in secondary ink, and
 /// the wash only appears under the pointer, outset by `Space.tight` so the text does not move. The
 /// sidebar's project headers and task and terminal rows draw their badges this way, where four
@@ -36,6 +40,7 @@ public struct Badge: View {
     /// everything else on a selected row.
     private let iconTint: Color?
     private let diff: Diff?
+    private let suffix: Suffix?
     private let style: Style
 
     /// Whether the badge draws its box at rest.
@@ -65,6 +70,14 @@ public struct Badge: View {
         }
     }
 
+    /// An icon and a short text drawn after the label and the diff. A standard shape, not an AiTerm
+    /// type: the badge does not know what the text counts. The glyph and its text sit
+    /// `Space.hairline` apart, as a diff's two counts do, so they read as one figure.
+    public struct Suffix: Equatable, Sendable {
+        public var icon: IconSource, text: String
+        public init(icon: IconSource, text: String) { self.icon = icon; self.text = text }
+    }
+
     @Environment(\.surface) private var surface
     @Environment(\.interfaceScale) private var scale
 
@@ -81,10 +94,11 @@ public struct Badge: View {
                 help: String? = nil,
                 iconTint: Color? = nil,
                 diff: Diff? = nil,
+                suffix: Suffix? = nil,
                 style: Style = .boxed,
                 accessibilityLabel: String? = nil,
                 action: (() -> Void)? = nil) {
-        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, style: style,
+        self.init(label, icon: icon, help: help, iconTint: iconTint, diff: diff, suffix: suffix, style: style,
                   accessibilityLabel: accessibilityLabel, action: action, menu: nil)
     }
 
@@ -95,17 +109,18 @@ public struct Badge: View {
                              style: Style = .boxed,
                              accessibilityLabel: String? = nil,
                              @ViewBuilder menu items: () -> Items) {
-        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, style: style,
+        self.init(label, icon: icon, help: help, iconTint: nil, diff: nil, suffix: nil, style: style,
                   accessibilityLabel: accessibilityLabel, action: nil, menu: AnyView(items()))
     }
 
-    private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, style: Style,
-                 accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
+    private init(_ label: String?, icon: IconSource?, help: String?, iconTint: Color?, diff: Diff?, suffix: Suffix?,
+                 style: Style, accessibilityLabel: String?, action: (() -> Void)?, menu: AnyView?) {
         self.label = label
         self.icon = icon
         self.help = help
         self.iconTint = iconTint
         self.diff = diff.flatMap { $0.isEmpty ? nil : $0 }
+        self.suffix = suffix
         self.style = style
         self.accessibilityText = accessibilityLabel
         self.action = action
@@ -170,22 +185,23 @@ public struct Badge: View {
         return side == .added ? Palette.diffAdded : Palette.diffRemoved
     }
 
-    // Icon-only: `EditorBadge`'s `Size.avatar` width. Anything with text — a label, a diff, or
-    // both, after an icon or not: `Space.tight` throughout — leading, trailing, and between icon,
-    // label and diff. All of them: `Size.chip` tall. Quiet: the same, less the outer padding, which
-    // its hover wash draws into instead.
+    // Icon-only: `EditorBadge`'s `Size.avatar` width. Anything with text — a label, a diff, a
+    // suffix, or several, after an icon or not: `Space.tight` throughout — leading, trailing, and
+    // between icon, label, diff and suffix. All of them: `Size.chip` tall. Quiet: the same, less the
+    // outer padding, which its hover wash draws into instead.
     // Every token below is read through `scale`; the badge is a chip at whatever scale it sits in.
     @ViewBuilder
     private var content: some View {
         let inset = style == .quiet ? 0 : scale(Space.tight)
-        if let icon, label == nil, diff == nil {
+        if let icon, label == nil, diff == nil, suffix == nil {
             iconView(icon)
                 .frame(width: style == .quiet ? scale(Self.iconSize) : scale(Size.avatar), height: scale(Size.chip))
-        } else if icon != nil || label != nil || diff != nil {
+        } else if icon != nil || label != nil || diff != nil || suffix != nil {
             HStack(spacing: scale(Space.tight)) {
                 if let icon { iconView(icon) }
                 if let label { labelView(label) }
                 if let diff { diffView(diff) }
+                if let suffix { suffixView(suffix) }
             }
             .padding(.horizontal, inset)
             .frame(height: scale(Size.chip))
@@ -223,6 +239,18 @@ public struct Badge: View {
         Text(text)
             .font(Typography.monoChip)
             .foregroundStyle(Self.labelInk(surface: surface, style: style))
+    }
+
+    /// `[bubble] 2/5`: the glyph at the badge's icon size and its text in the chip face,
+    /// `Space.hairline` apart, both in the label's ink (`labelInk`).
+    private func suffixView(_ suffix: Suffix) -> some View {
+        let ink = Self.labelInk(surface: surface, style: style)
+        return HStack(spacing: scale(Space.hairline)) {
+            Icon(suffix.icon, size: scale(Self.iconSize), tint: ink)
+            Text(suffix.text)
+                .font(Typography.monoChip)
+                .foregroundStyle(ink)
+        }
     }
 }
 

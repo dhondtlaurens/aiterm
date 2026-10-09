@@ -103,6 +103,26 @@ struct BadgeTests {
         }
     }
 
+    /// A suffix follows the label — a merge request's `[bubble] 2/5` — and a badge that is only an
+    /// icon and a suffix is not drawn as an icon-only badge, which would leave the suffix out.
+    @Test func aSuffixIsDrawnAfterTheLabelAndBesideALoneIcon() {
+        let threads = Badge.Suffix(icon: .symbol("bubble.left"), text: "2/5")
+        #expect(Self.width(Badge("!87", suffix: threads)) > Self.width(Badge("!87")))
+        #expect(Self.width(Badge("!87", suffix: threads, style: .quiet)) > Self.width(Badge("!87", style: .quiet)))
+        #expect(Self.width(Badge(icon: .brand(Palette.github), suffix: threads, style: .quiet))
+                > Self.width(Badge(icon: .brand(Palette.github), style: .quiet)))
+    }
+
+    /// A suffix keeps the badge a chip: no taller, at any scale.
+    @Test func aBadgeWithASuffixIsStillAChipAtItsScale() {
+        for scale in InterfaceScale.all {
+            let badge = Badge("!87", icon: .brand(Palette.github), suffix: .init(icon: .symbol("bubble.left"), text: "6/6"), style: .quiet)
+            let host = NSHostingView(rootView: badge.fixedSize().interfaceScale(scale))
+            host.layoutSubtreeIfNeeded()
+            #expect(host.fittingSize.height == scale(Size.chip), "at ×\(scale.factor)")
+        }
+    }
+
     private static func width(_ badge: Badge) -> CGFloat {
         let host = NSHostingView(rootView: badge)
         host.layoutSubtreeIfNeeded()
