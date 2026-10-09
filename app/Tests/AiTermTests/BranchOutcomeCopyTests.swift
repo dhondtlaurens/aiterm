@@ -36,4 +36,21 @@ struct BranchOutcomeCopyTests {
         ]
         for (kept, note) in notes { #expect(kept.note(branch: "feat/x") == note) }
     }
+
+    /// Nothing is said when nothing was left out; otherwise the files, by name — three at most,
+    /// then how many more.
+    @Test func whatAWorktreeIncludeCopyLeftOutIsNamed() {
+        #expect(WorktreeInclude.Outcome.complete.bannerMessage == nil)
+        #expect(WorktreeInclude.Outcome.unread.bannerMessage
+                == "Couldn’t read what .worktreeinclude lists, so no files were copied into the new worktree.")
+        #expect(WorktreeInclude.Outcome.notCopied([".env"]).bannerMessage == "Couldn’t copy .env into the new worktree.")
+        #expect(WorktreeInclude.Outcome.notCopied([".env", "certs/dev.pem"]).bannerMessage
+                == "Couldn’t copy .env and certs/dev.pem into the new worktree.")
+        #expect(WorktreeInclude.Outcome.notCopied([".env", ".env.local", "certs/dev.pem"]).bannerMessage
+                == "Couldn’t copy .env, .env.local and certs/dev.pem into the new worktree.")
+        #expect(WorktreeInclude.Outcome.notCopied([".env", ".env.local", "certs/a.pem", "certs/b.pem"]).bannerMessage
+                == "Couldn’t copy .env, .env.local, certs/a.pem and 1 more file into the new worktree.")
+        #expect(WorktreeInclude.Outcome.notCopied([".env", ".env.local", "certs/a.pem", "certs/b.pem", "certs/c.pem"]).bannerMessage
+                == "Couldn’t copy .env, .env.local, certs/a.pem and 2 more files into the new worktree.")
+    }
 }

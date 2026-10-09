@@ -1,7 +1,8 @@
 import AiTermCore
 
-// How the app words what git work on a project's branches came to. Core reports each outcome as a
-// value; the toasts say it here. A count git could not make is said without a number.
+// How the app words what git work on a project's branches and worktrees came to. Core reports each
+// outcome as a value; the toasts and the banner say it here. A count git could not make is said
+// without a number.
 
 extension DefaultBranchPull {
     /// The toast that says it.
@@ -49,4 +50,24 @@ extension ReviewBranchRelease.Kept {
 /// "1 commit", "3 new commits": a count of commits, as the toasts above say it.
 private func commits(_ count: Int, adjective: String? = nil) -> String {
     ([String(count)] + [adjective].compactMap { $0 } + [count == 1 ? "commit" : "commits"]).joined(separator: " ")
+}
+
+extension WorktreeInclude.Outcome {
+    /// The banner after a create whose `.worktreeinclude` copy left something out; `nil` when
+    /// nothing was. The task was created either way.
+    var bannerMessage: String? {
+        switch self {
+        case .complete: nil
+        case .unread: "Couldn’t read what .worktreeinclude lists, so no files were copied into the new worktree."
+        case .notCopied(let files): "Couldn’t copy \(named(files)) into the new worktree."
+        }
+    }
+}
+
+/// ".env", ".env and certs/dev.pem", "a, b and c", "a, b, c and 2 more files": files named in a message.
+private func named(_ files: [String]) -> String {
+    let shown = Array(files.prefix(3)), more = files.count - shown.count
+    if more > 0 { return shown.joined(separator: ", ") + " and \(more) more \(more == 1 ? "file" : "files")" }
+    guard let last = shown.last, shown.count > 1 else { return shown.first ?? "" }
+    return shown.dropLast().joined(separator: ", ") + " and " + last
 }

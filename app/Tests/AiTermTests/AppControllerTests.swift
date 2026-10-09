@@ -814,6 +814,75 @@ import Testing
         #expect(asked.filter { $0.contains("info/exclude") }.count == 2, "`.worktrees/` and the first-prompt exclusion are asked of the same runner")
     }
 
+    /// A project whose `.worktreeinclude` selects an `.env` that cannot be read, so cannot be copied.
+    private func projectWithAnUnreadableEnv(in dir: URL) throws -> (controller: AppController, project: Project) {
+        let repo = dir.appendingPathComponent("repo"), env = repo.appendingPathComponent(".env").path
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        let git = GitRunner.hermetic()
+        try git.run(["init", "-q", "-b", "main"], in: repo.path)
+        try ".env\n".write(toFile: repo.path + "/.gitignore", atomically: true, encoding: .utf8)
+        try ".env\n".write(toFile: repo.path + "/.worktreeinclude", atomically: true, encoding: .utf8)
+        try git.run(["add", ".gitignore", ".worktreeinclude"], in: repo.path)
+        try git.run(["commit", "-q", "-m", "init"], in: repo.path)
+        try "SECRET=1\n".write(toFile: env, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: env)
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), git: git)
+        try controller.loadWorkspace()
+        let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        controller.workspace.mutate { $0.items = [.project(project)] }
+        #expect(controller.workspace.flush())
+        return (controller, project)
+    }
+
+    /// A file `.worktreeinclude` selects that could not be copied costs the task nothing: it is
+    /// created, its window opens, its worktree is there, and the banner names the file — about the
+    /// task, so it goes when the task does.
+    @Test func aFileThatCouldNotBeCopiedIsNamedInTheBanner() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dir.appendingPathComponent("repo/.env").path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let (controller, project) = try projectWithAnUnreadableEnv(in: dir)
+        defer { controller.shutdown() }
+        let server = RecordingDaemon()
+        controller.helper.setDaemonClient(server)
+        var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
+        draft.setTitle("Unreadable env")
+        try await controller.createTask(draft: draft, project: project)
+        let created = try #require(controller.state.tasks.first)
+        #expect(FileManager.default.fileExists(atPath: created.worktreePath))
+        #expect(server.requests.map(\.method).last == "window.createTask", "the window opens all the same")
+        #expect(controller.issue == OperationIssue(title: "Couldn’t copy .env into the new worktree.", subject: created.id))
+        #expect(controller.toastState.toast == nil)
+    }
+
+    /// The banner holds one report: when the window's own report replaces it, that one says the
+    /// files too, so the person is not left thinking everything came.
+    @Test func aWindowReportAfterACopyThatLeftFilesOutSaysSoToo() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dir.appendingPathComponent("repo/.env").path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let (controller, project) = try projectWithAnUnreadableEnv(in: dir)
+        defer { controller.shutdown() }
+        var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
+        draft.setTitle("Unreadable env")
+        try await controller.createTask(draft: draft, project: project)   // no daemon
+        #expect(controller.issue?.title == "Task created. Once AiTerm reconnects, choose Reopen Window and start the agent manually.")
+        #expect(controller.issue?.reason == "Couldn’t copy .env into the new worktree.")
+    }
+
+    /// A copy that left nothing out says nothing: no banner for the task it made.
+    @Test func aCompleteWorktreeIncludeCopyHasNoBanner() async throws {
+        let fixture = try RaceFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        try await fixture.controller.createTask(draft: fixture.draft("Plain"), project: fixture.project)
+        #expect(fixture.controller.issue == nil)
+    }
+
     /// The alert-level courtesy. The guarantee is `TaskWorkflow.remove`'s own refusal, tested in
     /// `TaskWorkflowTests`; this only proves the checkbox is never offered for a review.
     @Test @MainActor func testReviewRemovalNeverOffersToDeleteTheBranch() {

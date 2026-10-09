@@ -126,19 +126,29 @@ final class TaskLauncher {
         focus.browse(.task(task.id))
         // A row that could not be saved gets no window: a relaunch would not know the window was its.
         guard workspace.flush() else { return }
+        // Said once, about the new row, whatever then happens to the window: the files are missing
+        // from the worktree either way. The banner holds one report, so a window report that
+        // replaces it carries the sentence on (`say`).
+        let copyNote = result.worktreeInclude.bannerMessage
+        if let copyNote { notices.report(OperationIssue(title: copyNote, subject: task.id)) }
+        func say(_ issue: OperationIssue) {
+            var issue = issue
+            if let copyNote { issue.reason = [issue.reason, copyNote].compactMap { $0 }.joined(separator: " ") }
+            notices.report(issue)
+        }
         if let warning = result.launchWarning {
-            notices.report(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose Reopen Window, then start the agent manually.",
-                                          reason: warning))
+            say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose Reopen Window, then start the agent manually.",
+                               reason: warning))
             return
         }
         guard let daemon = daemon() else {
-            notices.report("\(noun) created. Once AiTerm reconnects, choose Reopen Window and start the agent manually.")
+            say(OperationIssue(title: "\(noun) created. Once AiTerm reconnects, choose Reopen Window and start the agent manually."))
             return
         }
         do { try await openWindow(for: task, command: result.command, with: daemon) }
         catch {
-            notices.report(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened. Wait for reconnection or choose Reopen Window.",
-                                          error: error))
+            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened. Wait for reconnection or choose Reopen Window.",
+                               error: error))
         }
     }
 
