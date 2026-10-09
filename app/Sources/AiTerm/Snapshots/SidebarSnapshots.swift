@@ -113,6 +113,9 @@ enum SidebarSnapshots {
             // No project yet: the block under `PROJECTS`, at ×1 and at the largest size.
             empty("sidebar-empty.png", .standard),
             empty("sidebar-empty-extra-large.png", .extraLarge),
+            // Reviews and their merge requests' threads: none yet, some resolved, all resolved, and a
+            // GitHub pull request selected, where the count turns white with the badge.
+            reviewThreads("sidebar-review-threads.png"),
         ]
     }
 
@@ -176,6 +179,41 @@ enum SidebarSnapshots {
             controller.seedSnapshotRemoval(.stopped(note: "Not removed: branch kept", worktreeRemoved: true), of: fixture.other.id)
             controller.report(.branchKept(fixture.other.branch, of: fixture.other.id, because: .notMerged(base: "develop")))
             if let selecting { controller.focus.browse(.task(fixture[keyPath: selecting].id)) }
+            let rows = controller.rows
+            return VStack(alignment: .leading, spacing: Space.hairline) {
+                SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
+            }
+            .padding(.horizontal, Space.inset)
+            .frame(width: Size.sidebarWidth + 20)
+            .background(Palette.sidebar)
+        }
+    }
+
+    /// Four reviews under the fixture's project — one whose merge request never had a thread, one
+    /// with 2 of 5 resolved, one with all 6, and a GitHub pull request with 1 of 4, selected — each
+    /// window open, so no caption stands under them. The badge without its number is
+    /// `ReviewThreadsBadgeTests`'.
+    private static func reviewThreads(_ file: String) -> Snapshot {
+        Snapshot(file) {
+            let fixture = Fixture(), controller = fixture.controller(), project = fixture.project
+            let created = Snapshots.clock.now
+            func review(_ title: String, _ number: Int, url: String) -> TaskItem {
+                TaskItem(id: UUID(), projectId: project.id, title: title, branch: "review/\(number)",
+                         worktreePath: "/r/.worktrees/review-\(number)", baseBranch: "main", jira: nil, kind: .review,
+                         mr: MergeRequestRef(iid: number, title: title, url: url), agent: .claude, model: "opus",
+                         reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: created,
+                         windowId: "review-\(number)")
+            }
+            let gitLab = "https://gitlab.example/acme/storefront/-/merge_requests/"
+            let reviews = [review("Apple Pay on checkout", 87, url: gitLab + "87"),
+                           review("Preview tokens for drafts", 91, url: gitLab + "91"),
+                           review("Gift cards at the till", 95, url: gitLab + "95"),
+                           review("Faster product images", 12, url: "https://github.com/acme/storefront/pull/12")]
+            let counts: [ReviewThreads] = [.init(resolved: 0, total: 0), .init(resolved: 2, total: 5),
+                                           .init(resolved: 6, total: 6), .init(resolved: 1, total: 4)]
+            controller.workspace.mutate { $0.tasks = reviews }
+            for (review, threads) in zip(reviews, counts) { controller.reviewThreads.seedSnapshotThreads(threads, of: review.id) }
+            controller.focus.browse(.task(reviews[3].id))
             let rows = controller.rows
             return VStack(alignment: .leading, spacing: Space.hairline) {
                 SidebarView.taskRows(of: rows.sections[0], in: rows, controller: controller)
