@@ -201,4 +201,14 @@ struct ReviewThreadsWatcherTests {
         // A read already off the main actor as `stop()` ran may still land; no pass starts after it.
         #expect(reader.asked.count <= asked + 1)
     }
+
+    /// The controller's watcher reads with the connections it was built with; a test's are none,
+    /// so a review is read and wears no count.
+    @Test func theControllerReadsWithItsConnections() async {
+        let controller = AppController(preferences: .scratch())
+        let item = review(87)
+        controller.workspace.mutate { $0.tasks = [item] }
+        await controller.reviewThreads.refresh().value
+        #expect(controller.reviewThreads.threads(of: item.id) == nil)
+    }
 }

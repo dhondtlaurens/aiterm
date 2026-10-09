@@ -116,4 +116,18 @@ import Testing
             #expect(Set(sidebar.counter.counts.keys) == [missing], "missing \(gone.count): redrawn \(sidebar.counter.counts.count) of \(sidebar.allRows.count) rows")
         }
     }
+
+    @Test func aThreadCountRedrawsOnlyItsRow() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil) }
+        let counted = sidebar.tasks[3].id
+
+        for threads: ReviewThreads? in [ReviewThreads(resolved: 2, total: 5), ReviewThreads(resolved: 3, total: 5), nil] {
+            sidebar.counter.reset()
+            sidebar.controller.reviewThreads.seedSnapshotThreads(threads, of: counted)
+            sidebar.settleRows { sidebar.counter.counts[counted] != nil }
+            #expect(Set(sidebar.counter.counts.keys) == [counted],
+                    "\(String(describing: threads)): redrawn \(sidebar.counter.counts.count) of \(sidebar.allRows.count) rows")
+        }
+    }
 }

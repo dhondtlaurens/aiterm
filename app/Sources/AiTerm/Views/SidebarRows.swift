@@ -333,13 +333,14 @@ struct TaskRowView: View {
         #if DEBUG
         let _ = bodyCounter?.count(row.id)
         #endif
-        // Each read for this row alone, so another row's selection, removal or checkout redraws
-        // that row and not this one.
+        // Each read for this row alone, so another row's selection, removal, checkout or thread count
+        // redraws that row and not this one.
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
         let removal = controller.removal(of: row.id), removing = removal?.inProgress == true
         let caption = TaskRowCaption(removal: removal, missing: missing, windowOpen: task?.windowId != nil)
-        let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails)
+        let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
+                                   threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
                                              canChangeWorkspace: controller.canChangeWorkspace)
         let kindName = task?.kindName ?? "Task"
@@ -362,8 +363,9 @@ struct TaskRowView: View {
                                       style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
                             }
                             if let mr = badges.mergeRequest {
-                                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help,
-                                      style: .quiet, action: mr.url.map { url in { ExternalApps.open(link: url) } })
+                                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
+                                      style: .quiet, accessibilityLabel: mr.accessibilityLabel,
+                                      action: mr.url.map { url in { ExternalApps.open(link: url) } })
                             }
                             // "Absent, not disabled": no VS Code, no badge. Off its base it extends to
                             // `+12 −3` unless Settings has turned that off, the base named only in the

@@ -6,7 +6,7 @@ import AiTermCore
 /// The app's composition root, and the one handle the views and the tests have on it. `init` builds
 /// every owner below, each handed in its initializer the owners it calls, so each is built after
 /// them: the workspace, the notices, the helper, the tabs, the tiling, the checkouts, the task
-/// remover, the selection, then the actions, and Backpack Mode and the Mac's readings last. What an owner tells one built after it goes out through
+/// remover, the selection, then the actions, the review threads, and Backpack Mode and the Mac's readings last. What an owner tells one built after it goes out through
 /// its `on…` hooks, which the later owner adds itself to as it is built; the checkout monitor and
 /// the task remover, which each call the other, are the one pair joined after both exist
 /// (`CheckoutRemovals`). The sidebar's rows and the Dock badge are the controller's own. Everything
@@ -57,6 +57,9 @@ final class AppController {
     let tiling: SidebarTiling
     /// The selected row, and bringing its window forward.
     let focus: RowFocus
+    /// How many of each merge request's review threads are resolved, read every 60 s and when its
+    /// row is selected; each row reads its own count (`threads(of:)`).
+    let reviewThreads: ReviewThreadsWatcher
     /// The agent CLIs on this machine and AiTerm's hooks into them; probed at `start()`.
     let agents: AgentIntegrations
     /// Every modal question the app asks goes through here, so tests answer them from a script.
@@ -157,6 +160,10 @@ final class AppController {
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher)
+        // The connections as Settings saved them, read once per pass: a test's are none, so it
+        // reads nothing from either host.
+        reviewThreads = ReviewThreadsWatcher(workspace: workspace, focus: focus,
+                                             connect: { ReviewThreadsReader(gitLab: gitLabSettings(), gitHub: gitHubSettings()) })
         // Its settings sit with the Interface tab's, so a test's scratch preferences cover both; its
         // 5 s check stays on while any tab in the workspace is working.
         backpack = BackpackController(ports: backpackPorts,
@@ -190,13 +197,14 @@ final class AppController {
     func loadWorkspace() throws { try workspace.load() }
     func restoreWorkspace() throws { try workspace.restoreBackup() }
 
-    /// Launch: Backpack Mode's crash recovery, the Mac's readings, the checkout monitor, the agent
-    /// CLI probes and the helper, each once.
+    /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the checkout
+    /// monitor, the agent CLI probes and the helper, each once.
     func start() {
         guard workspaceLoaded, agentProbe == nil else { return }
         let backpack = self.backpack
         Task { await backpack.launch() }
         machine.start()
+        reviewThreads.start()
         checkouts.startMonitoring()
         if agents.shimURL.map({ BundleLocation.isTranslocated($0.path) }) == true { report(BundleLocation.translocationWarning) }
         let agents = self.agents
@@ -211,6 +219,7 @@ final class AppController {
     func shutdown() {
         backpack.shutdown()
         machine.stop()
+        reviewThreads.stop()
         agentProbe?.cancel()
         agentProbe = nil
         checkouts.stop()
