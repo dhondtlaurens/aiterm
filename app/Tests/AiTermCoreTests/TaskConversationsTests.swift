@@ -23,18 +23,32 @@ import Testing
         return state
     }
 
-    /// Every agent tab of the task's own window that has named its conversation, in tab order; a shell,
-    /// an agent that has not named one yet, and another window's tab are not the task's.
+    /// Every agent tab of the task's own window, once each has named its conversation, in tab order; a
+    /// shell and another window's tab are not the task's.
     @Test func aTaskRemembersItsWindowsAgentConversationsInTabOrder() {
         let next = state(task(window: "w1")).rememberingConversations(from: [
             tab("c", window: "w1", index: 2, agent: .codex, conversation: "thread-3"),
             tab("a", window: "w1", index: 0, agent: .claude, conversation: "conv-1"),
             tab("s", window: "w1", index: 1, agent: .shell, conversation: nil),
-            tab("n", window: "w1", index: 3, agent: .grok, conversation: nil),
             tab("x", window: "w2", index: 0, agent: .pi, conversation: "elsewhere"),
         ])
         #expect(next.tasks[0].conversations == [TaskConversation(agent: .claude, id: "conv-1"),
                                                  TaskConversation(agent: .codex, id: "thread-3")])
+    }
+
+    /// A reopened window's agents start one by one: while one has yet to name its conversation, what was
+    /// remembered stays, so a quit or a late hook cannot cost the others their place.
+    @Test func aWindowWithAnAgentYetToNameItsConversationLeavesWhatWasRemembered() {
+        let remembered = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2")]
+        let before = state(task(window: "w1", conversations: remembered))
+        let partly = [tab("a", window: "w1", index: 0, agent: .codex, conversation: "thread-1"),
+                      tab("b", window: "w1", index: 1, agent: .claude, conversation: nil)]
+        #expect(before.rememberingConversations(from: partly) == before)
+
+        let both = [tab("a", window: "w1", index: 0, agent: .codex, conversation: "thread-9"),
+                    tab("b", window: "w1", index: 1, agent: .claude, conversation: "conv-8")]
+        #expect(before.rememberingConversations(from: both).tasks[0].conversations
+                == [TaskConversation(agent: .codex, id: "thread-9"), TaskConversation(agent: .claude, id: "conv-8")])
     }
 
     /// Two panes share a tab's index: they are read in the order of their session ids, the same every time.

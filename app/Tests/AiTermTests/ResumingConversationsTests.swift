@@ -28,6 +28,24 @@ extension AppControllerTests {
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened")
     }
 
+    /// Each conversation after the first gets a tab of its own, opened in the order they were.
+    @Test func reopeningThreeConversationsOpensTwoTabsInOrder() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        fixture.controller.workspace.mutate {
+            $0.tasks[0].conversations = [TaskConversation(agent: .codex, id: "thread-1"), TaskConversation(agent: .claude, id: "conv-2"),
+                                         TaskConversation(agent: .grok, id: "g-3")]
+        }
+
+        await fixture.controller.reopen(task: task)?.value
+
+        #expect(server.requests("tab.create").map { $0.params["agentCommand"] as? String } == ["claude --resume conv-2", "grok --resume g-3"])
+        #expect(server.requests("tab.create").map { $0.params["windowId"] as? String } == ["reopened", "reopened"])
+    }
+
     /// With no conversation known it is a plain shell in the worktree, as Reopen Window always was.
     @Test func aTaskWithNoConversationReopensAPlainShell() async throws {
         let fixture = try RaceFixture()
@@ -61,6 +79,7 @@ extension AppControllerTests {
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened")
         #expect(server.requests("tab.create").count == 1)
         #expect(fixture.controller.issue?.title == "Reopened the window, but not every conversation.")
+        #expect(fixture.controller.issue?.subject == task.id)
     }
 
     /// Never a resume command for an empty id, whatever a workspace holds.
