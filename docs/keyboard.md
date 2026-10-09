@@ -28,8 +28,8 @@ project's "+" and its context menu all list them in this order: Add Project…, 
 New Task…, New Review…, New Terminal…. None clashes with a sheet: ⌘P, ⌘D, ⌘R and ⌘T mean nothing
 to a text field, and the File menu is off while a sheet is up anyway.
 
-There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Reopen, Open in…,
-Pull, Remove — stay in the rows' context menus.
+There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, a terminal's Reopen
+Window, Open in…, Pull, Remove — stay in the rows' context menus; a task reopens its window by being chosen.
 
 The Keyboard shortcuts section of Settings › Interface lists every key AiTerm answers to
 (`KeyBindings.all`), a row that mirrors a menu item under that item's exact title, and
@@ -43,8 +43,8 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. |
-| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
+| ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. A task whose window closed is only selected: the arrows never reopen a window. |
+| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a task whose window closed has it reopened first, in its worktree, each agent tab resuming its conversation. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
 | ⌘⌫ | Remove the task, review or terminal | The row's own Remove, as its context menu has it: a task or a review asks first, a terminal just closes. Nothing on a header. On the list, not a menu command — a menu's key equivalent would beat a text field's own ⌘⌫. |
 | ⌘F | Focus View | Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you — its window shown even when it was already selected — with the keyboard left in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included; the Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | Opens every project that has rows. |
@@ -134,3 +134,6 @@ NSAlert gives ⎋ to a button titled Cancel by itself; any other safe button is 
 `ModalPrompter` answers ⎋ for it with a key monitor while the alert is up. An alert is never run
 inside a SwiftUI key handler, where it comes up without its checkbox: a question is an `await`, and
 `ModalPrompter` brings its alert up a turn later, so ⌘⌫'s Remove alert is never inside one.
+
+Closing one task's window in iTerm2 asks the same Remove task alert a second later, AiTerm brought
+forward for it; iTerm2 quitting or crashing asks nothing.

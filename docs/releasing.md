@@ -53,8 +53,10 @@ Jira-to-agent workflow. Run through this list by hand:
    window — starting `codex` in the new tab adds its mark next to the one already there.
 7. Trigger an agent permission prompt: amber mark → answer it → spinner → **Stop** → done mark.
 8. Run Claude Code and Codex: the footer's USAGE group shows both vendors' limits.
-9. Drag the sidebar: task windows re-snap. Close a task window: its sidebar row disappears while
-   its worktree remains on disk.
+9. Drag the sidebar: task windows re-snap. Close a task window: a second later AiTerm asks Remove's
+   question; Cancel keeps the row as "Window closed", its worktree on disk. Click that row: the window
+   reopens and the agent resumes its conversation. Quit iTerm2 with task windows open: nothing is
+   asked, every row stays.
 10. **Remove Task…**: the window closes, the worktree is removed, the branch is kept unless the
     checkbox is ticked.
 11. Open the release DMG: AiTerm on the left, Applications on the right. Drag AiTerm to

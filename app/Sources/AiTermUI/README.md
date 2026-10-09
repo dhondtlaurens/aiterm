@@ -286,6 +286,9 @@ row reads its own removal (`controller.removal(of:)`), missing checkout
 row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTests` counts them. Only
 `SidebarScrollFollower` — not `SidebarView`'s body — follows the selection whole, so the list's
 model is not redrawn either.
+A task row whose window closed says "Window closed" (`TaskRowCaption`) and reopens it when activated
+— a click or ↩, never the arrows — through `RowFocus`, which asks `TaskLauncher`; its context menu has
+no Reopen Window, a terminal's still does, and `TaskRowAccessibility` gives its VoiceOver hint and tooltip.
 
 `CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` opens —
 the one trigger for every agent; a Codex skill picked there is written as its `$` mention.
