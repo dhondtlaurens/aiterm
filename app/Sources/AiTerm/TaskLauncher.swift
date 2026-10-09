@@ -57,6 +57,17 @@ final class TaskLauncher {
         try await create(draft, kind: .review, in: project) { [workflow] in try await workflow.createReview(draft: draft, project: project) }
     }
 
+    /// The fix New Review's footer offered for a refused branch, run before its create is tried
+    /// again: the project's own folder switched off the branch, or the diverged branch rebased onto
+    /// origin's. Either moves a branch the sidebar shows, so the checkouts are read again.
+    func recover(_ recovery: CreationFailure.Recovery, in project: Project) async throws {
+        switch recovery {
+        case .switchProjectFolder(let branch, let target): try await workflow.switchProjectFolder(of: project, off: branch, to: target)
+        case .rebase(let branch): _ = try await workflow.rebaseOntoOrigin(branch, in: project)
+        }
+        checkouts.refresh()
+    }
+
     /// The review as a tab in `owner`'s window, running the reviewer in the task's worktree — or
     /// the window itself, reopened with the reviewer, when the task has none. Nothing is written
     /// to disk and no row is added, so closing the tab ends the review and there is nothing whose

@@ -134,7 +134,7 @@ final class TaskRemover: CheckoutRemovals {
     }
 
     // -- the person's Remove ------------------------------------------------------------
-    /// Whether the remove alert offers an "Also delete branch" checkbox. A review's branch is the
+    /// Whether the remove alert offers a "Delete local branch" checkbox. A review's branch is the
     /// merge request's — GitLab deletes it on merge — so it never does.
     ///
     /// This is the courtesy, not the guarantee: `TaskWorkflow.remove` refuses a review's branch
@@ -154,10 +154,11 @@ final class TaskRemover: CheckoutRemovals {
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
             detail: shown.kind == .review
-                ? "Deletes the worktree and closes its iTerm2 window. Its local branch goes too, unless it has commits origin lacks:\n\n\(shown.worktreePath)"
-                : "Deletes the worktree and closes its iTerm2 window:\n\n\(shown.worktreePath)",
+                ? "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
+                : "Deletes its worktree and closes its iTerm2 window.",
             buttons: ["Remove", "Cancel"],
-            checkbox: Self.offersBranchDeletion(for: shown) ? "Also delete branch \(shown.branch)" : nil,
+            checkbox: Self.offersBranchDeletion(for: shown) ? "Delete local branch" : nil,
+            checkboxHelp: Self.offersBranchDeletion(for: shown) ? shown.branch : nil,
             defaultDeletes: true))
         // Still needed after the await: a Remove started during the alert owns the removal now, and
         // this answer then does nothing; the task or its project can be gone, or the workspace locked.

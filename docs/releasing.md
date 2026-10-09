@@ -14,6 +14,11 @@ One-time setup:
 Then, from a clean, pushed `main`: `scripts/release.sh <version>`. It builds and signs the app,
 wraps it in `AiTerm-<version>.dmg`, pushes the tag `v<version>` and publishes the GitHub release.
 
+Before it builds anything, it redraws the README's picture and refuses to go on while
+`docs/desktop.png` differs from it, so a release never ships a README showing an older sidebar.
+Run `scripts/readme-picture.sh`, look at the new `docs/desktop.png`, commit and push it, and run
+the release again. The picture is drawn by a real window, so the main display must be Retina.
+
 The release is created as a draft with its image attached and only then published, so updaters
 never see a release without its DMG. If the run stops after pushing the tag, finish it by hand.
 First check whether the release exists: `gh release view v<version> --repo dhondtlaurens/aiterm`.

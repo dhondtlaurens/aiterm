@@ -152,7 +152,9 @@ struct SheetFooter<Status: View>: View {
 }
 
 /// The footer New Task and New Review share: the last failure, why no agent can run, and a
-/// `SheetFooter` — Back, or Cancel on the first step, and Continue or the create button.
+/// `SheetFooter` — Back, or Cancel on the first step, and Continue or the create button. A failure
+/// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
+/// slot: a plain button with no key, since it moves a branch — ⌘↩ stays the create.
 ///
 /// A failure shows its reason, never the head of git's output: that is the command line and git's
 /// narration, and three lines of it used to be all there was room for. The reason is git's failure
@@ -168,6 +170,8 @@ struct CreationFooter: View {
     let closeList: () -> Bool
     let back: () -> Void
     let advance: () -> Void
+    /// The failure's fix, then the create it stopped.
+    let recover: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.gap) {
@@ -179,7 +183,11 @@ struct CreationFooter: View {
                 Text(note).font(Typography.caption).foregroundStyle(Palette.amber)
             }
             SheetFooter(secondary: step == 1 ? "Cancel" : "Back", primary: step == 3 ? createLabel : "Continue",
-                        canCancel: !creating, canSubmit: canAdvance, closeList: closeList, cancel: back, submit: advance)
+                        canCancel: !creating, canSubmit: canAdvance, closeList: closeList, cancel: back, submit: advance) {
+                if let recovery = error?.recovery {
+                    Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
+                }
+            }
         }
     }
 }

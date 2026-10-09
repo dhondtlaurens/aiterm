@@ -3,6 +3,10 @@ import AppKit
 /// One modal question: a message, the detail under it, its buttons and an optional checkbox. A
 /// value, so a test can read what was asked and answer it without a window.
 ///
+/// The detail says what happens, in a sentence or two, and leaves out what the message and the
+/// clicked row already say: no paths, no branch names. A name the person may still want rides on
+/// the checkbox's tooltip, `checkboxHelp`.
+///
 /// The first button is the one default: it answers ↩ and is drawn blue — or red, with
 /// `defaultDeletes`, when it deletes files or commits. Every other button is the plain grey one; no
 /// other button can be marked destructive, because nothing here says so. ⎋ answers `escapeButton`,
@@ -14,6 +18,8 @@ struct AlertPrompt: Equatable {
     /// Buttons shown but not clickable, such as Restore Backup when there is no usable backup.
     var unavailable: Set<String> = []
     var checkbox: String?
+    /// The checkbox's tooltip: the branch "Delete local branch" deletes.
+    var checkboxHelp: String?
     /// The default button deletes files or commits: Remove on a task, Delete Branch.
     var defaultDeletes = false
     /// The button ⎋ answers, when it is not the one titled Cancel or the only one.
@@ -76,7 +82,11 @@ struct ModalPrompter: Prompter {
         if let escape = prompt.escapeButton, escape > 0, alert.buttons.indices.contains(escape) {
             alert.buttons[escape].keyEquivalent = escapeKey
         }
-        alert.accessoryView = prompt.checkbox.map { NSButton(checkboxWithTitle: $0, target: nil, action: nil) }
+        alert.accessoryView = prompt.checkbox.map {
+            let checkbox = NSButton(checkboxWithTitle: $0, target: nil, action: nil)
+            checkbox.toolTip = prompt.checkboxHelp
+            return checkbox
+        }
         return alert
     }
 

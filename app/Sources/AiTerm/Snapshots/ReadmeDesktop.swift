@@ -14,8 +14,10 @@ struct ReadmeDesktop: View {
     let tabs: Int
 
     /// Its own workspace — a home folder, then aiterm under Personal and acme under Work, two tasks
-    /// each, one of them a review — so the fixture the regression set shares stays small. Hosted
-    /// only: `ImageRenderer` never materialises a `List`.
+    /// each, one of them a review, and the Mac in Backpack Mode — so the fixture the regression set
+    /// shares stays small. Hosted only: `ImageRenderer` never materialises a `List`.
+    /// `scripts/readme-picture.sh` draws it to `docs/desktop.png`, and `scripts/release.sh` refuses
+    /// to release while the committed picture differs from what this draws.
     static var snapshot: Snapshot {
         Snapshot("readme-desktop.png", hostedOnly: true) {
             let (controller, selected) = workspace()
@@ -71,8 +73,9 @@ struct ReadmeDesktop: View {
             state.tasks = tasks
         }
         controller.live.sessions = [
-            // The selected task: Claude Code in front, its context the footer's `ctx` line.
-            Fixture.session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38),
+            // The selected task: Claude Code in front, its context and its spend the footer's `ctx` row.
+            Fixture.session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38,
+                            tokens: TokenTally(input: 412_806, cached: 401_377, output: 6_212)),
             Fixture.session("r2", "a1", refactor.id, "codex", "idle", 1, cwd: refactor.worktreePath),
             Fixture.session("r3", "a2", orphan.id, "grok", "done", 0, cwd: orphan.worktreePath, active: true),
             Fixture.session("r4", "m1", quantize.id, "pi", "working", 0, cwd: quantize.worktreePath, active: true),
@@ -84,6 +87,11 @@ struct ReadmeDesktop: View {
             {"claude":{"fiveHour":{"usedPercent":42,"resetsAt":\(Fixture.soon)},"sevenDay":{"usedPercent":61,"resetsAt":\(Fixture.later)},"spend":null,"plan":"Max","updatedAt":\(Fixture.fresh)},
              "codex":{"fiveHour":null,"sevenDay":{"usedPercent":17,"resetsAt":\(Fixture.later)},"spend":null,"plan":"Pro","updatedAt":\(Fixture.fresh)}}
             """)
+        // The Mac in the bag: Backpack Mode on over the hotspot, on battery, its readings fixed.
+        controller.backpack.preview(state: .on(BackpackStatus(network: "iPhone", joined: true,
+                                                               power: PowerReading(level: 64, onBattery: true))),
+                                    setup: BackpackSetup(sleepRule: true, location: true, network: "iPhone"))
+        controller.machine.seedSnapshotLines(SidebarSnapshots.machine(.on))
         controller.focus.browse(.task(refactor.id))
         controller.helper.itermConnection = .connected(version: "3.7.2")
         return (controller, refactor)

@@ -87,7 +87,7 @@ struct SidebarView: View {
                 .onKeyPress("\u{7F}", phases: .down) { press in
                     guard press.modifiers == .command else { return .ignored }
                     // The question is asked a turn later, never inside SwiftUI's key handler, where
-                    // an alert run modally came up without its "Also delete branch" checkbox
+                    // an alert run modally came up without its "Delete local branch" checkbox
                     // (`Prompter`).
                     Task { await controller.removeSelection() }
                     return .handled

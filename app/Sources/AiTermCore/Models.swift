@@ -228,7 +228,7 @@ public struct JiraRef: Codable, Equatable, Sendable {
 /// `.task`. A raw value this build does not know decodes as `.task` too, like `Provider`;
 /// `TaskItem` keeps what the file had for the resave.
 /// So a row of a kind only a newer build knows is removed here as a task is: its Remove offers
-/// "Also delete branch" — unticked, the person's to tick — where a review's never does.
+/// "Delete local branch" — unticked, the person's to tick — where a review's never does.
 public enum TaskKind: String, Codable, Equatable, Sendable {
     case task, review
     public init(from decoder: Decoder) throws {

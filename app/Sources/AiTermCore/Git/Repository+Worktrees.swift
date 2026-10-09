@@ -53,7 +53,9 @@ extension Repository {
     ///
     /// The branch is brought to what origin has first: a local branch is whatever was last pulled,
     /// and the fetch never moves it. Behind origin, it is fast-forwarded; ahead, its unpushed commits
-    /// are kept; diverged, it is refused rather than moved. Only on origin, it gets a local branch
+    /// are kept; diverged, it is refused rather than moved, with how far apart the two are — the
+    /// sheet offers `rebaseOntoOrigin` for it. Checked out somewhere, it is refused with where — and
+    /// in the project's own folder, with what `switchProjectFolder` would do. Only on origin, it gets a local branch
     /// tracking origin's, which `releaseReviewBranch` takes back once the review is removed. Every
     /// refusal comes before anything is created, and no failure path deletes a branch that holds
     /// anything origin lacks — this one is someone's merge request.
@@ -63,14 +65,14 @@ extension Repository {
         let local = sha("refs/heads/" + branch)
         let remote = hasOrigin ? sha("refs/remotes/origin/" + branch) : nil
         if let holder = try worktrees().first(where: { $0.branch == branch }) {
-            throw WorktreeError.branchCheckedOut(branch, at: holder.path)
+            throw try refusal(of: branch, checkedOutAt: holder.path)
         }
         switch (local, remote) {
         case (nil, nil): throw WorktreeError.branchNotOnOrigin(branch)
         case let (l?, r?) where l != r:
             // Ahead: origin's tip is in it, and its unpushed commits are kept as they are.
             if try isAncestor(r, of: l) { break }
-            guard try isAncestor(l, of: r) else { throw WorktreeError.branchDiverged(branch) }
+            guard try isAncestor(l, of: r) else { throw WorktreeError.branchDiverged(branch, local: count(r, l), remote: count(l, r)) }
             // Behind: a fast-forward, which git refuses for a branch being rebased in some checkout.
             try fastForward(branch)
         default: break
@@ -93,6 +95,30 @@ extension Repository {
             }
         }
         return worktreePath
+    }
+
+    /// Why a review cannot have `branch`, checked out at `holder`. The project's own folder can be
+    /// switched to the default branch — unless that is the branch reviewed — so it says so, and
+    /// whether changes there forbid it; any other checkout is only named.
+    private func refusal(of branch: String, checkedOutAt holder: String) throws -> WorktreeError {
+        guard Worktree.resolved(holder) == Worktree.resolved(path),
+              case let target = try detectDefaultBranch() ?? Self.fallbackDefaultBranch, target != branch else {
+            return .branchCheckedOut(branch, at: holder)
+        }
+        return .branchInProjectFolder(branch, at: holder, switchTo: target, hasChanges: try hasUnsavedWork(at: holder))
+    }
+
+    /// The project's own folder moved off a review's `branch` onto `target`, so the review can
+    /// check `branch` out; the branch and its commits stay as they are. The files under the
+    /// person's editor change with it, so only while the folder is still on `branch` — one someone
+    /// has moved since has nothing to switch — and has no uncommitted changes, which `git switch`
+    /// would carry along to `target`.
+    public func switchProjectFolder(off branch: String, to target: String) throws {
+        guard try worktree(at: path)?.branch == branch else { return }
+        guard try !hasUnsavedWork(at: path) else {
+            throw WorktreeError.branchInProjectFolder(branch, at: path, switchTo: target, hasChanges: true)
+        }
+        try git.run(["switch", "--quiet", "--no-guess", target], in: path, timeout: GitRunner.checkoutTimeout)
     }
 
     /// Whether `git worktree remove` would refuse `worktreePath` without `--force`: git's own check,

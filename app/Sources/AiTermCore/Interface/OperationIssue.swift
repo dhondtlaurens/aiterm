@@ -80,10 +80,13 @@ public struct OperationIssue: Equatable, Sendable {
     /// "Pull main" that found `project`'s default branch diverged: how far apart, and the rebase.
     public static func pullRefused(_ error: Error, in project: UUID) -> OperationIssue {
         let title = "Couldn’t pull the default branch."
-        guard case WorktreeError.defaultBranchDiverged = error, let reason = (error as? LocalizedError)?.errorDescription else {
+        guard case WorktreeError.branchDiverged = error, let reason = (error as? LocalizedError)?.errorDescription else {
             return OperationIssue(title: title, error: error)
         }
-        return OperationIssue(title: title, reason: reason + " Rebase puts yours on top of origin’s; nothing is pushed.",
-                              actions: [.rebaseDefault(project)])
+        return OperationIssue(title: title, reason: reason + " " + rebaseOffer, actions: [.rebaseDefault(project)])
     }
+
+    /// What a Rebase offered for a diverged branch does, said after how far apart the two are — the
+    /// banner's for the default branch, New Review's footer for a review's.
+    public static let rebaseOffer = "Rebase puts yours on top of origin’s; nothing is pushed."
 }

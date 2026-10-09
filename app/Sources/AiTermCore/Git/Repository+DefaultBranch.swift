@@ -9,14 +9,15 @@ public enum DefaultBranchPull: Equatable, Sendable {
     case ahead(String, commits: Int?)
 }
 
-/// What ``Repository/rebaseDefaultBranch()`` left: the branch, and how many commits it now has that
+/// What ``Repository/rebaseOntoOrigin(_:)`` left: the branch, and how many commits it now has that
 /// origin lacks — `nil` when git could not count them. Never pushed: that stays the person's to do.
-public struct DefaultBranchRebase: Equatable, Sendable {
+public struct BranchRebase: Equatable, Sendable {
     public var branch: String, ahead: Int?
     public init(branch: String, ahead: Int?) { self.branch = branch; self.ahead = ahead }
 }
 
-/// The local default branch kept up with origin's: "Pull main", and the rebase a diverged pull offers.
+/// A local branch kept up with origin's: "Pull main", and the rebase a diverged pull — or a diverged
+/// review's branch — offers.
 extension Repository {
     /// "Pull main": the local default branch brought to origin's, fast-forward only. Checked
     /// out somewhere — usually the project's own checkout — it is merged there, so the files move
@@ -26,11 +27,12 @@ extension Repository {
     ///
     /// Unlike the fetch before a new worktree, this one's failure is thrown: pulling is the point.
     public func pullDefaultBranch() throws -> DefaultBranchPull {
-        let (branch, local, remote) = try fetchDefaultBranch()
+        let branch = try detectDefaultBranch() ?? Self.fallbackDefaultBranch
+        let (local, remote) = try fetchFromOrigin(tipsOf: branch)
         if local == remote { return .upToDate(branch) }
         if try isAncestor(remote, of: local) { return .ahead(branch, commits: count(remote, local)) }
         guard try isAncestor(local, of: remote) else {
-            throw WorktreeError.defaultBranchDiverged(branch, local: count(remote, local), remote: count(local, remote))
+            throw WorktreeError.branchDiverged(branch, local: count(remote, local), remote: count(local, remote))
         }
         let commits = count(local, remote)
         if let holder = try checkoutsLessAbandonedScratch().first(where: { $0.branch == branch }) {
@@ -43,15 +45,20 @@ extension Repository {
         return .fastForwarded(branch, commits: commits)
     }
 
-    /// The answer to a diverged "Pull main": the local default branch's own commits replayed on
-    /// origin's, with `git rebase` — which drops merge commits, so a branch merged locally arrives
-    /// as its commits. Rebased where it is checked out, so the files move with it and git refuses
-    /// uncommitted changes; checked out nowhere, in a checkout of its own outside `.worktrees/`
+    /// The answer to a diverged "Pull main": ``rebaseOntoOrigin(_:)`` of the default branch.
+    public func rebaseDefaultBranch() throws -> BranchRebase {
+        try rebaseOntoOrigin(try detectDefaultBranch() ?? Self.fallbackDefaultBranch)
+    }
+
+    /// The answer to a diverged branch: its local commits replayed on origin's, with `git rebase` —
+    /// which drops merge commits, so a branch merged locally arrives as its commits. Rebased where
+    /// it is checked out, so the files move with it and git refuses uncommitted changes; checked
+    /// out nowhere — a review's branch always is — in a checkout of its own outside `.worktrees/`
     /// (where the sidebar would pick it up), removed afterwards. That checkout is only scratch:
     /// making it runs no hook and fetches no LFS file. A conflict aborts the rebase and leaves the
     /// branch as it was. Nothing is pushed.
-    public func rebaseDefaultBranch() throws -> DefaultBranchRebase {
-        let (branch, _, remote) = try fetchDefaultBranch()
+    public func rebaseOntoOrigin(_ branch: String) throws -> BranchRebase {
+        let (_, remote) = try fetchFromOrigin(tipsOf: branch)
         if let holder = try checkoutsLessAbandonedScratch().first(where: { $0.branch == branch }) {
             try rebase(branch, onto: remote, in: holder.path)
         } else {
@@ -68,10 +75,10 @@ extension Repository {
             try rebase(branch, onto: remote, in: scratch)
         }
         guard let local = sha("refs/heads/" + branch) else { throw WorktreeError.noLocalBranch(branch) }
-        return DefaultBranchRebase(branch: branch, ahead: count(remote, local))
+        return BranchRebase(branch: branch, ahead: count(remote, local))
     }
 
-    /// What names the checkouts `rebaseDefaultBranch` makes for itself in the temporary directory.
+    /// What names the checkouts `rebaseOntoOrigin` makes for itself in the temporary directory.
     private static let scratchPrefix = "aiterm-rebase-"
 
     /// Every checkout, once the rebase checkouts an app that died mid-rebase never removed are
@@ -125,14 +132,13 @@ extension Repository {
         return paths.split(separator: "\n").contains { FileManager.default.fileExists(atPath: String($0)) }
     }
 
-    /// The default branch, fetched: its name, the local tip and origin's. An explicit refspec, so
-    /// the tracking ref compared against is updated whatever `remote.origin.fetch` says.
-    private func fetchDefaultBranch() throws -> (branch: String, local: String, remote: String) {
+    /// `branch` fetched: the local tip and origin's. An explicit refspec, so the tracking ref
+    /// compared against is updated whatever `remote.origin.fetch` says.
+    private func fetchFromOrigin(tipsOf branch: String) throws -> (local: String, remote: String) {
         guard try hasOrigin else { throw WorktreeError.noOrigin }
-        let branch = try detectDefaultBranch() ?? Self.fallbackDefaultBranch
         try fetchFromOrigin(branch)
         guard let local = sha("refs/heads/" + branch) else { throw WorktreeError.noLocalBranch(branch) }
         guard let remote = sha("refs/remotes/origin/" + branch) else { throw WorktreeError.noOrigin }
-        return (branch, local, remote)
+        return (local, remote)
     }
 }

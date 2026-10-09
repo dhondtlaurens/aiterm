@@ -199,7 +199,7 @@ struct TaskCreationModelTests {
 
         let review = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                          home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
-                                         searchMergeRequests: { _ in [] }, createReview: { _ in })
+                                         searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
         try FileManager.default.createDirectory(atPath: repo + "/.worktrees/review-card", withIntermediateDirectories: true)
         review.draft.setBranch("feat/card")
         #expect(review.worktreeSlug == "review-card-2")

@@ -13,14 +13,16 @@ final class ReviewCreation: CreationKind {
     /// Whose requests the sheet lists: it names them in its copy and draws their mark.
     let codeHost: CodeHost
     fileprivate let findOwner: (String, [Worktree]) -> TaskItem?
+    fileprivate let fix: @MainActor (CreationFailure.Recovery) async throws -> Void
     fileprivate(set) var checkouts: [Worktree] = []
     fileprivate(set) var owningTask: TaskItem?
     fileprivate(set) var pickRefusal: String?
     fileprivate(set) var branchQuery = ""
     fileprivate(set) var branchMatches: [String] = []
 
-    init(codeHost: CodeHost, findOwner: @escaping (String, [Worktree]) -> TaskItem?) {
-        self.codeHost = codeHost; self.findOwner = findOwner
+    init(codeHost: CodeHost, findOwner: @escaping (String, [Worktree]) -> TaskItem?,
+         fix: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void) {
+        self.codeHost = codeHost; self.findOwner = findOwner; self.fix = fix
     }
 
     func slug(for draft: ReviewDraft) -> String { BranchNaming.reviewSlug(branch: draft.branch) }
@@ -30,6 +32,8 @@ final class ReviewCreation: CreationKind {
     }
 
     func branchesChanged(in model: ReviewCreationModel) { model.filterBranches() }
+
+    func recover(_ recovery: CreationFailure.Recovery) async throws { try await fix(recovery) }
 
     /// The sheet names where the review opens before anything is created, so it re-reads git first:
     /// if the branch has moved since — onto a task's worktree, or off one — it shows the new
@@ -56,7 +60,9 @@ typealias ReviewCreationModel = CreationModel<ReviewCreation>
 extension CreationModel where Kind == ReviewCreation {
     // `searchMergeRequests` is required. A default that silently returned no merge
     // requests would make a misconfigured sheet look merely empty rather than broken, and every
-    // real call site passes `ReviewCreationModel.searcher(gitLab:gitHub:remote:)` anyway.
+    // real call site passes `ReviewCreationModel.searcher(gitLab:gitHub:remote:)` anyway. So is
+    // `recover`, the fixes the footer offers (`TaskLauncher.recover`): one that did nothing would
+    // offer a button whose create fails again with the same refusal.
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
     /// would read the developer's own from anything that left them out. A `catalogue` that throws
     /// has no models to offer, and the sheet says why in their place.
@@ -70,8 +76,9 @@ extension CreationModel where Kind == ReviewCreation {
                      owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
                      codeHost: CodeHost = .gitLab,
                      searchMergeRequests: @escaping @MainActor (String) async throws -> [MergeRequest],
-                     createReview: @escaping @MainActor (ReviewDraft) async throws -> Void) {
-        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask), project: project, draft: draft, home: home,
+                     createReview: @escaping @MainActor (ReviewDraft) async throws -> Void,
+                     recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void) {
+        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home,
                   availableAgents: availableAgents, rememberedModels: rememberedModels, catalogue: catalogue,
                   initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure, defaults: defaults,
                   git: git, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview)

@@ -15,10 +15,11 @@ import Foundation
                        agent: AgentKind = .claude, modelID: String = "sonnet", available: Set<AgentKind>? = nil,
                        catalogue: @escaping @Sendable (AgentKind) -> [AgentModel] = ScratchHome.catalogue,
                        defaults: UserDefaults = ScratchDefaults.make(),
-                       create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in }) -> ReviewCreationModel {
+                       create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in },
+                       recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void = { _ in }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
                             home: ScratchHome.bare, availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, git: .hermetic(),
-                            searchMergeRequests: search, createReview: create)
+                            searchMergeRequests: search, createReview: create, recover: recover)
     }
 
     /// The GitLab connection and the project's remote are read once, when the sheet is prepared —
@@ -110,6 +111,58 @@ import Foundation
         #expect(m.draft.branch == "feat-gift-card")
     }
 
+    /// A refusal the footer can fix carries the fix: the project's folder switched off the branch
+    /// while it has no changes, and a diverged branch rebased, said after how far apart they are.
+    /// Any other failure — the folder with changes included — has none.
+    @Test func aRefusalTheFooterCanFixCarriesTheFix() {
+        let folder = "/Users/sam/Sites/acme-storefront"
+        let switchable = CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: false))
+        #expect(switchable.recovery == .switchProjectFolder(off: "shop-412", to: "main"))
+        #expect(switchable.recovery?.title == "Switch to main")
+        #expect(CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: true)).recovery == nil)
+        let diverged = CreationFailure(WorktreeError.branchDiverged("shop-412", local: 2, remote: 5))
+        #expect(diverged.reason == "Your local “shop-412” has 2 commits that aren’t on origin, and origin has 5 commits it doesn’t. "
+                + "Rebase puts yours on top of origin’s; nothing is pushed.")
+        #expect(diverged.recovery == .rebase("shop-412"))
+        #expect(diverged.recovery?.title == "Rebase")
+        #expect(CreationFailure(GitError(args: ["worktree", "add"], code: 128, stderr: "fatal: nope")).recovery == nil)
+    }
+
+    /// The footer's fix is one press: the fix, then the create it stopped.
+    @Test func theFixRunsAndThenTheCreateItStopped() async {
+        var created = 0, fixes: [CreationFailure.Recovery] = []
+        let m = model(create: { _ in
+            created += 1
+            if created == 1 { throw WorktreeError.branchDiverged("feat-gift-card", local: 1, remote: 1) }
+        }, recover: { fixes.append($0) })
+        m.draft.apply(mr: mr)
+        await m.loadAgentCatalogue()
+        #expect(await m.create() == false)
+        #expect(m.error?.recovery == .rebase("feat-gift-card"))
+        #expect(await m.recoverAndCreate())
+        #expect(fixes == [.rebase("feat-gift-card")])
+        #expect(created == 2)
+        #expect(m.error == nil)
+    }
+
+    /// A fix that fails says why in the failure's place, and nothing is created.
+    @Test func aFixThatFailsSaysWhyAndCreatesNothing() async {
+        var created = 0
+        let folder = "/tmp/p"
+        let m = model(create: { _ in
+            created += 1
+            throw WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: false)
+        }, recover: { _ in throw WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: true) })
+        m.draft.apply(mr: mr)
+        await m.loadAgentCatalogue()
+        #expect(await m.create() == false)
+        #expect(await m.recoverAndCreate() == false)
+        #expect(created == 1)
+        #expect(m.error == CreationFailure(WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: true)))
+        #expect(m.error?.recovery == nil)
+        #expect(!m.creating)
+    }
+
     /// Where a review will open is decided by its branch, and the sheet has to know before
     /// anything is created: a branch that is a task's opens in that task, not a worktree of its own.
     @Test func testTheOwningTaskFollowsTheBranch() {
@@ -120,7 +173,7 @@ import Foundation
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                     home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
                                     owningTask: { branch, _ in branch == owner.branch ? owner : nil },
-                                    searchMergeRequests: { _ in [] }, createReview: { _ in })
+                                    searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
         #expect(m.owningTask == nil)
         m.draft.apply(mr: mr)
         #expect(m.owningTask == owner)
@@ -136,7 +189,7 @@ import Foundation
         let m = ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: .claude, model: "sonnet", reasoning: nil),
                                     home: ScratchHome.bare, catalogue: ScratchHome.catalogue, defaults: ScratchDefaults.make(), git: .hermetic(),
                                     owningTask: { _, _ in lookups += 1; return nil },
-                                    searchMergeRequests: { _ in [] }, createReview: { _ in })
+                                    searchMergeRequests: { _ in [] }, createReview: { _ in }, recover: { _ in })
         let before = lookups
         _ = (m.owningTask, m.owningTask, m.owningTask)
         m.draft.promptText = "/code-review"

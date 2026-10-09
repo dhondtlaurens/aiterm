@@ -22,7 +22,7 @@ public struct Worktree: Equatable, Sendable {
     /// Which kind a task imported from this worktree is. This is the whole reason
     /// `managedWorktrees()` reports a lock reason: removing a project leaves its worktrees on disk,
     /// so re-adding it re-imports them, and an import that guessed `.task` for a review would hand
-    /// the Remove alert an "Also delete branch" checkbox over a merge request's branch — the one
+    /// the Remove alert a "Delete local branch" checkbox over a merge request's branch — the one
     /// thing this app must never do.
     ///
     /// The lock reason a review's worktree is made with is the authority. The `review-` directory

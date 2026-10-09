@@ -229,6 +229,7 @@ final class SheetCoordinator {
                             },
                             codeHost: MergeRequestSearch.host(for: remote),
                             searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
-                            createReview: { try await launcher.createReview(draft: $0, project: project) })
+                            createReview: { try await launcher.createReview(draft: $0, project: project) },
+                            recover: { try await launcher.recover($0, in: project) })
     }
 }

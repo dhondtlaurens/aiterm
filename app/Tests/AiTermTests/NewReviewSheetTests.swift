@@ -166,7 +166,7 @@ import AiTermCore
                                         createReview: { draft in
                                             created.drafts.append(draft)
                                             if createFails { throw Refused() }
-                                        })
+                                        }, recover: { _ in })
         model.branches = branches
         if !title.isEmpty { model.draft.setTitle(title) }
         if !branch.isEmpty { model.draft.setBranch(branch) }

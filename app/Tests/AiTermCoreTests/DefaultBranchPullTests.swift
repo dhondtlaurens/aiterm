@@ -70,7 +70,7 @@ import Darwin
         try commit("local", in: repo)
         try push(1, from: other)
         let before = try sha("main", in: repo)
-        #expect(throws: WorktreeError.defaultBranchDiverged("main", local: 1, remote: 1)) { try Repository(repo, git: git).pullDefaultBranch() }
+        #expect(throws: WorktreeError.branchDiverged("main", local: 1, remote: 1)) { try Repository(repo, git: git).pullDefaultBranch() }
         #expect(try sha("main", in: repo) == before)
     }
 
@@ -86,11 +86,11 @@ import Darwin
     }
 
     @Test func testSaysHowFarADivergedBranchIsFromOrigin() throws {
-        #expect(WorktreeError.defaultBranchDiverged("main", local: 4, remote: 23).errorDescription
+        #expect(WorktreeError.branchDiverged("main", local: 4, remote: 23).errorDescription
                 == "Your local “main” has 4 commits that aren’t on origin, and origin has 23 commits it doesn’t.")
-        #expect(WorktreeError.defaultBranchDiverged("main", local: 1, remote: 1).errorDescription
+        #expect(WorktreeError.branchDiverged("main", local: 1, remote: 1).errorDescription
                 == "Your local “main” has 1 commit that isn’t on origin, and origin has 1 commit it doesn’t.")
-        #expect(WorktreeError.defaultBranchDiverged("main", local: nil, remote: nil).errorDescription
+        #expect(WorktreeError.branchDiverged("main", local: nil, remote: nil).errorDescription
                 == "Your local “main” has commits that aren’t on origin, and origin has commits it doesn’t.")
     }
 
@@ -110,7 +110,7 @@ import Darwin
         #expect(ahead == nil)
         try push(1, from: other)
         #expect { try Repository(repo, git: uncounting).pullDefaultBranch() } throws: { error in
-            guard case WorktreeError.defaultBranchDiverged("main", let local, let remote) = error else { return false }
+            guard case WorktreeError.branchDiverged("main", let local, let remote) = error else { return false }
             return local == nil && remote == nil
         }
     }
@@ -129,7 +129,7 @@ import Darwin
     @Test func testRebasesTheBranchWhereItIsCheckedOut() throws {
         try change("file.txt", to: "mine\n", in: repo)
         try push(2, from: other)
-        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["rev-parse", "main~1"], in: repo) == sha("main", in: other), "origin's commits are under the local one")
         #expect(try sha("HEAD", in: repo) == sha("main", in: repo))
         #expect(try String(contentsOfFile: repo + "/file.txt", encoding: .utf8) == "mine\n")
@@ -142,7 +142,7 @@ import Darwin
         try change("file.txt", to: "mine\n", in: repo)
         _ = try git.run(["checkout", "-q", "-b", "feat/elsewhere"], in: repo)
         try push(1, from: other)
-        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["rev-parse", "main~1"], in: repo) == sha("main", in: other))
         #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "feat/elsewhere", "the checkout is untouched")
         #expect(try Repository(repo, git: git).worktrees().count == 1, "the rebase's own checkout is gone")
@@ -162,7 +162,7 @@ import Darwin
         try? FileManager.default.removeItem(atPath: marker)
         try push(1, from: other)
 
-        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 2))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 2))
         let log = (try? String(contentsOfFile: marker, encoding: .utf8)) ?? ""
         #expect(!log.contains("hook 0000000000000000000000000000000000000000"), "no hook for the new checkout")
         #expect(log.split(separator: "\n").first == "smudge 1", "the new checkout's files are not smudged")
@@ -179,7 +179,7 @@ import Darwin
         _ = try git.run(["worktree", "add", "-q", stale, "main"], in: repo)
         try push(1, from: other)
 
-        if rebase { #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1)) }
+        if rebase { #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1)) }
         else { #expect(try Repository(repo, git: git).pullDefaultBranch() == .fastForwarded("main", commits: 1)) }
         #expect(try Repository(repo, git: git).worktrees().count == 1)
         #expect(!FileManager.default.fileExists(atPath: stale))
@@ -227,7 +227,7 @@ import Darwin
         _ = try git.run(["checkout", "-q", "main"], in: repo)
         _ = try git.run(["merge", "-q", "--no-ff", "-m", "Merge feat/notes", "feat/notes"], in: repo)
         try push(1, from: other)
-        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["log", "-1", "--format=%s", "main"], in: repo) == "change notes.txt")
     }
 
@@ -242,7 +242,7 @@ import Darwin
         _ = try git.run(["merge", "-q", "--no-ff", "-m", "Merge feat/notes", "feat/notes"], in: repo)
         let notes = try sha("feat/notes", in: repo)
         try push(1, from: other)
-        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == DefaultBranchRebase(branch: "main", ahead: 1))
+        #expect(try Repository(repo, git: git).rebaseDefaultBranch() == BranchRebase(branch: "main", ahead: 1))
         #expect(try git.run(["log", "-1", "--format=%s", "main"], in: repo) == "change notes.txt")
         #expect(try git.run(["rev-list", "--merges", "--count", "origin/main..main"], in: repo) == "0")
         #expect(try sha("feat/notes", in: repo) == notes)

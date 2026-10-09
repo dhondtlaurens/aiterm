@@ -3,17 +3,53 @@ import SwiftUI
 import AiTermCore
 
 /// Why the last create failed: `reason` is what the footer always shows, `detail` everything else
-/// that was said — for a git failure, the command and its whole stderr, in the tooltip.
+/// that was said — for a git failure, the command and its whole stderr, in the tooltip — and
+/// `recovery` the fix the footer offers for it, when there is one.
 struct CreationFailure: Equatable {
-    let reason: String, detail: String?
+    /// A fix for a review's refused branch, offered as a button that then creates again. A case,
+    /// not a closure, as `OperationIssue.Action` is: the app maps it to its call, and a failure
+    /// stays `Equatable`.
+    enum Recovery: Equatable {
+        /// The project's own folder switched off the review's branch, onto `to`, its default.
+        case switchProjectFolder(off: String, to: String)
+        /// The review's diverged branch rebased onto origin's.
+        case rebase(String)
 
-    init(reason: String, detail: String?) { self.reason = reason; self.detail = detail }
+        var title: String {
+            switch self {
+            case .switchProjectFolder(_, let target): "Switch to \(target)"
+            case .rebase: "Rebase"
+            }
+        }
+
+        var help: String {
+            switch self {
+            case .switchProjectFolder(_, let target): "Switches the project’s folder to \(target), then creates the review."
+            case .rebase(let branch): "Rebases your \(branch) onto origin’s, then creates the review."
+            }
+        }
+    }
+
+    let reason: String, detail: String?
+    let recovery: Recovery?
+
+    init(reason: String, detail: String?, recovery: Recovery? = nil) {
+        self.reason = reason; self.detail = detail; self.recovery = recovery
+    }
 
     /// The error as a sentence, by the banner's rule (`OperationIssue.reason(of:)`): git's failure
-    /// lines tidied into one (`GitError.sentence`), any other error's own description.
+    /// lines tidied into one (`GitError.sentence`), any other error's own description. A review's
+    /// branch in the project's folder offers the switch while the folder has no changes, and a
+    /// diverged one the rebase, which its sentence says, as the banner's does for the default branch.
     init(_ error: Error) {
-        reason = OperationIssue.reason(of: error)
         detail = (error as? GitError).map { "git \($0.args.joined(separator: " ")) failed:\n\($0.stderr)" }
+        switch error as? WorktreeError {
+        case .branchInProjectFolder(let branch, _, let target, hasChanges: false)?: recovery = .switchProjectFolder(off: branch, to: target)
+        case .branchDiverged(let branch, _, _)?: recovery = .rebase(branch)
+        default: recovery = nil
+        }
+        let offer = if case .rebase = recovery { " " + OperationIssue.rebaseOffer } else { "" }
+        reason = OperationIssue.reason(of: error) + offer
     }
 }
 
@@ -35,6 +71,8 @@ protocol CreationKind {
     /// A last check between the press and the submit, run while `creating` holds off a second
     /// press. `false` stops the create; the kind says why with `model.refuse`.
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
+    /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
+    func recover(_ recovery: CreationFailure.Recovery) async throws
 }
 
 extension CreationKind {
@@ -45,6 +83,8 @@ extension CreationKind {
     func draftChanged(from old: Draft, in model: CreationModel<Self>) {}
     func branchesChanged(in model: CreationModel<Self>) {}
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
+    /// Only a review's failures offer a fix, so New Task is never asked for one.
+    func recover(_ recovery: CreationFailure.Recovery) async throws {}
 }
 
 /// What the New Task and New Review sheets share: the draft, the chosen agent's model catalogue and
@@ -301,10 +341,23 @@ final class CreationModel<Kind: CreationKind> {
 
     /// False means nothing was created and the same draft can be corrected — notably when git
     /// refuses the branch. Once a checkout exists, the workspace owns its recovery and the form closes.
-    func create() async -> Bool {
+    func create() async -> Bool { await create(after: nil) }
+
+    /// The footer's fix for the last failure, then the create it stopped: one press, since the fix
+    /// is only ever wanted for the create. A fix that fails says why in the failure's place, and
+    /// nothing is created.
+    func recoverAndCreate() async -> Bool {
+        guard let recovery = error?.recovery else { return false }
+        return await create(after: recovery)
+    }
+
+    private func create(after recovery: CreationFailure.Recovery?) async -> Bool {
         guard !creating, canChangeWorkspace(), agentIsReady else { return false }
         creating = true; error = nil
         defer { creating = false }
+        if let recovery {
+            do { try await kind.recover(recovery) } catch { self.error = CreationFailure(error); return false }
+        }
         guard await kind.confirmBeforeSubmit(self) else { return false }
         do { try await submit(draft); return true }
         catch { self.error = CreationFailure(error) }
