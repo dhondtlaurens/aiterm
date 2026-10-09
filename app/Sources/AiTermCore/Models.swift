@@ -250,6 +250,13 @@ public extension MergeRequestRef {
     var reference: String { host.reference(iid) }
 }
 
+/// One agent conversation a task's window showed in a tab: what reopening the window resumes, by the
+/// agent's own resume arguments (`Harness.resumeArguments`).
+public struct TaskConversation: Codable, Equatable, Sendable {
+    public var agent: AgentKind, id: String
+    public init(agent: AgentKind, id: String) { self.agent = agent; self.id = id }
+}
+
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String
     public var jira: JiraRef?, mr: MergeRequestRef?
@@ -259,6 +266,9 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public var agent: AgentKind { didSet { unrecognizedAgent = nil } }
     public var model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool
     public var createdAt: Date, windowId: String?
+    /// The agent conversations its window's tabs last showed, in tab order (`AppState.rememberingConversations`):
+    /// what reopening the window resumes. Empty until an agent names one, and for a workspace saved before.
+    public var conversations: [TaskConversation]
     /// The raw `agent` a newer build saved, when this build has no case for it. The task reads as a
     /// `.claude` task meanwhile, and a save writes the raw value back, so a downgrade and a later
     /// upgrade lose nothing. Nothing launches from a saved `agent`: a task's tabs are started by
@@ -268,10 +278,10 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// raw value a newer build saved, which this build reads as `.task`.
     private var savedKind: String?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
-    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?) {
+    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
         self.jira = jira; self.kind = kind; self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning; self.firstPrompt = firstPrompt; self.appendTicket = appendTicket
-        self.createdAt = createdAt; self.windowId = windowId
+        self.createdAt = createdAt; self.windowId = windowId; self.conversations = conversations
         savedKind = kind == .task ? nil : kind.rawValue
     }
 
@@ -280,7 +290,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
-        case reasoning, firstPrompt, appendTicket, createdAt, windowId
+        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations
     }
 
     /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
@@ -306,6 +316,10 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         appendTicket = try c.decode(Bool.self, forKey: .appendTicket)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         windowId = try c.decodeIfPresent(String.self, forKey: .windowId)
+        // Only what a reopen resumes: an entry for an agent this build does not know is dropped, and a
+        // list it cannot read at all is none, rather than failing the whole workspace load.
+        conversations = (try? c.decodeIfPresent([SavedConversation].self, forKey: .conversations))?
+            .compactMap(\.conversation) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -326,6 +340,16 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         try c.encode(appendTicket, forKey: .appendTicket)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encodeIfPresent(windowId, forKey: .windowId)
+        // Left out while empty, so a workspace with none is written as it always was.
+        if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
+    }
+
+    /// A conversation as the file has it, its agent's raw value read whether or not this build knows it.
+    private struct SavedConversation: Decodable {
+        let agent: String, id: String
+        var conversation: TaskConversation? {
+            id.isEmpty ? nil : AgentKind(rawValue: agent).map { TaskConversation(agent: $0, id: id) }
+        }
     }
 }
 

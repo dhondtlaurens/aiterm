@@ -4,7 +4,8 @@ import AiTermCore
 /// What the helper reports, kept in step with the workspace: the tabs and usage go to `live`, a
 /// window iTerm2 raised selects its row, and a window iTerm2 no longer has leaves the row that had
 /// it — told by `window.closed`, by a connected snapshot, or by a request that found it gone. A
-/// task whose removal has let its window go is the removal's to settle, and is left be.
+/// task whose removal has let its window go is the removal's to settle, and is left be. Each task
+/// remembers the conversations its window's tabs show, which a reopen resumes.
 @MainActor
 final class WindowReconciler {
     private let workspace: WorkspaceStore
@@ -37,13 +38,19 @@ final class WindowReconciler {
             // by `commitClosedWindows` if anything differs. A task whose removal has let its window
             // go is the removal's to settle, and keeps no window the snapshot offers it.
             let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0) == .removing(windowLetGo: true) })
-            let next = state.reconciled(with: snapshot, lettingGo: lettingGo)
+            // ... and each task's conversations as its window shows them (`AppState.rememberingConversations`).
+            let next = state.reconciled(with: snapshot, lettingGo: lettingGo).rememberingConversations(from: snapshot.sessions)
             guard next != state else { return }
             commitClosedWindows(next)
         case .itermConnected, .itermDisconnected, .itermAuthFailed, .itermCookieRequested: break // last observations remain visible while uncertain
         case .windowActivated(let wid): focus.windowActivated(wid)
         case .windowClosed(let wid): handleWindowClosed(wid)
-        case .sessionOpened, .sessionChanged, .sessionClosed, .usageChanged, .unknown: break // `live`'s, or nobody's
+        case .sessionOpened(let session), .sessionChanged(let session):
+            // A tab naming a new conversation saves it with its task: what a reopen resumes.
+            if let task = session.taskUUID {
+                workspace.mutate { $0 = $0.rememberingConversations(from: live.sessions, only: [task]) }
+            }
+        case .sessionClosed, .usageChanged, .unknown: break // `live`'s, or nobody's
         }
     }
 

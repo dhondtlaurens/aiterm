@@ -335,6 +335,24 @@ import Foundation
         #expect(decoded.mr == mr)
     }
 
+    /// What a reopen resumes is saved with the task: written only when there is some, so a workspace
+    /// without any reads and writes as before, and read leniently, so an agent this build does not know
+    /// costs its own entry, and a list it cannot read costs only the list, never the workspace.
+    @Test func aTasksConversationsAreSavedOnlyWhenItHasSomeAndReadLeniently() throws {
+        let base = """
+        {"id":"1EB4C0DE-0000-0000-0000-000000000001","projectId":"1EB4C0DE-0000-0000-0000-000000000002",\
+        "title":"Work","branch":"feat/work","worktreePath":"/repo/.worktrees/work","baseBranch":"main",\
+        "agent":"claude","model":"opus","appendTicket":true,"createdAt":0
+        """
+        let none = try JSONDecoder().decode(TaskItem.self, from: Data((base + "}").utf8))
+        #expect(none.conversations.isEmpty)
+        #expect(!String(decoding: try JSONEncoder().encode(none), as: UTF8.self).contains("conversations"))
+        let mixed = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":[{"agent":"gremlin","id":"x"},{"agent":"claude","id":"c-1"},{"agent":"codex","id":""}]}"#).utf8))
+        #expect(mixed.conversations == [TaskConversation(agent: .claude, id: "c-1")])
+        let unreadable = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":"many"}"#).utf8))
+        #expect(unreadable.conversations.isEmpty)
+    }
+
     /// `TaskItem`'s `Codable` is written by hand, so nothing but this keeps a field from being left
     /// out of one half: every field set, each is written under its own key and read back as it was.
     @Test func aTaskWithEveryFieldSetRoundTripsWhole() throws {
@@ -343,11 +361,12 @@ import Foundation
                             jira: JiraRef(key: "SHOP-1", summary: "Gift card", url: "https://x.atlassian.net/browse/SHOP-1"),
                             kind: .review, mr: MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4"),
                             agent: .grok, model: "grok-4", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
-                            createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9")
+                            createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
+                            conversations: [TaskConversation(agent: .grok, id: "g-1"), TaskConversation(agent: .claude, id: "c-2")])
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         #expect(Set(keys) == ["id", "projectId", "title", "branch", "worktreePath", "baseBranch", "jira", "kind", "mr", "agent",
-                              "model", "reasoning", "firstPrompt", "appendTicket", "createdAt", "windowId"])
+                              "model", "reasoning", "firstPrompt", "appendTicket", "createdAt", "windowId", "conversations"])
         #expect(try JSONDecoder().decode(TaskItem.self, from: data) == task)
     }
 
