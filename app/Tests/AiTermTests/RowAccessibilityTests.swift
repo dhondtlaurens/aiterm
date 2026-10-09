@@ -12,16 +12,33 @@ import AiTermCore
                  createdAt: Date(), windowId: windowId)
     }
 
-    @Test func aTaskRowOffersReopenOnlyWithNothingToComeBackTo() {
+    /// Choosing the row is its reopen, so VoiceOver offers Remove alone, as the menu does.
+    @Test func aTaskRowOffersRemoveAndNoReopen() {
         let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: true)
         #expect(open.actions == [.remove])
         let closed = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: true)
-        #expect(closed.actions == [.reopenWindow, .remove])
+        #expect(closed.actions == [.remove])
         let missing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: true, canChangeWorkspace: true)
-        #expect(missing.actions == [.remove], "a missing worktree has nothing to reopen into")
+        #expect(missing.actions == [.remove])
     }
 
-    /// Nothing is offered on a row being removed: its menu has Remove disabled and Reopen hidden.
+    /// The hint and the tooltip say what choosing the row does: a closed window reopens.
+    @Test func aTaskRowsHintSaysWhatChoosingItDoes() {
+        let closed = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: true)
+        #expect(closed.hint == "Press Return to reopen its window.")
+        #expect(closed.help == "Window closed. Click to reopen it.")
+        let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: true)
+        #expect(open.hint == "Press Return to focus the window.")
+        #expect(open.help == "")
+        let missing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: true, canChangeWorkspace: true)
+        #expect(missing.hint == "Restore the worktree or use Remove Task.")
+        #expect(missing.help == "Worktree missing. Restore it or use Remove Task.")
+        let removing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, removing: true,
+                                            canChangeWorkspace: true)
+        #expect(removing.hint == "" && removing.help == "")
+    }
+
+    /// Nothing is offered on a row being removed: its menu has Remove disabled.
     @Test func aTaskRowBeingRemovedOffersNothing() {
         let removing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, removing: true,
                                             canChangeWorkspace: true)
@@ -37,7 +54,7 @@ import AiTermCore
     /// Remove names the row's kind, as its menu item does, without the menu's ellipsis.
     @Test func aRowsActionsAreItsMenuItemsTitles() {
         let task = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: true)
-        #expect(task.actions.map(task.title(of:)) == ["Reopen Window", "Remove Task"])
+        #expect(task.actions.map(task.title(of:)) == ["Remove Task"])
         var reviewItem = self.task(windowId: "w")
         reviewItem.kind = .review
         let review = TaskRowAccessibility(title: "Work", task: reviewItem, missing: false, canChangeWorkspace: true)

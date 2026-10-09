@@ -331,7 +331,7 @@ final class AppController {
     func presentNewTerminal(project: Project) { sheets.presentNewTerminal(project: project) }
 
     // -- tasks ----------------------------------------------------------------------
-    /// `launcher`'s, forwarded: the rows' menus and the tests start a task here.
+    /// `launcher`'s, forwarded: the tests start a task, and reopen one, here.
     func createTask(draft: TaskDraft, project: Project) async throws { try await launcher.createTask(draft: draft, project: project) }
     func createReview(draft: ReviewDraft, project: Project) async throws { try await launcher.createReview(draft: draft, project: project) }
     @discardableResult

@@ -343,7 +343,6 @@ struct TaskRowView: View {
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
                                              canChangeWorkspace: controller.canChangeWorkspace)
-        let kindName = task?.kindName ?? "Task"
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(selected: selected, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
             HStack(spacing: scale(Space.inset)) {
@@ -395,16 +394,13 @@ struct TaskRowView: View {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
-                    case .reopenWindow: Button(voiceOver.title(of: action)) { controller.reopen(task: task) }
                     case .remove: Button(voiceOver.title(of: action)) { Task { await controller.confirmRemove(task: task) } }
                     }
                 }
             }
         }
-        .accessibilityHint(removing ? Text("") : missing ? Text("Restore the worktree or use Remove \(kindName).") :
-            (task?.windowId == nil ? Text("Use Reopen Window in the context menu.") : Text("Press Return to focus the window.")))
-        .help(removing ? "" : missing ? "Worktree missing. Restore it or use Remove \(kindName)." :
-            (task?.windowId == nil ? "Window closed. Use Reopen Window in the context menu." : ""))
+        .accessibilityHint(Text(voiceOver.hint))
+        .help(voiceOver.help)
         // The arrows step over it, as over a header: its window is closing, or gone.
         .selectionDisabled(removing)
         .contextMenu {
@@ -416,13 +412,6 @@ struct TaskRowView: View {
                 if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: task.worktreePath) } }
                 if let jira = task.jira { Button("Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
-                // "Reopen window" only when there is nothing to come back to; a task whose
-                // window is still open would otherwise get a second one.
-                if task.windowId == nil, !removing {
-                    Button("Reopen Window") { controller.reopen(task: task) }
-                        .disabled(!controller.canChangeWorkspace || missing)
-                    Divider()
-                }
                 Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.confirmRemove(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
@@ -627,23 +616,25 @@ extension ProjectJiraBadge.Overflow {
     }
 }
 
-/// What VoiceOver reads and offers on a task row: its branch after its title when it has one, and
-/// only the actions its context menu would let the person choose now. A value, so the rule is
-/// testable without rendering the sidebar, as `TaskRowBadges` is.
+/// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
+/// the actions its context menu would let the person choose now, and what choosing the row does — its
+/// hint, and the tooltip: a row whose window closed reopens it. A value, so the rule is testable
+/// without rendering the sidebar, as `TaskRowBadges` is.
 struct TaskRowAccessibility: Equatable {
     enum Action: Hashable {
-        case reopenWindow, remove
+        case remove
     }
 
     var label: String
     var actions: [Action]
+    var hint: String
+    var help: String
     /// "Task" or "Review", which Remove names as the menu does.
     private var kindName = "Task"
 
     /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
     func title(of action: Action) -> String {
         switch action {
-        case .reopenWindow: "Reopen Window"
         case .remove: "Remove \(kindName)"
         }
     }
@@ -651,10 +642,17 @@ struct TaskRowAccessibility: Equatable {
     init(title: String, task: TaskItem?, missing: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
         let branch = task?.branch ?? ""
         label = branch.isEmpty ? title : "\(title), \(branch)"
-        kindName = task?.kindName ?? "Task"
-        guard let task, canChangeWorkspace, !removing else { actions = []; return }
-        // As in the menu: a window still open has nothing to reopen.
-        actions = (task.windowId == nil && !missing ? [.reopenWindow] : []) + [.remove]
+        let kindName = task?.kindName ?? "Task"
+        self.kindName = kindName
+        let words: (hint: String, help: String) =
+            removing ? ("", "")
+            : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
+            : task?.windowId == nil ? ("Press Return to reopen its window.", "Window closed. Click to reopen it.")
+            : ("Press Return to focus the window.", "")
+        hint = words.hint
+        help = words.help
+        guard task != nil, canChangeWorkspace, !removing else { actions = []; return }
+        actions = [.remove]
     }
 }
 

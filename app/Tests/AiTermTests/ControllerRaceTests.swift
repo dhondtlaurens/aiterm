@@ -510,7 +510,7 @@ extension AppControllerTests {
         #expect(name == TerminalItem.defaultName)
     }
 
-    /// Reopen Window stays on the menu while the daemon is away, so it says why nothing happens.
+    /// A reopen while the daemon is away says why nothing happens.
     @Test func reopeningATaskWhileDisconnectedSaysSo() throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
@@ -518,8 +518,8 @@ extension AppControllerTests {
 
         #expect(fixture.controller.reopen(task: task) == nil)
 
-        #expect(fixture.controller.issue == .disconnected("Reopen Window again"))
-        #expect(fixture.controller.issue?.title == "Disconnected. Try Reopen Window again once AiTerm reconnects.")
+        #expect(fixture.controller.issue == .disconnected("again"))
+        #expect(fixture.controller.issue?.title == "Disconnected. Try again once AiTerm reconnects.")
     }
 
     /// The refusal leaves the row unlocked: once the daemon is back, the same click goes through.

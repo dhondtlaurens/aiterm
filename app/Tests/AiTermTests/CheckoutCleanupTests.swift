@@ -232,7 +232,7 @@ extension AppControllerTests {
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
         #expect(controller.state.tasks.first?.windowId == nil)
         #expect(controller.issue == OperationIssue(title: "Task kept. Its window had already closed.", subject: fixture.task.id))
-        #expect(controller.removals[fixture.task.id] == .stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false))
+        #expect(controller.removals[fixture.task.id] == .stopped(note: "Kept; window closed", worktreeRemoved: false))
 
         // Dismissed, nothing is half done: the row is a windowless task again.
         controller.dismissIssue()

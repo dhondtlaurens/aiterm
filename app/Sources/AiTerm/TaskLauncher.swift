@@ -2,7 +2,7 @@ import Foundation
 import AiTermCore
 
 /// Tasks and reviews started, and their windows: a task or review created from its sheet, a review
-/// opened in the task that already has its branch, and Reopen Window for a task that lost its own.
+/// opened in the task that already has its branch, and the window a task lost, reopened when its row is chosen, its conversations resumed.
 @MainActor
 final class TaskLauncher {
     private let workspace: WorkspaceStore
@@ -11,7 +11,7 @@ final class TaskLauncher {
     private let checkouts: CheckoutMonitor
     private let focus: RowFocus
     private let tiling: SidebarTiling
-    /// Clears the "Kept; choose Reopen Window" a removal left, once Reopen Window has done it.
+    /// Clears the "Kept; window closed" a removal left, once a reopen has done it.
     private let remover: TaskRemover
     private let workflow: TaskWorkflow
     private let git: any GitRunning
@@ -30,6 +30,7 @@ final class TaskLauncher {
         self.workflow = workflow
         self.git = git
         self.daemon = daemon
+        focus.onChoosingWindowlessTask { [weak self] id in self?.reopenChosen(id) }
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -137,17 +138,17 @@ final class TaskLauncher {
             notices.report(issue)
         }
         if let warning = result.launchWarning {
-            say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose Reopen Window, then start the agent manually.",
+            say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose it in the list to open its window, then start the agent manually.",
                                reason: warning))
             return
         }
         guard let daemon = daemon() else {
-            say(OperationIssue(title: "\(noun) created. Once AiTerm reconnects, choose Reopen Window and start the agent manually."))
+            say(OperationIssue(title: "\(noun) created. Once AiTerm reconnects, choose it in the list to open its window and start the agent manually."))
             return
         }
         do { try await openWindow(for: task, command: result.command, with: daemon) }
         catch {
-            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened. Wait for reconnection or choose Reopen Window.",
+            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened. Wait for reconnection or choose it in the list again.",
                                error: error))
         }
     }
@@ -178,7 +179,7 @@ final class TaskLauncher {
     func reopen(task: TaskItem) -> Task<Void, Never>? {
         guard canChangeWorkspace else { return nil }
         guard let current = state.task(id: task.id), current.windowId == nil else { return nil }
-        guard let daemon = daemon() else { notices.report(.disconnected("Reopen Window again")); return nil }
+        guard let daemon = daemon() else { notices.report(.disconnected("again")); return nil }
         guard let reopening = work.begin(.reopening, onTask: task.id) else { return nil }
         guard FileManager.default.fileExists(atPath: current.worktreePath) else {
             work.end(reopening)
@@ -191,7 +192,7 @@ final class TaskLauncher {
             guard canChangeWorkspace else { return }
             do {
                 guard let wid = try await openWindow(for: current, command: commands.first, with: daemon) else { return }
-                // "Kept; choose Reopen Window" was asking for exactly this.
+                // "Kept; window closed" was waiting for exactly this.
                 remover.clearStoppedNote(of: task.id)
                 notices.dropIssues(about: task.id)
                 for command in commands.dropFirst() {
@@ -204,6 +205,13 @@ final class TaskLauncher {
                 }
             } catch { notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
+    }
+
+    /// A task row chosen — a click or ↩ — while its window is closed: the window is reopened, unless the
+    /// row says its worktree is missing, which a reopen could only fail on. Nil when nothing opens.
+    private func reopenChosen(_ id: UUID) -> Task<Void, Never>? {
+        guard !checkouts.isMissing(id), let task = state.task(id: id) else { return nil }
+        return reopen(task: task)
     }
 
     /// Each remembered conversation's resume command, in tab order; one with no id is skipped, since

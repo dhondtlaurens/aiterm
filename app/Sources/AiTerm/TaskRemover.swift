@@ -218,7 +218,7 @@ final class TaskRemover: CheckoutRemovals {
                                                             holding: token) else { return }
                 await finishRemoval(of: task, after: result)
             } catch RemovalStop.keptWithoutWindow {
-                outcomes[task.id] = .stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false)
+                outcomes[task.id] = .stopped(note: "Kept; window closed", worktreeRemoved: false)
                 notices.report(OperationIssue(title: "\(task.kindName) kept. Its window had already closed.", subject: task.id))
             } catch RemovalStop.windowStayedOpen(let why) {
                 outcomes[task.id] = .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)

@@ -138,7 +138,7 @@ public enum ProjectOperation: Equatable, Sendable {
 /// Work on a task, one at a time. It is the task's lock, what its row says while it runs, and
 /// whether a snapshot may give the task back a window it has let go.
 public enum TaskOperation: Equatable, Sendable {
-    /// Reopen Window, opening the task a window of its own.
+    /// A task's window reopened, its conversations resumed.
     case reopening
     /// A review opening as a tab in the task's window.
     case reviewing

@@ -870,7 +870,7 @@ import Testing
         var draft = TaskDraft(ticket: nil, baseBranch: "main", agent: .claude, model: "sonnet", reasoning: nil)
         draft.setTitle("Unreadable env")
         try await controller.createTask(draft: draft, project: project)   // no daemon
-        #expect(controller.issue?.title == "Task created. Once AiTerm reconnects, choose Reopen Window and start the agent manually.")
+        #expect(controller.issue?.title == "Task created. Once AiTerm reconnects, choose it in the list to open its window and start the agent manually.")
         #expect(controller.issue?.reason == "Couldn’t copy .env into the new worktree.")
     }
 

@@ -220,14 +220,14 @@ extension AppControllerTests {
         #expect(fixture.controller.issue == nil)
     }
 
-    /// Reopening is doing what "Kept; choose Reopen Window" said, so the note has done its job.
+    /// Reopening is the way back from "Kept; window closed", so the note has done its job.
     @Test func reopeningATaskClearsItsKeptNote() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        controller.seedSnapshotRemoval(.stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false), of: task.id)
+        controller.seedSnapshotRemoval(.stopped(note: "Kept; window closed", worktreeRemoved: false), of: task.id)
 
         await controller.reopen(task: task)?.value
 
@@ -272,7 +272,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon(failing: ["window.createTask": "temporary_failure"]))
         let task = try fixture.addTask(windowId: nil)
-        let note = TaskRemoval.stopped(note: "Kept; choose Reopen Window", worktreeRemoved: false)
+        let note = TaskRemoval.stopped(note: "Kept; window closed", worktreeRemoved: false)
         controller.seedSnapshotRemoval(note, of: task.id)
 
         await controller.reopen(task: task)?.value

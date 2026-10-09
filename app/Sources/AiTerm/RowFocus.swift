@@ -59,6 +59,9 @@ final class RowFocus {
     private let isRemoving: @MainActor (UUID) -> Bool
     @ObservationIgnored private var windowGoneHooks: [@MainActor (String) -> Void] = []
     @ObservationIgnored private var selectionHooks: [@MainActor (RowSelection?) -> Void] = []
+    /// Who reopens a task's window when its row is chosen without one: `TaskLauncher`, which adds
+    /// itself as it is built. Its answer is the reopen under way, or nil when it opens nothing.
+    @ObservationIgnored private var reopenWindowless: (@MainActor (UUID) -> Task<Void, Never>?)?
     /// Where a window that would not come forward is reported.
     private let notices: Notices
     /// The selection's own workspace hook, taken out again when the selection goes, as `PerRow`'s is.
@@ -97,6 +100,11 @@ final class RowFocus {
     /// write that changes the row, by an arrow key, a click, a new row or a row that went.
     func onSelectionChanged(_ hook: @escaping @MainActor (RowSelection?) -> Void) {
         selectionHooks.append(hook)
+    }
+
+    /// Sets who reopens a task's window when its row is chosen — a click or Return — without one.
+    func onChoosingWindowlessTask(_ reopen: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
+        reopenWindowless = reopen
     }
 
     /// Whether the row with this id is selected — a header, a task or a terminal. What a row's body
@@ -145,7 +153,9 @@ final class RowFocus {
     }
 
     /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a
-    /// task seen. A project header is only selected: it has no window.
+    /// task seen. A task whose window closed has it reopened first (`onChoosingWindowlessTask`), then
+    /// raised as any other — unless the selection has moved on by then. A project header is only
+    /// selected: it has no window.
     @discardableResult
     func select(_ row: RowSelection) -> Task<Void, Never>? {
         switch row {
@@ -153,6 +163,9 @@ final class RowFocus {
             browse(row)
             return nil
         case .task(let id):
+            if window(for: row) == nil, !isRemoving(id), let reopening = reopenWindowless?(id) {
+                return activate(row, failure: "Couldn’t activate the window", after: reopening)
+            }
             return activate(row, failure: "Couldn’t activate the window") { daemon in
                 _ = try? await daemon.markSeen(taskId: id.uuidString)
             }
@@ -186,17 +199,25 @@ final class RowFocus {
     func peek(id: UUID?) -> Task<Void, Never>? { peek(id.flatMap(row(id:))) }
 
     /// Selects a row and brings its window forward — re-snapped beside the sidebar, then activated,
-    /// then iTerm2 too unless this is a peek — and then runs `then`. Each step checks it still serves
-    /// the latest selection. A click on the row already selected starts a new request too,
-    /// superseding its last one. A row being removed is selected and nothing more.
+    /// then iTerm2 too unless this is a peek — and then runs `then`. `reopening` is a reopen of the
+    /// row's window to wait for first; the window it opened is the one raised. Each step checks it
+    /// still serves the latest selection. A click on the row already selected starts a new request
+    /// too, superseding its last one. A row being removed is selected and nothing more.
     @discardableResult
-    private func activate(_ row: RowSelection, failure: String, focus: Bool = true,
+    private func activate(_ row: RowSelection, failure: String, focus: Bool = true, after reopening: Task<Void, Never>? = nil,
                           then: ((any DaemonCommands) async -> Void)? = nil) -> Task<Void, Never>? {
         setSelection(row)
-        let window = window(for: row)
-        guard !isRemoving(row.id), let daemon = daemon(), window != nil || then != nil else { return nil }
+        let known = window(for: row)
+        guard !isRemoving(row.id), let daemon = daemon(), known != nil || then != nil || reopening != nil else { return nil }
         let delay = focus ? nil : peekDelay
         return activation.run { [self] isCurrent in
+            var window = known
+            if let reopening {
+                // The reopen is the launcher's and runs to its end; only raising its window is this row's.
+                await reopening.value
+                guard isCurrent() else { return }
+                window = self.window(for: row)
+            }
             if let window {
                 do {
                     if let delay { try await Task.sleep(for: delay) }
