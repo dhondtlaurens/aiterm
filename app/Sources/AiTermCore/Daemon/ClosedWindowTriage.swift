@@ -33,7 +33,7 @@ public struct ClosedWindowTriage: Equatable, Sendable {
 
     public init() {}
 
-    /// Whether a close is waiting out its hold.
+    /// Whether a close not yet asked about is held: inside its hold, or past it and due.
     public var isHolding: Bool { !held.isEmpty }
 
     /// True on a connected snapshot; false on `iterm.connected` (until its snapshot), `iterm.disconnected`,
@@ -44,8 +44,9 @@ public struct ClosedWindowTriage: Equatable, Sendable {
         if !synced { held.removeAll { now - $0.at < Self.hold } }
     }
 
-    /// A window closed at `now`, which drops the closes still inside their hold; `task` is the task whose window it was, nil for any other window — or
-    /// for a task whose close is someone else's (a removal's, the checkout cleanup's).
+    /// A window closed at `now`, which drops the closes still inside their hold; `task` is the task
+    /// whose window it was, nil for any other window — or for a task whose close is someone else's (a
+    /// removal's, the checkout cleanup's).
     public mutating func windowClosed(task: UUID?, at now: ContinuousClock.Instant) {
         defer { lastClose = now }
         if let last = lastClose, now - last < Self.hold {
@@ -56,8 +57,8 @@ public struct ClosedWindowTriage: Equatable, Sendable {
         held.append(Held(task: task, at: now))
     }
 
-    /// The tasks whose close has been held its full `hold` with nothing after it, taken out: each is
-    /// asked about once.
+    /// The tasks whose close has been held its full `hold` with nothing within its hold, taken out:
+    /// each is asked about once.
     public mutating func due(at now: ContinuousClock.Instant) -> [UUID] {
         let due = held.filter { now - $0.at >= Self.hold }
         held.removeAll { now - $0.at >= Self.hold }

@@ -68,10 +68,20 @@ final class LiveSessions {
             if let index { sessions[index] = session }
             else { sessions.append(session) }
         case .sessionClosed(let id): sessions.removeAll { $0.sessionId == id }
+        // A closed window's tabs went with it. One that only moved to another window is still listed
+        // here under the old one until its `session.changed`, which the daemon sends after the close:
+        // it comes back with that.
+        case .windowClosed(let wid): sessions.removeAll { $0.windowId == wid }
         case .usageChanged(let value): usage = value
         case .itermConnected, .itermDisconnected, .itermAuthFailed, .itermCookieRequested,
-             .windowActivated, .windowClosed, .unknown: break
+             .windowActivated, .unknown: break
         }
+    }
+
+    /// The window of an open tab tagged with `task`, if there is one: a task's tab lives on in another
+    /// window once it is dragged there, or the windows are merged, though its own window closed.
+    func window(ofTask task: UUID) -> String? {
+        sessions.first { $0.taskUUID == task }?.windowId
     }
 
     /// The context each provider last reported in `row`; empty with nothing selected.

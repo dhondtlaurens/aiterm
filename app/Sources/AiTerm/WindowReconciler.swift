@@ -32,6 +32,9 @@ final class WindowReconciler {
     /// The latest question, which waits for the one before it to be answered and its removal done:
     /// one alert at a time.
     private(set) var asking: Task<Void, Never>?
+    /// Moves on at each `stop()`: a look or a question armed before it — the latest, or one it waits
+    /// on — sees it moved, and does nothing.
+    private var epoch = 0
 
     init(helper: HelperLink, workspace: WorkspaceStore, work: WorkInFlight, live: LiveSessions, checkouts: CheckoutMonitor,
          focus: RowFocus, remover: TaskRemover, now: @escaping @MainActor () -> ContinuousClock.Instant, closeHold: Duration,
@@ -52,6 +55,18 @@ final class WindowReconciler {
     }
 
     private var state: AppState { workspace.state }
+
+    /// Quit: a held close is let go and a question still to come is never asked — nor the hold's look
+    /// that would ask it. iTerm2 as it was is forgotten with them: after a later start, only the next
+    /// connected snapshot makes a close one to ask about.
+    func stop() {
+        epoch += 1
+        settling?.cancel()
+        asking?.cancel()
+        settling = nil
+        asking = nil
+        triage = ClosedWindowTriage()
+    }
 
     /// The helper's events, after `helper` has taken its own.
     private func handle(_ event: DaemonEvent) {
@@ -103,22 +118,33 @@ final class WindowReconciler {
         guard triage.isHolding else { return }
         // Each close looks again once its own hold is over, after the looks armed before it: a close
         // whose hold ended before a later burst or disconnect is still due, and is asked about.
-        let hold = closeHold, previous = settling
+        let hold = closeHold, previous = settling, armed = epoch
         settling = Task { [weak self] in
-            try? await Task.sleep(for: hold)
+            // Cancelled by `stop()`, at quit: the close is not looked at again.
+            guard (try? await Task.sleep(for: hold)) != nil else { return }
             await previous?.value
-            self?.askAboutHeldCloses()
+            guard let self, epoch == armed else { return }
+            askAboutHeldCloses()
         }
     }
 
     /// Every close that has waited out its hold with nothing after it: its task, if it is still there,
-    /// windowless and free, is asked Remove Task's own question, one after another.
+    /// windowless and free, is asked Remove Task's own question, one after another. A task with a tab
+    /// still open in another window — its only tab dragged there, or the windows merged — lives on
+    /// there: its row takes that window, and nothing is asked.
     private func askAboutHeldCloses() {
         for id in triage.due(at: now()) {
-            let previous = asking
+            let previous = asking, armed = epoch
             asking = Task { [weak self] in
                 await previous?.value
-                guard let self, let task = state.task(id: id), task.windowId == nil, work.operation(onTask: id) == nil else { return }
+                guard let self, epoch == armed, let task = state.task(id: id), task.windowId == nil,
+                      work.operation(onTask: id) == nil else { return }
+                if let window = live.window(ofTask: id) {
+                    workspace.mutate { state in
+                        if let i = state.tasks.firstIndex(where: { $0.id == id }) { state.tasks[i].windowId = window }
+                    }
+                    return
+                }
                 bringForward()
                 await remover.confirmRemove(task: task)?.value
             }

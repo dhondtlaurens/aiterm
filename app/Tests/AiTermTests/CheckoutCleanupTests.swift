@@ -66,7 +66,7 @@ extension AppControllerTests {
         try await server.received("window.close")
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")
-        // The window's own `window.closed` must not take the row while the removal runs.
+        // The window's own `window.closed` finds the row windowless already: it stays while the removal runs.
         controller.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
         #expect(try controller.workspace.file.load().tasks.map(\.windowId) == [nil],
@@ -189,7 +189,8 @@ extension AppControllerTests {
     }
 
     /// A snapshot landing while the removal closes the window — the helper re-attaching — leaves the
-    /// window let go: re-attached, its `window.closed` would take the row mid-removal.
+    /// window let go: the row stays windowless while the removal closes it, and its `window.closed`
+    /// clears nothing.
     @Test func aSnapshotDuringTheCloseDoesNotReattachTheWindow() async throws {
         let fixture = try CheckoutFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
         defer { fixture.cleanUp() }

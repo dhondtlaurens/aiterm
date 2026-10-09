@@ -2,7 +2,8 @@ import Foundation
 import AiTermCore
 
 /// Tasks and reviews started, and their windows: a task or review created from its sheet, a review
-/// opened in the task that already has its branch, and the window a task lost, reopened when its row is chosen, its conversations resumed.
+/// opened in the task that already has its branch, and the window a task lost, reopened when its row
+/// is chosen, its conversations resumed.
 @MainActor
 final class TaskLauncher {
     private let workspace: WorkspaceStore
@@ -10,6 +11,8 @@ final class TaskLauncher {
     private let notices: Notices
     private let checkouts: CheckoutMonitor
     private let focus: RowFocus
+    /// The tabs open now: a windowless task with one still open elsewhere takes its window instead of a reopen.
+    private let live: LiveSessions
     private let tiling: SidebarTiling
     /// Clears the "Kept; window closed" a removal left, once a reopen has done it.
     private let remover: TaskRemover
@@ -21,13 +24,14 @@ final class TaskLauncher {
     private var reopens: [UUID: Task<Void, Never>] = [:]
 
     init(workspace: WorkspaceStore, work: WorkInFlight, notices: Notices, checkouts: CheckoutMonitor, focus: RowFocus,
-         tiling: SidebarTiling, remover: TaskRemover, workflow: TaskWorkflow, git: any GitRunning,
+         live: LiveSessions, tiling: SidebarTiling, remover: TaskRemover, workflow: TaskWorkflow, git: any GitRunning,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
         self.workspace = workspace
         self.work = work
         self.notices = notices
         self.checkouts = checkouts
         self.focus = focus
+        self.live = live
         self.tiling = tiling
         self.remover = remover
         self.workflow = workflow
@@ -214,18 +218,28 @@ final class TaskLauncher {
 
     /// A task row chosen — a click or ↩ — while its window is closed: the window is reopened, unless the
     /// row says its worktree is missing, which a reopen could only fail on. A reopen already under way
-    /// is the answer again, so a second choice waits on it too. Nil when nothing opens.
+    /// is the answer again, so a second choice waits on it too. A task with a tab still open in another
+    /// window — its only tab dragged there, or the windows merged — takes that window instead, which the
+    /// choice then raises as it would the task's own: a reopen would resume a conversation still running
+    /// there a second time. Nil when nothing opens.
     private func reopenChosen(_ id: UUID) -> Task<Void, Never>? {
         if let running = reopens[id] { return running }
+        if let window = live.window(ofTask: id) {
+            workspace.mutate { state in
+                if let i = state.tasks.firstIndex(where: { $0.id == id && $0.windowId == nil }) { state.tasks[i].windowId = window }
+            }
+            return nil
+        }
         guard !checkouts.isMissing(id), let task = state.task(id: id) else { return nil }
         return reopen(task: task)
     }
 
     /// Each remembered conversation's resume command, in tab order; one with no id is skipped, since
-    /// there is nothing to resume. The task's own agent resumes on the model and reasoning it was
+    /// there is nothing to resume, and so is one the CLI would read as a flag
+    /// (`TaskConversation.isResumable`). The task's own agent resumes on the model and reasoning it was
     /// launched with; another — started in a tab by hand — on its defaults.
     static func resumeCommands(for task: TaskItem) -> [String] {
-        task.conversations.filter { !$0.id.isEmpty }.map { conversation in
+        task.conversations.filter { TaskConversation.isResumable($0.id) }.map { conversation in
             let launched = conversation.agent == task.agent
             return AgentCommand.resume(agent: conversation.agent, conversation: conversation.id,
                                        model: launched ? task.model : nil, reasoning: launched ? task.reasoning : nil)

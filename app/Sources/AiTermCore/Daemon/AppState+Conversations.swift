@@ -11,6 +11,7 @@ public extension AppState {
     /// to itself before the others have. A tab closed by hand, its neighbours all named, does shrink it.
     /// A window that shows none leaves what was remembered too: a closed window's tabs are gone, a tab
     /// back at its shell names none, and a reopen must still find them. A windowless task keeps its own.
+    /// An id no resume could use — empty, or read as a flag (`TaskConversation.isResumable`) — names none.
     func rememberingConversations(from sessions: [SessionInfo], only: Set<UUID>? = nil) -> AppState {
         var next = self
         for index in next.tasks.indices {
@@ -20,7 +21,7 @@ public extension AppState {
                 .filter { $0.windowId == window && $0.agent.agentKind != nil }
                 .sorted { ($0.tabIndex, $0.sessionId) < ($1.tabIndex, $1.sessionId) }
             let shown = agentTabs.compactMap { tab -> TaskConversation? in
-                guard let agent = tab.agent.agentKind, let id = tab.conversationId, !id.isEmpty else { return nil }
+                guard let agent = tab.agent.agentKind, let id = tab.conversationId, TaskConversation.isResumable(id) else { return nil }
                 return TaskConversation(agent: agent, id: id)
             }
             if !shown.isEmpty, shown.count == agentTabs.count, shown != task.conversations {

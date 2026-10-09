@@ -288,7 +288,8 @@ row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTes
 model is not redrawn either.
 A task row whose window closed says "Window closed" (`TaskRowCaption`) and reopens it when activated
 — a click or ↩, never the arrows — through `RowFocus`, which asks `TaskLauncher`; its context menu has
-no Reopen Window, a terminal's still does, and `TaskRowAccessibility` gives its VoiceOver hint and tooltip.
+no Reopen Window, a terminal's still does, and `TaskRowAccessibility` gives its VoiceOver hint and tooltip
+— which say nothing about reopening while the workspace cannot change, when choosing the row reopens nothing.
 
 `CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` opens —
 the one trigger for every agent; a Codex skill picked there is written as its `$` mention.

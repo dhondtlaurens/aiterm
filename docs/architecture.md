@@ -176,7 +176,7 @@ effect in the order it was sent.
 | `iterm.auth_failed` | iTerm2 is running but refused the API cookie; an amber banner gives the reason. Retries back off to once a minute, and the snapshot's `itermAuthError` carries the reason for an app that attaches later |
 | `iterm.cookieRequested` | the daemon needs a cookie for its next connect; the app asks iTerm2 with an Apple event and answers with `iterm.provideCookie`. An attached app that stays silent for 120 s is asked again, under a new id; time with no app attached does not count |
 | `window.activated` | aligns the sidebar selection when iTerm2 is raised from outside — e.g. by clicking an agent's notification |
-| `window.closed` | a task's row goes windowless ("Window closed") and stays, a terminal's row goes; during a removal, clears its window. A task window the person closed on its own is followed, a second later, by Remove's question |
+| `window.closed` | a task's row goes windowless ("Window closed") and stays, a terminal's row goes; during a removal, clears its window. A task window the person closed on its own is followed, a second later, by Remove's question — unless a tab of the task lives on in another window, which the row then takes |
 | `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its reopen) |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
@@ -303,17 +303,25 @@ close is never held when another window closed within the second before it, or w
 the snapshot that follows a reconnect — the daemon keeps its sessions across a disconnect, so its
 first tick back announces every window iTerm2 lost while it was away, and the app's snapshot request
 on `iterm.connected` is answered only after that tick. A window a removal or the checkout cleanup closes
-is theirs and asks nothing; questions are asked one at a time. Choosing a windowless row — a click or
-↩, never the arrows — reopens its window in the worktree and resumes each agent conversation its tabs
+is theirs and asks nothing; questions are asked one at a time. A task whose tab lives on in another
+window — its only tab dragged there, or Merge All Windows — is not asked about: when its question is
+due, a tab still tagged with it (`LiveSessions.window(ofTask:)`) gives the row that window instead. If
+iTerm2 keeps the front and macOS refuses AiTerm's activation, AiTerm's Dock icon bounces until the
+person comes (`AppController.bringAiTermForward`). Quit lets a held close go
+(`WindowReconciler.stop()`): nothing is asked after it. Choosing a windowless row — a click or ↩,
+never the arrows — reopens its window in the worktree and resumes each agent conversation its tabs
 last showed (`TaskItem.conversations`, saved as the daemon reports each tab's `conversationId`): the
-first in the window's tab, each other in a tab of its own. A window replaces the remembered list only
-once every agent tab in it names its own conversation, so a reopened window whose agents start one
-by one never shrinks it. The command is the harness's resume arguments (`Harness.resumeArguments`)
-and, for the task's own agent, the launch arguments it was started with — model and reasoning, and
-Codex's approval bypass; any other agent, started by hand, resumes without them, and so does a task with no saved model, so no Codex bypass either. With none known
-the window is a shell, and the first prompt is never replayed. A row whose checkout is missing is
-not reopened. Removing a task explicitly also removes its worktree. A daemon disconnect alone does
-not close or forget tasks.
+first in the window's tab, each other in a tab of its own; a row whose task still has a tab open
+elsewhere takes and raises that window instead, so no conversation is resumed twice. A window
+replaces the remembered list only once every agent tab in it names its own conversation, so a
+reopened window whose agents start one by one never shrinks it; an id that is empty or starts with
+"-", which the CLI would read as a flag, names none (`TaskConversation.isResumable`). The command is
+the harness's resume arguments (`Harness.resumeArguments`) and, for the task's own agent, the launch
+arguments it was started with — model and reasoning, and Codex's approval bypass; any other agent,
+started by hand, resumes without them, and so does a task with no saved model, so no Codex bypass
+either. With none known the window is a shell, and the first prompt is never replayed. A row whose
+checkout is missing is not reopened, nor any row while the workspace cannot change. Removing a task
+explicitly also removes its worktree. A daemon disconnect alone does not close or forget tasks.
 
 A created checkout is saved as a task before opening its window.
 If that window cannot be confirmed, the existing task offers recovery rather than another

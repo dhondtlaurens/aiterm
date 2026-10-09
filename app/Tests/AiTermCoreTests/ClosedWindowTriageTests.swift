@@ -278,15 +278,15 @@ import Testing
     /// iterm.connected, then the windows iTerm2 lost while away, then the snapshot, then lone closes.
     @Test func aReconnectFollowedByLoneClosesAsksAboutEachLoneClose() {
         var triage = synced()
-        triage.itermSynced(false, at: at(0))                       // iterm.disconnected
-        triage.itermSynced(false, at: at(0))                       // iterm.connected, snapshot to come
-        triage.windowClosed(task: task, at: at(0))      // announced on the first tick back
+        triage.itermSynced(false, at: at(0))             // iterm.disconnected
+        triage.itermSynced(false, at: at(0))             // iterm.connected, snapshot to come
+        triage.windowClosed(task: task, at: at(0))       // announced on the first tick back
         triage.windowClosed(task: other, at: at(10))
-        triage.itermSynced(true, at: at(10))                        // the snapshot
+        triage.itermSynced(true, at: at(10))             // the snapshot
         #expect(triage.due(at: at(5000)).isEmpty)
-        triage.windowClosed(task: task, at: at(6000))   // the person closes one window
+        triage.windowClosed(task: task, at: at(6000))    // the person closes one window
         #expect(triage.due(at: at(7000)) == [task])
-        triage.windowClosed(task: other, at: at(9000))  // and, later, another
+        triage.windowClosed(task: other, at: at(9000))   // and, later, another
         #expect(triage.due(at: at(10000)) == [other])
     }
 

@@ -56,7 +56,9 @@ Jira-to-agent workflow. Run through this list by hand:
 9. Drag the sidebar: task windows re-snap. Close a task window: a second later AiTerm asks Remove's
    question; Cancel keeps the row as "Window closed", its worktree on disk. Click that row: the window
    reopens and the agent resumes its conversation. Quit iTerm2 with task windows open: nothing is
-   asked, every row stays.
+   asked, every row stays. Drag a task window's only tab into another window: nothing is asked, and
+   clicking the row raises that window. Close a task window and stay in iTerm2: if AiTerm cannot come
+   forward, its Dock icon bounces until you switch to it.
 10. **Remove Task…**: the window closes, the worktree is removed, the branch is kept unless the
     checkbox is ticked.
 11. Open the release DMG: AiTerm on the left, Applications on the right. Drag AiTerm to

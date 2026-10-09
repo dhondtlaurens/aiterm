@@ -46,7 +46,7 @@ extension AppControllerTests {
         #expect(server.requests("tab.create").map { $0.params["windowId"] as? String } == ["reopened", "reopened"])
     }
 
-    /// With no conversation known it is a plain shell in the worktree, as Reopen Window always was.
+    /// With no conversation known it is a plain shell in the worktree.
     @Test func aTaskWithNoConversationReopensAPlainShell() async throws {
         let fixture = try RaceFixture()
         let server = RecordingDaemon()
@@ -82,12 +82,13 @@ extension AppControllerTests {
         #expect(fixture.controller.issue?.subject == task.id)
     }
 
-    /// Never a resume command for an empty id, whatever a workspace holds.
-    @Test func noResumeCommandIsBuiltForAnEmptyId() throws {
+    /// Never a resume command for an empty id, or one the CLI would read as a flag, whatever a workspace holds.
+    @Test func noResumeCommandIsBuiltForAnEmptyIdOrOneThatReadsAsAFlag() throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         var task = try fixture.addTask(windowId: nil)
-        task.conversations = [TaskConversation(agent: .codex, id: ""), TaskConversation(agent: .claude, id: "conv-2")]
+        task.conversations = [TaskConversation(agent: .codex, id: ""), TaskConversation(agent: .claude, id: "--dangerously-skip-permissions"),
+                              TaskConversation(agent: .claude, id: "conv-2")]
 
         #expect(TaskLauncher.resumeCommands(for: task) == ["claude --resume conv-2"])
     }

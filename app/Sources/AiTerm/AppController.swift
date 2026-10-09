@@ -140,7 +140,7 @@ final class AppController {
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent })
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
-                                    tiling: tiling, remover: remover, workflow: workflow, git: git, daemon: daemon)
+                                    live: live, tiling: tiling, remover: remover, workflow: workflow, git: git, daemon: daemon)
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -231,6 +231,7 @@ final class AppController {
         checkouts.stop()
         sheets.cancelPreparation()
         focus.cancel()
+        windows.stop()
         helper.shutdown()
     }
 
@@ -465,7 +466,7 @@ extension AppController {
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
-                      activateIterm: activateIterm, bringForward: { NSApplication.shared.activate() },
+                      activateIterm: activateIterm, bringForward: { AppController.bringAiTermForward() },
                       backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
                       openLocationSettings: {
                           NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
@@ -474,5 +475,18 @@ extension AppController {
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
                       git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
+    }
+
+    /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's
+    /// cooperative activation may refuse an app that asks while another is frontmost, which would leave
+    /// the alert behind iTerm2; if AiTerm is still not active a moment later, its Dock icon bounces
+    /// until the person comes. A bounce stops by itself once AiTerm is active.
+    @MainActor static func bringAiTermForward() {
+        NSApplication.shared.activate()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !NSApplication.shared.isActive else { return }
+            NSApplication.shared.requestUserAttention(.criticalRequest)
+        }
     }
 }

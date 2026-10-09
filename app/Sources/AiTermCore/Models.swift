@@ -255,6 +255,10 @@ public extension MergeRequestRef {
 public struct TaskConversation: Codable, Equatable, Sendable {
     public var agent: AgentKind, id: String
     public init(agent: AgentKind, id: String) { self.agent = agent; self.id = id }
+
+    /// Whether `id` can name a conversation to resume: not empty — a resume without one opens the
+    /// CLI's picker — and not starting with "-", which the CLI would read as a flag.
+    public static func isResumable(_ id: String) -> Bool { !id.isEmpty && !id.hasPrefix("-") }
 }
 
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
@@ -344,11 +348,12 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
     }
 
-    /// A conversation as the file has it, its agent's raw value read whether or not this build knows it.
+    /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;
+    /// one whose id no resume could use (`TaskConversation.isResumable`) is dropped.
     private struct SavedConversation: Decodable {
         let agent: String, id: String
         var conversation: TaskConversation? {
-            id.isEmpty ? nil : AgentKind(rawValue: agent).map { TaskConversation(agent: $0, id: id) }
+            TaskConversation.isResumable(id) ? AgentKind(rawValue: agent).map { TaskConversation(agent: $0, id: id) } : nil
         }
     }
 }

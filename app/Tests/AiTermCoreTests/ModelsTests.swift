@@ -353,6 +353,8 @@ import Foundation
         #expect(!String(decoding: try JSONEncoder().encode(none), as: UTF8.self).contains("conversations"))
         let mixed = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":[{"agent":"gremlin","id":"x"},{"agent":"claude","id":"c-1"},{"agent":"codex","id":""}]}"#).utf8))
         #expect(mixed.conversations == [TaskConversation(agent: .claude, id: "c-1")])
+        let flag = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":[{"agent":"claude","id":"--model"},{"agent":"codex","id":"t-1"}]}"#).utf8))
+        #expect(flag.conversations == [TaskConversation(agent: .codex, id: "t-1")], "an id the CLI would read as a flag is dropped")
         let unreadable = try JSONDecoder().decode(TaskItem.self, from: Data((base + #","conversations":"many"}"#).utf8))
         #expect(unreadable.conversations.isEmpty)
     }

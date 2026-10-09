@@ -45,6 +45,16 @@ import AiTermCore
         #expect(removing.actions.isEmpty)
     }
 
+    /// While the workspace cannot change, a closed window is not reopened: the row says its window
+    /// closed, and nothing about reopening it. An open window is still focused.
+    @Test func aLockedWorkspacesWindowlessRowSaysNothingAboutReopening() {
+        let locked = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: false)
+        #expect(locked.hint == "")
+        #expect(locked.help == "Window closed.")
+        let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, canChangeWorkspace: false)
+        #expect(open.hint == "Press Return to focus the window.")
+    }
+
     @Test func aLockedWorkspaceOffersNoTaskActions() {
         let locked = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, canChangeWorkspace: false)
         #expect(locked.actions.isEmpty)

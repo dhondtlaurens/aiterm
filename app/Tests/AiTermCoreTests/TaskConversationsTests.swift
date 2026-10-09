@@ -77,6 +77,15 @@ import Testing
         #expect(before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "")]) == before)
     }
 
+    /// An id starting with "-" would be read by the agent's CLI as a flag, so it is never remembered —
+    /// and, like an empty one, leaves what was.
+    @Test func aTabNamingAConversationThatReadsAsAFlagIsNotRemembered() {
+        let remembered = [TaskConversation(agent: .claude, id: "conv-1")]
+        let before = state(task(window: "w1", conversations: remembered))
+        #expect(before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "--model")]) == before)
+        #expect(before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "-x")]) == before)
+    }
+
     @Test func aNewConversationReplacesTheOneItsTabHad() {
         let before = state(task(window: "w1", conversations: [TaskConversation(agent: .claude, id: "conv-1")]))
         let next = before.rememberingConversations(from: [tab("a", window: "w1", index: 0, agent: .claude, conversation: "conv-2")])

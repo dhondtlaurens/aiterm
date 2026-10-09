@@ -109,7 +109,8 @@ final class TaskRemover: CheckoutRemovals {
     func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { outcomes[id] = removal }
     #endif
 
-    /// A removal's entry goes with its task — through a removed project, a restored backup or a removal. Runs on every change to the workspace, so it writes only what changed.
+    /// A removal's entry goes with its task — through a removed project, a restored backup or a
+    /// removal. Runs on every change to the workspace, so it writes only what changed.
     func pruneRemovals() {
         guard !outcomes.isEmpty else { return }
         let state = workspace.state
@@ -272,8 +273,9 @@ final class TaskRemover: CheckoutRemovals {
 
     /// Closes the window the task has now, before git deletes its worktree: a process still running
     /// there — a dev server's watcher — writes files back into a checkout being deleted, and git then
-    /// gives up halfway. The row drops the window first, so the window's own `window.closed` does
-    /// not take the row with it: the row stays until the removal is done, or for a retry if it fails.
+    /// gives up halfway. The row drops the window first, so the window's own `window.closed` finds it
+    /// windowless already and asks nothing; the row stays until the removal is done, or for a retry if
+    /// it fails.
     /// A window that will not close is given back, and nothing is deleted. Without a daemon it is
     /// left open, and `finishRemoval` asks for it to be closed by hand. True once a window closed.
     private func closeWindowBeforeRemoval(of task: TaskItem, holding token: WorkInFlight.Token) async throws -> Bool {

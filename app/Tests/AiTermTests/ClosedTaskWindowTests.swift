@@ -195,6 +195,53 @@ extension AppControllerTests {
         #expect(fixture.prompter.asked.isEmpty)
     }
 
+    /// The task's only tab dragged into another window — or Merge All Windows — closes its own window,
+    /// but the task lives on there: once the hold is over the row takes that window, and nothing is
+    /// asked. The daemon announces the window's close before the tab's move, as it does here.
+    @Test func aTaskWhoseTabLivesOnInAnotherWindowIsNotAskedAboutAndTakesThatWindow() async throws {
+        let clock = ManualInstant()
+        let fixture = try RaceFixture(now: { clock.now })
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: "alive")
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
+                                                          sessions: [.stub("a", window: "alive", task: task), .stub("b", window: "other")],
+                                                          usage: .empty)))
+
+        controller.helper.handle(.windowClosed("alive"))
+        controller.helper.handle(.sessionChanged(.stub("a", window: "other", task: task)))
+        clock.advance(by: ClosedWindowTriage.hold)
+        await controller.windows.settling?.value
+        await controller.windows.asking?.value
+
+        #expect(fixture.prompter.asked.isEmpty)
+        #expect(controller.state.task(id: task.id)?.windowId == "other")
+    }
+
+    /// Quit while a close is held: its question is never asked, however long the hold had to go.
+    @Test func quittingWhileACloseIsHeldAsksNothing() async throws {
+        let clock = ManualInstant()
+        let fixture = try RaceFixture(now: { clock.now })
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: "alive")
+        controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
+
+        controller.helper.handle(.windowClosed("alive"))
+        let settling = controller.windows.settling
+        #expect(controller.windows.triage.isHolding)
+        controller.shutdown()
+        #expect(!controller.windows.triage.isHolding, "quit lets go of the held close")
+        clock.advance(by: ClosedWindowTriage.hold)
+        await settling?.value
+        await controller.windows.asking?.value
+
+        #expect(fixture.prompter.asked.isEmpty)
+        #expect(controller.state.task(id: task.id)?.windowId == nil, "the row stays, windowless")
+    }
+
     /// One alert at a time: a second close, held and due while the first question is up, is asked once
     /// that one is answered.
     @Test func twoClosesSecondsApartAreAskedOneAfterTheOther() async throws {
