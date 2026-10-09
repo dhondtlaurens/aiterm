@@ -121,8 +121,8 @@ struct Snapshot {
 /// `SheetLayout` then lays its content out flat and clipped instead.
 private struct SnapshotRenderingKey: EnvironmentKey { static let defaultValue = false }
 
-/// Set for every image: a working mark's arc stands still at one angle rather than turning from
-/// the wall clock's phase, so two runs draw the same pixels.
+/// Set for every image: a working mark's arc stands still at one angle rather than turning on the
+/// shared spin, so two runs draw the same pixels.
 private struct StillSpinnersKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {

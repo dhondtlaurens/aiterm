@@ -10,12 +10,10 @@ struct StatusMarkTests {
     private let size: CGFloat = 40
 
     @Test func spinnerRotationUsesAContinuousSharedClock() {
-        let start = Date(timeIntervalSinceReferenceDate: 220)
-        let quarterTurn = start.addingTimeInterval(0.275)
-        let nextCycle = start.addingTimeInterval(1.1)
-        let startRotation = StatusMark.spinnerRotation(at: start)
-        let quarterRotation = StatusMark.spinnerRotation(at: quarterTurn)
-        let nextCycleRotation = StatusMark.spinnerRotation(at: nextCycle)
+        let start: CFTimeInterval = 220
+        let startRotation = StatusMark.spinnerRotation(atMediaTime: start)
+        let quarterRotation = StatusMark.spinnerRotation(atMediaTime: start + 0.275)
+        let nextCycleRotation = StatusMark.spinnerRotation(atMediaTime: start + 1.1)
         let quarterAdvance = (quarterRotation - startRotation + 360)
             .truncatingRemainder(dividingBy: 360)
 
@@ -64,8 +62,7 @@ struct StatusMarkTests {
         #expect(try solidFillRatio(for: .needsInput, color: Palette.amber) > 0.98)
     }
 
-    /// A window the mark is really in, so SwiftUI runs its animations: a view that is not on
-    /// screen never ticks.
+    /// A window the mark is really in, so its arc joins a layer tree Core Animation draws.
     private func hostInWindow(_ view: some View) -> (NSWindow, NSHostingView<some View>) {
         let host = NSHostingView(rootView: view.background(Color.black))
         host.appearance = NSAppearance(named: .darkAqua)
@@ -87,10 +84,38 @@ struct StatusMarkTests {
         var body: some View { StatusMark(status: model.status, size: size).surface(model.surface) }
     }
 
-    /// How far the arc is from where the shared clock puts it, in degrees, read off the pixels: the
-    /// bright pixels' direction (clockwise from three o'clock, the way the arc turns) less the
-    /// arc's own midpoint (27 degrees: it spans 15 % of the circle) less the clock's rotation now.
+    /// The arc view inside a hosted mark, which draws the turn.
+    private func arc(in view: NSView) throws -> SpinningArcView {
+        func find(_ view: NSView) -> SpinningArcView? {
+            if let arc = view as? SpinningArcView { return arc }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return try #require(find(view), "no spinning arc in the mark")
+    }
+
+    /// The angle Core Animation draws the arc at now, in degrees clockwise from three o'clock.
+    private func angle(_ host: NSView) throws -> Double {
+        let layer = try arc(in: host).arc
+        let turned = try #require(layer.presentation()?.value(forKeyPath: "transform.rotation.z") as? Double)
+        return -turned * 180 / .pi
+    }
+
+    /// How far the arc is from where the shared clock puts it, in degrees.
     private func offsetFromClock(_ host: NSView) throws -> Double {
+        circularDistance(try angle(host), StatusMark.spinnerRotation(atMediaTime: CACurrentMediaTime()))
+    }
+
+    private func circularDistance(_ a: Double, _ b: Double) -> Double {
+        abs((a - b + 540).truncatingRemainder(dividingBy: 360) - 180)
+    }
+
+    private func pump(_ seconds: TimeInterval) {
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    /// The direction of the bright pixels in a view's drawing, in degrees clockwise from three
+    /// o'clock. A drawing shows the layers' model values, not an animation's.
+    private func drawnDirection(_ host: NSView) throws -> Double {
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let centre = CGFloat(bitmap.pixelsWide - 1) / 2
@@ -104,44 +129,60 @@ struct StatusMarkTests {
                 sumX += Double(cos(direction)); sumY += Double(sin(direction))
             }
         }
-        let measured = atan2(sumY, sumX) * 180 / .pi
-        let offset = measured - 27 - StatusMark.spinnerRotation(at: Date())
-        return (offset.truncatingRemainder(dividingBy: 360) + 540).truncatingRemainder(dividingBy: 360) - 180
+        return atan2(sumY, sumX) * 180 / .pi
     }
 
-    private func circularDistance(_ a: Double, _ b: Double) -> Double {
-        abs((a - b + 540).truncatingRemainder(dividingBy: 360) - 180)
-    }
-
-    private func pump(_ seconds: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
-    }
-
-    private func snapshot(_ host: NSView) throws -> [UInt8] {
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-        return Array(UnsafeBufferPointer(start: bitmap.bitmapData, count: bitmap.bytesPerRow * bitmap.pixelsHigh))
-    }
-
-    /// The arc turns on SwiftUI's one repeating animation, not on a body re-run per frame: over
-    /// half a second (some fifteen frames at the old 30 fps) its body does not run at all, and the
-    /// arc has still moved.
-    @Test func aWorkingMarkTurnsWithoutEvaluatingItsBodyEveryFrame() throws {
+    /// Unturned, the arc lies where SwiftUI's `Circle().trim(from: 0, to: 0.15)` lies, and a turn
+    /// of a quarter on the layer moves it a quarter clockwise: the angle the clock gives is the
+    /// angle on screen, in the direction the arc always turned.
+    @Test func theArcTurnsClockwiseFromWhereTheShapeLies() throws {
+        let shape = Circle().trim(from: 0, to: 0.15)
+            .stroke(Palette.spinner, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
+            .frame(width: size, height: size)
+        let (shapeWindow, shapeHost) = hostInWindow(shape)
+        defer { shapeWindow.orderOut(nil) }
         let (window, host) = hostInWindow(StatusMark(status: .working, size: size))
         defer { window.orderOut(nil) }
         pump(0.1)
-        let before = StatusMark.arcEvaluations
-        let first = try snapshot(host)
-        pump(0.55)
-        let second = try snapshot(host)
+        let layer = try arc(in: host).arc
+        let unturned = try drawnDirection(host)
+        #expect(circularDistance(unturned, try drawnDirection(shapeHost)) < 2)
 
-        #expect(StatusMark.arcEvaluations - before == 0, "the arc re-ran its body \(StatusMark.arcEvaluations - before) times in 0.55 s")
-        #expect(first != second, "the arc did not turn")
+        layer.transform = CATransform3DMakeRotation(-.pi / 2, 0, 0, 1)
+        #expect(circularDistance(try drawnDirection(host), unturned + 90) < 2)
     }
 
-    /// Many working marks cost no more bodies than one does: the number of body runs does not
-    /// grow with the frames, nor does it start a timer each.
-    @Test func manyWorkingMarksEvaluateNoMoreBodiesPerFrame() {
+    /// Every working mark shows the same angle, however far apart they started: the one the
+    /// shared clock gives.
+    @Test func marksStartedApartTurnInStep() throws {
+        let (first, a) = hostInWindow(StatusMark(status: .working, size: size))
+        defer { first.orderOut(nil) }
+        pump(0.43)
+        let (second, b) = hostInWindow(StatusMark(status: .working, size: size))
+        defer { second.orderOut(nil) }
+        pump(0.27)
+
+        #expect(circularDistance(try angle(a), try angle(b)) < 0.5)
+        #expect(try offsetFromClock(a) < 3)
+    }
+
+    /// The arc turns on Core Animation's clock, not on an update per frame: over half a second
+    /// (some thirty frames) its view is not updated at all, and the arc has still moved.
+    @Test func aWorkingMarkTurnsWithoutAnUpdatePerFrame() throws {
+        let (window, host) = hostInWindow(StatusMark(status: .working, size: size))
+        defer { window.orderOut(nil) }
+        pump(0.1)
+        let before = StatusMark.arcUpdates
+        let first = try angle(host)
+        pump(0.37)
+        let second = try angle(host)
+
+        #expect(StatusMark.arcUpdates - before == 0, "the arc was updated \(StatusMark.arcUpdates - before) times in 0.37 s")
+        #expect(circularDistance(first, second) > 30, "the arc did not turn")
+    }
+
+    /// Many working marks cost no more updates than one does: none per frame.
+    @Test func manyWorkingMarksUpdateNothingPerFrame() {
         let marks = HStack(spacing: 0) {
             ForEach(0..<20, id: \.self) { _ in StatusMark(status: .working, size: size) }
             ForEach(0..<20, id: \.self) { _ in StatusMark(status: .idle, size: size) }
@@ -149,15 +190,15 @@ struct StatusMarkTests {
         let (window, _) = hostInWindow(marks)
         defer { window.orderOut(nil) }
         pump(0.1)
-        let before = StatusMark.arcEvaluations
+        let before = StatusMark.arcUpdates
         pump(0.55)
 
-        #expect(StatusMark.arcEvaluations - before == 0, "twenty arcs ran \(StatusMark.arcEvaluations - before) bodies in 0.55 s")
+        #expect(StatusMark.arcUpdates - before == 0, "twenty arcs were updated \(StatusMark.arcUpdates - before) times in 0.55 s")
     }
 
-    /// The spell after a pause turns too. An animation flag that outlived the working branch once
-    /// latched on, and every later spell drew a still arc (docs/status-model.md, "The frozen
-    /// spinner"); the flag lives in the arc now, so a new spell starts from nothing.
+    /// The spell after a pause turns too, on the clock. An animation flag that outlived the
+    /// working branch once latched on, and every later spell drew a still arc
+    /// (docs/status-model.md, "The frozen spinner").
     @Test func aMarkThatWorksAgainTurnsAgain() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))
@@ -167,53 +208,42 @@ struct StatusMarkTests {
         pump(0.2)
         model.status = .working
         pump(0.1)
-        let first = try snapshot(host)
+        let first = try angle(host)
         pump(0.3)
-        let second = try snapshot(host)
 
-        #expect(first != second, "the second spell's arc did not turn")
+        #expect(circularDistance(first, try angle(host)) > 30, "the second spell's arc did not turn")
+        #expect(try offsetFromClock(host) < 3)
     }
 
-    /// A row's hover or selection changes the surface, which re-runs `StatusMark`'s body and builds
-    /// the arc again. The arc must carry on from where it was, not take a fresh seed from the clock:
-    /// each re-seed shifted its phase (by hundreds of degrees, in the first version), so marks that
-    /// had been in step stopped being so.
+    /// A row's hover or selection changes the surface, which re-runs `StatusMark`'s body and
+    /// recolours the arc. The arc stays on the clock through every change.
     @Test func aSurfaceChangeLeavesTheArcInPhase() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))
         defer { window.orderOut(nil) }
         pump(0.35)
-        let before = try offsetFromClock(host)
-        var after = before
-        for surface in [Surface.hover, .sidebar, .hover] {
+        for surface in [Surface.hover, .accent, .sidebar] {
             model.surface = surface
             pump(0.17)
-            after = try offsetFromClock(host)
-            #expect(circularDistance(before, after) < 45, "the arc's phase moved from \(before) to \(after) degrees off the clock")
+            #expect(try offsetFromClock(host) < 3, "on \(surface) the arc left the clock")
         }
     }
 
-    /// A list recycles a row's cell: the view leaves its window and comes back, with the arc's
-    /// state kept and its animation possibly dropped. The arc must be turning again, and back on
-    /// the clock's phase. A window keeps the animation through the swap, so this guards the
-    /// restart — it failed for an arc rewound in place — rather than reproducing a dropped
-    /// animation, which only a recycling list does: it passes without the restart too.
+    /// A list recycles a row's cell: the view leaves its window and comes back. The arc must be
+    /// turning again, on the clock.
     @Test func aRecycledMarkTurnsAgainOnTheClock() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))
         defer { window.orderOut(nil) }
         pump(0.3)
-        let before = try offsetFromClock(host)
         window.contentView = NSView()
         pump(0.3)
         window.contentView = host
         pump(0.2)
-        let first = try snapshot(host)
+        let first = try angle(host)
         pump(0.3)
-        let second = try snapshot(host)
-        let after = try offsetFromClock(host)
 
-        #expect(first != second, "the recycled arc did not turn")
-        #expect(circularDistance(before, after) < 45, "the recycled arc was \(after) degrees off the clock, not \(before)")
+        #expect(circularDistance(first, try angle(host)) > 30, "the recycled arc did not turn")
+        #expect(try offsetFromClock(host) < 3)
     }
 }
