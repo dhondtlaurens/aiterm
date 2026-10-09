@@ -10,6 +10,7 @@ extension Harness {
         skillSigil: "/", hookEndpoint: "/hook/claude",
         bundledResource: .script("claude-statusline-shim.sh"),
         launchArguments: { model, reasoning in ["--model", model] + (reasoning.map { ["--effort", $0] } ?? []) },
+        resumeArguments: { ["--resume", $0] },
         models: .files(sources: { ModelFiles.claudeSources(home: $0) }, read: { ModelFiles.claudeModels(home: $0) }),
         skillRoots: { home, project in
             // Claude Code, like Grok, keeps a `user-invocable: false` skill out of its `/` menu.
@@ -37,6 +38,7 @@ extension Harness {
         launchArguments: { model, reasoning in
             ["--dangerously-bypass-approvals-and-sandbox", "-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
         },
+        resumeArguments: { ["resume", $0] },       // a subcommand: its options follow the id
         models: .files(sources: { ModelFiles.codexSources(home: $0) }, read: { ModelFiles.codexModels(home: $0) }),
         skillRoots: { home, project in
             // Codex follows the Agent Skills standard, `.agents/skills` in the home and the repo.
@@ -63,6 +65,7 @@ extension Harness {
         skillSigil: "/", hookEndpoint: "/hook/grok",
         bundledResource: .script(GrokStatusLineConfig.shimName),
         launchArguments: { model, reasoning in ["-m", model] + (reasoning.map { ["--reasoning-effort", $0] } ?? []) },
+        resumeArguments: { ["--resume", $0] },     // a UUID-shaped value is always an id (17-sessions.md)
         models: .files(sources: { GrokModelCatalog.sources(home: $0) }, read: { GrokModelCatalog.models(home: $0) }),
         skillRoots: { home, project in
             // Grok reads skills and flat commands from .grok, .agents and (Claude compatibility)
@@ -89,6 +92,7 @@ extension Harness {
         skillSigil: "/", hookEndpoint: "/hook/pi",
         bundledResource: .source("pi-aiterm-status.ts"),
         launchArguments: { model, reasoning in ["--model", model] + (reasoning.map { ["--thinking", $0] } ?? []) },
+        resumeArguments: { ["--session", $0] },    // a session id or file
         models: .launch(sources: { PiModelCatalog.sources(home: $0) },
                         list: { try PiModelCatalog.discover(executable: $0, runner: $1) }),
         skillRoots: { home, project in

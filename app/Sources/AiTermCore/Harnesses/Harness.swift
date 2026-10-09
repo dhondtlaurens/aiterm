@@ -27,6 +27,9 @@ public struct Harness: Sendable {
     let bundledResource: BundledResource?
     /// The launch command's arguments after the CLI and before the prompt, unquoted.
     let launchArguments: @Sendable (_ model: String, _ reasoning: String?) -> [String]
+    /// The arguments after the CLI that resume conversation `id` — the one the agent's own hooks name
+    /// (`SessionInfo.conversationId`) — as the CLI's `--help` spells them, unquoted.
+    let resumeArguments: @Sendable (_ conversation: String) -> [String]
     let models: ModelListing
     /// Where the agent keeps skills and commands, globally and in the project, in the order the
     /// CLI reads them: the first of a name wins.
@@ -38,6 +41,12 @@ public struct Harness: Sendable {
     /// The launch command's words before its prompt, unquoted (`AgentCommand` quotes them).
     func launchWords(model: String, reasoning: String?) -> [String] {
         [executable] + launchArguments(model, reasoning)
+    }
+
+    /// The resume command's words, unquoted (`AgentCommand` quotes them): the CLI, the conversation,
+    /// then the model and reasoning it was launched with, when those are known.
+    func resumeWords(conversation: String, model: String?, reasoning: String?) -> [String] {
+        [executable] + resumeArguments(conversation) + (model.map { launchArguments($0, reasoning) } ?? [])
     }
 
     /// The reasoning levels for the picked model. The CLIs publish them per model now, so the

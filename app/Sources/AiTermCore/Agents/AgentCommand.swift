@@ -24,6 +24,15 @@ public enum AgentCommand {
         agent.harness.launchWords(model: model, reasoning: reasoning).map(shellWord)
     }
 
+    /// The command that resumes conversation `id` of `agent` in a reopened window: the CLI, its resume
+    /// arguments (`Harness.resumeArguments`), then — for the agent a task was launched with — that
+    /// launch's model and reasoning; an empty model is none. Every word goes through `shellWord`: the
+    /// id comes from the agent's own hooks.
+    public static func resume(agent: AgentKind, conversation id: String, model: String?, reasoning: String?) -> String {
+        let model = model.flatMap { $0.isEmpty ? nil : $0 }
+        return agent.harness.resumeWords(conversation: id, model: model, reasoning: reasoning).map(shellWord).joined(separator: " ")
+    }
+
     /// The exact command a task would launch, built without touching the disk: a prompt that goes
     /// through the file shows the `$(cat …)` form the real build would produce, instead of
     /// pretending the prompt is inline. For the New Task footer (spec 4.4), where no worktree exists yet.

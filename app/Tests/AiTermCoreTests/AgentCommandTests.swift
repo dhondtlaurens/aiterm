@@ -164,4 +164,30 @@ import Darwin
         #expect(AgentCommand.composePrompt(userText: nil, ticket: t, appendTicket: false) == nil)
         #expect(AgentCommand.composePrompt(userText: "  ", ticket: nil, appendTicket: true) == nil)
     }
+
+    /// Each agent resumes by its CLI's own spelling, then takes the model and reasoning the task was
+    /// launched with.
+    @Test func eachAgentResumesItsConversationOnItsLaunchModel() {
+        let id = "0199f5c2-7a1e-7d3b-9c41-2f6a8e0b1d57"
+        #expect(AgentCommand.resume(agent: .claude, conversation: id, model: "opus", reasoning: "high")
+                == "claude --resume \(id) --model opus --effort high")
+        #expect(AgentCommand.resume(agent: .codex, conversation: id, model: "gpt-5.6", reasoning: "medium")
+                == "codex resume \(id) --dangerously-bypass-approvals-and-sandbox -m gpt-5.6 -c model_reasoning_effort=medium")
+        #expect(AgentCommand.resume(agent: .grok, conversation: id, model: "grok-4.7", reasoning: nil)
+                == "grok --resume \(id) -m grok-4.7")
+        #expect(AgentCommand.resume(agent: .pi, conversation: id, model: "openai-codex/gpt-5.6-sol", reasoning: "high")
+                == "pi --session \(id) --model openai-codex/gpt-5.6-sol --thinking high")
+    }
+
+    /// An agent started in a tab by hand has no launch model AiTerm knows: it resumes on its own defaults.
+    @Test func aConversationWithoutItsLaunchModelResumesOnTheAgentsDefaults() {
+        #expect(AgentCommand.resume(agent: .claude, conversation: "c-1", model: nil, reasoning: "high") == "claude --resume c-1")
+        #expect(AgentCommand.resume(agent: .codex, conversation: "t-1", model: "", reasoning: nil) == "codex resume t-1")
+    }
+
+    /// The id comes from another process's hook: it is one word of the command, whatever it holds.
+    @Test func aConversationIdIsOneWordOfTheCommand() {
+        #expect(AgentCommand.resume(agent: .grok, conversation: "my session; rm -rf ~", model: nil, reasoning: nil)
+                == "grok --resume 'my session; rm -rf ~'")
+    }
 }
