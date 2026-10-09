@@ -718,14 +718,24 @@ struct TerminalRowAccessibility: Equatable {
 }
 
 /// The badges a task row wears, after the Interface tab's switches. A badge whose detail is off
-/// keeps its mark and its link; the text it no longer prints leads its tooltip instead.
+/// keeps its mark and its link; the text it no longer prints leads its tooltip instead. A merge
+/// request with a review thread that can be resolved also wears its count — `2/5` behind a bubble,
+/// all resolved included — whether or not its number is switched off; one with none, or whose
+/// threads have not been read, wears none.
 struct TaskRowBadges: Equatable {
     struct Link: Equatable {
         var label: String?
         var help: String
         var url: String?
         var host: CodeHost? = nil
+        /// The merge request's resolved review threads of all of them, behind a bubble.
+        var threads: Badge.Suffix? = nil
+        /// What VoiceOver reads when the badge says more than its label: the count, in words.
+        var accessibilityLabel: String? = nil
     }
+
+    /// The SF Symbol a merge request's thread count stands behind.
+    static let threadsSymbol = "bubble.left"
 
     var ticket: Link?
     var mergeRequest: Link?
@@ -734,19 +744,33 @@ struct TaskRowBadges: Equatable {
     /// Always names the counts when there are any, whether or not the badge prints them.
     var editorHelp: String
 
-    init(row: TaskRow, details: BadgeDetails) {
+    /// `threads` is the row's merge request's, as last read; `nil` while there is no answer.
+    init(row: TaskRow, details: BadgeDetails, threads: ReviewThreads? = nil) {
         ticket = row.jiraKey.map { key in
             details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl)
                 : Link(label: nil, help: row.jiraUrl.map { "\(key) — \($0)" } ?? key, url: row.jiraUrl)
         }
         mergeRequest = row.mr.map { mr in
-            details.mergeRequest
+            var link = details.mergeRequest
                 ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
                 : Link(label: nil, help: "\(mr.reference) — \(mr.title)", url: mr.url, host: mr.host)
+            // Nothing until there is a thread to count; then it stays, all resolved included.
+            if let threads, threads.total > 0 {
+                let words = Self.words(threads)
+                link.accessibilityLabel = "\(link.label ?? link.help), \(words)"
+                link.help += " · \(words)"
+                link.threads = Badge.Suffix(icon: .symbol(Self.threadsSymbol), text: "\(threads.resolved)/\(threads.total)")
+            }
+            return link
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil
         editorHelp = row.diff?.help ?? "Open in VS Code"
+    }
+
+    /// The count as the tooltip and VoiceOver say it: "2 of 5 threads resolved", "1 of 1 thread resolved".
+    static func words(_ threads: ReviewThreads) -> String {
+        "\(threads.resolved) of \(threads.total) \(threads.total == 1 ? "thread" : "threads") resolved"
     }
 }
 
