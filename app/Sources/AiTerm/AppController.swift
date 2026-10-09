@@ -94,8 +94,10 @@ final class AppController {
     /// `openLocationSettings` is where its Allow… sends the person once macOS will not ask.
     /// `machineSensor` reads the Mac's load for the footer; the battery is `backpackPorts.power`.
     /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
-    /// how long a completion toast stays up; `confirmsRemoval` is the last look at a checkout the
-    /// monitor found gone (`TaskRemover`).
+    /// how long a completion toast stays up; `closedWindowHold` and `now` are how long, and against
+    /// what clock, a closed task window is held before Remove's question (`ClosedWindowTriage`);
+    /// `bringForward` brings AiTerm forward for it. `confirmsRemoval` is the last look at a checkout
+    /// the monitor found gone (`TaskRemover`).
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -108,6 +110,7 @@ final class AppController {
          prompter: Prompter,
          setBadge: @escaping @MainActor (String?) -> Void,
          activateIterm: @escaping @MainActor () -> Void,
+         bringForward: @escaping @MainActor () -> Void,
          backpackPorts: BackpackPorts,
          backpackSecrets: any SecretStore,
          openLocationSettings: @escaping @MainActor () -> Void,
@@ -115,6 +118,8 @@ final class AppController {
          peekDelay: Duration,
          checkoutPollInterval: Duration,
          toastLifetime: Duration,
+         closedWindowHold: Duration,
+         now: @escaping @MainActor () -> ContinuousClock.Instant,
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner,
          confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval) {
@@ -152,7 +157,8 @@ final class AppController {
         self.git = git
         self.setBadge = setBadge
         rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
-        windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus)
+        windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
+                                   remover: remover, now: now, closeHold: closedWindowHold, bringForward: bringForward)
         projects = ProjectActions(workspace: workspace, work: work, notices: notices, prompter: prompter, checkouts: checkouts,
                                   agents: agents, git: git, workflow: workflow, jiraSettings: jiraSettings)
         terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
@@ -241,7 +247,8 @@ final class AppController {
         }
     }
 
-    /// `windows`', forwarded for the tests: a window gone, as `window.closed` reports it.
+    /// `windows`', forwarded for the tests: a window gone, as a request that found it gone reports it
+    /// (it asks nothing; `window.closed` itself arrives through `helper.handle`).
     func handleWindowClosed(_ windowId: String?) { windows.handleWindowClosed(windowId) }
 
     // -- the rows and the Dock badge ------------------------------------------------
@@ -458,12 +465,14 @@ extension AppController {
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
-                      activateIterm: activateIterm, backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
+                      activateIterm: activateIterm, bringForward: { NSApplication.shared.activate() },
+                      backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
                       openLocationSettings: {
                           NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
                       },
                       machineSensor: machineSensor,
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
-                      toastLifetime: .seconds(10), git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
+                      toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
+                      git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
     }
 }

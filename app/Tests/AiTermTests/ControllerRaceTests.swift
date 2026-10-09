@@ -593,7 +593,9 @@ struct RaceFixture {
 
     /// The root is resolved with `realpath(3)`: git reports the physical path of a repository under
     /// `/var/folders`, and adding the unresolved one adds it as "the repository around" that path.
-    init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {}) throws {
+    init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
+         bringForward: @escaping @MainActor () -> Void = {},
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) throws {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         root = URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
@@ -606,7 +608,7 @@ struct RaceFixture {
         let prompter = prompter ?? ScriptedPrompter()
         self.prompter = prompter
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
-                                   activateIterm: activateIterm)
+                                   activateIterm: activateIterm, bringForward: bringForward, now: now)
         try controller.loadWorkspace()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())

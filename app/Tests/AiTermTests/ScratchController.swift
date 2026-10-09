@@ -41,7 +41,8 @@ extension AppController {
     /// no Keychain read for Settings, and Backpack Mode over the inert ports with its password in
     /// memory — no `sudo`, no Wi-Fi scan, no System Settings — and no load read off this Mac. A
     /// test that needs a different one of them names it. A peek waits no time: a test awaits the
-    /// one it starts.
+    /// one it starts. A closed task window is held no time and against the real clock: a test that
+    /// asks about one moves a `ManualInstant` and awaits `windows.settling`.
     ///
     /// Questions go to a ``ScriptedPrompter`` that answers none, so one a test did not expect fails
     /// it ("Unexpected prompt") rather than opening a modal `NSAlert` that blocks the run. A test
@@ -51,11 +52,14 @@ extension AppController {
                      harnessHome: URL = ScratchHome.bare, bundledResourcesURL: URL? = nil,
                      prompter: Prompter = ScriptedPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
-                     activateIterm: @escaping @MainActor () -> Void = {}, backpackPorts: BackpackPorts = .inert,
+                     activateIterm: @escaping @MainActor () -> Void = {}, bringForward: @escaping @MainActor () -> Void = {},
+                     backpackPorts: BackpackPorts = .inert,
                      backpackSecrets: any SecretStore = MemorySecretStore(),
                      openLocationSettings: @escaping @MainActor () -> Void = {},
                      machineSensor: any MachineSensor = InertMachineSensor(), peekDelay: Duration = .zero,
-                     checkoutPollInterval: Duration = .seconds(2), toastLifetime: Duration = .seconds(10), git: any GitRunning = GitRunner.hermetic(),
+                     checkoutPollInterval: Duration = .seconds(2), toastLifetime: Duration = .seconds(10),
+                     closedWindowHold: Duration = .zero, now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
+                     git: any GitRunning = GitRunner.hermetic(),
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      },
@@ -69,9 +73,10 @@ extension AppController {
         self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: harnessHome,
                   bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, backpackPorts: backpackPorts,
+                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, bringForward: bringForward, backpackPorts: backpackPorts,
                   backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor, peekDelay: peekDelay,
-                  checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, git: git, scan: scan,
+                  checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, closedWindowHold: closedWindowHold, now: now,
+                  git: git, scan: scan,
                   confirmsRemoval: confirmsRemoval)
     }
 }
