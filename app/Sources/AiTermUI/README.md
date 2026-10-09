@@ -149,7 +149,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 
 | Type | What it is |
 |---|---|
-| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows; `action` makes it a button, `menu` a menu — a project header's `+n` of Jira projects — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
+| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a merge request's reference (extended with a `suffix`: a bubble and its resolved review threads of all of them, `2/5`, in the label's ink), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows; `action` makes it a button, `menu` a menu — a project header's `+n` of Jira projects — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
 | `Icon` | every mark, at a size: an SF Symbol (its glyph's own width, in the surface's ink unless tinted), a vendor `Brand` (a `size` square, in its colour unless tinted), or a full-colour artwork that carries its own fallback (`.gitlabTanuki`, `.piBadge`). The one way the app draws a logo — no fill travels as a hex string |
 | `FormField` | a label above its control; what the control hangs out of itself — a dropdown's results — draws over the lines after it |
 | `FrontToBackStack` | a `VStack` whose earlier children draw over its later ones, so an overhang (a picker's results, the completion popup) needs no `zIndex` at any level of a sheet. `FormField` is one; a sheet's fields and steps go in another |
@@ -281,8 +281,8 @@ under it — read that rather than a `selected` flag, as a header's chevron, nam
 "+" do; `RowCaption(warns:)` is amber off the accent only. Which row is selected — a project header,
 a task or a terminal; never a divider — is `RowFocus`'s (`controller.focus`), an owner beside the
 controller, not a view. A row reads whether it alone is selected (`focus.isSelected(id)`), as a task
-row reads its own removal (`controller.removal(of:)`) and missing checkout
-(`checkouts.isMissing(_:)`): each a `PerRow` cell, so an arrow key redraws the row it leaves and the
+row reads its own removal (`controller.removal(of:)`), missing checkout
+(`checkouts.isMissing(_:)`) and merge request's thread count (`reviewThreads.threads(of:)`): each a `PerRow` cell, so an arrow key redraws the row it leaves and the
 row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTests` counts them. Only
 `SidebarScrollFollower` — not `SidebarView`'s body — follows the selection whole, so the list's
 model is not redrawn either.

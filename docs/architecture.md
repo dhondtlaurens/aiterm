@@ -82,13 +82,15 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `RowFocus` | `focus` | the selected row — a project header, a task or a terminal — and the request that brings its window forward — a click, Return, a peek — each returned as its `Task` |
 | `LiveSessions` | `live` | every tab the daemon reports, usage, and each row's last context fill |
 | `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and 2 s after the last pass ends |
+| `ReviewThreadsWatcher` | `reviewThreads` | how many of each merge request's review threads are resolved — GitLab's resolvable discussions, GitHub's review threads — read every 60 s and when its row is selected, while started; each row's count in a `PerRow` cell, kept as last read when a read fails or the host is not connected (none before the first good one), and cleared only when its row goes or its task carries another merge request |
 | `SidebarProjection` | `rows` | the sidebar's rows, derived from the workspace, `live.rowSessions` and the checkouts only when one of them changes what a row draws; the list, the Dock badge, Focus View and List View all read them |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the tab titles it sends after each checkout pass |
 | `BackpackController` | `backpack` | Backpack Mode: its state, setup and battery reading, its blocking work run on a thread of its own (`SerialThread`) |
 
 A change to the workspace runs its hooks once, in this order: the owners' own, added as each was
-built — `RowFocus`'s, which drops a selection whose row went, and each `PerRow`'s, which drops only
-cells no row reads — then `live.pruneContexts`, `notices.dropStale`, the rows derived again with the
+built — `RowFocus`'s, which drops a selection whose row went, each `PerRow`'s, which drops only
+cells no row reads, and `ReviewThreadsWatcher`'s, which drops a count whose row went or changed its
+merge request — then `live.pruneContexts`, `notices.dropStale`, the rows derived again with the
 Dock badge recounted, and last `remover.pruneRemovals`, so a task on its way out is not counted
 between its row going and its removal entry going.
 
@@ -207,6 +209,7 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | context fill | the same `statusLine` payload's `context_window`; the reporting session updates its task's last-known value, and the footer draws it only while that task is selected |
 | provider icon | the git remote URL, or the repo itself |
 | tickets | Jira Cloud REST, credentials in the Keychain |
+| review threads | GitLab REST (`/merge_requests/:iid/discussions`, a discussion with a resolvable note, resolved when all of them are) on the configured GitLab host and port only, and GitHub GraphQL (`reviewThreads { isResolved }`), with the tokens Settings saved; read-only, 100 a page, at most 10 pages |
 | models | each CLI's own catalogue cache, so the picker follows `/model` |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
