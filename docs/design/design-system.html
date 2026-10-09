@@ -790,6 +790,18 @@
   #p-jira-projects .mk-head.sel .ai-badge:not(.quiet) { background: var(--badge-selected); color: #FFFFFF; }
   #p-jira-projects .pair { display: inline-flex; align-items: center; gap: var(--space-snug); flex: none; }
   #p-jira-projects .ai-badge.quiet .more { margin-left: var(--space-tight); }
+
+  /* --- 9 Oct 2026 New Review recovery proposal ----------------------------------------- */
+  /* The foot of New Review's step 3: the DestinationLine ending the content, a Hairline, then
+     CreationFooter on Palette.surfaceRaised — the failure in Typography.caption amber, Space.gap
+     above SheetFooter's row of Space.base-apart buttons, its status slot at the leading edge. */
+  #p-review-fixes .dq { font-size: 13px; margin-top: var(--space-margin); }
+  #p-review-fixes .mk-sheet .bd { flex: none; padding-top: var(--space-block); }
+  #p-review-fixes .mk-sheet .ft { flex-direction: column; align-items: stretch; gap: var(--space-gap); }
+  #p-review-fixes .msg { font: 12px/1.35 var(--font); color: var(--amber); }
+  #p-review-fixes .row { display: flex; align-items: center; gap: var(--space-base); }
+  #p-review-fixes .row .sp { flex: 1; min-width: var(--space-base); }
+  #p-review-fixes .mk-toast svg { width: 13px; height: 13px; fill: var(--text); flex: none; }
 </style>
 </head>
 <body>
@@ -2201,7 +2213,118 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-      <p class="no-proposals">No open proposals.</p>
+    </div>
+
+    <div class="section" id="p-review-fixes">
+      <p class="eyebrow proposal-flag">Proposal · New Review: fix a refused branch from the sheet · 9 Oct 2026</p>
+      <h2>Fix it from the footer, or not at all, instead of “go fix it in a terminal”</h2>
+      <p class="why">When git refuses a review's branch, New Review's footer explains why in amber, and the only way out is a
+        terminal opened on the project. A teammate hit both refusals below on the same merge request. This proposal fixes
+        one of them on its own when nothing can be lost, and puts the other behind one button in the footer. There is no new
+        component, colour or size. The button sits in <code>SheetFooter</code>'s existing <code>status</code> slot, at the leading edge.</p>
+      <ol class="diagnosis">
+        <li><span><b>Branch checked out in the project folder.</b> A task's worktree is already handled: the review opens
+          in that task. The project's own folder is not. It is where the person works, with an editor, a dev server or a
+          terminal open on it, so switching it is never done without asking. <code>TaskLauncher.openReview</code> already
+          says why: <q>the review would take over someone's checkout</q>.</span></li>
+        <li><span><b>Local and origin have diverged.</b> Usually the person checked the branch out once before and the author
+          has since rebased and force-pushed. The “local commits” are then old copies of commits already on origin, and
+          moving the branch loses nothing. Only real local commits need a decision.</span></li>
+        <li><span><b>The rule for both:</b> fix it automatically only when nothing can be lost <em>and</em> nobody else's
+          checkout moves. Otherwise offer one click, and after a fix the click creates the review, finishing the press that failed.</span></li>
+      </ol>
+
+      <h3 class="dq">1 · The branch is checked out in the project folder</h3>
+      <div class="options">
+
+<div class="option pick"><header><span class="letter">A</span><h3>A <code>Switch to main</code> button, only when that folder has no uncommitted changes</h3><span class="rec">Recommended</span></header>
+<p>The sentence names the folder and what would happen. <b>One click</b> runs <code>git switch main</code> there (the branch and
+  its commits stay as they are), then creates the review in a worktree of its own. With uncommitted changes in the folder
+  there is <b>no button</b>: AiTerm never stashes for someone, just as Pull main refuses autostash. ⌘↩ stays Create
+  Review, and the fix has no key: it changes someone's folder, so it takes a click.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">“shop-412” is checked out in acme-storefront itself. Switch that folder to main, and the review gets a worktree of its own.</p><div class="row"><span class="btn new" title="Switches acme-storefront to main, then creates the review">Switch to main</span><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>A · the folder has no uncommitted changes</figcaption></figure>
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">“shop-412” is checked out in acme-storefront, with uncommitted changes. Commit or stash them there, then review it.</p><div class="row"><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>A · the folder has uncommitted changes: no button</figcaption></figure>
+</div></div>
+
+<div class="option"><header><span class="letter">B</span><h3>Switch it automatically when the folder has no uncommitted changes, then show a toast</h3></header>
+<p>No click at all. But the files in the person's folder change under their editor and dev server without warning, which is the
+  surprise <code>openReview</code> refuses for a task's worktree. The toast only says what happened after it has happened.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><span class="mk-toast"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M4.8 8.2 7 10.3 11.2 5.9" fill="none" stroke="var(--surface)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Switched acme-storefront to main to review shop-412.</span></div><figcaption>B · after the review opened</figcaption></figure>
+</div></div>
+
+<div class="option"><header><span class="letter">C</span><h3>Keep today's sentence</h3></header>
+<p>Correct, but the only way out is a terminal, which is what the teammate asked to avoid.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">“shop-412” is checked out at /Users/you/Sites/acme-storefront. Switch that checkout to another branch, then review it.</p><div class="row"><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>C · as today</figcaption></figure>
+</div></div>
+
+      </div>
+
+      <h3 class="dq">2 · Local and origin have diverged</h3>
+      <div class="options">
+
+<div class="option pick"><header><span class="letter">A</span><h3>Automatic when nothing is lost; a <code>Rebase</code> button when local has real commits</h3><span class="rec">Recommended</span></header>
+<p><code>git cherry origin/shop-412 shop-412</code> checks whether each local-only commit is already on origin in another form.
+  If they all are, the branch holds nothing new: it is <b>moved to origin's</b>, the review opens, and a toast says so. When there are
+  real local commits, the sentence gives the counts in Pull main's words and offers <b>Rebase</b>, Pull main's own answer: it puts
+  your commits on top of origin's, undoes itself on a conflict, and pushes nothing. Then the review is created. There is no
+  “Use origin's”, because dropping someone's commits can't be made safe with one click.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><span class="mk-toast"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M4.8 8.2 7 10.3 11.2 5.9" fill="none" stroke="var(--surface)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Moved your local shop-412 to origin’s; its 3 old commits were already there.</span></div><figcaption>A · old copies after a force-push: no sheet error, a toast</figcaption></figure>
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">Your local “shop-412” has 2 commits that aren’t on origin, and origin has 5 it doesn’t. Rebase puts yours on top of origin’s; nothing is pushed.</p><div class="row"><span class="btn new" title="Rebases your shop-412 onto origin’s, then creates the review">Rebase</span><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>A · real local commits</figcaption></figure>
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">Rebasing “shop-412” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand.</p><div class="row"><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>A · the rebase conflicted: today's sentence, no button</figcaption></figure>
+</div></div>
+
+<div class="option"><header><span class="letter">B</span><h3>Always the <code>Rebase</code> button, never automatic</h3></header>
+<p>One rule for every case, and nothing ever moves without a click. But the common case, old copies after a force-push, then
+  asks the person a question whose answer can only be yes. A rebase of commits that are already on origin replays nothing, so the click does nothing useful.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">Your local “shop-412” has 3 commits that aren’t on origin, and origin has 3 it doesn’t. Rebase puts yours on top of origin’s; nothing is pushed.</p><div class="row"><span class="btn new">Rebase</span><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>B · even after a force-push</figcaption></figure>
+</div></div>
+
+<div class="option"><header><span class="letter">C</span><h3>Keep today's sentence</h3></header>
+<p>It names no counts and offers no way out but a terminal.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="bd"><span class="mk-help">Opens in iTerm2 · acme-storefront/.worktrees/review-shop-412 · shop-412</span></div><div class="rule"></div><div class="ft"><p class="msg">Your local “shop-412” and origin’s have diverged. Reconcile them (pull or reset), then review it.</p><div class="row"><span class="sp"></span><span class="btn">Back</span><span class="ai-primary">Create Review <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div></div><figcaption>C · as today</figcaption></figure>
+</div></div>
+
+      </div>
+
+      <h3 class="dq">Every state (with 1A and 2A)</h3>
+      <div class="table-scroll"><table class="patterns">
+        <thead><tr><th>Branch</th><th>Footer</th></tr></thead>
+        <tbody>
+          <tr><td>in a task's worktree</td><td class="to">nothing, as today: the review opens in that task</td></tr>
+          <tr><td>in the project folder, no uncommitted changes</td><td class="to">the sentence and <code>Switch to main</code>; a click switches, then creates</td></tr>
+          <tr><td>in the project folder, with uncommitted changes</td><td class="to">the sentence, no button</td></tr>
+          <tr><td>in a checkout outside the project</td><td class="to">today's sentence with its path, no button: it is not AiTerm's to switch</td></tr>
+          <tr><td>behind or ahead of origin</td><td class="to">nothing, as today: fast-forwarded, or its unpushed commits kept</td></tr>
+          <tr><td>diverged, every local commit already on origin</td><td class="to">nothing: the branch is moved to origin's, and a toast says so once the review opens</td></tr>
+          <tr><td>diverged, with real local commits</td><td class="to">the counts and <code>Rebase</code>; a click rebases, then creates</td></tr>
+          <tr><td>the rebase conflicted</td><td class="to">today's “hit a conflict” sentence, no button; the branch is left as it was</td></tr>
+          <tr><td>while a fix runs</td><td class="to">the fix button, Back and Create Review disabled, as during a create</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3 class="dq">How it would be built (with 1A and 2A)</h3>
+      <ul class="impl">
+        <li><b>One diverged error.</b> <code>WorktreeError.branchDiverged</code> and <code>defaultBranchDiverged</code> become one
+          case carrying the counts, with one sentence. <code>branchCheckedOut</code> says whether the holder is the project folder.</li>
+        <li><b>One rebase.</b> <code>rebaseDefaultBranch()</code> becomes <code>rebase(branch:)</code>, using its temporary checkout for a
+          branch checked out nowhere, which is the review's case. <code>DefaultBranchRebase</code> becomes <code>BranchRebase</code>.</li>
+        <li><b>The lossless move lives in Core.</b> <code>addReviewWorktree</code> asks <code>git cherry</code>, and when every local commit is
+          already on origin it forces the existing <code>fastForward</code> and reports it, so the app can show the toast.</li>
+        <li><b>Recovery is a case, not a closure.</b> <code>CreationFailure</code> gains a <code>recovery</code>
+          (<code>.switchProjectFolder</code>, <code>.rebaseBranch</code>), mapped from the error in one place, like
+          <code>OperationIssue.pullRefused</code>, so it stays <code>Equatable</code> and testable.</li>
+        <li><b>No new component.</b> <code>CreationFooter</code> hands the button to <code>SheetFooter</code>'s <code>status</code> slot.
+          It is a plain bordered <code>Button</code> with no key equivalent, at the sheet's <code>.large</code> control size.</li>
+        <li><b>Tested.</b> <code>WorktreesTests</code> covers four cases: a force-push is moved automatically, real commits are refused with counts,
+          a project folder with no uncommitted changes is switched, and one with uncommitted changes is refused.
+          <code>SheetSnapshots</code> draws the footer with each button.</li>
+      </ul>
     </div>
 
 
