@@ -65,15 +65,19 @@ class HookRouter:
         if sid is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
             return None
+        # Placed by evidence -- the agent's pid, or the tab id its hook carries -- rather than by a pin or
+        # the directory, either of which can name a sibling tab.
+        direct = self.resolver.resolve_directly(ev.agent, ev.session_id, ev.iterm_session_id)
         # The post came from the agent itself, so its cwd is the agent's — the only source
-        # there is for a Codex or PI session, neither of which has a polled session file.
+        # there is for a Codex or PI session, neither of which has a polled session file. Its
+        # conversation is the tab's only when the post was placed by evidence.
         changed = self.status.apply_metadata(sid, model=ev.model, reasoning=ev.reasoning,
                                              context=ev.context_percent, cwd=ev.cwd,
-                                             tokens=ev.tokens, transcript=ev.transcript)
+                                             tokens=ev.tokens, transcript=ev.transcript,
+                                             conversation=ev.conversation_id if sid == direct else None)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
-        starts_elsewhere = ev.kind == "sessionStart" and sid != self.resolver.resolve_directly(
-            ev.agent, ev.session_id, ev.iterm_session_id)
+        starts_elsewhere = ev.kind == "sessionStart" and sid != direct
         if not starts_elsewhere:
             changed += self.status.apply_event(sid, ev)
         await self.publisher.session_changed(changed)

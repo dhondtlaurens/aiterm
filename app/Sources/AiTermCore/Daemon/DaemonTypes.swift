@@ -20,6 +20,10 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// What this tab's conversation has spent, its subagents and background workers included. The
     /// tab's own — the daemon never shares it across sibling tabs, as it does a context fill.
     public var tokens: TokenTally? = nil
+    /// The conversation this tab's agent runs, as the agent's own hooks name it: what reopening its
+    /// task's window resumes (`TaskItem.conversations`). Nil for a shell, before the agent's first
+    /// hook placed on this tab, and from a daemon too old to send it.
+    public var conversationId: String? = nil
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -52,6 +56,7 @@ extension SessionInfo {
         // Read leniently: a tally this app cannot read — a count too large for an `Int`, a daemon of
         // another shape — costs only these counts, not the session and the snapshot it came in.
         tokens = (try? c.decodeIfPresent(TokenTally.self, forKey: .tokens)) ?? nil
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
     }
 }
 

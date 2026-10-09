@@ -5,6 +5,7 @@
     "agent": "shell",
     "agentCwd": null,
     "contextPercent": null,
+    "conversationId": null,
     "cwd": "/repo/.worktrees/feat-wire",
     "model": null,
     "projectId": null,

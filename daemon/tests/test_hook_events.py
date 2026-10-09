@@ -492,3 +492,17 @@ def test_pi_reports_the_sessions_tally():
 @pytest.mark.parametrize("tokens", [None, "x", {"input": 1}, {"input": "1", "output": 2}])
 def test_pi_tokens_are_none_when_unusable(tokens):
     assert parse_pi_hook({**PI_BASE, "hook_event_name": "tokens", "tokens": tokens}).tokens is None
+
+
+def test_a_hook_names_its_sessions_conversation():
+    assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit"}).conversation_id == "abc"
+    assert parse_codex_hook({"hook_event_name": "Stop", "session_id": "thread-1", "cwd": "/wt"}).conversation_id == "thread-1"
+    assert parse_pi_hook({**PI_BASE, "hook_event_name": "agent_start"}).conversation_id == "pi-session"
+    assert parse_grok_hook({**GROK_BASE, "hook_event_name": "UserPromptSubmit"}).conversation_id == "g-1"
+
+
+def test_a_nested_grok_agents_post_names_no_conversation():
+    # A child's permission prompt is the parent tab's state, but its sessionId is the child's own.
+    ev = parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "permission_prompt",
+                          "subagentType": "general"})
+    assert ev is not None and ev.kind == "needsInput" and ev.nested and ev.conversation_id is None

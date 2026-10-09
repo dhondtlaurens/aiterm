@@ -51,6 +51,7 @@ class SessionRegistry:
             if info.agent == old.agent and info.job_pid == old.job_pid:
                 info.model, info.reasoning, info.agent_cwd = old.model, old.reasoning, old.agent_cwd
                 info.context_percent, info.tokens, info.transcript = old.context_percent, old.tokens, old.transcript
+                info.conversation_id = old.conversation_id
             if info != old:
                 self._sessions[r.session_id] = info
                 diff.changed.append(r.session_id)
@@ -94,6 +95,13 @@ class SessionRegistry:
         if s is None or not cwd or s.agent_cwd == cwd:
             return False
         s.agent_cwd = cwd
+        return True
+
+    def set_conversation(self, session_id: str, conversation: str | None) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or not conversation or s.conversation_id == conversation:
+            return False
+        s.conversation_id = conversation
         return True
 
     def set_context(self, session_id: str, percent: int | None) -> bool:

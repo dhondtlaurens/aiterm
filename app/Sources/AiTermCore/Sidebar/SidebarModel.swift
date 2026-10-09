@@ -21,11 +21,12 @@ public extension SessionState {
 
 public extension SessionInfo {
     /// The tab without what no row draws, for telling a change the rows draw from one they don't:
-    /// most session events are a context fill, a token count, a model or a Codex spinner title. A field the rows —
+    /// most session events are a context fill, a token count, a conversation id, a model or a Codex spinner title. A field the rows —
     /// or the footer's `ctx` row — start to read has to stay here.
     var rowRelevant: SessionInfo {
         var row = self
         row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil; row.tokens = nil
+        row.conversationId = nil
         return row
     }
 }

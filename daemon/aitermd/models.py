@@ -195,6 +195,10 @@ class SessionInfo:
     # What the tab's conversation has spent, subagents and background workers included. The tab's
     # own: two tabs running one provider are two conversations, so unlike context it is never shared.
     tokens: TokenTally | None = None
+    # The conversation the tab's agent runs, as the agent's own hooks name it (HookEvent.conversation_id),
+    # and what the app resumes when it reopens the task's window. Another process in the tab is another
+    # conversation, so it goes with the agent's process, as the model does (SessionRegistry).
+    conversation_id: str | None = None
     # Where a Claude conversation writes its transcript, which its tokens are summed from. Neither
     # sent nor compared: only the service's tally reads it.
     transcript: str | None = field(default=None, compare=False)
@@ -206,6 +210,7 @@ class SessionInfo:
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
             "tokens": self.tokens.to_json() if self.tokens else None,
+            "conversationId": self.conversation_id,
         }
 
 

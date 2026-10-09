@@ -5,6 +5,7 @@
     "agent": "pi",
     "agentCwd": "/repo/.worktrees/feat-wire/app",
     "contextPercent": 42,
+    "conversationId": "pi-wire",
     "cwd": "/repo/.worktrees/feat-wire",
     "model": "claude-opus-5",
     "projectId": null,

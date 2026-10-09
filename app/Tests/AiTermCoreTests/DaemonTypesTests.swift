@@ -150,4 +150,17 @@ import Testing
         #expect(said(.unknownMethod) == "AiTerm’s helper is from another version.")
         #expect(said(.internal) == "AiTerm’s helper ran into a problem.")
     }
+
+    /// A tab names the conversation its agent runs; an older daemon names none. No row draws it, so a
+    /// new one redraws nothing.
+    @Test func aSessionCarriesItsConversationAndAnOlderDaemonsNone() throws {
+        let named = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"codex","model":null,"state":"idle","title":"","cwd":"/repo","conversationId":"019a-thread"}"#
+        let session = try JSONDecoder().decode(SessionInfo.self, from: Data(named.utf8))
+        #expect(session.conversationId == "019a-thread")
+        let older = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"codex","model":null,"state":"idle","title":"","cwd":"/repo"}"#
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data(older.utf8)).conversationId == nil)
+        var renamed = session
+        renamed.conversationId = "019b-thread"
+        #expect(renamed.rowRelevant == session.rowRelevant, "no row draws a conversation")
+    }
 }

@@ -321,3 +321,30 @@ async def test_a_statusline_tick_carrying_only_a_transcript_is_remembered(hooks)
     await hooks.post("/statusline", {"session_id": "c", "cwd": "/wt", "_aiterm_iterm_session_id": sid,
                                      "transcript_path": "/p/c.jsonl"})
     assert hooks.registry.get(sid).transcript == "/p/c.jsonl"
+
+
+async def test_a_hook_placed_by_its_tab_id_names_the_tabs_conversation(hooks):
+    [sid] = hooks.tabs(("s1", "codex", 101))
+    await hooks.post("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-1", "cwd": "/wt",
+                                     "_aiterm_iterm_session_id": sid})
+    assert hooks.registry.get(sid).conversation_id == "thread-1"
+    assert hooks.events[-1][1]["conversationId"] == "thread-1"
+
+
+async def test_a_hook_placed_by_its_directory_names_no_conversation(tmp_path):
+    # A directory can be shared by sibling tabs: the conversation could be another tab's.
+    hooks = Hooks(tmp_path)
+    [sid] = hooks.tabs(("tab-1", "grok", 41))
+    await hooks.post("/hook/grok", {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1", "cwd": "/wt"})
+    assert hooks.state(sid) == "working"
+    assert hooks.registry.get(sid).conversation_id is None
+
+
+async def test_a_grok_subagents_permission_prompt_leaves_the_tabs_conversation(hooks):
+    [sid] = hooks.tabs(("tab-1", "grok", 41))
+    base = {"cwd": "/wt", "_aiterm_iterm_session_id": "w0t0p0:tab-1"}
+    await hooks.post("/hook/grok", {**base, "hook_event_name": "UserPromptSubmit", "sessionId": "g-1"})
+    await hooks.post("/hook/grok", {**base, "hook_event_name": "Notification", "notificationType": "permission_prompt",
+                                    "sessionId": "g-child", "subagentType": "general"})
+    assert hooks.state(sid) == "needsInput"
+    assert hooks.registry.get(sid).conversation_id == "g-1"

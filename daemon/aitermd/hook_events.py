@@ -45,6 +45,15 @@ class HookEvent:
     tokens: TokenTally | None = None
     # The Claude conversation's transcript, which its tokens are summed from (claude_tokens).
     transcript: str | None = None
+    # A nested agent's own event (a Grok subagent's permission prompt): its state is the parent tab's,
+    # but its session id is the child's, so it names no conversation of that tab's.
+    nested: bool = False
+
+    @property
+    def conversation_id(self) -> str | None:
+        """The conversation the post's tab runs, which a reopened window resumes: its session id,
+        unless the post is a nested agent's."""
+        return None if self.nested else self.session_id
 
 
 def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:
@@ -318,6 +327,7 @@ def parse_grok_hook(p: dict[str, Any]) -> HookEvent | None:
         turn_id=None if child else _nonempty_string(p.get("promptId")),
         starts_turn=name == "UserPromptSubmit",
         event_name=name,
+        nested=child,
     )
 
 

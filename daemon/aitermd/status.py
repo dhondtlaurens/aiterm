@@ -159,7 +159,7 @@ class StatusEngine:
 
     def apply_metadata(self, session_id: str, *, model: str | None = None, reasoning: str | None = None,
                        context: int | None = None, cwd: str | None = None, tokens: TokenTally | None = None,
-                       transcript: str | None = None) -> list[str]:
+                       transcript: str | None = None, conversation: str | None = None) -> list[str]:
         """What an agent reports beside its state: each value present replaces the session's, and
         an absent one leaves it be. Returns the sessions that changed."""
         s = self.reg.get(session_id)
@@ -171,6 +171,8 @@ class StatusEngine:
         if reasoning and self.reg.set_reasoning(session_id, reasoning):
             changed.append(session_id)
         if self.reg.set_agent_cwd(session_id, cwd):
+            changed.append(session_id)
+        if self.reg.set_conversation(session_id, conversation):
             changed.append(session_id)
         if context is not None:
             # Context is presented per provider within a task. Updating sibling tabs for the same

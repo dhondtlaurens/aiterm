@@ -12,7 +12,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": None, "reasoning": None, "state": "idle", "title": "zsh", "cwd": "/home",
-        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None})
+        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None, "conversationId": None})
 
 
 def test_untagged_session_in_tagged_window_inherits_task():
@@ -230,3 +230,16 @@ def test_a_title_change_alongside_another_change_is_still_announced_with_the_new
 
     assert diff.changed == ["s1"]
     assert reg.get("s1").title == "⠙ repo" and reg.get("s1").to_json()["title"] == "⠙ repo"
+
+
+def test_a_conversation_survives_a_snapshot_and_goes_with_its_process():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(cmd="claude", pid=4242)])
+    assert reg.set_conversation("s1", "c-1") is True
+    assert reg.set_conversation("s1", "c-1") is False   # idempotent
+    assert reg.set_conversation("s1", None) is False    # nothing to learn
+    reg.apply_snapshot([raw(cmd="claude", pid=4242, title="busy")])
+    assert reg.get("s1").to_json()["conversationId"] == "c-1"
+    # Another process in the tab is another conversation, as it is another model.
+    diff = reg.apply_snapshot([raw(cmd="claude", pid=5151)])
+    assert diff.replaced == ["s1"] and reg.get("s1").conversation_id is None

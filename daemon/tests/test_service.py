@@ -1937,3 +1937,35 @@ async def test_a_codex_rollout_read_that_hangs_costs_the_tick_its_deadline_not_t
     finally:
         release.set()
     assert elapsed < 1, "the tick gave up on the read at its deadline instead of waiting for it"
+
+
+async def test_windows_iterm2_lost_while_away_are_announced_after_it_reconnects_and_before_the_snapshot(make_service):
+    """What the app tells a person's close from iTerm2 going away by (ClosedWindowTriage): a quit or a
+    crash drops the connection -- `iterm.disconnected` -- and no tick can see a window go while iTerm2
+    is away. Those windows are announced closed by the first tick once it is back, which runs before
+    the reply to the snapshot the app asks for on `iterm.connected`."""
+    async def no_wait(_seconds):
+        await asyncio.sleep(0.001)
+
+    svc = make_service(supervisor={"reconnect_sleep": no_wait})
+    await svc.start()
+    it = svc.iterm
+    r, w = await asyncio.open_unix_connection(svc.rpc.path)
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    await drain_events(r)
+
+    await it.disconnect()
+    await it.close_window(wid)
+    events = [m.get("event") for m in await drain_events(r)]
+    assert "iterm.disconnected" in events and "window.closed" not in events
+
+    await it.reconnect()
+    assert await next_event(r, "iterm.connected") == {"version": "3.7.2"}
+    w.write((json.dumps({"id": 9, "method": "workspace.snapshot", "params": None}) + "\n").encode())
+    await w.drain()
+    before_reply: list[dict] = []
+    while (msg := json.loads(await asyncio.wait_for(r.readline(), 2))).get("id") != 9:
+        before_reply.append(msg)
+    assert {"event": "window.closed", "payload": {"windowId": wid}} in before_reply
+    assert msg["result"]["connected"] is True and msg["result"]["sessions"] == []
+    w.close()
