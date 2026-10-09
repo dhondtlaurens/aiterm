@@ -12,7 +12,7 @@ import Testing
 
     func synced() -> ClosedWindowTriage {
         var triage = ClosedWindowTriage()
-        triage.itermSynced(true)
+        triage.itermSynced(true, at: at(0))
         return triage
     }
 
@@ -49,23 +49,64 @@ import Testing
     @Test func itermDisconnectingDuringTheHoldIsAQuit() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
-        triage.itermSynced(false)
+        triage.itermSynced(false, at: at(100))
         #expect(triage.due(at: at(1000)).isEmpty)
         #expect(!triage.isHolding)
     }
 
-    @Test func itermDisconnectingJustBeforeTheHoldIsOverIsStillAQuit() {
+    @Test func aDisconnectLessThanASecondAfterACloseCancelsIt() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
-        triage.itermSynced(false)   // 999 ms in, a tick before the hold would end
-        #expect(triage.due(at: at(1000)).isEmpty)
+        triage.itermSynced(false, at: at(999))
+        #expect(!triage.isHolding)
+        #expect(triage.due(at: at(5000)).isEmpty)
+    }
+
+    @Test func aDisconnectExactlyASecondAfterACloseDoesNotCancelIt() {
+        var triage = synced()
+        triage.windowClosed(task: task, at: at(0))
+        triage.itermSynced(false, at: at(1000))
+        #expect(triage.isHolding)
+        #expect(triage.due(at: at(1000)) == [task])
+    }
+
+    /// The caller may get to `due` late: what came after the hold was over does not take the question back.
+    @Test func aDisconnectAfterTheHoldEndedButBeforeDueStillAsksAboutIt() {
+        var triage = synced()
+        triage.windowClosed(task: task, at: at(0))
+        triage.itermSynced(false, at: at(1500))
+        #expect(triage.due(at: at(2000)) == [task])
+    }
+
+    @Test func aDisconnectCancelsOnlyTheClosesStillInsideTheirHold() {
+        var triage = synced()
+        triage.windowClosed(task: task, at: at(0))
+        triage.windowClosed(task: other, at: at(1500))
+        triage.itermSynced(false, at: at(2000))
+        #expect(triage.due(at: at(5000)) == [task])
+    }
+
+    @Test func aBurstAfterAHeldCloseHoldEndedButBeforeDueStillAsksAboutIt() {
+        var triage = synced()
+        triage.windowClosed(task: task, at: at(0))
+        triage.windowClosed(task: nil, at: at(1200))     // alone: more than a second after the first
+        triage.windowClosed(task: nil, at: at(1500))     // a burst of its own
+        #expect(triage.due(at: at(2500)) == [task])
+    }
+
+    @Test func aBurstCancelsOnlyTheClosesStillInsideTheirHold() {
+        var triage = synced()
+        triage.windowClosed(task: task, at: at(0))
+        triage.windowClosed(task: other, at: at(1200))   // held: a second after the first
+        triage.windowClosed(task: nil, at: at(1500))     // within a second of it
+        #expect(triage.due(at: at(5000)) == [task], "the first stays due, the second is cancelled")
     }
 
     @Test func aDisconnectAfterTheQuestionWasTakenChangesNothing() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
         #expect(triage.due(at: at(1000)) == [task])
-        triage.itermSynced(false)
+        triage.itermSynced(false, at: at(1000))
         #expect(!triage.isHolding)
         #expect(triage.due(at: at(2000)).isEmpty)
     }
@@ -162,18 +203,21 @@ import Testing
         #expect(triage.due(at: at(3500)) == [other])
     }
 
-    @Test func aCloseWithinASecondOfAnEarlierOneIsQuietWhetherOrNotThatOneWasTaken() {
+    @Test func aCloseExactlyASecondAfterOneThatWasTakenIsAskedAbout() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
         #expect(triage.due(at: at(1000)) == [task])
         triage.windowClosed(task: other, at: at(1000))
-        #expect(triage.due(at: at(2000)) == [other], "exactly a second after the first")
-        var tight = synced()
-        tight.windowClosed(task: task, at: at(0))
-        #expect(tight.due(at: at(950)).isEmpty)
-        tight.windowClosed(task: other, at: at(950))
-        #expect(!tight.isHolding)
-        #expect(tight.due(at: at(5000)).isEmpty)
+        #expect(triage.due(at: at(2000)) == [other])
+    }
+
+    @Test func aCloseWithinASecondOfOneNotYetTakenIsQuiet() {
+        var triage = synced()
+        triage.windowClosed(task: task, at: at(0))
+        #expect(triage.due(at: at(950)).isEmpty)
+        triage.windowClosed(task: other, at: at(950))
+        #expect(!triage.isHolding)
+        #expect(triage.due(at: at(5000)).isEmpty)
     }
 
     @Test func closesTwoSecondsApartAreBothAskedAboutInOneDueWhenTheCallerIsLate() {
@@ -206,11 +250,11 @@ import Testing
         var triage = ClosedWindowTriage()
         triage.windowClosed(task: task, at: at(0))
         #expect(!triage.isHolding, "no snapshot yet")
-        triage.itermSynced(true)
-        triage.itermSynced(false)   // iterm.connected: a new iTerm2, its snapshot not in yet
+        triage.itermSynced(true, at: at(0))
+        triage.itermSynced(false, at: at(0))   // iterm.connected: a new iTerm2, its snapshot not in yet
         triage.windowClosed(task: task, at: at(5000))
         #expect(!triage.isHolding)
-        triage.itermSynced(true)
+        triage.itermSynced(true, at: at(5000))
         triage.windowClosed(task: other, at: at(10000))
         #expect(triage.due(at: at(11000)) == [other])
     }
@@ -219,13 +263,13 @@ import Testing
         var triage = ClosedWindowTriage()
         triage.windowClosed(task: task, at: at(0))
         #expect(triage.due(at: at(5000)).isEmpty)
-        triage.itermSynced(true)
+        triage.itermSynced(true, at: at(5000))
         #expect(triage.due(at: at(6000)).isEmpty, "the snapshot does not bring it back")
     }
 
     @Test func aDisconnectedStateOnItsOwnHoldsNothing() {
         var triage = ClosedWindowTriage()
-        triage.itermSynced(false)
+        triage.itermSynced(false, at: at(0))
         triage.windowClosed(task: task, at: at(0))
         #expect(!triage.isHolding)
         #expect(triage.due(at: at(5000)).isEmpty)
@@ -234,11 +278,11 @@ import Testing
     /// iterm.connected, then the windows iTerm2 lost while away, then the snapshot, then lone closes.
     @Test func aReconnectFollowedByLoneClosesAsksAboutEachLoneClose() {
         var triage = synced()
-        triage.itermSynced(false)                       // iterm.disconnected
-        triage.itermSynced(false)                       // iterm.connected, snapshot to come
+        triage.itermSynced(false, at: at(0))                       // iterm.disconnected
+        triage.itermSynced(false, at: at(0))                       // iterm.connected, snapshot to come
         triage.windowClosed(task: task, at: at(0))      // announced on the first tick back
         triage.windowClosed(task: other, at: at(10))
-        triage.itermSynced(true)                        // the snapshot
+        triage.itermSynced(true, at: at(10))                        // the snapshot
         #expect(triage.due(at: at(5000)).isEmpty)
         triage.windowClosed(task: task, at: at(6000))   // the person closes one window
         #expect(triage.due(at: at(7000)) == [task])
@@ -250,7 +294,7 @@ import Testing
     @Test func aPersonsCloseRightAfterTheCatchUpClosesIsStillQuiet() {
         var triage = ClosedWindowTriage()
         triage.windowClosed(task: task, at: at(0))      // announced before the snapshot
-        triage.itermSynced(true)
+        triage.itermSynced(true, at: at(0))
         triage.windowClosed(task: other, at: at(500))
         #expect(!triage.isHolding)
         #expect(triage.due(at: at(5000)).isEmpty)
@@ -259,8 +303,8 @@ import Testing
     @Test func aDisconnectThenALaterSnapshotAsksAboutALaterLoneClose() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
-        triage.itermSynced(false)
-        triage.itermSynced(true)
+        triage.itermSynced(false, at: at(100))
+        triage.itermSynced(true, at: at(200))
         #expect(triage.due(at: at(5000)).isEmpty, "the earlier close stays dropped")
         triage.windowClosed(task: other, at: at(6000))
         #expect(triage.due(at: at(7000)) == [other])
@@ -269,7 +313,7 @@ import Testing
     @Test func authFailedLeavesTheSyncedStateLikeADisconnect() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
-        triage.itermSynced(false)   // iterm.auth_failed
+        triage.itermSynced(false, at: at(100))   // iterm.auth_failed
         #expect(triage.due(at: at(2000)).isEmpty)
         triage.windowClosed(task: other, at: at(10000))
         #expect(!triage.isHolding)
@@ -278,7 +322,7 @@ import Testing
     @Test func syncingTwiceDropsNothing() {
         var triage = synced()
         triage.windowClosed(task: task, at: at(0))
-        triage.itermSynced(true)    // a second connected snapshot, a periodic refresh
+        triage.itermSynced(true, at: at(500))    // a second connected snapshot, a periodic refresh
         #expect(triage.isHolding)
         #expect(triage.due(at: at(1000)) == [task])
     }
