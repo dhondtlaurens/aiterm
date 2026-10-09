@@ -61,11 +61,63 @@ public struct GitHubClient: Sendable {
         return Int(text.drop { $0 == "#" || $0 == "!" })
     }
 
+    /// How many review threads one page of `reviewThreads` asks for, and how many pages it reads
+    /// at most.
+    static let threadsPerPage = 100, threadPages = 10
+
+    /// One query, never a mutation: the threads of a pull request and whether each is resolved.
+    static let threadsQuery = """
+        query($owner: String!, $name: String!, $number: Int!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            pullRequest(number: $number) {
+              reviewThreads(first: \(threadsPerPage), after: $after) { pageInfo { hasNextPage endCursor } nodes { isResolved } }
+            }
+          }
+        }
+        """
+
+    /// The pull request's review threads, and how many are resolved. REST has none, so this is
+    /// GraphQL's `reviewThreads`, read with the same token — a fine-grained token needs read access
+    /// to pull requests, as the search already does; a classic one, `repo` for a private
+    /// repository. GraphQL answers a repository or pull request it cannot see with 200, a null and
+    /// an error, which is thrown here rather than read as no threads.
+    public func reviewThreads(repo: String, number: Int) async throws -> ReviewThreads {
+        let parts = repo.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { throw GitHubError.repoNotFound(repo) }
+        var resolutions: [Bool] = [], cursor: String?
+        for _ in 0..<Self.threadPages {
+            let variables = ThreadsRequest.Variables(owner: parts[0], name: parts[1], number: number, after: cursor)
+            let page = try await post(ThreadsPayload.self, path: "/graphql",
+                                      body: ThreadsRequest(query: Self.threadsQuery, variables: variables),
+                                      notFound: .repoNotFound(repo))
+            guard let threads = page.data?.repository?.pullRequest?.reviewThreads else {
+                throw page.errors?.contains { $0.type == "FORBIDDEN" } == true ? GitHubError.forbidden : GitHubError.repoNotFound(repo)
+            }
+            resolutions += threads.nodes.compactMap { $0.value?.isResolved }
+            guard threads.pageInfo.hasNextPage, let next = threads.pageInfo.endCursor else { break }
+            cursor = next
+        }
+        return ReviewThreads(resolutions: resolutions)
+    }
+
+    /// The token and the API version every request carries.
+    private var headers: [String: String] {
+        ["Authorization": "Bearer \(config.token)", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"]
+    }
+
     private func get<Payload: Decodable>(_ type: Payload.Type, path: String, query: [URLQueryItem] = [],
                                          notFound: GitHubError) async throws -> Payload {
         guard let url = HTTPJSON.url(Self.api + path, query: query) else { throw GitHubError.decoding }
-        let request = HTTPJSON.request(url, headers: ["Authorization": "Bearer \(config.token)", "Accept": "application/vnd.github+json",
-                                                      "X-GitHub-Api-Version": "2022-11-28"])
+        let request = HTTPJSON.request(url, headers: headers)
+        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
+    }
+
+    private func post<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, path: String, body: Body,
+                                                           notFound: GitHubError) async throws -> Payload {
+        guard let url = HTTPJSON.url(Self.api + path) else { throw GitHubError.decoding }
+        var request = HTTPJSON.request(url, headers: headers.merging(["Content-Type": "application/json"]) { $1 })
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(body)
         return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
     }
 
@@ -101,4 +153,24 @@ private struct PullPayload: Decodable {
                             draft: draft ?? false, url: htmlUrl,
                             forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil)
     }
+}
+
+/// A GraphQL request for one page of a pull request's review threads.
+private struct ThreadsRequest: Encodable {
+    struct Variables: Encodable { var owner: String, name: String, number: Int, after: String? }
+    var query: String, variables: Variables
+}
+
+/// GraphQL's answer for one page of review threads. Its keys are camelCase, which the snake-case
+/// decoder leaves as they are. `repository` or `pullRequest` is null, with an error beside it, when
+/// the token cannot see it or it is not there.
+private struct ThreadsPayload: Decodable {
+    struct Problem: Decodable { var type: String? }
+    struct Node: Decodable { var isResolved: Bool }
+    struct PageInfo: Decodable { var hasNextPage: Bool, endCursor: String? }
+    struct Threads: Decodable { var pageInfo: PageInfo, nodes: [Lenient<Node>] }
+    struct PullRequest: Decodable { var reviewThreads: Threads }
+    struct Repository: Decodable { var pullRequest: PullRequest? }
+    struct Answer: Decodable { var repository: Repository? }
+    var data: Answer?, errors: [Problem]?
 }

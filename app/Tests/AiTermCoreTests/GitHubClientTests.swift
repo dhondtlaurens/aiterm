@@ -129,4 +129,81 @@ import Foundation
         #expect(MergeRequestRef(iid: 87, title: "t", url: "https://github.com/octocat/hello/pull/87").reference == "#87")
         #expect(MergeRequestRef(iid: 4, title: "t", url: "https://git.example.net/web/acme-web/-/merge_requests/4").reference == "!4")
     }
+
+    /// One page of GraphQL's answer for a pull request's review threads.
+    private static func threadsPage(_ resolved: [Bool], next: String? = nil) throws -> Data {
+        let threads: [String: Any] = ["pageInfo": ["hasNextPage": next != nil, "endCursor": next.map { $0 as Any } ?? NSNull()],
+                                      "nodes": resolved.map { ["isResolved": $0] }]
+        return try JSONSerialization.data(withJSONObject: ["data": ["repository": ["pullRequest": ["reviewThreads": threads]]]])
+    }
+
+    /// What a GraphQL request sent as its variables.
+    private static func variables(of request: URLRequest) -> [String: Any] {
+        let body = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any]
+        return body?["variables"] as? [String: Any] ?? [:]
+    }
+
+    /// REST has no review threads; GraphQL does. One query, read-only, with the same token.
+    @Test func reviewThreadsAskGraphQLForThePullRequestsThreads() async throws {
+        let body = try Self.threadsPage([true, false, true])
+        let (client, stub) = makeClient { _ in (200, body) }
+        #expect(try await client.reviewThreads(repo: "octocat/hello", number: 87) == ReviewThreads(resolved: 2, total: 3))
+        let req = try #require(stub.lastRequest)
+        #expect(req.url?.absoluteString == "https://api.github.com/graphql")
+        #expect(req.httpMethod == "POST")
+        #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer ghp_tok")
+        #expect(req.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        let sent = try #require(try JSONSerialization.jsonObject(with: req.httpBody ?? Data()) as? [String: Any])
+        let query = try #require(sent["query"] as? String)
+        #expect(query.hasPrefix("query("))
+        #expect(!query.contains("mutation"))
+        #expect(query.contains("reviewThreads(first: 100, after: $after)"))
+        let variables = Self.variables(of: req)
+        #expect(variables["owner"] as? String == "octocat")
+        #expect(variables["name"] as? String == "hello")
+        #expect(variables["number"] as? Int == 87)
+        #expect(variables["after"] == nil)
+    }
+
+    /// Review focus 4: the next page is asked for by the cursor the last one ended at.
+    @Test func reviewThreadsFollowTheCursor() async throws {
+        let first = try Self.threadsPage([true, true], next: "c1"), second = try Self.threadsPage([false])
+        let (client, stub) = makeClient { request in (200, Self.variables(of: request)["after"] as? String == "c1" ? second : first) }
+        #expect(try await client.reviewThreads(repo: "octocat/hello", number: 87) == ReviewThreads(resolved: 2, total: 3))
+        #expect(stub.requests.map { Self.variables(of: $0)["after"] as? String } == [nil, "c1"])
+    }
+
+    /// Review focus 4: a cursor that never ends is followed ten pages and no further.
+    @Test func reviewThreadsStopAtTenPagesToo() async throws {
+        let endless = try Self.threadsPage([true], next: "again")
+        let (client, stub) = makeClient { _ in (200, endless) }
+        #expect(try await client.reviewThreads(repo: "octocat/hello", number: 87) == ReviewThreads(resolved: 10, total: 10))
+        #expect(stub.requests.count == GitHubClient.threadPages)
+    }
+
+    /// Review focus 3: GraphQL answers 200 with the repository or pull request null, and says why in
+    /// `errors`. That is not a pull request without threads.
+    @Test func aRepositoryOrPullRequestGraphQLCannotSeeThrows() async {
+        let cases: [(String, GitHubError)] = [
+            (#"{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a Repository"}]}"#, .repoNotFound("octocat/hello")),
+            (#"{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND"}]}"#, .repoNotFound("octocat/hello")),
+            (#"{"data":{"repository":null},"errors":[{"type":"FORBIDDEN","message":"Resource protected by organization SAML enforcement"}]}"#, .forbidden),
+            (#"{"data":null,"errors":[{"message":"Something went wrong"}]}"#, .repoNotFound("octocat/hello")),
+        ]
+        for (body, error) in cases {
+            await #expect(throws: error, "\(body)") {
+                _ = try await self.makeClient { _ in (200, Data(body.utf8)) }.client.reviewThreads(repo: "octocat/hello", number: 87)
+            }
+        }
+        await #expect(throws: GitHubError.unauthorized) {
+            _ = try await self.makeClient { _ in (401, Data()) }.client.reviewThreads(repo: "octocat/hello", number: 87)
+        }
+    }
+
+    /// A repository that is not `owner/name` is not asked about at all.
+    @Test func aRepositoryWithoutAnOwnerIsNotAsked() async {
+        let (client, stub) = makeClient { _ in (200, Data()) }
+        await #expect(throws: GitHubError.repoNotFound("hello")) { _ = try await client.reviewThreads(repo: "hello", number: 87) }
+        #expect(stub.requests.isEmpty)
+    }
 }
