@@ -348,3 +348,13 @@ async def test_a_grok_subagents_permission_prompt_leaves_the_tabs_conversation(h
                                     "sessionId": "g-child", "subagentType": "general"})
     assert hooks.state(sid) == "needsInput"
     assert hooks.registry.get(sid).conversation_id == "g-1"
+
+
+async def test_a_codex_subagents_start_and_stop_leave_the_tabs_conversation(hooks):
+    # The child's post carries its own thread id and is placed by the tab id, which is direct evidence.
+    [sid] = hooks.tabs(("s1", "codex", 101))
+    base = {"cwd": "/wt", "_aiterm_iterm_session_id": sid}
+    await hooks.post("/hook/codex", {**base, "hook_event_name": "SessionStart", "session_id": "thread-1"})
+    for name in ("SubagentStart", "SubagentStop"):
+        await hooks.post("/hook/codex", {**base, "hook_event_name": name, "session_id": "thread-2", "agent_id": "child-1"})
+        assert hooks.registry.get(sid).conversation_id == "thread-1", name

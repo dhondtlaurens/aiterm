@@ -51,9 +51,10 @@ class HookEvent:
 
     @property
     def conversation_id(self) -> str | None:
-        """The conversation the post's tab runs, which a reopened window resumes: its session id,
-        unless the post is a nested agent's."""
-        return None if self.nested else self.session_id
+        """The conversation the post's tab runs, which a reopened window resumed: its session id,
+        unless the post is a nested agent's, or a subagent's start or stop in any harness (a Codex
+        child's carries its own thread id)."""
+        return None if self.nested or self.kind in ("subagentStart", "subagentStop") else self.session_id
 
 
 def _subagent(name: str, p: dict[str, Any]) -> tuple[Transition, str] | None:

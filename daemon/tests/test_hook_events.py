@@ -506,3 +506,11 @@ def test_a_nested_grok_agents_post_names_no_conversation():
     ev = parse_grok_hook({**GROK_BASE, "hook_event_name": "Notification", "notificationType": "permission_prompt",
                           "subagentType": "general"})
     assert ev is not None and ev.kind == "needsInput" and ev.nested and ev.conversation_id is None
+
+
+def test_a_subagents_start_and_stop_name_no_conversation():
+    for name in ("SubagentStart", "SubagentStop"):
+        ev = parse_codex_hook({"hook_event_name": name, "session_id": "thread-2", "cwd": "/wt", "agent_id": "child-1"})
+        assert ev is not None and ev.conversation_id is None, name
+        ev = parse_claude_hook({**BASE, "hook_event_name": name, "agent_id": "child-1"})
+        assert ev is not None and ev.conversation_id is None, name

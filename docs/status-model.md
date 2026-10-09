@@ -186,7 +186,7 @@ child's `:failed`, Grok tracks no children (its `Stop` lists them), and no Codex
 seen to die without its `SubagentStop`.
 
 What an agent reported belongs to its process, not the tab. A tab keeps its model, reasoning,
-agent directory and context fill only while the same agent runs under the same process id, from
+agent directory, context fill and conversation id only while the same agent runs under the same process id, from
 one snapshot to the next. A Claude that exits to the shell, or a new Claude in the same tab,
 starts blank: the row no longer shows the old worktree's branch, and Cmd+T opens where the shell
 is. The state is not kept either: the tick that finds the tab back at its shell sets it idle at
