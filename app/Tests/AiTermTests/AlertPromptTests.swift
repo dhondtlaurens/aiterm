@@ -52,7 +52,18 @@ import AiTermCore
         #expect(asked.buttons == ["Remove", "Cancel"])
         #expect(asked.defaultDeletes)
         #expect(asked.escapeButton == 1)
+        #expect(asked.detail == "Deletes its worktree and closes its iTerm2 window.", "no path: the row was clicked")
+        #expect(asked.checkbox == "Delete local branch")
+        #expect(asked.checkboxHelp == "feat/work", "the branch is on the tooltip, not the label")
         #expect(fixture.controller.state.tasks == [task])
+    }
+
+    @Test func theCheckboxCarriesItsTooltip() throws {
+        let alert = ModalPrompter.alert(for: AlertPrompt(message: "Remove task?", buttons: ["Remove", "Cancel"],
+                                                         checkbox: "Delete local branch", checkboxHelp: "feat/work"))
+        let checkbox = try #require(alert.accessoryView as? NSButton)
+        #expect(checkbox.title == "Delete local branch")
+        #expect(checkbox.toolTip == "feat/work")
     }
 
     @Test func theRemoveProjectAlertIsBlueBecauseItKeepsTheFiles() async throws {
@@ -65,7 +76,29 @@ import AiTermCore
         let asked = try #require(prompter.asked.first)
         #expect(asked.buttons == ["Remove", "Cancel"])
         #expect(!asked.defaultDeletes)
+        #expect(asked.detail == "Removes the project from AiTerm. Files are kept and terminal windows stay open.")
         #expect(fixture.controller.state.projects == [fixture.project], "⎋ cancels")
+    }
+
+    @Test func theRemoveProjectAlertCountsItsTasksRatherThanListingTheirPaths() async throws {
+        let prompter = ScriptedPrompter(answering: "⎋", "⎋")
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.cleanUp() }
+        func task(_ name: String) -> TaskItem {
+            TaskItem(id: UUID(), projectId: fixture.project.id, title: name, branch: "feat/" + name,
+                     worktreePath: fixture.repo.path + "/.worktrees/" + name, baseBranch: "main", jira: nil,
+                     agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil, appendTicket: false,
+                     createdAt: Date(), windowId: nil)
+        }
+        fixture.controller.workspace.mutate { $0.tasks = [task("one")] }
+        await fixture.controller.confirmRemove(project: fixture.project)
+        fixture.controller.workspace.mutate { $0.tasks = [task("one"), task("two")] }
+        await fixture.controller.confirmRemove(project: fixture.project)
+
+        #expect(prompter.asked.map(\.detail) == [
+            "Removes the project and its task from AiTerm. Files, worktrees and windows are kept.",
+            "Removes the project and its 2 tasks from AiTerm. Files, worktrees and windows are kept.",
+        ])
     }
 
     @Test func escapeSkipsTheWorktreeImport() async throws {

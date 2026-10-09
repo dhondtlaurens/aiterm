@@ -243,18 +243,16 @@ final class ProjectActions {
 
     // -- removing a project -----------------------------------------------------------------
     /// Plan self-review (spec 4.6): removing a project only forgets it. Worktrees created for its
-    /// tasks stay on disk — the alert lists them so nothing disappears silently — and no git
-    /// command runs.
+    /// tasks stay on disk — the alert says so, and how many tasks go — and no git command runs.
     func confirmRemove(project: Project) async {
         guard canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
-        let tasks = state.tasks.filter { $0.projectId == project.id }
-        let paths = tasks.map(\.worktreePath)
+        let tasks = state.tasks.filter { $0.projectId == project.id }.count
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
-            detail: paths.isEmpty
+            detail: tasks == 0
                 ? "Removes the project from AiTerm. Files are kept and terminal windows stay open."
-                : "Removes the project, tasks, and terminals from AiTerm. Files and windows are kept, including these worktrees:\n\n" + paths.joined(separator: "\n"),
+                : "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm. Files, worktrees and windows are kept.",
             buttons: ["Remove", "Cancel"]))
         // Anything can run across the await, a create in the project among them, so it is asked
         // again — and the answer acted on in the same turn, with nothing able to start in between.

@@ -146,7 +146,8 @@ struct SidebarInteractionTests {
         #expect(fixture.prompter.asked.isEmpty, "the alert waits for the key event to finish")
         await eventually { !fixture.prompter.asked.isEmpty }
         #expect(fixture.prompter.asked.map(\.message) == ["Remove task “\(task.title)”?"])
-        #expect(fixture.prompter.asked.first?.checkbox == "Also delete branch \(task.branch)")
+        #expect(fixture.prompter.asked.first?.checkbox == "Delete local branch")
+        #expect(fixture.prompter.asked.first?.checkboxHelp == task.branch)
     }
 
     @Test func arrowKeysCrossIntoTheNextOpenProjectAndBack() throws {

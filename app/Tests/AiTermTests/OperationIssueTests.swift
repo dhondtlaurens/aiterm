@@ -321,7 +321,7 @@ extension AppControllerTests {
         #expect(fixture.controller.removals.isEmpty)
     }
 
-    /// A task, its worktree removed with "Also delete branch" ticked, and its branch kept because it
+    /// A task, its worktree removed with "Delete local branch" ticked, and its branch kept because it
     /// has a commit `main` lacks. `answers` start with the Remove alert's.
     private func removedWithUnmergedBranch(answering answers: String...) async throws -> (RaceFixture, TaskItem) {
         let prompter = ScriptedPrompter(answering: answers)

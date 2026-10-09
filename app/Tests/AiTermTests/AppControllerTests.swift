@@ -831,7 +831,7 @@ import Testing
 
     /// Removing a project deliberately leaves its worktrees on disk, so re-adding it re-imports
     /// them — and before this test the import built every one of them as a `.task`. A review that
-    /// came back as a task gets an "Also delete branch" checkbox over a merge request's branch,
+    /// came back as a task gets a "Delete local branch" checkbox over a merge request's branch,
     /// which is the one thing the app must never offer. The marker is the lock reason
     /// a review's worktree is made with; `managedWorktrees()` now carries it through.
     @Test func importingWorktreesKeepsAReviewAReview() async throws {
