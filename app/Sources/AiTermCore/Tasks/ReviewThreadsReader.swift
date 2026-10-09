@@ -42,7 +42,7 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
 
     /// `https://github.com/<owner>/<repo>/pull/<n>`, or `<GitLab host>/<project>/-/merge_requests/<n>`
     /// (`/merge_requests/` alone before GitLab 12.0) on the configured host — compared as DNS does,
-    /// its case and a trailing dot ignored — with the sub-path a GitLab is served from
+    /// its case and a trailing dot ignored, and its port unless it is the scheme's own — with the sub-path a GitLab is served from
     /// (`https://example.com/gitlab`) left out of the project.
     static func target(of webURL: String, gitLabHost: URL?) -> Target? {
         guard let url = URL(string: webURL) else { return nil }
@@ -52,13 +52,16 @@ public struct ReviewThreadsReader: ReviewThreadsReading {
             guard parts.count >= 5, parts[3] == "pull" else { return nil }
             return .gitHub(repo: "\(parts[1])/\(parts[2])")
         case .gitLab:
-            guard let gitLabHost, let host = url.comparableHost, host == gitLabHost.comparableHost else { return nil }
+            guard let gitLabHost, let host = url.comparableHost, host == gitLabHost.comparableHost,
+                  url.comparablePort == gitLabHost.comparablePort else { return nil }
             var root = gitLabHost.path
             while root.hasSuffix("/") { root.removeLast() }
             guard url.path.hasPrefix(root + "/") else { return nil }
-            let path = String(url.path.dropFirst(root.count + 1))
-            guard let marker = path.range(of: "/-/merge_requests/") ?? path.range(of: "/merge_requests/") else { return nil }
-            let project = String(path[..<marker.lowerBound])
+            // Keep the slash in front of the project, so a path that starts at the marker names none.
+            let path = String(url.path.dropFirst(root.count))
+            guard let marker = path.range(of: "/-/merge_requests/") ?? path.range(of: "/merge_requests/"),
+                  marker.lowerBound > path.startIndex else { return nil }
+            let project = String(path[path.index(after: path.startIndex)..<marker.lowerBound])
             return project.isEmpty ? nil : .gitLab(project: project)
         }
     }

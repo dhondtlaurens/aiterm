@@ -41,6 +41,25 @@ import Testing
         #expect(ReviewThreadsReader.target(of: "not a url", gitLabHost: gitLabHost) == nil)
     }
 
+    /// Another GitLab instance on the same hostname but another port is another instance: this
+    /// host's token is not sent to it. A port that is the scheme's own names nothing different.
+    @Test func aMergeRequestOnAnotherPortIsNotAskedOfTheConfiguredGitLab() {
+        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net:8443/web/acme/-/merge_requests/4", gitLabHost: gitLabHost) == nil)
+        let custom = URL(string: "https://gitlab.example.net:8443")!
+        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/web/acme/-/merge_requests/4", gitLabHost: custom) == nil)
+        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net:8443/web/acme/-/merge_requests/4", gitLabHost: custom)
+                == .gitLab(project: "web/acme"))
+        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net:443/web/acme/-/merge_requests/4", gitLabHost: gitLabHost)
+                == .gitLab(project: "web/acme"))
+        #expect(ReviewThreadsReader.target(of: "http://gitlab.example.net/web/acme/-/merge_requests/4", gitLabHost: gitLabHost)
+                == .gitLab(project: "web/acme"))
+    }
+
+    @Test func anAddressOnTheConfiguredGitLabWithoutAMergeRequestNamesNoProject() {
+        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/web/acme", gitLabHost: gitLabHost) == nil)
+        #expect(ReviewThreadsReader.target(of: "https://gitlab.example.net/-/merge_requests/4", gitLabHost: gitLabHost) == nil)
+    }
+
     @Test func eachHostIsAskedWithItsOwnConnection() async throws {
         let stub = StubSession { request in
             request.url?.host == "api.github.com"
@@ -69,6 +88,16 @@ import Testing
         #expect(try await none.threads(of: MergeRequestRef(iid: 4, title: "t", url: "https://gitlab.example.net/web/acme/-/merge_requests/4")) == nil)
         let gitLabOnly = ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: nil, session: stub.session)
         #expect(try await gitLabOnly.threads(of: MergeRequestRef(iid: 4, title: "t", url: "https://gitlab.com/web/acme/-/merge_requests/4")) == nil)
+        #expect(stub.requests.isEmpty)
+    }
+
+    /// A lookalike of github.com is not GitHub, and a github.com request is not asked of GitLab.
+    @Test func aLookalikeGitHubHostOrAnUnconnectedGitHubIsNotAsked() async throws {
+        let stub = StubSession { _ in (200, Data("[]".utf8)) }
+        let both = ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: GitHubConfig(token: "gh"), session: stub.session)
+        #expect(try await both.threads(of: MergeRequestRef(iid: 1, title: "t", url: "https://github.com.evil.com/o/r/pull/1")) == nil)
+        let gitLabOnly = ReviewThreadsReader(gitLab: GitLabConfig(hostURL: connected, token: "gl"), gitHub: nil, session: stub.session)
+        #expect(try await gitLabOnly.threads(of: MergeRequestRef(iid: 87, title: "t", url: "https://github.com/octocat/hello/pull/87")) == nil)
         #expect(stub.requests.isEmpty)
     }
 }
