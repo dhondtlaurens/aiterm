@@ -144,6 +144,10 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         let second = TaskItem.stub(in: fixture.project, title: "Second", windowId: "w2")
         let third = TaskItem.stub(in: fixture.project, title: "Third", windowId: "w3")
+        // Real worktrees: a restore opens only into one that is there.
+        for other in [second, third] {
+            try fixture.git.run(["worktree", "add", "-q", "-b", other.branch, other.worktreePath], in: fixture.repo.path)
+        }
         controller.workspace.mutate { $0.tasks += [second, third] }
         controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [
             .stub("a", window: "alive", task: task), .stub("b", window: "w2", task: second), .stub("c", window: "w3", task: third),
@@ -330,6 +334,33 @@ extension AppControllerTests {
         #expect(controller.state.terminals.isEmpty)
         #expect(fixture.prompter.asked.isEmpty)
         #expect(server.requests("window.createTerminal").isEmpty)
+    }
+
+    /// Another task being created in the project meanwhile is that task's own work: a lone close is
+    /// still asked about.
+    @Test func aLoneCloseIsAskedAboutWhileAnotherTaskIsCreated() async throws {
+        let clock = ManualInstant()
+        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Cancel"), now: { clock.now })
+        let server = RecordingDaemon(holding: "window.createTask")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: "alive")
+        controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
+        let create = Task { try await controller.createTask(draft: fixture.draft("New"), project: fixture.project) }
+        try await server.received("window.createTask")
+
+        controller.helper.handle(.windowClosed("alive"))
+        clock.advance(by: ClosedWindowTriage.hold)
+        await controller.windows.settling?.value
+        await controller.windows.asking?.value
+
+        #expect(fixture.prompter.asked.map(\.message) == ["Remove task “Work”?"])
+        server.release()
+        try await create.value
+        await controller.windows.lastRestore?.value
+        #expect(controller.state.tasks.allSatisfy { $0.windowId != nil }, "Cancel brought Work back; New has its own")
+        #expect(server.requests("window.createTask").count == 2)
     }
 
     /// While Remove's question is up the row is the question's: a snapshot meanwhile restores nothing.

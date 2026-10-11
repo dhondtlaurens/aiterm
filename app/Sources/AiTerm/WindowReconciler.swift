@@ -181,10 +181,10 @@ final class WindowReconciler {
             for id in failed.subtracting(rows) { failedRows[id] = false }
             failed.formIntersection(rows)
             let due = Set(triage.due(at: now()))
-            // A task being created is in the workspace before its window opens, and the creation opens
-            // it: a restore meanwhile would open it twice. Its project's other tasks wait with it.
-            let creating = state.tasks.filter { work.isRunning(.creatingTask, onProject: $0.projectId) }.map(\.id)
-            let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(creating)
+            // A removal stopped after its worktree went holds the row for the person's retry: there is
+            // nothing left to open its window in.
+            let awaitingRetry = state.tasks.map(\.id).filter { remover.removals[$0]?.awaitsRetry == true }
+            let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(awaitingRetry)
                 .union(rows.filter { isBusy($0) || checkouts.isMissing($0) })
             let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0) == .removing(windowLetGo: true) })
             let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
@@ -234,10 +234,13 @@ final class WindowReconciler {
     /// remembered conversation resumed — the first in the window's own tab, each other in a tab of its
     /// own — a terminal's as a fresh shell in its project's folder. The row is busy meanwhile
     /// (`.reopening`). Nil when nothing starts: the row has a window, is busy, or no helper is there.
+    /// Each looks again when its turn comes, behind the restores before it: AiTerm stopping, or iTerm2
+    /// closing windows meanwhile — a quit under way — skips it without counting as a failure, and the
+    /// next pass plans it again.
     @discardableResult
     func restore(_ row: WindowRow) -> Task<Void, Never>? {
         if let running = restoring[row.id] { return running }
-        guard workspace.canChangeWorkspace, let daemon = daemon() else { return nil }
+        guard workspace.canChangeWorkspace, daemon() != nil else { return nil }
         let token: WorkInFlight.Token?
         switch row {
         case .task(let id):
@@ -248,10 +251,10 @@ final class WindowReconciler {
             token = work.begin(.reopening, onTerminal: id)
         }
         guard let token else { return nil }
-        let previous = lastRestore
+        let previous = lastRestore, armed = epoch
         let running = Task {
             await previous?.value
-            await open(row, with: daemon)
+            if epoch == armed, triage.isQuiet(at: now()), let daemon = self.daemon() { await open(row, with: daemon) }
             restoring[row.id] = nil
             work.end(token)
         }
@@ -263,7 +266,11 @@ final class WindowReconciler {
     private func open(_ row: WindowRow, with daemon: any DaemonCommands) async {
         switch row {
         case .task(let id):
-            guard let task = state.task(id: id), task.windowId == nil else { return }
+            // The checkout monitor reads a worktree gone only at its next pass: one gone before then has
+            // nothing to open in, and is left for that pass to say so, rather than failed.
+            guard let path = state.task(id: id)?.worktreePath,
+                  await BackgroundWork.run({ FileManager.default.fileExists(atPath: path) }),
+                  let task = state.task(id: id), task.windowId == nil else { return }
             let commands = task.resumeCommands
             do {
                 guard let wid = try await launcher.openWindow(for: task, command: commands.first, with: daemon) else { return }

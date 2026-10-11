@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The banner a failed operation raises: what it says, the ways out it offers, and how long it
 /// stays. Removing a task whose branch has commits its base lacks is the case with ways out.
@@ -291,6 +292,34 @@ extension AppControllerTests {
         #expect(fixture.controller.state.tasks.isEmpty)
         #expect(fixture.controller.issue == nil)
         #expect(fixture.controller.removals.isEmpty)
+    }
+
+    /// A removal stopped after its worktree went — its branch kept — leaves the row for a retry, owed a
+    /// window it has no worktree to open in: nothing restores it.
+    @Test func aRowAwaitingARemovalsRetryIsNotRestored() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove")
+        prompter.checksTheCheckbox = true
+        // The checkout monitor has not read the worktree gone yet: its pass is up to two seconds away.
+        let fixture = try RaceFixture(prompter: prompter, scan: { _, _, _, _, _, _, _ in
+            WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
+        })
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: "alive")
+        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
+                            in: task.worktreePath)
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [.stub("a", window: "alive")],
+                                                          usage: .empty)))
+
+        await controller.confirmRemove(task: task)?.value
+        await controller.windows.lastRestore?.value
+
+        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(controller.removals[task.id]?.awaitsRetry == true)
+        #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
+        #expect(server.requests("window.createTask").isEmpty)
     }
 
     /// A task, its worktree removed with "Delete local branch" ticked, and its branch kept because it

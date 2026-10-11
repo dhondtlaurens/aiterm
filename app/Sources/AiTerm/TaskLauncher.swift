@@ -125,6 +125,10 @@ final class TaskLauncher {
         defer { work.end(creating) }
         let result = try await checkout()
         let task = result.task
+        // The row is in the workspace before its window: until this create has opened it — or given
+        // up — the row is this work's, and nothing restores it underneath (`WindowReconciler`).
+        let opening = work.begin(.opening, onTask: task.id)
+        defer { if let opening { work.end(opening) } }
         workspace.mutate { state in
             state.tasks.append(task)
             state.rememberChoice(draft, projectId: project.id)

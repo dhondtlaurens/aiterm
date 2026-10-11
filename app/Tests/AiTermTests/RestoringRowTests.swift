@@ -146,6 +146,53 @@ extension AppControllerTests {
         #expect(controller.state.tasks.map(\.windowId) == ["reopened"])
     }
 
+    /// A worktree gone before the checkout monitor has read it so: the restore finds nothing to open
+    /// in, and opens nothing, quietly — the monitor's pass then says so, and closes the row.
+    @Test func aTaskWhoseWorktreeWentUnreadIsNotRestored() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        try fixture.git.run(["worktree", "remove", task.worktreePath], in: fixture.repo.path)
+
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+
+        #expect(server.requests("window.createTask").isEmpty)
+        #expect(!fixture.controller.windows.hasFailed(task.id))
+        #expect(fixture.controller.issue == nil)
+    }
+
+    /// A restore waiting its turn looks again before it opens: iTerm2 closing windows meanwhile — a quit
+    /// under way — stops it, and it comes back once iTerm2 is quiet again.
+    @Test func aQueuedRestoreWaitsOutWindowsClosingMeanwhile() async throws {
+        let clock = ManualInstant()
+        let fixture = try RaceFixture(now: { clock.now })
+        let server = RecordingDaemon(holding: "window.createTask")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        _ = try fixture.addTask(windowId: nil)
+        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
+        controller.workspace.mutate { $0.terminals = [terminal] }
+        controller.helper.handle(.snapshot(Self.emptySnapshot))
+        try await server.received("window.createTask")
+
+        controller.helper.handle(.windowClosed("elsewhere"))
+        server.release()
+        await controller.windows.lastRestore?.value
+        #expect(server.requests("window.createTerminal").isEmpty, "not while iTerm2 is closing windows")
+        #expect(!controller.windows.hasFailed(terminal.id))
+
+        // The close's own look, a hold after it, is the pass that plans the restore again. A test's
+        // hold is none, so that look has run already: the pass is asked for here, once quiet.
+        clock.advance(by: ClosedWindowTriage.hold)
+        controller.windows.pass()
+        await controller.windows.lastRestore?.value
+        #expect(controller.state.terminals.map(\.windowId) == ["terminal-window"])
+    }
+
     @Test func choosingAnOwedRowWithNoHelperSaysSo() throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }

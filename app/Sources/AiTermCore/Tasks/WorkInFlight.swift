@@ -140,6 +140,9 @@ public enum ProjectOperation: Equatable, Sendable {
 public enum TaskOperation: Equatable, Sendable {
     /// A task's window reopened, its conversations resumed.
     case reopening
+    /// A new task's or review's first window opening: its row is in the workspace before the window
+    /// is, and the creation, not a restore, opens it.
+    case opening
     /// A review opening as a tab in the task's window.
     case reviewing
     /// Removed by the person: its window, its worktree, maybe its branch, then its row.
@@ -154,7 +157,7 @@ public enum TaskOperation: Equatable, Sendable {
         switch self {
         case .removing: .removing
         case .closing: .closing
-        case .reopening, .reviewing: nil
+        case .reopening, .opening, .reviewing: nil
         }
     }
 }

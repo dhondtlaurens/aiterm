@@ -45,6 +45,8 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: nil)
 
+        // A restore opens only into an iTerm2 known to be there, and quiet.
+        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         let reopening = controller.windows.restore(.task(task.id))
         try await server.received("window.createTask")
         await controller.confirmRemove(project: fixture.project)
@@ -279,6 +281,8 @@ extension AppControllerTests {
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
+        // A restore opens only into an iTerm2 known to be there, and quiet.
+        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         #expect(controller.close(terminal: terminal) == nil)
@@ -320,6 +324,8 @@ extension AppControllerTests {
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
+        // A restore opens only into an iTerm2 known to be there, and quiet.
+        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         controller.workspace.mutate { $0.terminals = [] }
@@ -539,11 +545,13 @@ struct RaceFixture {
     let prompter: ScriptedPrompter
     let controller: AppController
 
-    /// The root is resolved with `realpath(3)`: git reports the physical path of a repository under
-    /// `/var/folders`, and adding the unresolved one adds it as "the repository around" that path.
+    /// `scan` replaces the checkout monitor's reading of the disk, for a test that needs a pass that
+    /// has not seen a change yet. The root is resolved with `realpath(3)`: git reports the physical
+    /// path of a repository under `/var/folders`, and adding the unresolved one adds it as "the
+    /// repository around" that path.
     init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
          bringForward: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
-         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) throws {
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil) throws {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
         root = URL(fileURLWithPath: realpath(raw, nil).map { defer { free($0) }; return String(cString: $0) } ?? raw)
@@ -556,7 +564,11 @@ struct RaceFixture {
         let prompter = prompter ?? ScriptedPrompter()
         self.prompter = prompter
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
-                                   activateIterm: activateIterm, launchIterm: launchIterm, bringForward: bringForward, now: now)
+                                   activateIterm: activateIterm, launchIterm: launchIterm, bringForward: bringForward, now: now,
+                                   scan: scan ?? {
+                                       WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
+                                                         defaultBranches: $6)
+                                   })
         try controller.loadWorkspace()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())
