@@ -38,11 +38,11 @@ extension AppController {
 
     /// The controller a test builds: the bare home, no bundle — so there is no helper to find
     /// Python for — no login shell to find the agent CLIs, a workspace file nothing else uses, no
-    /// Keychain read for Settings, no iTerm2 started when a row is chosen while it is away, and
-    /// Backpack Mode over the inert ports with its password in memory — no `sudo`, no Wi-Fi scan, no
-    /// System Settings — and no load read off this Mac. A
-    /// test that needs a different one of them names it. A peek waits no time: a test awaits the
-    /// one it starts. A closed task window is held no time and against the real clock: a test that
+    /// Keychain read for Settings, no iTerm2 started — when a row is chosen while it is away, or at
+    /// launch, which finds it running — and Backpack Mode over the inert ports with its password in
+    /// memory — no `sudo`, no Wi-Fi scan, no System Settings — and no load read off this Mac. A test
+    /// that needs a different one of them names it. A peek waits no time: a test awaits the one it
+    /// starts. A closed task window is held no time and against the real clock: a test that
     /// asks about one moves a `ManualInstant` and awaits `windows.settling`.
     ///
     /// Questions go to a ``ScriptedPrompter`` that answers none, so one a test did not expect fails
@@ -54,6 +54,7 @@ extension AppController {
                      prompter: Prompter = ScriptedPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
                      activateIterm: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
+                     itermRunning: @escaping @MainActor () -> Bool = { true },
                      bringForward: @escaping @MainActor () -> Void = {},
                      backpackPorts: BackpackPorts = .inert,
                      backpackSecrets: any SecretStore = MemorySecretStore(),
@@ -75,7 +76,8 @@ extension AppController {
         self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: harnessHome,
                   bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm, bringForward: bringForward, backpackPorts: backpackPorts,
+                  prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm,
+                  itermRunning: itermRunning, bringForward: bringForward, backpackPorts: backpackPorts,
                   backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor, peekDelay: peekDelay,
                   checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, closedWindowHold: closedWindowHold, now: now,
                   git: git, scan: scan,

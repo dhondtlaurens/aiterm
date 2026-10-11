@@ -77,6 +77,16 @@ import Testing
         #expect(plan == [.adopt(.task(moved.id), windowId: "other")])
     }
 
+    /// Waiting holds a row's restore back, not its adoption: a restore that failed or timed out, whose
+    /// window opened anyway, is taken by its tag.
+    @Test func aRowInWaitingStillAdoptsTheWindowItsTagIsIn() {
+        let owed = task(window: nil), shell = terminal(window: nil)
+        let plan = state(tasks: [owed], terminals: [shell]).windowPlan(
+            sessions: [tab("a", window: "other", task: owed), tab("b", window: "w2", terminal: shell)],
+            settled: true, due: [], waiting: [owed.id, shell.id], lettingGo: [])
+        #expect(plan == [.adopt(.task(owed.id), windowId: "other"), .adopt(.terminal(shell.id), windowId: "w2")])
+    }
+
     /// A task whose removal has let its window go is the removal's: never handed a window, never restored.
     @Test func aTaskLettingItsWindowGoIsLeftToItsRemoval() {
         let leaving = task(window: nil)

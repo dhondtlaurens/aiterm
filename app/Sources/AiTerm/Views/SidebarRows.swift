@@ -613,8 +613,8 @@ extension ProjectJiraBadge.Overflow {
 
 /// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
 /// the actions its context menu would let the person choose now, and what choosing the row does — its
-/// hint, and the tooltip: a row whose window could not be reopened tries again, unless the workspace cannot change. A
-/// value, so the rule is testable without rendering the sidebar, as `TaskRowBadges` is.
+/// hint, and the tooltip: a row whose window could not be reopened tries again, unless the workspace
+/// cannot change. A value, so the rule is testable without rendering the sidebar, as `TaskRowBadges` is.
 struct TaskRowAccessibility: Equatable {
     enum Action: Hashable {
         case remove
@@ -654,8 +654,8 @@ struct TaskRowAccessibility: Equatable {
 
 /// The lines under a task row's title that are not its badges: what stands in for the badge line
 /// while the row is being removed, and the caption under it — why a removal stopped, else what the
-/// task is missing — its worktree, or a window that could not be reopened. While a removal runs neither shows: its window closing first, and its checkout
-/// going, are the removal, not news.
+/// task is missing — its worktree, or a window that could not be reopened. While a removal runs
+/// neither shows: its window closing first, and its checkout going, are the removal, not news.
 struct TaskRowCaption: Equatable {
     enum Note: Equatable {
         /// What the task is missing — its worktree, or a window that could not be reopened — in the

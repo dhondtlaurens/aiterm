@@ -186,9 +186,13 @@ final class WindowReconciler {
             passAgain = false
             let state = self.state
             let rows = state.tasks.map(\.id) + state.terminals.map(\.id)
-            // A failure is the row's: one that went takes its cell with it.
-            for id in failed.subtracting(rows) { failedRows[id] = false }
-            failed.formIntersection(rows)
+            // A failure is the row's: one that went takes its cell with it, and one whose row has a
+            // window — adopted by tag, iTerm2's own restored one, a review opened into it — is over.
+            let withWindow = Set(state.tasks.filter { $0.windowId != nil }.map(\.id)
+                                 + state.terminals.filter { $0.windowId != nil }.map(\.id))
+            let over = failed.filter { !rows.contains($0) || withWindow.contains($0) }
+            for id in over { failedRows[id] = false }
+            failed.subtract(over)
             worktreeGone.formIntersection(rows)
             let due = Set(triage.due(at: now()))
             // A removal stopped after its worktree went holds the row for the person's retry: there is
@@ -213,6 +217,8 @@ final class WindowReconciler {
                 case .terminal(let id): if let i = state.terminals.firstIndex(where: { $0.id == id }) { state.terminals[i].windowId = window }
                 }
             }
+            // The row has its window now: a look again lets go of a failure it had.
+            passAgain = true
         case .restore(let row): restore(row)
         case .ask(let id): ask(id)
         case .drop(let id): workspace.mutate { $0.terminals.removeAll { $0.id == id } }
@@ -314,9 +320,10 @@ final class WindowReconciler {
 
     /// A restore that failed while iTerm2 is still there: the row says so and waits for the person.
     /// One that failed because iTerm2 went away meanwhile is not the row's failure — the next
-    /// connected snapshot restores it.
+    /// connected snapshot restores it. The daemon's failed reply and its disconnect event race, so
+    /// the reply saying iTerm2 is unavailable counts as much as the state not being synced.
     private func fail(_ row: WindowRow, title: String, subject: UUID?, _ error: Error) {
-        guard triage.isSynced else { return }
+        guard triage.isSynced, (error as? DaemonError)?.code != .itermUnavailable else { return }
         failed.insert(row.id)
         failedRows[row.id] = true
         notices.report(OperationIssue(title: title, error: error, subject: subject))

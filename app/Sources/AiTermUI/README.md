@@ -286,8 +286,9 @@ under it — read that rather than a `selected` flag, as a header's chevron, nam
 a task or a terminal; never a divider — is `RowFocus`'s (`controller.focus`), an owner beside the
 controller, not a view. A row reads whether it alone is selected (`focus.isSelected(id)`), as a task
 row reads its own removal (`controller.removal(of:)`), missing checkout
-(`checkouts.isMissing(_:)`) and merge request's thread count (`reviewThreads.threads(of:)`): each a `PerRow` cell, so an arrow key redraws the row it leaves and the
-row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTests` counts them. Only
+(`checkouts.isMissing(_:)`), failed restore (`controller.hasFailedRestore(_:)`) and merge request's
+thread count (`reviewThreads.threads(of:)`): each a `PerRow` cell, so an arrow key redraws the row it
+leaves and the row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTests` counts them. Only
 `SidebarScrollFollower` — not `SidebarView`'s body — follows the selection whole, so the list's
 model is not redrawn either.
 A task row whose window could not be reopened says "Couldn’t reopen" (`TaskRowCaption`, `Note.plain`, read

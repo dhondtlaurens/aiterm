@@ -551,6 +551,7 @@ struct RaceFixture {
     /// repository around" that path.
     init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
          bringForward: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
+         itermRunning: @escaping @MainActor () -> Bool = { true },
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, scan: CheckoutMonitor.Scanner? = nil) throws {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
@@ -564,7 +565,8 @@ struct RaceFixture {
         let prompter = prompter ?? ScriptedPrompter()
         self.prompter = prompter
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
-                                   activateIterm: activateIterm, launchIterm: launchIterm, bringForward: bringForward, now: now,
+                                   activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
+                                   bringForward: bringForward, now: now,
                                    scan: scan ?? {
                                        WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5,
                                                          defaultBranches: $6)

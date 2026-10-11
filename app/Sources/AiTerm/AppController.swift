@@ -76,6 +76,9 @@ final class AppController {
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
+    /// Starts iTerm2, and whether it is running: what `start()` asks, so a test never reaches for the real one.
+    private let launchIterm: @MainActor () -> Void
+    private let itermRunning: @MainActor () -> Bool
     @ObservationIgnored private var dockBadgeLabel: String?
 
     /// The work under way on each project, task and terminal: what one waits for before it starts,
@@ -97,9 +100,9 @@ final class AppController {
     /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
     /// how long a completion toast stays up; `closedWindowHold` and `now` are how long, and against
     /// what clock, a closed task window is held before Remove's question (`ClosedWindowTriage`);
-    /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when a row is chosen
-    /// while it is away. `confirmsRemoval` is the last look at a checkout
-    /// the monitor found gone (`TaskRemover`).
+    /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when AiTerm starts
+    /// while `itermRunning` says it is not, and when a row is chosen while it is away.
+    /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`).
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -113,6 +116,7 @@ final class AppController {
          setBadge: @escaping @MainActor (String?) -> Void,
          activateIterm: @escaping @MainActor () -> Void,
          launchIterm: @escaping @MainActor () -> Void,
+         itermRunning: @escaping @MainActor () -> Bool,
          bringForward: @escaping @MainActor () -> Void,
          backpackPorts: BackpackPorts,
          backpackSecrets: any SecretStore,
@@ -159,6 +163,8 @@ final class AppController {
         self.prompter = prompter
         self.git = git
         self.setBadge = setBadge
+        self.launchIterm = launchIterm
+        self.itermRunning = itermRunning
         rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
         projects = ProjectActions(workspace: workspace, work: work, notices: notices, prompter: prompter, checkouts: checkouts,
                                   agents: agents, git: git, workflow: workflow, jiraSettings: jiraSettings)
@@ -221,6 +227,9 @@ final class AppController {
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
         helper.start()
+        // The daemon launches iTerm2 only at its own start, which an AiTerm adopting the daemon a
+        // previous one left running never causes: starting AiTerm is the person asking for it.
+        if !itermRunning() { launchIterm() }
     }
 
     /// Stops everything `start()` started, Backpack Mode first — closed before quit waits on
@@ -466,6 +475,9 @@ extension AppController {
                          configuration.activates = false
                          NSWorkspace.shared.openApplication(at: url, configuration: configuration)
                      },
+                     itermRunning: @escaping @MainActor () -> Bool = {
+                         !NSRunningApplication.runningApplications(withBundleIdentifier: ItermPreferences.bundleIdentifier).isEmpty
+                     },
                      backpackPorts: BackpackPorts = .live(),
                      machineSensor: any MachineSensor = LiveMachineSensor(),
                      scan: @escaping CheckoutMonitor.Scanner = {
@@ -475,7 +487,8 @@ extension AppController {
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
-                      activateIterm: activateIterm, launchIterm: launchIterm, bringForward: { AppController.bringAiTermForward() },
+                      activateIterm: activateIterm, launchIterm: launchIterm, itermRunning: itermRunning,
+                      bringForward: { AppController.bringAiTermForward() },
                       backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
                       openLocationSettings: {
                           NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)

@@ -62,7 +62,11 @@ Jira-to-agent workflow. Run through this list by hand:
    question; Cancel brings the window back with its conversations, raised. Quit iTerm2 with task and
    terminal windows open: nothing is asked and nothing reopens; start iTerm2: every window comes back,
    unraised, terminals as fresh shells. Quit AiTerm, close a task window, start AiTerm: the window comes
-   back. Drag a task window's only tab into another window: nothing is asked, and clicking the row
+   back. With iTerm2's window restoration on (Settings › General › Startup, and macOS "Close windows
+   when quitting an app" off), quit and relaunch iTerm2: nothing is duplicated; every task window is
+   adopted, not reopened. Terminals created before this release carry no `aiterm_terminal` tag, so
+   the first iTerm2 restart with restoration on can leave one duplicate shell per terminal, once.
+   Drag a task window's only tab into another window: nothing is asked, and clicking the row
    raises that window. Close a task window and stay in iTerm2: if AiTerm cannot come forward, its Dock
    icon bounces until you switch to it.
 10. **Remove Task…**: the window closes, the worktree is removed, the branch is kept unless the

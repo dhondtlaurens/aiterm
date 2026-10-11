@@ -147,7 +147,7 @@ public enum TaskOperation: Equatable, Sendable {
     case reviewing
     /// Removed by the person: its window, its worktree, maybe its branch, then its row.
     /// `windowLetGo` once the row has dropped its window to close it (`TaskRemover`): the window's
-    /// tab is the removal's to settle, and a snapshot must not hand it back to the row.
+    /// tab is the removal's to settle, and `AppState.windowPlan` must not adopt it back for the row.
     case removing(windowLetGo: Bool)
     /// Its worktree went outside AiTerm, and its window is being closed.
     case closing

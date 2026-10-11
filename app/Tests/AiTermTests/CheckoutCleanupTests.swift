@@ -238,6 +238,7 @@ extension AppControllerTests {
         #expect(controller.removals.isEmpty, "nothing half done: no note")
         #expect(controller.issue == nil)
         #expect(server.requests("window.createTask").count == 1)
+        #expect(controller.state.task(id: fixture.task.id)?.windowId != nil, "the window is back on its row")
     }
 
     /// The cleanup's own close is announced as `window.closed` before the daemon answers it, which now

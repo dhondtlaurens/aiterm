@@ -282,6 +282,86 @@ extension AppControllerTests {
         #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
     }
 
+    /// A failed row that gets a window another way — a restore that timed out but whose window opened,
+    /// iTerm2's own restoration — takes it, and the caption and its retry hint go with the failure.
+    @Test func aFailedRowThatAdoptsAWindowNoLongerSaysItFailed() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon(failing: ["window.createTask": "temporary_failure"])
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+        #expect(fixture.controller.hasFailedRestore(task.id))
+
+        fixture.controller.helper.handle(.sessionChanged(.stub("a", window: "other", task: task)))
+
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == "other")
+        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(server.requests("window.createTask").count == 1, "adopted, not opened again")
+    }
+
+    /// A restore refused because iTerm2 is unavailable is not the row's failure even while the snapshot
+    /// still says synced: the failed reply and the disconnect event race in the daemon.
+    @Test func aRestoreRefusedForITerm2BeingUnavailableIsNotMarkedFailedWhileSynced() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon(failing: ["window.createTask": "iterm_unavailable"])
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+
+        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(fixture.controller.issue == nil)
+
+        server.failing = [:]
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
+    }
+
+    /// A terminal whose window could not be reopened says so with its name and no subject: the banner
+    /// is not a task's, and its row has no caption to tie it to.
+    @Test func aTerminalWhoseRestoreFailedShowsTheBannerWithItsName() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon(failing: ["window.createTerminal": "temporary_failure"])
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
+        fixture.controller.workspace.mutate { $0.terminals = [terminal] }
+
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+
+        #expect(fixture.controller.issue?.title == "Couldn’t reopen “Shell”.")
+        #expect(fixture.controller.issue?.subject == nil)
+        #expect(fixture.controller.hasFailedRestore(terminal.id))
+    }
+
+    /// AiTerm starting while iTerm2 is not running starts it, once: an adopted daemon, still running
+    /// from the last launch, never does. Already running, it is left be.
+    @Test func startingWhileITerm2IsNotRunningStartsItOnce() throws {
+        let launches = Calls()
+        let fixture = try RaceFixture(launchIterm: { launches.record() }, itermRunning: { false })
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+
+        fixture.controller.start()
+        fixture.controller.start()
+
+        #expect(launches.count == 1)
+    }
+
+    @Test func startingWhileITerm2IsRunningLeavesItBe() throws {
+        let launches = Calls()
+        let fixture = try RaceFixture(launchIterm: { launches.record() }, itermRunning: { true })
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+
+        fixture.controller.start()
+
+        #expect(launches.count == 0)
+    }
+
     @Test func choosingAnOwedRowWithNoHelperSaysSo() throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }

@@ -333,20 +333,25 @@ is a shell, and the first prompt is never replayed. A terminal comes back as a f
 project's folder.
 
 AiTerm never relaunches iTerm2 after it goes away: a quit must stay quit. The daemon launches it
-only at its own start, which an app starting it is the person asking for, and the app starts it when
-a row is chosen while iTerm2 is away, without activating it; the windows come back with the snapshot
-that follows. A restore that fails while iTerm2 is there leaves "Couldn’t reopen" on the row and the
+only at its own start, which an AiTerm adopting a daemon a previous one left running never causes,
+so the app starts it too: when AiTerm starts and iTerm2 is not running, and when a row is chosen
+while iTerm2 is away, each without activating it; the windows come back with the snapshot that
+follows. A restore that fails while iTerm2 is there leaves "Couldn’t reopen" on the row and the
 reason on the banner; the pass leaves the row be, and choosing it — a click or ↩ — tries again. A
-failure because iTerm2 went away meanwhile is not the row's: the next connected snapshot restores it.
-AiTerm quitting leaves the windows running; the next launch adopts them by tag and restores the rest.
+failure because iTerm2 went away meanwhile, or a reply saying it is unavailable, is not the row's:
+the next connected snapshot restores it. A failed row that gets a window another way — adopted by
+tag — is no longer failed. AiTerm quitting leaves the windows running; the next launch adopts them
+by tag and restores the rest.
 
-Closes AiTerm makes itself — Remove, the checkout cleanup, Remove Terminal — are never asked about
-or restored: a row busy with work, or whose removal awaits a retry, is left out of the pass, and so
-is a row whose checkout is missing or whose worktree a restore found gone, which is not looked for
-again until the checkout monitor reads that row (`CheckoutMonitor.onMissingChanged`) or the person
-chooses it. A restore checks the worktree exists, off the main actor, before it opens. Nothing is
-restored while the workspace cannot change. Removing a task explicitly also removes its worktree. A
-daemon disconnect alone does not close or forget tasks.
+Closes AiTerm makes itself — Remove, the checkout cleanup, Remove Terminal — are never asked about,
+and are not restored while their work runs: a row busy with work, or whose removal awaits a retry,
+is left out of the pass, and so is a row whose checkout is missing or whose worktree a restore found
+gone, which is not looked for again until the checkout monitor reads that row
+(`CheckoutMonitor.onMissingChanged`) or the person chooses it. A removal that stops after closing
+the window — git refuses the worktree, or Keep at the late unsaved-work question — leaves the row
+owed its window, and the window is restored. A restore checks the worktree exists, off the main
+actor, before it opens. Nothing is restored while the workspace cannot change. Removing a task
+explicitly also removes its worktree. A daemon disconnect alone does not close or forget tasks.
 
 A created checkout is saved as a task before opening its window, and the new row is held busy
 (`TaskOperation.opening`) from the moment it is appended until its create ends, so the pass never
