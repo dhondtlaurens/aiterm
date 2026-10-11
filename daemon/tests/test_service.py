@@ -188,6 +188,18 @@ async def test_a_window_created_before_its_tick_fails_is_still_returned(stack, c
     assert "tick after creating a window or tab failed" in caplog.text
 
 
+async def test_create_terminal_tags_the_window_with_its_terminal_id(stack):
+    # The id a terminal row is adopted by, as a task's is: iTerm2 renumbers a window it restores.
+    svc, it, files, r, w = stack
+    terminal = {"projectId": "p1", "terminalId": "T1", "cwd": "/repo", "frame": FRAME}
+    wid = (await call(r, w, "window.createTerminal", terminal))["result"]["windowId"]
+    assert it.sessions[it.windows[wid]["sessions"][0]].user_vars == {"aiterm_project": "p1", "aiterm_terminal": "T1"}
+    sid = (await call(r, w, "tab.create", {"windowId": wid}, id_=2))["result"]["sessionId"]
+    assert it.sessions[sid].user_vars == {"aiterm_project": "p1", "aiterm_terminal": "T1"}
+    listed = (await call(r, w, "sessions.list", id_=3))["result"]
+    assert {s["terminalId"] for s in listed} == {"T1"}
+
+
 async def test_a_tab_created_before_its_tick_fails_is_still_returned(stack):
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTerminal", {"projectId": "p1", "cwd": "/repo", "frame": FRAME}))["result"]["windowId"]

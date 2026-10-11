@@ -24,10 +24,15 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// task's window resumes (`TaskItem.conversations`). Nil for a shell, before the agent's first
     /// hook placed on this tab, and from a daemon too old to send it.
     public var conversationId: String? = nil
+    /// The terminal row this tab's window was opened for, which adopts a window iTerm2 renumbered or
+    /// restored. Nil for a task's tab, and from a daemon too old to send it.
+    public var terminalId: String? = nil
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
     public var taskUUID: UUID? { taskId.flatMap(UUID.init(uuidString:)) }
+    /// The terminal tag as the id it names, compared as a UUID rather than by spelling, as `taskUUID` is.
+    public var terminalUUID: UUID? { terminalId.flatMap(UUID.init(uuidString:)) }
     /// What this tab's branch must be resolved from.
     public var effectiveCwd: String { agentCwd ?? cwd }
 }
@@ -57,6 +62,7 @@ extension SessionInfo {
         // another shape — costs only these counts, not the session and the snapshot it came in.
         tokens = (try? c.decodeIfPresent(TokenTally.self, forKey: .tokens)) ?? nil
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+        terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
     }
 }
 

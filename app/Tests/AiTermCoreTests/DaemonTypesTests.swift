@@ -3,6 +3,20 @@ import Testing
 @testable import AiTermCore
 
 @Suite struct DaemonTypesTests {
+    /// A terminal's tab names its row, which adopts a window iTerm2 renumbered; an older daemon names none.
+    @Test func aSessionReadsItsTerminalTag() throws {
+        let id = UUID()
+        let tagged = try JSONDecoder().decode(SessionInfo.self, from: Data("""
+            {"sessionId":"s","windowId":"w","tabIndex":0,"agent":"shell","state":"idle","title":"","cwd":"/",
+             "terminalId":"\(id.uuidString.lowercased())"}
+            """.utf8))
+        #expect(tagged.terminalUUID == id)
+        let older = try JSONDecoder().decode(SessionInfo.self, from: Data("""
+            {"sessionId":"s","windowId":"w","tabIndex":0,"agent":"shell","state":"idle","title":"","cwd":"/"}
+            """.utf8))
+        #expect(older.terminalId == nil && older.terminalUUID == nil)
+    }
+
     @Test func sessionReasoningDecodesWhenPresentAndDefaultsToNilWhenAbsent() throws {
         let withReasoning = #"{"sessionId":"s1","windowId":"w1","tabIndex":0,"taskId":null,"projectId":null,"agent":"pi","model":"openai/model-x","reasoning":"high","state":"working","title":"PI","cwd":"/repo"}"#
         let pi = try JSONDecoder().decode(SessionInfo.self, from: Data(withReasoning.utf8))

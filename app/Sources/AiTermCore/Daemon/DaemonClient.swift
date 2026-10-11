@@ -480,7 +480,7 @@ public final class DaemonClient: Sendable {
     struct SessionResult: Decodable { var sessionId: String }
     struct ChangedResult: Decodable { var changed: Int }
     struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame }
-    struct CreateTerminalParams: Encodable { var projectId, cwd, title: String; var frame: Frame }
+    struct CreateTerminalParams: Encodable { var projectId, terminalId, cwd, title: String; var frame: Frame }
     struct WindowParams: Encodable { var windowId: String; var frame: Frame? }
     struct CreateTabParams: Encodable { var windowId, cwd: String; var agentCommand: String? }
     struct SessionTitlesParams: Encodable { var titles: [SessionTitle] }
@@ -513,8 +513,8 @@ public final class DaemonClient: Sendable {
     }
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
         try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame), as: WindowResult.self).windowId }
-    public func createTerminalWindow(projectId: String, cwd: String, title: String, frame: Frame) async throws -> String {
-        try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
+    public func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
+        try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, terminalId: terminalId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
     /// A tab in an existing window, carrying that window's task or project tag.
     public func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {
         try await request(.tabCreate, params: CreateTabParams(windowId: windowId, cwd: cwd, agentCommand: agentCommand), as: SessionResult.self).sessionId }

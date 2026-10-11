@@ -12,7 +12,7 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": None, "reasoning": None, "state": "idle", "title": "zsh", "cwd": "/home",
-        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None, "conversationId": None})
+        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None, "conversationId": None, "terminalId": None})
 
 
 def test_untagged_session_in_tagged_window_inherits_task():
@@ -78,6 +78,16 @@ def test_project_for_window_answers_alongside_task_for_window():
     assert reg.project_for_window("w1") is None
     reg.apply_snapshot([])
     assert reg.project_for_window("w3") is None
+
+
+def test_a_terminal_tag_is_inherited_by_a_tab_without_it_and_evicted_with_its_window():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="s1", win="w3", aiterm_project="p1", aiterm_terminal="T1"), raw(sid="s2", win="w3", tab=1)])
+    assert reg.terminal_for_window("w3") == "T1"
+    assert [reg.get(sid).terminal_id for sid in ("s1", "s2")] == ["T1", "T1"]
+    assert reg.terminal_for_window("w1") is None
+    reg.apply_snapshot([])
+    assert reg.terminal_for_window("w3") is None and reg._window_terminal == {}
 
 
 def test_agent_cwd_survives_a_snapshot_and_is_published():

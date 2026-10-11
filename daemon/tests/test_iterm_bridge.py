@@ -968,7 +968,7 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
         reply.variable_response.status = iterm2.api_pb2.VariableResponse.Status.Value(status)
         if status == "OK":
             values = {"commandLine": "-zsh", "jobPid": 123, "autoName": session_id, "path": "/x",
-                      "user.aiterm_task": "t1", "user.aiterm_project": None}
+                      "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None}
             answered = [name for name in gets if not (unset_omitted and len(gets) > 1 and values[name] is None)]
             reply.variable_response.values.extend(json.dumps(values[name]) for name in answered)
         return reply

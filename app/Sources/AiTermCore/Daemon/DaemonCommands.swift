@@ -5,7 +5,7 @@ import Foundation
 public protocol DaemonCommands: Sendable {
     func snapshot() async throws -> DaemonSnapshot
     func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String
-    func createTerminalWindow(projectId: String, cwd: String, title: String, frame: Frame) async throws -> String
+    func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String
     /// A tab in an existing window, carrying that window's task or project tag.
     func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String
     func activate(windowId: String) async throws

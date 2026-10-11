@@ -65,9 +65,9 @@ final class RecordingDaemon: DaemonCommands {
         return try await answer("window.createTask", params, id: "reopened")
     }
 
-    func createTerminalWindow(projectId: String, cwd: String, title: String, frame: Frame) async throws -> String {
-        try await answer("window.createTerminal", ["projectId": projectId, "cwd": cwd, "title": title, "frame": Self.frame(frame)],
-                         id: "terminal-window")
+    func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
+        try await answer("window.createTerminal", ["projectId": projectId, "terminalId": terminalId, "cwd": cwd, "title": title,
+                                                   "frame": Self.frame(frame)], id: "terminal-window")
     }
 
     func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {

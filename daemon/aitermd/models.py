@@ -71,9 +71,11 @@ USAGE_VENDORS: tuple[AgentKind, ...] = tuple(h.agent for h in HARNESSES if h.rep
 ITERM_SESSION_FIELD = "_aiterm_iterm_session_id"
 
 # The iTerm2 user variables (`user.<name>`) that make a session AiTerm's: a task window's, or a
-# terminal window's opened by window.createTerminal. A tab opened beside one inherits it.
+# terminal window's opened by window.createTerminal -- its project, and the terminal row's own id,
+# which adopts a window iTerm2 renumbered. A tab opened beside one inherits them.
 TASK_TAG = "aiterm_task"
 PROJECT_TAG = "aiterm_project"
+TERMINAL_TAG = "aiterm_terminal"
 # The tab's user variable an AiTerm branch title is kept in; the tab's title interpolates it.
 TITLE_TAG = "aiterm_title"
 
@@ -199,6 +201,9 @@ class SessionInfo:
     # and what the app resumes when it reopens the task's window. Another process in the tab is another
     # conversation, so it goes with the agent's process, as the model does (SessionRegistry).
     conversation_id: str | None = None
+    # The terminal row this tab's window was opened for (TERMINAL_TAG), which the app adopts the
+    # window by; None for a task's tab and for a terminal opened by an app too old to send it.
+    terminal_id: str | None = None
     # Where a Claude conversation writes its transcript, which its tokens are summed from. Neither
     # sent nor compared: only the service's tally reads it.
     transcript: str | None = field(default=None, compare=False)
@@ -210,7 +215,7 @@ class SessionInfo:
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
             "tokens": self.tokens.to_json() if self.tokens else None,
-            "conversationId": self.conversation_id,
+            "conversationId": self.conversation_id, "terminalId": self.terminal_id,
         }
 
 

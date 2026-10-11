@@ -82,10 +82,11 @@ final class DaemonClientTests {
         }
         try client.connect()
         #expect(server.waitForClient(timeout: 2))
-        let id = try await client.createTerminalWindow(projectId: "p1", cwd: "/repo", title: "Logs", frame: Frame(x: 1, y: 2, w: 3, h: 4))
+        let id = try await client.createTerminalWindow(projectId: "p1", terminalId: "T1", cwd: "/repo", title: "Logs", frame: Frame(x: 1, y: 2, w: 3, h: 4))
         #expect(id == "w3")
         let params = server.received.first?["params"] as? [String: Any]
         #expect(params?["projectId"] as? String == "p1")
+        #expect(params?["terminalId"] as? String == "T1")
         #expect(params?["title"] as? String == "Logs")
     }
 

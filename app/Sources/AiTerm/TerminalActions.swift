@@ -45,9 +45,10 @@ final class TerminalActions {
         return Task {
             defer { if let opening { work.end(opening) } }
             guard workspace.canChangeWorkspace else { return }
+            // Built before its window, so the window can be tagged with the row's own id.
+            var item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: nil, createdAt: Date())
             do {
-                let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, cwd: project.path, title: name,
-                                                                frame: tiling.taskFrame())
+                let wid = try await openWindow(for: item, in: project, with: daemon)
                 // The project's removal waits for this window (`.openingTerminal`), so the project
                 // should still be here; should it not be, a row whose project is gone would fail
                 // every save, so the window is closed, not adopted.
@@ -55,7 +56,7 @@ final class TerminalActions {
                     try? await daemon.closeWindowIfOpen(wid)
                     return
                 }
-                let item = TerminalItem(id: UUID(), projectId: project.id, name: name, windowId: wid, createdAt: Date())
+                item.windowId = wid
                 workspace.mutate { $0.terminals.append(item) }
                 checkouts.refresh()
                 guard generation == focus.generation else { return }
@@ -77,8 +78,7 @@ final class TerminalActions {
             defer { work.end(reopening) }
             guard workspace.canChangeWorkspace else { return }
             do {
-                let wid = try await daemon.createTerminalWindow(projectId: project.id.uuidString, cwd: project.path, title: current.name,
-                                                                frame: tiling.taskFrame())
+                let wid = try await openWindow(for: current, in: project, with: daemon)
                 // As for a task's window: a row that went meanwhile cannot adopt it.
                 guard let i = workspace.state.terminals.firstIndex(where: { $0.id == terminal.id }) else {
                     try? await daemon.closeWindowIfOpen(wid)
@@ -87,6 +87,14 @@ final class TerminalActions {
                 workspace.mutate { $0.terminals[i].windowId = wid }
             } catch { notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
         }
+    }
+
+    /// A window for `terminal`, in its project's folder, tagged with the terminal's id: what a new
+    /// terminal and a restored one each open. The caller binds it to the row, or closes it when the
+    /// row went meanwhile.
+    func openWindow(for terminal: TerminalItem, in project: Project, with daemon: any DaemonCommands) async throws -> String {
+        try await daemon.createTerminalWindow(projectId: project.id.uuidString, terminalId: terminal.id.uuidString, cwd: project.path,
+                                              title: terminal.name, frame: tiling.taskFrame())
     }
 
     /// Closing a terminal touches nothing on disk — there is no worktree behind it — so it needs no

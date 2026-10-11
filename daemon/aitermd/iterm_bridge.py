@@ -15,11 +15,11 @@ from typing import Any, ParamSpec, Protocol, TypeVar
 
 import iterm2
 
-from .models import PROJECT_TAG, TASK_TAG, TITLE_TAG, Frame, RawSession
+from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
 
 log = logging.getLogger(__name__)
-VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}")
+VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}", f"user.{TERMINAL_TAG}")
 # How long one bridge call may wait on iTerm2. The library resolves a request only when its reply
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
 # the service's tick lock -- for good.
@@ -648,8 +648,8 @@ class ItermBridge:
     @staticmethod
     def _raw_session(placement: _Placement, values: list[Any]) -> RawSession:
         s, window_id, tab_index, active = placement
-        cmd, pid, title, path, task, project = values
-        user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project)) if v}
+        cmd, pid, title, path, task, project, terminal = values
+        user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project), (TERMINAL_TAG, terminal)) if v}
         return RawSession(s.session_id, window_id, tab_index, cmd, int(pid) if pid else None, title or "", path or "", user_vars,
                           active=active)
 

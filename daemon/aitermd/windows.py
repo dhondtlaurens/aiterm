@@ -9,7 +9,7 @@ from typing import Any
 
 from . import protocol
 from .iterm_bridge import ItermPort, ItermUnavailable
-from .models import PROJECT_TAG, TASK_TAG
+from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError
 from .sessions import SessionRegistry
@@ -105,7 +105,9 @@ class WindowManager:
 
     async def create_terminal(self, p: Any) -> dict[str, Any]:
         project_id, title = param(p, "projectId", str), optional_param(p, "title", str)
-        return await self._create(p, {PROJECT_TAG: project_id}, title or "terminal")
+        terminal_id = optional_param(p, "terminalId", str)
+        tags = {PROJECT_TAG: project_id} | ({TERMINAL_TAG: terminal_id} if terminal_id else {})
+        return await self._create(p, tags, title or "terminal")
 
     async def create_tab(self, p: Any) -> dict[str, Any]:
         wid, cmd = param(p, "windowId", str), optional_param(p, "agentCommand", str)
@@ -185,13 +187,15 @@ class WindowManager:
 
     def _window_tags(self, window_id: str) -> dict[str, str]:
         """The AiTerm tags a window is known by: `aiterm_task` for a task
-        window, `aiterm_project` for one opened by window.createTerminal. Empty
-        means the window is not ours."""
+        window, `aiterm_project` and `aiterm_terminal` for one opened by
+        window.createTerminal. Empty means the window is not ours."""
         tags: dict[str, str] = {}
         if task := self.registry.task_for_window(window_id):
             tags[TASK_TAG] = task
         if project := self.registry.project_for_window(window_id):
             tags[PROJECT_TAG] = project
+        if terminal := self.registry.terminal_for_window(window_id):
+            tags[TERMINAL_TAG] = terminal
         return tags
 
     async def set_titles(self, p: Any) -> dict[str, Any]:

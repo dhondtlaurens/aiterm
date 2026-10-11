@@ -15,6 +15,7 @@
       "state": "working",
       "tabIndex": 0,
       "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
+      "terminalId": null,
       "title": "pi",
       "tokens": {
         "cached": 935988,
@@ -37,6 +38,7 @@
       "state": "idle",
       "tabIndex": 1,
       "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
+      "terminalId": null,
       "title": "zsh",
       "tokens": null,
       "windowId": "w1"
@@ -55,6 +57,7 @@
       "state": "idle",
       "tabIndex": 0,
       "taskId": null,
+      "terminalId": null,
       "title": "Logs",
       "tokens": null,
       "windowId": "w4"

@@ -15,14 +15,15 @@ extension TaskItem {
 }
 
 extension SessionInfo {
-    /// A tab in `window`, tagged with `task` when there is one and working in its worktree. Decoded
+    /// A tab in `window`, tagged with `task` (or `terminal`) when there is one and working in the task's worktree. Decoded
     /// from the daemon's wire form, because `SessionInfo` has no public memberwise initializer and
     /// this library sees only what Core makes public.
-    static func stub(_ sessionId: String = "s", window: String, task: TaskItem? = nil, state: SessionState = .idle,
+    static func stub(_ sessionId: String = "s", window: String, task: TaskItem? = nil, terminal: TerminalItem? = nil, state: SessionState = .idle,
                      agent: SessionAgent = .codex) -> SessionInfo {
         var wire: [String: Any] = ["sessionId": sessionId, "windowId": window, "tabIndex": 0, "agent": agent.rawValue,
                                    "state": state.rawValue, "title": "", "cwd": task?.worktreePath ?? "/"]
         if let task { wire["taskId"] = task.id.uuidString }
+        if let terminal { wire["terminalId"] = terminal.id.uuidString }
         // A literal that fails to decode is a mistake in this file, not a case a test handles.
         return try! JSONDecoder().decode(SessionInfo.self, from: JSONSerialization.data(withJSONObject: wire))
     }

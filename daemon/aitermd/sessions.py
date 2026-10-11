@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import PROJECT_TAG, TASK_TAG, AgentKind, RawSession, SessionInfo, State, TokenTally, classify_agent
+from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, RawSession, SessionInfo, State, TokenTally, classify_agent
 
 
 @dataclass(slots=True)
@@ -20,6 +20,7 @@ class SessionRegistry:
         self._sessions: dict[str, SessionInfo] = {}
         self._window_task: dict[str, str] = {}
         self._window_project: dict[str, str] = {}
+        self._window_terminal: dict[str, str] = {}
         self._window_active: dict[str, str] = {}
 
     # -- snapshot -------------------------------------------------------
@@ -30,6 +31,8 @@ class SessionRegistry:
                 self._window_task[r.window_id] = t
             if p := r.user_vars.get(PROJECT_TAG):
                 self._window_project[r.window_id] = p
+            if term := r.user_vars.get(TERMINAL_TAG):
+                self._window_terminal[r.window_id] = term
             if r.active:
                 self._window_active[r.window_id] = r.session_id
         seen: set[str] = set()
@@ -62,10 +65,11 @@ class SessionRegistry:
                 del self._sessions[sid]
                 diff.closed.append(sid)
         live_windows = {r.window_id for r in raw}
-        for wid in set(self._window_task) | set(self._window_project) | set(self._window_active):
+        for wid in set(self._window_task) | set(self._window_project) | set(self._window_terminal) | set(self._window_active):
             if wid not in live_windows:
                 self._window_task.pop(wid, None)
                 self._window_project.pop(wid, None)
+                self._window_terminal.pop(wid, None)
                 self._window_active.pop(wid, None)
         return diff
 
@@ -74,6 +78,7 @@ class SessionRegistry:
             session_id=r.session_id, window_id=r.window_id, tab_index=r.tab_index,
             task_id=r.user_vars.get(TASK_TAG) or self._window_task.get(r.window_id),
             project_id=r.user_vars.get(PROJECT_TAG) or self._window_project.get(r.window_id),
+            terminal_id=r.user_vars.get(TERMINAL_TAG) or self._window_terminal.get(r.window_id),
             agent=classify_agent(r.command_line), model=None, state="idle",
             title=r.title or "", cwd=r.cwd or "", job_pid=r.job_pid,
             # Read back from the map rather than from `r`, so a snapshot in which iTerm2
@@ -163,6 +168,9 @@ class SessionRegistry:
 
     def project_for_window(self, window_id: str) -> str | None:
         return self._window_project.get(window_id)
+
+    def terminal_for_window(self, window_id: str) -> str | None:
+        return self._window_terminal.get(window_id)
 
     def active_for_window(self, window_id: str) -> str | None:
         """The session that was current in this window as of the last snapshot.
