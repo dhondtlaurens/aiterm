@@ -59,9 +59,9 @@ final class RowFocus {
     private let isRemoving: @MainActor (UUID) -> Bool
     @ObservationIgnored private var windowGoneHooks: [@MainActor (String) -> Void] = []
     @ObservationIgnored private var selectionHooks: [@MainActor (RowSelection?) -> Void] = []
-    /// Who reopens a task's window when its row is chosen without one: `TaskLauncher`, which adds
-    /// itself as it is built. Its answer is the reopen under way, or nil when it opens nothing.
-    @ObservationIgnored private var reopenWindowless: (@MainActor (UUID) -> Task<Void, Never>?)?
+    /// Who restores a row's window when the row is chosen without one: `WindowReconciler`, which adds
+    /// itself as it is built. Its answer is the restore under way, or nil when nothing opens now.
+    @ObservationIgnored private var restoreOwed: (@MainActor (RowSelection) -> Task<Void, Never>?)?
     /// Where a window that would not come forward is reported.
     private let notices: Notices
     /// The selection's own workspace hook, taken out again when the selection goes, as `PerRow`'s is.
@@ -102,9 +102,9 @@ final class RowFocus {
         selectionHooks.append(hook)
     }
 
-    /// Sets who reopens a task's window when its row is chosen — a click or Return — without one.
-    func onChoosingWindowlessTask(_ reopen: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
-        reopenWindowless = reopen
+    /// Sets who restores a row's window when the row is chosen — a click or Return — without one.
+    func onChoosingOwedRow(_ restore: @escaping @MainActor (RowSelection) -> Task<Void, Never>?) {
+        restoreOwed = restore
     }
 
     /// Whether the row with this id is selected — a header, a task or a terminal. What a row's body
@@ -153,24 +153,29 @@ final class RowFocus {
     }
 
     /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a
-    /// task seen. A task whose window closed has it reopened first (`onChoosingWindowlessTask`), then
-    /// raised as any other — unless the selection has moved on by then. A project header is only
-    /// selected: it has no window.
+    /// task seen. A row whose window is owed has it restored first (`onChoosingOwedRow`), then raised
+    /// as any other — unless the selection has moved on by then; with nothing restoring it, it is only
+    /// selected, as it has no window to raise nor tab to mark seen. A project header is only selected:
+    /// it has no window.
     @discardableResult
     func select(_ row: RowSelection) -> Task<Void, Never>? {
-        switch row {
-        case .project:
+        if case .project = row {
             browse(row)
             return nil
+        }
+        if window(for: row) == nil {
+            let restoring = isRemoving(row.id) ? nil : restoreOwed?(row)
+            return activate(row, failure: "Couldn’t activate the window", after: restoring)
+        }
+        switch row {
         case .task(let id):
-            if window(for: row) == nil, !isRemoving(id), let reopening = reopenWindowless?(id) {
-                return activate(row, failure: "Couldn’t activate the window", after: reopening)
-            }
             return activate(row, failure: "Couldn’t activate the window") { daemon in
                 _ = try? await daemon.markSeen(taskId: id.uuidString)
             }
         case .terminal:
             return activate(row, failure: "Couldn’t activate the terminal")
+        case .project:
+            return nil
         }
     }
 
@@ -199,22 +204,22 @@ final class RowFocus {
     func peek(id: UUID?) -> Task<Void, Never>? { peek(id.flatMap(row(id:))) }
 
     /// Selects a row and brings its window forward — re-snapped beside the sidebar, then activated,
-    /// then iTerm2 too unless this is a peek — and then runs `then`. `reopening` is a reopen of the
+    /// then iTerm2 too unless this is a peek — and then runs `then`. `restoring` is a restore of the
     /// row's window to wait for first; the window it opened is the one raised. Each step checks it
     /// still serves the latest selection. A click on the row already selected starts a new request
     /// too, superseding its last one. A row being removed is selected and nothing more.
     @discardableResult
-    private func activate(_ row: RowSelection, failure: String, focus: Bool = true, after reopening: Task<Void, Never>? = nil,
+    private func activate(_ row: RowSelection, failure: String, focus: Bool = true, after restoring: Task<Void, Never>? = nil,
                           then: ((any DaemonCommands) async -> Void)? = nil) -> Task<Void, Never>? {
         setSelection(row)
         let known = window(for: row)
-        guard !isRemoving(row.id), let daemon = daemon(), known != nil || then != nil || reopening != nil else { return nil }
+        guard !isRemoving(row.id), let daemon = daemon(), known != nil || then != nil || restoring != nil else { return nil }
         let delay = focus ? nil : peekDelay
         return activation.run { [self] isCurrent in
             var window = known
-            if let reopening {
-                // The reopen is the launcher's and runs to its end; only raising its window is this row's.
-                await reopening.value
+            if let restoring {
+                // The restore is the reconciler's and runs to its end; only raising its window is this row's.
+                await restoring.value
                 guard isCurrent() else { return }
                 window = self.window(for: row)
             }

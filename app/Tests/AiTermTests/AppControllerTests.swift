@@ -562,7 +562,9 @@ import Testing
         #expect(try store.load().lastModelByAgent[.claude] == "opus")
     }
 
-    @Test func observedClosesKeepTasksWindowlessTakeTerminalsAndPreserveCheckouts() throws {
+    /// A window found gone leaves its row owed it — a task's and a terminal's alike — and its
+    /// selection and checkout where they were.
+    @Test func observedClosesLeaveRowsOwedAndPreserveCheckouts() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = StateStore(url: dir.appendingPathComponent("state.json"))
@@ -598,8 +600,8 @@ import Testing
         // Observations still update memory when saving is blocked.
         try FileManager.default.createDirectory(at: store.backupURL, withIntermediateDirectories: false)
         controller.handleWindowClosed("w2")
-        #expect(controller.state.terminals.isEmpty)
-        #expect(controller.focus.selectedTerminalId == nil)
+        #expect(controller.state.terminals.map(\.windowId) == [nil], "the terminal stays, owed")
+        #expect(controller.focus.selectedTerminalId == terminal.id)
         #expect(!controller.workspace.flush())
         #expect(controller.persistenceError != nil)
         controller.handleWindowClosed("w2")

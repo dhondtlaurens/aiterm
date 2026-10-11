@@ -145,11 +145,13 @@ struct SidebarProjectionTests {
         let project = Project(id: UUID(), name: "Repo", path: repo.path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
         let task = TaskItem(id: Self.taskId, projectId: project.id, title: "Work", branch: "feat/work", worktreePath: checkout,
                             baseBranch: "main", jira: nil, agent: .claude, model: "opus", reasoning: nil, firstPrompt: nil,
-                            appendTicket: false, createdAt: Date(), windowId: nil)
+                            appendTicket: false, createdAt: Date(), windowId: "w")
 
         var written: [String?] = []
         let controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(),
                                        prompter: ScriptedPrompter(answering: "Remove"), setBadge: { written.append($0) }, git: git)
+        // The task has the window its tab is in, as the row would have taken it, and a helper to close it with.
+        controller.helper.setDaemonClient(RecordingDaemon())
         try controller.loadWorkspace()
         controller.workspace.mutate { $0.append(project: project); $0.tasks = [task] }
         controller.live.handle(.sessionOpened(tab(.done)))

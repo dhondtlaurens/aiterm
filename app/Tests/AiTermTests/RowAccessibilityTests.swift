@@ -81,12 +81,13 @@ import AiTermCore
                                      canChangeWorkspace: true).label == "Work")
     }
 
-    @Test func aTerminalRowOffersReopenWhenItsMenuDoes() {
+    /// A terminal's window comes back by itself, so its row offers no Reopen Window, with one or without.
+    @Test func aTerminalRowOffersRenameAndRemoveWithOrWithoutItsWindow() {
         let open = TerminalItem(id: UUID(), projectId: UUID(), name: "Shell", windowId: "w", createdAt: Date())
         var closed = open
         closed.windowId = nil
         #expect(TerminalRowAccessibility(terminal: open, canChangeWorkspace: true).actions == [.rename, .remove])
-        #expect(TerminalRowAccessibility(terminal: closed, canChangeWorkspace: true).actions == [.rename, .reopenWindow, .remove])
+        #expect(TerminalRowAccessibility(terminal: closed, canChangeWorkspace: true).actions == [.rename, .remove])
         #expect(TerminalRowAccessibility(terminal: closed, canChangeWorkspace: false).actions.isEmpty)
     }
 

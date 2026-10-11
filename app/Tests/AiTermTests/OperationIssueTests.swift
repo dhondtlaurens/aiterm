@@ -220,23 +220,8 @@ extension AppControllerTests {
         #expect(fixture.controller.issue == nil)
     }
 
-    /// Reopening is the way back from "Kept; window closed", so the note has done its job.
-    @Test func reopeningATaskClearsItsKeptNote() async throws {
-        let fixture = try RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(RecordingDaemon())
-        let task = try fixture.addTask(windowId: nil)
-        controller.seedSnapshotRemoval(.stopped(note: "Kept; window closed", worktreeRemoved: false), of: task.id)
-
-        await controller.reopen(task: task)?.value
-
-        #expect(controller.state.task(id: task.id)?.windowId == "reopened")
-        #expect(controller.removals[task.id] == nil)
-    }
-
-    /// And so is the banner that said the task was kept.
-    @Test func reopeningATaskTakesDownTheBannerAboutIt() async throws {
+    /// A task's window restored takes down the banner that said the task was kept.
+    @Test func restoringATaskTakesDownTheBannerAboutIt() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -244,14 +229,15 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: nil)
         controller.report(OperationIssue(title: "Task kept. Its window had already closed.", subject: task.id))
 
-        await controller.reopen(task: task)?.value
+        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        await controller.windows.lastRestore?.value
 
         #expect(controller.issue == nil)
     }
 
-    /// A failure about the task held back behind a question about it is as answered by the reopen:
+    /// A failure about the task held back behind a question about it is as answered by the restore:
     /// taking the question down must not put the failure up in its place.
-    @Test func reopeningATaskDropsAReportAboutItHeldBehindTheBanner() async throws {
+    @Test func restoringATaskDropsAReportAboutItHeldBehindTheBanner() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -260,25 +246,10 @@ extension AppControllerTests {
         controller.report(OperationIssue(title: "Rebase?", actions: [.rebaseDefault(fixture.project.id)], subject: task.id))
         controller.report(OperationIssue(title: "Couldn’t reopen the window.", reason: "Busy.", subject: task.id))
 
-        await controller.reopen(task: task)?.value
+        controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
+        await controller.windows.lastRestore?.value
 
         #expect(controller.issue == nil)
-    }
-
-    /// A reopen that fails changed nothing about why the removal stopped.
-    @Test func aFailedReopenKeepsTheNote() async throws {
-        let fixture = try RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let controller = fixture.controller
-        controller.helper.setDaemonClient(RecordingDaemon(failing: ["window.createTask": "temporary_failure"]))
-        let task = try fixture.addTask(windowId: nil)
-        let note = TaskRemoval.stopped(note: "Kept; window closed", worktreeRemoved: false)
-        controller.seedSnapshotRemoval(note, of: task.id)
-
-        await controller.reopen(task: task)?.value
-
-        #expect(controller.state.task(id: task.id)?.windowId == nil)
-        #expect(controller.removals[task.id] == note)
     }
 
     /// A row whose window closes stays, windowless, so what its removal left stays with it.

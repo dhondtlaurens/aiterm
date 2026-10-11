@@ -36,7 +36,7 @@ extension AppControllerTests {
         #expect(fixture.prompter.asked.last?.message == "Remove project “Repo”?", "free once both have opened")
     }
 
-    /// A task's window opening — reopened here, or for a review — holds the project too.
+    /// A task's window opening — restored here, or for a review — holds the project too.
     @Test func aProjectCannotBeRemovedWhileATaskWindowOpensInIt() async throws {
         let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
         let server = RecordingDaemon(holding: "window.createTask")
@@ -45,7 +45,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
         let task = try fixture.addTask(windowId: nil)
 
-        let reopening = controller.reopen(task: task)
+        let reopening = controller.windows.restore(.task(task.id))
         try await server.received("window.createTask")
         await controller.confirmRemove(project: fixture.project)
 
@@ -269,7 +269,7 @@ extension AppControllerTests {
         #expect(server.requests("window.close").map { $0.params["windowId"] as? String } == ["alive"])
     }
 
-    /// Remove while the terminal's window is still reopening says so; the reopen then finishes.
+    /// Remove while the terminal's window is still reopening says so; the restore then finishes.
     @Test func removingATerminalWhileItReopensSaysWhy() async throws {
         let fixture = try RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
@@ -279,7 +279,7 @@ extension AppControllerTests {
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        let reopening = controller.reopen(terminal: terminal, project: fixture.project)
+        let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         #expect(controller.close(terminal: terminal) == nil)
 
@@ -310,7 +310,7 @@ extension AppControllerTests {
         #expect(server.requests("window.close").count == 1)
     }
 
-    /// Reopening a terminal whose row went while its window opened closes that window.
+    /// Restoring a terminal whose row went while its window opened closes that window.
     @Test func aWindowReopenedForATerminalThatWentMeanwhileIsClosed() async throws {
         let fixture = try RaceFixture()
         let server = RecordingDaemon(holding: "window.createTerminal")
@@ -320,7 +320,7 @@ extension AppControllerTests {
         let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
         controller.workspace.mutate { $0.terminals = [terminal] }
 
-        let reopening = controller.reopen(terminal: terminal, project: fixture.project)
+        let reopening = controller.windows.restore(.terminal(terminal.id))
         try await server.received("window.createTerminal")
         controller.workspace.mutate { $0.terminals = [] }
         server.release()
@@ -510,58 +510,6 @@ extension AppControllerTests {
         #expect(name == TerminalItem.defaultName)
     }
 
-    /// A reopen while the daemon is away says why nothing happens.
-    @Test func reopeningATaskWhileDisconnectedSaysSo() throws {
-        let fixture = try RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let task = try fixture.addTask(windowId: nil)
-
-        #expect(fixture.controller.reopen(task: task) == nil)
-
-        #expect(fixture.controller.issue == .disconnected("again"))
-        #expect(fixture.controller.issue?.title == "Disconnected. Try again once AiTerm reconnects.")
-    }
-
-    /// The refusal leaves the row unlocked: once the daemon is back, the same click goes through.
-    @Test func aReopenRefusedWhileDisconnectedDoesNotLockTheRow() async throws {
-        let fixture = try RaceFixture()
-        let server = RecordingDaemon()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let task = try fixture.addTask(windowId: nil)
-        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        fixture.controller.workspace.mutate { $0.terminals = [terminal] }
-        #expect(fixture.controller.reopen(task: task) == nil)
-        #expect(fixture.controller.reopen(terminal: terminal, project: fixture.project) == nil)
-
-        fixture.controller.helper.setDaemonClient(server)
-        await fixture.controller.reopen(task: task)?.value
-        await fixture.controller.reopen(terminal: terminal, project: fixture.project)?.value
-
-        #expect(fixture.controller.state.tasks.first?.windowId == "reopened")
-        #expect(fixture.controller.state.terminals.first?.windowId == "terminal-window")
-    }
-
-    @Test func reopeningATerminalWhileDisconnectedSaysSo() throws {
-        let fixture = try RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let terminal = TerminalItem(id: UUID(), projectId: fixture.project.id, name: "Shell", windowId: nil, createdAt: Date())
-        fixture.controller.workspace.mutate { $0.terminals = [terminal] }
-
-        #expect(fixture.controller.reopen(terminal: terminal, project: fixture.project) == nil)
-
-        #expect(fixture.controller.issue == .disconnected("Reopen Window again"))
-    }
-
-    /// A stale click — the row already has its window — is ignored whether or not the daemon is there.
-    @Test func reopeningARowThatHasItsWindowStaysSilentWhileDisconnected() throws {
-        let fixture = try RaceFixture()
-        defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        let task = try fixture.addTask(windowId: "alive")
-
-        #expect(fixture.controller.reopen(task: task) == nil)
-        #expect(fixture.controller.issue == nil)
-    }
-
     /// The row can go while its window opens. The window is then closed, not left behind unowned.
     @Test func aWindowOpenedForATaskThatWentMeanwhileIsClosed() async throws {
         let fixture = try RaceFixture()
@@ -594,7 +542,7 @@ struct RaceFixture {
     /// The root is resolved with `realpath(3)`: git reports the physical path of a repository under
     /// `/var/folders`, and adding the unresolved one adds it as "the repository around" that path.
     init(prompter: ScriptedPrompter? = nil, activateIterm: @escaping @MainActor () -> Void = {},
-         bringForward: @escaping @MainActor () -> Void = {},
+         bringForward: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) throws {
         let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: raw, withIntermediateDirectories: true)
@@ -608,7 +556,7 @@ struct RaceFixture {
         let prompter = prompter ?? ScriptedPrompter()
         self.prompter = prompter
         controller = AppController(store: StateStore(url: root.appendingPathComponent("state.json")), preferences: .scratch(), prompter: prompter,
-                                   activateIterm: activateIterm, bringForward: bringForward, now: now)
+                                   activateIterm: activateIterm, launchIterm: launchIterm, bringForward: bringForward, now: now)
         try controller.loadWorkspace()
         controller.workspace.mutate { $0.items = [.project(project)] }
         #expect(controller.workspace.flush())

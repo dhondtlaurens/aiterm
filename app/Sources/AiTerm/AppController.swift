@@ -6,11 +6,12 @@ import AiTermCore
 /// The app's composition root, and the one handle the views and the tests have on it. `init` builds
 /// every owner below, each handed in its initializer the owners it calls, so each is built after
 /// them: the workspace, the notices, the helper, the tabs, the tiling, the checkouts, the task
-/// remover, the selection, then the actions, the review threads, and Backpack Mode and the Mac's readings last. What an owner tells one built after it goes out through
-/// its `on…` hooks, which the later owner adds itself to as it is built; the checkout monitor and
-/// the task remover, which each call the other, are the one pair joined after both exist
-/// (`CheckoutRemovals`). The sidebar's rows and the Dock badge are the controller's own. Everything
-/// else here forwards to the owner that does it.
+/// remover, the selection, then the actions, the windows, the review threads, and Backpack Mode and
+/// the Mac's readings last. What an owner tells one built after it goes out through its `on…` hooks,
+/// which the later owner adds itself to as it is built; the checkout monitor and the task remover,
+/// which each call the other, are the one pair joined after both exist (`CheckoutRemovals`). The
+/// sidebar's rows and the Dock badge are the controller's own. Everything else here forwards to the
+/// owner that does it.
 @MainActor
 @Observable
 final class AppController {
@@ -32,16 +33,16 @@ final class AppController {
     }
     /// The projects, dividers and names: every edit that is the workspace's alone, and the pull.
     let projects: ProjectActions
-    /// Tasks and reviews created, and their windows opened and reopened.
+    /// Tasks and reviews created, and their windows opened.
     let launcher: TaskLauncher
-    /// A project's terminals: a new one, a reopened window, a terminal closed.
+    /// A project's terminals: a new one, and a terminal closed.
     let terminals: TerminalActions
     /// The banner above the list and the completion toast, and which report wins the banner.
     let notices: Notices
 
     /// The helper process, the connection to it and how far it reaches iTerm2.
     let helper: HelperLink
-    /// What the helper reports, kept in step with the workspace: the windows iTerm2 no longer has.
+    /// The rows locked to their iTerm2 windows: a window lost is taken back, asked about or restored.
     let windows: WindowReconciler
     /// The tabs, usage and context fills the helper reports.
     let live: LiveSessions
@@ -96,7 +97,8 @@ final class AppController {
     /// `checkoutPollInterval` is the pause between the checkout monitor's passes; `toastLifetime` is
     /// how long a completion toast stays up; `closedWindowHold` and `now` are how long, and against
     /// what clock, a closed task window is held before Remove's question (`ClosedWindowTriage`);
-    /// `bringForward` brings AiTerm forward for it. `confirmsRemoval` is the last look at a checkout
+    /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when a row is chosen
+    /// while it is away. `confirmsRemoval` is the last look at a checkout
     /// the monitor found gone (`TaskRemover`).
     init(store: StateStore,
          preferences: InterfacePreferences,
@@ -110,6 +112,7 @@ final class AppController {
          prompter: Prompter,
          setBadge: @escaping @MainActor (String?) -> Void,
          activateIterm: @escaping @MainActor () -> Void,
+         launchIterm: @escaping @MainActor () -> Void,
          bringForward: @escaping @MainActor () -> Void,
          backpackPorts: BackpackPorts,
          backpackSecrets: any SecretStore,
@@ -140,7 +143,7 @@ final class AppController {
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent })
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
-                                    live: live, tiling: tiling, remover: remover, workflow: workflow, git: git, daemon: daemon)
+                                    tiling: tiling, workflow: workflow, git: git, daemon: daemon)
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -157,12 +160,13 @@ final class AppController {
         self.git = git
         self.setBadge = setBadge
         rows = SidebarProjection(workspace: workspace, live: live, checkouts: checkouts)
-        windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
-                                   remover: remover, now: now, closeHold: closedWindowHold, bringForward: bringForward)
         projects = ProjectActions(workspace: workspace, work: work, notices: notices, prompter: prompter, checkouts: checkouts,
                                   agents: agents, git: git, workflow: workflow, jiraSettings: jiraSettings)
         terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, daemon: daemon, activateIterm: activateIterm)
+        windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
+                                   remover: remover, launcher: launcher, terminals: terminals, notices: notices, daemon: daemon,
+                                   now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher)
@@ -339,11 +343,9 @@ final class AppController {
     func presentNewTerminal(project: Project) { sheets.presentNewTerminal(project: project) }
 
     // -- tasks ----------------------------------------------------------------------
-    /// `launcher`'s, forwarded: the tests start a task, and reopen one, here.
+    /// `launcher`'s, forwarded: the tests start a task here.
     func createTask(draft: TaskDraft, project: Project) async throws { try await launcher.createTask(draft: draft, project: project) }
     func createReview(draft: ReviewDraft, project: Project) async throws { try await launcher.createReview(draft: draft, project: project) }
-    @discardableResult
-    func reopen(task: TaskItem) -> Task<Void, Never>? { launcher.reopen(task: task) }
 
     // -- the banner ------------------------------------------------------------------
     /// `notices`', forwarded: the views and the tests reach the banner and the toast here. The
@@ -386,8 +388,6 @@ final class AppController {
     /// `terminals`', forwarded: the rows' menus, ⌘⌫ and the tests reach a terminal here.
     @discardableResult
     func newTerminal(project: Project, name: String) -> Task<Void, Never>? { terminals.newTerminal(project: project, name: name) }
-    @discardableResult
-    func reopen(terminal: TerminalItem, project: Project) -> Task<Void, Never>? { terminals.reopen(terminal: terminal, project: project) }
     @discardableResult
     func close(terminal: TerminalItem) -> Task<Void, Never>? { terminals.close(terminal: terminal) }
 
@@ -457,6 +457,13 @@ extension AppController {
                          NSRunningApplication.runningApplications(withBundleIdentifier: ItermPreferences.bundleIdentifier)
                              .first?.activate()
                      },
+                     launchIterm: @escaping @MainActor () -> Void = {
+                         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: ItermPreferences.bundleIdentifier)
+                         else { return }
+                         let configuration = NSWorkspace.OpenConfiguration()
+                         configuration.activates = false
+                         NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+                     },
                      backpackPorts: BackpackPorts = .live(),
                      machineSensor: any MachineSensor = LiveMachineSensor(),
                      scan: @escaping CheckoutMonitor.Scanner = {
@@ -466,7 +473,7 @@ extension AppController {
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
-                      activateIterm: activateIterm, bringForward: { AppController.bringAiTermForward() },
+                      activateIterm: activateIterm, launchIterm: launchIterm, bringForward: { AppController.bringAiTermForward() },
                       backpackPorts: backpackPorts, backpackSecrets: Keychain.shared,
                       openLocationSettings: {
                           NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)

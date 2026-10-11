@@ -1,9 +1,8 @@
 import Foundation
 import AiTermCore
 
-/// Tasks and reviews started, and their windows: a task or review created from its sheet, a review
-/// opened in the task that already has its branch, and the window a task lost, reopened when its row
-/// is chosen, its conversations resumed.
+/// Tasks and reviews started, and their windows: a task or review created from its sheet, and a
+/// review opened in the task that already has its branch.
 @MainActor
 final class TaskLauncher {
     private let workspace: WorkspaceStore
@@ -11,33 +10,22 @@ final class TaskLauncher {
     private let notices: Notices
     private let checkouts: CheckoutMonitor
     private let focus: RowFocus
-    /// The tabs open now: a windowless task with one still open elsewhere takes its window instead of a reopen.
-    private let live: LiveSessions
     private let tiling: SidebarTiling
-    /// Clears the "Kept; window closed" a removal left, once a reopen has done it.
-    private let remover: TaskRemover
     private let workflow: TaskWorkflow
     private let git: any GitRunning
     private let daemon: @MainActor () -> (any DaemonCommands)?
-    /// Each task's reopen while it runs: choosing its row again meanwhile waits on this one, rather
-    /// than finding nothing to wait for and losing the raise.
-    private var reopens: [UUID: Task<Void, Never>] = [:]
 
     init(workspace: WorkspaceStore, work: WorkInFlight, notices: Notices, checkouts: CheckoutMonitor, focus: RowFocus,
-         live: LiveSessions, tiling: SidebarTiling, remover: TaskRemover, workflow: TaskWorkflow, git: any GitRunning,
-         daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
+         tiling: SidebarTiling, workflow: TaskWorkflow, git: any GitRunning, daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
         self.workspace = workspace
         self.work = work
         self.notices = notices
         self.checkouts = checkouts
         self.focus = focus
-        self.live = live
         self.tiling = tiling
-        self.remover = remover
         self.workflow = workflow
         self.git = git
         self.daemon = daemon
-        focus.onChoosingWindowlessTask { [weak self] id in self?.reopenChosen(id) }
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -174,9 +162,10 @@ final class TaskLauncher {
     /// A task's window, in its worktree, adopted by the row: its id, or nil when the row went while the
     /// window opened — it cannot adopt it, so the window is closed rather than left behind with nothing
     /// to show it. `command` is what the window's first tab runs: the agent at creation, a resumed
-    /// conversation on a reopen, or nothing — the first prompt is never replayed.
+    /// conversation on a restore, or nothing — the first prompt is never replayed.
+    /// `WindowReconciler.restore` opens a restored task's window through it too.
     @discardableResult
-    private func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
+    func openWindow(for task: TaskItem, command: String?, with daemon: any DaemonCommands) async throws -> String? {
         let opening = work.begin(.openingTaskWindow, onProject: task.projectId)
         defer { if let opening { work.end(opening) } }
         let wid = try await daemon.createTaskWindow(taskId: task.id.uuidString, cwd: task.worktreePath, title: task.branch,
@@ -188,63 +177,4 @@ final class TaskLauncher {
         workspace.mutate { $0.tasks[i].windowId = wid }
         return wid
     }
-
-    /// Opens the window a task lost, in its worktree, resuming the conversations its tabs last showed
-    /// (`TaskItem.conversations`): the first in the window's own tab, each other in a tab of its own,
-    /// in their order. With none known it is a plain shell. A task that still has a window has nothing
-    /// to reopen, and a stale request is ignored rather than leaking a second window.
-    @discardableResult
-    func reopen(task: TaskItem) -> Task<Void, Never>? {
-        guard canChangeWorkspace else { return nil }
-        guard let current = state.task(id: task.id), current.windowId == nil else { return nil }
-        guard let daemon = daemon() else { notices.report(.disconnected("again")); return nil }
-        guard let reopening = work.begin(.reopening, onTask: task.id) else { return nil }
-        guard FileManager.default.fileExists(atPath: current.worktreePath) else {
-            work.end(reopening)
-            notices.report("Worktree missing at \(current.worktreePath). Restore it or use Remove \(current.kindName).")
-            return nil
-        }
-        let commands = Self.resumeCommands(for: current)
-        let running = Task {
-            defer { work.end(reopening); reopens[task.id] = nil }
-            guard canChangeWorkspace else { return }
-            do {
-                guard let wid = try await openWindow(for: current, command: commands.first, with: daemon) else { return }
-                // "Kept; window closed" was waiting for exactly this.
-                remover.clearStoppedNote(of: task.id)
-                notices.dropIssues(about: task.id)
-                for command in commands.dropFirst() {
-                    do { _ = try await daemon.createTab(windowId: wid, cwd: current.worktreePath, agentCommand: command) }
-                    catch {
-                        notices.report(OperationIssue(title: "Reopened the window, but not every conversation.", error: error,
-                                                      subject: task.id))
-                        break
-                    }
-                }
-            } catch { notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
-        }
-        reopens[task.id] = running
-        return running
-    }
-
-    /// A task row chosen — a click or ↩ — while its window is closed: the window is reopened, unless the
-    /// row says its worktree is missing, which a reopen could only fail on. A reopen already under way
-    /// is the answer again, so a second choice waits on it too. A task with a tab still open in another
-    /// window — its only tab dragged there, or the windows merged — takes that window instead, which the
-    /// choice then raises as it would the task's own: a reopen would resume a conversation still running
-    /// there a second time. Nil when nothing opens.
-    private func reopenChosen(_ id: UUID) -> Task<Void, Never>? {
-        if let running = reopens[id] { return running }
-        if let window = live.window(ofTask: id) {
-            workspace.mutate { state in
-                if let i = state.tasks.firstIndex(where: { $0.id == id && $0.windowId == nil }) { state.tasks[i].windowId = window }
-            }
-            return nil
-        }
-        guard !checkouts.isMissing(id), let task = state.task(id: id) else { return nil }
-        return reopen(task: task)
-    }
-
-    /// Each remembered conversation's resume command: `TaskItem.resumeCommands`, until its callers move to it.
-    static func resumeCommands(for task: TaskItem) -> [String] { task.resumeCommands }
 }

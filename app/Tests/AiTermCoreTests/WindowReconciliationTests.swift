@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import AiTermCore
 
-/// A snapshot of iTerm2 against the workspace (`AppState.reconciled`): which rows take a window
-/// back by their tag, and which go because their window has.
+/// A snapshot of iTerm2 against the workspace (`AppState.reconciled`): which rows are owed their
+/// window because the snapshot lacks it. Taking a window back by its tag is `WindowPlanTests`'.
 @Suite struct WindowReconciliationTests {
     let project = UUID()
 
@@ -31,42 +31,19 @@ import Testing
         var state = AppState.empty
         state.tasks = [task(window: "w1")]
         state.terminals = [terminal(window: "w2")]
-        #expect(state.reconciled(with: snapshot([], connected: false), lettingGo: []) == state)
+        #expect(state.reconciled(with: snapshot([], connected: false)) == state)
     }
 
-    /// A task whose window the snapshot lacks stays, windowless; a terminal whose window it lacks goes.
-    @Test func aTaskWhoseWindowIsGoneStaysWindowlessAndATerminalGoes() {
+    /// Every row whose window the snapshot lacks is owed it — a task's and a terminal's alike; the plan
+    /// (`AppState.windowPlan`) decides what follows.
+    @Test func aRowWhoseWindowIsGoneIsOwedIt() {
         let (kept, gone) = (task(window: "w1"), task(window: "w9"))
         let (open, closed) = (terminal(window: "w2"), terminal(window: "w8"))
-        let windowless = terminal(window: nil)
         var state = AppState.empty
         state.tasks = [kept, gone]
-        state.terminals = [open, closed, windowless]
-        let next = state.reconciled(with: snapshot([tab("a", window: "w1", task: kept), tab("b", window: "w2")]), lettingGo: [])
-        #expect(next.tasks.map(\.id) == [kept.id, gone.id])
+        state.terminals = [open, closed]
+        let next = state.reconciled(with: snapshot([tab("a", window: "w1", task: kept), tab("b", window: "w2")]))
         #expect(next.tasks.map(\.windowId) == ["w1", nil])
-        #expect(next.terminals == [open, windowless], "a row with no window has none to lose")
-    }
-
-    /// A task finds its window again by the tag on its tab — a create whose reply was lost, or a
-    /// window that moved — the first tagged tab winning; a task with no tab keeps the one it had.
-    @Test func aTaskTakesTheWindowItsTagIsIn() {
-        let lost = task(window: nil), moved = task(window: "w1"), untouched = task(window: "w3")
-        var state = AppState.empty
-        state.tasks = [lost, moved, untouched]
-        let next = state.reconciled(with: snapshot([tab("a", window: "w5", task: lost), tab("b", window: "w6", task: lost),
-                                                    tab("c", window: "w2", task: moved), tab("d", window: "w3")]),
-                                    lettingGo: [])
-        #expect(next.tasks.map(\.windowId) == ["w5", "w2", "w3"])
-    }
-
-    /// A task whose removal has let its window go is not handed it back: the window would take the
-    /// row with it when it closes.
-    @Test func aTaskLettingItsWindowGoIsNotGivenItBack() {
-        let leaving = task(window: nil)
-        var state = AppState.empty
-        state.tasks = [leaving]
-        let next = state.reconciled(with: snapshot([tab("a", window: "w1", task: leaving)]), lettingGo: [leaving.id])
-        #expect(next == state)
+        #expect(next.terminals.map(\.windowId) == ["w2", nil])
     }
 }

@@ -274,9 +274,9 @@ import Foundation
         #expect(try JSONDecoder().decode(SessionAgent.self, from: Data("\"shell\"".utf8)) == .shell)
     }
 
-    /// A window iTerm2 no longer has leaves its task's row windowless — "Window closed", reopened when
-    /// chosen — and takes a terminal's; a stale report leaves a newer window be.
-    @Test func aClosedWindowLeavesItsTaskWindowlessAndTakesItsTerminal() throws {
+    /// A window iTerm2 no longer has leaves its row owed it — a task's and a terminal's alike, for
+    /// `AppState.windowPlan` to settle; a stale report leaves a newer window be.
+    @Test func aClosedWindowLeavesItsRowOwedIt() throws {
         let project = Project(id: UUID(), name: "Repo", path: "/tmp/repo", provider: .git,
                               remoteUrl: nil, addedAt: Date(timeIntervalSince1970: 0), collapsed: false)
         let task = TaskItem(id: UUID(), projectId: project.id, title: "Work", branch: "feat/work",
@@ -304,7 +304,7 @@ import Foundation
         #expect(state.tasks[0].windowId == "w3")
         let closed4 = state.closeWindow("w2")
         #expect(closed4)
-        #expect(state.terminals.isEmpty)
+        #expect(state.terminals.map(\.windowId) == [nil], "the terminal stays, owed")
         let closed5 = state.closeWindow("w3")
         #expect(closed5)
         #expect(state.tasks.map(\.windowId) == [nil])

@@ -1,9 +1,9 @@
 import Foundation
 import AiTermCore
 
-/// A project's terminals: a new one's window, a window reopened for a row that lost its own, and a
-/// terminal closed. A terminal is a shell in the project folder with nothing on disk behind it, so
-/// each of these is a window and a row, and nothing else.
+/// A project's terminals: a new one's window, and a terminal closed. A terminal is a shell in the
+/// project folder with nothing on disk behind it, so each of these is a window and a row, and
+/// nothing else.
 @MainActor
 final class TerminalActions {
     private let workspace: WorkspaceStore
@@ -66,29 +66,6 @@ final class TerminalActions {
         }
     }
 
-    /// The terminal twin of `TaskLauncher.reopen(task:)`: a new window in the project's own
-    /// directory, adopted by the row that lost its window.
-    @discardableResult
-    func reopen(terminal: TerminalItem, project: Project) -> Task<Void, Never>? {
-        guard workspace.canChangeWorkspace else { return nil }
-        guard let current = workspace.state.terminal(id: terminal.id), current.windowId == nil else { return nil }
-        guard let daemon = daemon() else { notices.report(.disconnected("Reopen Window again")); return nil }
-        guard let reopening = work.begin(.reopening, onTerminal: terminal.id) else { return nil }
-        return Task {
-            defer { work.end(reopening) }
-            guard workspace.canChangeWorkspace else { return }
-            do {
-                let wid = try await openWindow(for: current, in: project, with: daemon)
-                // As for a task's window: a row that went meanwhile cannot adopt it.
-                guard let i = workspace.state.terminals.firstIndex(where: { $0.id == terminal.id }) else {
-                    try? await daemon.closeWindowIfOpen(wid)
-                    return
-                }
-                workspace.mutate { $0.terminals[i].windowId = wid }
-            } catch { notices.report(OperationIssue(title: "Couldn’t reopen the window.", error: error)) }
-        }
-    }
-
     /// A window for `terminal`, in its project's folder, tagged with the terminal's id: what a new
     /// terminal and a restored one each open. The caller binds it to the row, or closes it when the
     /// row went meanwhile.
@@ -99,8 +76,9 @@ final class TerminalActions {
 
     /// Closing a terminal touches nothing on disk — there is no worktree behind it — so it needs no
     /// confirmation, unlike removing a task. The row's copy is as old as the click, so the window
-    /// closed is the one the terminal has when the close runs: a reopen can have given it one since.
-    /// A close while the window is still reopening says so rather than racing it.
+    /// closed is the one the terminal has when the close runs: a restore can have given it one since.
+    /// A close while the window is still reopening (`WindowReconciler.restore`) says so rather than
+    /// racing it.
     @discardableResult
     func close(terminal: TerminalItem) -> Task<Void, Never>? {
         guard workspace.canChangeWorkspace, let current = workspace.state.terminal(id: terminal.id) else { return nil }

@@ -78,12 +78,6 @@ final class LiveSessions {
         }
     }
 
-    /// The window of an open tab tagged with `task`, if there is one: a task's tab lives on in another
-    /// window once it is dragged there, or the windows are merged, though its own window closed.
-    func window(ofTask task: UUID) -> String? {
-        sessions.first { $0.taskUUID == task }?.windowId
-    }
-
     /// The context each provider last reported in `row`; empty with nothing selected.
     func contextPercents(for row: RowSelection?) -> [AgentKind: Int] {
         row.map { contexts.percents(forRow: $0.id) } ?? [:]

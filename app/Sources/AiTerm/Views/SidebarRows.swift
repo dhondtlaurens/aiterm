@@ -464,7 +464,6 @@ struct TerminalRowView: View {
                         id: \.self) { action in
                     switch action {
                     case .rename: Button(action.rawValue) { controller.presentRename(terminal: terminal) }
-                    case .reopenWindow: Button(action.rawValue) { controller.reopen(terminal: terminal, project: project) }
                     case .remove: Button(action.rawValue) { controller.close(terminal: terminal) }
                     }
                 }
@@ -479,11 +478,6 @@ struct TerminalRowView: View {
                 Button("Open in Finder") { ExternalApps.openInFinder(path: project.path) }
                 if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: project.path) } }
                 Divider()
-                if terminal.windowId == nil {
-                    Button("Reopen Window") { controller.reopen(terminal: terminal, project: project) }
-                        .disabled(!controller.canChangeWorkspace)
-                    Divider()
-                }
                 Button("Remove Terminal", role: .destructive) { controller.close(terminal: terminal) }
                     .disabled(!controller.canChangeWorkspace)
             }
@@ -707,14 +701,14 @@ struct TerminalRowAccessibility: Equatable {
     /// Rename is spoken without the menu's ellipsis, as a divider's is: VoiceOver reads the action,
     /// and the sheet it opens says the rest.
     enum Action: String, Hashable {
-        case rename = "Rename", reopenWindow = "Reopen Window", remove = "Remove Terminal"
+        case rename = "Rename", remove = "Remove Terminal"
     }
 
     var actions: [Action]
 
     init(terminal: TerminalItem, canChangeWorkspace: Bool) {
         guard canChangeWorkspace else { actions = []; return }
-        actions = [.rename] + (terminal.windowId == nil ? [.reopenWindow] : []) + [.remove]
+        actions = [.rename, .remove]
     }
 }
 

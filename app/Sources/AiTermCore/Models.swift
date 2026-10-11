@@ -487,8 +487,9 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
     }
 
-    /// A window iTerm2 no longer has: a task keeps its row, windowless — its row says "Window closed",
-    /// and choosing it reopens the window — and a terminal's row goes. True if a row had it.
+    /// A window iTerm2 no longer has: its row is owed it — a task's and a terminal's alike — and
+    /// `AppState.windowPlan` decides what follows: Remove's question, the row's going, or the window
+    /// restored. True if a row had it.
     @discardableResult
     public mutating func closeWindow(_ windowId: String) -> Bool {
         var changed = false
@@ -496,8 +497,10 @@ public struct AppState: Codable, Equatable, Sendable {
             tasks[index].windowId = nil
             changed = true
         }
-        let terminalCount = terminals.count
-        terminals.removeAll { $0.windowId == windowId }
-        return changed || terminals.count != terminalCount
+        for index in terminals.indices where terminals[index].windowId == windowId {
+            terminals[index].windowId = nil
+            changed = true
+        }
+        return changed
     }
 }
