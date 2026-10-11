@@ -21,7 +21,11 @@ final class CheckoutMonitor {
     /// Tasks whose worktree is not on disk. Not observed: a row reads its own, `isMissing(_:)`, so
     /// one checkout going redraws that task's row and no other.
     @ObservationIgnored private(set) var missingCheckouts: Set<UUID> = [] {
-        didSet { for id in oldValue.symmetricDifference(missingCheckouts) { missingRows[id] = missingCheckouts.contains(id) } }
+        didSet {
+            let changed = oldValue.symmetricDifference(missingCheckouts)
+            for id in changed { missingRows[id] = missingCheckouts.contains(id) }
+            if !changed.isEmpty { for hook in missingHooks { hook(changed) } }
+        }
     }
     /// `missingCheckouts`, observed row by row.
     private let missingRows: PerRow<Bool>
@@ -67,6 +71,7 @@ final class CheckoutMonitor {
     @ObservationIgnored private var remotesHooks: [@MainActor ([UUID: WorkspaceScan.Remote]) -> Void] = []
     private let onTitles: @MainActor ([SessionTitle]) async -> Void
     @ObservationIgnored private var rowsHooks: [@MainActor () -> Void] = []
+    @ObservationIgnored private var missingHooks: [@MainActor (Set<UUID>) -> Void] = []
 
     init(live: LiveSessions, scan: @escaping Scanner, pollInterval: Duration = .seconds(2), git: any GitRunning,
          workspace: WorkspaceStore, onTitles: @escaping @MainActor ([SessionTitle]) async -> Void) {
@@ -94,6 +99,11 @@ final class CheckoutMonitor {
     /// `projectBranch`, `diffByTask` — changed: once for each pass or call that changed any of them.
     func onRowsChanged(_ hook: @escaping @MainActor () -> Void) {
         rowsHooks.append(hook)
+    }
+
+    /// Adds `hook` to what hears which tasks' worktrees were read missing, or back, since the last time.
+    func onMissingChanged(_ hook: @escaping @MainActor (Set<UUID>) -> Void) {
+        missingHooks.append(hook)
     }
 
     private func rowsChanged() {

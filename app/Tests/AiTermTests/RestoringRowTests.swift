@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
@@ -162,6 +163,45 @@ extension AppControllerTests {
         #expect(server.requests("window.createTask").isEmpty)
         #expect(!fixture.controller.windows.hasFailed(task.id))
         #expect(fixture.controller.issue == nil)
+    }
+
+    /// A worktree a restore found gone is looked for once, not again at every pass until the checkout
+    /// monitor reads it: the row waits for the monitor, whose pass then says the worktree is missing.
+    @Test func aWorktreeFoundGoneIsLookedForOnceUntilTheMonitorReadsIt() async throws {
+        let read = Mutex(false)
+        let fixture = try RaceFixture(scan: { cwds, projects, tasks, branches, remotes, diffs, defaultBranches in
+            // Until `read`, a pass that has not seen the worktree go.
+            read.withLock { $0 }
+                ? WorkspaceScan.run(cwds: cwds, projects: projects, tasks: tasks, branches: branches, remotes: remotes, diffs: diffs,
+                                    defaultBranches: defaultBranches)
+                : WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
+        })
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        try fixture.git.run(["worktree", "remove", task.worktreePath], in: fixture.repo.path)
+        var attempts = 0
+        controller.work.onChange { subject in
+            if subject == .task(task.id), controller.work.operation(onTask: task.id) == .reopening { attempts += 1 }
+        }
+
+        controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await controller.windows.lastRestore?.value
+        await controller.checkouts.refreshTask?.value
+        controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await controller.windows.lastRestore?.value
+        #expect(attempts == 1, "looked for once, then left for the monitor")
+        #expect(!controller.checkouts.isMissing(task.id))
+
+        read.withLock { $0 = true }
+        await controller.checkouts.refresh().value
+        await controller.windows.lastRestore?.value
+        #expect(controller.checkouts.isMissing(task.id))
+        #expect(attempts == 1, "the monitor says it is missing: nothing more is tried")
+        #expect(server.requests("window.createTask").isEmpty)
+        #expect(!controller.windows.hasFailed(task.id))
     }
 
     /// A restore waiting its turn looks again before it opens: iTerm2 closing windows meanwhile — a quit

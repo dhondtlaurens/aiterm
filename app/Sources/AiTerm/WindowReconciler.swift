@@ -50,6 +50,9 @@ final class WindowReconciler {
     private var questioned: Set<UUID> = []
     /// The rows whose restore failed and has not been tried again, which a pass leaves be.
     private var failed: Set<UUID> = []
+    /// The tasks whose restore found their worktree gone before the checkout monitor read it so: left
+    /// be until the monitor reads them again, rather than looked for at every pass meanwhile.
+    private var worktreeGone: Set<UUID> = []
     /// `failed`, as each row reads it alone.
     private let failedRows: PerRow<Bool>
     /// Moves on at each `stop()`: a look or a question armed before it sees it moved, and does nothing.
@@ -83,6 +86,12 @@ final class WindowReconciler {
         focus.onChoosingOwedRow { [weak self] in self?.choose($0) }
         // Work ending on a row — a removal kept, a restore done — can leave it owed and free.
         work.onChange { [weak self] _ in self?.pass() }
+        // A worktree read missing, or back: a task whose restore found it gone has been read again.
+        checkouts.onMissingChanged { [weak self] changed in
+            guard let self, !worktreeGone.isDisjoint(with: changed) else { return }
+            worktreeGone.subtract(changed)
+            pass()
+        }
     }
 
     private var state: AppState { workspace.state }
@@ -180,12 +189,13 @@ final class WindowReconciler {
             // A failure is the row's: one that went takes its cell with it.
             for id in failed.subtracting(rows) { failedRows[id] = false }
             failed.formIntersection(rows)
+            worktreeGone.formIntersection(rows)
             let due = Set(triage.due(at: now()))
             // A removal stopped after its worktree went holds the row for the person's retry: there is
             // nothing left to open its window in.
             let awaitingRetry = state.tasks.map(\.id).filter { remover.removals[$0]?.awaitsRetry == true }
             let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(awaitingRetry)
-                .union(rows.filter { isBusy($0) || checkouts.isMissing($0) })
+                .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.isMissing($0) })
             let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0) == .removing(windowLetGo: true) })
             let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
             for step in state.windowPlan(sessions: live.sessions, settled: settled, due: due, waiting: waiting, lettingGo: lettingGo) {
@@ -266,11 +276,15 @@ final class WindowReconciler {
     private func open(_ row: WindowRow, with daemon: any DaemonCommands) async {
         switch row {
         case .task(let id):
+            guard let path = state.task(id: id)?.worktreePath else { return }
             // The checkout monitor reads a worktree gone only at its next pass: one gone before then has
-            // nothing to open in, and is left for that pass to say so, rather than failed.
-            guard let path = state.task(id: id)?.worktreePath,
-                  await BackgroundWork.run({ FileManager.default.fileExists(atPath: path) }),
-                  let task = state.task(id: id), task.windowId == nil else { return }
+            // nothing to open in, and waits for that pass, asked for now, to say so — not failed.
+            guard await BackgroundWork.run({ FileManager.default.fileExists(atPath: path) }) else {
+                worktreeGone.insert(id)
+                checkouts.refresh()
+                return
+            }
+            guard let task = state.task(id: id), task.windowId == nil else { return }
             let commands = task.resumeCommands
             do {
                 guard let wid = try await launcher.openWindow(for: task, command: commands.first, with: daemon) else { return }
@@ -320,6 +334,8 @@ final class WindowReconciler {
         }
         if let running = restoring[row.id] { return running }
         if failed.remove(row.id) != nil { failedRows[row.id] = false }
+        // The person asking for it looks for its worktree again.
+        worktreeGone.remove(row.id)
         guard daemon() != nil else { notices.report(.disconnected("again")); return nil }
         guard triage.isSynced else { launchIterm(); return nil }
         pass()
