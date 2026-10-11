@@ -69,8 +69,7 @@ extension AppControllerTests {
         // The window's own `window.closed` finds the row windowless already: it stays while the removal runs.
         controller.handleWindowClosed("alive")
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
-        #expect(try controller.workspace.file.load().tasks.map(\.windowId) == [nil],
-                "on disk windowless before the close was sent, in case the app dies before the removal ends")
+        #expect(controller.state.tasks.map(\.windowId) == [nil], "windowless before the close was sent")
 
         server.release()
         await removal?.value
@@ -213,31 +212,32 @@ extension AppControllerTests {
         #expect(controller.issue == nil)
     }
 
-    /// Unsaved work written once the check has passed — the agent, or a watcher exiting as its
-    /// window closes — is only found after the window has gone. Kept then, the task says so.
-    @Test func keepingATaskWhoseWindowAlreadyClosedSaysSo() async throws {
+    /// Unsaved work written once the check has passed is only found after the window has gone. Kept
+    /// then, the task is a task again, owed its window — which comes back like any other.
+    @Test func keepingATaskWhoseWindowAlreadyClosedBringsItsWindowBack() async throws {
         let fixture = try CheckoutFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove", "Keep Task"))
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); controller.shutdown() }
         controller.helper.setDaemonClient(server)
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true,
+                                                          sessions: [SessionInfo.stub(window: "alive", task: fixture.task)],
+                                                          usage: .empty)))
 
         let removal = await controller.confirmRemove(task: fixture.task)
         try await server.received("window.close")
         try "late\n".write(toFile: fixture.task.worktreePath + "/late.txt", atomically: true, encoding: .utf8)
         server.release()
         await removal?.value
+        controller.helper.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)))
+        await controller.windows.lastRestore?.value
 
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/late.txt"))
         #expect(controller.state.tasks.map(\.id) == [fixture.task.id])
-        #expect(controller.state.tasks.first?.windowId == nil)
-        #expect(controller.issue == OperationIssue(title: "Task kept. Its window had already closed.", subject: fixture.task.id))
-        #expect(controller.removals[fixture.task.id] == .stopped(note: "Kept; window closed", worktreeRemoved: false))
-
-        // Dismissed, nothing is half done: the row is a windowless task again.
-        controller.dismissIssue()
-        #expect(controller.removals.isEmpty)
+        #expect(controller.removals.isEmpty, "nothing half done: no note")
+        #expect(controller.issue == nil)
+        #expect(server.requests("window.createTask").count == 1)
     }
 
     /// The cleanup's own close is announced as `window.closed` before the daemon answers it, which now

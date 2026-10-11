@@ -228,7 +228,7 @@ extension AppControllerTests {
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: nil)
-        controller.report(OperationIssue(title: "Task kept. Its window had already closed.", subject: task.id))
+        controller.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
 
         controller.helper.handle(.snapshot(AppControllerTests.emptySnapshot))
         await controller.windows.lastRestore?.value
