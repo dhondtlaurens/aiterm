@@ -90,6 +90,6 @@ extension AppControllerTests {
         task.conversations = [TaskConversation(agent: .codex, id: ""), TaskConversation(agent: .claude, id: "--dangerously-skip-permissions"),
                               TaskConversation(agent: .claude, id: "conv-2")]
 
-        #expect(TaskLauncher.resumeCommands(for: task) == ["claude --resume conv-2"])
+        #expect(task.resumeCommands == ["claude --resume conv-2"])
     }
 }

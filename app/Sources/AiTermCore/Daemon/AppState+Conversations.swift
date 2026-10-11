@@ -31,3 +31,18 @@ public extension AppState {
         return next
     }
 }
+
+public extension TaskItem {
+    /// Each remembered conversation's resume command, in tab order: what a restored window runs, the
+    /// first in its own tab and each other in a tab of its own. One with no id is skipped, and so is
+    /// one the CLI would read as a flag (`TaskConversation.isResumable`). The task's own agent resumes
+    /// on the model and reasoning it was launched with; another — started in a tab by hand — on its
+    /// defaults.
+    var resumeCommands: [String] {
+        conversations.filter { TaskConversation.isResumable($0.id) }.map { conversation in
+            let launched = conversation.agent == agent
+            return AgentCommand.resume(agent: conversation.agent, conversation: conversation.id,
+                                       model: launched ? model : nil, reasoning: launched ? reasoning : nil)
+        }
+    }
+}

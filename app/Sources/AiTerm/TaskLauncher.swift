@@ -245,15 +245,6 @@ final class TaskLauncher {
         return reopen(task: task)
     }
 
-    /// Each remembered conversation's resume command, in tab order; one with no id is skipped, since
-    /// there is nothing to resume, and so is one the CLI would read as a flag
-    /// (`TaskConversation.isResumable`). The task's own agent resumes on the model and reasoning it was
-    /// launched with; another — started in a tab by hand — on its defaults.
-    static func resumeCommands(for task: TaskItem) -> [String] {
-        task.conversations.filter { TaskConversation.isResumable($0.id) }.map { conversation in
-            let launched = conversation.agent == task.agent
-            return AgentCommand.resume(agent: conversation.agent, conversation: conversation.id,
-                                       model: launched ? task.model : nil, reasoning: launched ? task.reasoning : nil)
-        }
-    }
+    /// Each remembered conversation's resume command: `TaskItem.resumeCommands`, until its callers move to it.
+    static func resumeCommands(for task: TaskItem) -> [String] { task.resumeCommands }
 }
