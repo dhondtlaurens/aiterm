@@ -5,19 +5,20 @@ import Testing
 /// removed, and the caption under it.
 @Suite struct TaskRowCaptionTests {
     @Test func aRemovalReplacesTheChipLineAndHidesTheCaption() {
-        let removing = TaskRowCaption(removal: .removing, missing: true, windowOpen: false)
+        let removing = TaskRowCaption(removal: .removing, missing: true, failed: false)
         #expect(removing == TaskRowCaption(progress: "Removing…", note: nil))
-        #expect(TaskRowCaption(removal: .closing, missing: true, windowOpen: false).progress == "Closing…")
+        #expect(TaskRowCaption(removal: .closing, missing: true, failed: false).progress == "Closing…")
     }
 
     @Test func whyARemovalStoppedTakesTheCaptionsPlace() {
-        #expect(TaskRowCaption(removal: .stopped(note: "Not removed: branch kept", worktreeRemoved: true), missing: true, windowOpen: false)
+        #expect(TaskRowCaption(removal: .stopped(note: "Not removed: branch kept", worktreeRemoved: true), missing: true, failed: false)
                 == TaskRowCaption(progress: nil, note: .warning("Not removed: branch kept")))
     }
 
     @Test func otherwiseTheCaptionSaysWhatIsMissing() {
-        #expect(TaskRowCaption(removal: nil, missing: true, windowOpen: false).note == .plain("Worktree missing"))
-        #expect(TaskRowCaption(removal: nil, missing: false, windowOpen: false).note == .plain("Window closed"))
-        #expect(TaskRowCaption(removal: nil, missing: false, windowOpen: true) == TaskRowCaption(progress: nil, note: nil))
+        #expect(TaskRowCaption(removal: nil, missing: true, failed: true).note == .plain("Worktree missing"))
+        #expect(TaskRowCaption(removal: nil, missing: false, failed: true).note == .plain("Couldn’t reopen"))
+        #expect(TaskRowCaption(removal: nil, missing: false, failed: false) == TaskRowCaption(progress: nil, note: nil),
+                "an owed window coming back says nothing: the row is drawn as it was")
     }
 }

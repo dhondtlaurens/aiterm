@@ -148,17 +148,17 @@ final class TaskLauncher {
             notices.report(issue)
         }
         if let warning = result.launchWarning {
-            say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Choose it in the list to open its window, then start the agent manually.",
+            say(OperationIssue(title: "\(noun) created, but the agent couldn’t start. Start it manually in its window.",
                                reason: warning))
             return
         }
         guard let daemon = daemon() else {
-            say(OperationIssue(title: "\(noun) created. Once AiTerm reconnects, choose it in the list to open its window and start the agent manually."))
+            say(OperationIssue(title: "\(noun) created. Its window opens once AiTerm reconnects; start the agent there manually."))
             return
         }
         do { try await openWindow(for: task, command: result.command, with: daemon) }
         catch {
-            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened. Wait for reconnection or choose it in the list again.",
+            say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened; it comes back once AiTerm reconnects.",
                                error: error))
         }
     }

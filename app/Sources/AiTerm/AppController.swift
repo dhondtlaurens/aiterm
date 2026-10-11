@@ -376,6 +376,8 @@ final class AppController {
     /// `remover`'s, forwarded: the views and the tests reach a task's removal here.
     var removals: [UUID: TaskRemoval] { remover.removals }
     func removal(of id: UUID) -> TaskRemoval? { remover.removal(of: id) }
+    /// Whether the row's window could not be restored: its caption says so, and choosing it tries again.
+    func hasFailedRestore(_ id: UUID) -> Bool { windows.hasFailed(id) }
     @discardableResult
     func confirmRemove(task: TaskItem) async -> Task<Void, Never>? { await remover.confirmRemove(task: task) }
 

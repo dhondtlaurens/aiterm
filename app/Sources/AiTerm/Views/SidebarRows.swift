@@ -318,7 +318,7 @@ struct RowCaption: View {
 }
 
 /// One task or review: its agents, title, badges and branch, and — when there is something to say —
-/// why its window is not there.
+/// why its window could not come back.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
@@ -338,10 +338,11 @@ struct TaskRowView: View {
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
         let removal = controller.removal(of: row.id), removing = removal?.inProgress == true
-        let caption = TaskRowCaption(removal: removal, missing: missing, windowOpen: task?.windowId != nil)
+        let failed = controller.hasFailedRestore(row.id)
+        let caption = TaskRowCaption(removal: removal, missing: missing, failed: failed)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
-        let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, removing: removing,
+        let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
                                              canChangeWorkspace: controller.canChangeWorkspace)
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(selected: selected, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
@@ -612,7 +613,7 @@ extension ProjectJiraBadge.Overflow {
 
 /// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
 /// the actions its context menu would let the person choose now, and what choosing the row does — its
-/// hint, and the tooltip: a row whose window closed reopens it, unless the workspace cannot change. A
+/// hint, and the tooltip: a row whose window could not be reopened tries again, unless the workspace cannot change. A
 /// value, so the rule is testable without rendering the sidebar, as `TaskRowBadges` is.
 struct TaskRowAccessibility: Equatable {
     enum Action: Hashable {
@@ -633,7 +634,7 @@ struct TaskRowAccessibility: Equatable {
         }
     }
 
-    init(title: String, task: TaskItem?, missing: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
+    init(title: String, task: TaskItem?, missing: Bool, failed: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
         let branch = task?.branch ?? ""
         label = branch.isEmpty ? title : "\(title), \(branch)"
         let kindName = task?.kindName ?? "Task"
@@ -641,8 +642,8 @@ struct TaskRowAccessibility: Equatable {
         let words: (hint: String, help: String) =
             removing ? ("", "")
             : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
-            : task?.windowId == nil ? canChangeWorkspace ? ("Press Return to reopen its window.", "Window closed. Click to reopen it.")
-                                                         : ("", "Window closed.")
+            : failed ? canChangeWorkspace ? ("Press Return to try again.", "Couldn’t reopen its window. Click to try again.")
+                                          : ("", "Couldn’t reopen its window.")
             : ("Press Return to focus the window.", "")
         hint = words.hint
         help = words.help
@@ -653,11 +654,12 @@ struct TaskRowAccessibility: Equatable {
 
 /// The lines under a task row's title that are not its badges: what stands in for the badge line
 /// while the row is being removed, and the caption under it — why a removal stopped, else what the
-/// task is missing. While a removal runs neither shows: its window closing first, and its checkout
+/// task is missing — its worktree, or a window that could not be reopened. While a removal runs neither shows: its window closing first, and its checkout
 /// going, are the removal, not news.
 struct TaskRowCaption: Equatable {
     enum Note: Equatable {
-        /// What the task is missing, in the surface's secondary ink.
+        /// What the task is missing — its worktree, or a window that could not be reopened — in the
+        /// surface's secondary ink.
         case plain(String)
         /// Why a removal stopped, in `Palette.amber` — until the row is selected.
         case warning(String)
@@ -682,15 +684,16 @@ struct TaskRowCaption: Equatable {
         self.note = note
     }
 
-    /// `removal` is the row's own: whatever the banner above the list is saying meanwhile.
-    init(removal: TaskRemoval?, missing: Bool, windowOpen: Bool) {
+    /// `removal` is the row's own: whatever the banner above the list is saying meanwhile. `failed` is
+    /// a restore of its window that failed; an owed window still coming back says nothing.
+    init(removal: TaskRemoval?, missing: Bool, failed: Bool) {
         switch removal {
         case .removing: self.init(progress: "Removing…", note: nil)
         case .closing: self.init(progress: "Closing…", note: nil)
         case .stopped(let note, _): self.init(progress: nil, note: .warning(note))
         case nil:
             if missing { self.init(progress: nil, note: .plain("Worktree missing")) }
-            else if !windowOpen { self.init(progress: nil, note: .plain("Window closed")) }
+            else if failed { self.init(progress: nil, note: .plain("Couldn’t reopen")) }
             else { self.init(progress: nil, note: nil) }
         }
     }

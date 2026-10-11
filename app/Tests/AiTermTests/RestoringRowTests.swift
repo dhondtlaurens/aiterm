@@ -233,6 +233,55 @@ extension AppControllerTests {
         #expect(controller.state.terminals.map(\.windowId) == ["terminal-window"])
     }
 
+    /// A restore that fails while iTerm2 is there says so on the row; choosing the row tries again,
+    /// and raises what it opens.
+    @Test func choosingARowWhoseRestoreFailedTriesAgainAndRaisesIt() async throws {
+        let focus = ItermFocus()
+        let fixture = try RaceFixture(activateIterm: { focus.activate() })
+        let server = RecordingDaemon(failing: ["window.createTask": "temporary_failure"])
+        focus.server = server
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+        #expect(fixture.controller.hasFailedRestore(task.id))
+        #expect(fixture.controller.issue?.title == "Couldn’t reopen the window.")
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+        #expect(server.requests("window.createTask").count == 1, "a failed row waits for the person")
+
+        server.failing = [:]
+        await fixture.controller.focus.select(.task(task.id))?.value
+
+        #expect(!fixture.controller.hasFailedRestore(task.id))
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
+        #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened-2"])
+        #expect(focus.seen.count == 1)
+    }
+
+    /// A restore that fails because iTerm2 went away meanwhile is not the row's failure: the next
+    /// connected snapshot restores it.
+    @Test func aRestoreThatFailsAsItermGoesAwayIsNotMarkedFailed() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon(failing: ["window.createTask": "iterm_unavailable"], holding: "window.createTask")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: nil)
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        try await server.received("window.createTask")
+        fixture.controller.helper.handle(.itermDisconnected)
+        server.release()
+        await fixture.controller.windows.lastRestore?.value
+        #expect(!fixture.controller.hasFailedRestore(task.id))
+
+        server.failing = [:]
+        fixture.controller.helper.handle(.snapshot(Self.emptySnapshot))
+        await fixture.controller.windows.lastRestore?.value
+
+        #expect(fixture.controller.state.task(id: task.id)?.windowId == "reopened-2")
+    }
+
     @Test func choosingAnOwedRowWithNoHelperSaysSo() throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }

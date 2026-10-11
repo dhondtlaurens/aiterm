@@ -6,7 +6,7 @@ import Foundation
 /// and go — replaced by another report, or dismissed — without the row forgetting where it stands.
 public enum TaskRemoval: Equatable, Sendable {
     case removing, closing
-    /// What the row says in place of its "Window closed" or "Worktree missing". `worktreeRemoved`
+    /// What the row says in place of its "Couldn’t reopen" or "Worktree missing". `worktreeRemoved`
     /// is a removal that got past the worktree: the row waits for the person's retry, and checkout
     /// cleanup, which would forget a row whose checkout went, leaves it be.
     case stopped(note: String, worktreeRemoved: Bool)
