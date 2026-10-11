@@ -275,7 +275,7 @@ async def test_a_malformed_cookie_answer_is_bad_params(harness):
 
 async def test_a_disconnect_after_stop_starts_no_reconnect(harness):
     """On shutdown the connection closes: that is no disconnect to reconnect from, and a reconnect
-    loop would launch iTerm2."""
+    loop would keep retrying a connection closed on purpose."""
     h = harness()
     await h.supervisor.start()
     await h.supervisor.stop()

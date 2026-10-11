@@ -134,15 +134,37 @@ async def test_launch_does_not_guess_which_of_several_restored_windows_is_startu
     assert it.background_requests[-1] == ([], True)
 
 
+class UnansweredAtFirst(FakeIterm):
+    """A running iTerm2 that does not answer its first `misses` connections: a timeout, which is
+    not ItermNotRunning. connect_error is single-shot, so the misses are counted here."""
+
+    def __init__(self, misses: int, **kw):
+        super().__init__(**kw)
+        self.misses = misses
+
+    async def connect(self) -> str | None:
+        if self.misses:
+            self.misses -= 1
+            raise ItermUnavailable("iTerm2 did not answer within 10s")
+        return await super().connect()
+
+
 async def test_iterm_that_did_not_answer_is_not_adopted_by_the_launch_that_follows(make_service):
-    it = FakeIterm(notify_on_create=False)
+    # The start attempt and the first retry both go unanswered, so the loop launches iTerm2 on a
+    # failure that does not say iTerm2 is absent. The window already there was not opened by that
+    # launch, so it is not adopted as its startup window.
+    it = UnansweredAtFirst(misses=2, notify_on_create=False)
     await it.create_window("/Users/me", "zsh", {}, FRAME)
-    svc = make_service(iterm=it, supervisor={"launch_iterm": it.reconnect, "reconnect_seconds": 0.001})
+    launches = []
+
+    async def launch():
+        launches.append(1)
+        await it.reconnect()
+
+    svc = make_service(iterm=it, supervisor={"launch_iterm": launch, "reconnect_seconds": 0.001})
     await svc.start()
-    it.connect_error = ItermUnavailable("iTerm2 did not answer within 10s")
-    await it.disconnect()
-    await it.reconnect()
     await wait_until(lambda: svc.supervisor.version is not None)
+    assert launches == [1]
     await svc.windows.set_match_iterm_background({"matchItermBackground": True})
     assert it.background_requests[-1] == ([], True)
 
