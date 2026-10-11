@@ -616,11 +616,16 @@ async def test_statusline_hangs_the_context_fill_on_a_terminal_session(stack):
 async def test_errors(stack):
     svc, it, files, r, w = stack
     assert (await call(r, w, "window.activate", {"windowId": "nope"}))["error"]["code"] == "not_found"
+    # Retry quickly, so the loop makes several attempts while iTerm2 is away.
+    svc.supervisor.reconnect_seconds = 0.001
     await it.disconnect()
     created = await call(r, w, "window.createTask", {"taskId": "t", "cwd": "/", "title": "t", "frame": FRAME}, id_=2)
     assert created["error"]["code"] == "iterm_unavailable"
-    # The reconnect loop opens iTerm2 -- through the factory's recorder, never the real one.
-    await wait_until(lambda: svc.supervisor.launch_iterm.calls == 1)
+    # The reconnect loop never opens iTerm2 after a disconnect: it connects once the person starts it.
+    await asyncio.sleep(0.05)
+    await it.reconnect()
+    await wait_until(lambda: svc.supervisor.version is not None)
+    assert svc.supervisor.launch_iterm.calls == 0
 
 
 async def test_window_closed_event_when_last_session_goes(stack):

@@ -1,4 +1,6 @@
 """The untagged window opened by AiTerm's launch gets the override, not other windows."""
+import asyncio
+
 import pytest
 
 from aitermd.iterm_bridge import ItermUnavailable
@@ -57,20 +59,26 @@ async def test_app_created_startup_tab_is_also_restored(make_service):
     assert it.background_requests[-1] == ([sid, tab], False)
 
 
-async def test_relaunch_applies_an_already_enabled_override(make_service):
+async def test_reconnect_after_a_disconnect_does_not_give_an_enabled_override_the_persons_window(make_service):
+    # The daemon does not relaunch iTerm2 after a disconnect, so no startup window is captured: the
+    # window the person opens once iTerm2 is back is not theirs to have the override.
     it = FakeIterm(notify_on_create=False)
-    opened = []
+    launches = []
 
     async def launch():
-        opened.append(await it.create_window("/Users/me", "zsh", {}, FRAME))
-        await it.reconnect()
+        launches.append(1)
 
     svc = make_service(iterm=it, supervisor={"launch_iterm": launch, "reconnect_seconds": 0.001})
     await svc.start()
     await svc.windows.set_match_iterm_background({"matchItermBackground": True})
     await it.disconnect()
+    await asyncio.sleep(0.05)  # several failed retries while iTerm2 is away
+    await it.reconnect()
     await wait_until(lambda: svc.supervisor.version is not None)
-    assert it.background_requests[-1] == ([opened[0][1]], True)
+    _, sid = await it.create_window("/Users/me", "zsh", {}, FRAME)
+    await svc.tick()
+    assert launches == []
+    assert all(sid not in ids for ids, _ in it.background_requests)
 
 
 async def test_startup_tracking_survives_api_reconnect(make_service):

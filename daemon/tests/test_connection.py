@@ -160,18 +160,18 @@ async def test_refused_authentication_after_a_disconnect_is_broadcast_and_cleare
     assert await h.broadcasts.next("iterm.disconnected") == {}
     assert await h.broadcasts.next("iterm.auth_failed") == {"reason": REFUSED}
 
-    # Now iTerm2 has quit: an ordinary wait, so the warning is withdrawn, the interval
-    # resets and iTerm2 is opened.
+    # Now iTerm2 has quit: an ordinary wait, so the warning is withdrawn and the interval resets.
+    # iTerm2 is not opened: after a disconnect only the person starts it.
     await wait_until(lambda: len(h.delays) >= 3)
     it.auth_error = None
     assert await h.broadcasts.next("iterm.disconnected") == {}
-    await wait_until(lambda: h.launches == [1])
     mark = len(h.delays)
     await wait_until(lambda: len(h.delays) >= mark + 3)
     assert set(h.delays[mark:]) == {0.01}
 
     await it.reconnect()
     assert await h.broadcasts.next("iterm.connected") == {"version": "3.7.2"}
+    assert h.launches == []
 
 
 # -- cookies from the app ------------------------------------------------------------
@@ -282,3 +282,20 @@ async def test_a_disconnect_after_stop_starts_no_reconnect(harness):
     assert h.it.closed and not h.it.is_connected()
     await h.it.disconnect()
     assert h.supervisor._reconnect_task is None and h.launches == []
+
+
+async def test_a_disconnect_reconnects_without_launching_iterm(harness):
+    # iTerm2 quit or crashed: the daemon cannot tell which, so it never opens iTerm2 again itself.
+    # It keeps trying, and connects once the person starts iTerm2.
+    it = FakeIterm()
+    h = harness(it)
+    await h.supervisor.start()
+    await h.broadcasts.next("iterm.connected")
+    await it.disconnect()
+    assert await h.broadcasts.next("iterm.disconnected") == {}
+    await wait_until(lambda: len(h.delays) >= 3)
+    assert h.launches == []
+
+    await it.reconnect()
+    assert await h.broadcasts.next("iterm.connected") == {"version": "3.7.2"}
+    assert h.launches == []

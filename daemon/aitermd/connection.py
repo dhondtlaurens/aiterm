@@ -80,7 +80,7 @@ class ItermSupervisor:
         # Waiting on the app for a cookie must not hold up startup: the app only attaches once the
         # daemon is serving, so the first attempt runs in the reconnect loop.
         if self.cookies_from_app or not await self._try_connect():
-            self._start_reconnect_loop()
+            self._start_reconnect_loop(launch=True)
 
     async def stop(self) -> None:
         """Ends the connection for good: no reconnect loop, and no watch on the connection whose
@@ -124,10 +124,10 @@ class ItermSupervisor:
         return {"accepted": True}
 
     # -- connecting ----------------------------------------------------------
-    def _start_reconnect_loop(self) -> None:
+    def _start_reconnect_loop(self, *, launch: bool) -> None:
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
-        self._reconnect_task = asyncio.get_running_loop().create_task(self._reconnect_loop())
+        self._reconnect_task = asyncio.get_running_loop().create_task(self._reconnect_loop(launch=launch))
 
     async def _try_connect(self, *, launched: bool = False) -> bool:
         try:
@@ -217,17 +217,18 @@ class ItermSupervisor:
         await self.broadcast(protocol.ITERM_DISCONNECTED, {})
         # Retried in a task of its own, so this callback returns while iTerm2 stays away: its
         # caller (the bridge's watcher, or a test's disconnect) awaits it.
-        self._start_reconnect_loop()
+        self._start_reconnect_loop(launch=False)
 
-    async def _reconnect_loop(self) -> None:
-        # Launch iTerm2 once per loop run (i.e. once per disconnect, or once
-        # for the initial startup-connect failure), on the first attempt that
-        # finds it absent, then keep retrying at a fixed interval. A refused
-        # cookie means iTerm2 is running: it is not launched, and the retries
-        # back off (see `_retry_delay`). Only a launch that found iTerm2 not
-        # running opened its startup window: one that merely did not answer
-        # (a timeout, a dropped socket) is brought forward with its own windows.
-        launched = ours = False
+    async def _reconnect_loop(self, *, launch: bool) -> None:
+        # Launch iTerm2 at most once, and only in the loop the daemon's own start runs: an app
+        # started this daemon, which is the person asking for iTerm2. After a disconnect it is not
+        # launched -- a quit and a crash look alike from here, and a quit must stay quit -- and the
+        # loop only keeps trying, connecting once the person starts iTerm2. Launched on the first
+        # attempt that finds it absent; a refused cookie means iTerm2 is running, so it is not
+        # launched and the retries back off (see `_retry_delay`). Only a launch that found iTerm2
+        # not running opened its startup window: one that merely did not answer (a timeout, a
+        # dropped socket) is brought forward with its own windows.
+        launched, ours = not launch, False
         while True:
             try:
                 if await self._try_connect(launched=ours):
