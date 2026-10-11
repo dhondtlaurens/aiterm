@@ -114,7 +114,7 @@ final class WindowReconciler {
     private func windowClosedInIterm(_ windowId: String) {
         let closed = state.tasks.first { $0.windowId == windowId }?.id
         handleWindowClosed(windowId)
-        triage.windowClosed(task: closed.flatMap { work.operation(onTask: $0) == nil ? $0 : nil }, at: now())
+        triage.windowClosed(row: closed.flatMap { work.operation(onTask: $0) == nil ? $0 : nil }, at: now())
         guard triage.isHolding else { return }
         // Each close looks again once its own hold is over, after the looks armed before it: a close
         // whose hold ended before a later burst or disconnect is still due, and is asked about.
