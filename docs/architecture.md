@@ -72,14 +72,14 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `Notices` | `notices` | the banner above the list and the completion toast, and which report wins the banner |
 | `SheetCoordinator` | `sheets` | the one sheet slot, every way into it, the preparation on its way to it, and the creation sheets' models |
 | `ProjectActions` | `projects` | every edit that is the workspace's alone — projects, dividers, names, Jira links — and the default branch's pull |
-| `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened and reopened — a reopen resuming the conversations the task's tabs last showed |
-| `TerminalActions` | `terminals` | a project's terminals: a new one, a reopened window, one closed |
+| `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened |
+| `TerminalActions` | `terminals` | a project's terminals: a new one, and one closed |
 | `TaskRemover` | `remover` | the person's Remove and its retries, the closing of a task whose worktree went, and what each left its row saying |
-| `WindowReconciler` | `windows` | the helper's reports kept in step with the workspace: a window iTerm2 raised or no longer has, the conversations each task's tabs show, and Remove's question after the person closes one task's window (`ClosedWindowTriage`) |
+| `WindowReconciler` | `windows` | each row locked to its window: `AppState.windowPlan` run on every report and acted on — a window adopted by tag, a window restored with its conversations, Remove's question after the person closes one task's window, a terminal's row taken with its window (`ClosedWindowTriage`); the failed restores rows read |
 | `InterfacePreferences` | `preferences` | the Interface tab's settings, saved on every write |
 | `AgentIntegrations` | `agents` | which agent CLIs the login shell finds, the Claude status-line shim, the Settings harness model |
 | `SidebarTiling` | `tiling` | the sidebar window, its saved frame, and the terminal windows tiled beside it |
-| `RowFocus` | `focus` | the selected row — a project header, a task or a terminal — and the request that brings its window forward — a click, Return, a peek — each returned as its `Task`; a click or Return on a task whose window closed has `launcher` reopen it first, and a second one while that runs waits on the same reopen |
+| `RowFocus` | `focus` | the selected row — a project header, a task or a terminal — and the request that brings its window forward — a click, Return, a peek — each returned as its `Task`; a click or Return on a row whose window is owed waits on its restore, or tries a failed one again; with no restore under way it only selects the row |
 | `LiveSessions` | `live` | every tab the daemon reports, usage, and each row's last context fill |
 | `CheckoutMonitor` | `checkouts` | branches, missing checkouts and diff badges; the pass on every session change a scan reads, and 2 s after the last pass ends |
 | `ReviewThreadsWatcher` | `reviewThreads` | how many of each merge request's review threads are resolved — GitLab's resolvable discussions, GitHub's review threads — read every 60 s and when its row is selected, while started; each row's count in a `PerRow` cell, kept as last read when a read fails or the host is not connected (none before the first good one), and cleared only when its row goes or its task carries another merge request |
@@ -95,10 +95,8 @@ Dock badge recounted, and last `remover.pruneRemovals`, so a task on its way out
 between its row going and its removal entry going.
 
 Saves wait for the next coalesced write, except where a step must be on disk before the next one:
-a removal saves its task windowless before it asks for the window to close, so a removal that stops
-or an app that dies leaves a row to retry after a relaunch, and saves the row's going before it says
-"removed". A new task is saved before its window opens, a new project before its worktrees are
-offered, and the workspace at quit.
+a removal saves the row's going before it says "removed". A new task is saved before its window
+opens, a new project before its worktrees are offered, and the workspace at quit.
 
 ### Backpack Mode
 
@@ -133,7 +131,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 
 | Module | What it owns |
 |---|---|
-| `connection.py` · `ItermSupervisor` | connect, reconnect, auth backoff and cookie requests; every `iterm.*` event |
+| `connection.py` · `ItermSupervisor` | connect, reconnect, auth backoff and cookie requests; every `iterm.*` event. It launches iTerm2 only in the loop the daemon's own start runs, never after iTerm2 has gone away |
 | `windows.py` · `WindowManager` | task and terminal windows, their tabs, tagging a tab the user opens in one, titles and the background |
 | `hook_router.py` · `HookRouter` | a hook post, placed on a tab and applied to status or usage |
 | `publisher.py` · `Publisher` | `session.changed` and `usage.changed`, rendered when sent, for the router and the tick alike |
@@ -146,12 +144,12 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | Command | What it does |
 |---|---|
 | `workspace.snapshot` | the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
-| `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A reopened window passes the first remembered conversation's resume command, or none |
-| `window.createTerminal` | new window in the project folder, no agent |
+| `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none |
+| `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |
 | `window.setFrame` | re-snap beside the sidebar |
 | `window.close` | on remove, and before a worktree is deleted. The window is closed once iTerm2 has answered: a failed tick after it is logged, not answered |
-| `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a reopened window), else where the active tab is |
+| `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is |
 | `sessions.setTitles` | branch titles for AiTerm tabs, re-sent every couple of seconds; the daemon only applies changes |
 | `sessions.markSeen` | clear a done mark when its row is opened |
 | `interface.setMatchItermBackground` | paint AiTerm windows #1E1E1E |
@@ -172,12 +170,12 @@ effect in the order it was sent.
 | Event | What it means |
 |---|---|
 | `iterm.connected` | clears the "Waiting for iTerm2…" or "Reconnecting to iTerm2…" banner |
-| `iterm.disconnected` | "Reconnecting to iTerm2…"; the daemon retries on its own |
+| `iterm.disconnected` | "Reconnecting to iTerm2…"; the daemon retries on its own, without launching iTerm2 again |
 | `iterm.auth_failed` | iTerm2 is running but refused the API cookie; an amber banner gives the reason. Retries back off to once a minute, and the snapshot's `itermAuthError` carries the reason for an app that attaches later |
 | `iterm.cookieRequested` | the daemon needs a cookie for its next connect; the app asks iTerm2 with an Apple event and answers with `iterm.provideCookie`. An attached app that stays silent for 120 s is asked again, under a new id; time with no app attached does not count |
 | `window.activated` | aligns the sidebar selection when iTerm2 is raised from outside — e.g. by clicking an agent's notification |
-| `window.closed` | a task's row goes windowless ("Window closed") and stays, a terminal's row goes; during a removal, clears its window. A task window the person closed on its own is followed, a second later, by Remove's question — unless a tab of the task lives on in another window, which the row then takes |
-| `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its reopen) |
+| `window.closed` | the row owed that window is windowless at once, and the app decides what follows: a task window the person closed on its own is followed, a second later, by Remove's question, a terminal's lone close takes its row, any other close is restored once iTerm2 is quiet; a close during a removal only clears its window |
+| `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its restore); a tab tagged with a row's id in a window the row lacks hands the row that window |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
 
@@ -290,42 +288,71 @@ windows remains available. Retry saves the latest state without repeating Git or
 commands. Normal quit retries saving and offers **Cancel Quit** or **Quit Without Saving** if
 it still fails. Choosing to quit without saving loses changes since the last successful save.
 
-Closing a task's iTerm2 window keeps its sidebar row, windowless — "Window closed" — with its branch
-and checkout on disk; closing a plain terminal removes its row. When the person closes one task's
-window while iTerm2 stays connected, AiTerm comes forward with Remove Task's own question, unchanged:
-Remove deletes the worktree as Remove Task… does, its window already gone; Cancel keeps the row. The
-close is held a second first (`ClosedWindowTriage`), because iTerm2 quitting, crashing or a restart
-closes windows too and must ask nothing. The hold is told the time by its caller, and only what
-happens within the second after a close cancels it: iTerm2 disconnecting, or another window closing
-(`ClosedWindowTriage.itermSynced(_:at:)` and `windowClosed(task:at:)` drop just the closes still
-inside their hold, so one whose second was already over stays due when the caller gets to it). A
-close is never held when another window closed within the second before it, or when it arrives before
-the snapshot that follows a reconnect — the daemon keeps its sessions across a disconnect, so its
-first tick back announces every window iTerm2 lost while it was away, and the app's snapshot request
-on `iterm.connected` is answered only after that tick. A window a removal or the checkout cleanup closes
-is theirs and asks nothing; questions are asked one at a time. A task whose tab lives on in another
-window — its only tab dragged there, or Merge All Windows — is not asked about: when its question is
-due, a tab still tagged with it (`LiveSessions.window(ofTask:)`) gives the row that window instead. If
-iTerm2 keeps the front and macOS refuses AiTerm's activation, AiTerm's Dock icon bounces until the
-person comes (`AppController.bringAiTermForward`). Quit lets a held close go
-(`WindowReconciler.stop()`): nothing is asked after it. Choosing a windowless row — a click or ↩,
-never the arrows — reopens its window in the worktree and resumes each agent conversation its tabs
-last showed (`TaskItem.conversations`, saved as the daemon reports each tab's `conversationId`): the
-first in the window's tab, each other in a tab of its own; a row whose task still has a tab open
-elsewhere takes and raises that window instead, so no conversation is resumed twice. A window
-replaces the remembered list only once every agent tab in it names its own conversation, so a
-reopened window whose agents start one by one never shrinks it; an id that is empty or starts with
-"-", which the CLI would read as a flag, names none (`TaskConversation.isResumable`). The command is
-the harness's resume arguments (`Harness.resumeArguments`) and, for the task's own agent, the launch
-arguments it was started with — model and reasoning, and Codex's approval bypass; any other agent,
-started by hand, resumes without them, and so does a task with no saved model, so no Codex bypass
-either. With none known the window is a shell, and the first prompt is never replayed. A row whose
-checkout is missing is not reopened, nor any row while the workspace cannot change. Removing a task
-explicitly also removes its worktree. A daemon disconnect alone does not close or forget tasks.
+A row and its iTerm2 window are locked together: a task or terminal row is never shown without its
+window, and a row with `windowId == nil` is owed one. Every reason a window has not come back yet is
+an input to the decision, never a state the row is in. `AppState.windowPlan` (Core, pure) decides per
+row what to do about the difference between the rows and what iTerm2 has: adopt a window a tab tagged
+with the row is in (tasks `aiterm_task`, terminals `aiterm_terminal`), restore the window, ask about
+it, or drop the row. `WindowReconciler` alone acts on it, on every connected snapshot, close, hold,
+answer, choice and change of work, so there is one owner and one pass rather than a handler for each
+way a window can go.
 
-A created checkout is saved as a task before opening its window.
-If that window cannot be confirmed, the existing task offers recovery rather than another
-creation attempt. Reconnection reconciles saved tasks with tagged windows, and repeated
+When the person closes one task's window while iTerm2 stays connected, the row is owed its window at
+once and, a second later, AiTerm comes forward with Remove Task's own question, unchanged: Remove
+deletes the worktree as Remove Task… does, its window already gone; Cancel chooses the row, which
+restores its window and raises it. A terminal's lone close takes its row, as Remove Terminal does.
+The close is held a second first (`ClosedWindowTriage`, keyed by row), because iTerm2 quitting,
+crashing or a restart closes windows too and must ask nothing. The hold is told the time by its
+caller, and only what happens within the second after a close cancels it: iTerm2 disconnecting, or
+another window closing (`ClosedWindowTriage.itermSynced(_:at:)` and `windowClosed(row:at:)` drop just
+the closes still inside their hold, so one whose second was already over stays due when the caller
+gets to it). A close is never held when another window closed within the second before it, or when
+it arrives before the snapshot that follows a reconnect — the daemon keeps its sessions across a
+disconnect, so its first tick back announces every window iTerm2 lost while it was away, and the
+app's snapshot request on `iterm.connected` is answered only after that tick. Questions are asked
+one at a time. A task whose tab lives on in another window — its only tab dragged there, or Merge
+All Windows — is not asked about: its tag adopts that window, which the row takes. If iTerm2 keeps
+the front and macOS refuses AiTerm's activation, AiTerm's Dock icon bounces until the person comes
+(`AppController.bringAiTermForward`). Quit lets a held close go (`WindowReconciler.stop()`): nothing
+is asked after it.
+
+Everything else — a burst of closes, iTerm2 quitting or crashing, a reboot, AiTerm starting, a
+daemon restart — is restored quietly, once iTerm2 is synced and no window has closed for a second
+(`ClosedWindowTriage.isQuiet`), one window at a time, each tiled as a new one is, and each queued
+restore looks again when its turn comes, so iTerm2 closing windows meanwhile skips it rather than
+failing it. A task's window opens in its worktree and resumes each agent conversation its tabs last
+showed (`TaskItem.conversations`, saved as the daemon reports each tab's `conversationId`): the
+first in the window's tab, each other in a tab of its own. A window replaces the remembered list
+only once every agent tab in it names its own conversation, so a restored window whose agents start
+one by one never shrinks it; an id that is empty or starts with "-", which the CLI would read as a
+flag, names none (`TaskConversation.isResumable`). The command is the harness's resume arguments
+(`Harness.resumeArguments`) and, for the task's own agent, the launch arguments it was started with —
+model and reasoning, and Codex's approval bypass; any other agent, started by hand, resumes without
+them, and so does a task with no saved model, so no Codex bypass either. With none known the window
+is a shell, and the first prompt is never replayed. A terminal comes back as a fresh shell in its
+project's folder.
+
+AiTerm never relaunches iTerm2 after it goes away: a quit must stay quit. The daemon launches it
+only at its own start, which an app starting it is the person asking for, and the app starts it when
+a row is chosen while iTerm2 is away, without activating it; the windows come back with the snapshot
+that follows. A restore that fails while iTerm2 is there leaves "Couldn’t reopen" on the row and the
+reason on the banner; the pass leaves the row be, and choosing it — a click or ↩ — tries again. A
+failure because iTerm2 went away meanwhile is not the row's: the next connected snapshot restores it.
+AiTerm quitting leaves the windows running; the next launch adopts them by tag and restores the rest.
+
+Closes AiTerm makes itself — Remove, the checkout cleanup, Remove Terminal — are never asked about
+or restored: a row busy with work, or whose removal awaits a retry, is left out of the pass, and so
+is a row whose checkout is missing or whose worktree a restore found gone, which is not looked for
+again until the checkout monitor reads that row (`CheckoutMonitor.onMissingChanged`) or the person
+chooses it. A restore checks the worktree exists, off the main actor, before it opens. Nothing is
+restored while the workspace cannot change. Removing a task explicitly also removes its worktree. A
+daemon disconnect alone does not close or forget tasks.
+
+A created checkout is saved as a task before opening its window, and the new row is held busy
+(`TaskOperation.opening`) from the moment it is appended until its create ends, so the pass never
+restores a row whose window is still being created. If that window cannot be confirmed, the
+existing task stays and says its window opens, or comes back, by itself rather than inviting
+another creation attempt. Reconnection reconciles saved tasks with tagged windows, and repeated
 window requests reuse an existing task window without replaying its prompt.
 
 Removal leaves the terminal open when Git refuses or the user cancels. If the checkout was
@@ -360,7 +387,6 @@ that restores several windows is left alone rather than guessing which one is th
 Git, workspace writes, and iTerm2 still cannot share a transaction. A crash between checkout
 creation and its first save can leave an unrecorded checkout; re-add the project to import it.
 A crash while iTerm2 creates an as-yet-untagged window can require closing that orphan manually.
-Plain terminal creation does not yet have the stable task identity used for task-window retries.
 
 On upgrade, AiTerm renames the legacy `AIterm` application-support folder before loading state.
 Existing projects and integration data are retained. If migration fails or both folder

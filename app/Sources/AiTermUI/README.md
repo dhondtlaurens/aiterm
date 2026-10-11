@@ -290,11 +290,11 @@ row reads its own removal (`controller.removal(of:)`), missing checkout
 row it reaches, and a removal its own row, and no other — `SidebarRowRedrawTests` counts them. Only
 `SidebarScrollFollower` — not `SidebarView`'s body — follows the selection whole, so the list's
 model is not redrawn either.
-A task row whose window could not be restored says "Couldn’t reopen" (`TaskRowCaption`, read from the
-row's own `controller.hasFailedRestore(_:)` cell) in the slot and ink "Worktree missing" uses, and tries again when
-activated — a click or ↩, never the arrows. A window still coming back says nothing: the row is drawn as it
-was. Its context menu has no Reopen Window, and `TaskRowAccessibility` gives its VoiceOver hint and tooltip
-— which say nothing about trying again while the workspace cannot change, when choosing the row retries nothing.
+A task row whose window could not be reopened says "Couldn’t reopen" (`TaskRowCaption`, `Note.plain`, read
+from the row's own `controller.hasFailedRestore(_:)` cell) in the slot "Worktree missing" uses, and tries
+again when chosen — a click or ↩, never the arrows; its hint and tooltip say so (`TaskRowAccessibility`),
+except while the workspace cannot change, when choosing the row retries nothing. A row whose window is
+still coming back is drawn as it was.
 
 `CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` opens —
 the one trigger for every agent; a Codex skill picked there is written as its `$` mention.
