@@ -18,6 +18,9 @@ import Testing
         #expect(model.highlighted == c)
         model.move(by: 1); #expect(model.highlighted == b)
         model.move(by: -2); #expect(model.highlighted == a, "wraps")
+        // "e" is in all three rows (their branch and project), so nothing but the reset puts the
+        // highlight back on the newest: `a` would stay highlighted without it.
+        model.query = "e"; #expect(model.rows.count == 3); #expect(model.highlighted == c, "the highlight resets with the query")
         model.query = "be"; #expect(model.highlighted == b)
         model.query = "zzz"; #expect(model.highlighted == nil)
     }
