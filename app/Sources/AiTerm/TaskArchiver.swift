@@ -83,7 +83,8 @@ final class TaskArchiver {
     }
 
     private func archive(_ task: TaskItem, in project: Project, holding token: WorkInFlight.Token) async throws {
-        // The branch it is on now: a task's worktree can have moved since it was created.
+        // A detached worktree is refused before anything is asked or closed. Read again once the
+        // window is closed (below): until then its agent can still move it.
         let head = try await workflow.head(of: task, in: project)
         if head == .detached { throw Stop.detached }
         var force = false
@@ -93,7 +94,16 @@ final class TaskArchiver {
             force = true
         }
         try await teardown.closeWindow(of: task, holding: token, requiringDaemon: true, operation: { .archiving(windowLetGo: $0) })
-        let branch = if case .branch(let name) = head { name } else { task.branch }
+        // The branch it is on now — a task's worktree can have moved since it was created, or while
+        // the question was up and its window closing. Detached by now, its commits would go with the
+        // worktree: refused, and the row stays a task owed its window, which the window lock reopens.
+        // A folder gone by now is archived as it was before the window closed.
+        let branch: String
+        switch try await workflow.head(of: task, in: project) {
+        case .detached: throw Stop.detached
+        case .branch(let name): branch = name
+        case .missing: branch = if case .branch(let name) = head { name } else { task.branch }
+        }
         // On disk before the worktree goes (see the type's comment).
         workspace.mutate { $0.moveToArchive(taskId: task.id, branch: branch, at: now()) }
         guard workspace.flush() else {

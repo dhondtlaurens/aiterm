@@ -68,6 +68,49 @@ extension AppControllerTests {
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
+    @Test func aWorktreeDetachedWhileTheWindowClosesIsNotArchived() async throws {
+        // Clean and on its branch when the archive started; its agent detached it before the window
+        // went, so removing it now would lose whatever that detached head holds.
+        let prompter = ScriptedPrompter(answering: "OK")
+        let fixture = try RaceFixture(prompter: prompter)
+        let server = RecordingDaemon(holding: "window.close")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: "alive")
+
+        let archiving = await controller.archive(task: task)
+        try await server.received("window.close")
+        try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
+        server.release()
+        await archiving?.value
+
+        #expect(prompter.asked.map(\.message) == ["“Work” can’t be archived"])
+        #expect(controller.state.tasks.map(\.id) == [task.id])
+        #expect(controller.state.tasks.map(\.windowId) == [nil], "owed its window")
+        #expect(controller.state.archive.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+    }
+
+    @Test func aWorktreeSwitchedWhileTheWindowClosesIsArchivedOnTheBranchItIsOnNow() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon(holding: "window.close")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: "alive")
+        try fixture.git.run(["branch", "feat/other"], in: fixture.repo.path)
+
+        let archiving = await controller.archive(task: task)
+        try await server.received("window.close")
+        try fixture.git.run(["checkout", "-q", "feat/other"], in: task.worktreePath)
+        server.release()
+        await archiving?.value
+
+        #expect(controller.state.archive.map(\.task.branch) == ["feat/other"])
+        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+    }
+
     @Test func withoutADaemonAWindowedTaskIsNotArchived() async throws {
         let fixture = try RaceFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
