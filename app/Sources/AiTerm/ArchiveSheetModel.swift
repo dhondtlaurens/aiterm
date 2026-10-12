@@ -29,7 +29,7 @@ final class ArchiveSheetModel: Identifiable {
         return rows.first { $0.archived.id == highlightedId } ?? rows.first
     }
 
-    var status: String { query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(total) archived" : "\(rows.count) of \(total)" }
+    var status: String { query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(total) shelved" : "\(rows.count) of \(total)" }
 
     func move(by step: Int) {
         let rows = rows

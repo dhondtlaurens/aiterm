@@ -71,13 +71,13 @@ Jira-to-agent workflow. Run through this list by hand:
    icon bounces until you switch to it.
 10. **Remove Task…**: the window closes, the worktree is removed, the branch is kept unless the
     checkbox is ticked.
-11. **Archive** a task whose worktree has uncommitted changes: Keep leaves it as it was; Archive
-    again and Delete Changes and Archive puts it away — the window closes, the worktree goes, the
-    branch stays, and "Task archived." shows. View › Show Archive: restore it with ⌘↩; the worktree
+11. **Shelve Task** on a task whose worktree has uncommitted changes: Keep leaves it as it was; Shelve
+    again and Delete Changes and Shelve puts it away — the window closes, the worktree goes, the
+    branch stays, and "Task shelved." shows. View › Show Shelf (⌘S): restore it with ⌘↩; the worktree
     comes back at the same path and the window reopens, raised, its conversation resumed. Close a
-    task's window with ⇧⌘W and answer **Archive**: it lands in the archive, nothing reopens. Remove
-    a project that has archived rows: the question counts them, and they are gone from the sheet.
-    Downgrading to a build without the archive drops it on that build's next save.
+    task's window with ⇧⌘W and answer **Shelve**: it lands on the shelf, nothing reopens. Remove
+    a project that has shelved rows: the question counts them, and they are gone from the sheet.
+    Downgrading to a build without the Shelf drops it on that build's next save.
 12. Open the release DMG: AiTerm on the left, Applications on the right. Drag AiTerm to
     Applications, replacing the previous release, and open it.
 13. On a Mac still running the previous release, **AiTerm › Check for Updates…** offers this

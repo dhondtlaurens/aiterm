@@ -169,19 +169,19 @@ final class TaskRemover: CheckoutRemovals {
         // Archive never deletes a branch, so beside it a review's branch sentence is Remove's alone.
         let detail = switch (shown.kind == .review, archiveInstead != nil) {
         case (true, true):
-            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later. "
+            "Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore later. "
                 + "Remove also deletes its local branch, unless it has unpushed commits."
         case (true, false):
             "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
         case (false, true):
-            "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later."
+            "Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore later."
         case (false, false):
             "Deletes its worktree and closes its iTerm2 window."
         }
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
             detail: detail,
-            buttons: archiveInstead == nil ? ["Remove", "Cancel"] : ["Remove", "Archive", "Cancel"],
+            buttons: archiveInstead == nil ? ["Remove", "Cancel"] : ["Remove", "Shelve", "Cancel"],
             checkbox: Self.offersBranchDeletion(for: shown) ? "Delete local branch" : nil,
             checkboxHelp: Self.offersBranchDeletion(for: shown) ? shown.branch : nil,
             defaultDeletes: true))

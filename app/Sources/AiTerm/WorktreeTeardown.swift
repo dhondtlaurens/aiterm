@@ -14,14 +14,14 @@ struct WorktreeTeardown {
         var deleteDetail: String {
             switch self {
             case .remove: "Removing this worktree permanently deletes its uncommitted changes and untracked files."
-            case .archive: "Archiving deletes its uncommitted changes and untracked files. The branch is kept."
+            case .archive: "Shelving deletes its uncommitted changes and untracked files. The branch is kept."
             }
         }
 
         var deleteButton: String {
             switch self {
             case .remove: "Delete Changes and Remove"
-            case .archive: "Delete Changes and Archive"
+            case .archive: "Delete Changes and Shelve"
             }
         }
     }

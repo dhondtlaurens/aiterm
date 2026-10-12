@@ -19,7 +19,8 @@ import Testing
         defer { NSApplication.shared.mainMenu = saved }
         AiTermApp(controller: AppController(preferences: .scratch())).buildMenu()
         let menus = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).filter { $0.title != "Edit" }
-        let items = menus.flatMap(\.items).filter { !$0.isHidden && !$0.keyEquivalent.isEmpty }
+        // View › Show Settings repeats AiTerm › Settings…'s ⌘, to show it; the key is listed once, as Settings….
+        let items = menus.flatMap(\.items).filter { !$0.isHidden && !$0.keyEquivalent.isEmpty && $0.title != "Show Settings" }
         let menuRows = items.map { KeyBinding(action: $0.title, keys: Self.keys(of: $0)) }
 
         let listed = try #require(KeyBindings.all.first { $0.title == "Anywhere in AiTerm" })
@@ -66,14 +67,38 @@ import Testing
         app.buildMenu()
         let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
         let titles = view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title }
-        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "Show Archive", "—", "Backpack Mode", "—"])
+        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "—", "Show Shelf", "Show Settings", "—", "Backpack Mode", "—"])
         let item = try #require(view.items.first { $0.title == "Backpack Mode" })
         #expect(Self.keys(of: item) == ["⌘", "B"])
         #expect(app.validateMenuItem(item), "never disabled: a press that cannot turn it on answers with a toast")
         #expect(item.state == .off)
     }
 
-    /// View › Show Archive, after the views; off while a sheet is up.
+    /// View › Show Settings is AiTerm › Settings… again, under the View menu's "Show" group: the same
+    /// action and target, ⌘, shown, and enabled by the same rule. The app menu comes first, so it owns the key.
+    @Test func showSettingsIsSettingsAgain() throws {
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        let controller = AppController(preferences: .scratch())
+        try controller.loadWorkspace()
+        let app = AiTermApp(controller: controller)
+        app.buildMenu()
+        let menus = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu)
+        let appItem = try #require(menus.flatMap(\.items).first { $0.title == "Settings…" })
+        let viewItem = try #require(menus.first { $0.title == "View" }?.items.first { $0.title == "Show Settings" })
+        #expect(Self.keys(of: viewItem) == ["⌘", ","])
+        #expect(viewItem.action == appItem.action)
+        #expect(viewItem.target === appItem.target)
+        #expect(app.validateMenuItem(viewItem) == app.validateMenuItem(appItem))
+        #expect(app.validateMenuItem(viewItem), "on while nothing is up")
+        controller.presentArchive()
+        #expect(app.validateMenuItem(viewItem) == app.validateMenuItem(appItem))
+        #expect(!app.validateMenuItem(viewItem), "off while a sheet is up, as Settings… is")
+        let first = try #require(menus.flatMap(\.items).first { $0.keyEquivalent == "," })
+        #expect(first.title == "Settings…", "the app menu comes first, so it owns ⌘,")
+    }
+
+    /// View › Show Shelf, ⌘S, after the views; off while a sheet is up. (The Shelf is the archive in code.)
     @Test func theViewMenuCarriesShowArchive() throws {
         let saved = NSApplication.shared.mainMenu
         defer { NSApplication.shared.mainMenu = saved }
@@ -82,11 +107,27 @@ import Testing
         let app = AiTermApp(controller: controller)
         app.buildMenu()
         let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
-        let item = try #require(view.items.first { $0.title == "Show Archive" })
-        #expect(item.keyEquivalent.isEmpty, "Select All claims ⌘A on the list (Task 1)")
+        let item = try #require(view.items.first { $0.title == "Show Shelf" })
+        #expect(Self.keys(of: item) == ["⌘", "S"], "Select All claims ⌘A on the list, so the Shelf took ⌘S")
         #expect(app.validateMenuItem(item))
         controller.presentArchive()
         #expect(!app.validateMenuItem(item), "not over a sheet")
+    }
+
+    /// View › Show Shelf answers ⌘S: a plain ⌘ key, no other modifier, and no other menu item claims it.
+    @Test func showShelfAnswersCommandS() throws {
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        let app = AiTermApp(controller: AppController(preferences: .scratch()))
+        app.buildMenu()
+        let mainMenu = try #require(NSApplication.shared.mainMenu)
+        let menus = mainMenu.items.compactMap(\.submenu)
+        let view = try #require(menus.first { $0.title == "View" })
+        let item = try #require(view.items.first { $0.title == "Show Shelf" })
+        #expect(item.keyEquivalent == "s")
+        #expect(item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command)
+        let claimants = menus.flatMap(\.items).filter { $0.keyEquivalent == "s" && $0.keyEquivalentModifierMask == item.keyEquivalentModifierMask }
+        #expect(claimants.map(\.title) == ["Show Shelf"], "nothing else in the menus answers ⌘S")
     }
 
     /// A row as the menu check compares it: its title and its keys.

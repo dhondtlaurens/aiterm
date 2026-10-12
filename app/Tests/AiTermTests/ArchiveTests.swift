@@ -21,7 +21,7 @@ extension AppControllerTests {
         #expect(controller.state.archive.first?.task.windowId == nil)
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty, "the branch stays")
-        #expect(controller.toastState.toast?.message == "Task archived.")
+        #expect(controller.toastState.toast?.message == "Task shelved.")
         #expect(try controller.savedWorkspace().archive.map(\.id) == [task.id], "on disk")
     }
 
@@ -37,15 +37,15 @@ extension AppControllerTests {
         await (await fixture.controller.archive(task: task))?.value
 
         let asked = try #require(prompter.asked.first)
-        #expect(asked.buttons == ["Keep Task", "Delete Changes and Archive"])
-        #expect(asked.detail == "Archiving deletes its uncommitted changes and untracked files. The branch is kept.")
+        #expect(asked.buttons == ["Keep Task", "Delete Changes and Shelve"])
+        #expect(asked.detail == "Shelving deletes its uncommitted changes and untracked files. The branch is kept.")
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
         #expect(server.requests("window.close").isEmpty)
         #expect(fixture.controller.removal(of: task.id) == nil, "kept before anything moved: no note")
     }
 
     @Test func deleteChangesAndArchiveArchivesTheDirtyWorktree() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Archive"))
+        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Shelve"))
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.helper.setDaemonClient(RecordingDaemon())
         let task = try fixture.addTask(windowId: "alive")
@@ -63,7 +63,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         try fixture.git.run(["checkout", "-q", "--detach"], in: task.worktreePath)
         await (await fixture.controller.archive(task: task))?.value
-        #expect(prompter.asked.first?.message == "“Work” can’t be archived")
+        #expect(prompter.asked.first?.message == "“Work” can’t be shelved")
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
@@ -85,7 +85,7 @@ extension AppControllerTests {
         server.release()
         await archiving?.value
 
-        #expect(prompter.asked.map(\.message) == ["“Work” can’t be archived"])
+        #expect(prompter.asked.map(\.message) == ["“Work” can’t be shelved"])
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "owed its window")
         #expect(controller.state.archive.isEmpty)
@@ -117,7 +117,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         await (await fixture.controller.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not archived: iTerm2 isn’t connected", worktreeRemoved: false))
+        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not shelved: iTerm2 isn’t connected", worktreeRemoved: false))
         #expect(FileManager.default.fileExists(atPath: task.worktreePath))
     }
 
@@ -129,7 +129,7 @@ extension AppControllerTests {
         let task = try fixture.addTask(windowId: "alive")
         await (await fixture.controller.archive(task: task))?.value
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"])
-        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not archived: its window did not close", worktreeRemoved: false))
+        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not shelved: its window did not close", worktreeRemoved: false))
     }
 
     @Test func anUnreadableProjectFolderStopsTheArchiveWithNothingMoved() async throws {
@@ -142,7 +142,7 @@ extension AppControllerTests {
         #expect(fixture.controller.state.tasks.map(\.id) == [task.id])
         #expect(fixture.controller.state.tasks.map(\.windowId) == ["alive"], "its window too")
         #expect(fixture.controller.state.archive.isEmpty)
-        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
     }
 
     @Test func anArchiveThatCannotBeSavedLeavesTheWorktreeAndTheTask() async throws {
@@ -166,7 +166,7 @@ extension AppControllerTests {
         #expect(controller.state.tasks.map(\.id) == [task.id], "a task again, owed its window")
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath), "nothing deleted")
-        #expect(controller.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
         #expect(controller.toastState.toast == nil)
     }
 
@@ -217,16 +217,16 @@ extension AppControllerTests {
         server.release()
         await archiving?.value
 
-        #expect(prompter.asked.map(\.buttons) == [["Keep Task", "Delete Changes and Archive"]])
+        #expect(prompter.asked.map(\.buttons) == [["Keep Task", "Delete Changes and Shelve"]])
         #expect(controller.state.tasks.map(\.id) == [task.id])
         #expect(controller.state.tasks.map(\.windowId) == [nil], "owed its window")
-        #expect(controller.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.removal(of: task.id) == .stopped(note: "Not shelved", worktreeRemoved: false))
         #expect(controller.state.archive.isEmpty)
         #expect(FileManager.default.fileExists(atPath: task.worktreePath + "/wip.txt"))
     }
 
     @Test func uncommittedWorkWrittenWhileTheWindowClosesIsDeletedOnDeleteChangesAndArchive() async throws {
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Archive"))
+        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Delete Changes and Shelve"))
         let server = RecordingDaemon(holding: "window.close")
         defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
@@ -323,7 +323,7 @@ extension AppControllerTests {
         await controller.confirmRemove(project: fixture.project)
 
         #expect(prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
-        #expect(prompter.asked.first?.detail == "One of its archived tasks is still being archived, restored or removed. Try again in a moment.")
+        #expect(prompter.asked.first?.detail == "One of its shelved tasks is still being shelved, restored or removed. Try again in a moment.")
         #expect(controller.state.project(id: fixture.project.id) != nil)
         #expect(controller.state.archive.map(\.id) == [task.id])
     }
@@ -352,7 +352,7 @@ extension AppControllerTests {
 
         let asked = try #require(prompter.asked.last)
         #expect(asked.message == "Remove task “Work”?")
-        #expect(asked.detail == "Forgets it and its conversations. Its worktree was deleted when it was archived.")
+        #expect(asked.detail == "Forgets it and its conversations. Its worktree was deleted when it was shelved.")
         #expect(asked.checkbox == "Delete local branch")
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
@@ -465,8 +465,8 @@ extension AppControllerTests {
         #expect(ProjectActions.removalDetail(tasks: 4, archived: [])
                 == "Removes the project and its 4 tasks from AiTerm. Files, worktrees and windows are kept.")
         #expect(ProjectActions.removalDetail(tasks: 4, archived: Array(repeating: archived(.task), count: 12))
-                == "Removes the project and its 4 tasks from AiTerm, and forgets its 12 archived tasks and reviews. Files, branches, worktrees and windows are kept.")
+                == "Removes the project and its 4 tasks from AiTerm, and forgets its 12 shelved tasks and reviews. Files, branches, worktrees and windows are kept.")
         #expect(ProjectActions.removalDetail(tasks: 0, archived: [archived(.review)])
-                == "Removes the project from AiTerm, and forgets its archived review. Files are kept and terminal windows stay open.")
+                == "Removes the project from AiTerm, and forgets its shelved review. Files are kept and terminal windows stay open.")
     }
 }

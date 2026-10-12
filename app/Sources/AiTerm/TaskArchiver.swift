@@ -57,25 +57,25 @@ final class TaskArchiver {
             defer { running[id] = nil; work.end(token) }
             do { try await archive(shown, in: project, holding: token) }
             catch Stop.kept {}
-            catch Stop.keptLate { remover.recordStop(of: id, note: "Not archived") }
+            catch Stop.keptLate { remover.recordStop(of: id, note: "Not shelved") }
             catch Stop.detached {
                 await prompter.ask(AlertPrompt(
-                    message: "“\(shown.title)” can’t be archived",
+                    message: "“\(shown.title)” can’t be shelved",
                     detail: "Its worktree isn’t on a branch, so its commits would be lost. Check out a branch, or remove the \(kind.lowercased())."))
             }
             catch TeardownStop.noDaemon {
-                remover.recordStop(of: id, note: "Not archived: iTerm2 isn’t connected")
-                notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).",
+                remover.recordStop(of: id, note: "Not shelved: iTerm2 isn’t connected")
+                notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).",
                                               error: ActionUnavailable("iTerm2 isn’t connected, so its window couldn’t close and nothing was deleted."),
                                               subject: id))
             }
             catch TeardownStop.windowStayedOpen(let why) {
-                remover.recordStop(of: id, note: "Not archived: its window did not close")
-                notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).", error: why, subject: id))
+                remover.recordStop(of: id, note: "Not shelved: its window did not close")
+                notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).", error: why, subject: id))
             }
             catch {
-                remover.recordStop(of: id, note: "Not archived")
-                notices.report(OperationIssue(title: "Couldn’t archive the \(kind.lowercased()).", error: error, subject: id))
+                remover.recordStop(of: id, note: "Not shelved")
+                notices.report(OperationIssue(title: "Couldn’t shelve the \(kind.lowercased()).", error: error, subject: id))
             }
         }
         running[id] = job
@@ -111,7 +111,7 @@ final class TaskArchiver {
             // back a task whose checkout is gone, which the cleanup forgets. The row is a task again,
             // owed its window; the store is failing, so it is not flushed again.
             workspace.mutate { $0.moveFromArchive(id: task.id) }
-            throw ActionUnavailable("Its archived row couldn’t be saved, so nothing was deleted.")
+            throw ActionUnavailable("Its place on the shelf couldn’t be saved, so nothing was deleted.")
         }
         do {
             do { try await workflow.archive(task: task, project: project, force: force) }
@@ -129,7 +129,7 @@ final class TaskArchiver {
         checkouts.forget(task: task.id)
         checkouts.dropDiff(for: task.id)
         checkouts.refresh()
-        if workspace.persistenceError == nil { notices.showToast("\(task.kindName) archived.", symbol: "archivebox") }
+        if workspace.persistenceError == nil { notices.showToast("\(task.kindName) shelved.", symbol: "tray.and.arrow.down") }
     }
 
     // -- restore ------------------------------------------------------------------------
@@ -187,7 +187,7 @@ final class TaskArchiver {
         let offersBranch = TaskRemover.offersBranchDeletion(for: shown)
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
-            detail: "Forgets it and its conversations. Its worktree was deleted when it was archived."
+            detail: "Forgets it and its conversations. Its worktree was deleted when it was shelved."
                 + (shown.kind == .review ? " Its local branch goes too, unless it has unpushed commits." : ""),
             buttons: ["Remove", "Cancel"],
             checkbox: offersBranch ? "Delete local branch" : nil,

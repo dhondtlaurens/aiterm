@@ -167,8 +167,12 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         // fields are covered by the item turning off while one is up.
         viewMenu.addItem(withTitle: "Focus View", action: #selector(showFocusView), keyEquivalent: "f")
         viewMenu.addItem(withTitle: "List View", action: #selector(showListView), keyEquivalent: "l")
-        // No key: Edit › Select All comes first and, disabled on the sidebar list, still claims ⌘A.
-        viewMenu.addItem(withTitle: "Show Archive", action: #selector(showArchive), keyEquivalent: "")
+        viewMenu.addItem(.separator())
+        // ⌘S: Edit › Select All comes first and, disabled on the sidebar list, still claims ⌘A.
+        viewMenu.addItem(withTitle: "Show Shelf", action: #selector(showArchive), keyEquivalent: "s")
+        // The same action as AiTerm › Settings…, which comes first and so owns ⌘, ; this one shares its key
+        // only to show it, and is enabled by the same rule (`validateMenuItem` keys on the action).
+        viewMenu.addItem(withTitle: "Show Settings", action: #selector(openSettings), keyEquivalent: ",")
         viewMenu.addItem(.separator())
         // A mode, not a view: apart from them. ⌘B — the free key with the name's initial.
         viewMenu.addItem(withTitle: "Backpack Mode", action: #selector(toggleBackpack), keyEquivalent: "b")

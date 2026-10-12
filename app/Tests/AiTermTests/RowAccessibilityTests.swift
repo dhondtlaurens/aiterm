@@ -42,7 +42,7 @@ import AiTermCore
     @Test func archiveIsOfferedBesideRemoveAndNamedWithoutAnEllipsis() {
         let a = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, failed: false, canChangeWorkspace: true)
         #expect(a.actions == [.archive, .remove])
-        #expect(a.title(of: .archive) == "Archive")
+        #expect(a.title(of: .archive) == "Shelve Task")
     }
 
     /// A row whose Remove stopped after its worktree went waits on that retry, which the archiver
@@ -78,11 +78,11 @@ import AiTermCore
     /// Remove names the row's kind, as its menu item does, without the menu's ellipsis.
     @Test func aRowsActionsAreItsMenuItemsTitles() {
         let task = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, failed: false, canChangeWorkspace: true)
-        #expect(task.actions.map(task.title(of:)) == ["Archive", "Remove Task"])
+        #expect(task.actions.map(task.title(of:)) == ["Shelve Task", "Remove Task"])
         var reviewItem = self.task(windowId: "w")
         reviewItem.kind = .review
         let review = TaskRowAccessibility(title: "Work", task: reviewItem, missing: false, failed: false, canChangeWorkspace: true)
-        #expect(review.actions.map(review.title(of:)) == ["Archive", "Remove Review"])
+        #expect(review.actions.map(review.title(of:)) == ["Shelve Review", "Remove Review"])
         #expect(TerminalRowAccessibility.Action.remove.rawValue == "Remove Terminal")
         #expect(DividerRow.Action.allCases.map(\.rawValue) == ["Rename", "Move Up", "Move Down", "Remove Divider"])
     }

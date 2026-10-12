@@ -266,8 +266,8 @@ final class ProjectActions {
         let forgets: String
         switch archived.count {
         case 0: forgets = ""
-        case 1: forgets = ", and forgets its archived \(archived[0].task.kindName.lowercased())"
-        default: forgets = ", and forgets its \(archived.count) archived tasks and reviews"
+        case 1: forgets = ", and forgets its shelved \(archived[0].task.kindName.lowercased())"
+        default: forgets = ", and forgets its \(archived.count) shelved tasks and reviews"
         }
         if tasks == 0 { return "Removes the project from AiTerm\(forgets). Files are kept and terminal windows stay open." }
         let kept = archived.isEmpty ? "Files, worktrees and windows are kept." : "Files, branches, worktrees and windows are kept."
@@ -290,7 +290,7 @@ final class ProjectActions {
         // An archived row's archive, restore or removal lands back in its project, or saves a row whose
         // project would be gone.
         if state.archived(projectId: project.id).contains(where: { work.operation(onTask: $0.id) != nil }) {
-            return "One of its archived tasks is still being archived, restored or removed."
+            return "One of its shelved tasks is still being shelved, restored or removed."
         }
         return nil
     }

@@ -74,9 +74,9 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `ProjectActions` | `projects` | every edit that is the workspace's alone — projects, dividers, names, Jira links — and the default branch's pull |
 | `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened |
 | `TerminalActions` | `terminals` | a project's terminals: a new one, and one closed |
-| `TaskRemover` | `remover` | the person's Remove and its retries, the closing of a task whose worktree went, and what each left its row saying — a stopped archive's note too, through the same channel; the unsaved-work question and the confirmed window close are `WorktreeTeardown`'s, which it shares with the archiver |
-| `TaskArchiver` | `archiver` | archived tasks and reviews: archive (the unsaved-work question, a detached head refused, the window closed and confirmed — refused without iTerm2 when the row has a window to close — the head read again and a detached one refused, the row saved into the archive on the branch its worktree is on now, then the worktree removed and the branch left), restore (the worktree back at its own path, the row back owed its window and chosen, so the window lock reopens it) and remove from the archive (Remove's question, the record forgotten, the branch deleted only when ticked) |
-| `WindowReconciler` | `windows` | each row locked to its window: `AppState.windowPlan` run on every report and acted on — a window adopted by tag, a window restored with its conversations, Remove's question — Archive its third answer — after the person closes one task's window, a terminal's row taken with its window (`ClosedWindowTriage`); the failed restores rows read |
+| `TaskRemover` | `remover` | the person's Remove and its retries, the closing of a task whose worktree went, and what each left its row saying — a stopped shelving's note too, through the same channel; the unsaved-work question and the confirmed window close are `WorktreeTeardown`'s, which it shares with the archiver |
+| `TaskArchiver` | `archiver` | tasks and reviews put away — “the Shelf” in the UI, “archive” in the code (`TaskArchiver`, `ArchiveSheet`, `AppState.archive`): shelve (the unsaved-work question, a detached head refused, the window closed and confirmed — refused without iTerm2 when the row has a window to close — the head read again and a detached one refused, the row saved onto the shelf on the branch its worktree is on now, then the worktree removed and the branch left), restore (the worktree back at its own path, the row back owed its window and chosen, so the window lock reopens it) and remove from the shelf (Remove's question, the record forgotten, the branch deleted only when ticked) |
+| `WindowReconciler` | `windows` | each row locked to its window: `AppState.windowPlan` run on every report and acted on — a window adopted by tag, a window restored with its conversations, Remove's question — Shelve its third answer — after the person closes one task's window, a terminal's row taken with its window (`ClosedWindowTriage`); the failed restores rows read |
 | `InterfacePreferences` | `preferences` | the Interface tab's settings, saved on every write |
 | `AgentIntegrations` | `agents` | which agent CLIs the login shell finds, the Claude status-line shim, the Settings harness model |
 | `SidebarTiling` | `tiling` | the sidebar window, its saved frame, and the terminal windows tiled beside it |
@@ -96,8 +96,8 @@ Dock badge recounted, and last `remover.pruneRemovals`, so a task on its way out
 between its row going and its removal entry going.
 
 Saves wait for the next coalesced write, except where a step must be on disk before the next one:
-a removal saves the row's going before it says "removed", and an archive saves the row into the
-archive before git removes its worktree — stopping there if that save fails. A new task is saved
+a removal saves the row's going before it says "removed", and a shelving saves the row onto the
+shelf before git removes its worktree — stopping there if that save fails. A new task is saved
 before its window opens, a new project before its worktrees are offered, a restored row before it
 is chosen, and the workspace at quit.
 
@@ -177,7 +177,7 @@ effect in the order it was sent.
 | `iterm.auth_failed` | iTerm2 is running but refused the API cookie; an amber banner gives the reason. Retries back off to once a minute, and the snapshot's `itermAuthError` carries the reason for an app that attaches later |
 | `iterm.cookieRequested` | the daemon needs a cookie for its next connect; the app asks iTerm2 with an Apple event and answers with `iterm.provideCookie`. An attached app that stays silent for 120 s is asked again, under a new id; time with no app attached does not count |
 | `window.activated` | aligns the sidebar selection when iTerm2 is raised from outside — e.g. by clicking an agent's notification |
-| `window.closed` | the row owed that window is windowless at once, and the app decides what follows: a task window the person closed on its own is followed, a second later, by Remove's question, Archive its third answer, a terminal's lone close takes its row, any other close is restored once iTerm2 is quiet; a close during a removal only clears its window |
+| `window.closed` | the row owed that window is windowless at once, and the app decides what follows: a task window the person closed on its own is followed, a second later, by Remove's question, Shelve its third answer, a terminal's lone close takes its row, any other close is restored once iTerm2 is quiet; a close during a removal only clears its window |
 | `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its restore); a tab tagged with a row's id in a window the row lacks hands the row that window |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
@@ -237,23 +237,23 @@ removed by its Remove; the hotspot's name and the crash marker in UserDefaults
 (`backpack.network`, `backpack.engaged`).
 
 **Its own state** — `~/Library/Application Support/AiTerm/state.json` — projects, tasks,
-terminals, the archive (`AppState.archive`: each archived task or review with when it went, written
+terminals, the Shelf (`AppState.archive`: each shelved task or review with when it went, written
 only when it is not empty), the sidebar frame, the last agent per project and the last model per
-agent. A task id is in the sidebar or in the archive, never both, and every archived row's project
-exists; a file that breaks either does not load. A build without the archive drops it on its next
+agent. A task id is in the sidebar or on the shelf, never both, and every shelved row's project
+exists; a file that breaks either does not load. A build without the Shelf drops it on its next
 save. The legacy `AIterm` folder is renamed on upgrade; if that fails, startup stops rather than
 losing it.
 
 **Worktrees** — One per task, under `<repo>/.worktrees/<slug>`. Removing a task removes the
-worktree and optionally the branch. Archiving one removes the worktree and never the branch;
+worktree and optionally the branch. Shelving one removes the worktree and never the branch;
 restoring recreates it at its own path, since an agent keeps its conversations by directory — on
 its branch, or created from origin's when the local one has gone, a review's fetched and brought up
 to origin's as creating one does. A new task's or review's worktree, and the sheets' preview of it,
-skip the folders archived rows come back to (`AppState.reservedWorktreeSlugs`). Removing a task
-from the archive deletes its branch when ticked and never touches its old folder: something else
-may live there by now. Removing a *project* only forgets it — its tasks, terminals and archived
-rows — and says how many tasks and archived rows go; it is refused while one of its archived rows
-is being archived, restored or removed.
+skip the folders shelved rows come back to (`AppState.reservedWorktreeSlugs`). Removing a task
+from the shelf deletes its branch when ticked and never touches its old folder: something else
+may live there by now. Removing a *project* only forgets it — its tasks, terminals and shelved
+rows — and says how many tasks and shelved rows go; it is refused while one of its shelved rows
+is being shelved, restored or removed.
 A new task's or review's worktree starts with the gitignored files the project's `.worktreeinclude`
 selects (`WorktreeInclude`: untracked files its `.gitignore`-syntax patterns match that git also
 ignores, listed in the project's checkout): right after `git worktree add`, before the window opens,
@@ -314,9 +314,9 @@ answer, choice and change of work, so there is one owner and one pass rather tha
 way a window can go.
 
 When the person closes one task's window while iTerm2 stays connected, the row is owed its window at
-once and, a second later, AiTerm comes forward with Remove Task's own question and Archive as a
-third answer: Remove deletes the worktree as Remove Task… does, and Archive archives the task as its
-menu's Archive does, each with its window already gone; Cancel chooses the row, which restores its
+once and, a second later, AiTerm comes forward with Remove Task's own question and Shelve as a
+third answer: Remove deletes the worktree as Remove Task… does, and Shelve shelves the task as its
+menu's Shelve Task does, each with its window already gone; Cancel chooses the row, which restores its
 window and raises it. A terminal's lone close takes its row, as Remove Terminal does.
 The close is held a second first (`ClosedWindowTriage`, keyed by row), because iTerm2 quitting,
 crashing or a restart closes windows too and must ask nothing. The hold is told the time by its
@@ -360,13 +360,13 @@ the next connected snapshot restores it. A failed row that gets a window another
 tag — is no longer failed. AiTerm quitting leaves the windows running; the next launch adopts them
 by tag and restores the rest.
 
-Closes AiTerm makes itself — Remove, Archive, the checkout cleanup, Remove Terminal — are never asked about,
+Closes AiTerm makes itself — Remove, Shelve, the checkout cleanup, Remove Terminal — are never asked about,
 and are not restored while their work runs: a row busy with work, or whose removal awaits a retry,
 is left out of the pass, and so is a row whose checkout is missing or whose worktree a restore found
 gone, which is not looked for again until the checkout monitor reads that row
-(`CheckoutMonitor.onMissingChanged`) or the person chooses it. A removal or an archive that stops
-after closing the window — git refuses the worktree, Keep at the late unsaved-work question, or the
-archived row could not be saved — leaves the row owed its window, and the window is restored. A
+(`CheckoutMonitor.onMissingChanged`) or the person chooses it. A removal or a shelving that stops
+after closing the window — git refuses the worktree, Keep at the late unsaved-work question, or its
+place on the shelf could not be saved — leaves the row owed its window, and the window is restored. A
 restore checks the worktree exists, off the main actor, before it opens. Nothing is restored while the workspace cannot change. Removing a task
 explicitly also removes its worktree. A daemon disconnect alone does not close or forget tasks.
 
@@ -408,13 +408,13 @@ that restores several windows is left alone rather than guessing which one is th
 
 Git, workspace writes, and iTerm2 still cannot share a transaction. A crash between checkout
 creation and its first save can leave an unrecorded checkout; re-add the project to import it.
-Archive orders its two steps so a crash between them loses nothing: the archived row is saved
-before git removes the worktree, so a crash in between leaves an archived row whose worktree still
+Shelving orders its two steps so a crash between them loses nothing: the shelved row is saved
+before git removes the worktree, so a crash in between leaves a shelved row whose worktree still
 exists, and restoring it adopts that worktree when it is on the row's branch — anything else in the
 folder is refused and left as it is. A locked worktree whose folder was deleted is only git's record
 of one, so restore prunes the record and makes the worktree again. Had git gone first, the crash would have left a task whose
-checkout is gone, which the cleanup forgets. For the same reason an archive whose save fails stops
-before git, the row a task again, owed its window, saying "Not archived".
+checkout is gone, which the cleanup forgets. For the same reason a shelving whose save fails stops
+before git, the row a task again, owed its window, saying "Not shelved".
 A crash while iTerm2 creates an as-yet-untagged window can require closing that orphan manually.
 
 On upgrade, AiTerm renames the legacy `AIterm` application-support folder before loading state.

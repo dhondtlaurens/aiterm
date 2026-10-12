@@ -51,6 +51,7 @@ enum KeyBindings {
             KeyBinding(action: "Actual Size", keys: ["⌘", "0"]),
             KeyBinding(action: "Focus View", keys: ["⌘", "F"]),
             KeyBinding(action: "List View", keys: ["⌘", "L"]),
+            KeyBinding(action: "Show Shelf", keys: ["⌘", "S"]),
             KeyBinding(action: "Backpack Mode", keys: ["⌘", "B"]),
             KeyBinding(action: "Settings…", keys: ["⌘", ","]),
             KeyBinding(action: "Hide AiTerm", keys: ["⌘", "H"]),
@@ -62,7 +63,7 @@ enum KeyBindings {
             KeyBinding(action: "Go to the row’s window, fold or open a project, or open an empty one’s menu", keys: ["↩"]),
             KeyBinding(action: "Remove the task, review or terminal", keys: ["⌘", "⌫"]),
         ]),
-        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Archive and Settings.", bindings: [
+        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf and Settings.", bindings: [
             KeyBinding(action: "Continue, create or save", keys: ["⌘", "↩"]),
             KeyBinding(action: "Back a step, or close", keys: ["⎋"]),
             // One row for the three: the tabs are numbered in the order the tab bar draws them.

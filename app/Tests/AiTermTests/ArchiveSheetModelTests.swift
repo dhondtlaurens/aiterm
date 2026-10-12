@@ -47,7 +47,7 @@ import Testing
 
     @Test func theStatusCountsTheArchiveOrTheMatches() {
         let model = ArchiveSheetModel(entries: { [self.entry("Alpha", at: 1), self.entry("Beta", at: 2)] }, restore: { _ in }, remove: { _ in })
-        #expect(model.status == "2 archived")
+        #expect(model.status == "2 shelved")
         model.query = "alp"
         #expect(model.status == "1 of 2")
     }

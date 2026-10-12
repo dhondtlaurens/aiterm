@@ -24,7 +24,7 @@ struct ArchiveSheet: View {
         // Each of the model's lists re-ranks the archive, so each is read once.
         let rows = model.rows, highlighted = model.highlighted?.archived.id, total = model.total
         let now = model.now(), calendar = clock?.calendar ?? .current
-        SheetLayout(title: "Archive", height: Sheet.height, contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
+        SheetLayout(title: "Shelf", height: Sheet.height, contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
             HStack(spacing: Space.base) {
                 Image(systemName: "magnifyingglass").font(Typography.caption).foregroundStyle(Palette.muted)
                 SearchField(placeholder: "Search title, ticket, !MR, branch, project",
@@ -34,11 +34,11 @@ struct ArchiveSheet: View {
         } content: {
             if total == 0 {
                 VStack(alignment: .leading, spacing: Space.base) {
-                    Text("Nothing archived yet.").font(Typography.body).foregroundStyle(Palette.text)
-                    HelpText("Archive a task from its menu to put its worktree away and keep its conversations.")
+                    Text("Nothing on the shelf yet.").font(Typography.body).foregroundStyle(Palette.text)
+                    HelpText("Shelve a task from its menu to put its worktree away and keep its conversations.")
                 }
             } else if rows.isEmpty {
-                Text("No archived task matches “\(model.query.trimmingCharacters(in: .whitespaces))”.")
+                Text("No shelved task matches “\(model.query.trimmingCharacters(in: .whitespaces))”.")
                     .font(Typography.body).foregroundStyle(Palette.text)
             } else {
                 ScrollViewReader { scroller in

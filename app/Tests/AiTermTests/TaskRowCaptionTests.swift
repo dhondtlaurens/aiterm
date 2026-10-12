@@ -11,7 +11,7 @@ import Testing
     }
 
     @Test func anArchivingRowSaysSoInItsBadgeLine() {
-        #expect(TaskRowCaption(removal: .archiving, missing: false, failed: false) == TaskRowCaption(progress: "Archiving…", note: nil))
+        #expect(TaskRowCaption(removal: .archiving, missing: false, failed: false) == TaskRowCaption(progress: "Shelving…", note: nil))
     }
 
     @Test func whyARemovalStoppedTakesTheCaptionsPlace() {

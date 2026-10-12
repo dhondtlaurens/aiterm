@@ -41,17 +41,17 @@ is asked.
 ### You close a task's window
 
 You close the whole window: its last tab with ⌘W, ⇧⌘W, or the red button. AiTerm reads that as
-you choosing **Remove Task…** on the row, and offers **Archive** beside it.
+you choosing **Remove Task…** on the row, and offers **Shelve** beside it.
 
 1. AiTerm waits one second (see [Why the one-second wait](#why-the-one-second-wait)).
 2. It comes forward with the question Remove Task… asks, with a third answer: *Remove task "…"?
-   Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore
+   Deletes its worktree and closes its iTerm2 window. Shelve does too, but keeps it to restore
    later.* For a review it adds that Remove also deletes its local branch, unless it has unpushed
    commits.
 3. **Remove** removes the task: its worktree is deleted and, if you ticked it, its branch. The
    window is already gone.
-4. **Archive** archives the task, exactly as its menu's Archive does: its worktree is deleted, its
-   branch is kept, and the row moves to the archive (View › Show Archive), its conversations
+4. **Shelve** shelves the task, exactly as its menu's Shelve Task does: its worktree is deleted, its
+   branch is kept, and the row moves to the shelf (View › Show Shelf, ⌘S), its conversations
    remembered. The window is already gone. If the worktree has uncommitted changes, you are asked
    first: Keep leaves the task in the sidebar, and its window comes back.
 5. **Cancel** means you want to keep it. The window comes straight back, in the worktree, with its
@@ -60,13 +60,13 @@ you choosing **Remove Task…** on the row, and offers **Archive** beside it.
 Questions come one at a time. If you close two task windows a few seconds apart, the second
 question waits until you have answered the first.
 
-### You restore an archived task
+### You restore a shelved task
 
-Restore in the Archive sheet (⌘↩, or a double-click) is you asking for the task back. Its worktree
+Restore in the Shelf sheet (⌘↩, or a double-click) is you asking for the task back. Its worktree
 is recreated at the same path, the row returns to its project, and the row is chosen as a click
 chooses it: the window opens in the worktree with its conversations resumed, and it is brought to
 the front. If the worktree cannot come back (its branch is gone, or something else is in its
-folder), an alert says why and the task stays archived. If the window then fails to open, the row
+folder), an alert says why and the task stays on the shelf. If the window then fails to open, the row
 says **Couldn't reopen**, as any other row would.
 
 ### You close a terminal's window
@@ -147,16 +147,16 @@ down.
 Some windows close because AiTerm closed them. Those are never asked about:
 
 - **Remove Task… / Remove Review…** closes the window before deleting the worktree.
-- **Archive** does the same, then moves the row to the archive. A task with a window needs iTerm2
+- **Shelve Task** does the same, then moves the row to the shelf. A task with a window needs iTerm2
   connected to close it: without, it stops before closing anything, and the row says **Not
-  archived: iTerm2 isn’t connected**. A task with no window is archived either way.
+  shelved: iTerm2 isn’t connected**. A task with no window is shelved either way.
 - **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
   branch is kept.
 - **Remove Terminal** closes the terminal's window.
 
-One exception: a removal or an archive that closes the window and then stops (git refuses to
+One exception: a removal or a shelving that closes the window and then stops (git refuses to
 delete the worktree, you choose Keep when asked about unsaved work, the worktree was detached from
-its branch while the window closed, or the archived row could not be saved) leaves the task in the
+its branch while the window closed, or its place on the shelf could not be saved) leaves the task in the
 sidebar. A task that stays gets its window back, like any other.
 
 ## When it can't
@@ -194,7 +194,7 @@ and you restore the worktree or remove the task.
 | The one-second wait, and "iTerm2 has settled" | `ClosedWindowTriage` (`hold`, `isSynced`, `isQuiet(at:)`) |
 | Bringing a window back | `WindowReconciler.restore`, through `TaskLauncher.openWindow` / `TerminalActions.openWindow` |
 | Which conversations to resume | `TaskItem.conversations`, `TaskItem.resumeCommands` |
-| Remove's question after a lone close | `TaskRemover.confirmRemove(task:archiveInstead:)`; Archive goes to `TaskArchiver.archive`, Cancel through `RowFocus.select` |
-| Archive and restore | `TaskArchiver`: the row saved into `AppState.archive` before its worktree goes; a restore's row chosen through `RowFocus.select` |
+| Remove's question after a lone close | `TaskRemover.confirmRemove(task:archiveInstead:)`; Shelve goes to `TaskArchiver.archive`, Cancel through `RowFocus.select` |
+| Shelve and restore | `TaskArchiver`: the row saved into `AppState.archive` before its worktree goes; a restore's row chosen through `RowFocus.select` |
 | "Couldn't reopen" | `WindowReconciler.hasFailed`, `TaskRowCaption` |
 | Never starting iTerm2 after it went away | `ItermSupervisor` launches only at the daemon's own start (`connection.py`); the app's `launchIterm` covers AiTerm starting and a row chosen while iTerm2 is down |
