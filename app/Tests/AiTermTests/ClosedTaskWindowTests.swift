@@ -48,6 +48,27 @@ extension AppControllerTests {
         #expect(focus.seen.count == 1, "iTerm2 comes forward with it")
     }
 
+    @Test func aReviewsThreeButtonQuestionSaysOnlyRemoveDeletesItsBranch() async throws {
+        let prompter = ScriptedPrompter(answering: "Cancel")
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        var review = try fixture.addTask(windowId: nil)
+        review.kind = .review
+        let reviewRow = review
+        controller.workspace.mutate { state in
+            if let i = state.tasks.firstIndex(where: { $0.id == reviewRow.id }) { state.tasks[i] = reviewRow }
+        }
+
+        await controller.remover.confirmRemove(task: review, archiveInstead: { _ in nil })
+
+        let asked = try #require(prompter.asked.first)
+        #expect(asked.message == "Remove review “Work”?")
+        #expect(asked.detail == "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later. "
+                + "Remove also deletes its local branch, unless it has unpushed commits.")
+        #expect(asked.buttons == ["Remove", "Archive", "Cancel"])
+    }
+
     @Test func answeringArchiveAfterAClosedWindowArchivesTheTask() async throws {
         let clock = ManualInstant()
         let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Archive"), now: { clock.now })
