@@ -47,7 +47,7 @@ struct AlertAnswer: Equatable {
 /// window closing, another Remove — and it runs there, at a suspension Swift marks and the caller
 /// re-checks after, never in the middle of the caller's own code as a modal run loop nested under
 /// it would. The alert itself comes up on a later turn of the main run loop, so it is never run
-/// inside a SwiftUI key handler either, where one comes up without its accessory view.
+/// inside a SwiftUI key handler either, where one comes up without its checkbox.
 @MainActor
 protocol Prompter {
     @discardableResult func ask(_ prompt: AlertPrompt) async -> AlertAnswer
@@ -82,10 +82,12 @@ struct ModalPrompter: Prompter {
         if let escape = prompt.escapeButton, escape > 0, alert.buttons.indices.contains(escape) {
             alert.buttons[escape].keyEquivalent = escapeKey
         }
-        alert.accessoryView = prompt.checkbox.map {
-            let checkbox = NSButton(checkboxWithTitle: $0, target: nil, action: nil)
-            checkbox.toolTip = prompt.checkboxHelp
-            return checkbox
+        // The checkbox is NSAlert's own suppression button, retitled: NSAlert lines it up with the
+        // text, where an accessory view as narrow as its title comes up centred under it.
+        if let checkbox = prompt.checkbox {
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = checkbox
+            alert.suppressionButton?.toolTip = prompt.checkboxHelp
         }
         return alert
     }
@@ -109,7 +111,7 @@ struct ModalPrompter: Prompter {
         defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         let response = alert.runModal()
         return AlertAnswer(button: response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue,
-                           checked: (alert.accessoryView as? NSButton)?.state == .on)
+                           checked: alert.showsSuppressionButton && alert.suppressionButton?.state == .on)
     }
 
     /// Run modally, as `ask`'s alert is, on a later turn of the main run loop.

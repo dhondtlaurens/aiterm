@@ -61,7 +61,8 @@ import AiTermCore
     @Test func theCheckboxCarriesItsTooltip() throws {
         let alert = ModalPrompter.alert(for: AlertPrompt(message: "Remove task?", buttons: ["Remove", "Cancel"],
                                                          checkbox: "Delete local branch", checkboxHelp: "feat/work"))
-        let checkbox = try #require(alert.accessoryView as? NSButton)
+        #expect(alert.showsSuppressionButton)
+        let checkbox = try #require(alert.suppressionButton)
         #expect(checkbox.title == "Delete local branch")
         #expect(checkbox.toolTip == "feat/work")
     }
