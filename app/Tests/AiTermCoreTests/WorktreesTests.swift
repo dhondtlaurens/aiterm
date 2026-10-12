@@ -890,9 +890,11 @@ import Darwin
         let repository = Repository(repo, git: git)
         let elsewhere = try repository.addTaskWorktree(slug: "other", branch: "feat/work", base: "main")
         let path = repo + "/.worktrees/work"
-        #expect(throws: WorktreeError.branchCheckedOut("feat/work", at: elsewhere)) {
+        let error = #expect(throws: WorktreeError.self) {
             try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task)
         }
+        // Worded for bringing a task back, not for reviewing a branch.
+        #expect(error?.errorDescription == "“feat/work” is checked out at \(elsewhere). Switch that checkout to another branch, then restore it.")
     }
 
     @Test func aReviewComesBackFastForwardedToOrigin() throws {

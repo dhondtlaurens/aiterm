@@ -24,6 +24,8 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
     case pathTaken(String)
     /// An archived row's branch, gone locally and from origin.
     case branchGone(String)
+    /// An archived task's branch, which git will not check out a second time, and where it already is.
+    case branchInUse(String, at: String)
 
     public var errorDescription: String? {
         switch self {
@@ -49,6 +51,8 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
             return "\(folderName(path)) in .worktrees is in use by something else, so the worktree can’t come back there."
         case .branchGone(let branch):
             return "Its branch \(branch) no longer exists here or on origin. Remove it from the archive instead."
+        case .branchInUse(let branch, let path):
+            return "“\(branch)” is checked out at \(path). Switch that checkout to another branch, then restore it."
         }
     }
 }

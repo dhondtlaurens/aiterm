@@ -248,7 +248,7 @@ extension Repository {
             catch WorktreeError.branchNotOnOrigin { throw WorktreeError.branchGone(branch) }
         } else {
             if let holder = try worktrees().first(where: { $0.branch == branch }) {
-                throw WorktreeError.branchCheckedOut(branch, at: holder.path)
+                throw WorktreeError.branchInUse(branch, at: holder.path)
             }
             fromOrigin = sha("refs/heads/" + branch) == nil
             if fromOrigin {
