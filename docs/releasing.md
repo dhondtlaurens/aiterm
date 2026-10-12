@@ -71,9 +71,16 @@ Jira-to-agent workflow. Run through this list by hand:
    icon bounces until you switch to it.
 10. **Remove Task…**: the window closes, the worktree is removed, the branch is kept unless the
     checkbox is ticked.
-11. Open the release DMG: AiTerm on the left, Applications on the right. Drag AiTerm to
+11. **Archive** a task whose worktree has uncommitted changes: Keep leaves it as it was; Archive
+    again and Delete Changes and Archive puts it away — the window closes, the worktree goes, the
+    branch stays, and "Task archived." shows. View › Show Archive: restore it with ⌘↩; the worktree
+    comes back at the same path and the window reopens, raised, its conversation resumed. Close a
+    task's window with ⇧⌘W and answer **Archive**: it lands in the archive, nothing reopens. Remove
+    a project that has archived rows: the question counts them, and they are gone from the sheet.
+    Downgrading to a build without the archive drops it on that build's next save.
+12. Open the release DMG: AiTerm on the left, Applications on the right. Drag AiTerm to
     Applications, replacing the previous release, and open it.
-12. On a Mac still running the previous release, **AiTerm › Check for Updates…** offers this
+13. On a Mac still running the previous release, **AiTerm › Check for Updates…** offers this
     release and installs it in place.
-13. **New Review…** on a GitHub repo: open pull requests list as `#n`; a fork's pull request is
+14. **New Review…** on a GitHub repo: open pull requests list as `#n`; a fork's pull request is
     refused with its fork named.

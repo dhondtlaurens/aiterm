@@ -259,6 +259,23 @@ terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraPro
 reached only from a project's context menu: Add Project… has no sheet, the folder chooser adds the
 project at once, and a folder inside a repository adds that repository with a toast saying so.
 
+`ArchiveSheet` is View › Show Archive's, every archived task and review in one `SheetLayout`. Its
+band holds a search in place of a `SheetSubtitle` — a `magnifyingglass` and a `SearchField` in
+`fieldChrome`, "Search title, ticket, !MR, branch, project" — which keeps the keyboard throughout:
+↑ ↓ move the highlight, wrapping, ⌘↩ or a double-click restores, ⌘⌫ asks Remove's question about
+the highlighted row, and ⎋ clears a search before it closes (`ArchiveSheetModel`; the keys are in
+`docs/keyboard.md`). Each row is an `ArchiveRow`, the sidebar's own task row as it was put away: the
+agent's `VendorMark` at `Size.avatar`, the `RowTitle` with the day it was archived trailing in
+`Typography.help` where the status mark sits (`ArchiveDate`: relative today, then "yesterday", then the day, "9 Oct"),
+then the quiet Jira and merge-request `Badge`s, the branch in `Typography.mono`, cut in the middle,
+and the project — newest first, or in `ArchiveSearch`'s order. It sits in a `RowPill` whose ground
+at rest is `Surface.sheet`, `Space.hairline` from the next, the list padded `Space.base` above and
+below rather than `Space.margin`, since the pills pad themselves (`SheetLayout`'s
+`contentVerticalPadding`). The footer counts — "5 archived", "1 of 5" — beside Close and Restore;
+with no row shown Restore is absent. Nothing archived reads "Nothing archived yet." over a
+`HelpText`, as `SidebarEmptyState` does; a search that finds nothing, "No archived task matches
+“…”.".
+
 A project header wears **one** quiet Jira `Badge` beside its name, however many Jira projects it
 links (proposal E2, 8 Oct 2026): the first linked project's key, which opens that project, and —
 when it links more — `Space.snug` after it a boxed `+n` `Badge`, as `BranchLabelView` counts a
@@ -279,8 +296,9 @@ from three sheets, but promotion's conditions are necessary, not a mandate: thei
 
 `SelectableRow` is a task's or terminal's row — its indent, the click that activates it — and owns
 its row's hover, so the pointer redraws one row. `RowPill` is the one pill every selectable sidebar
-row is drawn in, a project header's included: the selection fill on `Surface.accent`, else the hover
-wash. It declares the row's `Surface`, and `RowTitle` and `RowCaption` — a row's title, and a line
+row is drawn in, a project header's included, and the Archive sheet's rows: the selection fill on
+`Surface.accent`, else the hover wash, else its `ground` — `Surface.sidebar` unless the pill sits on
+a sheet. It declares the row's `Surface`, and `RowTitle` and `RowCaption` — a row's title, and a line
 under it — read that rather than a `selected` flag, as a header's chevron, name, provider glyph and
 "+" do; `RowCaption(warns:)` is amber off the accent only. Which row is selected — a project header,
 a task or a terminal; never a divider — is `RowFocus`'s (`controller.focus`), an owner beside the
