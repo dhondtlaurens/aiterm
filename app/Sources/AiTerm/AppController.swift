@@ -140,8 +140,9 @@ final class AppController {
         let tiling = SidebarTiling(preferences: preferences, workspace: workspace, daemon: daemon)
         let checkouts = CheckoutMonitor(live: live, scan: scan, pollInterval: checkoutPollInterval, git: git, workspace: workspace,
                                         onTitles: { await helper.sendTitles($0) })
+        let teardown = WorktreeTeardown(workspace: workspace, work: work, prompter: prompter, daemon: daemon)
         let remover = TaskRemover(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
-                                  checkouts: checkouts, live: live, daemon: daemon, confirmsRemoval: confirmsRemoval)
+                                  teardown: teardown, checkouts: checkouts, live: live, daemon: daemon, confirmsRemoval: confirmsRemoval)
         let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
                              activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,

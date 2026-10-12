@@ -43,6 +43,7 @@ final class TaskRemover: CheckoutRemovals {
     private let workflow: TaskWorkflow
     private let notices: Notices
     private let prompter: Prompter
+    private let teardown: WorktreeTeardown
     private let checkouts: CheckoutMonitor
     private let live: LiveSessions
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -55,13 +56,14 @@ final class TaskRemover: CheckoutRemovals {
     static let diskConfirmsRemoval: ConfirmsRemoval = { WorkspaceScan.checkoutRemovalIsConfirmed($0, projectPath: $1) }
 
     init(workspace: WorkspaceStore, work: WorkInFlight, workflow: TaskWorkflow, notices: Notices, prompter: Prompter,
-         checkouts: CheckoutMonitor, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
+         teardown: WorktreeTeardown, checkouts: CheckoutMonitor, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
          confirmsRemoval: @escaping ConfirmsRemoval) {
         self.workspace = workspace
         self.work = work
         self.workflow = workflow
         self.notices = notices
         self.prompter = prompter
+        self.teardown = teardown
         self.checkouts = checkouts
         self.live = live
         self.daemon = daemon
@@ -218,7 +220,7 @@ final class TaskRemover: CheckoutRemovals {
                 guard let result = try await removeWorktree(task: task, project: project, deleteBranch: deleteBranch,
                                                             holding: token) else { return }
                 await finishRemoval(of: task, after: result)
-            } catch RemovalStop.windowStayedOpen(let why) {
+            } catch TeardownStop.windowStayedOpen(let why) {
                 outcomes[task.id] = .stopped(note: "Not removed: its window did not close", worktreeRemoved: false)
                 notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: why, subject: task.id))
             } catch {
@@ -233,70 +235,24 @@ final class TaskRemover: CheckoutRemovals {
     /// The task's window, then its worktree and its branch when asked for, through `TaskWorkflow`. A
     /// worktree with uncommitted changes asks first, while the window is still open; nil means it
     /// was kept. Unsaved work written after that check is only found once the window has closed:
-    /// kept then, the task's window comes back.
+    /// kept then, the task's window comes back. Without a daemon the window is left open, and
+    /// `finishRemoval` asks for it to be closed by hand.
     private func removeWorktree(task: TaskItem, project: Project, deleteBranch: Bool,
                                 holding token: WorkInFlight.Token) async throws -> TaskWorkflow.Removed? {
         var task = task, force = false
         if try await workflow.hasUnsavedWork(task: task, project: project) {
-            guard let still = await confirmDeletingUnsavedWork(of: task) else { return nil }
+            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
             task = still
             force = true
         }
-        try await closeWindowBeforeRemoval(of: task, holding: token)
+        try await teardown.closeWindow(of: task, holding: token, requiringDaemon: false, operation: { .removing(windowLetGo: $0) })
         do { return try await workflow.remove(task: task, project: project, deleteBranch: deleteBranch, force: force) }
         catch let error as GitError where error.refusedForUnsavedWork {
             // Written after the check, before the window closed. Kept, the task is a task again: its
             // window, if this removal closed it, is owed and comes back (`WindowReconciler`).
-            guard let still = await confirmDeletingUnsavedWork(of: task) else { return nil }
+            guard await teardown.confirmDeletingUnsavedWork(of: task, verb: .remove), let still = workspace.state.task(id: task.id) else { return nil }
             return try await workflow.remove(task: still, project: project, deleteBranch: deleteBranch, force: true)
         }
-    }
-
-    /// The task as it is once deleting its unsaved work is agreed to; nil when it is kept. The task
-    /// is still held, so no other removal started, but across the question's await its row can have
-    /// gone, or the workspace locked.
-    ///
-    /// Keeping is the default, on ↩ and ⎋ both; deleting is the plain grey button beside it, never
-    /// marked red — the red default is for a button ↩ can press.
-    private func confirmDeletingUnsavedWork(of task: TaskItem) async -> TaskItem? {
-        let force = await prompter.ask(AlertPrompt(
-            message: "The worktree has uncommitted changes",
-            detail: "Removing this worktree permanently deletes its uncommitted changes and untracked files.",
-            buttons: [task.kind == .review ? "Keep Review" : "Keep Task", "Delete Changes and Remove"], escape: 0))
-        guard force.button == 1, workspace.canChangeWorkspace else { return nil }
-        return workspace.state.task(id: task.id)
-    }
-
-    /// Closes the window the task has now, before git deletes its worktree: a process still running
-    /// there — a dev server's watcher — writes files back into a checkout being deleted, and git then
-    /// gives up halfway. The row drops the window first, so the window's own `window.closed` finds it
-    /// windowless already and asks nothing; the row stays until the removal is done, or for a retry if
-    /// it fails.
-    /// A window that will not close is given back, and nothing is deleted. Without a daemon it is
-    /// left open, and `finishRemoval` asks for it to be closed by hand.
-    private func closeWindowBeforeRemoval(of task: TaskItem, holding token: WorkInFlight.Token) async throws {
-        guard let daemon = daemon(), let i = workspace.state.tasks.firstIndex(where: { $0.id == task.id }),
-              let wid = workspace.state.tasks[i].windowId else { return }
-        work.update(token, to: .removing(windowLetGo: true))
-        // Windowless at once, so the window's own `window.closed` finds it so and asks nothing; a
-        // snapshot no longer drops a row, so this need not be on disk before the window closes.
-        workspace.mutate { $0.tasks[i].windowId = nil }
-        do { try await daemon.closeWindowIfOpen(wid) }
-        catch {
-            work.update(token, to: .removing(windowLetGo: false))
-            if let j = workspace.state.tasks.firstIndex(where: { $0.id == task.id }), workspace.state.tasks[j].windowId == nil {
-                workspace.mutate { $0.tasks[j].windowId = wid }
-            }
-            throw RemovalStop.windowStayedOpen(ActionUnavailable("Its iTerm2 window did not close, so nothing was deleted. "
-                                                                 + OperationIssue.reason(of: error)))
-        }
-    }
-
-    /// Why a removal stopped before git deleted anything, told apart from git's refusals so the row
-    /// can say which it was.
-    private enum RemovalStop: Error {
-        /// `closeWindowBeforeRemoval`'s window would not close, so nothing was deleted.
-        case windowStayedOpen(ActionUnavailable)
     }
 
     /// With the worktree gone: a branch left behind, or a window that would not close, leaves the
