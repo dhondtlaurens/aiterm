@@ -228,6 +228,13 @@ extension Repository {
     /// creating a review does.
     public func restoreWorktree(at worktreePath: String, branch: String, kind: TaskKind) throws {
         let lockReason = kind == .review ? Worktree.reviewLockReason : Worktree.taskLockReason
+        if !FileManager.default.fileExists(atPath: worktreePath), try worktree(at: worktreePath) != nil {
+            // Only a record: git keeps listing a locked worktree whose folder was deleted, since the
+            // lock stops the prune. There is no checkout to adopt, so the record goes and the worktree
+            // is made again. Unlocking is refused for one that is not locked, which is no reason to stop.
+            _ = try? git.run(["worktree", "unlock", worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
+            try git.run(["worktree", "prune"], in: path)
+        }
         if let existing = try worktree(at: worktreePath) {
             guard existing.branch == branch else { throw WorktreeError.pathTaken(worktreePath) }
             _ = try? git.run(["worktree", "unlock", worktreePath], in: path, timeout: GitRunner.checkoutTimeout)

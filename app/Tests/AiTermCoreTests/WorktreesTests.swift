@@ -875,6 +875,17 @@ import Darwin
         #expect(repository.lockReason(of: path) == Worktree.taskLockReason)
     }
 
+    @Test func aLockedRecordWhoseFolderWentIsNotAdoptedButCheckedOutAgain() throws {
+        // git keeps listing a locked worktree whose folder was deleted — a lock stops the prune — so
+        // the record alone, on the row's branch, is no checkout to adopt.
+        let repository = Repository(repo, git: git)
+        let path = try repository.addTaskWorktree(slug: "work", branch: "feat/work", base: "main")
+        try FileManager.default.removeItem(atPath: path)
+        try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task)
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/work")
+        #expect(repository.lockReason(of: path) == Worktree.taskLockReason)
+    }
+
     @Test func aBranchCheckedOutElsewhereIsRefusedWithWhere() throws {
         let repository = Repository(repo, git: git)
         let elsewhere = try repository.addTaskWorktree(slug: "other", branch: "feat/work", base: "main")
