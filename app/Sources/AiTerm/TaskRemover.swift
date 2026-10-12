@@ -126,6 +126,13 @@ final class TaskRemover: CheckoutRemovals {
         if case .stopped(_, worktreeRemoved: false)? = outcomes[id] { outcomes[id] = nil }
     }
 
+    /// What a stopped archive leaves the row saying. The row has one channel for why it is still
+    /// here, a removal's or an archive's: the caption reads it, and the banner's going clears it.
+    func recordStop(of id: UUID, note: String) { outcomes[id] = .stopped(note: note, worktreeRemoved: false) }
+
+    /// A new archive starting on the row: what the last one left it saying goes.
+    func clearOutcome(of id: UUID) { outcomes[id] = nil }
+
     /// The row says what runs on it, and else what its last removal left.
     private func refresh(_ id: UUID) {
         let now = work.operation(onTask: id)?.removal ?? outcomes[id]

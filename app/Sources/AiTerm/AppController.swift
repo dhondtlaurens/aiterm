@@ -86,6 +86,8 @@ final class AppController {
     let work: WorkInFlight
     /// Removes tasks — the person's Remove, and the closing of one whose worktree went.
     let remover: TaskRemover
+    /// Archives tasks and reviews.
+    let archiver: TaskArchiver
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
     /// Nothing here has a default: every dependency that reaches outside the process — the state
@@ -149,6 +151,8 @@ final class AppController {
                                        rememberedModels: { workspace.state.lastModelByAgent })
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, workflow: workflow, git: git, daemon: daemon)
+        let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
+                                    checkouts: checkouts, remover: remover, focus: focus, teardown: teardown, now: { Date() })
         self.workspace = workspace
         self.work = work
         self.notices = notices
@@ -157,6 +161,7 @@ final class AppController {
         self.tiling = tiling
         self.checkouts = checkouts
         self.remover = remover
+        self.archiver = archiver
         self.focus = focus
         self.agents = agents
         self.launcher = launcher
@@ -395,6 +400,11 @@ final class AppController {
     /// The snapshot renderer's rows mid-removal, drawn without running one.
     func seedSnapshotRemoval(_ removal: TaskRemoval?, of id: UUID) { remover.seedSnapshotRemoval(removal, of: id) }
     #endif
+
+    // -- archiving ------------------------------------------------------------------
+    /// `archiver`'s, forwarded: the row's menu, the window-close question and the tests archive here.
+    @discardableResult
+    func archive(task: TaskItem) async -> Task<Void, Never>? { await archiver.archive(task: task) }
 
     // -- terminals ------------------------------------------------------------------
     /// `terminals`', forwarded: the rows' menus, ⌘⌫ and the tests reach a terminal here.
