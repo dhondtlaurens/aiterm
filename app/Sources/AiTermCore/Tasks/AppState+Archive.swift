@@ -28,6 +28,15 @@ public extension AppState {
         return task
     }
 
+    /// The archive as the sheet searches it: each row with its project's name and host.
+    var archiveEntries: [ArchiveSearch.Entry] {
+        archive.compactMap { archived in
+            project(id: archived.task.projectId).map {
+                ArchiveSearch.Entry(archived: archived, projectName: $0.name, provider: $0.provider)
+            }
+        }
+    }
+
     mutating func removeArchived(id: UUID) { archive.removeAll { $0.id == id } }
 
     /// The project and everything AiTerm keeps for it — its tasks, terminals and archived rows — gone
