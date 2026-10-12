@@ -40,12 +40,15 @@ public enum BranchNaming {
     public static func reviewSlug(branch: String) -> String { "review-" + worktreeSlug(branch: branch) }
 
     /// `slug`, else the first of `slug-2`, `slug-3`… that is not already in `repo`'s worktree
-    /// directory: dropping the type makes `feat/login` and `fix/login` want the same one. Create
-    /// and the sheets' preview both ask this, so the directory named is the one made.
-    public static func unused(_ slug: String, in repo: String) -> String {
+    /// directory, nor `reserved` — the folders the project's archived rows come back to. Dropping the
+    /// type makes `feat/login` and `fix/login` want the same one. Create and the sheets' preview both
+    /// ask this, so the directory named is the one made.
+    public static func unused(_ slug: String, in repo: String, reserved: Set<String> = []) -> String {
         let directory = repo + "/" + Worktree.directoryName + "/"
         var candidate = slug, n = 1
-        while FileManager.default.fileExists(atPath: directory + candidate) { n += 1; candidate = "\(slug)-\(n)" }
+        while reserved.contains(candidate) || FileManager.default.fileExists(atPath: directory + candidate) {
+            n += 1; candidate = "\(slug)-\(n)"
+        }
         return candidate
     }
 

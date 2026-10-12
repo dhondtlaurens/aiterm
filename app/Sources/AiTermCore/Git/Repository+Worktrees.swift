@@ -60,6 +60,17 @@ extension Repository {
     /// refusal comes before anything is created, and no failure path deletes a branch that holds
     /// anything origin lacks — this one is someone's merge request.
     public func addReviewWorktree(slug: String, branch: String) throws -> String {
+        let prepared = try prepareReviewBranch(branch)
+        let worktreePath = try prepareWorktree(slug: slug)
+        try addWorktree(at: worktreePath, on: branch, lockReason: Worktree.reviewLockReason, fromOrigin: prepared.fromOrigin)
+        if prepared.onOrigin { setUpstream(of: branch) }
+        return worktreePath
+    }
+
+    /// A review's branch made ready to check out: fetched, then fast-forwarded when behind origin,
+    /// kept when ahead, refused when diverged, checked out elsewhere, or on neither side. Whether the
+    /// checkout must create it from origin's, and whether origin has it.
+    private func prepareReviewBranch(_ branch: String) throws -> (fromOrigin: Bool, onOrigin: Bool) {
         let hasOrigin = try hasOrigin
         if hasOrigin { Log.git.attempt("Fetching \(branch) before adding a review", level: .default) { try fetchFromOrigin(branch) } }
         let local = sha("refs/heads/" + branch)
@@ -77,24 +88,26 @@ extension Repository {
             try fastForward(branch)
         default: break
         }
-        let worktreePath = try prepareWorktree(slug: slug)
-        let created = local == nil
-        try git.run(["worktree", "add", "--lock", "--reason", Worktree.reviewLockReason]
-                    + (created ? ["-b", branch, worktreePath, "origin/" + branch] : [worktreePath, branch]), in: path,
+        return (local == nil, remote != nil)
+    }
+
+    /// `git worktree add`, locked with `lockReason`: on `branch`, or on a new `branch` from origin's.
+    private func addWorktree(at worktreePath: String, on branch: String, lockReason: String, fromOrigin: Bool) throws {
+        try git.run(["worktree", "add", "--lock", "--reason", lockReason]
+                    + (fromOrigin ? ["-b", branch, worktreePath, "origin/" + branch] : [worktreePath, branch]), in: path,
                     timeout: GitRunner.checkoutTimeout)
-        // So that a plain `git push` from the review lands on origin's branch. Written as config
-        // rather than asked of `--track` or `--set-upstream-to`, which refuse an `origin/<branch>`
-        // that `remote.origin.fetch` does not cover — a single-branch clone's. Only when origin has
-        // the branch, which a created one always does. Best-effort: the checkout exists by now and
-        // works without an upstream — only a bare `git push` would need one — so a failed write
-        // must not fail the review and strand its worktree.
-        if remote != nil {
-            Log.git.attempt("Setting \(branch)'s upstream") {
-                try git.run(["config", "branch.\(branch).remote", "origin"], in: path)
-                try git.run(["config", "branch.\(branch).merge", "refs/heads/" + branch], in: path)
-            }
+    }
+
+    /// So that a plain `git push` lands on origin's branch. Written as config rather than asked of
+    /// `--track` or `--set-upstream-to`, which refuse an `origin/<branch>` that `remote.origin.fetch`
+    /// does not cover — a single-branch clone's. Best-effort: the checkout exists by now and works
+    /// without an upstream — only a bare `git push` would need one — so a failed write must not fail
+    /// the checkout and strand its worktree.
+    private func setUpstream(of branch: String) {
+        Log.git.attempt("Setting \(branch)'s upstream") {
+            try git.run(["config", "branch.\(branch).remote", "origin"], in: path)
+            try git.run(["config", "branch.\(branch).merge", "refs/heads/" + branch], in: path)
         }
-        return worktreePath
     }
 
     /// Why a review cannot have `branch`, checked out at `holder`. The project's own folder can be
@@ -179,15 +192,72 @@ extension Repository {
         try FileManager.default.removeItem(atPath: worktreePath)
     }
 
-    /// Where a new worktree goes, made ready for `git worktree add`: never through a symlink, with
-    /// `.worktrees/` in the repository's exclude file so it does not show as untracked.
     private func prepareWorktree(slug: String) throws -> String {
-        let dir = path + "/" + Worktree.directoryName, worktreePath = dir + "/" + slug
+        let worktreePath = path + "/" + Worktree.directoryName + "/" + slug
+        try prepareWorktree(at: worktreePath)
+        return worktreePath
+    }
+
+    /// Where a worktree goes, made ready for `git worktree add`: inside the project's `.worktrees/`,
+    /// never through a symlink, with `.worktrees/` in the repository's exclude file so it does not
+    /// show as untracked.
+    private func prepareWorktree(at worktreePath: String) throws {
+        let dir = path + "/" + Worktree.directoryName
+        guard URL(fileURLWithPath: worktreePath).deletingLastPathComponent().path == dir else {
+            throw WorktreeError.notAWorktree(worktreePath)
+        }
         for p in [dir, worktreePath] where (try? FileManager.default.destinationOfSymbolicLink(atPath: p)) != nil {
             throw WorktreeError.symlinkRefused(p)
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         if let exclude = ExcludeFile.url(forWorktreeOrRepo: path, git: git) { try ExcludeFile.append(Worktree.directoryName + "/", to: exclude) }
-        return worktreePath
     }
+
+    /// What a task's worktree is on now: a task's checkout can have moved to another branch since it
+    /// was created, and a detached one holds commits no branch may have.
+    public func head(at worktreePath: String) throws -> WorktreeHead {
+        guard FileManager.default.fileExists(atPath: worktreePath), let worktree = try worktree(at: worktreePath) else { return .missing }
+        return worktree.branch.map(WorktreeHead.branch) ?? .detached
+    }
+
+    /// An archived row's worktree back at `worktreePath` — its own path, since an agent keeps its
+    /// conversations by directory — on `branch`, locked as `kind`'s. A worktree already there on
+    /// `branch` is the row's own leftover — an archive cut short after its row was saved, or a restore
+    /// git gave up on — and is adopted; anything else there is refused and left as it is. The branch
+    /// comes from origin's when the local one has gone; a review's is brought up to origin's first, as
+    /// creating a review does.
+    public func restoreWorktree(at worktreePath: String, branch: String, kind: TaskKind) throws {
+        let lockReason = kind == .review ? Worktree.reviewLockReason : Worktree.taskLockReason
+        if let existing = try worktree(at: worktreePath) {
+            guard existing.branch == branch else { throw WorktreeError.pathTaken(worktreePath) }
+            _ = try? git.run(["worktree", "unlock", worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
+            try git.run(["worktree", "lock", "--reason", lockReason, worktreePath], in: path, timeout: GitRunner.checkoutTimeout)
+            return
+        }
+        guard !FileManager.default.fileExists(atPath: worktreePath) else { throw WorktreeError.pathTaken(worktreePath) }
+        let fromOrigin: Bool, onOrigin: Bool
+        if kind == .review {
+            do { (fromOrigin, onOrigin) = try prepareReviewBranch(branch) }
+            catch WorktreeError.branchNotOnOrigin { throw WorktreeError.branchGone(branch) }
+        } else {
+            if let holder = try worktrees().first(where: { $0.branch == branch }) {
+                throw WorktreeError.branchCheckedOut(branch, at: holder.path)
+            }
+            fromOrigin = sha("refs/heads/" + branch) == nil
+            if fromOrigin {
+                guard try hasOrigin else { throw WorktreeError.branchGone(branch) }
+                Log.git.attempt("Fetching \(branch) before restoring a task", level: .default) { try fetchFromOrigin(branch) }
+                guard sha("refs/remotes/origin/" + branch) != nil else { throw WorktreeError.branchGone(branch) }
+            }
+            onOrigin = fromOrigin
+        }
+        try prepareWorktree(at: worktreePath)
+        try addWorktree(at: worktreePath, on: branch, lockReason: lockReason, fromOrigin: fromOrigin)
+        if onOrigin { setUpstream(of: branch) }
+    }
+}
+
+/// What a worktree is on now: its branch, a detached head, or nothing — no worktree there.
+public enum WorktreeHead: Equatable, Sendable {
+    case branch(String), detached, missing
 }

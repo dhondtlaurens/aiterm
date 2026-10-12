@@ -20,6 +20,10 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
     case noLocalBranch(String)
     /// Rebasing a branch onto origin's stopped on a conflict, and was aborted.
     case rebaseConflicted(String)
+    /// An archived row's folder, holding something that is not its own worktree.
+    case pathTaken(String)
+    /// An archived row's branch, gone locally and from origin.
+    case branchGone(String)
 
     public var errorDescription: String? {
         switch self {
@@ -41,6 +45,10 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
         case .noLocalBranch(let branch): return "There is no local “\(branch)” to bring up to date."
         case .rebaseConflicted(let branch):
             return "Rebasing “\(branch)” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand."
+        case .pathTaken(let path):
+            return "\(folderName(path)) in .worktrees is in use by something else, so the worktree can’t come back there."
+        case .branchGone(let branch):
+            return "Its branch \(branch) no longer exists here or on origin. Remove it from the archive instead."
         }
     }
 }

@@ -229,6 +229,13 @@ import Darwin
         #expect(BranchNaming.unused("login", in: repo) == "login-3")
     }
 
+    @Test func anUnusedSlugSkipsAFolderAnArchivedRowWillComeBackTo() throws {
+        let repo = try GitFixture.makeRepo(prefix: "slug-")
+        defer { try? FileManager.default.removeItem(atPath: repo) }
+        #expect(BranchNaming.unused("login", in: repo, reserved: ["login"]) == "login-2")
+        #expect(BranchNaming.unused("login", in: repo, reserved: ["login", "login-2"]) == "login-3")
+    }
+
     // -- reviews ---------------------------------------------------------------------
 
     private static let mergeRequest = MergeRequest(iid: 4, title: "Add gift card", sourceBranch: "feat/mr-branch",

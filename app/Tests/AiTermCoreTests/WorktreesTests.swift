@@ -816,6 +816,84 @@ import Darwin
         let asked = Set(recording.calls.map { $0.args.starts(with: options) ? $0.args[options.count] : $0.args[0] })
         #expect(asked.isSuperset(of: ["fetch", "ls-remote", "worktree"]))
     }
+
+    // -- an archived row's worktree ------------------------------------------------------
+
+    @Test func aWorktreesHeadIsItsBranchDetachedOrMissing() throws {
+        let repository = Repository(repo, git: git)
+        let path = try repository.addTaskWorktree(slug: "work", branch: "feat/work", base: "main")
+        #expect(try repository.head(at: path) == .branch("feat/work"))
+        try git.run(["checkout", "-q", "--detach"], in: path)
+        #expect(try repository.head(at: path) == .detached)
+        #expect(try repository.head(at: repo + "/.worktrees/none") == .missing)
+    }
+
+    @Test func aTaskWorktreeComesBackAtItsOwnPathOnItsBranchLocked() throws {
+        let repository = Repository(repo, git: git)
+        let path = try repository.addTaskWorktree(slug: "work", branch: "feat/work", base: "main")
+        try repository.removeWorktree(at: path, deleteBranch: nil, force: false)
+        try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task)
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "HEAD"], in: path) == "feat/work")
+        #expect(repository.lockReason(of: path) == Worktree.taskLockReason)
+    }
+
+    @Test func aTaskWhoseLocalBranchWentComesBackFromOrigin() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let repository = Repository(repo, git: git)
+        let path = repo + "/.worktrees/mr-branch"
+        try repository.restoreWorktree(at: path, branch: "feat/mr-branch", kind: .task)
+        #expect(try git.run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: path) == "origin/feat/mr-branch")
+    }
+
+    @Test func aBranchGoneHereAndOnOriginCannotComeBack() throws {
+        #expect(throws: WorktreeError.branchGone("feat/nowhere")) {
+            try Repository(repo, git: git).restoreWorktree(at: repo + "/.worktrees/nowhere", branch: "feat/nowhere", kind: .task)
+        }
+    }
+
+    @Test func aFolderTakenBySomethingElseIsNeverTouched() throws {
+        let repository = Repository(repo, git: git)
+        try git.run(["branch", "feat/work"], in: repo)
+        let path = repo + "/.worktrees/work"
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        try "mine".write(toFile: path + "/note.txt", atomically: true, encoding: .utf8)
+        #expect(throws: WorktreeError.pathTaken(path)) { try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task) }
+        #expect(try String(contentsOfFile: path + "/note.txt", encoding: .utf8) == "mine")
+        // Another worktree there, on another branch, is not this row's either.
+        try FileManager.default.removeItem(atPath: path)
+        _ = try repository.addTaskWorktree(slug: "work", branch: "feat/other", base: "main")
+        #expect(throws: WorktreeError.pathTaken(path)) { try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task) }
+    }
+
+    @Test func itsOwnLeftoverIsAdoptedAndLockedAgain() throws {
+        // An archive cut short after its row was saved, or a restore git gave up on halfway: the
+        // worktree is there, on the row's branch.
+        let repository = Repository(repo, git: git)
+        let path = try repository.addTaskWorktree(slug: "work", branch: "feat/work", base: "main")
+        try git.run(["worktree", "unlock", path], in: repo)
+        try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task)
+        #expect(repository.lockReason(of: path) == Worktree.taskLockReason)
+    }
+
+    @Test func aBranchCheckedOutElsewhereIsRefusedWithWhere() throws {
+        let repository = Repository(repo, git: git)
+        let elsewhere = try repository.addTaskWorktree(slug: "other", branch: "feat/work", base: "main")
+        let path = repo + "/.worktrees/work"
+        #expect(throws: WorktreeError.branchCheckedOut("feat/work", at: elsewhere)) {
+            try repository.restoreWorktree(at: path, branch: "feat/work", kind: .task)
+        }
+    }
+
+    @Test func aReviewComesBackFastForwardedToOrigin() throws {
+        let repo = try repoWithRemoteOnlyBranch()
+        let repository = Repository(repo, git: git)
+        let path = try repository.addReviewWorktree(slug: "review-mr-branch", branch: "feat/mr-branch")
+        try repository.removeWorktree(at: path, deleteBranch: nil, force: false)
+        _ = try pushNewCommitToMRBranch(of: repo)
+        try repository.restoreWorktree(at: path, branch: "feat/mr-branch", kind: .review)
+        #expect(try sha("HEAD", in: path) == sha("refs/remotes/origin/feat/mr-branch", in: repo))
+        #expect(repository.lockReason(of: path) == Worktree.reviewLockReason)
+    }
 }
 
 /// `git worktree remove` as it goes with a watcher still running in the checkout: git deletes it
