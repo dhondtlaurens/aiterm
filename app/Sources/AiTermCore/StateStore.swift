@@ -107,10 +107,13 @@ public final class StateStore: Sendable {
         // One id set across the whole sidebar: a divider must not collide with a project either.
         // Rows an older build cannot draw take a fresh id on every load, so they cannot collide.
         let drawn = state.items.filter(\.isDrawn)
+        // A task is in the sidebar or in the archive, never both.
+        let taskIds = state.tasks.map(\.id) + state.archive.map(\.id)
         guard Set(drawn.map(\.id)).count == drawn.count,
-              Set(state.tasks.map(\.id)).count == state.tasks.count,
+              Set(taskIds).count == taskIds.count,
               Set(state.terminals.map(\.id)).count == state.terminals.count,
               state.tasks.allSatisfy({ projects.contains($0.projectId) }),
+              state.archive.allSatisfy({ projects.contains($0.task.projectId) }),
               state.terminals.allSatisfy({ projects.contains($0.projectId) }) else {
             throw Failure.invalidWorkspace
         }

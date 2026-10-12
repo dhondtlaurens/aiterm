@@ -358,6 +358,22 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// A task or review put away: its worktree deleted and its window closed, its branch untouched, and
+/// everything it takes to come back kept — the ticket, the merge request, the agent and model, and
+/// each conversation its tabs last showed. Restoring it puts `task` back in the sidebar, owed its
+/// window, and the window lock reopens it as after a restart.
+public struct ArchivedTask: Codable, Identifiable, Equatable, Sendable {
+    /// The row as it left the sidebar: windowless, on the branch its worktree was actually on.
+    public var task: TaskItem
+    public var archivedAt: Date
+    public var id: UUID { task.id }
+
+    public init(task: TaskItem, archivedAt: Date) {
+        self.task = task
+        self.archivedAt = archivedAt
+    }
+}
+
 public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID, projectId: UUID, name: String, windowId: String?, createdAt: Date
     public init(id: UUID, projectId: UUID, name: String, windowId: String?, createdAt: Date) { self.id = id; self.projectId = projectId; self.name = name; self.windowId = windowId; self.createdAt = createdAt }
@@ -388,6 +404,10 @@ public struct AppState: Codable, Equatable, Sendable {
     /// The sidebar's top level, in the order it is drawn: the projects and the dividers between them.
     public var items: [SidebarItem] = []
     public var tasks: [TaskItem] = [], terminals: [TerminalItem] = []
+    /// The tasks and reviews archived: out of the sidebar, their worktrees gone, kept to be restored.
+    /// A list of its own, so nothing that reads `tasks` — the window plan, the checkout monitor, the
+    /// rows, the Dock badge — ever meets one.
+    public var archive: [ArchivedTask] = []
     public var sidebarFrame: CGRect? = nil
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
@@ -451,7 +471,7 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, projects, tasks, terminals, sidebarFrame, lastAgentByProject, lastModelByAgent
+        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
     }
 
     /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
@@ -462,6 +482,7 @@ public struct AppState: Codable, Equatable, Sendable {
         else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
         terminals = try c.decodeIfPresent([TerminalItem].self, forKey: .terminals) ?? []
+        archive = try c.decodeIfPresent([ArchivedTask].self, forKey: .archive) ?? []
         sidebarFrame = try c.decodeIfPresent(CGRect.self, forKey: .sidebarFrame)
         // Only preferences, so an agent from a newer build is dropped rather than failing the load.
         lastAgentByProject = (try c.decodeIfPresent([UUID: SavedAgent].self, forKey: .lastAgentByProject) ?? [:]).compactMapValues(\.agent)
@@ -482,6 +503,8 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(items, forKey: .items)
         try c.encode(tasks, forKey: .tasks)
         try c.encode(terminals, forKey: .terminals)
+        // Left out while empty, so a workspace with nothing archived is written as it always was.
+        if !archive.isEmpty { try c.encode(archive, forKey: .archive) }
         try c.encodeIfPresent(sidebarFrame, forKey: .sidebarFrame)
         try c.encode(lastAgentByProject, forKey: .lastAgentByProject)
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
