@@ -75,7 +75,7 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened |
 | `TerminalActions` | `terminals` | a project's terminals: a new one, and one closed |
 | `TaskRemover` | `remover` | the person's Remove and its retries, the closing of a task whose worktree went, and what each left its row saying — a stopped archive's note too, through the same channel; the unsaved-work question and the confirmed window close are `WorktreeTeardown`'s, which it shares with the archiver |
-| `TaskArchiver` | `archiver` | archived tasks and reviews: archive (the unsaved-work question, a detached head refused, the window closed and confirmed — refused without iTerm2 — the row saved into the archive on the branch its worktree is on, then the worktree removed and the branch left), restore (the worktree back at its own path, the row back owed its window and chosen, so the window lock reopens it) and remove from the archive (Remove's question, the record forgotten, the branch deleted only when ticked) |
+| `TaskArchiver` | `archiver` | archived tasks and reviews: archive (the unsaved-work question, a detached head refused, the window closed and confirmed — refused without iTerm2 when the row has a window to close — the head read again and a detached one refused, the row saved into the archive on the branch its worktree is on now, then the worktree removed and the branch left), restore (the worktree back at its own path, the row back owed its window and chosen, so the window lock reopens it) and remove from the archive (Remove's question, the record forgotten, the branch deleted only when ticked) |
 | `WindowReconciler` | `windows` | each row locked to its window: `AppState.windowPlan` run on every report and acted on — a window adopted by tag, a window restored with its conversations, Remove's question — Archive its third answer — after the person closes one task's window, a terminal's row taken with its window (`ClosedWindowTriage`); the failed restores rows read |
 | `InterfacePreferences` | `preferences` | the Interface tab's settings, saved on every write |
 | `AgentIntegrations` | `agents` | which agent CLIs the login shell finds, the Claude status-line shim, the Settings harness model |
@@ -411,7 +411,8 @@ creation and its first save can leave an unrecorded checkout; re-add the project
 Archive orders its two steps so a crash between them loses nothing: the archived row is saved
 before git removes the worktree, so a crash in between leaves an archived row whose worktree still
 exists, and restoring it adopts that worktree when it is on the row's branch — anything else in the
-folder is refused and left as it is. Had git gone first, the crash would have left a task whose
+folder is refused and left as it is. A locked worktree whose folder was deleted is only git's record
+of one, so restore prunes the record and makes the worktree again. Had git gone first, the crash would have left a task whose
 checkout is gone, which the cleanup forgets. For the same reason an archive whose save fails stops
 before git, the row a task again, owed its window, saying "Not archived".
 A crash while iTerm2 creates an as-yet-untagged window can require closing that orphan manually.

@@ -147,15 +147,17 @@ down.
 Some windows close because AiTerm closed them. Those are never asked about:
 
 - **Remove Task… / Remove Review…** closes the window before deleting the worktree.
-- **Archive** does the same, then moves the row to the archive. Without iTerm2 connected it stops
-  before closing anything, and the row says **Not archived: iTerm2 isn’t connected**.
+- **Archive** does the same, then moves the row to the archive. A task with a window needs iTerm2
+  connected to close it: without, it stops before closing anything, and the row says **Not
+  archived: iTerm2 isn’t connected**. A task with no window is archived either way.
 - **A worktree deleted outside AiTerm**: AiTerm notices, closes the window and removes the row. The
   branch is kept.
 - **Remove Terminal** closes the terminal's window.
 
 One exception: a removal or an archive that closes the window and then stops (git refuses to
-delete the worktree, you choose Keep when asked about unsaved work, or the archived row could not be
-saved) leaves the task in the sidebar. A task that stays gets its window back, like any other.
+delete the worktree, you choose Keep when asked about unsaved work, the worktree was detached from
+its branch while the window closed, or the archived row could not be saved) leaves the task in the
+sidebar. A task that stays gets its window back, like any other.
 
 ## When it can't
 
