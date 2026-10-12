@@ -250,15 +250,28 @@ final class ProjectActions {
         let tasks = state.tasks.filter { $0.projectId == project.id }.count
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
-            detail: tasks == 0
-                ? "Removes the project from AiTerm. Files are kept and terminal windows stay open."
-                : "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm. Files, worktrees and windows are kept.",
+            detail: Self.removalDetail(tasks: tasks, archived: state.archived(projectId: project.id)),
             buttons: ["Remove", "Cancel"]))
         // Anything can run across the await, a create in the project among them, so it is asked
         // again — and the answer acted on in the same turn, with nothing able to start in between.
         guard answer.confirmed, canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
         workspace.mutate { $0.removeProject(id: project.id) }
+    }
+
+    /// The Remove Project alert's detail: what goes from AiTerm — its tasks, and the archived rows it
+    /// forgets — and what stays on disk. Archive never changes git, so forgetting an archived row
+    /// loses nothing but AiTerm's memory of it.
+    static func removalDetail(tasks: Int, archived: [ArchivedTask]) -> String {
+        let forgets: String
+        switch archived.count {
+        case 0: forgets = ""
+        case 1: forgets = ", and forgets its archived \(archived[0].task.kindName.lowercased())"
+        default: forgets = ", and forgets its \(archived.count) archived tasks and reviews"
+        }
+        if tasks == 0 { return "Removes the project from AiTerm\(forgets). Files are kept and terminal windows stay open." }
+        let kept = archived.isEmpty ? "Files, worktrees and windows are kept." : "Files, branches, worktrees and windows are kept."
+        return "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm\(forgets). \(kept)"
     }
 
     /// Why `project` cannot be removed yet, if it cannot: work still in flight would land in a

@@ -410,4 +410,20 @@ extension AppControllerTests {
         #expect(fixture.controller.issue?.title == "Couldn’t remove the task.")
         #expect(fixture.controller.state.archive.map(\.id) == [task.id], "nothing is forgotten when the removal failed")
     }
+
+    @Test func removingAProjectSaysHowManyArchivedRowsItForgets() {
+        func archived(_ kind: TaskKind) -> ArchivedTask {
+            ArchivedTask(task: TaskItem(id: UUID(), projectId: UUID(), title: "t", branch: "b", worktreePath: "/w", baseBranch: "main",
+                                        jira: nil, kind: kind, agent: .claude, model: "m", reasoning: nil, firstPrompt: nil,
+                                        appendTicket: false, createdAt: Date(), windowId: nil), archivedAt: Date())
+        }
+        #expect(ProjectActions.removalDetail(tasks: 0, archived: [])
+                == "Removes the project from AiTerm. Files are kept and terminal windows stay open.")
+        #expect(ProjectActions.removalDetail(tasks: 4, archived: [])
+                == "Removes the project and its 4 tasks from AiTerm. Files, worktrees and windows are kept.")
+        #expect(ProjectActions.removalDetail(tasks: 4, archived: Array(repeating: archived(.task), count: 12))
+                == "Removes the project and its 4 tasks from AiTerm, and forgets its 12 archived tasks and reviews. Files, branches, worktrees and windows are kept.")
+        #expect(ProjectActions.removalDetail(tasks: 0, archived: [archived(.review)])
+                == "Removes the project from AiTerm, and forgets its archived review. Files are kept and terminal windows stay open.")
+    }
 }
