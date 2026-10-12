@@ -101,6 +101,14 @@ final class SheetCoordinator {
         present(.backpack(BackpackSheetModel(backpack: backpack)))
     }
 
+    /// Not over another sheet, as Settings.
+    var canPresentArchive: Bool { sheet == nil && canChangeWorkspace }
+
+    func presentArchive(_ model: ArchiveSheetModel) {
+        guard canPresentArchive else { return }
+        present(.archive(model))
+    }
+
     // -- sheets that read something first ----------------------------------------------
     /// Settings opens on the saved connections, read off the main actor: the Keychain and
     /// UserDefaults, which can take a moment, and a Keychain that asks for access longer still.

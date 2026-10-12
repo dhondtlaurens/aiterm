@@ -316,6 +316,8 @@ struct SidebarSheet: View {
                                  initialTab: tab,
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
+                // Task 14 draws it.
+                case .archive: EmptyView()
             }
         }
         .interfaceScale(.standard)

@@ -348,6 +348,17 @@ final class AppController {
     /// `sheets`', forwarded: the menus, the rows and the tests open a sheet here.
     var canPresentSettings: Bool { sheets.canPresentSettings }
     func presentSettings(tab: SettingsTab? = nil) { sheets.presentSettings(tab: tab) }
+    var canPresentArchive: Bool { sheets.canPresentArchive }
+
+    /// The Archive sheet, reading the archive as it is whenever it draws.
+    func presentArchive() {
+        sheets.presentArchive(ArchiveSheetModel(
+            entries: { [weak self] in self?.state.archiveEntries ?? [] },
+            restore: { [weak self] in self?.restoreArchived($0) },
+            // A turn later, never inside the key handler that asked (`Prompter`).
+            remove: { [weak self] id in Task { await self?.confirmRemove(archived: id) } }))
+    }
+
     func presentJiraProjects(for project: Project) { sheets.presentJiraProjects(for: project) }
     func presentNewDivider() { sheets.presentNewDivider() }
     func presentRename(divider: SidebarDivider) { sheets.presentRename(divider: divider) }

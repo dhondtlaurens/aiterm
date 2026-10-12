@@ -60,6 +60,8 @@ extension AppController {
         case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, tab: SettingsTab?)
         /// Backpack Mode's sheet: its model is built once, as New Task's is.
         case backpack(BackpackSheetModel)
+        /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
+        case archive(ArchiveSheetModel)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -70,6 +72,7 @@ extension AppController {
             case .rename(let target): return "rename-\(target.id)"
             case .settings: return "settings"
             case .backpack: return "backpack"
+            case .archive: return "archive"
             }
         }
     }
