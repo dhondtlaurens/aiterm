@@ -167,6 +167,8 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
         // fields are covered by the item turning off while one is up.
         viewMenu.addItem(withTitle: "Focus View", action: #selector(showFocusView), keyEquivalent: "f")
         viewMenu.addItem(withTitle: "List View", action: #selector(showListView), keyEquivalent: "l")
+        // No key: Edit › Select All comes first and, disabled on the sidebar list, still claims ⌘A.
+        viewMenu.addItem(withTitle: "Show Archive", action: #selector(showArchive), keyEquivalent: "")
         viewMenu.addItem(.separator())
         // A mode, not a view: apart from them. ⌘B — the free key with the name's initial.
         viewMenu.addItem(withTitle: "Backpack Mode", action: #selector(toggleBackpack), keyEquivalent: "b")
@@ -187,6 +189,7 @@ final class AiTermApp: NSObject, NSApplicationDelegate {
     @objc func actualSize() { changeInterfaceSize(to: .standard) }
     @objc func showFocusView() { controller.showFocusView() }
     @objc func showListView() { controller.showListView() }
+    @objc func showArchive() { controller.presentArchive() }
     @objc func toggleBackpack() { controller.toggleBackpack() }
 
     private func changeInterfaceSize(to size: InterfaceSize?) {
@@ -211,6 +214,7 @@ extension AiTermApp: NSMenuItemValidation {
         case #selector(actualSize): return zoomable && controller.preferences.interfaceSize != .standard
         case #selector(showFocusView): return controller.canShowFocusView
         case #selector(showListView): return controller.canShowListView
+        case #selector(showArchive): return controller.canPresentArchive
         case #selector(toggleBackpack):
             item.state = controller.backpack.isOn ? .on : .off
             return true

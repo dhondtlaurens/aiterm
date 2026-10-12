@@ -234,12 +234,14 @@ struct SelectableRow<Content: View>: View {
     }
 }
 
-/// The pill a selectable sidebar row is drawn in — a task's, a terminal's, a project header's: the
-/// selection fill, else the hover wash, behind the row's own padding. It declares the ground
-/// everything inside reads.
+/// The pill a selectable sidebar row is drawn in — a task's, a terminal's, a project header's, and the
+/// Archive sheet's rows, which read as the sidebar's: the selection fill, else the hover wash, behind
+/// the row's own padding. It declares the ground everything inside reads — `ground` at rest, the
+/// sidebar's unless the pill sits on a sheet.
 struct RowPill: ViewModifier {
     let selected: Bool
     var hovered = false
+    var ground = Surface.sidebar
     @Environment(\.interfaceScale) private var scale
 
     func body(content: Content) -> some View {
@@ -248,7 +250,7 @@ struct RowPill: ViewModifier {
             // `Surface.occludingBackground`, which is `Palette.rowHoverSolid` for `.hover`. Every other
             // consumer of `surface` on a row (`Badge`, `StatusMark`, `BranchLabelView`) only branches on
             // `isOnAccent`, which `.hover` and `.sidebar` share.
-            .surface(selected ? .accent : (hovered ? .hover : .sidebar))
+            .surface(selected ? .accent : (hovered ? .hover : ground))
             .background(RoundedRectangle(cornerRadius: scale(Radius.control))
                 .fill(selected ? Palette.selection : (hovered ? Palette.rowHover : .clear)))
     }
@@ -338,12 +340,14 @@ struct TaskRowView: View {
         let selected = controller.focus.isSelected(row.id)
         let missing = controller.checkouts.isMissing(row.id)
         let removal = controller.removal(of: row.id), removing = removal?.inProgress == true
+        // Stopped after its worktree went: it waits on Remove's retry, which archiving would cut short.
+        let awaitsRetry = removal?.awaitsRetry == true
         let failed = controller.hasFailedRestore(row.id)
         let caption = TaskRowCaption(removal: removal, missing: missing, failed: failed)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
-                                             canChangeWorkspace: controller.canChangeWorkspace)
+                                             awaitsRetry: awaitsRetry, canChangeWorkspace: controller.canChangeWorkspace)
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(selected: selected, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
             HStack(spacing: scale(Space.inset)) {
@@ -395,6 +399,7 @@ struct TaskRowView: View {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
                     switch action {
+                    case .archive: Button(voiceOver.title(of: action)) { Task { await controller.archive(task: task) } }
                     case .remove: Button(voiceOver.title(of: action)) { Task { await controller.confirmRemove(task: task) } }
                     }
                 }
@@ -413,6 +418,9 @@ struct TaskRowView: View {
                 if ExternalApps.vscode != nil { Button("Open in VS Code") { ExternalApps.openInVSCode(path: task.worktreePath) } }
                 if let jira = task.jira { Button("Open in Jira") { ExternalApps.open(link: jira.url) } }
                 Divider()
+                // No ellipsis: it asks nothing unless the worktree has changes to lose.
+                Button("Archive") { Task { await controller.archive(task: task) } }
+                    .disabled(!controller.canChangeWorkspace || removing || awaitsRetry)
                 Button("Remove \(task.kindName)…", role: .destructive) { Task { await controller.confirmRemove(task: task) } }
                     .disabled(!controller.canChangeWorkspace || removing)
             }
@@ -617,7 +625,7 @@ extension ProjectJiraBadge.Overflow {
 /// cannot change. A value, so the rule is testable without rendering the sidebar, as `TaskRowBadges` is.
 struct TaskRowAccessibility: Equatable {
     enum Action: Hashable {
-        case remove
+        case archive, remove
     }
 
     var label: String
@@ -630,11 +638,15 @@ struct TaskRowAccessibility: Equatable {
     /// The action as VoiceOver speaks it: the menu item's title, without its ellipsis.
     func title(of action: Action) -> String {
         switch action {
+        case .archive: "Archive"
         case .remove: "Remove \(kindName)"
         }
     }
 
-    init(title: String, task: TaskItem?, missing: Bool, failed: Bool, removing: Bool = false, canChangeWorkspace: Bool) {
+    /// `awaitsRetry` is a removal that stopped after the worktree went: the row waits on Remove's retry,
+    /// so Archive, which its menu greys, is not offered.
+    init(title: String, task: TaskItem?, missing: Bool, failed: Bool, removing: Bool = false, awaitsRetry: Bool = false,
+         canChangeWorkspace: Bool) {
         let branch = task?.branch ?? ""
         label = branch.isEmpty ? title : "\(title), \(branch)"
         let kindName = task?.kindName ?? "Task"
@@ -648,7 +660,7 @@ struct TaskRowAccessibility: Equatable {
         hint = words.hint
         help = words.help
         guard task != nil, canChangeWorkspace, !removing else { actions = []; return }
-        actions = [.remove]
+        actions = awaitsRetry ? [.remove] : [.archive, .remove]
     }
 }
 

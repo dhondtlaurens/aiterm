@@ -66,11 +66,27 @@ import Testing
         app.buildMenu()
         let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
         let titles = view.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title }
-        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "—", "Backpack Mode", "—"])
+        #expect(titles == ["Zoom In", "Zoom Out", "Actual Size", "—", "Focus View", "List View", "Show Archive", "—", "Backpack Mode", "—"])
         let item = try #require(view.items.first { $0.title == "Backpack Mode" })
         #expect(Self.keys(of: item) == ["⌘", "B"])
         #expect(app.validateMenuItem(item), "never disabled: a press that cannot turn it on answers with a toast")
         #expect(item.state == .off)
+    }
+
+    /// View › Show Archive, after the views; off while a sheet is up.
+    @Test func theViewMenuCarriesShowArchive() throws {
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        let controller = AppController(preferences: .scratch())
+        try controller.loadWorkspace()
+        let app = AiTermApp(controller: controller)
+        app.buildMenu()
+        let view = try #require(NSApplication.shared.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" })
+        let item = try #require(view.items.first { $0.title == "Show Archive" })
+        #expect(item.keyEquivalent.isEmpty, "Select All claims ⌘A on the list (Task 1)")
+        #expect(app.validateMenuItem(item))
+        controller.presentArchive()
+        #expect(!app.validateMenuItem(item), "not over a sheet")
     }
 
     /// A row as the menu check compares it: its title and its keys.

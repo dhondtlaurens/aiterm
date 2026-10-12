@@ -15,6 +15,9 @@ extension DismissAction {
 struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
+    /// The content's inset from the rules above and below it: a sheet's margin, or less for a list of
+    /// rows whose own pills already pad them (the Archive sheet's).
+    let contentVerticalPadding: CGFloat
     let onBackgroundTap: (() -> Void)?
     #if DEBUG
     @Environment(\.snapshotRendering) private var isSnapshot
@@ -23,12 +26,13 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let content: Content
     let footer: Footer
 
-    init(title: String, height: CGFloat, onBackgroundTap: (() -> Void)? = nil,
+    init(title: String, height: CGFloat, contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
          @ViewBuilder navigation: () -> Navigation,
          @ViewBuilder content: () -> Content,
          @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.height = height
+        self.contentVerticalPadding = contentVerticalPadding
         self.onBackgroundTap = onBackgroundTap
         self.navigation = navigation()
         self.content = content()
@@ -73,7 +77,8 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     }
 
     private var paddedContent: some View {
-        content.frame(maxWidth: .infinity, alignment: .topLeading).padding(Space.margin)
+        content.frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, Space.margin).padding(.vertical, contentVerticalPadding)
     }
 }
 

@@ -12,14 +12,14 @@ import AiTermCore
                  createdAt: Date(), windowId: windowId)
     }
 
-    /// Choosing the row is its reopen, so VoiceOver offers Remove alone, as the menu does.
+    /// Choosing the row is its reopen, so VoiceOver offers Archive and Remove alone, as the menu does.
     @Test func aTaskRowOffersRemoveAndNoReopen() {
         let open = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, failed: false, canChangeWorkspace: true)
-        #expect(open.actions == [.remove])
+        #expect(open.actions == [.archive, .remove])
         let closed = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, failed: false, canChangeWorkspace: true)
-        #expect(closed.actions == [.remove])
+        #expect(closed.actions == [.archive, .remove])
         let missing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: true, failed: false, canChangeWorkspace: true)
-        #expect(missing.actions == [.remove])
+        #expect(missing.actions == [.archive, .remove])
     }
 
     /// The hint and the tooltip say what choosing the row does: a failed reopen is tried again, and an
@@ -37,6 +37,20 @@ import AiTermCore
         let removing = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, failed: false, removing: true,
                                             canChangeWorkspace: true)
         #expect(removing.hint == "" && removing.help == "")
+    }
+
+    @Test func archiveIsOfferedBesideRemoveAndNamedWithoutAnEllipsis() {
+        let a = TaskRowAccessibility(title: "Work", task: task(windowId: "w"), missing: false, failed: false, canChangeWorkspace: true)
+        #expect(a.actions == [.archive, .remove])
+        #expect(a.title(of: .archive) == "Archive")
+    }
+
+    /// A row whose Remove stopped after its worktree went waits on that retry, which the archiver
+    /// refuses to cut short: its menu greys Archive, so VoiceOver offers Remove alone.
+    @Test func aRowAwaitingItsRemovalsRetryOffersRemoveAlone() {
+        let held = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, failed: false, awaitsRetry: true,
+                                        canChangeWorkspace: true)
+        #expect(held.actions == [.remove])
     }
 
     /// Nothing is offered on a row being removed: its menu has Remove disabled.
@@ -64,11 +78,11 @@ import AiTermCore
     /// Remove names the row's kind, as its menu item does, without the menu's ellipsis.
     @Test func aRowsActionsAreItsMenuItemsTitles() {
         let task = TaskRowAccessibility(title: "Work", task: task(windowId: nil), missing: false, failed: false, canChangeWorkspace: true)
-        #expect(task.actions.map(task.title(of:)) == ["Remove Task"])
+        #expect(task.actions.map(task.title(of:)) == ["Archive", "Remove Task"])
         var reviewItem = self.task(windowId: "w")
         reviewItem.kind = .review
         let review = TaskRowAccessibility(title: "Work", task: reviewItem, missing: false, failed: false, canChangeWorkspace: true)
-        #expect(review.actions.map(review.title(of:)) == ["Remove Review"])
+        #expect(review.actions.map(review.title(of:)) == ["Archive", "Remove Review"])
         #expect(TerminalRowAccessibility.Action.remove.rawValue == "Remove Terminal")
         #expect(DividerRow.Action.allCases.map(\.rawValue) == ["Rename", "Move Up", "Move Down", "Remove Divider"])
     }

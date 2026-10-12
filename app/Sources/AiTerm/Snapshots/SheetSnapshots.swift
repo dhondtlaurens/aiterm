@@ -58,7 +58,20 @@ enum SheetSnapshots {
                 NameSheet.newTerminal(project: Fixture().project, suggestedName: "shell 2", branch: "main", canCreate: true,
                                       createTerminal: { _ in })
             },
-        ] + nameSheets + backpackSheets
+        ] + nameSheets + backpackSheets + archiveSheets
+    }
+
+    /// The Archive sheet with the proposal's five rows, a search that finds one by its merge request,
+    /// nothing archived, and a search that finds nothing. Drawn last: an added image goes after the
+    /// ones before it (`Snapshots.regressionSet`).
+    private static var archiveSheets: [Snapshot] {
+        [
+            Snapshot("archive.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "")) },
+            Snapshot("archive-search.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "482")) },
+            Snapshot("archive-empty.png") { ArchiveSheet(model: ArchiveSnapshots.model(entries: [], query: "")) },
+            // Not the proposal's "paymnet": the fuzzy tier finds "payment" in it.
+            Snapshot("archive-no-match.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "refund")) },
+        ]
     }
 
     static let tickets = [
@@ -237,6 +250,36 @@ enum SheetSnapshots {
             if started { model.previewStarted() }
             return BackpackSheet(model: model)
         }
+    }
+}
+
+/// The Archive sheet's rows for the snapshots: the proposal's five, at fixed dates against a fixed now.
+@MainActor enum ArchiveSnapshots {
+    static let now = Date(timeIntervalSince1970: 1_791_800_000)
+
+    static func model(entries: [ArchiveSearch.Entry]? = nil, query: String) -> ArchiveSheetModel {
+        let shown = entries ?? rows
+        let model = ArchiveSheetModel(entries: { shown }, restore: { _ in }, remove: { _ in })
+        model.query = query
+        model.now = { now }
+        return model
+    }
+
+    static var rows: [ArchiveSearch.Entry] {
+        func row(_ title: String, _ agent: AgentKind, jira: String? = nil, mr: Int? = nil, branch: String, project: String,
+                 ago: TimeInterval) -> ArchiveSearch.Entry {
+            let task = TaskItem(id: UUID(), projectId: UUID(), title: title, branch: branch, worktreePath: "/w", baseBranch: "main",
+                                jira: jira.map { JiraRef(key: $0, summary: title, url: "") }, kind: mr == nil ? .task : .review,
+                                mr: mr.map { MergeRequestRef(iid: $0, title: title, url: "") }, agent: agent, model: "m", reasoning: nil,
+                                firstPrompt: nil, appendTicket: false, createdAt: now, windowId: nil)
+            return .init(archived: ArchivedTask(task: task, archivedAt: now.addingTimeInterval(-ago)), projectName: project, provider: .gitlab)
+        }
+        return [row("Login flow", .claude, jira: "SHOP-123", branch: "feat/SHOP-123-login", project: "acme-storefront", ago: 7_200),
+                row("Header refactor", .claude, mr: 482, branch: "feat/header-refactor", project: "acme-storefront", ago: 86_400),
+                row("Checkout payment retry", .codex, jira: "SHOP-118", branch: "fix/SHOP-118-payment-retry", project: "acme-storefront",
+                    ago: 259_200),
+                row("Daemon backoff", .claude, branch: "feat/daemon-backoff", project: "aiterm", ago: 777_600),
+                row("Jira project picker", .codex, jira: "AIT-41", mr: 37, branch: "feat/jira-projects", project: "aiterm", ago: 1_296_000)]
     }
 }
 #endif
