@@ -32,7 +32,8 @@ final class TaskLauncher {
     private var state: AppState { workspace.state }
 
     func createTask(draft: TaskDraft, project: Project) async throws {
-        try await create(draft, kind: .task, in: project) { [workflow] in try await workflow.create(draft: draft, project: project) }
+        let reserved = state.reservedWorktreeSlugs(projectId: project.id)
+        try await create(draft, kind: .task, in: project) { [workflow] in try await workflow.create(draft: draft, project: project, reserved: reserved) }
     }
 
     /// A branch already checked out in a task's worktree — or an earlier review's — is reviewed
@@ -42,7 +43,8 @@ final class TaskLauncher {
         if let owner = try await checkoutOwner(of: draft.branch, in: project) {
             return try await openReview(draft, in: owner, project: project)
         }
-        try await create(draft, kind: .review, in: project) { [workflow] in try await workflow.createReview(draft: draft, project: project) }
+        let reserved = state.reservedWorktreeSlugs(projectId: project.id)
+        try await create(draft, kind: .review, in: project) { [workflow] in try await workflow.createReview(draft: draft, project: project, reserved: reserved) }
     }
 
     /// The fix New Review's footer offered for a refused branch, run before its create is tried

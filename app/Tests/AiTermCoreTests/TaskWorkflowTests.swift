@@ -196,6 +196,52 @@ import Testing
         #expect(kept.keptBranch == .unpushed(commits: 1))
     }
 
+    @Test func archivingRemovesTheWorktreeAndLeavesTheBranch() async throws {
+        let (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let workflow = TaskWorkflow(git: .hermetic()), git = GitRunner.hermetic()
+        let task = try await workflow.create(draft: draft, project: project).task
+        #expect(try await workflow.head(of: task, in: project) == .branch(task.branch))
+        try await workflow.archive(task: task, project: project, force: false)
+        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + task.branch], in: project.path) == "refs/heads/" + task.branch)
+    }
+
+    @Test func aRestoredTaskIsBackAtItsPathWindowless() async throws {
+        let (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let workflow = TaskWorkflow(git: .hermetic())
+        var task = try await workflow.create(draft: draft, project: project).task
+        task.windowId = "old"
+        try await workflow.archive(task: task, project: project, force: false)
+        let made = try await workflow.restore(task, project: project)
+        #expect(made.task.worktreePath == task.worktreePath)
+        #expect(made.task.windowId == nil)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath))
+    }
+
+    @Test func forgettingAnArchivedTaskDeletesItsBranchOnlyWhenAsked() async throws {
+        let (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let workflow = TaskWorkflow(git: .hermetic()), git = GitRunner.hermetic()
+        let task = try await workflow.create(draft: draft, project: project).task
+        try await workflow.archive(task: task, project: project, force: false)
+        _ = try await workflow.forgetArchived(task: task, project: project, deleteBranch: false)
+        #expect(!(try git.run(["branch", "--list", task.branch], in: project.path)).isEmpty)
+        let removed = try await workflow.forgetArchived(task: task, project: project, deleteBranch: true)
+        #expect(removed.branchRefusal == nil)
+        #expect(try git.run(["branch", "--list", task.branch], in: project.path).isEmpty)
+    }
+
+    @Test func aNewTaskSkipsTheFolderOfAnArchivedOne() async throws {
+        let (project, draft) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let workflow = TaskWorkflow(git: .hermetic())
+        let slug = BranchNaming.unused(draft.worktreeSlug, in: project.path)
+        let made = try await workflow.create(draft: draft, project: project, reserved: [slug])
+        #expect(URL(fileURLWithPath: made.task.worktreePath).lastPathComponent == slug + "-2")
+    }
+
     private func fixture() throws -> (Project, TaskDraft) {
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)

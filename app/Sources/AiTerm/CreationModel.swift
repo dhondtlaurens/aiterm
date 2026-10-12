@@ -142,6 +142,9 @@ final class CreationModel<Kind: CreationKind> {
     @ObservationIgnored private var searchGeneration = 0
     @ObservationIgnored private var catalogueGeneration = 0
     @ObservationIgnored private var resetModel = false
+    /// The worktree folders the project's archived rows come back to, which the folder the sheet names skips
+    /// as create does.
+    let reservedSlugs: Set<String>
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
 
@@ -149,13 +152,14 @@ final class CreationModel<Kind: CreationKind> {
          rememberedModels: [AgentKind: String],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
          initialCatalogueFailure: String? = nil, defaults: UserDefaults, git: any GitRunning,
-         canChangeWorkspace: @escaping @MainActor () -> Bool,
+         reservedSlugs: Set<String> = [], canChangeWorkspace: @escaping @MainActor () -> Bool,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void) {
         var fields = draft
         fields.promptText = ""
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
         self.home = home; self.installedAgents = availableAgents
         self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
+        self.reservedSlugs = reservedSlugs
         self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
         self.canChangeWorkspace = canChangeWorkspace
         self.searchItems = search; self.submit = submit
@@ -202,7 +206,7 @@ final class CreationModel<Kind: CreationKind> {
     func unusedSlug(_ slug: String) -> String {
         guard !slug.isEmpty else { return "" }
         if let memo = unusedSlugMemo, memo.slug == slug { return memo.unused }
-        let unused = BranchNaming.unused(slug, in: project.path)
+        let unused = BranchNaming.unused(slug, in: project.path, reserved: reservedSlugs)
         unusedSlugMemo = (slug, unused)
         return unused
     }

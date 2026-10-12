@@ -33,16 +33,17 @@ public struct TaskWorkflow: Sendable {
     private let git: any GitRunning
     public init(git: any GitRunning) { self.git = git }
 
-    public func create(draft: TaskDraft, project: Project) async throws -> Created {
+    /// `reserved` is the worktree folders archived rows come back to, which a new one must not take.
+    public func create(draft: TaskDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: draft.ticket, appendTicket: draft.appendTicket)
-        return try await checkOut(draft, prompt: prompt) { try TaskCreator.create(draft: draft, project: project, git: $0) }
+        return try await checkOut(draft, prompt: prompt) { try TaskCreator.create(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
-    public func createReview(draft: ReviewDraft, project: Project) async throws -> Created {
+    public func createReview(draft: ReviewDraft, project: Project, reserved: Set<String> = []) async throws -> Created {
         // No ticket: a review's prompt is whatever was typed, and step 3 offers no "include
         // details" checkbox.
         let prompt = AgentCommand.composePrompt(userText: draft.promptText, ticket: nil, appendTicket: false)
-        return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, git: $0) }
+        return try await checkOut(draft, prompt: prompt) { try TaskCreator.createReview(draft: draft, project: project, reserved: reserved, git: $0) }
     }
 
     /// The reviewer's command for a review that opens in `task`, which already has the branch
@@ -86,46 +87,80 @@ public struct TaskWorkflow: Sendable {
     public func remove(task: TaskItem, project: Project, deleteBranch: Bool, force: Bool) async throws -> Removed {
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
-            let repository = Repository(project.path, git: git)
-            // A review's branch is the merge request's: never deleted on request — a caller may ask and
-            // simply not get it — but released by `releaseReviewBranch` below, which deletes only a
-            // local copy with nothing origin lacks. The worktree is ours and is removed as a task's is.
-            let deleteBranch = deleteBranch && task.kind != .review
-            if FileManager.default.fileExists(atPath: task.worktreePath) {
-                try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force)
-            } else {
-                // Locked worktrees cannot be pruned until their lock is released. Refused for one
-                // that is not locked, which is no reason to stop.
-                _ = try? git.run(["worktree", "unlock", task.worktreePath], in: project.path, timeout: GitRunner.checkoutTimeout)
-                try git.run(["worktree", "prune"], in: project.path)
-            }
-            if task.kind == .review {
-                guard case .kept(let why) = repository.releaseReviewBranch(task.branch, target: task.baseBranch) else {
-                    return Removed(branchRefusal: nil)
-                }
-                return Removed(branchRefusal: nil, keptBranch: why)
-            }
-            guard deleteBranch else { return Removed(branchRefusal: nil) }
-            do {
-                // Already-deleted branches are a successful retry.
-                let refs = try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + task.branch], in: project.path)
-                if refs.split(separator: "\n").contains(Substring("refs/heads/" + task.branch)) {
-                    // Force authorizes discarding checkout changes, never unmerged commits — so the
-                    // question is only ever whether the commits survive somewhere else. `git branch -d`
-                    // answers a narrower one, asking about HEAD and the branch's upstream, and the
-                    // project's checkout is usually sitting on some other task's branch; that refused
-                    // branches already merged into their base. Ask about the base ourselves, and `-D` is
-                    // then no less safe than `-d`: the commits demonstrably live on in the base.
-                    let merged = try repository.isMerged(task.branch, into: task.baseBranch)
-                    // Not merged there: let git have the last word, and say what it says.
-                    try git.run(["branch", merged ? "-D" : "-d", task.branch], in: project.path)
-                }
+            try Self.takeWorktree(of: task, from: project, force: force, git: git)
+            return Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git)
+        }
+    }
+
+    /// Archive's git: the worktree, and nothing else — the branch stays as it is.
+    public func archive(task: TaskItem, project: Project, force: Bool) async throws {
+        let git = git
+        try await BackgroundWork.run(on: Self.queue) { try Self.takeWorktree(of: task, from: project, force: force, git: git) }
+    }
+
+    /// An archived row's branch, its worktree long gone: deleted when asked for — a review's released —
+    /// as Remove does.
+    public func forgetArchived(task: TaskItem, project: Project, deleteBranch: Bool) async throws -> Removed {
+        let git = git
+        return await BackgroundWork.run(on: Self.queue) { Self.releaseBranch(of: task, in: project, deleteBranch: deleteBranch, git: git) }
+    }
+
+    public func head(of task: TaskItem, in project: Project) async throws -> WorktreeHead {
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) { try Repository(project.path, git: git).head(at: task.worktreePath) }
+    }
+
+    public func restore(_ task: TaskItem, project: Project) async throws -> TaskCreator.Made {
+        let git = git
+        return try await BackgroundWork.run(on: Self.queue) { try TaskCreator.restore(task, project: project, git: git) }
+    }
+
+    /// The task's worktree removed — or, already gone, unlocked and pruned.
+    private static func takeWorktree(of task: TaskItem, from project: Project, force: Bool, git: any GitRunning) throws {
+        let repository = Repository(project.path, git: git)
+        if FileManager.default.fileExists(atPath: task.worktreePath) {
+            try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force)
+        } else {
+            // Locked worktrees cannot be pruned until their lock is released. Refused for one
+            // that is not locked, which is no reason to stop.
+            _ = try? git.run(["worktree", "unlock", task.worktreePath], in: project.path, timeout: GitRunner.checkoutTimeout)
+            try git.run(["worktree", "prune"], in: project.path)
+        }
+    }
+
+    /// The task's branch after its worktree went: a review's released, a task's deleted when asked.
+    private static func releaseBranch(of task: TaskItem, in project: Project, deleteBranch: Bool, git: any GitRunning) -> Removed {
+        let repository = Repository(project.path, git: git)
+        // A review's branch is the merge request's: never deleted on request — a caller may ask and
+        // simply not get it — but released by `releaseReviewBranch` below, which deletes only a
+        // local copy with nothing origin lacks. The worktree is ours and is removed as a task's is.
+        let deleteBranch = deleteBranch && task.kind != .review
+        if task.kind == .review {
+            guard case .kept(let why) = repository.releaseReviewBranch(task.branch, target: task.baseBranch) else {
                 return Removed(branchRefusal: nil)
-            } catch let error as GitError where error.stderr.contains("not fully merged") {
-                return Removed(branchRefusal: .notMerged(base: task.baseBranch))
-            } catch {
-                return Removed(branchRefusal: .other(reason: GitError.sentence(of: error)))
             }
+            return Removed(branchRefusal: nil, keptBranch: why)
+        }
+        guard deleteBranch else { return Removed(branchRefusal: nil) }
+        do {
+            // Already-deleted branches are a successful retry.
+            let refs = try git.run(["for-each-ref", "--format=%(refname)", "refs/heads/" + task.branch], in: project.path)
+            if refs.split(separator: "\n").contains(Substring("refs/heads/" + task.branch)) {
+                // Force authorizes discarding checkout changes, never unmerged commits — so the
+                // question is only ever whether the commits survive somewhere else. `git branch -d`
+                // answers a narrower one, asking about HEAD and the branch's upstream, and the
+                // project's checkout is usually sitting on some other task's branch; that refused
+                // branches already merged into their base. Ask about the base ourselves, and `-D` is
+                // then no less safe than `-d`: the commits demonstrably live on in the base.
+                let merged = try repository.isMerged(task.branch, into: task.baseBranch)
+                // Not merged there: let git have the last word, and say what it says.
+                try git.run(["branch", merged ? "-D" : "-d", task.branch], in: project.path)
+            }
+            return Removed(branchRefusal: nil)
+        } catch let error as GitError where error.stderr.contains("not fully merged") {
+            return Removed(branchRefusal: .notMerged(base: task.baseBranch))
+        } catch {
+            return Removed(branchRefusal: .other(reason: GitError.sentence(of: error)))
         }
     }
 

@@ -72,6 +72,7 @@ extension CreationModel where Kind == ReviewCreation {
                      catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
                      initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
                      defaults: UserDefaults = .standard, git: any GitRunning,
+                     reservedSlugs: Set<String> = [],
                      canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
                      owningTask: @escaping (_ branch: String, _ checkouts: [Worktree]) -> TaskItem? = { _, _ in nil },
                      codeHost: CodeHost = .gitLab,
@@ -81,7 +82,7 @@ extension CreationModel where Kind == ReviewCreation {
         self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home,
                   availableAgents: availableAgents, rememberedModels: rememberedModels, catalogue: catalogue,
                   initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure, defaults: defaults,
-                  git: git, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview)
+                  git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview)
         findOwningTask()
     }
 

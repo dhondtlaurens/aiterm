@@ -28,12 +28,13 @@ extension CreationModel where Kind == TaskCreation {
                      catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
                      initialCatalogue: [AgentModel]? = nil, initialCatalogueFailure: String? = nil,
                      defaults: UserDefaults = .standard, git: any GitRunning,
+                     reservedSlugs: Set<String> = [],
                      canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
                      searchIssues: @escaping @MainActor (String) async throws -> [JiraTicket],
                      createTask: @escaping @MainActor (TaskDraft) async throws -> Void) {
         self.init(kind: TaskCreation(), project: project, draft: draft, home: home, availableAgents: availableAgents,
                   rememberedModels: rememberedModels, catalogue: catalogue, initialCatalogue: initialCatalogue,
-                  initialCatalogueFailure: initialCatalogueFailure, defaults: defaults, git: git, canChangeWorkspace: canChangeWorkspace,
+                  initialCatalogueFailure: initialCatalogueFailure, defaults: defaults, git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace,
                   search: searchIssues, submit: createTask)
     }
 

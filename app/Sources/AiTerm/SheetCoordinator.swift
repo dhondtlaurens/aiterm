@@ -211,6 +211,7 @@ final class SheetCoordinator {
                           rememberedModels: state.lastModelByAgent,
                           catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
                           initialCatalogueFailure: catalogueFailure, git: git,
+                          reservedSlugs: state.reservedWorktreeSlugs(projectId: project.id),
                           canChangeWorkspace: { [weak workspace] in workspace?.canChangeWorkspace == true },
                           searchIssues: TaskCreationModel.jiraSearcher(for: project, jira: jira),
                           createTask: { try await launcher.createTask(draft: $0, project: project) })
@@ -223,6 +224,7 @@ final class SheetCoordinator {
                             rememberedModels: state.lastModelByAgent,
                             catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
                             initialCatalogueFailure: catalogueFailure, git: git,
+                            reservedSlugs: state.reservedWorktreeSlugs(projectId: project.id),
                             canChangeWorkspace: { [weak workspace] in workspace?.canChangeWorkspace == true },
                             owningTask: { [weak workspace] branch, checkouts in
                                 workspace?.state.task(checkingOut: branch, in: project.id, worktrees: checkouts)

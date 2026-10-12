@@ -96,11 +96,11 @@ public enum TaskCreator {
         public let worktreeInclude: WorktreeInclude.Outcome
     }
 
-    public static func create(draft: TaskDraft, project: Project, git: any GitRunning) throws -> Made {
+    public static func create(draft: TaskDraft, project: Project, reserved: Set<String> = [], git: any GitRunning) throws -> Made {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
-        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path)
+        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: draft.branch), in: project.path, reserved: reserved)
         let repository = Repository(project.path, git: git)
         let path = try repository.addTaskWorktree(slug: slug, branch: draft.branch, base: draft.baseBranch)
         let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path, baseBranch: draft.baseBranch,
@@ -109,12 +109,12 @@ public enum TaskCreator {
         return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
     }
 
-    public static func createReview(draft: ReviewDraft, project: Project, git: any GitRunning) throws -> Made {
+    public static func createReview(draft: ReviewDraft, project: Project, reserved: Set<String> = [], git: any GitRunning) throws -> Made {
         guard isNamed(draft.title) else { throw Failure.emptyTitle }
         guard !draft.model.isEmpty else { throw Failure.emptyModel }
         guard !draft.branch.trimmingCharacters(in: .whitespaces).isEmpty,
               BranchNaming.isValid(draft.branch, git: git) else { throw Failure.invalidBranch(draft.branch) }
-        let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path)
+        let slug = BranchNaming.unused(BranchNaming.reviewSlug(branch: draft.branch), in: project.path, reserved: reserved)
         let repository = Repository(project.path, git: git)
         let path = try repository.addReviewWorktree(slug: slug, branch: draft.branch)
         let task = TaskItem(id: UUID(), projectId: project.id, title: draft.title, branch: draft.branch, worktreePath: path,
@@ -124,6 +124,16 @@ public enum TaskCreator {
                             firstPrompt: draft.promptText.isEmpty ? nil : draft.promptText, appendTicket: false,
                             createdAt: Date(), windowId: nil)
         return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
+    }
+
+    /// An archived row's worktree back where it was, with what `.worktreeinclude` selects copied in
+    /// again — never over a file already there — and the row windowless, owed its window.
+    public static func restore(_ task: TaskItem, project: Project, git: any GitRunning) throws -> Made {
+        let repository = Repository(project.path, git: git)
+        try repository.restoreWorktree(at: task.worktreePath, branch: task.branch, kind: task.kind)
+        var restored = task
+        restored.windowId = nil
+        return Made(task: restored, worktreeInclude: copyIncludes(true, from: repository, into: task.worktreePath))
     }
 
     /// What the project's `.worktreeinclude` selects, copied into the new worktree when the draft
