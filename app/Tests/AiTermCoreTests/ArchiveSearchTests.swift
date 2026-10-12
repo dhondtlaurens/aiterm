@@ -27,6 +27,17 @@ import Foundation
         #expect(ArchiveSearch.rank([review], query: "!").isEmpty, "a bang alone is no number")
     }
 
+    @Test func aMergeRequestNumberIsFoundWhileItIsBeingTyped() {
+        let review = entry("Header refactor", mr: 482), other = entry("Login retry", at: 9)
+        for query in ["!4", "!48", "#4", "#48", "48"] {
+            #expect(ArchiveSearch.rank([other, review], query: query) == [review], "\(query)")
+        }
+        for query in ["!", "#"] {
+            #expect(ArchiveSearch.rank([other, review], query: query).isEmpty, "\(query) alone")
+        }
+        #expect(ArchiveSearch.rank([review], query: "!9").isEmpty)
+    }
+
     @Test func anExactTicketKeyOutranksEverythingElse() {
         let keyed = entry("Login", jira: "SHOP-12", at: 1), prefixed = entry("SHOP-123 follow-up", at: 2)
         #expect(ArchiveSearch.rank([prefixed, keyed], query: "shop-12") == [keyed, prefixed])

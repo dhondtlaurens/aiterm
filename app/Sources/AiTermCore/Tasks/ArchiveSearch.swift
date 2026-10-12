@@ -6,7 +6,8 @@ import Foundation
 /// the one you mean under a plain substring match:
 ///
 /// 0. the exact ticket key, or the merge request's number written `482`, `!482` or `#482`;
-/// 1. a field that starts with the query;
+/// 1. a field that starts with the query, which for the merge request number counts with or without
+///    the `!` or `#`, so `!4` and `!48` find !482 while it is being typed;
 /// 2. a word in a field that starts with it (words split on space, `/`, `-`, `_` and `.`);
 /// 3. the query anywhere in a field;
 /// 4. every letter of the query in order in a field — the fuzzy tier.
@@ -37,7 +38,8 @@ public enum ArchiveSearch {
         let task = entry.archived.task
         if let iid = task.mr?.iid, number(in: query) == iid { return 0 }
         if let key = task.jira?.key, normalized(key) == query { return 0 }
-        // The number is searched bare, without its `!`: a lone `!` is no number and must not match every request.
+        // The number is a field bare, without its `!`: a lone `!` is no number and must not match every request.
+        if let iid = task.mr?.iid, let digits = sigilDigits(in: query), String(iid).hasPrefix(digits) { return 1 }
         let fields = [task.title, task.jira?.key, task.jira?.summary, task.mr.map { String($0.iid) }, task.mr?.title,
                       task.branch, entry.projectName].compactMap { $0 }.map(normalized)
         if fields.contains(where: { $0.hasPrefix(query) }) { return 1 }
@@ -53,6 +55,14 @@ public enum ArchiveSearch {
         let digits = query.hasPrefix("!") || query.hasPrefix("#") ? String(query.dropFirst()) : query
         guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber) else { return nil }
         return Int(digits)
+    }
+
+    /// The digits typed after a leading `!` or `#` — the start of a merge request number — or nil when
+    /// there is no such sigil or nothing but digits follows it. A lone sigil names no number.
+    static func sigilDigits(in query: String) -> String? {
+        guard query.hasPrefix("!") || query.hasPrefix("#") else { return nil }
+        let digits = String(query.dropFirst())
+        return !digits.isEmpty && digits.allSatisfy(\.isASCII) && digits.allSatisfy(\.isNumber) ? digits : nil
     }
 
     static func normalized(_ text: String) -> String {
