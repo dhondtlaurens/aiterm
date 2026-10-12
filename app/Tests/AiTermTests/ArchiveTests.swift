@@ -368,4 +368,46 @@ extension AppControllerTests {
         #expect(fixture.controller.state.archive.isEmpty)
         #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
     }
+
+    @Test func aBranchGitWillNotDeleteForAnotherReasonIsSaidKeptAndTheRowStillGoes() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove")
+        prompter.checksTheCheckbox = true
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        await (await fixture.controller.archive(task: task))?.value
+        // Checked out in the project's own folder, the branch cannot be deleted — and not for want of a merge.
+        try fixture.git.run(["checkout", "-q", "feat/work"], in: fixture.repo.path)
+
+        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+
+        let issue = try #require(fixture.controller.issue)
+        #expect(issue.title == "Branch feat/work kept.")
+        #expect(issue.actions.isEmpty)
+        #expect(fixture.controller.state.archive.isEmpty)
+        #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
+    }
+
+    @Test func aBranchThatCannotBeDeletedAfterTheUnmergedQuestionSaysTheRemovalFailedAndLeavesTheRowArchived() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove", "Delete Branch")
+        prompter.checksTheCheckbox = true
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
+                            in: task.worktreePath)
+        await (await fixture.controller.archive(task: task))?.value
+        // While the question is up the branch is checked out in the project's folder, so `-D` fails.
+        let git = fixture.git, repo = fixture.repo
+        prompter.whileAsking = { prompt in
+            if prompt.message == "Delete branch feat/work?" { try? git.run(["checkout", "-q", "feat/work"], in: repo.path) }
+        }
+
+        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+
+        #expect(fixture.controller.issue?.title == "Couldn’t remove the task.")
+        #expect(fixture.controller.state.archive.map(\.id) == [task.id], "nothing is forgotten when the removal failed")
+    }
 }

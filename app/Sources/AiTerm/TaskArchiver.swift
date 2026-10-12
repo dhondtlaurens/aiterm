@@ -199,8 +199,11 @@ final class TaskArchiver {
                     if delete.confirmed { try await workflow.deleteUnmergedBranch(of: task, in: project) }
                 case .other(let reason):
                     var issue = OperationIssue.branchKept(task.branch, of: id, because: .other(reason: reason))
-                    // Nothing to keep or delete later: the row is going.
+                    // Nothing to keep or delete later: the row is going. No subject either: a banner's
+                    // subject names a sidebar row, and an archived one is not a row there, so a subject
+                    // would make `Notices` drop the banner as stale.
                     issue.actions = []
+                    issue.subject = nil
                     notices.report(issue)
                 case nil:
                     break
@@ -211,7 +214,8 @@ final class TaskArchiver {
                     notices.showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? ""))
                 }
             } catch {
-                notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error, subject: id))
+                // No subject, for the reason above.
+                notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error))
             }
         }
         running[id] = job
