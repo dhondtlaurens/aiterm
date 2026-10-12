@@ -258,11 +258,7 @@ final class ProjectActions {
         // again — and the answer acted on in the same turn, with nothing able to start in between.
         guard answer.confirmed, canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
-        workspace.mutate { state in
-            state.tasks.removeAll { $0.projectId == project.id }
-            state.terminals.removeAll { $0.projectId == project.id }
-            state.removeItem(id: project.id)
-        }
+        workspace.mutate { $0.removeProject(id: project.id) }
     }
 
     /// Why `project` cannot be removed yet, if it cannot: work still in flight would land in a
@@ -277,6 +273,11 @@ final class ProjectActions {
         }
         if state.tasks.contains(where: { $0.projectId == project.id && work.operation(onTask: $0.id) != nil }) {
             return "A task is still being changed."
+        }
+        // An archived row's archive, restore or removal lands back in its project, or saves a row whose
+        // project would be gone.
+        if state.archived(projectId: project.id).contains(where: { work.operation(onTask: $0.id) != nil }) {
+            return "One of its archived tasks is still being archived, restored or removed."
         }
         return nil
     }

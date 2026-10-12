@@ -142,8 +142,7 @@ final class TaskLauncher {
         // Said once, about the new row, whatever then happens to the window: the files are missing
         // from the worktree either way. The banner holds one report, so a window report that
         // replaces it carries the sentence on (`say`).
-        let copyNote = result.worktreeInclude.bannerMessage
-        if let copyNote { notices.report(OperationIssue(title: copyNote, subject: task.id)) }
+        let copyNote = Self.report(result.worktreeInclude, of: task, to: notices)
         func say(_ issue: OperationIssue) {
             var issue = issue
             if let copyNote { issue.reason = [issue.reason, copyNote].compactMap { $0 }.joined(separator: " ") }
@@ -163,6 +162,15 @@ final class TaskLauncher {
             say(OperationIssue(title: "\(noun) created. Couldn’t confirm its window opened; it comes back once AiTerm reconnects.",
                                error: error))
         }
+    }
+
+    /// Says, about `task`, what its new worktree's `.worktreeinclude` copy left out, if anything did:
+    /// a create and a restore both copy. The sentence said, for a later report to carry on.
+    @discardableResult
+    static func report(_ outcome: WorktreeInclude.Outcome, of task: TaskItem, to notices: Notices) -> String? {
+        guard let note = outcome.bannerMessage else { return nil }
+        notices.report(OperationIssue(title: note, subject: task.id))
+        return note
     }
 
     /// A task's window, in its worktree, adopted by the row: its id, or nil when the row went while the

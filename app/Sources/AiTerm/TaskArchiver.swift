@@ -41,11 +41,15 @@ final class TaskArchiver {
     }
 
     // -- archive ------------------------------------------------------------------------
-    /// Nil when nothing started: the workspace locked, the task gone or already busy.
+    /// Nil when nothing started: the workspace locked, the task gone, already busy or waiting on its
+    /// removal's retry.
     @discardableResult
     func archive(task: TaskItem) async -> Task<Void, Never>? {
         let state = workspace.state
+        // A row whose Remove stopped after its worktree went waits on that retry: it has no worktree to
+        // put away, and starting would clear the outcome that holds it.
         guard workspace.canChangeWorkspace, let shown = state.task(id: task.id), let project = state.project(id: shown.projectId),
+              remover.removals[task.id]?.awaitsRetry != true,
               let token = work.begin(.archiving(windowLetGo: false), onTask: task.id) else { return nil }
         remover.clearOutcome(of: task.id)
         let id = task.id, kind = shown.kindName
@@ -116,5 +120,48 @@ final class TaskArchiver {
         checkouts.dropDiff(for: task.id)
         checkouts.refresh()
         if workspace.persistenceError == nil { notices.showToast("\(task.kindName) archived.", symbol: "archivebox") }
+    }
+
+    // -- restore ------------------------------------------------------------------------
+    /// Archived row `id`'s worktree back at its own path, then the row back in the sidebar — saved —
+    /// its project opened, and the row chosen as a click chooses it: the window lock reopens its
+    /// window, resuming its conversations, and raises it. A refusal before the worktree is back says
+    /// why and leaves the row archived; a window that then fails is the sidebar's "Couldn’t reopen".
+    /// Nil when nothing started.
+    @discardableResult
+    func restore(_ id: UUID) -> Task<Void, Never>? {
+        let state = workspace.state
+        guard workspace.canChangeWorkspace, let entry = state.archived(id: id), let project = state.project(id: entry.task.projectId),
+              let token = work.begin(.restoring, onTask: id) else { return nil }
+        let job = Task {
+            var holding: WorkInFlight.Token? = token
+            defer { if let holding { work.end(holding) }; running[id] = nil }
+            let made: TaskCreator.Made
+            do { made = try await workflow.restore(entry.task, project: project) }
+            catch {
+                await prompter.ask(AlertPrompt(message: "“\(entry.task.title)” can’t be restored", detail: OperationIssue.reason(of: error)))
+                return
+            }
+            // Its project cannot have gone — removing it waits for this — but the workspace can have locked.
+            // Left archived then, its worktree is adopted by the next restore.
+            guard workspace.canChangeWorkspace, workspace.state.archived(id: id) != nil,
+                  workspace.state.project(id: project.id) != nil else { return }
+            workspace.mutate { state in
+                state.moveFromArchive(id: id)
+                state.updateProject(id: project.id) { $0.collapsed = false }
+            }
+            // The checkout monitor forgot the row when it was archived, as it does a new row's before
+            // its first pass.
+            checkouts.refresh()
+            workspace.flush()
+            TaskLauncher.report(made.worktreeInclude, of: made.task, to: notices)
+            // Free before it is chosen: the window lock leaves a busy row alone.
+            work.end(token)
+            holding = nil
+            focus.select(.task(id))
+            if workspace.persistenceError == nil { notices.showToast("\(entry.task.kindName) restored.", symbol: "tray.and.arrow.up") }
+        }
+        running[id] = job
+        return job
     }
 }

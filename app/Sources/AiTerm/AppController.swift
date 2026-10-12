@@ -402,9 +402,12 @@ final class AppController {
     #endif
 
     // -- archiving ------------------------------------------------------------------
-    /// `archiver`'s, forwarded: the row's menu, the window-close question and the tests archive here.
+    /// `archiver`'s, forwarded: the row's menu, the window-close question, the archive sheet and the tests
+    /// archive and restore here.
     @discardableResult
     func archive(task: TaskItem) async -> Task<Void, Never>? { await archiver.archive(task: task) }
+    @discardableResult
+    func restoreArchived(_ id: UUID) -> Task<Void, Never>? { archiver.restore(id) }
 
     // -- terminals ------------------------------------------------------------------
     /// `terminals`', forwarded: the rows' menus, ⌘⌫ and the tests reach a terminal here.
