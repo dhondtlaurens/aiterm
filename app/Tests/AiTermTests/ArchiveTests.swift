@@ -246,9 +246,10 @@ extension AppControllerTests {
         #expect(fixture.controller.state.tasks.isEmpty)
     }
 
-    @Test func aRestoreWhoseProjectWentMeanwhilePutsNothingBack() async throws {
+    @Test func aProjectCannotBeRemovedWhileOneOfItsArchivedRowsIsRestoring() async throws {
         // "OK" answers "“Repo” can’t be removed yet": the refusal comes before the question.
-        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "OK"))
+        let prompter = ScriptedPrompter(answering: "OK")
+        let fixture = try RaceFixture(prompter: prompter)
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.helper.setDaemonClient(RecordingDaemon())
@@ -257,6 +258,7 @@ extension AppControllerTests {
         let restoring = controller.restoreArchived(task.id)
         // The project cannot be removed while its archived row is restoring.
         await controller.confirmRemove(project: fixture.project)
+        #expect(prompter.asked.map(\.message) == ["“Repo” can’t be removed yet"])
         #expect(controller.state.project(id: fixture.project.id) != nil)
         await restoring?.value
         #expect(controller.state.tasks.map(\.id) == [task.id])
@@ -293,5 +295,77 @@ extension AppControllerTests {
         #expect(first != nil && second == nil)
         await first?.value
         #expect(fixture.controller.state.tasks.count == 1)
+    }
+
+    @Test func removingFromTheArchiveAsksRemovesQuestionAndForgetsTheRowKeepingTheBranchUnlessTicked() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove")
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        await (await fixture.controller.archive(task: task))?.value
+
+        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+
+        let asked = try #require(prompter.asked.last)
+        #expect(asked.message == "Remove task “Work”?")
+        #expect(asked.detail == "Forgets it and its conversations. Its worktree was deleted when it was archived.")
+        #expect(asked.checkbox == "Delete local branch")
+        #expect(fixture.controller.state.archive.isEmpty)
+        #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
+        #expect(fixture.controller.toastState.toast?.message == "Task removed.")
+    }
+
+    @Test func removingFromTheArchiveNeverTouchesWhatNowSitsInItsOldFolder() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove")
+        prompter.checksTheCheckbox = true
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        await (await fixture.controller.archive(task: task))?.value
+        try FileManager.default.createDirectory(atPath: task.worktreePath, withIntermediateDirectories: true)
+        try "someone else's".write(toFile: task.worktreePath + "/f.txt", atomically: true, encoding: .utf8)
+
+        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+
+        #expect(try String(contentsOfFile: task.worktreePath + "/f.txt", encoding: .utf8) == "someone else's")
+        #expect(fixture.controller.state.archive.isEmpty)
+    }
+
+    @Test func removingAnArchivedRowWhoseBranchHoldsUnmergedCommitsAsksBeforeDeletingIt() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove", "Delete Branch")
+        prompter.checksTheCheckbox = true
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
+                            in: task.worktreePath)
+        await (await fixture.controller.archive(task: task))?.value
+
+        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+
+        let asked = try #require(prompter.asked.last)
+        #expect(asked.message == "Delete branch feat/work?")
+        #expect(fixture.controller.state.archive.isEmpty)
+        #expect(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path).isEmpty)
+    }
+
+    @Test func decliningTheUnmergedBranchQuestionKeepsTheBranchAndStillForgetsTheRow() async throws {
+        let prompter = ScriptedPrompter(answering: "Remove", "Cancel")
+        prompter.checksTheCheckbox = true
+        let fixture = try RaceFixture(prompter: prompter)
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        fixture.controller.helper.setDaemonClient(RecordingDaemon())
+        let task = try fixture.addTask(windowId: nil)
+        try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"],
+                            in: task.worktreePath)
+        await (await fixture.controller.archive(task: task))?.value
+
+        await (await fixture.controller.confirmRemove(archived: task.id))?.value
+
+        #expect(fixture.controller.state.archive.isEmpty)
+        #expect(!(try fixture.git.run(["branch", "--list", "feat/work"], in: fixture.repo.path)).isEmpty)
     }
 }

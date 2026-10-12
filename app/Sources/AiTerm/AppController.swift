@@ -408,6 +408,8 @@ final class AppController {
     func archive(task: TaskItem) async -> Task<Void, Never>? { await archiver.archive(task: task) }
     @discardableResult
     func restoreArchived(_ id: UUID) -> Task<Void, Never>? { archiver.restore(id) }
+    @discardableResult
+    func confirmRemove(archived id: UUID) async -> Task<Void, Never>? { await archiver.confirmRemove(archived: id) }
 
     // -- terminals ------------------------------------------------------------------
     /// `terminals`', forwarded: the rows' menus, ⌘⌫ and the tests reach a terminal here.

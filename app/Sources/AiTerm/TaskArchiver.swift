@@ -164,4 +164,57 @@ final class TaskArchiver {
         running[id] = job
         return job
     }
+
+    // -- remove from the archive --------------------------------------------------------
+    /// Remove's own question about an archived row, then its record forgotten and — when asked for —
+    /// its branch deleted, a review's released as Remove does. Its old worktree path is never
+    /// touched: something else may live there by now. A branch with commits its base lacks asks
+    /// before it goes. Nil when nothing started.
+    @discardableResult
+    func confirmRemove(archived id: UUID) async -> Task<Void, Never>? {
+        guard workspace.canChangeWorkspace, work.operation(onTask: id) == nil, let shown = workspace.state.archived(id: id)?.task,
+              workspace.state.project(id: shown.projectId) != nil else { return nil }
+        let offersBranch = TaskRemover.offersBranchDeletion(for: shown)
+        let answer = await prompter.ask(AlertPrompt(
+            message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
+            detail: "Forgets it and its conversations. Its worktree was deleted when it was archived."
+                + (shown.kind == .review ? " Its local branch goes too, unless it has unpushed commits." : ""),
+            buttons: ["Remove", "Cancel"],
+            checkbox: offersBranch ? "Delete local branch" : nil,
+            checkboxHelp: offersBranch ? shown.branch : nil,
+            defaultDeletes: true))
+        // As in Remove: what the answer finds is decided on the row as it is once the alert is gone.
+        guard answer.confirmed, workspace.canChangeWorkspace, let task = workspace.state.archived(id: id)?.task,
+              let project = workspace.state.project(id: task.projectId),
+              let token = work.begin(.removing(windowLetGo: false), onTask: id) else { return nil }
+        let job = Task {
+            defer { running[id] = nil; work.end(token) }
+            do {
+                let result = try await workflow.forgetArchived(task: task, project: project, deleteBranch: answer.checked)
+                // The row goes whatever became of its branch: it has no worktree to retry, so a branch
+                // git refused is kept and said so, where Remove's row waits on a Keep or Delete.
+                switch result.branchRefusal {
+                case .notMerged:
+                    let delete = await prompter.ask(TaskRemover.deleteUnmergedBranchQuestion(for: task))
+                    if delete.confirmed { try await workflow.deleteUnmergedBranch(of: task, in: project) }
+                case .other(let reason):
+                    var issue = OperationIssue.branchKept(task.branch, of: id, because: .other(reason: reason))
+                    // Nothing to keep or delete later: the row is going.
+                    issue.actions = []
+                    notices.report(issue)
+                case nil:
+                    break
+                }
+                workspace.mutate { $0.removeArchived(id: id) }
+                workspace.flush()
+                if workspace.persistenceError == nil {
+                    notices.showToast("\(task.kindName) removed." + (result.keptBranch.map { " " + $0.note(branch: task.branch) } ?? ""))
+                }
+            } catch {
+                notices.report(OperationIssue(title: "Couldn’t remove the \(task.kindName.lowercased()).", error: error, subject: id))
+            }
+        }
+        running[id] = job
+        return job
+    }
 }

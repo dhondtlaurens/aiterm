@@ -189,11 +189,7 @@ final class TaskRemover: CheckoutRemovals {
     /// the question was declined, or the task is gone, busy or no longer waiting on a retry.
     func deleteBranch(of id: UUID) async -> Task<Void, Never>? {
         guard let shown = workspace.state.task(id: id) else { return nil }
-        let base = shown.baseBranch.isEmpty ? "its base" : shown.baseBranch
-        let answer = await prompter.ask(AlertPrompt(
-            message: "Delete branch \(shown.branch)?",
-            detail: "It has commits that aren’t on \(base). Deleting the branch deletes them too.",
-            buttons: ["Delete Branch", "Cancel"], defaultDeletes: true))
+        let answer = await prompter.ask(Self.deleteUnmergedBranchQuestion(for: shown))
         // Act on the task as it is once the alert is answered: across the await, a Keep or another
         // Delete can have taken it, or its row gone.
         guard answer.confirmed, let (task, project, token) = heldForRetry(id) else { return nil }
@@ -201,6 +197,16 @@ final class TaskRemover: CheckoutRemovals {
         return remove(task, from: project, deleteBranch: true, holding: token) { [workflow] in
             try await workflow.deleteUnmergedBranch(of: task, in: project)
         }
+    }
+
+    /// The question before a branch with commits its base lacks is deleted, which deletes them too.
+    /// One wording for the banner's Delete and for removing an archived row.
+    static func deleteUnmergedBranchQuestion(for task: TaskItem) -> AlertPrompt {
+        let base = task.baseBranch.isEmpty ? "its base" : task.baseBranch
+        return AlertPrompt(
+            message: "Delete branch \(task.branch)?",
+            detail: "It has commits that aren’t on \(base). Deleting the branch deletes them too.",
+            buttons: ["Delete Branch", "Cancel"], defaultDeletes: true)
     }
 
     /// The task and its project, the task now held for a removal's retry — only while its removal is
