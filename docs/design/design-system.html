@@ -791,6 +791,49 @@
   #p-jira-projects .mk-head.sel .ai-badge:not(.quiet) { background: var(--badge-selected); color: #FFFFFF; }
   #p-jira-projects .pair { display: inline-flex; align-items: center; gap: var(--space-snug); flex: none; }
   #p-jira-projects .ai-badge.quiet .more { margin-left: var(--space-tight); }
+
+  /* --- 12 Oct 2026 Archive proposal --------------------------------------------------- */
+  #p-archive .dq { font-size: 13px; margin-top: var(--space-margin); }
+  #p-archive .figs .fig { flex: 0 1 auto; }
+  /* The search field in SheetLayout's navigation band: SearchField in fieldChrome, Size.control. */
+  #p-archive .mk-sheet .nav { overflow: visible; }
+  #p-archive .mk-sheet .nav .mk-field { flex: 1; color: var(--text); font-size: 13px; }
+  #p-archive .mk-field .gl { color: var(--muted); display: flex; flex: none; }
+  #p-archive .mk-sheet .bd.list { gap: var(--space-hairline); padding-block: var(--space-base); }
+  #p-archive .mk-sheet .ft { align-items: center; }
+  #p-archive .mk-sheet .ft .stat { margin-right: auto; font-size: 11px; color: var(--muted); }
+  /* Option A: TaskRowView's own row, minus avatars-as-a-group and the status mark; the archive
+     date trails in Typography.help where the status mark sits in the sidebar. */
+  #p-archive .arow { display: flex; align-items: center; gap: var(--space-inset); min-height: var(--size-row);
+                     box-sizing: border-box; padding: var(--space-base); border-radius: var(--radius-control); }
+  #p-archive .arow.on { background: var(--selection); }
+  #p-archive .arow .mark { width: var(--size-avatar); height: var(--size-avatar); flex: none; }
+  #p-archive .arow .ln { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; flex: 1; }
+  #p-archive .arow .tt { font-size: 13px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #p-archive .arow .cl { display: flex; align-items: center; gap: var(--space-gap); height: var(--size-chip); min-width: 0; }
+  #p-archive .arow .br { font: 11px/1 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #p-archive .arow .pj { font-size: 11px; color: var(--muted); white-space: nowrap; flex: none; }
+  #p-archive .arow .when { font-size: 11px; color: var(--muted); flex: none; align-self: flex-start; padding-top: 1px; }
+  #p-archive .arow.on .tt { color: #FFFFFF; }
+  #p-archive .arow.on .br, #p-archive .arow.on .pj, #p-archive .arow.on .when, #p-archive .arow.on .ai-badge.quiet { color: rgba(255, 255, 255, 0.75); }
+  #p-archive .arow.on .ai-badge.quiet svg use { fill: #FFFFFF; }
+  /* Option B: PickerResultRow — the key in a fixed column, Typography.caption title, Typography.help detail. */
+  #p-archive .prow { display: flex; align-items: center; gap: var(--space-base); height: var(--size-control);
+                     padding-inline: var(--space-base); border-radius: var(--radius-chip); font-size: 12px; }
+  #p-archive .prow.on { background: var(--accent); color: #FFFFFF; }
+  #p-archive .prow .k { font: 12px/1 var(--mono); color: var(--link); width: 64px; flex: none; }
+  #p-archive .prow .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #p-archive .prow .d { font-size: 11px; color: var(--muted); flex: none; }
+  #p-archive .prow.on .k, #p-archive .prow.on .d { color: rgba(255, 255, 255, 0.75); }
+  /* Empty and no-match: SidebarEmptyState's two lines, Typography.body over HelpText. */
+  #p-archive .none { display: flex; flex-direction: column; gap: var(--space-base); }
+  #p-archive .none b { font-weight: 400; font-size: 13px; }
+  /* An NSAlert's suppression-style checkbox, approximated. */
+  #p-archive .mk-alert .cb { display: flex; align-items: center; justify-content: center; gap: var(--space-snug); font-size: 11px; }
+  #p-archive .mk-alert .cb i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); background: var(--control-active); }
+  #p-archive .mk-alert .bt span.new { outline: 1px dashed var(--amber); outline-offset: -1px; }
+  #p-archive .mk-alert .dt .new { box-shadow: inset 0 -1px 0 var(--amber); }
+  #p-archive .mk-toast svg { width: 14px; height: 14px; }
 </style>
 </head>
 <body>
@@ -2213,7 +2256,85 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-      <p class="no-proposals">No open proposals.</p>
+    </div>
+
+    <div class="section" id="p-archive">
+      <p class="eyebrow proposal-flag">Proposal · Archive a task or review · 12 Oct 2026</p>
+      <h2>Put a task away without forgetting it</h2>
+      <p class="why">Remove is the only way out of the sidebar, and it forgets everything: the worktree, maybe the branch,
+        and every agent conversation the task's tabs held. Archive puts a task or review away — worktree deleted, window
+        closed, row out of the sidebar — and keeps what it takes to come back: the branch, untouched, the ticket, the merge
+        request, the agent and model, and the conversations. Restore brings the worktree back at its own path, and the
+        window lock reopens the window and resumes the agents, as after a restart. The spec is
+        <code>docs/superpowers/specs/2026-10-12-archive-design.md</code>.</p>
+      <ol class="diagnosis">
+        <li><span><b>Archive puts the worktree away. Remove forgets the task.</b> Archive never changes git beyond the
+          worktree. Only Remove, in the sidebar or from the archive, ever deletes a branch.</span></li>
+        <li><span><b>No new primitive, colour or size.</b> The sheet is <code>SheetLayout</code> with a <code>SearchField</code>
+          in its navigation band and <code>SheetFooter</code>. The row is built from <code>RowTitle</code>, <code>Badge</code> and the
+          agent mark. Elements drawn with an amber dashed edge are new.</span></li>
+        <li><span><b>⌘A is subject to a spike.</b> Edit › Select All also answers ⌘A. Show Archive turns off while a sheet
+          is up, as Focus View does for ⌘F, so every text field keeps Select All. A key-dispatch test decides it before
+          any Swift is written. If it fails, the key becomes ⇧⌘A.</span></li>
+      </ol>
+
+      <h3 class="dq">1 · The archived row</h3>
+      <div class="options">
+
+<div class="option pick"><header><span class="letter">A</span><h3>The sidebar's own row: two lines, the archive date trailing</h3><span class="rec">Recommended</span></header>
+<p>The row reads exactly as it did in the sidebar: the agent's mark, the title, then the ticket, merge request and
+  branch in the quiet chip line, plus the project. <b>Recognised at a glance</b>, because it is the row you put away. The status
+  mark's slot holds the archive date in <code>Typography.help</code>. Seven rows fit in the 560 pt sheet before it scrolls.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Archive</span><div class="nav"><div class="mk-field focused"><span class="gl"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span><span class="ph">Search title, ticket, !MR, branch, project</span></div></div></div><div class="rule"></div><div class="bd list"><div class="arow on"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="ln"><span class="tt">Login flow</span><span class="cl"><span class="ai-badge quiet"><svg width="10" height="10" aria-hidden="true"><use href="#p-jira" fill="var(--jira)"/></svg>SHOP-123</span><span class="br">feat/SHOP-123-login</span><span class="pj">acme-storefront</span></span></span><span class="when">2 h ago</span></div><div class="arow"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="ln"><span class="tt">Header refactor</span><span class="cl"><span class="ai-badge quiet"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg>!482</span><span class="br">feat/header-refactor</span><span class="pj">acme-storefront</span></span></span><span class="when">yesterday</span></div><div class="arow"><span class="mark" style="background: #FFFFFF"><svg width="11" height="11" aria-hidden="true"><use href="#p-openai" fill="#000000"/></svg></span><span class="ln"><span class="tt">Checkout payment retry</span><span class="cl"><span class="ai-badge quiet"><svg width="10" height="10" aria-hidden="true"><use href="#p-jira" fill="var(--jira)"/></svg>SHOP-118</span><span class="br">fix/SHOP-118-payment-retry</span><span class="pj">acme-storefront</span></span></span><span class="when">9 Oct</span></div><div class="arow"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="ln"><span class="tt">Daemon backoff</span><span class="cl"><span class="br">feat/daemon-backoff</span><span class="pj">aiterm</span></span></span><span class="when">3 Oct</span></div><div class="arow"><span class="mark" style="background: #FFFFFF"><svg width="11" height="11" aria-hidden="true"><use href="#p-openai" fill="#000000"/></svg></span><span class="ln"><span class="tt">Jira project picker</span><span class="cl"><span class="ai-badge quiet"><svg width="10" height="10" aria-hidden="true"><use href="#p-jira" fill="var(--jira)"/></svg>AIT-41</span><span class="ai-badge quiet"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg>!37</span><span class="br">feat/jira-projects</span><span class="pj">aiterm</span></span></span><span class="when">28 Sep</span></div></div><div class="rule"></div><div class="ft"><span class="stat">5 archived</span><span class="btn">Close</span><span class="ai-primary">Restore <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>A · empty search: everything, newest first, the first row highlighted</figcaption></figure>
+  <figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Archive</span><div class="nav"><div class="mk-field focused"><span class="gl"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span><span class="t">482</span></div></div></div><div class="rule"></div><div class="bd list"><div class="arow on"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="ln"><span class="tt">Header refactor</span><span class="cl"><span class="ai-badge quiet"><svg width="10" height="10" aria-hidden="true"><use href="#p-gitlab"/></svg>!482</span><span class="br">feat/header-refactor</span><span class="pj">acme-storefront</span></span></span><span class="when">yesterday</span></div></div><div class="rule"></div><div class="ft"><span class="stat">1 of 5</span><span class="btn">Close</span><span class="ai-primary">Restore <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>A · “482” finds the review by its merge request</figcaption></figure>
+</div></div>
+
+<div class="option"><header><span class="letter">B</span><h3>The picker's row: one line, key column, title, detail</h3></header>
+<p><code>PickerResultRow</code> as the ticket and merge-request pickers draw it. Denser, with sixteen rows before scrolling,
+  and it reuses a pattern as it is. But the branch disappears, and a task with no ticket has an empty key column, so the
+  list stops looking like the sidebar it came from.</p>
+<div class="figs">
+  <figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Archive</span><div class="nav"><div class="mk-field focused"><span class="gl"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span><span class="ph">Search title, ticket, !MR, branch, project</span></div></div></div><div class="rule"></div><div class="bd list"><div class="prow on"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="k">SHOP-123</span><span class="t">Login flow</span><span class="d">acme-storefront · 2 h ago</span></div><div class="prow"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="k">!482</span><span class="t">Header refactor</span><span class="d">acme-storefront · yesterday</span></div><div class="prow"><span class="mark" style="background: #FFFFFF"><svg width="11" height="11" aria-hidden="true"><use href="#p-openai" fill="#000000"/></svg></span><span class="k">SHOP-118</span><span class="t">Checkout payment retry</span><span class="d">acme-storefront · 9 Oct</span></div><div class="prow"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span><span class="k"></span><span class="t">Daemon backoff</span><span class="d">aiterm · 3 Oct</span></div><div class="prow"><span class="mark" style="background: #FFFFFF"><svg width="11" height="11" aria-hidden="true"><use href="#p-openai" fill="#000000"/></svg></span><span class="k">AIT-41</span><span class="t">Jira project picker</span><span class="d">aiterm · 28 Sep</span></div></div><div class="rule"></div><div class="ft"><span class="stat">5 archived</span><span class="btn">Close</span><span class="ai-primary">Restore <span class="ai-kbd"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>B · the same five, one line each</figcaption></figure>
+</div></div>
+
+      </div>
+
+      <h3 class="dq">2 · The sheet's other states (decided)</h3>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Archive</span><div class="nav"><div class="mk-field focused"><span class="gl"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span><span class="ph">Search title, ticket, !MR, branch, project</span></div></div></div><div class="rule"></div><div class="bd "><div class="none"><b>Nothing archived yet.</b><span class="mk-help">Archive a task from its menu to put its worktree away and keep its conversations.</span></div></div><div class="rule"></div><div class="ft"><span class="stat"></span><span class="btn">Close</span></div></div></div><figcaption>nothing archived: Restore is absent, not disabled</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-sheet"><div class="hd"><span class="ttl">Archive</span><div class="nav"><div class="mk-field focused"><span class="gl"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span><span class="t">paymnet</span></div></div></div><div class="rule"></div><div class="bd "><div class="none"><b>No archived task matches “paymnet”.</b></div></div><div class="rule"></div><div class="ft"><span class="stat">0 of 5</span><span class="btn">Close</span></div></div></div><figcaption>no match: ⎋ clears the search before it closes the sheet</figcaption></figure>
+      </div>
+
+      <h3 class="dq">3 · Getting in and out (decided)</h3>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-bar"><b>AiTerm</b><span>File</span><span>Edit</span><span class="open">View</span></div><div class="mk-menu"><div class="it">Zoom In<span class="sc">⌘+</span></div><div class="it">Zoom Out<span class="sc">⌘−</span></div><div class="it">Actual Size<span class="sc">⌘0</span></div><div class="sep"></div><div class="it">Focus View<span class="sc">⌘F</span></div><div class="it">List View<span class="sc">⌘L</span></div><div class="it new">Show Archive<span class="sc">⌘A</span></div><div class="sep"></div><div class="it">Backpack Mode<span class="sc">⌘B</span></div></div></div><figcaption>View › Show Archive ⌘A, the only way to open the sheet</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-menu"><div class="it">Rename…</div><div class="sep"></div><div class="it">Open in Finder</div><div class="it">Open in VS Code</div><div class="it">Open in Jira</div><div class="sep"></div><div class="it new">Archive</div><div class="it danger">Remove Task…</div></div></div><figcaption>the task row: Archive above Remove, no key</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-sidebar"><div class="mk-row removing new"><span class="av"><span class="mark" style="background: var(--claude)"><svg width="11" height="11" aria-hidden="true"><use href="#p-claude" fill="#FFFFFF"/></svg></span></span><span class="ln"><span class="tt">Login flow</span><span class="sub">Archiving…</span></span><span class="slot"><span class="st idle"></span></span></div></div></div><figcaption>while it runs: the caption slot “Removing…” uses</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div style="display:flex; flex-direction:column; gap: var(--space-base); align-items:flex-start"><span class="mk-toast"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="3.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.8 6v6.2c0 .7.5 1.3 1.2 1.3h8c.7 0 1.2-.6 1.2-1.3V6M6.3 8.8h3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Task archived.</span><span class="mk-toast"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="3.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.8 6v6.2c0 .7.5 1.3 1.2 1.3h8c.7 0 1.2-.6 1.2-1.3V6M6.3 8.8h3.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Review restored.</span></div></div><figcaption>toasts</figcaption></figure>
+      </div>
+
+      <h3 class="dq">4 · The questions (decided)</h3>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-alert"><b>Remove task “Login flow”?</b><span class="dt">Deletes its worktree and closes its iTerm2 window. <span class="new">Archive does too, but keeps it to restore later.</span></span><span class="cb"><i></i>Delete local branch</span><div class="bt"><span class="def red">Remove</span><span class="new">Archive</span><span class="">Cancel</span></div></div></div><figcaption>a task window closed by hand: Archive is the third button</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-alert"><b>The worktree has uncommitted changes</b><span class="dt">Archiving deletes its uncommitted changes and untracked files. The branch is kept.</span><div class="bt"><span class="def">Keep Task</span><span class="">Delete Changes and Archive</span></div></div></div><figcaption>archiving a dirty worktree: Remove’s question, worded for Archive</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-alert"><b>“Login flow” can’t be archived</b><span class="dt">Its worktree isn’t on a branch, so its commits would be lost. Check out a branch, or remove the task.</span><div class="bt"><span class="def">OK</span></div></div></div><figcaption>a detached HEAD can’t be archived</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-alert"><b>Remove task “Login flow”?</b><span class="dt">Forgets it and its conversations. Its worktree was deleted when it was archived.</span><span class="cb"><i></i>Delete local branch</span><div class="bt"><span class="def red">Remove</span><span class="">Cancel</span></div></div></div><figcaption>⌘⌫ in the sheet: Remove’s own question</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-alert"><b>“Login flow” can’t be restored</b><span class="dt">Its branch feat/SHOP-123-login no longer exists here or on origin. Remove it from the archive instead.</span><div class="bt"><span class="def">OK</span></div></div></div><figcaption>a restore git refuses: the row stays archived</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-alert"><b>Remove project “acme-storefront”?</b><span class="dt">Removes the project and its 4 tasks from AiTerm, <span class="new">and forgets its 12 archived tasks and reviews</span>. Files, branches, worktrees and windows are kept.</span><div class="bt"><span class="def">Remove</span><span class="">Cancel</span></div></div></div><figcaption>Remove Project counts the archived rows</figcaption></figure>
+      </div>
+
+      <h3 class="dq">Keys in the sheet</h3>
+      <div class="table-scroll"><table class="patterns">
+        <thead><tr><th>Keys</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td>↑ ↓</td><td class="to">move the highlight, wrapping, as a picker's list does</td></tr>
+          <tr><td>⌘↩ · double-click</td><td class="to">Restore the highlighted row: the worktree back at its own path, the row back in the sidebar, its window reopened with its conversations resumed, then the sheet closes</td></tr>
+          <tr><td>⌘⌫</td><td class="to">Remove the highlighted row from the archive, after Remove's question</td></tr>
+          <tr><td>⎋</td><td class="to">clear a search, else close</td></tr>
+          <tr><td>⌘A</td><td class="to">Select All in the search field: Show Archive is off while the sheet is up</td></tr>
+        </tbody>
+      </table></div>
     </div>
 
   </section>
