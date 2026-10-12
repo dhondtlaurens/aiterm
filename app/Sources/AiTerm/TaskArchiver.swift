@@ -92,7 +92,13 @@ final class TaskArchiver {
         let branch = if case .branch(let name) = head { name } else { task.branch }
         // On disk before the worktree goes (see the type's comment).
         workspace.mutate { $0.moveToArchive(taskId: task.id, branch: branch, at: now()) }
-        workspace.flush()
+        guard workspace.flush() else {
+            // Not on disk, so the worktree stays: deleted now, a crash before a save holds would bring
+            // back a task whose checkout is gone, which the cleanup forgets. The row is a task again,
+            // owed its window; the store is failing, so it is not flushed again.
+            workspace.mutate { $0.moveFromArchive(id: task.id) }
+            throw ActionUnavailable("Its archived row couldn’t be saved, so nothing was deleted.")
+        }
         do {
             do { try await workflow.archive(task: task, project: project, force: force) }
             catch let error as GitError where error.refusedForUnsavedWork {

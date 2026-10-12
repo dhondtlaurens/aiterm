@@ -102,6 +102,31 @@ extension AppControllerTests {
         #expect(fixture.controller.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
     }
 
+    @Test func anArchiveThatCannotBeSavedLeavesTheWorktreeAndTheTask() async throws {
+        let fixture = try RaceFixture()
+        let server = RecordingDaemon(holding: "window.close")
+        defer { server.release(); fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: "alive")
+
+        let archiving = await controller.archive(task: task)
+        try await server.received("window.close")
+        // Saving breaks while the window closes: a directory stands where the backup goes.
+        let backup = controller.workspace.file.backupURL
+        try? FileManager.default.removeItem(at: backup)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        server.release()
+        await archiving?.value
+
+        #expect(controller.persistenceError != nil)
+        #expect(controller.state.tasks.map(\.id) == [task.id], "a task again, owed its window")
+        #expect(controller.state.archive.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: task.worktreePath), "nothing deleted")
+        #expect(controller.removal(of: task.id) == .stopped(note: "Not archived", worktreeRemoved: false))
+        #expect(controller.toastState.toast == nil)
+    }
+
     @Test func archivingTwiceAtOnceArchivesOnce() async throws {
         let fixture = try RaceFixture()
         let server = RecordingDaemon(holding: "window.close")
