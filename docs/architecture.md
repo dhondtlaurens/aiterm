@@ -288,6 +288,8 @@ windows remains available. Retry saves the latest state without repeating Git or
 commands. Normal quit retries saving and offers **Cancel Quit** or **Quit Without Saving** if
 it still fails. Choosing to quit without saving loses changes since the last successful save.
 
+[windows.md](windows.md) tells the following in plain words, scenario by scenario.
+
 A row and its iTerm2 window are locked together: a task or terminal row is never shown without its
 window, and a row with `windowId == nil` is owed one. Every reason a window has not come back yet is
 an input to the decision, never a state the row is in. `AppState.windowPlan` (Core, pure) decides per
