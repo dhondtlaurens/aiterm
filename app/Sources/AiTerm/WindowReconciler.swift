@@ -200,7 +200,7 @@ final class WindowReconciler {
             let awaitingRetry = state.tasks.map(\.id).filter { remover.removals[$0]?.awaitsRetry == true }
             let waiting = triage.held.union(questioned).union(restoring.keys).union(failed).union(awaitingRetry)
                 .union(worktreeGone).union(rows.filter { isBusy($0) || checkouts.isMissing($0) })
-            let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0) == .removing(windowLetGo: true) })
+            let lettingGo = Set(state.tasks.map(\.id).filter { work.operation(onTask: $0)?.letsWindowGo == true })
             let settled = workspace.canChangeWorkspace && daemon() != nil && triage.isQuiet(at: now())
             for step in state.windowPlan(sessions: live.sessions, settled: settled, due: due, waiting: waiting, lettingGo: lettingGo) {
                 act(step)

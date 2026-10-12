@@ -5,7 +5,7 @@ import Foundation
 /// stopped short of the row, and why. It is the row's own, so the banner above the list can come
 /// and go — replaced by another report, or dismissed — without the row forgetting where it stands.
 public enum TaskRemoval: Equatable, Sendable {
-    case removing, closing
+    case removing, closing, archiving
     /// What the row says in place of its "Couldn’t reopen" or "Worktree missing". `worktreeRemoved`
     /// is a removal that got past the worktree: the row waits for the person's retry, and checkout
     /// cleanup, which would forget a row whose checkout went, leaves it be.

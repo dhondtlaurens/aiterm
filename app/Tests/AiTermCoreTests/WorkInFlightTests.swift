@@ -88,6 +88,20 @@ struct WorkInFlightTests {
         #expect(TaskOperation.reopening.removal == nil)
         #expect(TaskOperation.reviewing.removal == nil)
     }
+
+    @Test func onlyARemovalOrAnArchiveThatHasLetItsWindowGoKeepsTheWindowPlanAway() {
+        #expect(TaskOperation.removing(windowLetGo: true).letsWindowGo)
+        #expect(TaskOperation.archiving(windowLetGo: true).letsWindowGo)
+        #expect(!TaskOperation.removing(windowLetGo: false).letsWindowGo)
+        #expect(!TaskOperation.archiving(windowLetGo: false).letsWindowGo)
+        #expect(!TaskOperation.restoring.letsWindowGo)
+    }
+
+    @Test func anArchiveReadsArchivingOnItsRowAndARestoreReadsNothing() {
+        #expect(TaskOperation.archiving(windowLetGo: false).removal == .archiving)
+        #expect(TaskOperation.restoring.removal == nil)
+        #expect(TaskRemoval.archiving.inProgress)
+    }
 }
 
 /// What a test's callbacks heard, in order.

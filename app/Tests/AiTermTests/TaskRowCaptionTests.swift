@@ -10,6 +10,10 @@ import Testing
         #expect(TaskRowCaption(removal: .closing, missing: true, failed: false).progress == "Closing…")
     }
 
+    @Test func anArchivingRowSaysSoInItsBadgeLine() {
+        #expect(TaskRowCaption(removal: .archiving, missing: false, failed: false) == TaskRowCaption(progress: "Archiving…", note: nil))
+    }
+
     @Test func whyARemovalStoppedTakesTheCaptionsPlace() {
         #expect(TaskRowCaption(removal: .stopped(note: "Not removed: branch kept", worktreeRemoved: true), missing: true, failed: false)
                 == TaskRowCaption(progress: nil, note: .warning("Not removed: branch kept")))

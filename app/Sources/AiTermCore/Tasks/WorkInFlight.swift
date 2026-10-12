@@ -151,13 +151,28 @@ public enum TaskOperation: Equatable, Sendable {
     case removing(windowLetGo: Bool)
     /// Its worktree went outside AiTerm, and its window is being closed.
     case closing
+    /// Archived by the person: its window, then its worktree, its row into the archive. Its branch is
+    /// never touched. `windowLetGo` as for `removing`.
+    case archiving(windowLetGo: Bool)
+    /// An archived row's worktree coming back, before the row returns to the sidebar.
+    case restoring
 
     /// What the row says while this runs, in place of what the task's last removal left it saying.
     public var removal: TaskRemoval? {
         switch self {
         case .removing: .removing
         case .closing: .closing
-        case .reopening, .opening, .reviewing: nil
+        case .archiving: .archiving
+        case .reopening, .opening, .reviewing, .restoring: nil
+        }
+    }
+
+    /// Whether the row has dropped its window to close it: its tab is this work's to settle, and the
+    /// window plan must not adopt it back for the row.
+    public var letsWindowGo: Bool {
+        switch self {
+        case .removing(let letGo), .archiving(let letGo): letGo
+        case .reopening, .opening, .reviewing, .closing, .restoring: false
         }
     }
 }

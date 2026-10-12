@@ -690,6 +690,7 @@ struct TaskRowCaption: Equatable {
         switch removal {
         case .removing: self.init(progress: "Removing…", note: nil)
         case .closing: self.init(progress: "Closing…", note: nil)
+        case .archiving: self.init(progress: "Archiving…", note: nil)
         case .stopped(let note, _): self.init(progress: nil, note: .warning(note))
         case nil:
             if missing { self.init(progress: nil, note: .plain("Worktree missing")) }
