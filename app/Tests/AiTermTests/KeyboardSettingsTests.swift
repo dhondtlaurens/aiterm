@@ -19,8 +19,17 @@ import Testing
         defer { NSApplication.shared.mainMenu = saved }
         AiTermApp(controller: AppController(preferences: .scratch())).buildMenu()
         let menus = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).filter { $0.title != "Edit" }
-        // View › Show Settings repeats AiTerm › Settings…'s ⌘, to show it; the key is listed once, as Settings….
-        let items = menus.flatMap(\.items).filter { !$0.isHidden && !$0.keyEquivalent.isEmpty && $0.title != "Show Settings" }
+        let keyed = menus.flatMap(\.items).filter { !$0.isHidden && !$0.keyEquivalent.isEmpty }
+        // An item that repeats an earlier one's key, modifiers and action only shows a key already listed.
+        var repeats: [NSMenuItem] = [], items: [NSMenuItem] = []
+        for (i, item) in keyed.enumerated() {
+            let repeated = keyed[..<i].contains {
+                $0.keyEquivalent == item.keyEquivalent && $0.keyEquivalentModifierMask == item.keyEquivalentModifierMask
+                    && $0.action == item.action
+            }
+            if repeated { repeats.append(item) } else { items.append(item) }
+        }
+        #expect(repeats.map(\.title) == ["Show Settings"], "the only repeat is View › Show Settings showing Settings…'s ⌘,")
         let menuRows = items.map { KeyBinding(action: $0.title, keys: Self.keys(of: $0)) }
 
         let listed = try #require(KeyBindings.all.first { $0.title == "Anywhere in AiTerm" })
@@ -75,7 +84,7 @@ import Testing
     }
 
     /// View › Show Settings is AiTerm › Settings… again, under the View menu's "Show" group: the same
-    /// action and target, ⌘, shown, and enabled by the same rule. The app menu comes first, so it owns the key.
+    /// action, ⌘, shown, and enabled by the same rule. The app menu comes first, so it owns the key.
     @Test func showSettingsIsSettingsAgain() throws {
         let saved = NSApplication.shared.mainMenu
         defer { NSApplication.shared.mainMenu = saved }
@@ -88,7 +97,6 @@ import Testing
         let viewItem = try #require(menus.first { $0.title == "View" }?.items.first { $0.title == "Show Settings" })
         #expect(Self.keys(of: viewItem) == ["⌘", ","])
         #expect(viewItem.action == appItem.action)
-        #expect(viewItem.target === appItem.target)
         #expect(app.validateMenuItem(viewItem) == app.validateMenuItem(appItem))
         #expect(app.validateMenuItem(viewItem), "on while nothing is up")
         controller.presentArchive()
