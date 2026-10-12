@@ -18,6 +18,8 @@ final class WindowReconciler {
     private let focus: RowFocus
     /// Asks Remove's question about a task whose window the person closed.
     private let remover: TaskRemover
+    /// Archives it instead, when the person answers Archive.
+    private let archiver: TaskArchiver
     /// Opens a task's window: the one primitive creation and a restore share.
     private let launcher: TaskLauncher
     /// Opens a terminal's window: the one primitive a new terminal and a restore share.
@@ -61,7 +63,8 @@ final class WindowReconciler {
     private var passing = false, passAgain = false
 
     init(helper: HelperLink, workspace: WorkspaceStore, work: WorkInFlight, live: LiveSessions, checkouts: CheckoutMonitor,
-         focus: RowFocus, remover: TaskRemover, launcher: TaskLauncher, terminals: TerminalActions, notices: Notices,
+         focus: RowFocus, remover: TaskRemover,
+         archiver: TaskArchiver, launcher: TaskLauncher, terminals: TerminalActions, notices: Notices,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?, now: @escaping @MainActor () -> ContinuousClock.Instant,
          closeHold: Duration, bringForward: @escaping @MainActor () -> Void, launchIterm: @escaping @MainActor () -> Void) {
         self.workspace = workspace
@@ -70,6 +73,7 @@ final class WindowReconciler {
         self.checkouts = checkouts
         self.focus = focus
         self.remover = remover
+        self.archiver = archiver
         self.launcher = launcher
         self.terminals = terminals
         self.notices = notices
@@ -225,9 +229,10 @@ final class WindowReconciler {
         }
     }
 
-    /// Remove Task's own question about a task whose window the person closed, one alert at a time.
-    /// Remove removes it, its window already gone; Cancel is the person keeping it, so the row is chosen
-    /// as a click would — its window restored and raised.
+    /// Remove Task's own question about a task whose window the person closed, with Archive as a third
+    /// answer, one alert at a time. Remove removes it and Archive archives it, its window already gone;
+    /// Cancel is the person keeping it, so the row is chosen as a click would — its window restored and
+    /// raised.
     private func ask(_ id: UUID) {
         questioned.insert(id)
         let previous = asking, armed = epoch
@@ -237,8 +242,8 @@ final class WindowReconciler {
             defer { questioned.remove(id); pass() }
             guard let task = state.task(id: id), task.windowId == nil, work.operation(onTask: id) == nil else { return }
             bringForward()
-            if let removal = await remover.confirmRemove(task: task) {
-                await removal.value
+            if let leaving = await remover.confirmRemove(task: task, archiveInstead: { [archiver] in await archiver.archive(task: $0) }) {
+                await leaving.value
             } else if epoch == armed, state.task(id: id)?.windowId == nil {
                 questioned.remove(id)
                 focus.select(.task(id))

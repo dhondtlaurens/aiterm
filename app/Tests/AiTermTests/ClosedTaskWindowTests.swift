@@ -37,8 +37,8 @@ extension AppControllerTests {
         let asked = try #require(fixture.prompter.asked.first)
         #expect(fixture.prompter.asked.count == 1)
         #expect(asked.message == "Remove task “Work”?")
-        #expect(asked.detail == "Deletes its worktree and closes its iTerm2 window.")
-        #expect(asked.buttons == ["Remove", "Cancel"])
+        #expect(asked.detail == "Deletes its worktree and closes its iTerm2 window. Archive does too, but keeps it to restore later.")
+        #expect(asked.buttons == ["Remove", "Archive", "Cancel"])
         #expect(asked.checkbox == "Delete local branch")
         #expect(asked.checkboxHelp == "feat/work")
         #expect(forward.count == 1, "AiTerm comes forward for it")
@@ -46,6 +46,28 @@ extension AppControllerTests {
         #expect(controller.state.task(id: task.id)?.windowId == "reopened")
         #expect(server.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened"])
         #expect(focus.seen.count == 1, "iTerm2 comes forward with it")
+    }
+
+    @Test func answeringArchiveAfterAClosedWindowArchivesTheTask() async throws {
+        let clock = ManualInstant()
+        let fixture = try RaceFixture(prompter: ScriptedPrompter(answering: "Archive"), now: { clock.now })
+        let server = RecordingDaemon()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.helper.setDaemonClient(server)
+        let task = try fixture.addTask(windowId: "alive")
+        controller.helper.handle(.snapshot(fixture.snapshot(tagging: task, in: "alive")))
+
+        controller.helper.handle(.windowClosed("alive"))
+        clock.advance(by: ClosedWindowTriage.hold)
+        await controller.windows.settling?.value
+        await controller.windows.asking?.value
+
+        #expect(controller.state.tasks.isEmpty)
+        #expect(controller.state.archive.map(\.id) == [task.id])
+        #expect(!FileManager.default.fileExists(atPath: task.worktreePath))
+        #expect(server.requests("window.close").isEmpty, "its window was already gone")
+        #expect(controller.toastState.toast?.message == "Task archived.")
     }
 
     @Test func answeringRemoveAfterAClosedWindowRemovesTheTask() async throws {

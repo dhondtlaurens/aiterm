@@ -55,7 +55,8 @@ extension AppControllerTests {
     /// a dev server's watcher — writes files back into a checkout being deleted, and git then gives
     /// up halfway. The row stays until the removal is done.
     @Test func removingATaskClosesItsWindowBeforeDeletingItsWorktree() async throws {
-        let fixture = try CheckoutFixture(windowOpen: true, prompter: ScriptedPrompter(answering: "Remove"))
+        let prompter = ScriptedPrompter(answering: "Remove")
+        let fixture = try CheckoutFixture(windowOpen: true, prompter: prompter)
         defer { fixture.cleanUp() }
         let controller = fixture.controller
         let server = RecordingDaemon(holding: "window.close")
@@ -63,6 +64,7 @@ extension AppControllerTests {
         controller.helper.setDaemonClient(server)
 
         let removal = await controller.confirmRemove(task: fixture.task)
+        #expect(prompter.asked.map(\.buttons) == [["Remove", "Cancel"]], "the menu's Remove offers no Archive")
         try await server.received("window.close")
         try #require(server.closedWindowIds == ["alive"])
         #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath), "nothing is deleted while the window is open")

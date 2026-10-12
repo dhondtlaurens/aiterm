@@ -177,8 +177,8 @@ final class AppController {
         terminals = TerminalActions(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, daemon: daemon, activateIterm: activateIterm)
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
-                                   remover: remover, launcher: launcher, terminals: terminals, notices: notices, daemon: daemon,
-                                   now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
+                                   remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
+                                   notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher)

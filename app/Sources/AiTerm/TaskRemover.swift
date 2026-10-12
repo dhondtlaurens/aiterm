@@ -151,24 +151,36 @@ final class TaskRemover: CheckoutRemovals {
     /// checkbox here only keeps the alert from offering something that would be ignored.
     static func offersBranchDeletion(for task: TaskItem) -> Bool { task.kind != .review }
 
+    /// Archive offered beside Remove: the window-close question's third answer.
+    typealias ArchiveInstead = @MainActor (TaskItem) async -> Task<Void, Never>?
+
     /// Each question here is an `await`: a snapshot, a window closing or another Remove can run
     /// while it is up. What happens after an answer is decided on the task as it is then — `task`
     /// is the row's copy, as old as the click. Nil when nothing started: the task was gone or busy,
     /// the question was declined, or another Remove took the task while it was up.
+    ///
+    /// With `archiveInstead` the question is Remove, Archive, Cancel, and Archive hands the row, as
+    /// it is then, to that; without it — the menu's and ⌘⌫'s Remove — there are two buttons.
     @discardableResult
-    func confirmRemove(task: TaskItem) async -> Task<Void, Never>? {
+    func confirmRemove(task: TaskItem, archiveInstead: ArchiveInstead? = nil) async -> Task<Void, Never>? {
         let state = workspace.state
         guard workspace.canChangeWorkspace, work.operation(onTask: task.id) == nil, let shown = state.task(id: task.id),
               state.project(id: shown.projectId) != nil else { return nil }
+        let detail = shown.kind == .review
+            ? "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
+            : "Deletes its worktree and closes its iTerm2 window."
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove \(shown.kind == .review ? "review" : "task") “\(shown.title)”?",
-            detail: shown.kind == .review
-                ? "Deletes its worktree and closes its iTerm2 window. Its local branch goes too, unless it has unpushed commits."
-                : "Deletes its worktree and closes its iTerm2 window.",
-            buttons: ["Remove", "Cancel"],
+            detail: archiveInstead == nil ? detail : detail + " Archive does too, but keeps it to restore later.",
+            buttons: archiveInstead == nil ? ["Remove", "Cancel"] : ["Remove", "Archive", "Cancel"],
             checkbox: Self.offersBranchDeletion(for: shown) ? "Delete local branch" : nil,
             checkboxHelp: Self.offersBranchDeletion(for: shown) ? shown.branch : nil,
             defaultDeletes: true))
+        // The archive checks the row, its project and the workspace itself, as it does from the menu.
+        if let archiveInstead, answer.button == 1 {
+            guard let current = workspace.state.task(id: task.id) else { return nil }
+            return await archiveInstead(current)
+        }
         // Still needed after the await: a Remove started during the alert owns the removal now, and
         // this answer then does nothing; the task or its project can be gone, or the workspace locked.
         guard answer.confirmed, workspace.canChangeWorkspace, let current = workspace.state.task(id: task.id),
