@@ -36,6 +36,11 @@ struct FixLiveTests {
             let applyStart = clock.now
             let checked = try await pipeline.apply(agent, clone, proposal, session)
             print("LIVE \(agent): apply took \(clock.now - applyStart)")
+            // No straggler: a tool process that left the agent's process group escaped its sweep.
+            // The clone's path is unique, so any process naming it is this run's.
+            let stragglers = try ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/pgrep"), ["-fl", clone.path], timeout: 10)
+            #expect(stragglers.status == 1 && stragglers.stdout.isEmpty,
+                    "\(agent) left processes running after Apply: \(stragglers.stdout)")
             let landing = try await pipeline.land(clone, checked)
             let repo = world.repo
             #expect(try world.sha("refs/heads/feat/x", in: repo) == landing.new, "the branch moved to the fix")

@@ -146,9 +146,10 @@ refused: only the tip `FixGuard` checked may land.
 
 **Landing.** `TaskWorkflow.landFix` runs on the same serial queue as creation, removal and pull,
 since it moves a branch. With hooks off in every command, the checked tip is fetched by its sha
-under `refs/aiterm/fix/` (never the clone's branch by name), the old tip is kept as `refs/aiterm/backup/<branch>`, and the branch moves only
-if it is still where the clone began: `update-ref <ref> <new> <old>` where it is checked out
-nowhere, a fast-forward or `reset --keep` in its clean checkout otherwise. A branch mid-rebase or
+under `refs/aiterm/fix/` (never the clone's branch by name), the old tip is kept as
+`refs/aiterm/backup/<branch>`, and the branch moves only if it is still where the clone began:
+`update-ref <ref> <new> <old>` where it is checked out nowhere, a fast-forward or `reset --keep`
+in its clean checkout otherwise. A branch mid-rebase or
 bisect, or a fix that would overwrite an ignored file, is refused; a refusal leaves everything as it
 was. When a fix landed and its retry (the create, the pull) did not succeed, the person is told:
 “The fix is in; your branch as it was is kept as aiterm/backup/<branch>.”

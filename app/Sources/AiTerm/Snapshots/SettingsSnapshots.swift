@@ -39,10 +39,10 @@ enum SettingsSnapshots {
                 return settings(jira: nil, iterm: .waitingForIterm, environment: apiOff, tab: .integrations)
                     .seeded(itermEnvironment: apiOff)
             },
-            // “Fix problems with” on its own, in its three shapes: Claude Code chosen with Codex
+            // “Fix problems with” on its own, in its four shapes: Claude Code chosen with Codex
             // beside it; Codex chosen with Grok Build installed and greyed; nothing installed that
-            // can fix, so Off, with PI greyed, and a chosen agent that is gone. Drawn last: an added image goes after the ones before
-            // it (`Snapshots.regressionSet`).
+            // can fix, so Off, with PI greyed; and a chosen agent that is gone. Drawn last: an added
+            // image goes after the ones before it (`Snapshots.regressionSet`).
             Snapshot("settings-fixer-claude.png") { fixerGroup(.agent(.claude), installed: [.claude, .codex]) },
             Snapshot("settings-fixer-codex.png") { fixerGroup(.agent(.codex), installed: [.claude, .codex, .grok]) },
             Snapshot("settings-fixer-none.png") { fixerGroup(.off, installed: [.pi]) },
