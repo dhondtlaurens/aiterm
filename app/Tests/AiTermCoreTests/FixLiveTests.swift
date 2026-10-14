@@ -34,9 +34,9 @@ struct FixLiveTests {
             guard case .fix(let proposal) = look else { Issue.record("\(agent): no fix: \(look)"); return }
             print("LIVE \(agent): headline “\(proposal.headline)”")
             let applyStart = clock.now
-            try await pipeline.apply(agent, clone, proposal, session)
+            let checked = try await pipeline.apply(agent, clone, proposal, session)
             print("LIVE \(agent): apply took \(clock.now - applyStart)")
-            let landing = try await pipeline.land(clone)
+            let landing = try await pipeline.land(clone, checked)
             let repo = world.repo
             #expect(try world.sha("refs/heads/feat/x", in: repo) == landing.new, "the branch moved to the fix")
             #expect(landing.old == before, "the old tip is the one from before the run")

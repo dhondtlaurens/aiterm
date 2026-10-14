@@ -86,8 +86,8 @@ final class FixSession {
         set(.applying)
         work = Task {
             do throws(FixRefusal) {
-                try await pipeline.apply(fixer, clone, proposal, session)
-                let landing = try await pipeline.land(clone)
+                let checked = try await pipeline.apply(fixer, clone, proposal, session)
+                let landing = try await pipeline.land(clone, checked)
                 await end(.done(landing), removing: clone)
                 await retry(landing)
             } catch {
@@ -183,7 +183,7 @@ extension FixSession {
         let refuses = FixPipeline(prepare: { _ throws(FixRefusal) in throw .cancelled },
                                   look: { _, _, _ throws(FixRefusal) in throw .cancelled },
                                   apply: { _, _, _, _ throws(FixRefusal) in throw .cancelled },
-                                  land: { _ throws(FixRefusal) in throw .cancelled })
+                                  land: { _, _ throws(FixRefusal) in throw .cancelled })
         let session = FixSession(request: request, fixer: fixer, pipeline: refuses, retry: { _ in })
         session.lastProposal = proposal
         if let state { session.set(state) }

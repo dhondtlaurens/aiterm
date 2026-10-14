@@ -21,8 +21,8 @@ import Synchronization
                                return clone
                            },
                            look: { _, _, request throws(FixRefusal) in (try await look(request), "S") },
-                           apply: { _, _, _, _ throws(FixRefusal) in try await apply() },
-                           land: { _ in FixLanding(branch: "feat/x", old: "a", new: "c") })
+                           apply: { _, _, _, _ throws(FixRefusal) in try await apply(); return "c" },
+                           land: { _, _ in FixLanding(branch: "feat/x", old: "a", new: "c") })
     }
 
     private var cloneExists: Bool { FileManager.default.fileExists(atPath: clone.path) }

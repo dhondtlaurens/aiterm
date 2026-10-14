@@ -19,8 +19,8 @@ extension FixPipeline {
                 if slowLook { try? await Task.sleep(for: .seconds(30)) }
                 return (look, "S")
             },
-            apply: { _, _, _, _ in },
-            land: { clone in FixLanding(branch: clone.branch, old: "a", new: "c") })
+            apply: { _, _, _, _ in "c" },
+            land: { clone, _ in FixLanding(branch: clone.branch, old: "a", new: "c") })
     }
 }
 

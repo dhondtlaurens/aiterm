@@ -13,7 +13,8 @@ public struct FixLanding: Equatable, Sendable {
 
 extension Repository {
     /// Brings a checked fix from its clone into this repository — AiTerm's own git, no agent. The
-    /// new commits are fetched under `refs/aiterm/fix/`, the old tip is kept as
+    /// commit AiTerm checked (`checked`) is fetched by its sha under `refs/aiterm/fix/` — never the
+    /// clone's branch by name, which `verify` could have moved since — the old tip is kept as
     /// `refs/aiterm/backup/<branch>`, then the branch moves only if it is still where the clone
     /// started: `update-ref <new> <old>` where it is checked out nowhere, a fast-forward or
     /// `reset --keep` in its clean checkout otherwise. Every command runs with hooks off: what the
@@ -23,15 +24,16 @@ extension Repository {
     /// any earlier backup as they were.
     ///
     /// Internal: run it on `TaskWorkflow`'s queue (`TaskWorkflow.landFix`), the only public way in.
-    func landFix(from clone: FixClone) throws(FixRefusal) -> FixLanding {
+    func landFix(from clone: FixClone, tip checked: String) throws(FixRefusal) -> FixLanding {
         let branch = clone.branch, old = clone.startTip, ref = "refs/heads/" + branch
         let temporary = "refs/aiterm/fix/" + branch, backup = "refs/aiterm/backup/" + branch
         do {
             // Before the fetch: a fetch killed after it wrote the ref must leak nothing.
             defer { _ = try? write(["update-ref", "-d", temporary]) }
             try write(["fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", clone.path,
-                       "+\(ref):\(temporary)"], timeout: GitRunner.checkoutTimeout)
+                       "+\(checked):\(temporary)"], timeout: GitRunner.checkoutTimeout)
             let new = try git.run(["rev-parse", "--verify", temporary + "^{commit}"], in: path)
+            guard new == checked else { throw FixRefusal.movedAfterCheck(branch) }
             guard try commit(ref) == old else { throw FixRefusal.branchMovedMeanwhile(branch) }
 
             // Everything that can refuse comes before the first write.

@@ -28,12 +28,23 @@ import Synchronization
     @Test func landsABranchCheckedOutNowhereAndKeepsABackup() throws {
         let old = try world.sha("feat/x", in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
-        let landing = try Repository(world.repo, git: git).landFix(from: clone)
+        let landing = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try world.sha("feat/x", in: world.repo) == clone.tip("feat/x"))
         #expect(try world.sha("aiterm/backup/feat/x", in: world.repo) == old, "the short name resolves")
         #expect(landing == FixLanding(branch: "feat/x", old: old, new: try clone.tip("feat/x")))
         #expect(landing.backup == "aiterm/backup/feat/x")
         #expect(try git.run(["branch", "--list", "aiterm/*"], in: world.repo).isEmpty, "not a branch any picker lists")
+    }
+
+    /// I1: landing brings in the commit AiTerm checked, by its sha — not whatever the clone's
+    /// branch says by the time it lands.
+    @Test func landsTheCheckedCommitNotTheClonesLaterTip() throws {
+        let clone = try resolvedClone(); defer { clone.remove() }
+        let checked = try clone.tip("feat/x")
+        try world.commit("after the checks", file: "late.txt", contents: "x\n", in: clone.path)
+        let landing = try Repository(world.repo, git: git).landFix(from: clone, tip: checked)
+        #expect(landing.new == checked)
+        #expect(try world.sha("feat/x", in: world.repo) == checked)
     }
 
     /// Review focus 5: a commit in a terminal while the agent worked.
@@ -43,7 +54,7 @@ import Synchronization
         try world.commit("meanwhile", file: "other.txt", contents: "x\n", in: world.repo)
         try git.run(["checkout", "-q", "main"], in: world.repo)
         let moved = try world.sha("feat/x", in: world.repo)
-        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try world.sha("feat/x", in: world.repo) == moved)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty, "no backup, no leftover ref")
     }
@@ -55,7 +66,7 @@ import Synchronization
         try git.run(["update-ref", "refs/aiterm/backup/feat/x", earlier], in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
         let racing = MovingGitRunner(inner: git, branch: "refs/heads/feat/x", repo: world.repo)
-        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: racing).landFix(from: clone) }
+        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: racing).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(racing.moved)
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == earlier)
         #expect(try world.sha("feat/x", in: world.repo) != clone.tip("feat/x"))
@@ -65,7 +76,7 @@ import Synchronization
     @Test func aFailedMoveWithNoEarlierBackupLeavesNoBackup() throws {
         let clone = try resolvedClone(); defer { clone.remove() }
         let racing = MovingGitRunner(inner: git, branch: "refs/heads/feat/x", repo: world.repo)
-        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: racing).landFix(from: clone) }
+        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: racing).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
     }
 
@@ -73,7 +84,7 @@ import Synchronization
         try git.run(["update-ref", "refs/aiterm/backup/feat/x", try world.sha("main", in: world.repo)], in: world.repo)
         let old = try world.sha("feat/x", in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
-        _ = try Repository(world.repo, git: git).landFix(from: clone)
+        _ = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
     }
 
@@ -81,7 +92,7 @@ import Synchronization
         try git.run(["checkout", "-q", "feat/x"], in: world.repo)
         try "keep me\n".write(toFile: world.repo + "/untracked.txt", atomically: true, encoding: .utf8)
         let clone = try resolvedClone(); defer { clone.remove() }
-        _ = try Repository(world.repo, git: git).landFix(from: clone)
+        _ = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try world.sha("HEAD", in: world.repo) == clone.tip("feat/x"))
         #expect(try String(contentsOfFile: world.repo + "/config.ts", encoding: .utf8) == "topic=both\n")
         #expect(FileManager.default.fileExists(atPath: world.repo + "/untracked.txt"))
@@ -97,7 +108,7 @@ import Synchronization
         try git.run(["rebase", "--abort"], in: clone.path)
         try world.commit("fix", file: "fix.txt", contents: "x\n", in: clone.path)
         let recording = RecordingGitRunner(forwardingTo: git)
-        _ = try Repository(world.repo, git: recording).landFix(from: clone)
+        _ = try Repository(world.repo, git: recording).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try world.sha("HEAD", in: world.repo) == clone.tip("feat/x"))
         #expect(try git.run(["rev-parse", "HEAD~1"], in: world.repo) == old)
         #expect(recording.calls.contains { $0.args.contains("merge") && $0.args.contains("--ff-only") })
@@ -110,7 +121,7 @@ import Synchronization
         let old = try world.sha("HEAD", in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
         try "dirty\n".write(toFile: world.repo + "/config.ts", atomically: true, encoding: .utf8)
-        #expect(throws: FixRefusal.checkoutHasChanges(try git.run(["rev-parse", "--show-toplevel"], in: world.repo))) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.checkoutHasChanges(try git.run(["rev-parse", "--show-toplevel"], in: world.repo))) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try world.sha("HEAD", in: world.repo) == old)
         #expect(try String(contentsOfFile: world.repo + "/config.ts", encoding: .utf8) == "dirty\n")
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty, "no backup for a fix that did not land")
@@ -118,7 +129,7 @@ import Synchronization
 
     @Test func theTemporaryRefIsGone() throws {
         let clone = try resolvedClone(); defer { clone.remove() }
-        _ = try Repository(world.repo, git: git).landFix(from: clone)
+        _ = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try git.run(["for-each-ref", "refs/aiterm/fix"], in: world.repo).isEmpty)
     }
 
@@ -126,7 +137,7 @@ import Synchronization
     @Test func theFetchRunsWithHooksOff() throws {
         let clone = try resolvedClone(); defer { clone.remove() }
         let recording = RecordingGitRunner(forwardingTo: git)
-        _ = try Repository(world.repo, git: recording).landFix(from: clone)
+        _ = try Repository(world.repo, git: recording).landFix(from: clone, tip: clone.tip(clone.branch))
         let fetch = try #require(recording.calls.first { $0.args.contains("fetch") })
         #expect(fetch.args.starts(with: ["-c", "core.hooksPath=/dev/null", "fetch"]))
     }
@@ -136,7 +147,7 @@ import Synchronization
         world.removeAll()
         world = try ConflictWorld(git: git, branch: "feat/a/b")
         let clone = try resolvedClone(branch: "feat/a/b"); defer { clone.remove() }
-        let landing = try Repository(world.repo, git: git).landFix(from: clone)
+        let landing = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(landing.backup == "aiterm/backup/feat/a/b")
         #expect(try world.sha("feat/a/b", in: world.repo) == clone.tip("feat/a/b"))
         #expect(try world.sha("aiterm/backup/feat/a/b", in: world.repo) == landing.old)
@@ -173,7 +184,7 @@ import Synchronization
             try git.run(["-c", "core.editor=true", "rebase", "--continue"], in: clone.path)
         }
         let hooks = try installHooks()
-        _ = try Repository(world.repo, git: git).landFix(from: clone)
+        _ = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try world.sha("HEAD", in: world.repo) == clone.tip("feat/x"))
         #expect(try FileManager.default.contentsOfDirectory(atPath: hooks.markers).isEmpty, "no hook ran")
         try hooks.proves()
@@ -183,7 +194,7 @@ import Synchronization
     @Test func noHookRunsWhereTheBranchIsCheckedOutNowhere() throws {
         let clone = try resolvedClone(); defer { clone.remove() }
         let hooks = try installHooks()
-        _ = try Repository(world.repo, git: git).landFix(from: clone)
+        _ = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try FileManager.default.contentsOfDirectory(atPath: hooks.markers).isEmpty)
     }
 
@@ -196,7 +207,7 @@ import Synchronization
         let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/heads/feat/x") { git, dir in
             try git.run(["update-ref", "refs/heads/feat/x", new], in: dir)
         }
-        let landing = try Repository(world.repo, git: flaky).landFix(from: clone)
+        let landing = try Repository(world.repo, git: flaky).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(flaky.fired)
         #expect(landing.new == (try clone.tip("feat/x")))
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
@@ -207,7 +218,7 @@ import Synchronization
         try git.run(["update-ref", "refs/aiterm/backup/feat/x", earlier], in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
         let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/heads/feat/x") { _, _ in }
-        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone) }
+        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(flaky.fired)
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == earlier)
     }
@@ -220,7 +231,7 @@ import Synchronization
             try git.run(["update-ref", "refs/heads/feat/x", elsewhere], in: dir)
         }
         #expect(throws: FixRefusal.landingFailed("feat/x", "git timed out and the branch has moved, so it was left alone. Its old tip is kept as aiterm/backup/feat/x.")) {
-            try Repository(world.repo, git: flaky).landFix(from: clone)
+            try Repository(world.repo, git: flaky).landFix(from: clone, tip: clone.tip(clone.branch))
         }
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
     }
@@ -247,7 +258,7 @@ import Synchronization
         try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "env"], in: clone.path)
         try ignoreAndWriteEnv()
         let old = try world.sha("HEAD", in: world.repo)
-        #expect(throws: FixRefusal.wouldOverwriteIgnored([".env"])) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.wouldOverwriteIgnored([".env"])) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try String(contentsOfFile: world.repo + "/.env", encoding: .utf8) == "mine\n")
         #expect(try world.sha("HEAD", in: world.repo) == old)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
@@ -271,7 +282,7 @@ import Synchronization
         try "a\n".write(toFile: world.repo + "/.git/info/exclude", atomically: true, encoding: .utf8)
         try "mine\n".write(toFile: world.repo + "/a", atomically: true, encoding: .utf8)
         let old = try world.sha("HEAD", in: world.repo)
-        #expect(throws: FixRefusal.wouldOverwriteIgnored(["a"])) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.wouldOverwriteIgnored(["a"])) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try String(contentsOfFile: world.repo + "/a", encoding: .utf8) == "mine\n")
         #expect(try world.sha("HEAD", in: world.repo) == old)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
@@ -293,7 +304,7 @@ import Synchronization
         try " lead.env\n".write(toFile: world.repo + "/.git/info/exclude", atomically: true, encoding: .utf8)
         try "mine\n".write(toFile: world.repo + "/ lead.env", atomically: true, encoding: .utf8)
         #expect(try git.run(["status", "--porcelain", "--ignored"], in: world.repo).contains("lead.env"), "the fixture: git ignores it")
-        #expect(throws: FixRefusal.wouldOverwriteIgnored([" lead.env"])) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.wouldOverwriteIgnored([" lead.env"])) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try String(contentsOfFile: world.repo + "/ lead.env", encoding: .utf8) == "mine\n")
     }
 
@@ -306,7 +317,7 @@ import Synchronization
         let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/aiterm/backup/feat/x", count: 3) { git, dir in
             try git.run(["update-ref", "refs/aiterm/backup/feat/x", old], in: dir)
         }
-        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone) }
+        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(flaky.fired)
         #expect(try git.run(["for-each-ref", "--format=%(objectname)", "refs/aiterm/backup"], in: world.repo) == (hasEarlier ? earlier : ""))
         #expect(try world.sha("feat/x", in: world.repo) == old)
@@ -319,7 +330,7 @@ import Synchronization
         try git.run(["update-ref", "refs/aiterm/backup/feat/x", earlier], in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
         let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/heads/feat/x", unreadableAfterwards: true) { _, _ in }
-        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone) }
+        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(flaky.fired)
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
     }
@@ -331,7 +342,7 @@ import Synchronization
         _ = try? git.run(["rebase", "origin/feat/x"], in: linked)
         #expect(try git.run(["worktree", "list", "--porcelain"], in: world.repo).contains("detached"), "the fixture: git lists it as detached")
         let tip = try world.sha("refs/heads/feat/x", in: world.repo)
-        #expect(throws: FixRefusal.branchInOperation("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.branchInOperation("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try world.sha("refs/heads/feat/x", in: world.repo) == tip)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
     }
@@ -341,7 +352,7 @@ import Synchronization
         try git.run(["worktree", "add", "-q", linked, "feat/x"], in: world.repo)
         try "keep me\n".write(toFile: linked + "/untracked.txt", atomically: true, encoding: .utf8)
         let clone = try resolvedClone(); defer { clone.remove() }
-        _ = try Repository(world.repo, git: git).landFix(from: clone)
+        _ = try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch))
         #expect(try world.sha("HEAD", in: linked) == clone.tip("feat/x"))
         #expect(try String(contentsOfFile: linked + "/config.ts", encoding: .utf8) == "topic=both\n")
         #expect(try String(contentsOfFile: linked + "/untracked.txt", encoding: .utf8) == "keep me\n")
@@ -353,7 +364,7 @@ import Synchronization
         try "staged\n".write(toFile: world.repo + "/staged.txt", atomically: true, encoding: .utf8)
         try git.run(["add", "staged.txt"], in: world.repo)
         let top = try git.run(["rev-parse", "--show-toplevel"], in: world.repo)
-        #expect(throws: FixRefusal.checkoutHasChanges(top)) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.checkoutHasChanges(top)) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
     }
 
@@ -365,7 +376,7 @@ import Synchronization
         if state == "sequencer" { try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true) }
         else { try (try world.sha("main", in: world.repo) + "\n").write(toFile: path, atomically: true, encoding: .utf8) }
         let tip = try world.sha("HEAD", in: world.repo)
-        #expect(throws: FixRefusal.branchInOperation("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(throws: FixRefusal.branchInOperation("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try world.sha("HEAD", in: world.repo) == tip)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
     }
@@ -378,7 +389,7 @@ import Synchronization
         let old = try world.sha("feat/x", in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
         let project = Project(id: UUID(), name: "Repo", path: world.repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-        let landing = try await TaskWorkflow(git: git).landFix(from: clone, in: project)
+        let landing = try await TaskWorkflow(git: git).landFix(from: clone, tip: clone.tip(clone.branch), in: project)
         #expect(landing.old == old)
         #expect(try world.sha("feat/x", in: world.repo) == landing.new)
     }

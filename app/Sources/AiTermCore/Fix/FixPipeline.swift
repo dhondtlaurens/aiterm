@@ -9,15 +9,16 @@ public struct FixPipeline: Sendable {
     public var prepare: @Sendable (FixRequest) async throws(FixRefusal) -> FixClone
     /// The agent's read-only run: a checked proposal or its reason for none, and the session to resume.
     public var look: @Sendable (FixerAgent, FixClone, FixRequest) async throws(FixRefusal) -> (FixLook, session: String)
-    /// The agent's run that makes the fix in the clone, then AiTerm's own checks and the proposal's `verify`.
-    public var apply: @Sendable (FixerAgent, FixClone, FixProposal, String) async throws(FixRefusal) -> Void
-    /// Brings the checked fix into the project, keeping the old tip as a backup.
-    public var land: @Sendable (FixClone) async throws(FixRefusal) -> FixLanding
+    /// The agent's run that makes the fix in the clone, then AiTerm's own checks and the proposal's
+    /// `verify`. Returns the tip the checks passed — the one commit `land` may bring in.
+    public var apply: @Sendable (FixerAgent, FixClone, FixProposal, String) async throws(FixRefusal) -> String
+    /// Brings the checked tip into the project, keeping the old one as a backup.
+    public var land: @Sendable (FixClone, String) async throws(FixRefusal) -> FixLanding
 
     public init(prepare: @escaping @Sendable (FixRequest) async throws(FixRefusal) -> FixClone,
                 look: @escaping @Sendable (FixerAgent, FixClone, FixRequest) async throws(FixRefusal) -> (FixLook, session: String),
-                apply: @escaping @Sendable (FixerAgent, FixClone, FixProposal, String) async throws(FixRefusal) -> Void,
-                land: @escaping @Sendable (FixClone) async throws(FixRefusal) -> FixLanding) {
+                apply: @escaping @Sendable (FixerAgent, FixClone, FixProposal, String) async throws(FixRefusal) -> String,
+                land: @escaping @Sendable (FixClone, String) async throws(FixRefusal) -> FixLanding) {
         self.prepare = prepare; self.look = look; self.apply = apply; self.land = land
     }
 
@@ -66,9 +67,13 @@ public struct FixPipeline: Sendable {
                 let output = try await run(agent, invocation, in: clone, timeout: applyTimeout, locate: locate)
                 try clone.checkSettings()
                 _ = try FixApplied(validating: try FixerLaunch.applyAnswer(agent, output: output, invocation: invocation), agent: agent)
-                try await BackgroundWork.run { () throws(FixRefusal) in try FixGuard.check(clone, proposal: proposal, before: before) }
-                // Never unconfined: without `sandbox-exec` there is no `verify` (spec §11.5).
-                guard let verify = proposal.verify, VerifySandbox.isAvailable else { return }
+                let checked = try await BackgroundWork.run { () throws(FixRefusal) -> String in
+                    try FixGuard.check(clone, proposal: proposal, before: before)
+                }
+                // Then `verify`, never before the checks: a test run that touches tracked files must not
+                // read as uncommitted changes. Never unconfined: without `sandbox-exec` there is no
+                // `verify` (spec §11.5).
+                guard let verify = proposal.verify, VerifySandbox.isAvailable else { return checked }
                 let left = applyTimeout - (ContinuousClock.now - started)
                 do throws(FixRefusal) {
                     try await VerifySandbox.run(verify, in: clone.path, timeout: max(left, verifyFloor))
@@ -77,10 +82,16 @@ public struct FixPipeline: Sendable {
                     if Task.isCancelled { throw .cancelled }
                     throw error
                 }
-                // The sandbox lets `verify` write the clone, `.git` included.
+                // The sandbox lets `verify` write the clone, `.git` included — its settings, and its
+                // branch: only the tip the checks passed may land.
                 try clone.checkSettings()
+                let now = try await BackgroundWork.run { () throws(FixRefusal) -> String in
+                    do { return try clone.tip(clone.branch) } catch { throw .uncheckable(error) }
+                }
+                guard now == checked else { throw .movedAfterCheck(clone.branch) }
+                return checked
             },
-            land: { clone throws(FixRefusal) in try await workflow.landFix(from: clone, in: project) })
+            land: { clone, checked throws(FixRefusal) in try await workflow.landFix(from: clone, tip: checked, in: project) })
     }
 
     /// One agent run in the clone — the process's working directory, which Codex's `exec resume`

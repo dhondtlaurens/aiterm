@@ -6,9 +6,11 @@ import Foundation
 public enum FixGuard {
     public static let localOnlyLimit = 200
 
-    /// `limit` is the most local-only commits a branch may have; tests pass a small one.
+    /// `limit` is the most local-only commits a branch may have; tests pass a small one. Returns the
+    /// tip of the branch it checked: the one commit landing may bring in.
+    @discardableResult
     public static func check(_ clone: FixClone, proposal: FixProposal, before: [String: String],
-                             limit: Int = localOnlyLimit) throws(FixRefusal) {
+                             limit: Int = localOnlyLimit) throws(FixRefusal) -> String {
         // First, before any git: a planted setting would run on the `status` below.
         try clone.checkSettings()
         let git = clone.git, dir = clone.path
@@ -24,6 +26,7 @@ public enum FixGuard {
                 throw FixRefusal.movedOtherBranch(branch)
             }
             for branch in proposal.moves { try keepsCommits(clone, branch: branch, drops: Set(proposal.drops), limit: limit) }
+            return landing
         } catch let refusal as FixRefusal {
             throw refusal
         } catch {

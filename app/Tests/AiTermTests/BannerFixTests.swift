@@ -176,7 +176,7 @@ import Testing
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         var pipeline = FixPipeline.stub(look: .fix(proposal))
-        pipeline.land = { _ in FixLanding(branch: "release", old: "a", new: "b") }
+        pipeline.land = { _, _ in FixLanding(branch: "release", old: "a", new: "b") }
         controller.fixPipeline = { [pipeline] _ in pipeline }
         await controller.pullDefault(project: fixture.project)?.value
         let session = try #require(controller.notices.fixSession)

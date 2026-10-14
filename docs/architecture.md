@@ -138,11 +138,14 @@ plan did not name, and no local commit lost — matched by patch id, or by a twi
 subject, which a rebase keeps — unless the plan dropped it. Then `verify` runs under `sandbox-exec`
 (`VerifySandbox`): no network, unix sockets included; writes only in the clone and the per-user temp
 dir; LaunchServices, AppleEvents and the pasteboard denied, so it cannot start an app that runs
-unconfined. Without `sandbox-exec` there is no `verify`.
+unconfined. Without `sandbox-exec` there is no `verify`. It runs after the checks, so a test run
+that touches tracked files is not taken for uncommitted changes; it can still write the clone, so
+its settings and the branch's tip are read again after it, and a `verify` that moved the branch is
+refused: only the tip `FixGuard` checked may land.
 
 **Landing.** `TaskWorkflow.landFix` runs on the same serial queue as creation, removal and pull,
-since it moves a branch. With hooks off in every command, the fix is fetched under
-`refs/aiterm/fix/`, the old tip is kept as `refs/aiterm/backup/<branch>`, and the branch moves only
+since it moves a branch. With hooks off in every command, the checked tip is fetched by its sha
+under `refs/aiterm/fix/` (never the clone's branch by name), the old tip is kept as `refs/aiterm/backup/<branch>`, and the branch moves only
 if it is still where the clone began: `update-ref <ref> <new> <old>` where it is checked out
 nowhere, a fast-forward or `reset --keep` in its clean checkout otherwise. A branch mid-rebase or
 bisect, or a fix that would overwrite an ignored file, is refused; a refusal leaves everything as it

@@ -26,12 +26,12 @@ extension FixPipeline {
             },
             apply: { _, clone, proposal, _ throws(FixRefusal) in
                 do { try work(clone) } catch { throw .cloneFailed("\(error)") }
-                try FixGuard.check(clone, proposal: proposal, before: before.withLock { $0 })
+                return try FixGuard.check(clone, proposal: proposal, before: before.withLock { $0 })
             },
-            land: { clone throws(FixRefusal) in
+            land: { clone, checked throws(FixRefusal) in
                 let path = project.withLock { $0 }
                 let project = Project(id: UUID(), name: "p", path: path, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
-                return try await TaskWorkflow(git: git).landFix(from: clone, in: project)
+                return try await TaskWorkflow(git: git).landFix(from: clone, tip: checked, in: project)
             })
     }
 }
