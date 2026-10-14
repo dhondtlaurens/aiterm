@@ -434,7 +434,13 @@ final class CreationModel<Kind: CreationKind> {
         let resolution = fixer()
         let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
         return FixSession(request: request, fixer: resolution, pipeline: pipeline) { [weak self] landing in
-            guard let self, await self.create() else { return }
+            guard let self else { return }
+            guard await self.create() else {
+                // A create that never started — the workspace locked meanwhile — showed nothing, so
+                // the landed session is still here: let it go, and the footer is the sheet's again.
+                if case .done? = self.fixSession?.state { self.fixSession = nil }
+                return
+            }
             if let agent { self.fixLanded(landing, agent) }
             self.createdAfterFix = true
         }

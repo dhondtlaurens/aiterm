@@ -48,13 +48,20 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
         } footer: {
             CreationFooter(step: step, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
-                           closeList: closeOpenList, back: back, advance: advance, recover: recover)
+                           closeList: closeOpenList, back: back, advance: advance, recover: recover,
+                           fix: model.fixSession, applyFix: model.applyFix)
         }
+        // A fix being applied is never left half-made: ⎋ does nothing then (the footer's Cancel is
+        // the fix's, which ignores it), and neither does any other way of closing the sheet.
+        .interactiveDismissDisabled(model.fixSession?.state == .applying)
+        // A create run by a landed fix closes the sheet as its own create does.
+        .onChange(of: model.createdAfterFix) { _, created in if created { dismiss() } }
         .task { await model.search(text: "") }
         .task(id: model.draft.agent) { await model.loadAgentCatalogue() }
         .task { await model.loadBranches() }
         .task { await model.loadWorktreeIncludes() }
-        .onDisappear { model.cancelSearch() }
+        // Closed while an agent looks, the Look stops and its clone goes; a proposal left up is declined.
+        .onDisappear { model.cancelSearch(); model.fixSession?.cancel() }
     }
 
     /// The list ⎋ closes, if one is open where it can be seen: the pickers on step 1, the prompt's
@@ -76,7 +83,9 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     /// What the primary button does, named once: the button and the ⌘↩ shortcut both call it, and
     /// `canAdvance` gates both, so the keycaps never advertise a key that does nothing.
     /// Leaving step 1 closes its lists, so going back to it finds them as a fresh sheet does.
+    /// While a fix's proposal is up it is Apply (the footer routes its button there too).
     private func advance() {
+        if model.primaryAction() == .applyFix { model.applyFix(); return }
         if step == 3 { create(); return }
         for picker in pickers { picker.wrappedValue = false }
         step += 1

@@ -98,16 +98,33 @@ struct SheetSubtitle: View {
 
 /// A sheet's primary action: the prominent button, answering ⌘↩ and only ⌘↩ — the keycaps it shows.
 /// A plain ⏎ stays with the focused control: a newline in the prompt editor, a pick in a dropdown.
+/// `busy` leads its title with a working `StatusMark` while what it started runs — New Review's
+/// Apply; the caller's action guards itself meanwhile, as Back does while a create runs.
 struct SheetPrimaryButton: View {
     let title: String
     var enabled = true
+    var busy = false
+    var help: String?
     let action: () -> Void
 
     var body: some View {
-        // The label sits on the accent fill, and says so: the keycaps read it.
-        Button(action: action) { HStack(spacing: Space.base) { Text(title); Kbd("⌘", "↩") }.surface(.accent) }
-            .keyboardShortcut(.return, modifiers: .command).buttonStyle(.borderedProminent)
-            .disabled(!enabled)
+        if let help { button.help(help) } else { button }
+    }
+
+    private var button: some View {
+        // The label sits on the accent fill, and says so: the keycaps and the mark read it.
+        Button(action: action) {
+            HStack(spacing: Space.base) {
+                HStack(spacing: Space.snug) {
+                    if busy { StatusMark(status: .working, size: Size.statusMark) }
+                    Text(title)
+                }
+                Kbd("⌘", "↩")
+            }
+            .surface(.accent)
+        }
+        .keyboardShortcut(.return, modifiers: .command).buttonStyle(.borderedProminent)
+        .disabled(!enabled)
     }
 }
 
@@ -130,15 +147,20 @@ struct SheetFooter<Status: View>: View {
     let primary: String?
     let canCancel: Bool
     let canSubmit: Bool
+    /// The primary's working mark and tooltip (`SheetPrimaryButton`).
+    let primaryBusy: Bool
+    let primaryHelp: String?
     let closeList: () -> Bool
     let cancel: () -> Void
     let submit: () -> Void
     let status: Status
 
     init(secondary: String? = "Cancel", primary: String?, canCancel: Bool = true, canSubmit: Bool = true,
+         primaryBusy: Bool = false, primaryHelp: String? = nil,
          closeList: @escaping () -> Bool = { false }, cancel: @escaping () -> Void, submit: @escaping () -> Void,
          @ViewBuilder status: () -> Status = { EmptyView() }) {
         self.secondary = secondary; self.primary = primary; self.canCancel = canCancel; self.canSubmit = canSubmit
+        self.primaryBusy = primaryBusy; self.primaryHelp = primaryHelp
         self.closeList = closeList; self.cancel = cancel; self.submit = submit; self.status = status()
     }
 
@@ -147,7 +169,9 @@ struct SheetFooter<Status: View>: View {
             status
             Spacer(minLength: Space.base)
             if let secondary { Button(secondary, action: cancel).disabled(!canCancel) }
-            if let primary { SheetPrimaryButton(title: primary, enabled: canSubmit, action: submit) }
+            if let primary {
+                SheetPrimaryButton(title: primary, enabled: canSubmit, busy: primaryBusy, help: primaryHelp, action: submit)
+            }
         }
         .controlSize(.large)
         .overlay {
@@ -165,6 +189,10 @@ struct SheetFooter<Status: View>: View {
 /// narration, and three lines of it used to be all there was room for. The reason is git's failure
 /// lines as one sentence (`GitError.sentence`), or any other error's own, as the banner has it —
 /// short by construction, so it is never cut; git's whole output is the tooltip.
+///
+/// A failure an agent can fix (`fix`, New Review's) offers “Fix with Claude” after the recovery;
+/// from then on the session's state is drawn where the failure was, and takes Cancel and the
+/// primary while the agent looks, proposes — Apply on ⌘↩ — and applies (`FixFooterPresentation`).
 struct CreationFooter: View {
     let step: Int
     let error: CreationFailure?
@@ -177,22 +205,57 @@ struct CreationFooter: View {
     let advance: () -> Void
     /// The failure's fix, then the create it stopped.
     let recover: () -> Void
+    /// The Fix offered for the failure, if any; its state is the one thing here it observes.
+    var fix: FixSession? = nil
+    /// Apply on the proposal that is up.
+    var applyFix: () -> Void = {}
 
     var body: some View {
+        let state = fix?.state
+        // Read only while it is drawn: it is never cleared, so in any other state it is stale.
+        let applied: FixProposal? = switch state { case .applying?, .done?: fix?.lastProposal; default: nil }
+        let shown = FixFooterPresentation(error: error, state: state, fixer: fix?.fixer, lastProposal: applied)
         VStack(alignment: .leading, spacing: Space.gap) {
-            if let error {
-                Text(error.reason).font(Typography.caption).foregroundStyle(Palette.amber).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true).help(error.detail ?? error.reason)
+            switch shown.lead {
+            case .failure(let text, let help)?:
+                Text(text).font(Typography.caption).foregroundStyle(Palette.amber).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true).help(help)
+            case .busy(let text)?: FixBusyLine(text: text)
+            case .proposal(let agent, let proposal)?: FixProposalBlock(agent: agent, proposal: proposal)
+            case nil: EmptyView()
             }
             if step == 3, availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
                 Text(note).font(Typography.caption).foregroundStyle(Palette.amber)
             }
-            SheetFooter(secondary: step == 1 ? "Cancel" : "Back", primary: step == 3 ? createLabel : "Continue",
-                        canCancel: !creating, canSubmit: canAdvance, closeList: closeList, cancel: back, submit: advance) {
-                if let recovery = error?.recovery {
+            SheetFooter(secondary: shown.buttons == .sheet ? (step == 1 ? "Cancel" : "Back") : "Cancel",
+                        primary: primaryTitle(shown.buttons),
+                        canCancel: shown.buttons == .applying ? false : !creating,
+                        canSubmit: shown.buttons == .looking ? false : (shown.buttons == .sheet ? canAdvance : true),
+                        primaryBusy: shown.buttons == .applying,
+                        primaryHelp: shown.buttons == .proposal ? "Applies \(fix?.fixer?.shortName ?? "the agent")’s fix, then creates the review." : nil,
+                        closeList: closeList,
+                        // While a fix holds the buttons, Cancel — and ⎋ — are its: they stop a Look,
+                        // decline a proposal, and do nothing while it is applied.
+                        cancel: shown.buttons == .sheet ? back : { fix?.cancel() },
+                        submit: shown.buttons == .sheet ? advance : applyFix) {
+                if shown.showsRecovery, let recovery = error?.recovery {
                     Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
                 }
+                if let offer = shown.offer {
+                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: { Label(offer.title, systemImage: "sparkles") }
+                        .help(offer.help).disabled(!offer.isEnabled || creating)
+                }
+                if shown.buttons == .applying {
+                    Text("Applying…").font(Typography.caption).foregroundStyle(Palette.muted)
+                }
             }
+        }
+    }
+
+    private func primaryTitle(_ buttons: FixFooterPresentation.Buttons) -> String {
+        switch buttons {
+        case .proposal, .applying: "Apply"
+        case .sheet, .looking: step == 3 ? createLabel : "Continue"
         }
     }
 }

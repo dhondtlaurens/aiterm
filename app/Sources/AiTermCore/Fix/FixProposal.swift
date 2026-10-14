@@ -27,6 +27,11 @@ public struct FixProposal: Equatable, Sendable {
     /// other loss (`FixGuard.lostCommits`).
     public var drops: [String]
     public var verify: String?
+
+    /// For the app's snapshots, which draw a proposal outside a test's `@testable` import.
+    public init(headline: String, why: String, steps: [String], moves: [String], drops: [String], verify: String?) {
+        self.headline = headline; self.why = why; self.steps = steps; self.moves = moves; self.drops = drops; self.verify = verify
+    }
 }
 
 public enum FixLook: Equatable, Sendable {

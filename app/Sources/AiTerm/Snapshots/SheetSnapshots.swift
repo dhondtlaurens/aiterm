@@ -58,7 +58,50 @@ enum SheetSnapshots {
                 NameSheet.newTerminal(project: Fixture().project, suggestedName: "shell 2", branch: "main", canCreate: true,
                                       createTerminal: { _ in })
             },
-        ] + nameSheets + backpackSheets + archiveSheets
+        ] + nameSheets + backpackSheets + archiveSheets + fixFooters
+    }
+
+    /// New Review's footer through a Fix, as the picked design draws it (footer states 1–5 and 7–9;
+    /// 6 is the toast): offered alone and beside Rebase, looking, the proposal, applying, no fix,
+    /// failed, and greyed with Claude Code missing. Drawn last, after the images before them.
+    private static var fixFooters: [Snapshot] {
+        let conflict = WorktreeError.rebaseConflicted("feat-gift-card", detail: nil)
+        return [
+            Snapshot("review-fix-offered.png") { fixFooter(.offered, error: conflict) },
+            Snapshot("review-fix-offered-beside-rebase.png") {
+                fixFooter(.offered, error: WorktreeError.branchDiverged("feat-gift-card", local: 2, remote: 4))
+            },
+            Snapshot("review-fix-looking.png") { fixFooter(.looking, error: conflict) },
+            Snapshot("review-fix-proposal.png") { fixFooter(.proposal(fixProposal), error: conflict) },
+            Snapshot("review-fix-applying.png") { fixFooter(.applying, error: conflict) },
+            Snapshot("review-fix-nofix.png") {
+                fixFooter(.noFix("Claude found no fix it can stand behind: both sides rewrite the same alert handler."), error: conflict)
+            },
+            Snapshot("review-fix-failed.png") {
+                fixFooter(.failed("pnpm typecheck failed (status 2) after the fix, so nothing was changed."), error: conflict)
+            },
+            Snapshot("review-fix-unavailable.png") { fixFooter(nil, error: conflict, fixer: .missing(.claude)) },
+        ]
+    }
+
+    /// The design's force-pushed merge request: no conflict to resolve, an older copy to replace.
+    private static let fixProposal = FixProposal(
+        headline: "Your 2 local commits are an older copy of what’s on origin.",
+        why: "The merge request was rebased and force-pushed since you last fetched it: the same 2 changes are in origin’s 4, "
+            + "rewritten. Replace your copy with origin’s, then create the review.",
+        steps: ["Keep your 2 commits as aiterm/backup/feat-gift-card", "Point feat-gift-card at origin’s",
+                "Create the review. Nothing is pushed."],
+        moves: ["feat-gift-card"], drops: [], verify: nil)
+
+    /// Step 3's footer after git refused the review's branch for `error`, its Fix in `state` — or in
+    /// the state `fixer` starts it in, when nil — with `fixProposal` the one kept on screen while applying.
+    private static func fixFooter(_ state: FixSession.State?, error: WorktreeError,
+                                  fixer: FixerResolution = .ready(.claude)) -> some View {
+        let failure = CreationFailure(error, projectPath: "/Users/sam/Sites/acme-storefront")
+        let session = FixSession.snapshot(state, fixer: fixer, request: failure.fix!, proposal: fixProposal)
+        return CreationFooter(step: 3, error: failure, availableAgents: [.claude], createLabel: "Create Review", creating: false,
+                              canAdvance: true, closeList: { false }, back: {}, advance: {}, recover: {}, fix: session)
+            .padding(Space.margin).frame(width: Sheet.width).background(Palette.surfaceRaised)
     }
 
     /// The Archive sheet with the proposal's five rows, a search that finds one by its merge request,

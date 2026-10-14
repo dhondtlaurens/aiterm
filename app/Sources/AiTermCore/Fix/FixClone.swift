@@ -57,7 +57,7 @@ public struct FixClone: Sendable {
                 _ = try? git.run(["rebase", "--no-autostash", "--no-update-refs", "--no-rebase-merges", "origin/" + branch],
                                  in: path, timeout: GitRunner.checkoutTimeout, environment: quiet)
                 guard FileManager.default.fileExists(atPath: path + "/.git/rebase-merge") else {
-                    throw FixRefusal.cloneFailed("“\(branch)” rebases onto origin without stopping, so there is no stopped rebase to fix.")
+                    throw FixRefusal.cloneFailed("“\(branch)” rebases onto origin’s without a conflict now, so there is no conflict left to fix.")
                 }
             }
             return FixClone(path: path, branch: branch, startTip: start, originTip: origin, git: git)

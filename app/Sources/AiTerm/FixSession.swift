@@ -147,3 +147,21 @@ final class FixSession {
         DispatchQueue.global(qos: .utility).async { clone.remove() }
     }
 }
+
+#if DEBUG
+extension FixSession {
+    /// A session drawn in `state` — or the one `fixer` starts it in, when nil — as the snapshots
+    /// show it: `proposal` is the one kept on screen while applying. Its pipeline refuses every
+    /// stage, so nothing it is asked runs.
+    static func snapshot(_ state: State?, fixer: FixerResolution, request: FixRequest, proposal: FixProposal? = nil) -> FixSession {
+        let refuses = FixPipeline(prepare: { _ throws(FixRefusal) in throw .cancelled },
+                                  look: { _, _, _ throws(FixRefusal) in throw .cancelled },
+                                  apply: { _, _, _, _ throws(FixRefusal) in throw .cancelled },
+                                  land: { _ throws(FixRefusal) in throw .cancelled })
+        let session = FixSession(request: request, fixer: fixer, pipeline: refuses, retry: { _ in })
+        session.lastProposal = proposal
+        if let state { session.set(state) }
+        return session
+    }
+}
+#endif
