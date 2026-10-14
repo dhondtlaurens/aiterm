@@ -10,8 +10,9 @@ implementation.
   shape in the app.
 - **Working** — A turn is in flight. Entered on `UserPromptSubmit`, and held while any subagent is
   alive.
-- **Needs input** — The agent is blocked on you — a permission prompt, an elicitation dialog, or
-  an explicit "needs input" notification. The one state worth amber.
+- **Needs input** — The agent is blocked on you — a permission prompt, an elicitation dialog, an
+  explicit "needs input" notification, or Claude Code asking whether to trust a new folder. The one
+  state worth amber.
 - **Done** — The turn finished and you have not looked yet. Clicking the row calls
   `sessions.markSeen` and it falls back to idle.
 
@@ -96,6 +97,17 @@ cannot strand a row — Claude's own session file (`busy`/`thinking`/`running` �
 → needs input, `idle`/`shell` → the turn ended; any other status is ignored rather than read as
 the end of the turn) and the braille spinner glyph at the head of a Codex tab's iTerm2 title. Which
 harness has which is its `corroboration` in the `HARNESSES` table; Grok Build and PI have neither.
+
+Claude Code's folder-trust dialog ("Yes, I trust this folder") comes before all of these: Claude
+loads no hooks and writes no session file until the folder is trusted, so the tab's screen is the
+only sign of it. The tick reads the screen of a Claude tab that has a process but no session file,
+while its row is idle, or while the dialog holds the row (`Service._apply_trust_prompts`; the text is
+the harness's `trust_prompt` in `HARNESSES`). The dialog moves an idle row to needs input, and
+nothing else: a row a hook has moved is left alone. When it closes, the row goes back to idle and not
+to done, because no turn ran. It is closed by the screen no longer showing it, by the session file
+appearing, by any hook (only a trusted folder loads them), or by Claude exiting. A screen that
+cannot be read changes nothing. A tab past the dialog has its session file, so its screen is not
+read again.
 
 A hook can arrive before the tick has classified its tab: `window.createTask` sends the agent
 command and ticks at once, while the tab still reads as a shell, so the agent's `SessionStart` and

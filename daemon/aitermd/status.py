@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from .claude_subagents import TranscriptTail
 from .hook_events import HookEvent
-from .models import END_OF_TURN_SURVIVES_CWD_LOSS, SessionInfo, State, TokenTally
+from .models import END_OF_TURN_SURVIVES_CWD_LOSS, HARNESS_BY_AGENT, AgentKind, SessionInfo, State, TokenTally
 from .sessions import SessionRegistry
 
 CLAUDE_FILE_STATUS: dict[str, State | None] = {
@@ -78,6 +78,15 @@ class Turn:
     turn_id: str | None = None
 
 
+def shows_trust_prompt(agent: AgentKind, screen: str) -> bool:
+    """Whether `screen` shows the agent's folder-trust dialog. Compared without whitespace: a line
+    can come back with its spaces drawn as cursor moves, or wrapped where the window is narrow."""
+    if (harness := HARNESS_BY_AGENT.get(agent)) is None:
+        return False
+    text = "".join(screen.split())
+    return any("".join(phrase.split()) in text for phrase in harness.trust_prompt)
+
+
 def _has_spinner(title: str) -> bool:
     return bool(title) and "⠀" <= title[0] <= "⣿"
 
@@ -90,6 +99,9 @@ class StatusEngine:
         # `monotonic` times the orphan window, which an NTP step must not shorten.
         self._clock, self._monotonic = clock, monotonic
         self._turns: dict[str, Turn] = {}
+        # The sessions whose row a folder-trust dialog holds at needs input. Not a turn's: the dialog
+        # belongs to the tab until it closes, and comes before any conversation.
+        self._trust_prompts: set[str] = set()
 
     def turn(self, session_id: str) -> Turn | None:
         """What the engine remembers of the session's turn, if anything: a view for inspection, by a
@@ -102,6 +114,12 @@ class StatusEngine:
         return turn
 
     def apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
+        if ev.kind is None:
+            return []
+        # The agent loads its hooks once its folder is trusted, so any hook says the dialog is over.
+        return self.apply_trust_prompt(session_id, False) + self._apply_event(session_id, ev)
+
+    def _apply_event(self, session_id: str, ev: HookEvent) -> list[str]:
         """What a hook says happened to the session's turn (`ev.kind`; its metadata is
         `apply_metadata`'s). `ev.turn_id` is the turn it reports on, when the harness names one (Grok's
         `promptId`), and `ev.starts_turn` marks the hook that begins it: Grok dispatches a cancelled
@@ -187,6 +205,31 @@ class StatusEngine:
         if tokens is not None and self.reg.set_tokens(session_id, tokens):
             changed.append(session_id)
         return changed
+
+    def showing_trust_prompt(self, session_id: str) -> bool:
+        return session_id in self._trust_prompts
+
+    def apply_trust_prompt(self, session_id: str, shown: bool) -> list[str]:
+        """Whether the tab's screen shows its agent's folder-trust dialog (shows_trust_prompt). It
+        holds an idle row at needs input, and closing it puts the row back to idle: no turn ran. A row
+        in any other state is left alone, and so is one a hook has moved since the dialog was seen."""
+        s = self.reg.get(session_id)
+        if s is None:
+            return []
+        if shown:
+            if s.state != "idle" or session_id in self._trust_prompts:
+                return []
+            self._trust_prompts.add(session_id)
+            return [session_id] if self.reg.set_state(session_id, "needsInput") else []
+        if session_id not in self._trust_prompts:
+            return []
+        self._trust_prompts.discard(session_id)
+        return [session_id] if s.state == "needsInput" and self.reg.set_state(session_id, "idle") else []
+
+    def forget_session(self, session_id: str) -> None:
+        """Drops everything the engine keeps of a closed tab."""
+        self.reset_turn(session_id)
+        self._trust_prompts.discard(session_id)
 
     def reset_turn(self, session_id: str) -> None:
         """Forgets the subagents and deferred completion of a conversation that has ended: a new
@@ -330,6 +373,7 @@ class StatusEngine:
 
     def agent_exited(self, session_id: str) -> list[str]:
         self.reset_turn(session_id)
+        self._trust_prompts.discard(session_id)
         return [session_id] if self.reg.set_state(session_id, "idle") else []
 
     def mark_seen(self, task_id: str) -> list[str]:

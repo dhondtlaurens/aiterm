@@ -43,12 +43,17 @@ class Harness:
     end_of_turn_survives_cwd_loss: bool = False
     # The route its status-line shim posts to, if it has one (hook_events.STATUSLINE_PARSERS).
     statusline_route: str | None = None
+    # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
+    # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
+    trust_prompt: tuple[str, ...] = ()
 
 
 HARNESSES: tuple[Harness, ...] = (
     # HTTP hooks and a session file.
     Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file", end_of_turn_survives_cwd_loss=True,
-            statusline_route="/statusline", reports_usage=True),
+            statusline_route="/statusline", reports_usage=True,
+            # 2.1.299's option, and the dialog's question before it.
+            trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?")),
     # `Stop` over MCP; the other hooks are spawned curl.
     Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True),
     # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
