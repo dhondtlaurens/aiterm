@@ -1,10 +1,11 @@
 import Foundation
 import Synchronization
 
-/// One thing the user can type at the start of the first prompt: a slash command or a skill the
-/// chosen agent actually has on this machine.
+/// One thing the user can complete in the first prompt: a slash command or a skill the chosen agent
+/// actually has on this machine, or a file or folder of the project (`ProjectFiles`), whose name is
+/// its path — a folder's ending in `/`.
 public struct AgentCompletion: Equatable, Hashable, Identifiable, Sendable {
-    public enum Kind: String, Equatable, Hashable, Sendable { case skill, command }
+    public enum Kind: String, Equatable, Hashable, Sendable { case skill, command, file, folder }
     public enum Source: Equatable, Hashable, Sendable {
         case user, project, plugin(String), builtIn
         public var label: String {
@@ -23,9 +24,10 @@ public struct AgentCompletion: Equatable, Hashable, Identifiable, Sendable {
     }
 }
 
-/// Where the completion popup should attach itself: the token under the caret.
+/// Where the completion popup should attach itself: the token under the caret, and the key that
+/// opened it — `/` for commands and skills, `@` for files.
 public struct CompletionTrigger: Equatable, Sendable {
-    public var query: String, range: Range<Int>
+    public var sigil: Character, query: String, range: Range<Int>
 }
 
 /// Reads the slash commands and skills the agent CLIs keep on disk. Nothing here is hard-coded per
@@ -307,28 +309,33 @@ public enum SkillCatalog {
 
     // -- trigger --------------------------------------------------------------------
 
-    /// `/` is the one key that opens the popup, whatever the agent: the person learns one key, and
-    /// the picked item is written the way its agent invokes it (`invocation(of:for:)`).
+    /// `/` is the one key that opens the commands and skills, whatever the agent: the person learns
+    /// one key, and the picked item is written the way its agent invokes it (`invocation(of:for:)`).
+    /// `@` opens the project's files (`ProjectFiles`).
     public static let trigger: Character = "/"
 
-    /// The token the caret sits in, when it is a command token: it starts at the beginning of a
-    /// word, opens with `/`, and has no whitespace in it. `range` covers the `/` and the typed
-    /// query, which is what a picked completion replaces.
+    /// The token the caret sits in, when it is a completion token: it starts at the beginning of a
+    /// word, opens with `/` or `@`, and has no whitespace in it. `range` covers the key and the
+    /// typed query, which is what a picked completion replaces.
     public static func trigger(in text: String, caret: Int) -> CompletionTrigger? {
         let chars = Array(text)
         guard caret >= 0, caret <= chars.count else { return nil }
         var start = caret
         while start > 0, !chars[start - 1].isWhitespace { start -= 1 }
-        guard start < caret, chars[start] == trigger else { return nil }
+        guard start < caret, [trigger, ProjectFiles.trigger].contains(chars[start]) else { return nil }
         let query = String(chars[(start + 1)..<caret])
         guard !query.contains(where: \.isWhitespace) else { return nil }
-        return CompletionTrigger(query: query, range: start..<caret)
+        return CompletionTrigger(sigil: chars[start], query: query, range: start..<caret)
     }
 
     /// What a picked completion writes into the prompt: a command after `/`, a skill after its
-    /// agent's sigil — `$` for Codex, which keeps `/` for its commands, and `/` for the others.
+    /// agent's sigil — `$` for Codex, which keeps `/` for its commands, and `/` for the others — and
+    /// a file or folder as its `@` mention.
     public static func invocation(of item: AgentCompletion, for agent: AgentKind) -> String {
-        let sigil = item.kind == .skill ? agent.harness.skillSigil : "/"
-        return String(sigil) + item.name
+        switch item.kind {
+        case .skill: return String(agent.harness.skillSigil) + item.name
+        case .command: return "/" + item.name
+        case .file, .folder: return ProjectFiles.mention(of: item)
+        }
     }
 }

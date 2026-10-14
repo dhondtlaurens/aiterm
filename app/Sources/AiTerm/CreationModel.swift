@@ -284,6 +284,15 @@ final class CreationModel<Kind: CreationKind> {
         branches = found
     }
 
+    /// The project's files and folders, read once when the sheet opens, off the main actor as the
+    /// branches are, for the prompt's `@` completions.
+    func loadProjectFiles() async {
+        let path = project.path, git = git
+        let found = await BackgroundWork.run { ProjectFiles.list(in: path, git: git) }
+        guard !Task.isCancelled else { return }
+        completions.files = found
+    }
+
     /// What the project's `.worktreeinclude` selects, read when the sheet opens, off the main actor
     /// as the branches are: the files step 1's checkbox copies and its tooltip names. Empty — and
     /// the checkbox absent — when the project has no such file, nothing matches, or git could not

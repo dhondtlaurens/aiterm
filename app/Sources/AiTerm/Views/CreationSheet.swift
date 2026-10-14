@@ -54,6 +54,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
         .task(id: model.draft.agent) { await model.loadAgentCatalogue() }
         .task { await model.loadBranches() }
         .task { await model.loadWorktreeIncludes() }
+        .task { await model.loadProjectFiles() }
         .onDisappear { model.cancelSearch() }
     }
 
