@@ -27,10 +27,12 @@ public struct TaskWorkflow: Sendable {
         case other(reason: String)
     }
 
-    private static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
+    /// Internal, not private, for the workflow jobs that live in the folder of the feature they serve
+    /// (`TaskWorkflow+FixLanding`): Core's folders may not depend on each other in a loop.
+    static let queue = DispatchQueue(label: "aiterm.task-workflows", qos: .userInitiated)
     /// Runs every git command of a creation, removal or pull. A test passes one that runs git without
     /// the developer's own configuration.
-    private let git: any GitRunning
+    let git: any GitRunning
     public init(git: any GitRunning) { self.git = git }
 
     /// `reserved` is the worktree folders archived rows come back to, which a new one must not take.
