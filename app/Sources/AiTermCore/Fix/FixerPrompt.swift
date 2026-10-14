@@ -30,6 +30,7 @@ public enum FixerPrompt {
         \(neutral(request.title))
         \(neutral(request.reason ?? ""))
         \(neutral(request.detail ?? ""))
+        \(request.previousFailure.map { "Your last fix for this was refused: " + neutral($0) } ?? "")
         </problem>
         """
     }

@@ -20,6 +20,8 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
     case wouldOverwriteIgnored([String])
     case landingFailed(String, String)
     case cloneFailed(String)
+    /// The run was cancelled — the person left a Look. No surface shows it: the session goes back to offered.
+    case cancelled
 
     public var errorDescription: String? {
         switch self {
@@ -57,6 +59,8 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
             "Couldn’t move “\(b)”: \(reason)"
         case .cloneFailed(let reason):
             "Couldn’t prepare a copy of the repository: \(reason)"
+        case .cancelled:
+            "The fix was cancelled, so nothing was changed."
         }
     }
 }

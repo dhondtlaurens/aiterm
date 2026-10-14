@@ -12,11 +12,14 @@ public struct FixRequest: Equatable, Sendable {
     /// Whether the clone recreates the stopped rebase, so the agent sees the conflict itself.
     public var recreateRebase: Bool
     public var retry: FixRetry
+    /// Why the last fix for this problem was refused, when the person tried again: the next Look is told.
+    public var previousFailure: String?
 
     public init(title: String, reason: String?, detail: String?, projectPath: String, branch: String,
-                recreateRebase: Bool, retry: FixRetry) {
+                recreateRebase: Bool, retry: FixRetry, previousFailure: String? = nil) {
         self.title = title; self.reason = reason; self.detail = detail; self.projectPath = projectPath
         self.branch = branch; self.recreateRebase = recreateRebase; self.retry = retry
+        self.previousFailure = previousFailure
     }
 }
 
