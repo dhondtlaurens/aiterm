@@ -220,7 +220,7 @@ final class AppController {
     func restoreWorkspace() throws { try workspace.restoreBackup() }
 
     /// Launch: Backpack Mode's crash recovery, the Mac's readings, the review threads, the checkout
-    /// monitor, the agent CLI probes and the helper, each once.
+    /// monitor, the agent CLI probes, the helper and the sweep of dead fixes' clones, each once.
     func start() {
         guard workspaceLoaded, agentProbe == nil else { return }
         let backpack = self.backpack
@@ -233,6 +233,8 @@ final class AppController {
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
         helper.start()
+        // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
+        Task.detached(priority: .utility) { FixClone.sweep() }
         // The daemon launches iTerm2 only at its own start, which an AiTerm adopting the daemon a
         // previous one left running never causes: starting AiTerm is the person asking for it.
         if !itermRunning() { launchIterm() }
