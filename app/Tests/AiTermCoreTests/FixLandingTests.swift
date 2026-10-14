@@ -219,7 +219,9 @@ import Synchronization
         let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/heads/feat/x") { git, dir in
             try git.run(["update-ref", "refs/heads/feat/x", elsewhere], in: dir)
         }
-        #expect(throws: FixRefusal.branchMovedMeanwhile("feat/x")) { try Repository(world.repo, git: flaky).landFix(from: clone) }
+        #expect(throws: FixRefusal.landingFailed("feat/x", "git timed out and the branch has moved, so it was left alone. Its old tip is kept as aiterm/backup/feat/x.")) {
+            try Repository(world.repo, git: flaky).landFix(from: clone)
+        }
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
     }
 
@@ -249,6 +251,77 @@ import Synchronization
         #expect(try String(contentsOfFile: world.repo + "/.env", encoding: .utf8) == "mine\n")
         #expect(try world.sha("HEAD", in: world.repo) == old)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
+    }
+
+    /// The ignored file `a` and a fix that adds `a/b`: `reset --keep` would swap the file for a folder.
+    @Test(arguments: [true, false]) func anIgnoredFileWhereTheFixAddsAFolderIsKeptAndTheLandingRefused(fastForward: Bool) throws {
+        try git.run(["checkout", "-q", "feat/x"], in: world.repo)
+        let clone = try FixClone.make(for: request(branch: "feat/x"), git: git, root: world.root); defer { clone.remove() }
+        if fastForward {
+            try git.run(["rebase", "--abort"], in: clone.path)
+        } else {
+            try "topic=both\n".write(toFile: clone.path + "/config.ts", atomically: true, encoding: .utf8)
+            try git.run(["add", "config.ts"], in: clone.path)
+            try git.run(["-c", "core.editor=true", "rebase", "--continue"], in: clone.path)
+        }
+        try FileManager.default.createDirectory(atPath: clone.path + "/a", withIntermediateDirectories: true)
+        try "new\n".write(toFile: clone.path + "/a/b", atomically: true, encoding: .utf8)
+        try git.run(["add", "a/b"], in: clone.path)
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a/b"], in: clone.path)
+        try "a\n".write(toFile: world.repo + "/.git/info/exclude", atomically: true, encoding: .utf8)
+        try "mine\n".write(toFile: world.repo + "/a", atomically: true, encoding: .utf8)
+        let old = try world.sha("HEAD", in: world.repo)
+        #expect(throws: FixRefusal.wouldOverwriteIgnored(["a"])) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(try String(contentsOfFile: world.repo + "/a", encoding: .utf8) == "mine\n")
+        #expect(try world.sha("HEAD", in: world.repo) == old)
+        #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
+    }
+
+    /// The runner trims what git prints; a name that starts with a space must survive it.
+    @Test(arguments: [true, false]) func aNameThatStartsWithASpaceIsStillFound(fastForward: Bool) throws {
+        try git.run(["checkout", "-q", "feat/x"], in: world.repo)
+        let clone = try FixClone.make(for: request(branch: "feat/x"), git: git, root: world.root); defer { clone.remove() }
+        if fastForward { try git.run(["rebase", "--abort"], in: clone.path) }
+        else {
+            try "topic=both\n".write(toFile: clone.path + "/config.ts", atomically: true, encoding: .utf8)
+            try git.run(["add", "config.ts"], in: clone.path)
+            try git.run(["-c", "core.editor=true", "rebase", "--continue"], in: clone.path)
+        }
+        try "theirs\n".write(toFile: clone.path + "/ lead.env", atomically: true, encoding: .utf8)
+        try git.run(["add", "-f", " lead.env"], in: clone.path)
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "lead"], in: clone.path)
+        try " lead.env\n".write(toFile: world.repo + "/.git/info/exclude", atomically: true, encoding: .utf8)
+        try "mine\n".write(toFile: world.repo + "/ lead.env", atomically: true, encoding: .utf8)
+        #expect(try git.run(["status", "--porcelain", "--ignored"], in: world.repo).contains("lead.env"), "the fixture: git ignores it")
+        #expect(throws: FixRefusal.wouldOverwriteIgnored([" lead.env"])) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(try String(contentsOfFile: world.repo + "/ lead.env", encoding: .utf8) == "mine\n")
+    }
+
+    /// The backup's own write times out after git wrote it.
+    @Test(arguments: [true, false]) func aBackupWriteThatTimesOutLeavesTheEarlierBackupAsItWas(hasEarlier: Bool) throws {
+        let earlier = try world.sha("main", in: world.repo)
+        if hasEarlier { try git.run(["update-ref", "refs/aiterm/backup/feat/x", earlier], in: world.repo) }
+        let old = try world.sha("feat/x", in: world.repo)
+        let clone = try resolvedClone(); defer { clone.remove() }
+        let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/aiterm/backup/feat/x", count: 3) { git, dir in
+            try git.run(["update-ref", "refs/aiterm/backup/feat/x", old], in: dir)
+        }
+        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone) }
+        #expect(flaky.fired)
+        #expect(try git.run(["for-each-ref", "--format=%(objectname)", "refs/aiterm/backup"], in: world.repo) == (hasEarlier ? earlier : ""))
+        #expect(try world.sha("feat/x", in: world.repo) == old)
+    }
+
+    /// The branch cannot be read after a failed move: nobody knows what ran, so the backup stays.
+    @Test func aMoveThatFailsAndCannotBeReReadKeepsTheBackup() throws {
+        let old = try world.sha("feat/x", in: world.repo)
+        let earlier = try world.sha("main", in: world.repo)
+        try git.run(["update-ref", "refs/aiterm/backup/feat/x", earlier], in: world.repo)
+        let clone = try resolvedClone(); defer { clone.remove() }
+        let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/heads/feat/x", unreadableAfterwards: true) { _, _ in }
+        #expect(throws: FixRefusal.self) { try Repository(world.repo, git: flaky).landFix(from: clone) }
+        #expect(flaky.fired)
+        #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
     }
 
     @Test func aBranchMidRebaseInALinkedWorktreeIsRefusedAndNotMoved() throws {
@@ -284,11 +357,17 @@ import Synchronization
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
     }
 
-    @Test func aMergeInProgressInTheCheckoutIsRefused() throws {
+    @Test(arguments: ["sequencer", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"])
+    func anOperationInProgressInTheCheckoutIsRefused(state: String) throws {
         try git.run(["checkout", "-q", "feat/x"], in: world.repo)
         let clone = try resolvedClone(); defer { clone.remove() }
-        try FileManager.default.createDirectory(atPath: world.repo + "/.git/sequencer", withIntermediateDirectories: true)
+        let path = world.repo + "/.git/" + state
+        if state == "sequencer" { try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true) }
+        else { try (try world.sha("main", in: world.repo) + "\n").write(toFile: path, atomically: true, encoding: .utf8) }
+        let tip = try world.sha("HEAD", in: world.repo)
         #expect(throws: FixRefusal.branchInOperation("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone) }
+        #expect(try world.sha("HEAD", in: world.repo) == tip)
+        #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
     }
 
     @Test func everyLandingFailureHasItsOwnSentence() {
@@ -328,18 +407,21 @@ private final class MovingGitRunner: GitRunning {
 /// Git whose first `command` on `ref` runs `effect` (a move that did or did not happen) and then
 /// times out, as git killed at its deadline does.
 private final class TimingOutAfterGit: GitRunning {
-    private let inner: any GitRunning, command: String, ref: String
+    private let inner: any GitRunning, command: String, ref: String, count: Int, unreadable: Bool
     private let hit = Mutex(false)
     let effect: @Sendable (any GitRunning, String) throws -> Void
     var fired: Bool { hit.withLock { $0 } }
 
-    init(inner: any GitRunning, command: String, ref: String, effect: @escaping @Sendable (any GitRunning, String) throws -> Void) {
-        self.inner = inner; self.command = command; self.ref = ref; self.effect = effect
+    init(inner: any GitRunning, command: String, ref: String, count: Int = 4, unreadableAfterwards: Bool = false, effect: @escaping @Sendable (any GitRunning, String) throws -> Void) {
+        self.inner = inner; self.command = command; self.ref = ref; self.count = count; self.unreadable = unreadableAfterwards; self.effect = effect
     }
 
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
         let cmd = args.starts(with: ["-c", "core.hooksPath=/dev/null"]) ? Array(args.dropFirst(2)) : args
-        if cmd.first == command, cmd.count == 4, cmd[1] == ref, !hit.withLock({ let was = $0; $0 = true; return was }) {
+        if unreadable, fired, cmd.contains(ref + "^{commit}") {
+            throw GitError(args: args, code: 15, stderr: "git rev-parse timed out after \(timeout) s", timedOut: true)
+        }
+        if cmd.first == command, cmd.count == count, cmd[1] == ref, !hit.withLock({ let was = $0; $0 = true; return was }) {
             try effect(inner, dir)
             throw GitError(args: args, code: 15, stderr: "git \(command) timed out after \(timeout) s", timedOut: true)
         }

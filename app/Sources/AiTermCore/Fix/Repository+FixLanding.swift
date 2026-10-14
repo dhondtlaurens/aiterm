@@ -46,7 +46,16 @@ extension Repository {
             }
 
             let earlierBackup = try commit(backup)
-            try write(["update-ref", backup, old])
+            func restoreBackup() {
+                if let earlierBackup { _ = try? write(["update-ref", backup, earlierBackup]) }
+                else { _ = try? write(["update-ref", "-d", backup]) }
+            }
+            do { try write(["update-ref", backup, old]) }
+            catch {
+                // A timeout may have come after git wrote the ref: put back what was there.
+                restoreBackup()
+                throw error
+            }
             do {
                 if let holder {
                     if try isAncestor(old, of: new) {
@@ -61,23 +70,19 @@ extension Repository {
                 }
             } catch {
                 // Whatever failed — a timeout included — the branch says where things stand.
-                let now = try? commit(ref)
-                if now == new { return FixLanding(branch: branch, old: old, new: new) }
-                if now == old {
-                    // Nothing landed, so the backup an earlier fix left is put back rather than replaced.
-                    if let earlierBackup { _ = try? write(["update-ref", backup, earlierBackup]) }
-                    else { _ = try? write(["update-ref", "-d", backup]) }
-                    throw error
-                }
+                // If it cannot be read, nobody knows what ran: the backup of the old tip stays.
+                guard case .success(let tip) = Result(catching: { try commit(ref) }) else { throw error }
+                if tip == new { return FixLanding(branch: branch, old: old, new: new) }
+                if tip == old { restoreBackup(); throw error }
                 // The branch is elsewhere. When git said no, the move was refused and nothing of ours
-                // happened, so the earlier backup comes back. After a timeout nobody knows what ran,
-                // and the old tip stays safe under the backup.
+                // happened, so the earlier backup comes back.
                 if let git = error as? GitError, !git.timedOut {
-                    if let earlierBackup { _ = try? write(["update-ref", backup, earlierBackup]) }
-                    else { _ = try? write(["update-ref", "-d", backup]) }
+                    restoreBackup()
+                    throw FixRefusal.branchMovedMeanwhile(branch)
                 }
-                if now != nil { throw FixRefusal.branchMovedMeanwhile(branch) }
-                throw error
+                // After a timeout nobody knows what ran, and the old tip stays safe under the backup.
+                throw FixRefusal.landingFailed(branch, "git timed out and the branch has moved, so it was left alone. "
+                                               + "Its old tip is kept as \(FixLanding(branch: branch, old: old, new: new).backup).")
             }
             return FixLanding(branch: branch, old: old, new: new)
         } catch let refusal as FixRefusal {
@@ -107,16 +112,36 @@ extension Repository {
         }
     }
 
-    /// The files the fix changes that `dir` has as untracked, ignored files — `reset --keep` and a
-    /// merge would write over them, and nothing brings an ignored `.env` back.
+    /// The files the fix writes where `dir` has an untracked, ignored one — `reset --keep` and a
+    /// merge would write over them, and nothing brings an ignored `.env` back. That is a file at a
+    /// changed path, and a file at one of its leading directories (an ignored file `a` where the
+    /// fix adds `a/b`). Only those exact paths are asked about, so an ignored directory beneath
+    /// a changed one is not listed.
     private func ignoredFiles(changedFrom old: String, to new: String, in dir: String) throws -> [String] {
-        let changed = try git.run(["diff", "--name-only", "--no-renames", "-z", old, new], in: dir)
-            .split(separator: "\0").map(String.init)
+        // `--raw -z` lists `<meta> NUL <path> NUL` pairs. The runner trims what git prints, which
+        // would cost a first path its leading spaces; here every path follows a NUL.
+        let raw = try git.run(["diff", "--raw", "-z", "--no-renames", old, new], in: dir).split(separator: "\0").map(String.init)
+        let changed = stride(from: 1, to: raw.count, by: 2).map { raw[$0] }
+        var candidates = Set<String>(), seen = Set<String>()
+        func exists(_ relative: String) -> FileAttributeType? {
+            (try? FileManager.default.attributesOfItem(atPath: dir + "/" + relative))?[.type] as? FileAttributeType
+        }
+        for file in changed {
+            if exists(file) != nil { candidates.insert(file) }
+            var prefix = ""
+            for part in file.split(separator: "/", omittingEmptySubsequences: false).dropLast() {
+                prefix += (prefix.isEmpty ? "" : "/") + part
+                if seen.insert(prefix).inserted, let type = exists(prefix), type != .typeDirectory { candidates.insert(prefix) }
+            }
+        }
+        let ordered = candidates.sorted(), byTrimmed = Dictionary(ordered.map { ($0.trimmingCharacters(in: .whitespacesAndNewlines), $0) },
+                                                                  uniquingKeysWith: { first, _ in first })
         var found: [String] = []
-        for start in stride(from: 0, to: changed.count, by: 200) {
-            let chunk = Array(changed[start..<min(start + 200, changed.count)])
-            found += try git.run(["--literal-pathspecs", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--"] + chunk, in: dir)
-                .split(separator: "\0").map(String.init)
+        for start in stride(from: 0, to: ordered.count, by: 200) {
+            let chunk = Array(ordered[start..<min(start + 200, ordered.count)])
+            let listed = try git.run(["--literal-pathspecs", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--"] + chunk, in: dir)
+            // The runner trimmed the first name; the candidates know it whole.
+            found += listed.split(separator: "\0").map { byTrimmed[String($0).trimmingCharacters(in: .whitespacesAndNewlines)] ?? String($0) }
         }
         return found
     }
