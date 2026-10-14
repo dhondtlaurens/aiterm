@@ -57,7 +57,7 @@ struct HarnessSettingsPane: View {
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. Either takes effect immediately; Cancel does not undo it.")
+            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. The install and the Fix problems with choice both take effect immediately; Cancel does not undo them.")
         }
     }
 
@@ -142,8 +142,38 @@ struct FixerSettingsGroup: View {
     @Binding var choice: FixerChoice
     let installed: Set<AgentKind>
 
-    private enum Option: Hashable { case agent(AgentKind), off }
+    enum Option: Hashable {
+        case agent(AgentKind), off
 
+        /// The segment a choice shows as selected: a fixer that is not installed stays selected.
+        init(_ choice: FixerChoice) {
+            switch choice {
+            case .agent(let fixer): self = .agent(fixer.agent)
+            case .off: self = .off
+            }
+        }
+    }
+
+    /// What picking a segment makes of the choice: a fixer or Off changes it, an agent that cannot
+    /// fix leaves it as it was.
+    static func choice(picking option: Option, from current: FixerChoice) -> FixerChoice {
+        switch option {
+        case .off: .off
+        case .agent(let agent): agent.fixer.map(FixerChoice.agent) ?? current
+        }
+    }
+
+    /// Whether neither Claude Code nor Codex is installed, so that Off is the only segment left.
+    static func noFixerInstalled(_ installed: Set<AgentKind>) -> Bool {
+        !installed.contains { $0.fixer != nil }
+    }
+
+    /// The group's one line of help; with nothing that can fix installed it says what to do instead.
+    static func groupHelp(installed: Set<AgentKind>) -> String {
+        noFixerInstalled(installed)
+            ? "No agent that can run unattended is installed. Install Claude Code or Codex below to fix problems with it."
+            : "The agent a Fix button asks when AiTerm hits a git problem. It proposes a fix, using the model on its card below, and changes nothing until you press Apply."
+    }
     /// Whether a segment can be picked: Off always, an agent only when it can fix and is installed.
     static func isSelectable(_ agent: AgentKind, installed: Set<AgentKind>) -> Bool {
         agent.fixer != nil && installed.contains(agent)
@@ -162,7 +192,7 @@ struct FixerSettingsGroup: View {
 
     var body: some View {
         SettingsGroup(title: "Fix problems with",
-                      help: "The agent a Fix button asks when AiTerm hits a git problem. It proposes a fix and changes nothing until you press Apply, using the model on its card below.") {
+                      help: Self.groupHelp(installed: installed)) {
             SegmentedControl(values: AgentKind.allCases.map(Option.agent) + [.off], selection: selection,
                              isSelectable: { option in
                                  guard case .agent(let agent) = option else { return true }
@@ -174,7 +204,8 @@ struct FixerSettingsGroup: View {
                              }) { option, on in
                 switch option {
                 case .agent(let agent): AgentSegmentLabel(agent: agent, on: on, name: agent.fixer?.shortName)
-                case .off: Text("Off").font(on ? Typography.bodyEmphasis : Typography.body)
+                // The lone Off, with nothing else to pick, is not an emphasised choice.
+                case .off: Text("Off").font(on && !Self.noFixerInstalled(installed) ? Typography.bodyEmphasis : Typography.body)
                 }
             }
             .accessibilityIdentifier("fixer-choice")
@@ -182,12 +213,6 @@ struct FixerSettingsGroup: View {
     }
 
     private var selection: Binding<Option> {
-        Binding(get: { if case .agent(let fixer) = choice { .agent(fixer.agent) } else { .off } },
-                set: { option in
-                    switch option {
-                    case .off: choice = .off
-                    case .agent(let agent): if let fixer = agent.fixer { choice = .agent(fixer) }
-                    }
-                })
+        Binding(get: { Option(choice) }, set: { choice = Self.choice(picking: $0, from: choice) })
     }
 }

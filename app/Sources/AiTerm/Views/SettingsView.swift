@@ -88,6 +88,7 @@ struct SettingsView: View {
     let backpack: BackpackController
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,
+         // The default is for previews and tests only: the app must pass its own integrations.
          agents: AgentIntegrations = .inert(),
          itermConnection: @escaping () -> ItermConnection,
          checkIterm: @escaping () async -> ItermEnvironment,
