@@ -3,11 +3,14 @@ import Foundation
 import Darwin
 #endif
 
-/// Runs a proposal's `verify` command in the clone under `sandbox-exec`: no network, and writes
-/// only inside the clone and the per-user temporary directory. Through the login shell, so `pnpm`
-/// and friends are on `PATH` as in a terminal. Never run unconfined: without `sandbox-exec` there
-/// is no `verify` (spec §11.5). `/private/tmp` is deliberately not writable (spikes: it would let
-/// the command write outside the clone), and the profile is a string, so every path is escaped.
+/// Runs a proposal's `verify` command in the clone under `sandbox-exec`. The profile denies
+/// network (unix sockets included), writes outside the clone and the per-user temporary directory,
+/// and the lookups of LaunchServices, AppleEvents and the pasteboard — through those a command
+/// could start an app (`open`) that runs unconfined. It does not deny everything: `defaults`
+/// writes go through `cfprefsd` and remain possible. Through the login shell, so `pnpm` and
+/// friends are on `PATH` as in a terminal. Never run unconfined: without `sandbox-exec` there is
+/// no `verify` (spec §11.5). `/private/tmp` is deliberately not writable (spikes: it would let the
+/// command write outside the clone), and the profile is a string, so every path is escaped.
 public enum VerifySandbox {
     static let executable = "/usr/bin/sandbox-exec"
     public static var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: executable) }
@@ -28,6 +31,8 @@ public enum VerifySandbox {
         let temporary = realPath(NSTemporaryDirectory())
         return """
         (version 1)(allow default)(deny network*)(deny file-write*)
+        (deny mach-lookup (global-name "com.apple.coreservices.launchservicesd") (global-name "com.apple.lsd.mapdb")
+          (global-name "com.apple.lsd.modifydb") (global-name "com.apple.coreservices.appleevents") (global-name "com.apple.pasteboard.1"))
         (allow file-write* (subpath \(quoted(writableRoot))) (subpath \(quoted(temporary)))
           (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/fd/"))
         """
