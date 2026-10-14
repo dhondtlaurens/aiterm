@@ -148,6 +148,12 @@ final class FixSession {
     }
 }
 
+extension FixLanding {
+    /// What the person is told when a fix landed and the action it was for did not follow: said
+    /// after the action's new failure, or as a toast when there is none.
+    var keptSentence: String { "The fix is in; your branch as it was is kept as \(backup)." }
+}
+
 #if DEBUG
 extension FixSession {
     /// A session drawn in `state` — or the one `fixer` starts it in, when nil — as the snapshots

@@ -33,12 +33,13 @@ import Foundation
                           recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void = { _ in },
                           fixer: FixerResolution = .off, pipeline: FixPipeline = .stub(look: .none("n")),
                           fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
+                          backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in },
                           canChangeWorkspace: @escaping @MainActor () -> Bool = { true }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
                             home: ScratchHome.bare, availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, git: .hermetic(),
                             canChangeWorkspace: canChangeWorkspace,
                             searchMergeRequests: search, createReview: create, recover: recover,
-                            fixer: { fixer }, pipeline: pipeline, fixLanded: fixLanded)
+                            fixer: { fixer }, pipeline: pipeline, fixLanded: fixLanded, backupKept: backupKept)
     }
 
     /// The GitLab connection and the project's remote are read once, when the sheet is prepared —

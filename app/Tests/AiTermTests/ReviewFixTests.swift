@@ -80,12 +80,14 @@ import AiTermUI
     }
 
     /// A retried create that fails again shows its own failure, which may offer a Fix of its own;
-    /// the sheet stays up and nothing is announced.
+    /// the sheet stays up, nothing is announced, and the failure says where the branch as it was
+    /// is kept.
     @Test func aCreateAfterTheFixThatFailsAgainShowsTheNewFailure() async throws {
-        var landed = 0
+        var landed = 0, kept = 0
         let model = ReviewCreationModelTests.makeModel(create: { _ in
             throw WorktreeError.rebaseConflicted("feat/x", detail: "CONFLICT")
-        }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)), fixLanded: { _, _ in landed += 1 })
+        }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)), fixLanded: { _, _ in landed += 1 },
+           backupKept: { _ in kept += 1 })
         model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
@@ -98,15 +100,24 @@ import AiTermUI
         let second = try #require(model.fixSession)
         #expect(second !== first)
         #expect(second.state == .offered, "a new offer for the new failure")
+        let note = "The fix is in; your branch as it was is kept as aiterm/backup/feat/x."
+        #expect(model.error?.afterFix == note)
+        #expect(model.error?.fix?.reason?.contains("aiterm/backup") == false, "the next fix's problem is git's alone")
+        let offered = "Rebasing “feat/x” onto origin’s hit a conflict, so it was left as it was. " + note
+        #expect(FixFooterPresentation(error: model.error, state: second.state, fixer: .claude, lastProposal: nil).lead
+                == .failure(offered, help: offered))
+        let byHand = "Rebasing “feat/x” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand. " + note
+        #expect(FixFooterPresentation(error: model.error, state: nil, fixer: nil, lastProposal: nil).lead == .failure(byHand, help: byHand))
+        #expect(kept == 0, "said in the failure, not a toast as well")
     }
 
     /// A landed fix whose create cannot start — the workspace locked meanwhile — lets its session
     /// go, so the footer is the sheet's again rather than a finished Apply that never ends.
     @Test func aCreateThatCannotStartAfterTheFixLetsTheSessionGo() async throws {
-        var locked = false
+        var locked = false, kept: [FixLanding] = []
         let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
                                                        fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)),
-                                                       canChangeWorkspace: { !locked })
+                                                       backupKept: { kept.append($0) }, canChangeWorkspace: { !locked })
         model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
@@ -121,7 +132,30 @@ import AiTermUI
         await session.settled()
         #expect(model.fixSession == nil)
         #expect(!model.createdAfterFix)
-        #expect(model.error?.fix != nil, "the failure it was offered for stays")
+        #expect(model.error == nil, "the failure the fix answered goes with it")
+        #expect(kept.map(\.backup) == ["aiterm/backup/feat/x"], "the toast says where the branch as it was is kept")
+    }
+
+    /// A fix that lands once the draft has moved to another branch creates nothing — that create
+    /// was for the old branch — and drops the old branch's failure; the toast names the backup.
+    @Test func aFixThatLandsAfterTheBranchChangedCreatesNothingAndNamesTheBackup() async throws {
+        var created = 0, kept: [FixLanding] = []
+        let model = ReviewCreationModelTests.makeModel(create: { _ in
+            created += 1
+            throw WorktreeError.rebaseConflicted("feat/x", detail: nil)
+        }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)), backupKept: { kept.append($0) })
+        model.draft.setBranch("feat/x")
+        await model.loadAgentCatalogue()
+        _ = await model.create()
+        let session = try #require(model.fixSession)
+        session.start(); await session.settled()
+        model.applyFix()
+        model.draft.setBranch("feat/y")   // while it applies: the failure is held until it lands
+        #expect(model.fixSession === session && model.error != nil)
+        await session.settled()
+        #expect(created == 1)
+        #expect(model.fixSession == nil && model.error == nil)
+        #expect(kept.map(\.backup) == ["aiterm/backup/feat/x"])
     }
 
     /// Going back and picking another branch drops the failure and its offer: both were about the

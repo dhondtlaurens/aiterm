@@ -245,16 +245,10 @@ final class SheetCoordinator {
                             createReview: { try await launcher.createReview(draft: $0, project: project) },
                             recover: { try await launcher.recover($0, in: project) },
                             fixer: { [agents] in agents.fixer },
-                            pipeline: .live(git: git, workflow: workflow, project: project, model: Self.fixerModel(remembered: state.lastModelByAgent),
+                            pipeline: .live(git: git, workflow: workflow, project: project,
+                                            model: AgentIntegrations.fixerModels(remembered: state.lastModelByAgent),
                                             locate: { HarnessCommandRunner.live.locate($0) }),
-                            fixLanded: { launcher.announceFix($0, by: $1) })
-    }
-
-    /// The model and reasoning a fixer runs with: its card's default in Settings › Agents, else the
-    /// model last picked for that agent — read as each run starts, off the main actor.
-    private static func fixerModel(remembered: [AgentKind: String]) -> @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
-        { fixer in
-            ModelSettings.load(for: fixer.agent).map { ($0.model, $0.reasoning) } ?? (remembered[fixer.agent] ?? "", nil)
-        }
+                            fixLanded: { launcher.announceFix($0, by: $1) },
+                            backupKept: { launcher.announceBackup($0) })
     }
 }

@@ -34,6 +34,20 @@ final class AgentIntegrations {
     }
     /// What every Fix button is: the chosen agent when installed, else named as missing, or Off.
     var fixer: FixerResolution { fixerChoice.resolve(installed: availableAgents) }
+
+    /// The model and reasoning a fixer runs with, for every surface's Fix: its card's default in
+    /// Settings › Agents, else the model last picked for that agent (`remembered`, the workspace's),
+    /// else empty — the agent's own default (`FixerLaunch.modelWords`). Read as each run starts,
+    /// off the main actor.
+    nonisolated static func fixerModel(_ agent: FixerAgent, remembered: [AgentKind: String],
+                                       defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
+        ModelSettings.load(for: agent.agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent.agent] ?? "", nil)
+    }
+
+    /// `fixerModel` over the models remembered when a surface offers its Fix, as a pipeline asks for it.
+    nonisolated static func fixerModels(remembered: [AgentKind: String]) -> @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
+        { fixerModel($0, remembered: remembered) }
+    }
     private let defaults: UserDefaults
 
     /// The model each agent last ran with, from the workspace. Read live by the Settings model,

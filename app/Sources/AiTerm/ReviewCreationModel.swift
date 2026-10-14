@@ -86,12 +86,13 @@ extension CreationModel where Kind == ReviewCreation {
                      createReview: @escaping @MainActor (ReviewDraft) async throws -> Void,
                      recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void,
                      fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
-                     fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in }) {
+                     fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
+                     backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
         self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home,
                   availableAgents: availableAgents, rememberedModels: rememberedModels, catalogue: catalogue,
                   initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure, defaults: defaults,
                   git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview,
-                  fixer: fixer, pipeline: pipeline, fixLanded: fixLanded)
+                  fixer: fixer, pipeline: pipeline, fixLanded: fixLanded, backupKept: backupKept)
         findOwningTask()
     }
 

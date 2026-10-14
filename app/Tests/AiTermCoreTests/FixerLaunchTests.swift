@@ -90,6 +90,30 @@ final class FixerLaunchTests {
         #expect(prompt.contains(applying ? "Apply exactly" : "<problem>"))
     }
 
+    /// An empty model is the agent's own default: neither it nor the reasoning is passed, in either
+    /// run of either agent — `--model ""` would fail every fix for someone with no default set.
+    @Test(arguments: FixerAgent.allCases, [true, false])
+    func anEmptyModelLeavesTheAgentToItsOwnDefault(_ agent: FixerAgent, _ applying: Bool) throws {
+        let inv = applying
+            ? try FixerLaunch.apply(agent, model: "", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
+            : try FixerLaunch.look(agent, model: "", reasoning: "high", clone: clone, request: request, sessionID: "S")
+        #expect(!inv.arguments.contains("--model") && !inv.arguments.contains("-m"))
+        #expect(!inv.arguments.contains("--effort") && !inv.arguments.contains { $0.hasPrefix("model_reasoning_effort") })
+        #expect(!inv.arguments.contains(""))
+    }
+
+    /// A model given is passed with its reasoning, in either run of either agent.
+    @Test(arguments: FixerAgent.allCases, [true, false])
+    func aModelIsPassedWithItsReasoning(_ agent: FixerAgent, _ applying: Bool) throws {
+        let inv = applying
+            ? try FixerLaunch.apply(agent, model: "m1", reasoning: "high", clone: clone, proposal: proposal, sessionID: "S")
+            : try FixerLaunch.look(agent, model: "m1", reasoning: "high", clone: clone, request: request, sessionID: "S")
+        switch agent {
+        case .claude: #expect(inv.arguments.containsSequence(["--model", "m1", "--effort", "high"]))
+        case .codex: #expect(inv.arguments.containsSequence(["-m", "m1", "-c", "model_reasoning_effort=high"]))
+        }
+    }
+
     // -- Codex --
 
     @Test func codexLooksInAReadOnlySandboxInTheClone() throws {

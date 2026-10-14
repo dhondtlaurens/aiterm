@@ -6,6 +6,9 @@ public struct FixLanding: Equatable, Sendable {
     /// The old tip's name for a person: `refs/aiterm/backup/<branch>`, not under `refs/heads`, so no
     /// branch picker lists it.
     public var backup: String { "aiterm/backup/" + branch }
+
+    /// For the app's snapshots and tests, which draw a landing outside a `@testable` import.
+    public init(branch: String, old: String, new: String) { self.branch = branch; self.old = old; self.new = new }
 }
 
 extension Repository {

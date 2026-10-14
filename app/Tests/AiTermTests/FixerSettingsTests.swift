@@ -23,6 +23,19 @@ import Foundation
         #expect(FixerSettings.load(defaults: defaults, installed: []) == .agent(.claude))
     }
 
+    /// The model a fixer runs with, for New Review's footer and the banner alike: its card's default
+    /// in Settings › Agents, else the model last picked for that agent, else empty — the agent's own.
+    @Test func aFixerRunsWithItsCardsDefaultElseTheModelLastPickedElseItsOwn() {
+        let defaults = ScratchDefaults.make()
+        let none = AgentIntegrations.fixerModel(.claude, remembered: [:], defaults: defaults)
+        #expect(none.model == "" && none.reasoning == nil)
+        let remembered = AgentIntegrations.fixerModel(.codex, remembered: [.codex: "gpt-5", .claude: "opus"], defaults: defaults)
+        #expect(remembered.model == "gpt-5" && remembered.reasoning == nil)
+        ModelSettings.save(ModelPreference(model: "sonnet", reasoning: "high"), for: .claude, defaults: defaults)
+        let card = AgentIntegrations.fixerModel(.claude, remembered: [.claude: "opus"], defaults: defaults)
+        #expect(card.model == "sonnet" && card.reasoning == "high")
+    }
+
     @Test func aSavedChoiceSurvivesTheProbe() async {
         let defaults = ScratchDefaults.make()
         FixerSettings.save(.off, defaults: defaults)

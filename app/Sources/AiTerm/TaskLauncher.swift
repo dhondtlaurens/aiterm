@@ -64,6 +64,11 @@ final class TaskLauncher {
         notices.showToast("Review created after \(agent.shortName)’s fix. Your old commits are kept as \(landing.backup).")
     }
 
+    /// A fix that landed with no review after it and no failure to say so: where the branch as it was is kept.
+    func announceBackup(_ landing: FixLanding) {
+        notices.showToast(landing.keptSentence)
+    }
+
     /// The review as a tab in `owner`'s window, running the reviewer in the task's worktree — or
     /// the window itself, reopened with the reviewer, when the task has none. Nothing is written
     /// to disk and no row is added, so closing the tab ends the review and there is nothing whose

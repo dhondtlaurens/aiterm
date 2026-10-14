@@ -54,7 +54,7 @@ struct FixFooterPresentation: Equatable {
         let byHand = error?.reasonByHand
         switch state {
         case .offered?:
-            lead = error.map { failure($0.reason, help: $0.detail) }
+            lead = error.map { failure($0.shownReason, help: $0.detail) }
             offer = Offer(title: "Fix with \(name)", isEnabled: true, retries: false,
                           help: "\(name) reads the problem and proposes a fix; nothing changes until you press Apply.")
             buttons = .sheet

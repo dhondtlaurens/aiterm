@@ -21,7 +21,7 @@ public enum FixerLaunch {
     static let claudeNoWeb = ["WebFetch", "WebSearch"]
     /// Codex's per-run hook switch (spikes: `-c 'hooks={}'` is accepted and does nothing), and no
     /// user config: its MCP servers would run outside the sandbox with network and credentials.
-    /// Auth still comes from `CODEX_HOME`; the model is always passed.
+    /// Auth still comes from `CODEX_HOME`; the model is passed whenever there is one (`modelWords`).
     static let codexQuiet = ["--ignore-user-config", "--disable", "hooks"]
     /// An answer file larger than this is not an answer.
     static let answerLimit = 1_000_000
@@ -38,8 +38,12 @@ public enum FixerLaunch {
         ["Edit(/\(clone.path)/**)", "Write(/\(clone.path)/**)"]
     }
 
+    /// The model and its reasoning, as each agent takes them. An empty model is the agent's own
+    /// default — no card default and no model picked yet — so neither is passed: `--model ""`
+    /// fails the run.
     static func modelWords(_ agent: FixerAgent, _ model: String, _ reasoning: String?) -> [String] {
-        switch agent {
+        guard !model.isEmpty else { return [] }
+        return switch agent {
         case .claude: ["--model", model] + (reasoning.map { ["--effort", $0] } ?? [])
         case .codex: ["-m", model] + (reasoning.map { ["-c", "model_reasoning_effort=\($0)"] } ?? [])
         }

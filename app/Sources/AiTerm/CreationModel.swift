@@ -39,6 +39,9 @@ struct CreationFailure: Equatable {
     /// `reason` leaves out while a Fix is offered, since the button is the way out then. The footer
     /// puts it back when no fix can help: Fix turned off, its agent not installed, or no fix found.
     let byHand: String?
+    /// Once a fix has landed and the create it was for failed again: where the branch as it was is
+    /// kept (`FixLanding.keptSentence`), said after the new failure. Never part of the next fix's problem.
+    var afterFix: String?
 
     init(reason: String, detail: String?, recovery: Recovery? = nil) {
         self.reason = reason; self.detail = detail; self.recovery = recovery; fix = nil; byHand = nil
@@ -74,8 +77,10 @@ struct CreationFailure: Equatable {
         reason = sentence + offer
     }
 
+    /// `reason`, and what a landed fix left behind: what the footer says while a fix is offered.
+    var shownReason: String { [reason, afterFix].compactMap { $0 }.joined(separator: " ") }
     /// `reason` with `byHand` put back: what the footer says while no fix can help.
-    var reasonByHand: String { [reason, byHand].compactMap { $0 }.joined(separator: " ") }
+    var reasonByHand: String { [reason, byHand, afterFix].compactMap { $0 }.joined(separator: " ") }
 }
 
 /// What one kind of creation sheet brings to `CreationModel`: what it searches and builds, and what
@@ -189,6 +194,9 @@ final class CreationModel<Kind: CreationKind> {
     private let pipeline: FixPipeline?
     /// Told once a fix's create succeeded, with the landing and the agent that made it: the toast.
     private let fixLanded: @MainActor (FixLanding, FixerAgent) -> Void
+    /// Told once a fix landed but no create followed that could say so in its failure — it never
+    /// started, or the draft had moved to another branch: the toast naming the backup.
+    private let backupKept: @MainActor (FixLanding) -> Void
 
     init(kind: Kind, project: Project, draft: Draft, home: URL, availableAgents: @escaping @MainActor () -> Set<AgentKind>,
          rememberedModels: [AgentKind: String],
@@ -197,7 +205,8 @@ final class CreationModel<Kind: CreationKind> {
          reservedSlugs: Set<String> = [], canChangeWorkspace: @escaping @MainActor () -> Bool,
          search: @escaping @MainActor (String) async throws -> [Item], submit: @escaping @MainActor (Draft) async throws -> Void,
          fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
-         fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in }) {
+         fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
+         backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
         var fields = draft
         fields.promptText = ""
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
@@ -207,7 +216,7 @@ final class CreationModel<Kind: CreationKind> {
         self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
         self.canChangeWorkspace = canChangeWorkspace
         self.searchItems = search; self.submit = submit
-        self.fixer = fixer; self.pipeline = pipeline; self.fixLanded = fixLanded
+        self.fixer = fixer; self.pipeline = pipeline; self.fixLanded = fixLanded; self.backupKept = backupKept
     }
 
     /// The draft as create submits it, prompt included. A view reading it is not redrawn as the
@@ -448,21 +457,32 @@ final class CreationModel<Kind: CreationKind> {
     }
 
     /// Once the fix has landed, the create it stopped runs again; a create that fails shows its own
-    /// failure, which may offer a Fix of its own.
+    /// failure, which may offer a Fix of its own. Whenever no review follows, the person is told
+    /// where the branch as it was is kept: after the new failure, or in a toast when there is none.
     private func makeFixSession(_ request: FixRequest, pipeline: FixPipeline) -> FixSession {
         let resolution = fixer()
         let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
         return FixSession(request: request, fixer: resolution, pipeline: pipeline) { [weak self] landing in
             guard let self else { return }
-            // A draft on another branch is not the create this fix was for.
-            guard self.kind.fixApplies(request, to: self.draft), await self.create() else {
+            // A draft on another branch is not the create this fix was for, and the failure still
+            // up — held while the fix applied — was about the branch it left.
+            guard self.kind.fixApplies(request, to: self.draft) else { return self.landedWithoutCreate(landing) }
+            guard await self.create() else {
                 // A create that never started — the workspace locked meanwhile — showed nothing, so
-                // the landed session is still here: let it go, and the footer is the sheet's again.
-                if case .done? = self.fixSession?.state { self.fixSession = nil }
+                // the landed session is still here, beside the failure the fix answered: let both
+                // go, and the footer is the sheet's again.
+                if case .done? = self.fixSession?.state { return self.landedWithoutCreate(landing) }
+                if self.error != nil { self.error?.afterFix = landing.keptSentence } else { self.backupKept(landing) }
                 return
             }
             if let agent { self.fixLanded(landing, agent) }
             self.createdAfterFix = true
         }
+    }
+
+    /// A landed fix with no create after it: its failure goes, and the toast names the backup.
+    private func landedWithoutCreate(_ landing: FixLanding) {
+        show(nil)
+        backupKept(landing)
     }
 }
