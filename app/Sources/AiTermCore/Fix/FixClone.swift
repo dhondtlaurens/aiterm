@@ -23,7 +23,10 @@ public struct FixClone: Sendable {
     let git: any GitRunning
 
     public static func make(for request: FixRequest, git: any GitRunning,
-                            root: String = NSTemporaryDirectory()) throws(FixRefusal) -> FixClone {
+                            root requestedRoot: String = NSTemporaryDirectory()) throws(FixRefusal) -> FixClone {
+        // The real path (`/private/var/…`, not `/var/…`, which `resolvingSymlinksInPath` would keep):
+        // a sandbox profile names the clone by it.
+        let root = VerifySandbox.realPath(requestedRoot)
         let path = (root as NSString).appendingPathComponent(prefix + UUID().uuidString)
         do {
             let project = request.projectPath, branch = request.branch
