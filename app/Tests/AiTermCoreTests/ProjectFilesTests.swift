@@ -77,6 +77,41 @@ import Testing
         #expect(names(index.matches("app/")) == ["app/lib/", "app/main.swift", "app/lib/util.swift"])
     }
 
+    /// `@../` lists the folder above the project from disk. The task's agent runs in a worktree
+    /// under `.worktrees/`, where `../` is somewhere else, so a pick outside the project is written
+    /// as its absolute path, and the project's own folder as `./`.
+    @Test func dotDotListsTheFolderAboveTheProject() throws {
+        let parent = try GitFixture.folder("pf-up-")
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        let project = parent + "/proj"
+        try write("", "README.md", in: project)
+        try write("", "sibling/notes.md", in: parent)
+        try write("", "other.txt", in: parent)
+        try write("", ".hidden", in: parent)
+        let index = FileIndex(paths: ["README.md"], root: project)
+        let above = URL(fileURLWithPath: parent).standardizedFileURL.path
+
+        #expect(names(index.matches("../")) == ["./", above + "/sibling/", above + "/other.txt"])
+        #expect(index.matches("../").map(\.kind) == [.folder, .folder, .file])
+        #expect(names(index.matches("../SIB")) == [above + "/sibling/"])
+        #expect(names(index.matches("../.h")) == [above + "/.hidden"], "a hidden entry once its dot is typed")
+        // A picked folder is written as its absolute path, so completing goes on from there.
+        #expect(names(index.matches(above + "/sibling/")) == [above + "/sibling/notes.md"])
+        #expect(index.matches("../nowhere/").isEmpty)
+    }
+
+    /// A way back into the project is written from its root, as any other path in it is.
+    @Test func aPathBackIntoTheProjectIsWrittenFromItsRoot() throws {
+        let parent = try GitFixture.folder("pf-back-")
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        let project = parent + "/proj"
+        try write("", "app/main.swift", in: project)
+        let index = FileIndex(paths: ["app/main.swift"], root: project)
+
+        #expect(names(index.matches("../proj/")) == ["app/"])
+        #expect(names(index.matches("./ap")) == ["app/", "app/main.swift"], "./ reads as the project's root")
+    }
+
     @Test func matchingStopsAtTheLimit() {
         let index = FileIndex(paths: (0..<50).map { "file\($0).txt" })
         #expect(index.matches("file").count == SkillCatalog.matchLimit)
