@@ -165,17 +165,30 @@ final class ProjectActions {
 
     /// "Pull main": the project's default branch brought to origin's, fast-forward only. Git's
     /// own state, not the workspace's, so a locked workspace does not stop it.
+    ///
+    /// `after` is the fix that landed for the banner's last refusal, and the agent that made it:
+    /// whatever the pull then does, the person is told where the branch as it was is kept — in its
+    /// toast, after its new failure, or in a toast of its own when it cannot start.
     @discardableResult
-    func pullDefault(project: Project) -> Task<Void, Never>? {
-        changeDefaultBranch(of: project, { [workflow] in try await workflow.pullDefaultBranch(of: project).toast },
-                            failure: { .pullRefused($0, in: project.id) })
+    func pullDefault(project: Project, after fix: (landing: FixLanding, agent: FixerAgent?)? = nil) -> Task<Void, Never>? {
+        let pull = changeDefaultBranch(of: project, { [workflow] in
+            let toast = try await workflow.pullDefaultBranch(of: project).toast
+            guard let fix else { return toast }
+            return "After \(fix.agent.map { $0.shortName + "’s" } ?? "the") fix, \(toast) Your old commits are kept as \(fix.landing.backup)."
+        }, failure: { error in
+            var issue = OperationIssue.pullRefused(error, in: project.id, projectPath: project.path)
+            if let fix { issue.reason = [issue.reason, fix.landing.keptSentence].compactMap { $0 }.joined(separator: " ") }
+            return issue
+        })
+        if pull == nil, let fix { notices.showToast(fix.landing.keptSentence) }
+        return pull
     }
 
     /// The banner's Rebase, after "Pull main" found the branches diverged. Held like a pull, so
     /// the menu's Pull main waits for it.
     func rebaseDefault(project: Project) -> Task<Void, Never>? {
         let rebase = changeDefaultBranch(of: project, { [workflow] in try await workflow.rebaseDefaultBranch(of: project).toast },
-                                         failure: { OperationIssue(title: "Couldn’t rebase the default branch.", error: $0) })
+                                         failure: { .rebaseRefused($0, in: project.id, projectPath: project.path) })
         if rebase != nil { notices.clearIssue() }
         return rebase
     }

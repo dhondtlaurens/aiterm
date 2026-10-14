@@ -994,7 +994,8 @@ import Testing
         #expect(controller.state.projects.isEmpty)
         #expect(prompter.asked.isEmpty)
         #expect(controller.issue == OperationIssue(title: "Couldn’t add the project.",
-                                                   reason: "Git timed out after \(GitRunner.localTimeout) s."))
+                                                   reason: "Git timed out after \(GitRunner.localTimeout) s.",
+                                                   detail: "git rev-parse --show-toplevel failed:\ngit timed out after \(GitRunner.localTimeout) s"))
     }
 
     /// A repository holding one worktree of each kind, made by the same calls the app makes: a

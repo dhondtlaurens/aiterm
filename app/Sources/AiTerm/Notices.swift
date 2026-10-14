@@ -14,6 +14,10 @@ final class Notices {
     /// The latest report that had nothing to offer while `issue` held a question: it waits here, and
     /// takes the banner once the question is answered or dismissed. Not drawn, so not observed.
     @ObservationIgnored private var deferredIssue: OperationIssue?
+    /// The Fix offered for the shown issue, made when an issue with a problem to fix (`fix`) is
+    /// shown, and let go of with it. While it looks, proposes or applies it holds the banner
+    /// (`FixSession.State.holdsSurface`): a new issue waits, as one waits behind a question.
+    private(set) var fixSession: FixSession?
     private(set) var toastState = ToastState()
 
     /// How long a completion toast stays up.
@@ -22,10 +26,21 @@ final class Notices {
     private let isStale: @MainActor (OperationIssue) -> Bool
     /// Who hears that the banner about a task was dismissed, or replaced by one about something else.
     @ObservationIgnored private var withdrawnHooks: [@MainActor (UUID) -> Void] = []
+    /// Makes the session for an issue's problem: nil when there is none to make — no pipeline for
+    /// it, or the project it is about gone.
+    @ObservationIgnored private var makeFix: @MainActor (FixRequest) -> FixSession?
 
-    init(toastLifetime: Duration, isStale: @escaping @MainActor (OperationIssue) -> Bool) {
+    init(toastLifetime: Duration, isStale: @escaping @MainActor (OperationIssue) -> Bool,
+         makeFix: @escaping @MainActor (FixRequest) -> FixSession? = { _ in nil }) {
         self.toastLifetime = toastLifetime
         self.isStale = isStale
+        self.makeFix = makeFix
+    }
+
+    /// Sets who makes an issue's Fix: the controller, once the owners a session needs are built
+    /// after these notices.
+    func makesFixes(with make: @escaping @MainActor (FixRequest) -> FixSession?) {
+        makeFix = make
     }
 
     /// Adds `hook` to what hears that the banner about a task was dismissed, or replaced by one
@@ -52,8 +67,16 @@ final class Notices {
     /// its Keep or Delete from someone who has not answered yet. It waits (the newest one) until
     /// the question is gone, and is logged meanwhile. The toast cannot carry it: it is the
     /// completion toast, a checkmark and all.
+    ///
+    /// A fix at work holds the banner the same way, against any report, a question included: what
+    /// it looks at, proposes or applies is the shown issue's (`fixEnded()` lets the held one up).
     func report(_ issue: OperationIssue) {
         guard !isStale(issue) else { return }
+        if fixSession?.state.holdsSurface == true {
+            Log.ui.notice("Held back while a fix is at work: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
+            deferredIssue = issue
+            return
+        }
         if issue.actions.isEmpty, self.issue?.actions.isEmpty == false {
             Log.ui.notice("Held back while a question is waiting: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
             deferredIssue = issue
@@ -61,25 +84,49 @@ final class Notices {
         }
         if let shown = self.issue, shown.subject != issue.subject { withdraw(shown) }
         self.issue = issue
+        offerFix(for: issue)
     }
 
     /// A failure with nothing to offer but Dismiss.
     func report(_ message: String) { report(OperationIssue(title: message)) }
 
     /// Dismissed, a removal that stopped with nothing deleted is just a task again. One that got
-    /// past its worktree still waits on a retry, and its row keeps saying so.
+    /// past its worktree still waits on a retry, and its row keeps saying so. A fix being applied
+    /// cannot be dismissed — a half-made fix is not left behind — and a Look or a proposal is
+    /// stopped with it, not left running for minutes in a clone nobody shows.
     func dismissIssue() {
+        switch fixSession?.state { case .applying?, .done?: return; default: break }
         if let issue { withdraw(issue) }
         clearIssue()
     }
 
     /// Takes the banner down, and puts up what was held back behind it, if its row is still there.
-    /// For an action that answered the banner's question.
+    /// For an action that answered the banner's question. Its Fix goes with it: a Look stops and a
+    /// proposal is declined; one being applied runs on to its end unseen.
     func clearIssue() {
         issue = nil
+        offerFix(for: nil)
         guard let held = deferredIssue else { return }
         deferredIssue = nil
-        if !isStale(held) { issue = held }
+        if !isStale(held) {
+            issue = held
+            offerFix(for: held)
+        }
+    }
+
+    /// The banner's Cancel: stops the Look or declines the proposal — nothing while a fix is
+    /// applied — then lets up what waited behind it.
+    func cancelFix() {
+        fixSession?.cancel()
+        fixEnded()
+    }
+
+    /// Once the fix no longer holds the banner, what was held back while it did is reported again,
+    /// by the usual rules: it takes the banner, unless it has nothing to offer over a question.
+    func fixEnded() {
+        guard fixSession?.state.holdsSurface != true, let held = deferredIssue else { return }
+        deferredIssue = nil
+        report(held)
     }
 
     /// Drops whatever is about task `id`, shown or held back — the held one first, so taking the
@@ -94,6 +141,15 @@ final class Notices {
     func dropStale() {
         if let held = deferredIssue, isStale(held) { deferredIssue = nil }
         if let issue, isStale(issue) { clearIssue() }
+    }
+
+    /// A new session for `issue`'s problem, if it has one, in place of the last: let go of, not
+    /// orphaned — a Look stops and a proposal is declined, each removing its clone.
+    private func offerFix(for issue: OperationIssue?) {
+        let session = issue?.fix.flatMap { makeFix($0) }
+        guard session !== fixSession else { return }
+        fixSession?.cancel()
+        fixSession = session
     }
 
     private func withdraw(_ issue: OperationIssue) {

@@ -73,6 +73,9 @@ final class AppController {
     /// Opens a row's context menu from the keyboard (`RowMenuAnchor`). A test records the call
     /// instead: the menu tracks modally, and ending that stopped a test host's run loop.
     @ObservationIgnored var openRowMenu: @MainActor (UUID) -> Void = { RowMenuAnchor.openMenu(for: $0) }
+    /// What the banner's Fix runs for a project: the live pipeline — a clone, the agent, AiTerm's
+    /// landing — which a test replaces with a stub, as it does `openRowMenu`.
+    @ObservationIgnored var fixPipeline: @MainActor (Project) -> FixPipeline
     let git: any GitRunning
     /// Writes the Dock tile's badge. Only the app has a Dock tile to write, so the default is none.
     private let setBadge: @MainActor (String?) -> Void
@@ -195,6 +198,11 @@ final class AppController {
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
+        fixPipeline = { [workspace] project in
+            .live(git: git, workflow: workflow, project: project,
+                  model: AgentIntegrations.fixerModels(remembered: workspace.state.lastModelByAgent),
+                  locate: { HarnessCommandRunner.live.locate($0) })
+        }
         // The rows are derived again whenever something they are made of may have changed, and the
         // Dock badge recounted when they did or a removal moved.
         live.onRowSessionsChanged { [weak self] in self?.refreshRows() }
@@ -213,6 +221,8 @@ final class AppController {
         workspace.onChange { [weak notices] in notices?.dropStale() }
         workspace.onChange { [weak self] in self?.refreshRows() }
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
+        // The banner's Fix needs the agents and the pull, both built after the notices.
+        notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -399,6 +409,23 @@ final class AppController {
         case .rebaseDefault(let id):
             guard let project = state.project(id: id) else { return nil }
             return projects.rebaseDefault(project: project)
+        }
+    }
+
+    /// The banner's Fix for a refused Pull main or its rebase, with the agent Settings names: once
+    /// the fix has landed, the banner goes, what waited behind it comes up, and the pull runs
+    /// again — saying where the branch as it was is kept, however it ends. None for a problem
+    /// another surface retries, or for a project that has gone.
+    private func makeFix(for request: FixRequest) -> FixSession? {
+        guard case .pullDefault(let id) = request.retry, let project = state.project(id: id) else { return nil }
+        let resolution = agents.fixer
+        let agent: FixerAgent? = switch resolution { case .ready(let agent), .missing(let agent): agent; case .off: nil }
+        return FixSession(request: request, fixer: resolution, pipeline: fixPipeline(project)) { [weak self] landing in
+            guard let self else { return }
+            // Only this fix's banner: nothing replaces it while it lands, and the landed session is the shown one.
+            if case .done? = notices.fixSession?.state { notices.clearIssue() }
+            guard let project = state.project(id: id) else { return }
+            projects.pullDefault(project: project, after: (landing, agent))
         }
     }
 

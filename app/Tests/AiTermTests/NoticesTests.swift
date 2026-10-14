@@ -109,6 +109,116 @@ struct NoticesTests {
         #expect(rows.withdrawn.isEmpty, "answered, not withdrawn")
     }
 
+    // -- the Fix an issue offers ------------------------------------------------------------
+
+    private let proposal = FixProposal(headline: "h", why: "w", steps: ["s"], moves: ["main"], drops: [], verify: nil)
+
+    /// Notices whose fixes are made by `make`, and the sessions made so far.
+    private final class Made { var sessions: [FixSession] = [] }
+    private func fixing(_ made: Made, _ make: @escaping @MainActor (FixRequest) -> FixSession) -> Notices {
+        Notices(toastLifetime: .seconds(10), isStale: { _ in false }, makeFix: { request in
+            let session = make(request)
+            made.sessions.append(session)
+            return session
+        })
+    }
+
+    @Test func aNewIssueWaitsWhileAFixIsBusy() async {
+        let notices = Notices(toastLifetime: .seconds(10), isStale: { _ in false },
+                              makeFix: { FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .none("n"), slowLook: true), retry: { _ in }) })
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: FixRequest.sample))
+        notices.fixSession?.start()
+        notices.report(OperationIssue(title: "Something else"))
+        #expect(notices.issue?.title == "Couldn’t pull.", "held while the fix looks")
+        notices.fixSession?.cancel(); await notices.fixSession?.settled()
+        notices.fixEnded()
+        #expect(notices.issue?.title == "Something else")
+    }
+
+    /// An issue with a problem to fix gets a session; one without, none; and the next issue's
+    /// replaces the last's while it is only offered.
+    @Test func anIssueWithAFixGetsASessionOfItsOwn() {
+        let made = Made()
+        let notices = fixing(made) { FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .none("n")), retry: { _ in }) }
+        notices.report(OperationIssue(title: "Plain"))
+        #expect(notices.fixSession == nil && made.sessions.isEmpty)
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        let first = notices.fixSession
+        #expect(first != nil && first?.state == .offered)
+        notices.report(OperationIssue(title: "Couldn’t pull again.", fix: .sample))
+        #expect(notices.fixSession !== first && notices.fixSession != nil)
+        notices.report(OperationIssue(title: "Plain"))
+        #expect(notices.fixSession == nil)
+    }
+
+    /// A proposal waiting on Apply holds the banner as a Look does; Cancel declines it and puts up
+    /// what waited.
+    @Test func aProposalHoldsTheBannerUntilItIsCancelled() async {
+        let notices = fixing(Made()) { FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .fix(self.proposal)), retry: { _ in }) }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        let session = notices.fixSession
+        session?.start(); await session?.settled()
+        #expect(session?.state == .proposal(proposal))
+        notices.report(OperationIssue(title: "Something else"))
+        #expect(notices.issue?.title == "Couldn’t pull.")
+        notices.cancelFix()
+        #expect(session?.state == .offered, "declined")
+        #expect(notices.issue?.title == "Something else")
+        #expect(notices.fixSession == nil)
+        await session?.settled()
+    }
+
+    /// Dismissed while it looks, the banner stops the Look: it would otherwise run on for minutes
+    /// in a clone nobody shows.
+    @Test func dismissingStopsTheLook() async {
+        let notices = fixing(Made()) {
+            FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .none("n"), slowLook: true), retry: { _ in })
+        }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        let session = notices.fixSession
+        session?.start()
+        #expect(session?.state == .looking)
+        notices.dismissIssue()
+        #expect(session?.state == .offered, "cancelled")
+        #expect(notices.issue == nil && notices.fixSession == nil)
+        await session?.settled()
+    }
+
+    /// While a fix is applied the banner holds: it cannot be dismissed, and a new issue waits.
+    @Test func whileAFixIsAppliedTheBannerCannotBeDismissedOrReplaced() {
+        let notices = fixing(Made()) { FixSession.snapshot(.applying, fixer: .ready(.claude), request: $0) }
+        let pull = OperationIssue(title: "Couldn’t pull.", fix: .sample)
+        notices.report(pull)
+        notices.dismissIssue()
+        #expect(notices.issue == pull)
+        notices.report(OperationIssue(title: "Something else", actions: [.rebaseDefault(other)]))
+        #expect(notices.issue == pull, "even a question waits")
+        notices.cancelFix()
+        #expect(notices.issue == pull && notices.fixSession?.state == .applying, "Cancel does nothing while applying")
+    }
+
+    /// Once the fix has ended without a fix — no fix, or failed — the banner is the person's
+    /// again: Dismiss takes it down and puts up what waited.
+    @Test func anEndedFixLetsTheBannerGo() {
+        let notices = fixing(Made()) { FixSession.snapshot(.noFix("Claude found no fix."), fixer: .ready(.claude), request: $0) }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        notices.report(OperationIssue(title: "Something else"))
+        #expect(notices.issue?.title == "Something else", "an ended fix holds nothing")
+    }
+
+    /// Taking the banner down — an action that answered it, or its project gone — lets its fix go.
+    @Test func clearingTheIssueLetsALookGo() async {
+        let notices = fixing(Made()) {
+            FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .none("n"), slowLook: true), retry: { _ in })
+        }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        let session = notices.fixSession
+        session?.start()
+        notices.clearIssue()
+        #expect(session?.state == .offered && notices.fixSession == nil)
+        await session?.settled()
+    }
+
     /// The toast goes on its own once its time is up.
     @Test func theToastGoesOnItsOwn() async {
         let notices = notices(Rows(), toastLifetime: .milliseconds(20))

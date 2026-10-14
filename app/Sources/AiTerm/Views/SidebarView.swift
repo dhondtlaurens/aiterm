@@ -214,10 +214,9 @@ struct SidebarBanners: View {
             SidebarBanner(text: message, tone: .error, actions: [.init(title: "Retry Saving") { controller.workspace.flush() }])
         }
         if let issue = controller.issue {
-            SidebarBanner(text: issue.title, detail: issue.reason, tone: .error,
-                          actions: issue.actions.map { action in .init(title: action.title) { Task { await controller.perform(action) } } }
-                              + [.init(title: "Dismiss") { controller.dismissIssue() }],
-                          vertical: Space.base)
+            IssueBanner(issue: issue, fix: controller.notices.fixSession,
+                        perform: { action in Task { await controller.perform(action) } },
+                        cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.dismissIssue() })
         }
         if let banner = controller.helper.itermConnection.banner {
             // Amber, like "Usage disconnected": a warning waits on the person, not on a retry.
@@ -226,27 +225,116 @@ struct SidebarBanners: View {
     }
 }
 
+/// A failed operation above the list, and the Fix it offers (`BannerFixPresentation`): the
+/// issue's sentence and its ways out, then — once a Fix is asked for — the agent's line, its
+/// proposal with Apply and Cancel, and Applying… with the banner held, where the sentence was.
+struct IssueBanner: View {
+    let issue: OperationIssue
+    /// The Fix offered for the issue, if any; its state is the one thing here it observes.
+    let fix: FixSession?
+    let perform: (OperationIssue.Action) -> Void
+    let cancelFix: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        let shown = BannerFixPresentation(issue: issue, state: fix?.state, fixer: fix?.fixer)
+        let actions = shown.links.map(action)
+        switch shown.content {
+        case .text(let title, let detail, let help):
+            SidebarBanner(text: title, detail: detail, help: help, tone: .error, actions: actions, vertical: Space.base)
+        case .busy(let line):
+            SidebarBanner(tone: .error, actions: actions, vertical: Space.base) { FixBusyLine(text: line, compact: true) }
+        case .proposal(let agent, let proposal):
+            SidebarBanner(tone: .error, actions: actions, vertical: Space.base) {
+                FixProposalBlock(agent: agent, proposal: proposal, compact: true)
+            }
+        }
+    }
+
+    private func action(_ link: BannerFixPresentation.Link) -> SidebarBannerAction {
+        switch link {
+        case .action(let action): .init(title: link.title) { perform(action) }
+        case .fix(_, let isEnabled, let help): .init(title: link.title, isEnabled: isEnabled, help: help) { fix?.start() }
+        case .tryAgain(let help): .init(title: link.title, help: help) { fix?.tryAgain() }
+        case .apply(let help): .init(title: link.title, help: help) { fix?.apply() }
+        case .cancel(let isEnabled): .init(title: link.title, isEnabled: isEnabled, perform: cancelFix)
+        case .dismiss: .init(title: link.title, perform: dismiss)
+        }
+    }
+}
+
+/// What inks a banner's sentence: `.error` `Palette.text`, `.warning` `Palette.amber`, `.info` `Palette.muted`.
+enum SidebarBannerTone { case error, warning, info }
+
+/// A banner's link: its title, what it does, and — greyed — why it cannot.
+struct SidebarBannerAction {
+    let title: String
+    var isEnabled = true
+    var help: String? = nil
+    let perform: () -> Void
+}
+
 /// One line — or a few — above the list, and the links that answer it. Its text starts where the
 /// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the sidebar footer's marks do below.
-/// `detail` follows `text` in `Palette.muted`: what happened, then why.
+/// `detail` follows `text` in `Palette.muted`: what happened, then why; `help` is the tooltip, git's
+/// whole output where there is one. Built with `content` instead, it draws that in the text's place —
+/// a Fix's line or its proposal — with the same margins and links.
 ///
 /// Only the leading edge is shared. `trailing` and `vertical` (×1 tokens, scaled here) keep each
 /// banner's own margins as they were — a failed operation stands a little taller, the helper's
 /// state wraps a little sooner — until someone decides the three should be one.
-struct SidebarBanner: View {
-    enum Tone { case error, warning, info }
-    struct Action {
-        let title: String
-        let perform: () -> Void
-    }
+struct SidebarBanner<Content: View>: View {
+    typealias Action = SidebarBannerAction
+    typealias Tone = SidebarBannerTone
 
-    let text: String
-    var detail: String? = nil
     let tone: Tone
     var actions: [Action] = []
     var trailing: CGFloat = Space.base
     var vertical: CGFloat = Space.snug
+    @ViewBuilder let content: Content
     @Environment(\.interfaceScale) private var scale
+
+    init(tone: Tone, actions: [Action] = [], trailing: CGFloat = Space.base, vertical: CGFloat = Space.snug,
+         @ViewBuilder content: () -> Content) {
+        self.tone = tone; self.actions = actions; self.trailing = trailing; self.vertical = vertical
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: scale(Space.tight)) {
+            content
+            if !actions.isEmpty {
+                HStack(spacing: scale(Space.gap)) {
+                    ForEach(actions.indices, id: \.self) { index in
+                        let action = actions[index]
+                        Button(action.title, action: action.perform).disabled(!action.isEnabled).help(action.help ?? "")
+                    }
+                }
+                .buttonStyle(.link).font(Typography.help)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, scale(Space.inset) + scale(Space.base))
+        .padding(.trailing, scale(trailing))
+        .padding(.vertical, scale(vertical))
+    }
+}
+
+extension SidebarBanner where Content == SidebarBannerText {
+    init(text: String, detail: String? = nil, help: String? = nil, tone: Tone, actions: [Action] = [],
+         trailing: CGFloat = Space.base, vertical: CGFloat = Space.snug) {
+        self.init(tone: tone, actions: actions, trailing: trailing, vertical: vertical) {
+            SidebarBannerText(text: text, detail: detail, help: help, tone: tone)
+        }
+    }
+}
+
+/// A banner's sentence: `text` in its tone's ink, `detail` after it in `Palette.muted`.
+struct SidebarBannerText: View {
+    let text: String
+    let detail: String?
+    let help: String?
+    let tone: SidebarBannerTone
 
     private var ink: Color {
         switch tone {
@@ -257,23 +345,12 @@ struct SidebarBanner: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            // Interpolated, so neither part is read as Markdown: a branch name can hold a `*` or `_`.
-            Group {
-                if let detail { Text("\(text) \(Text(detail).foregroundStyle(Palette.muted))") } else { Text(text) }
-            }
-            .font(Typography.help).foregroundStyle(ink).textSelection(.enabled)
-            if !actions.isEmpty {
-                HStack(spacing: scale(Space.gap)) {
-                    ForEach(actions.indices, id: \.self) { Button(actions[$0].title, action: actions[$0].perform) }
-                }
-                .buttonStyle(.link).font(Typography.help)
-            }
+        // Interpolated, so neither part is read as Markdown: a branch name can hold a `*` or `_`.
+        Group {
+            if let detail { Text("\(text) \(Text(detail).foregroundStyle(Palette.muted))") } else { Text(text) }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, scale(Space.inset) + scale(Space.base))
-        .padding(.trailing, scale(trailing))
-        .padding(.vertical, scale(vertical))
+        .font(Typography.help).foregroundStyle(ink).textSelection(.enabled)
+        .help(help ?? "")
     }
 }
 

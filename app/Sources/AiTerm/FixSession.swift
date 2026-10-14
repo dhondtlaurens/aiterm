@@ -148,6 +148,18 @@ final class FixSession {
     }
 }
 
+extension FixSession.State {
+    /// Whether the session holds its surface: the agent at work, or its proposal waiting on Apply —
+    /// and the moment between landing and the action run again. Neither a new problem nor a
+    /// dismissal takes the surface from it then; Cancel is the way out where there is one.
+    var holdsSurface: Bool {
+        switch self {
+        case .looking, .proposal, .applying, .done: true
+        case .offered, .noFix, .failed, .unavailable: false
+        }
+    }
+}
+
 extension FixLanding {
     /// What the person is told when a fix landed and the action it was for did not follow: said
     /// after the action's new failure, or as a toast when there is none.

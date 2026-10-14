@@ -116,7 +116,46 @@ enum SidebarSnapshots {
             // Reviews and their merge requests' threads: none yet, some resolved, all resolved, and a
             // GitHub pull request selected, where the count turns white with the badge.
             reviewThreads("sidebar-review-threads.png"),
+            // Pull main's Fix in the banner (banner states 1–5 of the picked design): offered alone
+            // for a conflict and beside Rebase for a diverged branch, looking, the proposal, applying,
+            // no fix, and a fix that failed.
+            Snapshot("banner-fix-offered.png") { fixBanner(.offered, issue: mainConflict) },
+            Snapshot("banner-fix-offered-beside-rebase.png") {
+                fixBanner(.offered, issue: .pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 3), in: UUID(),
+                                                        projectPath: "/Users/me/Sites/jvs-platform"))
+            },
+            Snapshot("banner-fix-looking.png") { fixBanner(.looking, issue: mainConflict) },
+            Snapshot("banner-fix-proposal.png") { fixBanner(.proposal(mainProposal), issue: mainConflict) },
+            Snapshot("banner-fix-applying.png") { fixBanner(.applying, issue: mainConflict) },
+            Snapshot("banner-fix-nofix.png") {
+                fixBanner(.noFix("Claude found no fix it can stand behind: your commit and origin’s change the same release version."),
+                          issue: mainConflict)
+            },
+            Snapshot("banner-fix-failed.png") {
+                fixBanner(.failed("Claude’s fix left a conflict in package.json, so nothing was changed."), issue: mainConflict)
+            },
         ]
+    }
+
+    /// The design's conflicted rebase of `main`, refused from the banner's Rebase.
+    private static var mainConflict: OperationIssue {
+        .rebaseRefused(WorktreeError.rebaseConflicted("main", detail: "CONFLICT (content): Merge conflict in package.json"),
+                       in: UUID(), projectPath: "/Users/me/Sites/jvs-platform")
+    }
+
+    /// The design's proposal for it: both new scripts kept.
+    private static let mainProposal = FixProposal(
+        headline: "Rebase main, keeping both new scripts in package.json.",
+        why: "Your commit added lint:fix, origin’s added test:e2e on the same line. Neither replaces the other.",
+        steps: ["Keep your main as aiterm/backup/main", "Rebase onto origin’s with both scripts", "Pull main again. Nothing is pushed."],
+        moves: ["main"], drops: [], verify: nil)
+
+    /// The failed-operation banner as the sidebar draws it, its Fix in `state`, at the sidebar's width.
+    private static func fixBanner(_ state: FixSession.State, issue: OperationIssue) -> some View {
+        let session = FixSession.snapshot(state, fixer: .ready(.claude), request: issue.fix!, proposal: mainProposal)
+        return IssueBanner(issue: issue, fix: session, perform: { _ in }, cancelFix: {}, dismiss: {})
+            .frame(width: Size.sidebarWidth + 20)
+            .background(Palette.sidebar)
     }
 
     /// The rows `SidebarView`'s list draws, from its own `rows(of:in:controller:)`, stacked:
