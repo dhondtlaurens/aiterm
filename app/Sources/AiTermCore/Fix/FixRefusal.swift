@@ -16,6 +16,9 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
     case verifyFailed(String, status: Int32)
     case branchMovedMeanwhile(String)
     case checkoutHasChanges(String)
+    case branchInOperation(String)
+    case wouldOverwriteIgnored([String])
+    case landingFailed(String, String)
     case cloneFailed(String)
 
     public var errorDescription: String? {
@@ -46,6 +49,12 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
             "“\(b)” moved while the fix was being made, so nothing was changed. Try again."
         case .checkoutHasChanges(let path):
             "\(URL(fileURLWithPath: path).lastPathComponent) has uncommitted changes, so the fix wasn’t brought in. Commit or stash them, then try again."
+        case .branchInOperation(let b):
+            "“\(b)” is in the middle of a rebase, merge or bisect, so the fix wasn’t brought in. Finish or abort that, then try again."
+        case .wouldOverwriteIgnored(let files):
+            "The fix would overwrite \(files.prefix(3).joined(separator: ", "))\(files.count > 3 ? " and \(files.count - 3) more" : ""), which git ignores, so it wasn’t brought in. Move \(files.count == 1 ? "it" : "them") aside, then try again."
+        case .landingFailed(let b, let reason):
+            "Couldn’t move “\(b)”: \(reason)"
         case .cloneFailed(let reason):
             "Couldn’t prepare a copy of the repository: \(reason)"
         }
