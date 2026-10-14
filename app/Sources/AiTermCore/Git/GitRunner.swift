@@ -6,8 +6,11 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
     /// nothing about what was asked, unlike a status git answers with. Set by whoever enforced the
     /// deadline, never read from `stderr`, where a remote's own "timed out" can appear.
     public let timedOut: Bool
-    public init(args: [String], code: Int32, stderr: String, timedOut: Bool = false) {
-        self.args = args; self.code = code; self.stderr = stderr; self.timedOut = timedOut
+    /// What the failed command printed on stdout, trimmed: some of git's answers come with a status
+    /// (`diff --check` lists what it found, then exits 2). Not part of `description`.
+    public let stdout: String
+    public init(args: [String], code: Int32, stderr: String, timedOut: Bool = false, stdout: String = "") {
+        self.args = args; self.code = code; self.stderr = stderr; self.timedOut = timedOut; self.stdout = stdout
     }
     public var errorDescription: String? { description }
     public var description: String { stderr.isEmpty ? "Git exited with status \(code)." : stderr }
@@ -151,10 +154,12 @@ public struct GitRunner: GitRunning {
                                            in: URL(fileURLWithPath: dir), timeout: timeout)
         if result.timedOut {
             throw GitError(args: args, code: result.status,
-                           stderr: "\(Self.command(args)) timed out after \(String(format: "%g", timeout)) s", timedOut: true)
+                           stderr: "\(Self.command(args)) timed out after \(String(format: "%g", timeout)) s", timedOut: true,
+                           stdout: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         guard result.status == 0 else {
-            throw GitError(args: args, code: result.status, stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+            throw GitError(args: args, code: result.status, stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines),
+                           stdout: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }

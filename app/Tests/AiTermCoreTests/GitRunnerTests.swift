@@ -126,4 +126,15 @@ import Testing
                 == "-C \(directory) -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote origin")
         #expect(GitRunner.localTimeout == 10 && GitRunner.remoteTimeout == 30)
     }
+
+    /// `git diff --check` reports on stdout and exits 2: a caller that reads the report needs it on the error.
+    @Test func aFailingCommandCarriesItsStdoutAndItsStderr() throws {
+        let (git, directory) = try fakeGit("echo the report; echo the reason >&2; exit 2")
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        do { try git.run(["diff", "--check"], in: directory); Issue.record("git should have failed") }
+        catch let error as GitError {
+            #expect(error.code == 2 && error.stdout == "the report" && error.stderr == "the reason")
+            #expect(error.description == "the reason")
+        }
+    }
 }
