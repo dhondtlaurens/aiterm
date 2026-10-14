@@ -234,7 +234,8 @@ final class AppController {
         agentProbe = Task { await agents.probe() }
         helper.start()
         // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
-        Task.detached(priority: .utility) { FixClone.sweep() }
+        // Blocking disk work, so off the cooperative pool.
+        DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
         // The daemon launches iTerm2 only at its own start, which an AiTerm adopting the daemon a
         // previous one left running never causes: starting AiTerm is the person asking for it.
         if !itermRunning() { launchIterm() }

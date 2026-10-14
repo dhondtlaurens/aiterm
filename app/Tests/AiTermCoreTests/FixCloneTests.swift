@@ -65,7 +65,7 @@ import Foundation
         let live = try FixClone.make(for: request(rebase: false), git: git, root: world.root)
         defer { live.remove() }
         let dead = world.root + "/" + FixClone.prefix + "dead"
-        try FileManager.default.createDirectory(atPath: dead, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: dead + "/.git", withIntermediateDirectories: true)
         try #"{"pid":999999}"#.write(toFile: dead + "/" + FixClone.ownerFile, atomically: true, encoding: .utf8)
         let unrelated = world.root + "/aiterm-rebase-keep"
         try FileManager.default.createDirectory(atPath: unrelated, withIntermediateDirectories: true)
@@ -73,6 +73,81 @@ import Foundation
         #expect(!FileManager.default.fileExists(atPath: dead))
         #expect(FileManager.default.fileExists(atPath: live.path))
         #expect(FileManager.default.fileExists(atPath: unrelated))
+    }
+
+    /// The owner file is inside `.git`, where the agent's `git add -A` and `git clean` never reach it.
+    @Test func theOwnerFileIsInsideDotGit() throws {
+        let clone = try FixClone.make(for: request(rebase: false), git: git, root: world.root)
+        defer { clone.remove() }
+        #expect(FileManager.default.fileExists(atPath: clone.path + "/.git/aiterm-fix-owner"))
+        #expect(try git.run(["status", "--porcelain", "--ignored"], in: clone.path).isEmpty)
+    }
+
+    private func ownerless(_ name: String, ownerJSON: String? = nil, age: TimeInterval = 0) throws -> String {
+        let dir = world.root + "/" + FixClone.prefix + name
+        try FileManager.default.createDirectory(atPath: dir + "/.git", withIntermediateDirectories: true)
+        if let ownerJSON { try ownerJSON.write(toFile: dir + "/" + FixClone.ownerFile, atomically: true, encoding: .utf8) }
+        let then = Date(timeIntervalSinceNow: -age)
+        try FileManager.default.setAttributes([.creationDate: then, .modificationDate: then], ofItemAtPath: dir)
+        return dir
+    }
+
+    @Test func aYoungOwnerlessFolderIsKept() throws {
+        let young = try ownerless("young")
+        FixClone.sweep(root: world.root)
+        #expect(FileManager.default.fileExists(atPath: young))
+    }
+
+    @Test func anOldOwnerlessFolderIsSwept() throws {
+        let old = try ownerless("old", age: 16 * 60)
+        FixClone.sweep(root: world.root)
+        #expect(!FileManager.default.fileExists(atPath: old))
+    }
+
+    @Test func anOldFolderWithACorruptOwnerIsSweptAndAYoungOneKept() throws {
+        let old = try ownerless("corrupt-old", ownerJSON: "not json", age: 16 * 60)
+        let young = try ownerless("corrupt-young", ownerJSON: "not json")
+        FixClone.sweep(root: world.root)
+        #expect(!FileManager.default.fileExists(atPath: old))
+        #expect(FileManager.default.fileExists(atPath: young))
+    }
+
+    @Test func aMissingLocalBranchFailsAndLeavesNothing() throws {
+        let gone = FixRequest(title: "t", reason: nil, detail: nil, projectPath: world.repo, branch: "no/such",
+                              recreateRebase: false, retry: .createReview)
+        #expect(throws: FixRefusal.self) { try FixClone.make(for: gone, git: git, root: world.root) }
+        #expect(!(try FileManager.default.contentsOfDirectory(atPath: world.root)).contains { $0.hasPrefix(FixClone.prefix) })
+    }
+
+    /// A branch origin does not have: a clone with no rebase and no `origin/<branch>`.
+    @Test func aLocalOnlyBranchMakesACloneWithoutARebaseOrAnOriginRef() throws {
+        try git.run(["branch", "local-only", "main"], in: world.repo)
+        let local = FixRequest(title: "t", reason: nil, detail: nil, projectPath: world.repo, branch: "local-only",
+                               recreateRebase: true, retry: .createReview)
+        let clone = try FixClone.make(for: local, git: git, root: world.root)
+        defer { clone.remove() }
+        #expect(clone.originTip == nil)
+        #expect(try git.run(["for-each-ref", "refs/remotes"], in: clone.path).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: clone.path + "/.git/rebase-merge"))
+        #expect(try clone.tip("local-only") == world.sha("local-only", in: world.repo))
+    }
+
+    /// The rebase was asked for but applies cleanly, so there is nothing stopped to hand the agent.
+    @Test func aRebaseThatDoesNotStopRefusesAndLeavesNothing() throws {
+        try git.run(["checkout", "-q", "-b", "feat/y", "main"], in: world.repo)
+        try world.commit("y", file: "y.txt", contents: "y\n", in: world.repo)
+        try git.run(["push", "-q", "-u", "origin", "feat/y"], in: world.repo)
+        try git.run(["fetch", "-q", "origin"], in: world.other)
+        try git.run(["checkout", "-q", "feat/y"], in: world.other)
+        try world.commit("z", file: "z.txt", contents: "z\n", in: world.other)
+        try git.run(["push", "-q", "origin", "feat/y"], in: world.other)
+        try world.commit("y2", file: "y2.txt", contents: "y2\n", in: world.repo)
+        try git.run(["fetch", "-q", "origin"], in: world.repo)
+        try git.run(["checkout", "-q", "main"], in: world.repo)
+        let clean = FixRequest(title: "t", reason: nil, detail: nil, projectPath: world.repo, branch: "feat/y",
+                               recreateRebase: true, retry: .createReview)
+        #expect(throws: FixRefusal.self) { try FixClone.make(for: clean, git: git, root: world.root) }
+        #expect(!(try FileManager.default.contentsOfDirectory(atPath: world.root)).contains { $0.hasPrefix(FixClone.prefix) })
     }
 
     /// No identity configured anywhere: the clone still lets the agent commit.
