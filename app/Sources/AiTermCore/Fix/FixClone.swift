@@ -66,6 +66,10 @@ public struct FixClone: Sendable {
             let email = (try? git.run(["config", "user.email"], in: project)).flatMap { $0.isEmpty ? nil : $0 } ?? "fix@aiterm.invalid"
             try clone.run(["config", "user.name", name], in: path)
             try clone.run(["config", "user.email", email], in: path)
+            // A fix's commits are unsigned: no signer works in either agent's sandbox, and one that
+            // fails would stop the recreated rebase at a commit with no conflict, taken for the conflict.
+            try clone.run(["config", "commit.gpgSign", "false"], in: path)
+            try clone.run(["config", "tag.gpgSign", "false"], in: path)
             try clone.run(["checkout", "-q", branch], in: path, timeout: GitRunner.checkoutTimeout, environment: quiet)
             if request.recreateRebase, origin != nil {
                 // Expected to stop on the conflict: that stopped state is what the agent reads.

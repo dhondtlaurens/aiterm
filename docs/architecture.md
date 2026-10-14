@@ -112,7 +112,8 @@ actor in four stages, each a closure the app's tests fake; `FixSession` owns one
 **The clone.** The agent never runs in the real repository. `FixClone` is a `git clone --shared
 --no-checkout` of the project in the temp dir (`aiterm-fix-<uuid>`) with no remote, hooks off
 (`core.hooksPath /dev/null`), the branch at the commit the fix started from and, for a rebase's
-conflict, the stopped rebase recreated, so the agent reads the conflict itself. A pid file in `.git`
+conflict, the stopped rebase recreated, so the agent reads the conflict itself. Signing is off in
+the clone (`commit.gpgSign`, `tag.gpgSign`), so a fix's commits land unsigned. A pid file in `.git`
 lets `FixClone.sweep` remove a crashed run's clone at launch and never a live one's; every way out
 of a session removes its own.
 

@@ -63,6 +63,28 @@ import Foundation
         }
     }
 
+    /// I2: a person who signs every commit. Signing cannot work in either agent's sandbox, and a
+    /// signer that fails stops the recreated rebase at a commit with no conflict, which `make`
+    /// would take for the conflict. The clone signs nothing, so the rebase stops on the conflict.
+    @Test func aSigningSetupNeitherSignsNorStopsTheRecreatedRebase() throws {
+        // `feat/x` with a commit that does not conflict before the one that does.
+        try git.run(["checkout", "-q", "feat/x"], in: world.repo)
+        try git.run(["reset", "-q", "--hard", "HEAD~1"], in: world.repo)
+        try world.commit("first", file: "first.txt", contents: "x\n", in: world.repo)
+        try world.commit("mine", file: "config.ts", contents: "topic=mine\n", in: world.repo)
+        try git.run(["checkout", "-q", "main"], in: world.repo)
+        let global = world.root + "/signing.gitconfig"
+        try "[commit]\n\tgpgSign = true\n[tag]\n\tgpgSign = true\n[gpg]\n\tprogram = /usr/bin/false\n"
+            .write(toFile: global, atomically: true, encoding: .utf8)
+        let signing = GitRunner(environment: HermeticGit.environment.merging(["GIT_CONFIG_GLOBAL": global]) { $1 },
+                                ignoringInherited: { $0.hasPrefix("GIT_") })
+        let clone = try FixClone.make(for: request(), git: signing, root: world.root)
+        defer { clone.remove() }
+        #expect(try git.run(["status", "--porcelain"], in: clone.path).contains("UU config.ts"), "stopped on the conflict")
+        #expect(try git.run(["config", "commit.gpgSign"], in: clone.path) == "false")
+        #expect(try git.run(["config", "tag.gpgSign"], in: clone.path) == "false")
+    }
+
     @Test func removeDeletesTheFolder() throws {
         let clone = try FixClone.make(for: request(), git: git, root: world.root)
         clone.remove()
