@@ -13,7 +13,8 @@ import Synchronization
     /// `prepare` makes the clone's folder — after `slowPrepare`, cut short by a cancel as a real one is not.
     private func pipeline(slowPrepare: Bool = false,
                           look: @escaping @Sendable (FixRequest) async throws(FixRefusal) -> FixLook = { _ in .none("n") },
-                          apply: @escaping @Sendable () async throws(FixRefusal) -> Void = {}) -> FixPipeline {
+                          apply: @escaping @Sendable () async throws(FixRefusal) -> Void = {},
+                          land: @escaping @Sendable () async -> Void = {}) -> FixPipeline {
         let clone = clone
         return FixPipeline(prepare: { _ in
                                if slowPrepare { try? await Task.sleep(for: .milliseconds(300)) }
@@ -22,7 +23,7 @@ import Synchronization
                            },
                            look: { _, _, request throws(FixRefusal) in (try await look(request), "S") },
                            apply: { _, _, _, _ throws(FixRefusal) in try await apply(); return "c" },
-                           land: { _, _ in FixLanding(branch: "feat/x", old: "a", new: "c") })
+                           land: { _, _ in await land(); return FixLanding(branch: "feat/x", old: "a", new: "c") })
     }
 
     private var cloneExists: Bool { FileManager.default.fileExists(atPath: clone.path) }
@@ -61,6 +62,39 @@ import Synchronization
         #expect(retried?.new == "c")
         #expect(!cloneExists, "the clone goes when the fix is done")
         #expect(session.clonePath == nil)
+    }
+
+    /// M4: the action runs again as soon as the fix is in — not after the clone, a whole checkout, is removed.
+    @Test func theRetryDoesNotWaitForTheClonesRemoval() async {
+        let proposal = proposal, path = clone.path
+        var existedAtRetry: Bool?
+        let session = FixSession(request: request, fixer: .ready(.claude), pipeline: pipeline(look: { _ in .fix(proposal) }),
+                                 retry: { _ in existedAtRetry = FileManager.default.fileExists(atPath: path) })
+        session.start(); await session.settled()
+        session.apply(); await session.settled()
+        #expect(existedAtRetry == true, "the retry started with the clone still there")
+        #expect(!cloneExists, "and the clone goes after it")
+    }
+
+    /// M5: a landing that finishes as the app quits (`stop()`) — landing itself cannot be cancelled —
+    /// is not followed by the retry and its git write.
+    @Test func aLandingThatFinishesDuringQuitStartsNoRetry() async {
+        let proposal = proposal
+        let landing = Mutex(false)
+        var retried = false
+        let session = FixSession(request: request, fixer: .ready(.claude),
+                                 pipeline: pipeline(look: { _ in .fix(proposal) }, land: {
+                                     landing.withLock { $0 = true }
+                                     try? await Task.sleep(for: .seconds(30))   // cut short by `stop()`, and the landing returned all the same
+                                 }), retry: { _ in retried = true })
+        session.start(); await session.settled()
+        session.apply()
+        while !landing.withLock({ $0 }) { await Task.yield() }
+        session.stop()
+        await session.settled()
+        #expect(session.state == .done(FixLanding(branch: "feat/x", old: "a", new: "c")))
+        #expect(!retried, "no retry once the app is quitting")
+        #expect(!cloneExists, "the clone still goes")
     }
 
     /// Review focus 4: leaving during Look stops it, removes the clone and goes back to offered.

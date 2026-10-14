@@ -88,8 +88,12 @@ final class FixSession {
             do throws(FixRefusal) {
                 let checked = try await pipeline.apply(fixer, clone, proposal, session)
                 let landing = try await pipeline.land(clone, checked)
-                await end(.done(landing), removing: clone)
-                await retry(landing)
+                self.clone = nil; self.session = nil
+                set(.done(landing))
+                // The action again first: removing the clone is file work it need not wait for. A
+                // landing that finished as the app quits (`stop()`) starts no git write after it.
+                if !Task.isCancelled { await retry(landing) }
+                await Self.discard(clone)
             } catch {
                 await end(.failed(error.errorDescription ?? "\(error)"), removing: clone)
             }
@@ -166,12 +170,6 @@ extension FixSession.State {
         case .offered, .noFix, .failed, .unavailable: false
         }
     }
-}
-
-extension FixLanding {
-    /// What the person is told when a fix landed and the action it was for did not follow: said
-    /// after the action's new failure, or as a toast when there is none.
-    var keptSentence: String { "The fix is in; your branch as it was is kept as \(backup)." }
 }
 
 #if DEBUG

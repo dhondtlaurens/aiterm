@@ -61,7 +61,7 @@ final class TaskLauncher {
     /// The review New Review created once `agent`'s fix had landed: the toast says so, and names
     /// the backup that keeps the branch's old tip.
     func announceFix(_ landing: FixLanding, by agent: FixerAgent) {
-        notices.showToast("Review created after \(agent.shortName)’s fix. Your old commits are kept as \(landing.backup).")
+        notices.showToast("Review created. " + landing.keptSentence(by: agent))
     }
 
     /// A fix that landed with no review after it and no failure to say so: where the branch as it was is kept.

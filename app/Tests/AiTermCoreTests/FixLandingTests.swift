@@ -230,7 +230,7 @@ import Synchronization
         let flaky = TimingOutAfterGit(inner: git, command: "update-ref", ref: "refs/heads/feat/x") { git, dir in
             try git.run(["update-ref", "refs/heads/feat/x", elsewhere], in: dir)
         }
-        #expect(throws: FixRefusal.landingFailed("feat/x", "git timed out and the branch has moved, so it was left alone. Its old tip is kept as aiterm/backup/feat/x.")) {
+        #expect(throws: FixRefusal.landingFailed("feat/x", "git timed out and the branch has moved, so it was left alone; your branch as it was is kept as aiterm/backup/feat/x.")) {
             try Repository(world.repo, git: flaky).landFix(from: clone, tip: clone.tip(clone.branch))
         }
         #expect(try world.sha("refs/aiterm/backup/feat/x", in: world.repo) == old)
@@ -379,6 +379,13 @@ import Synchronization
         #expect(throws: FixRefusal.branchInOperation("feat/x")) { try Repository(world.repo, git: git).landFix(from: clone, tip: clone.tip(clone.branch)) }
         #expect(try world.sha("HEAD", in: world.repo) == tip)
         #expect(try git.run(["for-each-ref", "refs/aiterm"], in: world.repo).isEmpty)
+    }
+
+    /// M2: the backup is named one way on every surface.
+    @Test func theBackupIsNamedOneWay() {
+        let landing = FixLanding(branch: "feat/x", old: "a", new: "b")
+        #expect(landing.keptSentence == "The fix is in; your branch as it was is kept as aiterm/backup/feat/x.")
+        #expect(landing.keptSentence(by: .codex) == "Codex’s fix is in; your branch as it was is kept as aiterm/backup/feat/x.")
     }
 
     @Test func everyLandingFailureHasItsOwnSentence() {

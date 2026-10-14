@@ -139,10 +139,10 @@ import Testing
         try fixture.git.run(["reset", "-q", "--hard", "origin/main"], in: fixture.repo.path)
 
         session.apply(); await session.settled()
-        await eventually(describing: "the pull's toast") { controller.toastState.toast?.message.hasPrefix("After") == true }
+        await eventually(describing: "the pull's toast") { controller.toastState.toast?.message.hasPrefix("main is") == true }
 
         #expect(controller.toastState.toast?.message
-                == "After Claude’s fix, main is already up to date. Your old commits are kept as aiterm/backup/main.")
+                == "main is already up to date. Claude’s fix is in; your branch as it was is kept as aiterm/backup/main.")
         #expect(controller.issue == nil)
         #expect(controller.notices.fixSession == nil)
     }
@@ -213,7 +213,7 @@ import Testing
         session.apply(); await session.settled()
         await eventually(describing: "A's pull to end") { !controller.isChangingDefaultBranch(fixture.project.id) }
 
-        #expect(controller.toastState.toast?.message.hasPrefix("After Claude’s fix, main is already up to date.") == true)
+        #expect(controller.toastState.toast?.message == "main is already up to date. Claude’s fix is in; your branch as it was is kept as aiterm/backup/main.")
         #expect(controller.issue == otherIssue)
         let othersFix = try #require(controller.notices.fixSession)
         #expect(othersFix !== session && othersFix.state == .offered)

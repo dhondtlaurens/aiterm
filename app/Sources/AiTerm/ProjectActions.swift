@@ -174,7 +174,7 @@ final class ProjectActions {
         let pull = changeDefaultBranch(of: project, { [workflow] in
             let toast = try await workflow.pullDefaultBranch(of: project).toast
             guard let fix else { return toast }
-            return "After \(fix.agent.map { $0.shortName + "’s" } ?? "the") fix, \(toast) Your old commits are kept as \(fix.landing.backup)."
+            return "\(toast) \(fix.landing.keptSentence(by: fix.agent))"
         }, failure: { error in
             var issue = OperationIssue.pullRefused(error, in: project.id, projectPath: project.path)
             if let fix { issue.reason = [issue.reason, fix.landing.keptSentence].compactMap { $0 }.joined(separator: " ") }

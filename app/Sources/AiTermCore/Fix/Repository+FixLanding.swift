@@ -7,6 +7,16 @@ public struct FixLanding: Equatable, Sendable {
     /// branch picker lists it.
     public var backup: String { "aiterm/backup/" + branch }
 
+    /// Where the branch as it was is kept, in the one wording every surface ends with.
+    var keptClause: String { "your branch as it was is kept as \(backup)." }
+    /// What the person is told once a fix landed: “The fix is in; your branch as it was is kept as
+    /// aiterm/backup/<branch>.” — said after the action's new failure, or as a toast when there is none.
+    public var keptSentence: String { keptSentence(by: nil) }
+    /// `keptSentence` with the agent that made the fix named: “Claude’s fix is in; …”.
+    public func keptSentence(by agent: FixerAgent?) -> String {
+        "\(agent.map { $0.shortName + "’s" } ?? "The") fix is in; \(keptClause)"
+    }
+
     /// For the app's snapshots and tests, which draw a landing outside a `@testable` import.
     public init(branch: String, old: String, new: String) { self.branch = branch; self.old = old; self.new = new }
 }
@@ -86,8 +96,8 @@ extension Repository {
                     throw FixRefusal.branchMovedMeanwhile(branch)
                 }
                 // After a timeout nobody knows what ran, and the old tip stays safe under the backup.
-                throw FixRefusal.landingFailed(branch, "git timed out and the branch has moved, so it was left alone. "
-                                               + "Its old tip is kept as \(FixLanding(branch: branch, old: old, new: new).backup).")
+                throw FixRefusal.landingFailed(branch, "git timed out and the branch has moved, so it was left alone; "
+                                               + FixLanding(branch: branch, old: old, new: new).keptClause)
             }
             return FixLanding(branch: branch, old: old, new: new)
         } catch let refusal as FixRefusal {
