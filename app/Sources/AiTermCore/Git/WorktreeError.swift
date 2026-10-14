@@ -18,14 +18,20 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
     case noOrigin
     /// A pull or rebase with no local branch of the name to bring up to date.
     case noLocalBranch(String)
-    /// Rebasing a branch onto origin's stopped on a conflict, and was aborted.
-    case rebaseConflicted(String)
+    /// Rebasing a branch onto origin's stopped on a conflict, and was aborted. `detail` is what git
+    /// said as it stopped — its CONFLICT lines are on stdout — for a fix to read; nil when git's
+    /// failure was not a `GitError`.
+    case rebaseConflicted(String, detail: String?)
     /// An archived row's folder, holding something that is not its own worktree.
     case pathTaken(String)
     /// An archived row's branch, gone locally and from origin.
     case branchGone(String)
     /// An archived task's branch, which git will not check out a second time, and where it already is.
     case branchInUse(String, at: String)
+
+    /// How a conflicted rebase's sentence ends: the way out while nothing else is offered. New
+    /// Review's footer leaves it off while its Fix button is the way out.
+    public static let rebaseByHand = "Rebase it by hand."
 
     public var errorDescription: String? {
         switch self {
@@ -45,8 +51,8 @@ public enum WorktreeError: Error, Equatable, LocalizedError {
         case .notAWorktree(let path): return "\(path) is not a worktree of this project, so it was left in place."
         case .noOrigin: return "This project has no origin to pull from."
         case .noLocalBranch(let branch): return "There is no local “\(branch)” to bring up to date."
-        case .rebaseConflicted(let branch):
-            return "Rebasing “\(branch)” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand."
+        case .rebaseConflicted(let branch, _):
+            return "Rebasing “\(branch)” onto origin’s hit a conflict, so it was left as it was. \(Self.rebaseByHand)"
         case .pathTaken(let path):
             return "\(folderName(path)) in .worktrees is in use by something else, so the worktree can’t come back there."
         case .branchGone(let branch):

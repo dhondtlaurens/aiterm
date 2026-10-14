@@ -17,9 +17,26 @@ import Foundation
                        defaults: UserDefaults = ScratchDefaults.make(),
                        create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in },
                        recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void = { _ in }) -> ReviewCreationModel {
+        Self.makeModel(project: project, search: search, agent: agent, modelID: modelID, available: available, catalogue: catalogue,
+                       defaults: defaults, create: create, recover: recover)
+    }
+
+    /// A review model on a scratch home and hermetic git, for this suite and `ReviewFixTests`:
+    /// `fixer` and `pipeline` are what a failure's Fix runs with — none by default.
+    static func makeModel(project: Project = Project(id: UUID(), name: "acme-web", path: "/tmp/p", provider: .gitlab,
+                                                     remoteUrl: "git@git.example.net:web/acme-web.git", addedAt: Date(), collapsed: false),
+                          search: @escaping @MainActor (String) async throws -> [MergeRequest] = { _ in [] },
+                          agent: AgentKind = .claude, modelID: String = "sonnet", available: Set<AgentKind>? = nil,
+                          catalogue: @escaping @Sendable (AgentKind) -> [AgentModel] = ScratchHome.catalogue,
+                          defaults: UserDefaults = ScratchDefaults.make(),
+                          create: @escaping @MainActor (ReviewDraft) async throws -> Void = { _ in },
+                          recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void = { _ in },
+                          fixer: FixerResolution = .off, pipeline: FixPipeline = .stub(look: .none("n")),
+                          fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in }) -> ReviewCreationModel {
         ReviewCreationModel(project: project, draft: ReviewDraft(mr: nil, agent: agent, model: modelID, reasoning: nil),
                             home: ScratchHome.bare, availableAgents: { available ?? [agent] }, catalogue: catalogue, defaults: defaults, git: .hermetic(),
-                            searchMergeRequests: search, createReview: create, recover: recover)
+                            searchMergeRequests: search, createReview: create, recover: recover,
+                            fixer: { fixer }, pipeline: pipeline, fixLanded: fixLanded)
     }
 
     /// The GitLab connection and the project's remote are read once, when the sheet is prepared —
@@ -116,16 +133,16 @@ import Foundation
     /// Any other failure — the folder with changes included — has none.
     @Test func aRefusalTheFooterCanFixCarriesTheFix() {
         let folder = "/Users/sam/Sites/acme-storefront"
-        let switchable = CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: false))
+        let switchable = CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: false), projectPath: folder)
         #expect(switchable.recovery == .switchProjectFolder(off: "shop-412", to: "main"))
         #expect(switchable.recovery?.title == "Switch to main")
-        #expect(CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: true)).recovery == nil)
-        let diverged = CreationFailure(WorktreeError.branchDiverged("shop-412", local: 2, remote: 5))
+        #expect(CreationFailure(WorktreeError.branchInProjectFolder("shop-412", at: folder, switchTo: "main", hasChanges: true), projectPath: folder).recovery == nil)
+        let diverged = CreationFailure(WorktreeError.branchDiverged("shop-412", local: 2, remote: 5), projectPath: folder)
         #expect(diverged.reason == "Your local “shop-412” has 2 commits that aren’t on origin, and origin has 5 commits it doesn’t. "
                 + "Rebase puts yours on top of origin’s; nothing is pushed.")
         #expect(diverged.recovery == .rebase("shop-412"))
         #expect(diverged.recovery?.title == "Rebase")
-        #expect(CreationFailure(GitError(args: ["worktree", "add"], code: 128, stderr: "fatal: nope")).recovery == nil)
+        #expect(CreationFailure(GitError(args: ["worktree", "add"], code: 128, stderr: "fatal: nope"), projectPath: folder).recovery == nil)
     }
 
     /// The footer's fix is one press: the fix, then the create it stopped.
@@ -158,7 +175,7 @@ import Foundation
         #expect(await m.create() == false)
         #expect(await m.recoverAndCreate() == false)
         #expect(created == 1)
-        #expect(m.error == CreationFailure(WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: true)))
+        #expect(m.error == CreationFailure(WorktreeError.branchInProjectFolder("feat-gift-card", at: folder, switchTo: "main", hasChanges: true), projectPath: project.path))
         #expect(m.error?.recovery == nil)
         #expect(!m.creating)
     }

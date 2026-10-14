@@ -119,7 +119,7 @@ extension Repository {
             Log.git.attempt("Aborting the conflicted rebase of \(branch) in \(checkout)") {
                 try git.run(["rebase", "--abort"], in: checkout, timeout: GitRunner.checkoutTimeout)
             }
-            throw WorktreeError.rebaseConflicted(branch)
+            throw WorktreeError.rebaseConflicted(branch, detail: (error as? GitError).map { "\($0.stdout)\n\($0.stderr)" })
         }
     }
 

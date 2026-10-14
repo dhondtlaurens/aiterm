@@ -253,7 +253,13 @@ import Darwin
         try change("file.txt", to: "theirs\n", in: other)
         _ = try git.run(["push", "-q", "origin", "main"], in: other)
         let before = try sha("main", in: repo)
-        #expect(throws: WorktreeError.rebaseConflicted("main")) { try Repository(repo, git: git).rebaseDefaultBranch() }
+        // The refusal keeps git's own words — the CONFLICT line naming the file — for a fix to read.
+        do { _ = try Repository(repo, git: git).rebaseDefaultBranch(); Issue.record("expected a conflict") }
+        catch WorktreeError.rebaseConflicted(let branch, let detail) {
+            #expect(branch == "main")
+            #expect(detail?.contains("CONFLICT") == true, "git's words: \(detail ?? "none")")
+            #expect(detail?.contains("file.txt") == true)
+        }
         #expect(try sha("main", in: repo) == before)
         #expect(try sha("HEAD", in: repo) == before)
         #expect(try git.run(["status", "--porcelain"], in: repo).isEmpty, "no rebase left in progress")
@@ -266,7 +272,11 @@ import Darwin
         try change("file.txt", to: "theirs\n", in: other)
         _ = try git.run(["push", "-q", "origin", "main"], in: other)
         let before = try sha("main", in: repo)
-        #expect(throws: WorktreeError.rebaseConflicted("main")) { try Repository(repo, git: git).rebaseDefaultBranch() }
+        do { _ = try Repository(repo, git: git).rebaseDefaultBranch(); Issue.record("expected a conflict") }
+        catch WorktreeError.rebaseConflicted(let branch, let detail) {
+            #expect(branch == "main")
+            #expect(detail?.contains("CONFLICT") == true, "git's words: \(detail ?? "none")")
+        }
         #expect(try sha("main", in: repo) == before)
         #expect(try Repository(repo, git: git).worktrees().count == 1)
     }

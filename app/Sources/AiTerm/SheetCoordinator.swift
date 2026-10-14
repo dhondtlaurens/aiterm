@@ -32,12 +32,14 @@ final class SheetCoordinator {
     private let gitHubSettings: @Sendable () -> GitHubConfig?
     /// What the creation sheets' Create runs.
     private let launcher: TaskLauncher
+    /// The queue a New Review Fix lands on, with creation, removal and pull.
+    private let workflow: TaskWorkflow
 
     init(workspace: WorkspaceStore, checkouts: CheckoutMonitor, agents: AgentIntegrations, git: any GitRunning, harnessHome: URL,
          jiraSettings: @escaping @Sendable () -> JiraConfig?,
          gitLabSettings: @escaping @Sendable () -> GitLabConfig?,
          gitHubSettings: @escaping @Sendable () -> GitHubConfig?,
-         launcher: TaskLauncher) {
+         launcher: TaskLauncher, workflow: TaskWorkflow) {
         self.workspace = workspace
         self.checkouts = checkouts
         self.agents = agents
@@ -47,6 +49,7 @@ final class SheetCoordinator {
         self.gitLabSettings = gitLabSettings
         self.gitHubSettings = gitHubSettings
         self.launcher = launcher
+        self.workflow = workflow
     }
 
     private var canChangeWorkspace: Bool { workspace.canChangeWorkspace }
@@ -240,6 +243,18 @@ final class SheetCoordinator {
                             codeHost: MergeRequestSearch.host(for: remote),
                             searchMergeRequests: ReviewCreationModel.searcher(gitLab: gitLab, gitHub: gitHub, remote: remote),
                             createReview: { try await launcher.createReview(draft: $0, project: project) },
-                            recover: { try await launcher.recover($0, in: project) })
+                            recover: { try await launcher.recover($0, in: project) },
+                            fixer: { [agents] in agents.fixer },
+                            pipeline: .live(git: git, workflow: workflow, project: project, model: Self.fixerModel(remembered: state.lastModelByAgent),
+                                            locate: { HarnessCommandRunner.live.locate($0) }),
+                            fixLanded: { launcher.announceFix($0, by: $1) })
+    }
+
+    /// The model and reasoning a fixer runs with: its card's default in Settings › Agents, else the
+    /// model last picked for that agent — read as each run starts, off the main actor.
+    private static func fixerModel(remembered: [AgentKind: String]) -> @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
+        { fixer in
+            ModelSettings.load(for: fixer.agent).map { ($0.model, $0.reasoning) } ?? (remembered[fixer.agent] ?? "", nil)
+        }
     }
 }

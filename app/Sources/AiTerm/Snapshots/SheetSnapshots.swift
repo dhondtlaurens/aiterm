@@ -186,12 +186,15 @@ enum SheetSnapshots {
         let path = "/Users/sam/Sites/acme-storefront"
         let fatal = "fatal: 'feat/pay-214-apple-pay' is already used by worktree at '\(path)/.worktrees/pay-214-apple-pay'"
         let refused = CreationFailure(GitError(args: ["worktree", "add", "\(path)/.worktrees/review-pay-214-apple-pay", "feat/pay-214-apple-pay"],
-                                               code: 128, stderr: "Preparing worktree (checking out 'feat/pay-214-apple-pay')\n" + fatal))
+                                               code: 128, stderr: "Preparing worktree (checking out 'feat/pay-214-apple-pay')\n" + fatal),
+                                      projectPath: path)
         return footer(refused)
     }
 
     /// New Review's footer after git refused the review's branch for `error`.
-    private static func refusedReview(_ error: WorktreeError) -> some View { footer(CreationFailure(error)) }
+    private static func refusedReview(_ error: WorktreeError) -> some View {
+        footer(CreationFailure(error, projectPath: "/Users/sam/Sites/acme-storefront"))
+    }
 
     /// Step 3's footer showing `failure`, as wide as a sheet.
     private static func footer(_ failure: CreationFailure) -> some View {

@@ -182,7 +182,7 @@ final class AppController {
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
-                                  launcher: launcher)
+                                  launcher: launcher, workflow: workflow)
         // The connections as Settings saved them, read once per pass: a test's are none, so it
         // reads nothing from either host.
         reviewThreads = ReviewThreadsWatcher(workspace: workspace, focus: focus,

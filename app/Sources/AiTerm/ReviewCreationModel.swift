@@ -62,7 +62,8 @@ extension CreationModel where Kind == ReviewCreation {
     // requests would make a misconfigured sheet look merely empty rather than broken, and every
     // real call site passes `ReviewCreationModel.searcher(gitLab:gitHub:remote:)` anyway. So is
     // `recover`, the fixes the footer offers (`TaskLauncher.recover`): one that did nothing would
-    // offer a button whose create fails again with the same refusal.
+    // offer a button whose create fails again with the same refusal. `fixer` and `pipeline` are the
+    // agent's Fix (`FixSession`); without a pipeline a failure offers none.
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
     /// would read the developer's own from anything that left them out. A `catalogue` that throws
     /// has no models to offer, and the sheet says why in their place.
@@ -78,11 +79,14 @@ extension CreationModel where Kind == ReviewCreation {
                      codeHost: CodeHost = .gitLab,
                      searchMergeRequests: @escaping @MainActor (String) async throws -> [MergeRequest],
                      createReview: @escaping @MainActor (ReviewDraft) async throws -> Void,
-                     recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void) {
+                     recover: @escaping @MainActor (CreationFailure.Recovery) async throws -> Void,
+                     fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
+                     fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in }) {
         self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home,
                   availableAgents: availableAgents, rememberedModels: rememberedModels, catalogue: catalogue,
                   initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure, defaults: defaults,
-                  git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview)
+                  git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview,
+                  fixer: fixer, pipeline: pipeline, fixLanded: fixLanded)
         findOwningTask()
     }
 
