@@ -18,15 +18,16 @@ import Darwin
         return (script, pidFile)
     }
 
-    /// Running, not merely still in the process table: a killed process stays a zombie until its
-    /// parent (launchd, for an orphan) reaps it, which a loaded machine can leave waiting for seconds,
-    /// and `kill(pid, 0)` succeeds on a zombie.
+    /// Running: neither gone nor dying. A killed process is not gone at once, and on a loaded host
+    /// it can take seconds: it is first "working on exiting" (P_WEXIT), then a zombie until its
+    /// parent (launchd, for an orphan) reaps it. `kill(pid, 0)` succeeds throughout, but such a
+    /// process runs nothing more.
     private func alive(_ pid: pid_t) -> Bool {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return false }
-        return Int32(info.kp_proc.p_stat) != SZOMB
+        return Int32(info.kp_proc.p_stat) != SZOMB && info.kp_proc.p_flag & P_WEXIT == 0
     }
 
     private func pid(in file: String) -> pid_t? {
@@ -114,17 +115,32 @@ import Darwin
 }
 
 /// Not `.blocking`: that trait gives every task a thread of its own, which would hide a run that
-/// parks one. Here the runs share Swift's cooperative pool, one thread per core.
+/// parks one.
 @Suite struct AgentProcessPoolTests {
-    @Test func manyLongRunsHoldNoPoolThread() async throws {
-        // Four times as many children, each sleeping 1 s, as the pool has threads: if each parked
-        // a thread the batch would take about four seconds; with none parked it takes about one.
-        let count = 4 * ProcessInfo.processInfo.activeProcessorCount
-        let start = ContinuousClock.now
-        try await withThrowingTaskGroup(of: ProcessOutput.self) { group in
-            for _ in 0..<count { group.addTask { try await AgentProcess.run("/bin/sleep", ["1"], environment: [:], in: "/", timeout: .seconds(30)) } }
-            for try await out in group { #expect(out.status == 0) }
+    /// Runs jobs one at a time on a single thread: a stand-in for a cooperative pool of width one,
+    /// which nothing else in the test run shares. A job that blocks holds all of it.
+    private final class OneThread: TaskExecutor {
+        private let queue = DispatchQueue(label: "AgentProcessPoolTests.OneThread")
+        func enqueue(_ job: consuming ExecutorJob) {
+            let job = UnownedJob(job), executor = asUnownedTaskExecutor()
+            queue.async { job.runSynchronously(on: executor) }
         }
-        #expect(ContinuousClock.now - start < .milliseconds(2500))
+    }
+
+    @Test func manyLongRunsHoldNoPoolThread() async throws {
+        // Eight children of one second each, all driven from one thread. A run that parked it until
+        // its child ended would make them take eight seconds one after the other; with none parked
+        // they overlap and take one. Not the shared pool: the whole-suite run keeps that busy with
+        // other tests' work for seconds at a time, which no bound here could tell from parking.
+        let executor = OneThread()
+        let start = ContinuousClock.now
+        try await withTaskExecutorPreference(executor) {
+            try await withThrowingTaskGroup(of: ProcessOutput.self) { group in
+                for _ in 0..<8 { group.addTask { try await AgentProcess.run("/bin/sleep", ["1"], environment: [:], in: "/", timeout: .seconds(60)) } }
+                for try await out in group { #expect(out.status == 0) }
+            }
+        }
+        let took = ContinuousClock.now - start
+        #expect(took < .seconds(4), "eight overlapping one-second runs took \(took): a run holds the thread it is driven from")
     }
 }
