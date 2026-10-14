@@ -206,6 +206,60 @@ struct NoticesTests {
         #expect(notices.issue?.title == "Something else", "an ended fix holds nothing")
     }
 
+    /// A question held while a fix looks is never lost to a later report with nothing to offer:
+    /// once the fix is cancelled, the question is what comes up.
+    @Test func aHeldQuestionOutlastsAPlainReport() async {
+        let rows = Rows()
+        let notices = Notices(toastLifetime: .seconds(10), isStale: { _ in false }, makeFix: {
+            FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .none("n"), slowLook: true), retry: { _ in })
+        })
+        notices.onWithdrawn { rows.withdrawn.append($0) }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        notices.fixSession?.start()
+        notices.report(question)
+        notices.report(OperationIssue(title: "Couldn’t reopen the window."))
+        let session = notices.fixSession
+        notices.cancelFix()
+        #expect(notices.issue == question)
+        #expect(rows.withdrawn.isEmpty)
+        await session?.settled()
+    }
+
+    /// A question held in place of another withdraws it, so its row's note goes with it.
+    @Test func aHeldQuestionReplacedByAnotherIsWithdrawn() async {
+        let rows = Rows()
+        let notices = Notices(toastLifetime: .seconds(10), isStale: { _ in false }, makeFix: {
+            FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .none("n"), slowLook: true), retry: { _ in })
+        })
+        notices.onWithdrawn { rows.withdrawn.append($0) }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        notices.fixSession?.start()
+        notices.report(question)
+        let next = OperationIssue(title: "Branch other kept.", actions: [.keepBranch(other)], subject: other)
+        notices.report(next)
+        #expect(rows.withdrawn == [task])
+        let session = notices.fixSession
+        notices.cancelFix()
+        #expect(notices.issue == next)
+        await session?.settled()
+    }
+
+    /// Dismissed while a proposal is up, the banner declines it, and its clone is removed.
+    @Test func dismissingDeclinesAProposalAndRemovesItsClone() async throws {
+        let notices = fixing(Made()) { FixSession(request: $0, fixer: .ready(.claude), pipeline: .stub(look: .fix(self.proposal)), retry: { _ in }) }
+        notices.report(OperationIssue(title: "Couldn’t pull.", fix: .sample))
+        let session = try #require(notices.fixSession)
+        session.start(); await session.settled()
+        let clone = try #require(session.clonePath)
+        #expect(FileManager.default.fileExists(atPath: clone))
+
+        notices.dismissIssue()
+        await session.settled()
+        #expect(session.state == .offered, "declined")
+        #expect(notices.issue == nil && notices.fixSession == nil)
+        #expect(!FileManager.default.fileExists(atPath: clone))
+    }
+
     /// Taking the banner down — an action that answered it, or its project gone — lets its fix go.
     @Test func clearingTheIssueLetsALookGo() async {
         let notices = fixing(Made()) {

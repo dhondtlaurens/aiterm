@@ -72,16 +72,8 @@ final class Notices {
     /// it looks at, proposes or applies is the shown issue's (`fixEnded()` lets the held one up).
     func report(_ issue: OperationIssue) {
         guard !isStale(issue) else { return }
-        if fixSession?.state.holdsSurface == true {
-            Log.ui.notice("Held back while a fix is at work: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
-            deferredIssue = issue
-            return
-        }
-        if issue.actions.isEmpty, self.issue?.actions.isEmpty == false {
-            Log.ui.notice("Held back while a question is waiting: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
-            deferredIssue = issue
-            return
-        }
+        if fixSession?.state.holdsSurface == true { return hold(issue, while: "a fix is at work") }
+        if issue.actions.isEmpty, self.issue?.actions.isEmpty == false { return hold(issue, while: "a question is waiting") }
         if let shown = self.issue, shown.subject != issue.subject { withdraw(shown) }
         self.issue = issue
         offerFix(for: issue)
@@ -141,6 +133,22 @@ final class Notices {
     func dropStale() {
         if let held = deferredIssue, isStale(held) { deferredIssue = nil }
         if let issue, isStale(issue) { clearIssue() }
+    }
+
+    /// Keeps `issue` back until the banner is free, as the newest held — except over a held question,
+    /// which a report with nothing to offer never takes the place of (it is logged and dropped, as
+    /// it would be behind the question shown). A question held in place of another withdraws it, so
+    /// whatever its row said in the banner's stead goes with it.
+    private func hold(_ issue: OperationIssue, while reason: String) {
+        if let held = deferredIssue, !held.actions.isEmpty {
+            if issue.actions.isEmpty {
+                Log.ui.notice("Dropped behind a held question: \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
+                return
+            }
+            if held.subject != issue.subject { withdraw(held) }
+        }
+        Log.ui.notice("Held back while \(reason, privacy: .public): \(issue.title, privacy: .public) \(issue.reason ?? "", privacy: .public)")
+        deferredIssue = issue
     }
 
     /// A new session for `issue`'s problem, if it has one, in place of the last: let go of, not

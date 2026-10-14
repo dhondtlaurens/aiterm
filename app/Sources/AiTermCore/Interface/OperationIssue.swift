@@ -29,8 +29,8 @@ public struct OperationIssue: Equatable, Sendable {
     public var actions: [Action] = []
     /// The task it is about. The banner goes when that task does: the question has gone with the row.
     public var subject: UUID? = nil
-    /// Git's whole output, when git said more than `reason` keeps: the banner's tooltip, and what a
-    /// fix's agent reads.
+    /// Git's whole output, when git said more than `reason` keeps: the banner's tooltip. What a
+    /// fix's agent reads is `FixRequest.detail` alone, which the prompt neutralises.
     public var detail: String? = nil
     /// The problem an agent can be asked to fix, offered as the banner's Fix (`FixSession`).
     public var fix: FixRequest? = nil
@@ -44,12 +44,12 @@ public struct OperationIssue: Equatable, Sendable {
     /// A failure and the error behind it: `title` is AiTerm's own sentence, and the error's goes in
     /// `reason`, by the one rule every report follows (`reason(of:)`); a git failure's command and
     /// whole stderr in `detail`, as New Review's footer has them — when git said anything.
-    public init(title: String, error: Error, actions: [Action] = [], subject: UUID? = nil, fix: FixRequest? = nil) {
+    public init(title: String, error: Error, actions: [Action] = [], subject: UUID? = nil) {
         let detail = (error as? GitError).flatMap { git in
             git.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? nil : "git \(git.args.joined(separator: " ")) failed:\n\(git.stderr)"
         }
-        self.init(title: title, reason: Self.reason(of: error), actions: actions, subject: subject, detail: detail, fix: fix)
+        self.init(title: title, reason: Self.reason(of: error), actions: actions, subject: subject, detail: detail)
     }
 
     /// Whether the issue names a task or a project that `state` no longer has: the question has

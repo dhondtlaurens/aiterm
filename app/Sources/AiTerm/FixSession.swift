@@ -72,6 +72,14 @@ final class FixSession {
         }
     }
 
+    /// At quit: stops whatever the session's task is running, in any state — an Apply included,
+    /// which `cancel()` leaves be — so no agent's process group outlives the app. Synchronous and
+    /// cheap: cancelling sends the group its SIGTERM at once (`AgentProcess`); the task removes its
+    /// clone if it gets to, and the next launch's sweep does otherwise.
+    func stop() {
+        work?.cancel()
+    }
+
     /// Has the agent make the proposal in the clone, checks it, lands it and runs the failed action again.
     func apply() {
         guard case .proposal(let proposal) = state, let fixer, let clone, let session else { return }

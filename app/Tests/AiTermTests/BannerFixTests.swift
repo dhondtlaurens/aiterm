@@ -105,7 +105,7 @@ import Testing
     /// again — still diverged here, since the stub's fix moves nothing, so the new failure names
     /// where the branch as it was is kept.
     @Test func aFixThatLandsPullsAgainAndAFailedPullNamesTheBackup() async throws {
-        let (fixture, _) = try divergedFixture()
+        let fixture = try divergedFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -127,7 +127,7 @@ import Testing
 
     /// A pull that succeeds after the fix says so, and where the old commits are.
     @Test func aPullAfterTheFixSaysWhereTheOldCommitsAre() async throws {
-        let (fixture, other) = try divergedFixture()
+        let fixture = try divergedFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         let controller = fixture.controller
         controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
@@ -137,7 +137,6 @@ import Testing
         // What the fix would have done: main now on origin's.
         try fixture.git.run(["fetch", "-q", "origin"], in: fixture.repo.path)
         try fixture.git.run(["reset", "-q", "--hard", "origin/main"], in: fixture.repo.path)
-        _ = other
 
         session.apply(); await session.settled()
         await eventually(describing: "the pull's toast") { controller.toastState.toast?.message.hasPrefix("After") == true }
@@ -163,15 +162,85 @@ import Testing
 
     /// The banner's session takes the fixer Settings names: Off makes one that offers nothing.
     @Test func theBannersSessionTakesTheFixerSettingsNames() async throws {
-        let (fixture, _) = try divergedFixture()
+        let fixture = try divergedFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
         fixture.controller.agents.fixerChoice = .off
         await fixture.controller.pullDefault(project: fixture.project)?.value
         #expect(fixture.controller.notices.fixSession?.state == .unavailable(""))
     }
 
+    /// A fix that landed on a branch that is no longer the project's default pulls nothing — that
+    /// pull was for the old one — and the toast says where the branch as it was is kept.
+    @Test func aFixForABranchNoLongerTheDefaultPullsNothing() async throws {
+        let fixture = try divergedFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        var pipeline = FixPipeline.stub(look: .fix(proposal))
+        pipeline.land = { _ in FixLanding(branch: "release", old: "a", new: "b") }
+        controller.fixPipeline = { [pipeline] _ in pipeline }
+        await controller.pullDefault(project: fixture.project)?.value
+        let session = try #require(controller.notices.fixSession)
+        session.start(); await session.settled()
+        session.apply(); await session.settled()
+
+        #expect(controller.toastState.toast?.message == "The fix is in; your branch as it was is kept as aiterm/backup/release.")
+        #expect(!controller.isChangingDefaultBranch(fixture.project.id), "no pull")
+        #expect(controller.issue == nil, "a pull would have found main diverged again")
+    }
+
+    /// Two projects: while A's fix holds the banner, B's refusal waits; once A's fix lands it comes
+    /// up with a Fix of its own, and A's pull, run again, leaves it be.
+    @Test func anotherProjectsIssueWaitsForTheFixAndIsLeftAlone() async throws {
+        let fixture = try divergedFixture()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.fixPipeline = { _ in .stub(look: .fix(proposal)) }
+        let other = Project(id: UUID(), name: "Other", path: fixture.root.appendingPathComponent("other").path, provider: .git,
+                            remoteUrl: nil, addedAt: Date(), collapsed: false)
+        controller.workspace.mutate { $0.append(project: other) }
+        await controller.pullDefault(project: fixture.project)?.value
+        let session = try #require(controller.notices.fixSession)
+        session.start(); await session.settled()
+
+        let otherIssue = OperationIssue.pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 2), in: other.id,
+                                                    projectPath: other.path)
+        controller.report(otherIssue)
+        #expect(controller.issue?.fix?.retry == .pullDefault(fixture.project.id), "held while the proposal is up")
+
+        // What the fix would have done: A's main on origin's, so its pull succeeds.
+        try fixture.git.run(["fetch", "-q", "origin"], in: fixture.repo.path)
+        try fixture.git.run(["reset", "-q", "--hard", "origin/main"], in: fixture.repo.path)
+        session.apply(); await session.settled()
+        await eventually(describing: "A's pull to end") { !controller.isChangingDefaultBranch(fixture.project.id) }
+
+        #expect(controller.toastState.toast?.message.hasPrefix("After Claude’s fix, main is already up to date.") == true)
+        #expect(controller.issue == otherIssue)
+        let othersFix = try #require(controller.notices.fixSession)
+        #expect(othersFix !== session && othersFix.state == .offered)
+        #expect(othersFix.request.retry == .pullDefault(other.id))
+    }
+
+    /// Quitting stops a Look: its agent's process group would outlive the app.
+    @Test func shutdownStopsALook() async throws {
+        let fixture = try divergedFixture()
+        defer { fixture.cleanUp() }
+        let controller = fixture.controller
+        controller.fixPipeline = { _ in .stub(look: .none("n"), slowLook: true) }
+        await controller.pullDefault(project: fixture.project)?.value
+        let session = try #require(controller.notices.fixSession)
+        session.start()
+        await session.waitForClone()
+        let clone = try #require(session.clonePath)
+
+        let started = ContinuousClock.now
+        controller.shutdown()
+        await session.settled()
+        #expect(ContinuousClock.now - started < .seconds(10), "not the stub's 30 s Look")
+        #expect(!FileManager.default.fileExists(atPath: clone))
+    }
+
     /// A repository whose `main` has one commit origin lacks while origin has one it lacks.
-    private func divergedFixture() throws -> (RaceFixture, String) {
+    private func divergedFixture() throws -> RaceFixture {
         let fixture = try RaceFixture()
         let remote = fixture.root.appendingPathComponent("remote.git").path, other = fixture.root.appendingPathComponent("other").path
         let repo = fixture.repo.path
@@ -183,6 +252,6 @@ import Testing
             try fixture.git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", message], in: dir)
         }
         try fixture.git.run(["push", "-q", "origin", "main"], in: other)
-        return (fixture, other)
+        return fixture
     }
 }

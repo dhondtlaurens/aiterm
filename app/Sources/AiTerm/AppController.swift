@@ -263,6 +263,9 @@ final class AppController {
         agentProbe = nil
         checkouts.stop()
         sheets.cancelPreparation()
+        // A fix's agent runs in a process group of its own, which would outlive the app.
+        notices.fixSession?.stop()
+        if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
         helper.shutdown()
@@ -414,7 +417,8 @@ final class AppController {
 
     /// The banner's Fix for a refused Pull main or its rebase, with the agent Settings names: once
     /// the fix has landed, the banner goes, what waited behind it comes up, and the pull runs
-    /// again — saying where the branch as it was is kept, however it ends. None for a problem
+    /// again — saying where the branch as it was is kept, however it ends, or in a toast when the
+    /// project's default branch is no longer the one fixed. None for a problem
     /// another surface retries, or for a project that has gone.
     private func makeFix(for request: FixRequest) -> FixSession? {
         guard case .pullDefault(let id) = request.retry, let project = state.project(id: id) else { return nil }
@@ -425,6 +429,10 @@ final class AppController {
             // Only this fix's banner: nothing replaces it while it lands, and the landed session is the shown one.
             if case .done? = notices.fixSession?.state { notices.clearIssue() }
             guard let project = state.project(id: id) else { return }
+            // A default branch that is no longer the one fixed is not the pull this fix was for.
+            let git = self.git
+            let current = await BackgroundWork.run { Repository(project.path, git: git).defaultBranch() }
+            guard current == landing.branch else { return notices.showToast(landing.keptSentence) }
             projects.pullDefault(project: project, after: (landing, agent))
         }
     }
