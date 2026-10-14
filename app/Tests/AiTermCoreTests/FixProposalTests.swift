@@ -47,7 +47,8 @@ struct FixProposalTests {
         OutOfContract("a subshell in verify") { $0.verify = "pnpm $(echo typecheck)" },
         OutOfContract("a glob in verify") { $0.verify = "pnpm test *" },
         OutOfContract("a subshell paren in verify") { $0.verify = "(pnpm typecheck)" },
-        OutOfContract("a colon in verify") { $0.verify = "pnpm run test:unit" },
+        OutOfContract("a bare glob in verify") { $0.verify = "pnpm *" },
+        OutOfContract("a prefix rule in verify") { $0.verify = "pnpm:*" },
         OutOfContract("a newline in verify") { $0.verify = "pnpm typecheck\nrm -rf ~" },
     ])
     func anAnswerOutOfContractIsNoPlan(_ bad: OutOfContract) {
@@ -64,11 +65,23 @@ struct FixProposalTests {
         #expect(proposal.verify == "pnpm typecheck")
     }
 
+    /// A `:` is part of many a script's name; only `*` makes Claude's `Bash(…)` rule a prefix rule,
+    /// and that is refused.
+    @Test func aVerifyWithAColonPasses() throws {
+        let look = try FixLook(validating: answer(verify: "pnpm test:unit"), request: request, localOnly: local, agent: .claude)
+        guard case .fix(let proposal) = look else { Issue.record("expected a proposal"); return }
+        #expect(proposal.verify == "pnpm test:unit")
+    }
+
     @Test func refusalsSaySentences() {
         #expect(FixRefusal.unreadableAnswer(.claude).errorDescription == "Claude’s answer was not a plan AiTerm can check.")
         #expect(FixRefusal.branchMovedMeanwhile("feat/x").errorDescription
                 == "“feat/x” moved while the fix was being made, so nothing was changed. Try again.")
         #expect(FixRefusal.droppedCommit("feat/x", sha: "abc1234def").errorDescription
                 == "The fix would have dropped commit abc1234 from “feat/x” without saying so, so nothing was changed.")
+        #expect(FixRefusal.settingsChanged.errorDescription == "The agent changed the copy’s git settings, so its fix was not used.")
+        #expect(FixRefusal.movedAfterCheck("feat/x").errorDescription == "“feat/x” moved after AiTerm checked it, so the fix was not used.")
+        #expect(FixRefusal.uncheckable(GitError(args: ["status"], code: 128, stderr: "fatal: index file corrupt")).errorDescription
+                == "Couldn’t check the fix: Index file corrupt. Nothing was changed.")
     }
 }

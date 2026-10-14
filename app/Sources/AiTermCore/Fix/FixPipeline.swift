@@ -58,7 +58,7 @@ public struct FixPipeline: Sendable {
             apply: { agent, clone, proposal, session throws(FixRefusal) in
                 defer { tipsAtLook.withLock { $0[clone.path] = nil } }
                 guard let before = tipsAtLook.withLock({ $0[clone.path] }) else {
-                    throw .cloneFailed("its branches were not read before the fix, so it can’t be checked.")
+                    throw .checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.")
                 }
                 let started = ContinuousClock.now
                 let choice = model(agent)

@@ -40,8 +40,9 @@ public enum FixLook: Equatable, Sendable {
 
     static let headlineLimit = 90, whyLimit = 300, stepRange = 1...3
     /// Characters a `verify` command may not hold: anything that chains, substitutes, redirects or
-    /// globs, and the `*` and `:` that Claude's `Bash(…)` permission rule gives a meaning of its own.
-    static let shellOperators: [String] = [";", "&", "|", "`", "$(", "(", ")", ">", "<", "*", ":", "\n", "\r"]
+    /// globs, and the parentheses and `*` of Claude's `Bash(…)` permission rule — without a `*`, a
+    /// `:` cannot make it a `:*` prefix rule, so `pnpm test:unit` is a command like any other.
+    static let shellOperators: [String] = [";", "&", "|", "`", "$(", "(", ")", ">", "<", "*", "\n", "\r"]
 
     public init(validating answer: FixLookAnswer, request: FixRequest, localOnly: Set<String>,
                 agent: FixerAgent) throws(FixRefusal) {

@@ -211,6 +211,15 @@ import Foundation
         #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
     }
 
+    /// M3: git failing while checking a fix is a failed check, not a failed preparation.
+    @Test func gitFailingDuringTheChecksSaysTheCheckFailed() throws {
+        let failing = FixClone(path: clone.path, branch: clone.branch, startTip: clone.startTip, originTip: clone.originTip,
+                               git: FailingGit(), settings: clone.settings)
+        #expect(throws: FixRefusal.checkFailed("Couldn’t check the fix: Index file corrupt. Nothing was changed.")) {
+            try FixGuard.check(failing, proposal: plan(), before: [:])
+        }
+    }
+
     // MARK: fixtures
 
     private static let wipDate = ["GIT_AUTHOR_DATE": "1700000000 +0000"]
@@ -242,3 +251,9 @@ import Foundation
     }
 }
 
+/// Git that fails every command, as a corrupt index would.
+private struct FailingGit: GitRunning {
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        throw GitError(args: args, code: 128, stderr: "fatal: index file corrupt")
+    }
+}

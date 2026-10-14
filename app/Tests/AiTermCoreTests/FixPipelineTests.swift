@@ -120,6 +120,18 @@ import Foundation
         }
     }
 
+    /// M3: an Apply with no Look before it has no tips to check against; that is a failed check.
+    @Test func anApplyWithNoLookBeforeItIsACheckThatFailed() async throws {
+        let request = request
+        let pipeline = live(nil)
+        let clone = try await pipeline.prepare(request)
+        defer { clone.remove() }
+        let proposal = FixProposal(headline: "h", why: "w", steps: ["s"], moves: ["feat/x"], drops: [], verify: nil)
+        await #expect(throws: FixRefusal.checkFailed("Couldn’t check the fix: its branches were not read before it was made, so nothing was changed.")) {
+            _ = try await pipeline.apply(.claude, clone, proposal, "S")
+        }
+    }
+
     /// The guard runs on the clone the agent left, not on its word: “applied” with the rebase still stopped.
     @Test func anApplyThatLeavesTheRebaseStoppedIsRefused() async throws {
         let request = request

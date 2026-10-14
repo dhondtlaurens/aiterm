@@ -30,7 +30,7 @@ public enum FixGuard {
         } catch let refusal as FixRefusal {
             throw refusal
         } catch {
-            throw .cloneFailed(GitError.displayReason(of: error))
+            throw .uncheckable(error)
         }
     }
 
