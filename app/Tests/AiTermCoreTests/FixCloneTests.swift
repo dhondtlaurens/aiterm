@@ -60,7 +60,8 @@ import Foundation
         let after = recording.calls.dropFirst(made)
         #expect(after.count > 4)
         let pinned = ["--git-dir=" + clone.path + "/.git", "--work-tree=" + clone.path, "--no-replace-objects",
-                      "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+                      "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                      "-c", "diff.ignoreSubmodules=all", "-c", "advice.graftFileDeprecated=false"]
         for call in after {
             #expect(call.args.starts(with: pinned), "\(call.args)")
         }
@@ -86,6 +87,22 @@ import Foundation
         #expect(try git.run(["status", "--porcelain"], in: clone.path).contains("UU config.ts"), "stopped on the conflict")
         #expect(try git.run(["config", "commit.gpgSign"], in: clone.path) == "false")
         #expect(try git.run(["config", "tag.gpgSign"], in: clone.path) == "false")
+    }
+
+    /// `GIT_GRAFT_FILE` makes git print a deprecation hint on every command that reads commits; a
+    /// failure with no `fatal:` line of its own would show that hint as its reason.
+    @Test func aFailingCommandInTheCloneSaysNothingOfGrafts() throws {
+        let clone = try FixClone.make(for: request(rebase: false), git: git, root: world.root)
+        defer { clone.remove() }
+        let origin = try #require(clone.originTip)
+        do {
+            // Diverged: not an ancestor, so git exits 1 and says nothing of its own.
+            try clone.git.run(["merge-base", "--is-ancestor", origin, clone.startTip], in: clone.path)
+            Issue.record("expected merge-base to fail")
+        } catch {
+            #expect(!GitError.sentence(of: error).lowercased().contains("graft"), "\(GitError.sentence(of: error))")
+            #expect(!((error as? GitError)?.stderr.contains("hint:") ?? false))
+        }
     }
 
     @Test func removeDeletesTheFolder() throws {

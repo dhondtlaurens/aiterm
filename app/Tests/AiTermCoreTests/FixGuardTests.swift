@@ -313,6 +313,28 @@ import Synchronization
         #expect(result.withLock { $0 } == .settingsChanged)
     }
 
+    /// Wave 3: a populated submodule with a clean filter of its own. `status` would look inside it
+    /// and run that filter unsandboxed; AiTerm's git never looks into a submodule's work tree.
+    @Test func aPopulatedSubmoduleNeverRunsItsFilter() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let (hook, marker) = try plantedHook()
+        let sub = clone.path + "/sub", files = FileManager.default
+        try git.run(["init", "-q", sub], in: clone.path)
+        try "s\n".write(toFile: sub + "/s.txt", atomically: true, encoding: .utf8)
+        try git.run(["add", "s.txt"], in: sub)
+        try git.run(["commit", "-q", "-m", "s"], in: sub)
+        let config = try String(contentsOfFile: sub + "/.git/config", encoding: .utf8)
+        try (config + "[filter \"x\"]\n\tclean = \(hook)\n").write(toFile: sub + "/.git/config", atomically: true, encoding: .utf8)
+        try "* filter=x\n".write(toFile: sub + "/.git/info/attributes", atomically: true, encoding: .utf8)
+        try git.run(["add", "sub"], in: clone.path)   // a gitlink; no .gitmodules needed
+        try git.run(["commit", "-q", "-m", "sub"], in: clone.path)
+        try? files.removeItem(atPath: marker)   // what setting it up ran is not AiTerm's
+        try files.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: sub + "/s.txt")
+        _ = try? FixGuard.check(clone, proposal: plan(), before: start)
+        #expect(!files.fileExists(atPath: marker), "the submodule's filter never ran")
+    }
+
     /// M3: git failing while checking a fix is a failed check, not a failed preparation.
     @Test func gitFailingDuringTheChecksSaysTheCheckFailed() throws {
         let failing = FixClone(path: clone.path, branch: clone.branch, startTip: clone.startTip, originTip: clone.originTip,

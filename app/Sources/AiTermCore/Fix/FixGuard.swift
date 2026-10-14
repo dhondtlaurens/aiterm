@@ -20,7 +20,7 @@ public enum FixGuard {
             let landing = try clone.tip(clone.branch)
             let markers = try leftoverMarkers(in: dir, since: clone.startTip, origin: clone.originTip, to: landing, git: git)
             if !markers.isEmpty { throw FixRefusal.conflictMarkers(markers) }
-            if !(try git.run(["status", "--porcelain", "--untracked-files=no"], in: dir)).isEmpty { throw FixRefusal.uncommittedChanges }
+            if !(try git.run(["status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"], in: dir)).isEmpty { throw FixRefusal.uncommittedChanges }
             let after = try clone.branchTips()
             for (branch, tip) in before.sorted(by: { $0.key < $1.key }) where !proposal.moves.contains(branch) && after[branch] != tip {
                 throw FixRefusal.movedOtherBranch(branch)

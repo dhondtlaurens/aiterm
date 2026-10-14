@@ -197,9 +197,12 @@ public struct FixClone: Sendable {
 /// repository” rather than git taking a layout the agent made at the root (or above it) for one, and
 /// `safe.bareRepository=explicit` refuses any bare repository found by looking. Objects are read as
 /// they are: no replace refs (`--no-replace-objects`) and no grafts (`GIT_GRAFT_FILE`), either of
-/// which could hide a conflict marker or a dropped commit from the checks. `core.fsmonitor` and
-/// `core.hooksPath` are off on the command line, which outranks the clone's config — a second guard
-/// behind `checkSettings()` for the two settings that run a command on the commands AiTerm uses.
+/// which could hide a conflict marker or a dropped commit from the checks. Submodules are ignored
+/// (`diff.ignoreSubmodules=all`): a populated one is a repository of the agent's, whose own filters
+/// `status` would run; landing moves refs only, so their work trees say nothing it needs.
+/// `core.fsmonitor` and `core.hooksPath` are off on the command line, which outranks the clone's
+/// config — a second guard behind `checkSettings()` for the two settings that run a command on the
+/// commands AiTerm uses. Grafts' deprecation hint is off, so it never ends up in a failure's sentence.
 struct CloneGit: GitRunning {
     let inner: any GitRunning
     /// The clone's absolute path.
@@ -208,7 +211,8 @@ struct CloneGit: GitRunning {
 
     var flags: [String] {
         ["--git-dir=" + clone + "/.git", "--work-tree=" + clone, "--no-replace-objects",
-         "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+         "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+         "-c", "diff.ignoreSubmodules=all", "-c", "advice.graftFileDeprecated=false"]
     }
 
     @discardableResult
