@@ -179,18 +179,18 @@ vendor needs both.
 ### Patterns — `app/Sources/AiTerm/Views/`
 
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
-`AgentSegmented`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
+`AgentSegmented`, `AgentSegmentLabel`, `FixProposalBlock`, `FixBusyLine`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
 `NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
-`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarToast`,
+`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
-`InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `ArchiveSheet`, `ArchiveRow`.
+`FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -251,6 +251,24 @@ footer's leading edge, in `SheetFooter`'s `status` slot: **Switch to main** when
 out in the project's own folder and that folder has no uncommitted changes, **Rebase** when the local
 branch and origin's have diverged. A plain button with no key — ⌘↩ stays the create — that runs the
 fix and then the create it stopped (`CreationFailure.Recovery`).
+
+**Fix with AI.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
+Pull main's — offers **Fix with Claude** (or **Codex**), after the failure's own recovery: a plain
+button with the `sparkles` symbol and no key, greyed with its reason in the tooltip while the agent is
+missing. From then on the session's state (`FixSession.State`) is drawn where the failure's sentence
+was, by `FixFooterPresentation` in the footer and `BannerFixPresentation` in the banner, so each state is
+tested without rendering. `FixBusyLine` is the line while the agent looks — “Claude is looking at the
+conflict…”: a working `StatusMark` at `Size.statusMark`, `Space.snug` before the line in
+`Typography.caption` and `Palette.muted`. `FixProposalBlock` is its plan: the agent's `VendorMark` at
+`Size.vendorMark`, then what it found in `Typography.label` and `Palette.text`, why in
+`Typography.caption` and `Palette.muted`, and up to three numbered steps in `Typography.help`, the number
+hanging in a `Space.block` indent, `Space.tight` between the parts and `Space.hairline` between steps; its
+text is selectable. `compact`, the banner's size, sets the line and the why in `Typography.help`. In the
+footer Cancel and a primary **Apply** on ⌘↩ — the footer's only; the banner has no key — replace Back and
+Create while a proposal is up, and “Applying…” with Cancel off and the sheet held open while it is applied.
+In the banner (`IssueBanner`) the offer is a link beside the issue's own, then Apply and Cancel as links,
+then Cancel greyed while it is applied. A fix that fails shows the failure in the sentence's place with
+**Try Again**; one with nothing to propose shows the agent's reason and no Fix. No new tokens.
 
 `NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",

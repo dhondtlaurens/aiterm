@@ -70,6 +70,7 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `WorkspaceStore` | `workspace` | the projects, dividers, tasks and terminals, and the one way they change, `mutate`, which runs the change hooks once and saves, coalesced and off the main actor |
 | `WorkInFlight` (Core) | `work` | the work under way on each project, task and terminal: what one waits for before it starts, and what a project's removal waits for |
 | `Notices` | `notices` | the banner above the list and the completion toast, and which report wins the banner |
+| `FixSession` | `CreationModel.fixSession`, `Notices.fixSession` | one problem's Fix with AI — per failure, not one of the controller's: its state, the task running the pipeline and the clone it made, removed on every way out |
 | `SheetCoordinator` | `sheets` | the one sheet slot, every way into it, the preparation on its way to it, and the creation sheets' models |
 | `ProjectActions` | `projects` | every edit that is the workspace's alone — projects, dividers, names, Jira links — and the default branch's pull |
 | `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened |
@@ -100,6 +101,48 @@ a removal saves the row's going before it says "removed", and a shelving saves t
 shelf before git removes its worktree — stopping there if that save fails. A new task is saved
 before its window opens, a new project before its worktrees are offered, a restored row before it
 is chosen, and the workspace at quit.
+
+### Fix with AI
+
+A failure an agent can fix — a diverged branch or a rebase's conflict, in New Review's footer and
+Pull main's banner — offers Fix with the agent chosen in Settings › Agents (Claude Code or Codex;
+Grok Build has no network-off on macOS, PI no unattended mode). `FixPipeline` runs it off the main
+actor in four stages, each a closure the app's tests fake; `FixSession` owns one problem's run.
+
+**The clone.** The agent never runs in the real repository. `FixClone` is a `git clone --shared
+--no-checkout` of the project in the temp dir (`aiterm-fix-<uuid>`) with no remote, hooks off
+(`core.hooksPath /dev/null`), the branch at the commit the fix started from and, for a rebase's
+conflict, the stopped rebase recreated, so the agent reads the conflict itself. A pid file in `.git`
+lets `FixClone.sweep` remove a crashed run's clone at launch and never a live one's; every way out
+of a session removes its own.
+
+**Look and Apply.** Look is read-only and has 180 s: the agent reads and runs read-only git, and
+answers with a plan of one headline, a why and up to three steps. Apply resumes the same session
+with 600 s to write the plan; AiTerm's checks and the plan's `verify` follow, which gets at least
+30 s, so an Apply can run about 630 s. Nothing writes until the person presses Apply. Both runs go
+through `AgentProcess` (dedicated drain threads, a stop that kills the process group), never
+`ProcessRunner`. Claude runs with hooks off, `--setting-sources user` (the clone's own settings are
+the repository's), no MCP servers, its Bash sandbox with the network off, no web tools, and Edit and
+Write confined to the clone. Codex runs with `--ignore-user-config` and `--disable hooks`, a
+`workspace-write` sandbox (read-only for Look) and the clone's `.git` as a writable root, which
+`workspace-write` cannot write on its own.
+
+**The checks.** `FixGuard` takes nobody's word that Apply worked: no operation left in progress,
+no leftover conflict markers in the branch that will land, a clean tree, no branch moved that the
+plan did not name, and no local commit lost — matched by patch id, or by a twin's author, date and
+subject, which a rebase keeps — unless the plan dropped it. Then `verify` runs under `sandbox-exec`
+(`VerifySandbox`): no network, unix sockets included; writes only in the clone and the per-user temp
+dir; LaunchServices, AppleEvents and the pasteboard denied, so it cannot start an app that runs
+unconfined. Without `sandbox-exec` there is no `verify`.
+
+**Landing.** `TaskWorkflow.landFix` runs on the same serial queue as creation, removal and pull,
+since it moves a branch. With hooks off in every command, the fix is fetched under
+`refs/aiterm/fix/`, the old tip is kept as `refs/aiterm/backup/<branch>`, and the branch moves only
+if it is still where the clone began: `update-ref <ref> <new> <old>` where it is checked out
+nowhere, a fast-forward or `reset --keep` in its clean checkout otherwise. A branch mid-rebase or
+bisect, or a fix that would overwrite an ignored file, is refused; a refusal leaves everything as it
+was. When a fix landed and its retry (the create, the pull) did not succeed, the person is told:
+“The fix is in; your branch as it was is kept as aiterm/backup/<branch>.”
 
 ### Backpack Mode
 
