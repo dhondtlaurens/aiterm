@@ -134,6 +134,64 @@ import Foundation
         #expect(try world.sha("feat/x", in: world.repo) == mine)
     }
 
+    // -- The clone's git settings, which the agent may not change --
+
+    /// A script that leaves a marker when it runs — as git runs a planted `core.fsmonitor`.
+    private func plant() throws -> (hook: String, marker: String) {
+        let hook = world.root + "/plant.sh", marker = world.root + "/planted-ran"
+        try "#!/bin/sh\ntouch '\(marker)'\n".write(toFile: hook, atomically: true, encoding: .utf8)
+        chmod(hook, 0o755)
+        return (hook, marker)
+    }
+
+    /// C1: an Apply that writes `core.fsmonitor` into the clone's config is refused before AiTerm's
+    /// own `git status` runs it — as the person, outside every sandbox.
+    @Test func anApplyThatPlantsAGitSettingIsRefusedAndThePlantNeverRuns() async throws {
+        let request = request
+        let mine = try world.sha("feat/x", in: world.repo)
+        let (hook, marker) = try plant()
+        let (script, _) = try agent(look: fixAnswer(drops: [mine]),
+                                    applyBody: "git rebase --abort && git reset -q --hard origin/feat/x && git config core.fsmonitor '\(hook)' || exit 4")
+        let pipeline = live(script)
+        let clone = try await pipeline.prepare(request)
+        defer { clone.remove() }
+        let (look, session) = try await pipeline.look(.claude, clone, request)
+        guard case .fix(let proposal) = look else { Issue.record("expected a proposal, got \(look)"); return }
+        await #expect(throws: FixRefusal.settingsChanged) { try await pipeline.apply(.claude, clone, proposal, session) }
+        #expect(!FileManager.default.fileExists(atPath: marker), "the planted command never ran")
+        #expect(try world.sha("feat/x", in: world.repo) == mine)
+    }
+
+    /// C1 at Look: a read-only run can still write the config (`git log --output=.git/config`); it
+    /// is refused before AiTerm reads the clone again.
+    @Test func aLookThatPlantsAGitSettingIsRefused() async throws {
+        let request = request
+        let (hook, marker) = try plant()
+        let (script, _) = try agent(look: fixAnswer(drops: []), lookBody: "git config core.fsmonitor '\(hook)'", applyBody: "")
+        let pipeline = live(script)
+        let clone = try await pipeline.prepare(request)
+        defer { clone.remove() }
+        await #expect(throws: FixRefusal.settingsChanged) { _ = try await pipeline.look(.claude, clone, request) }
+        #expect(!FileManager.default.fileExists(atPath: marker), "the planted command never ran")
+    }
+
+    /// C1 after `verify`: the sandbox lets it write the clone, `.git` included, so its changes to the
+    /// settings are refused as the agent's are.
+    @Test(.enabled(if: VerifySandbox.isAvailable)) func aVerifyThatPlantsAGitSettingIsRefused() async throws {
+        let request = request
+        let mine = try world.sha("feat/x", in: world.repo)
+        let (hook, marker) = try plant()
+        let (script, _) = try agent(look: fixAnswer(drops: [mine], verify: "git config core.fsmonitor \(hook)"),
+                                    applyBody: "git rebase --abort && git reset -q --hard origin/feat/x || exit 4")
+        let pipeline = live(script)
+        let clone = try await pipeline.prepare(request)
+        defer { clone.remove() }
+        let (look, session) = try await pipeline.look(.claude, clone, request)
+        guard case .fix(let proposal) = look else { Issue.record("expected a proposal, got \(look)"); return }
+        await #expect(throws: FixRefusal.settingsChanged) { try await pipeline.apply(.claude, clone, proposal, session) }
+        #expect(!FileManager.default.fileExists(atPath: marker), "the planted command never ran")
+    }
+
     @Test(.enabled(if: VerifySandbox.isAvailable)) func aVerifyThatFailsRefusesTheFix() async throws {
         let request = request
         let mine = try world.sha("feat/x", in: world.repo)

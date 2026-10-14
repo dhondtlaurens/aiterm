@@ -186,6 +186,31 @@ import Foundation
         }
     }
 
+    // MARK: the clone's git settings
+
+    /// C1: AiTerm's own `git status` would run a planted `core.fsmonitor` as the person, unsandboxed.
+    @Test func aPlantedFsmonitorIsRefusedAndNeverRuns() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let hook = world.root + "/plant.sh", marker = world.root + "/planted-ran"
+        try "#!/bin/sh\ntouch '\(marker)'\n".write(toFile: hook, atomically: true, encoding: .utf8)
+        chmod(hook, 0o755)
+        try git.run(["config", "core.fsmonitor", hook], in: clone.path)
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+        #expect(!FileManager.default.fileExists(atPath: marker), "the planted command never ran")
+    }
+
+    /// A `commondir` file sends git to another repository's config — and refs — which the bytes of
+    /// `.git/config` alone would never show.
+    @Test func aPlantedCommondirIsRefused() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let elsewhere = world.root + "/elsewhere"
+        try git.run(["init", "-q", elsewhere], in: world.root)
+        try (elsewhere + "/.git\n").write(toFile: clone.path + "/.git/commondir", atomically: true, encoding: .utf8)
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
     // MARK: fixtures
 
     private static let wipDate = ["GIT_AUTHOR_DATE": "1700000000 +0000"]

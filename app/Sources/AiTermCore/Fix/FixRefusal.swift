@@ -20,6 +20,9 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
     case wouldOverwriteIgnored([String])
     case landingFailed(String, String)
     case cloneFailed(String)
+    /// AiTerm's own checks of the clone, after an agent or `verify` ran in it, could not pass the
+    /// fix: the sentence says why (`settingsChanged`, `movedAfterCheck`, `uncheckable`).
+    case checkFailed(String)
     /// The run was cancelled — the person left a Look. No surface shows it: the session goes back to offered.
     case cancelled
 
@@ -59,8 +62,26 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
             "Couldn’t move “\(b)”: \(reason)"
         case .cloneFailed(let reason):
             "Couldn’t prepare a copy of the repository: \(reason)"
+        case .checkFailed(let sentence):
+            sentence
         case .cancelled:
             "The fix was cancelled, so nothing was changed."
         }
+    }
+}
+
+extension FixRefusal {
+    /// The clone's git settings are not what `FixClone.make` left: a planted `core.fsmonitor` or
+    /// `filter.*.clean` would run as AiTerm's own git, outside every sandbox.
+    public static let settingsChanged = FixRefusal.checkFailed("The agent changed the copy’s git settings, so its fix was not used.")
+
+    /// The branch is no longer the commit AiTerm checked — `verify` moved it, or what landing fetched is another.
+    public static func movedAfterCheck(_ branch: String) -> FixRefusal {
+        .checkFailed("“\(branch)” moved after AiTerm checked it, so the fix was not used.")
+    }
+
+    /// Git failed while checking the clone after a run.
+    public static func uncheckable(_ error: any Error) -> FixRefusal {
+        .checkFailed("Couldn’t check the fix: \(GitError.displayReason(of: error)) Nothing was changed.")
     }
 }

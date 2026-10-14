@@ -44,6 +44,25 @@ import Foundation
         #expect(try clone.localOnly() == [try world.sha("feat/x", in: world.repo)])
     }
 
+    /// C1's second guard: every git AiTerm runs in a made clone has fsmonitor and hooks off on its
+    /// command line, which outranks whatever the clone's config says.
+    @Test func everyGitInTheCloneRunsWithFsmonitorAndHooksOff() throws {
+        let recording = RecordingGitRunner(forwardingTo: git)
+        let clone = try FixClone.make(for: request(rebase: false), git: recording, root: world.root)
+        defer { clone.remove() }
+        let made = recording.calls.count
+        _ = try clone.tip("feat/x")
+        _ = try clone.branchTips()
+        _ = try clone.localOnly()
+        try FixGuard.check(clone, proposal: FixProposal(headline: "h", why: "w", steps: ["s"], moves: ["feat/x"], drops: [], verify: nil),
+                           before: clone.branchTips())
+        let after = recording.calls.dropFirst(made)
+        #expect(after.count > 4)
+        for call in after {
+            #expect(call.args.starts(with: ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]), "\(call.args)")
+        }
+    }
+
     @Test func removeDeletesTheFolder() throws {
         let clone = try FixClone.make(for: request(), git: git, root: world.root)
         clone.remove()

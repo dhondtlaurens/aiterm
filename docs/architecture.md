@@ -127,7 +127,12 @@ Write confined to the clone. Codex runs with `--ignore-user-config` and `--disab
 `workspace-write` sandbox (read-only for Look) and the clone's `.git` as a writable root, which
 `workspace-write` cannot write on its own.
 
-**The checks.** `FixGuard` takes nobody's word that Apply worked: no operation left in progress,
+**The checks.** The agent can write the clone's `.git`, and a `core.fsmonitor` or `filter.*.clean`
+planted in its config would run as AiTerm's own git — unsandboxed, with the network on. So
+`FixClone.make` keeps `.git/config` as it left it, and after every run of an agent or `verify` the
+file must be byte for byte the same, `.git` still a folder and no `commondir` in it, before AiTerm
+runs git in the clone again; that git (`CloneGit`) also has fsmonitor and hooks off on its command
+line. `FixGuard` takes nobody's word that Apply worked: no operation left in progress,
 no leftover conflict markers in the branch that will land, a clean tree, no branch moved that the
 plan did not name, and no local commit lost — matched by patch id, or by a twin's author, date and
 subject, which a rebase keeps — unless the plan dropped it. Then `verify` runs under `sandbox-exec`

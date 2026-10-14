@@ -9,6 +9,8 @@ public enum FixGuard {
     /// `limit` is the most local-only commits a branch may have; tests pass a small one.
     public static func check(_ clone: FixClone, proposal: FixProposal, before: [String: String],
                              limit: Int = localOnlyLimit) throws(FixRefusal) {
+        // First, before any git: a planted setting would run on the `status` below.
+        try clone.checkSettings()
         let git = clone.git, dir = clone.path
         do {
             if try operationInProgress(in: dir, git: git) { throw FixRefusal.operationInProgress }

@@ -48,6 +48,8 @@ public struct FixPipeline: Sendable {
                 let invocation = try FixerLaunch.look(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
                                                       request: request, sessionID: UUID().uuidString.lowercased())
                 let output = try await run(agent, invocation, in: clone, timeout: lookTimeout, locate: locate)
+                // Read-only is the agent's word: Claude's `git log --output=` can still write `.git/config`.
+                try clone.checkSettings()
                 let (answer, session) = try FixerLaunch.lookAnswer(agent, output: output, invocation: invocation)
                 let localOnly = try await read(clone) { try $0.localOnly() }
                 return (try FixLook(validating: answer, request: request, localOnly: localOnly, agent: agent), session)
@@ -62,6 +64,7 @@ public struct FixPipeline: Sendable {
                 let invocation = try FixerLaunch.apply(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
                                                        proposal: proposal, sessionID: session)
                 let output = try await run(agent, invocation, in: clone, timeout: applyTimeout, locate: locate)
+                try clone.checkSettings()
                 _ = try FixApplied(validating: try FixerLaunch.applyAnswer(agent, output: output, invocation: invocation), agent: agent)
                 try await BackgroundWork.run { () throws(FixRefusal) in try FixGuard.check(clone, proposal: proposal, before: before) }
                 // Never unconfined: without `sandbox-exec` there is no `verify` (spec §11.5).
@@ -74,6 +77,8 @@ public struct FixPipeline: Sendable {
                     if Task.isCancelled { throw .cancelled }
                     throw error
                 }
+                // The sandbox lets `verify` write the clone, `.git` included.
+                try clone.checkSettings()
             },
             land: { clone throws(FixRefusal) in try await workflow.landFix(from: clone, in: project) })
     }

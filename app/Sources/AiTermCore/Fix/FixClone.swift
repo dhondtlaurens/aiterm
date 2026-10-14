@@ -9,6 +9,12 @@ import Darwin
 /// origin's tip of it — plus the project's current branch, which a clone always starts on. The owner
 /// file, inside `.git` so the agent's `git add -A` and `git clean` never see it, holds this
 /// process's pid: a crashed run's clone is swept on the next launch and a live one never is.
+///
+/// The agent can write the clone's `.git`, and a `core.fsmonitor` or `filter.*.clean` planted in
+/// its config would run as AiTerm's own git — the person, unsandboxed, with the network on. So the
+/// settings `make` leaves are kept (`settings`) and every run of an agent or `verify` is followed by
+/// `checkSettings()` before AiTerm runs git in the clone again; and that git is `CloneGit`, with
+/// fsmonitor and hooks off on its command line.
 public struct FixClone: Sendable {
     public static let prefix = "aiterm-fix-"
     static let ownerFile = ".git/aiterm-fix-owner"
@@ -20,7 +26,15 @@ public struct FixClone: Sendable {
     public let branch: String
     public let startTip: String
     public let originTip: String?
+    /// Every git AiTerm runs in the clone: `CloneGit`, whatever runner it was given.
     let git: any GitRunning
+    /// The clone's settings as `make` left them (`settings(at:)`); nil for a clone that never had them read.
+    let settings: Data?
+
+    init(path: String, branch: String, startTip: String, originTip: String?, git: any GitRunning, settings: Data? = nil) {
+        self.path = path; self.branch = branch; self.startTip = startTip; self.originTip = originTip
+        self.git = git as? CloneGit ?? CloneGit(git); self.settings = settings
+    }
 
     public static func make(for request: FixRequest, git: any GitRunning,
                             root requestedRoot: String = NSTemporaryDirectory()) throws(FixRefusal) -> FixClone {
@@ -39,28 +53,31 @@ public struct FixClone: Sendable {
             try git.run(["-c", "core.hooksPath=/dev/null", "clone", "-q", "--shared", "--no-checkout", "--no-tags", project, path],
                         in: root, timeout: GitRunner.checkoutTimeout, environment: quiet)
             try Data(#"{"pid":\#(getpid())}"#.utf8).write(to: URL(fileURLWithPath: path + "/" + ownerFile))
-            try git.run(["remote", "remove", "origin"], in: path)
+            let clone = CloneGit(git)
+            try clone.run(["remote", "remove", "origin"], in: path)
             // The exact commits recorded above, not the branch names: the clone holds what `startTip`
             // and `originTip` say even if the project's branch moves meanwhile.
             var refspecs = ["+\(start):refs/heads/\(branch)"]
             if let origin { refspecs.append("+\(origin):refs/remotes/origin/\(branch)") }
-            try git.run(["-c", "core.hooksPath=/dev/null", "fetch", "-q", "--no-tags", "--update-head-ok", project] + refspecs, in: path)
-            try git.run(["config", "core.hooksPath", "/dev/null"], in: path)
-            try git.run(["config", "core.fsmonitor", "false"], in: path)
+            try clone.run(["fetch", "-q", "--no-tags", "--update-head-ok", project] + refspecs, in: path)
+            try clone.run(["config", "core.hooksPath", "/dev/null"], in: path)
+            try clone.run(["config", "core.fsmonitor", "false"], in: path)
             let name = (try? git.run(["config", "user.name"], in: project)).flatMap { $0.isEmpty ? nil : $0 } ?? "AiTerm Fix"
             let email = (try? git.run(["config", "user.email"], in: project)).flatMap { $0.isEmpty ? nil : $0 } ?? "fix@aiterm.invalid"
-            try git.run(["config", "user.name", name], in: path)
-            try git.run(["config", "user.email", email], in: path)
-            try git.run(["checkout", "-q", branch], in: path, timeout: GitRunner.checkoutTimeout, environment: quiet)
+            try clone.run(["config", "user.name", name], in: path)
+            try clone.run(["config", "user.email", email], in: path)
+            try clone.run(["checkout", "-q", branch], in: path, timeout: GitRunner.checkoutTimeout, environment: quiet)
             if request.recreateRebase, origin != nil {
                 // Expected to stop on the conflict: that stopped state is what the agent reads.
-                _ = try? git.run(["rebase", "--no-autostash", "--no-update-refs", "--no-rebase-merges", "origin/" + branch],
-                                 in: path, timeout: GitRunner.checkoutTimeout, environment: quiet)
+                _ = try? clone.run(["rebase", "--no-autostash", "--no-update-refs", "--no-rebase-merges", "origin/" + branch],
+                                   in: path, timeout: GitRunner.checkoutTimeout, environment: quiet)
                 guard FileManager.default.fileExists(atPath: path + "/.git/rebase-merge") else {
                     throw FixRefusal.cloneFailed("“\(branch)” rebases onto origin’s without a conflict now, so there is no conflict left to fix.")
                 }
             }
-            return FixClone(path: path, branch: branch, startTip: start, originTip: origin, git: git)
+            // Last, once nothing of `make`'s writes the config again: the settings every later check compares with.
+            guard let settings = Self.settings(at: path) else { throw FixRefusal.cloneFailed("its git settings could not be read.") }
+            return FixClone(path: path, branch: branch, startTip: start, originTip: origin, git: clone, settings: settings)
         } catch let refusal as FixRefusal {
             try? FileManager.default.removeItem(atPath: path)
             throw refusal
@@ -89,6 +106,23 @@ public struct FixClone: Sendable {
 
     public func remove() { try? FileManager.default.removeItem(atPath: path) }
 
+    /// Refuses unless the clone's git settings are exactly what `make` left. Called after every run
+    /// of an agent or `verify`, before AiTerm's own git runs in the clone again.
+    public func checkSettings() throws(FixRefusal) {
+        guard let settings, Self.settings(at: path) == settings else { throw .settingsChanged }
+    }
+
+    /// The bytes of `.git/config` — or nil when git would not take its settings from that file: `.git`
+    /// is no longer a plain folder (a symlink, or a gitfile naming another), or a `commondir` file
+    /// sends git to another repository's config and refs.
+    static func settings(at path: String) -> Data? {
+        let dotGit = path + "/.git", files = FileManager.default
+        // `attributesOfItem` does not follow a symlink, so a `.git` swapped for one is not a directory.
+        guard (try? files.attributesOfItem(atPath: dotGit))?[.type] as? FileAttributeType == .typeDirectory,
+              (try? files.attributesOfItem(atPath: dotGit + "/commondir")) == nil else { return nil }
+        return files.contents(atPath: dotGit + "/config")
+    }
+
     /// Clones whose owner is not alive — a run that crashed or was killed. Never by prefix alone: a
     /// folder with no readable owner is kept until it is `ownerlessGrace` old, as one mid-clone is.
     /// EPERM from `kill` means the pid exists but is another user's: alive.
@@ -112,4 +146,18 @@ public struct FixClone: Sendable {
     }
 
     private struct Owner: Decodable { var pid: Int32 }
+}
+
+/// Git in a fix's clone, as AiTerm itself runs it: `core.fsmonitor` and `core.hooksPath` off on the
+/// command line, which outranks the clone's config — a second guard behind `checkSettings()`, for
+/// the two settings that run a command on the commands AiTerm uses.
+struct CloneGit: GitRunning {
+    static let flags = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+    let inner: any GitRunning
+    init(_ inner: any GitRunning) { self.inner = inner }
+
+    @discardableResult
+    func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+        try inner.run(Self.flags + args, in: dir, timeout: timeout, environment: environment)
+    }
 }
