@@ -137,4 +137,12 @@ import Testing
             #expect(error.description == "the reason")
         }
     }
+
+    /// A report is read from the error, not streamed: its stdout is kept to the first 64 KB.
+    @Test func aFailingCommandsStdoutIsCapped() throws {
+        let (git, directory) = try fakeGit("/usr/bin/head -c 100000 /dev/zero | /usr/bin/tr '\\0' x; exit 2")
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        do { try git.run(["diff", "--check"], in: directory); Issue.record("git should have failed") }
+        catch let error as GitError { #expect(error.stdout.count == GitError.stdoutLimit && error.stdout.allSatisfy { $0 == "x" }) }
+    }
 }

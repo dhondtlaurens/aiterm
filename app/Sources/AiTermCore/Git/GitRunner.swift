@@ -6,11 +6,14 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
     /// nothing about what was asked, unlike a status git answers with. Set by whoever enforced the
     /// deadline, never read from `stderr`, where a remote's own "timed out" can appear.
     public let timedOut: Bool
-    /// What the failed command printed on stdout, trimmed: some of git's answers come with a status
-    /// (`diff --check` lists what it found, then exits 2). Not part of `description`.
+    /// What the failed command printed on stdout, trimmed and cut at `stdoutLimit` characters: some of
+    /// git's answers come with a status (`diff --check` lists what it found, then exits 2). Not part
+    /// of `description`.
     public let stdout: String
+    public static let stdoutLimit = 64 * 1024
     public init(args: [String], code: Int32, stderr: String, timedOut: Bool = false, stdout: String = "") {
-        self.args = args; self.code = code; self.stderr = stderr; self.timedOut = timedOut; self.stdout = stdout
+        self.args = args; self.code = code; self.stderr = stderr; self.timedOut = timedOut
+        self.stdout = String(stdout.prefix(Self.stdoutLimit))
     }
     public var errorDescription: String? { description }
     public var description: String { stderr.isEmpty ? "Git exited with status \(code)." : stderr }
