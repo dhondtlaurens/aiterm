@@ -20,6 +20,8 @@ public enum FixGuard {
             let landing = try clone.tip(clone.branch)
             let markers = try leftoverMarkers(in: dir, since: clone.startTip, origin: clone.originTip, to: landing, git: git)
             if !markers.isEmpty { throw FixRefusal.conflictMarkers(markers) }
+            // Never into a submodule's work tree: a populated one is the agent's repository, with
+            // filters of its own. The flag, not config: a `.gitmodules` entry's `ignore` outranks config.
             if !(try git.run(["status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"], in: dir)).isEmpty { throw FixRefusal.uncommittedChanges }
             let after = try clone.branchTips()
             for (branch, tip) in before.sorted(by: { $0.key < $1.key }) where !proposal.moves.contains(branch) && after[branch] != tip {

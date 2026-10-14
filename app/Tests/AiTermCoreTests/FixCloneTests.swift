@@ -61,7 +61,7 @@ import Foundation
         #expect(after.count > 4)
         let pinned = ["--git-dir=" + clone.path + "/.git", "--work-tree=" + clone.path, "--no-replace-objects",
                       "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                      "-c", "diff.ignoreSubmodules=all", "-c", "advice.graftFileDeprecated=false"]
+                      "-c", "advice.graftFileDeprecated=false"]
         for call in after {
             #expect(call.args.starts(with: pinned), "\(call.args)")
         }

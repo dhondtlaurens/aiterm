@@ -314,7 +314,9 @@ import Synchronization
     }
 
     /// Wave 3: a populated submodule with a clean filter of its own. `status` would look inside it
-    /// and run that filter unsandboxed; AiTerm's git never looks into a submodule's work tree.
+    /// and run that filter unsandboxed; FixGuard's `status --ignore-submodules=all` never looks into
+    /// a submodule's work tree. The committed `.gitmodules` says `ignore = none`, which outranks a
+    /// `diff.ignoreSubmodules` setting, so only the explicit flag can be the guard.
     @Test func aPopulatedSubmoduleNeverRunsItsFilter() throws {
         let start = before
         try resolve(with: "topic=both\n")
@@ -327,7 +329,9 @@ import Synchronization
         let config = try String(contentsOfFile: sub + "/.git/config", encoding: .utf8)
         try (config + "[filter \"x\"]\n\tclean = \(hook)\n").write(toFile: sub + "/.git/config", atomically: true, encoding: .utf8)
         try "* filter=x\n".write(toFile: sub + "/.git/info/attributes", atomically: true, encoding: .utf8)
-        try git.run(["add", "sub"], in: clone.path)   // a gitlink; no .gitmodules needed
+        try "[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n\tignore = none\n"
+            .write(toFile: clone.path + "/.gitmodules", atomically: true, encoding: .utf8)
+        try git.run(["add", "sub", ".gitmodules"], in: clone.path)   // `sub` as a gitlink
         try git.run(["commit", "-q", "-m", "sub"], in: clone.path)
         try? files.removeItem(atPath: marker)   // what setting it up ran is not AiTerm's
         try files.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: sub + "/s.txt")
