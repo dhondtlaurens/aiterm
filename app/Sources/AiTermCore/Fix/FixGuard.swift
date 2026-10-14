@@ -25,7 +25,7 @@ public enum FixGuard {
         } catch let refusal as FixRefusal {
             throw refusal
         } catch {
-            throw .cloneFailed(OperationIssue.reason(of: error))
+            throw .cloneFailed(GitError.displayReason(of: error))
         }
     }
 

@@ -66,7 +66,7 @@ public struct FixClone: Sendable {
             throw refusal
         } catch {
             try? FileManager.default.removeItem(atPath: path)
-            throw .cloneFailed(OperationIssue.reason(of: error))
+            throw .cloneFailed(GitError.displayReason(of: error))
         }
     }
 

@@ -54,6 +54,13 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
     /// `reason` for a git failure, the description for anything else.
     public static func reason(of error: Error) -> String { (error as? GitError)?.reason ?? "\(error)" }
 
+    /// An error as a sentence to show after AiTerm's own: git's failure lines tidied into one
+    /// (`GitError.sentence`), and any other error's own description. (`reason(of:)` is the raw one,
+    /// which `sentence` starts from.)
+    public static func displayReason(of error: Error) -> String {
+        error is GitError ? sentence(of: error) : error.localizedDescription
+    }
+
     /// `reason(of:)` as a sentence to show beside AiTerm's own: git's `fatal:` and `error:`
     /// prefixes dropped, each line capitalised and ended with a full stop — unless it ends in
     /// punctuation already, a `:` included — joined into one line.

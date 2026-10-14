@@ -57,7 +57,7 @@ public enum FixerLaunch {
             try schema.write(toFile: schemaFile, atomically: true, encoding: .utf8)
             if FileManager.default.fileExists(atPath: answerFile) { try FileManager.default.removeItem(atPath: answerFile) }
         } catch {
-            throw .cloneFailed(OperationIssue.reason(of: error))
+            throw .cloneFailed(GitError.displayReason(of: error))
         }
         return (schemaFile, answerFile)
     }

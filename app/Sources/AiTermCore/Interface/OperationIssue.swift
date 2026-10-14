@@ -68,7 +68,7 @@ public struct OperationIssue: Equatable, Sendable {
     /// An error as a sentence to show after AiTerm's own: git's failure lines tidied into one
     /// (`GitError.sentence`), and any other error's own description.
     public static func reason(of error: Error) -> String {
-        error is GitError ? GitError.sentence(of: error) : error.localizedDescription
+        GitError.displayReason(of: error)
     }
 
     /// The one sentence for an action that needs the daemon when there is none: `action` finishes

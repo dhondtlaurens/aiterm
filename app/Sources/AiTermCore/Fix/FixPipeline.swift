@@ -96,7 +96,7 @@ public struct FixPipeline: Sendable {
         } catch is CancellationError {
             throw .cancelled
         } catch {
-            throw .agentExited(agent, status: -1, stderr: OperationIssue.reason(of: error))
+            throw .agentExited(agent, status: -1, stderr: GitError.displayReason(of: error))
         }
     }
 
@@ -104,7 +104,7 @@ public struct FixPipeline: Sendable {
     private static func read<Value: Sendable>(_ clone: FixClone,
                                               _ body: @escaping @Sendable (FixClone) throws -> Value) async throws(FixRefusal) -> Value {
         try await BackgroundWork.run { () throws(FixRefusal) -> Value in
-            do { return try body(clone) } catch { throw .cloneFailed(OperationIssue.reason(of: error)) }
+            do { return try body(clone) } catch { throw .cloneFailed(GitError.displayReason(of: error)) }
         }
     }
 }

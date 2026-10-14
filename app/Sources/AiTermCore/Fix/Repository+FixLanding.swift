@@ -91,7 +91,7 @@ extension Repository {
         } catch let refusal as FixRefusal {
             throw refusal
         } catch {
-            throw .landingFailed(branch, OperationIssue.reason(of: error))
+            throw .landingFailed(branch, GitError.displayReason(of: error))
         }
     }
 
