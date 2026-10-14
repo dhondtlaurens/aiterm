@@ -8,12 +8,13 @@ import Darwin
 /// `ProcessRunner`, nothing waits on a thread for it: its exit arrives through a dispatch process
 /// source. It leads a process group of its own, so a timeout or a cancellation ends everything it
 /// started — the git it ran, a test runner's workers — and the call returns (or throws
-/// `CancellationError`) only once the group is gone. Output past `outputLimit` per stream is dropped.
+/// `CancellationError`) only once the group is gone, after a normal exit as well: a job the child
+/// left in the background does not outlive the run. Output past `outputLimit` per stream is dropped.
 public enum AgentProcess {
     /// How long a group gets to leave on SIGTERM before SIGKILL.
     static let termGrace: DispatchTimeInterval = .seconds(2)
     /// How long past the kill the group's last members may take to be reaped.
-    static let goneGrace: Duration = .seconds(3)
+    static let goneGrace: Duration = .seconds(10)
     /// Dropped from every child's environment: the terminal's identity, which a hook would report.
     static let strippedEnvironment = ["ITERM_SESSION_ID", "TERM_SESSION_ID", "ITERM_PROFILE"]
 
@@ -115,8 +116,9 @@ private final class Spawned: Sendable {
         let held = Mutex<(any DispatchSourceProcess)?>(source)
         source.setEventHandler { [self] in
             state.withLock { s in
-                // Stopping it: whatever the leader left behind goes before its id is released.
-                if s.terminating { killpg(pid, SIGKILL) }
+                // Whatever the leader left behind goes, however it ended — a background job must not
+                // outlive the run in the clone — while its zombie still holds the group's id.
+                killpg(pid, SIGKILL)
                 var raw: Int32 = 0
                 while waitpid(pid, &raw, 0) < 0, errno == EINTR {}
                 s.status = (raw & 0x7f) == 0 ? (raw >> 8) & 0xff : 128 + (raw & 0x7f)
@@ -147,10 +149,9 @@ private final class Spawned: Sendable {
         }
     }
 
-    /// After a stop: waits until no member of the group is left to signal. A grandchild that left
+    /// After the exit, whatever ended it: waits until no member of the group is left to signal. A grandchild that left
     /// the group itself (`setsid`) is beyond reach; agents' tools do not do that.
     func groupGone() async {
-        guard state.withLock({ $0.terminating }) else { return }
         let deadline = ContinuousClock.now + AgentProcess.goneGrace
         // Signal 0 only checks; a SIGKILLed member lingers just until its new parent reaps it.
         while killpg(pid, 0) == 0, ContinuousClock.now < deadline {
