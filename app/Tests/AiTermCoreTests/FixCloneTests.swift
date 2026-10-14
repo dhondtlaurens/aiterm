@@ -44,8 +44,9 @@ import Foundation
         #expect(try clone.localOnly() == [try world.sha("feat/x", in: world.repo)])
     }
 
-    /// C1's second guard: every git AiTerm runs in a made clone has fsmonitor and hooks off on its
-    /// command line, which outranks whatever the clone's config says.
+    /// C1's second guard: every git AiTerm runs in a made clone names the clone's `.git` and work
+    /// tree itself — no discovery — reads objects without replace refs, and has fsmonitor and hooks
+    /// off on its command line, which outranks whatever the clone's config says.
     @Test func everyGitInTheCloneRunsWithFsmonitorAndHooksOff() throws {
         let recording = RecordingGitRunner(forwardingTo: git)
         let clone = try FixClone.make(for: request(rebase: false), git: recording, root: world.root)
@@ -58,8 +59,10 @@ import Foundation
                            before: clone.branchTips())
         let after = recording.calls.dropFirst(made)
         #expect(after.count > 4)
+        let pinned = ["--git-dir=" + clone.path + "/.git", "--work-tree=" + clone.path, "--no-replace-objects",
+                      "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
         for call in after {
-            #expect(call.args.starts(with: ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]), "\(call.args)")
+            #expect(call.args.starts(with: pinned), "\(call.args)")
         }
     }
 

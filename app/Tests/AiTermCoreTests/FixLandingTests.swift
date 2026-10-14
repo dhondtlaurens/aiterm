@@ -140,6 +140,7 @@ import Synchronization
         _ = try Repository(world.repo, git: recording).landFix(from: clone, tip: clone.tip(clone.branch))
         let fetch = try #require(recording.calls.first { $0.args.contains("fetch") })
         #expect(fetch.args.starts(with: ["-c", "core.hooksPath=/dev/null", "fetch"]))
+        #expect(fetch.args.contains(clone.path + "/.git"), "from the clone's .git itself, never a repository git would find at its root")
     }
 
     /// Review focus 1: a branch name with slashes all the way through.

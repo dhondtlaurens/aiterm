@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -209,6 +210,107 @@ import Foundation
         try git.run(["init", "-q", elsewhere], in: world.root)
         try (elsewhere + "/.git\n").write(toFile: clone.path + "/.git/commondir", atomically: true, encoding: .utf8)
         #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
+    // MARK: the repository AiTerm's git reads
+
+    /// A clean filter that leaves a marker when git runs it.
+    private func plantedHook() throws -> (hook: String, marker: String) {
+        let hook = world.root + "/plant.sh", marker = world.root + "/planted-ran"
+        try "#!/bin/sh\ntouch '\(marker)'\ncat\n".write(toFile: hook, atomically: true, encoding: .utf8)
+        chmod(hook, 0o755)
+        return (hook, marker)
+    }
+
+    /// Wave 2: `.git/config` untouched, `.git` broken, and the clone's root laid out as a git
+    /// directory whose config plants a clean filter. Git's discovery would take the root for a bare
+    /// repository and run the filter on `status`; AiTerm's git names `.git` itself, so it fails closed.
+    @Test func aRootLaidOutAsAGitDirectoryIsNeverReadAndItsFilterNeverRuns() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let (hook, marker) = try plantedHook()
+        let root = clone.path, files = FileManager.default
+        try "garbage\n".write(toFile: root + "/.git/HEAD", atomically: true, encoding: .utf8)
+        try files.createSymbolicLink(atPath: root + "/objects", withDestinationPath: root + "/.git/objects")
+        try files.createSymbolicLink(atPath: root + "/refs", withDestinationPath: root + "/.git/refs")
+        try files.copyItem(atPath: root + "/.git/index", toPath: root + "/index")
+        try "ref: refs/heads/feat/x\n".write(toFile: root + "/HEAD", atomically: true, encoding: .utf8)
+        try "[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = \(root)\n[filter \"x\"]\n\tclean = \(hook)\n"
+            .write(toFile: root + "/config", atomically: true, encoding: .utf8)
+        try files.createDirectory(atPath: root + "/info", withIntermediateDirectories: true)
+        try "* filter=x\n".write(toFile: root + "/info/attributes", atomically: true, encoding: .utf8)
+        // Newer than the index, so `status` cleans it again.
+        try files.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: root + "/config.ts")
+        #expect(throws: FixRefusal.self) { try FixGuard.check(clone, proposal: plan(), before: start) }
+        #expect(!files.fileExists(atPath: marker), "the planted filter never ran")
+    }
+
+    /// A replace ref swaps what a commit holds for git — here the markers for a clean tree — so
+    /// AiTerm's git reads the objects as they are.
+    @Test func aReplaceRefCannotHideAConflictMarker() throws {
+        let start = before
+        try resolve(with: "<<<<<<< HEAD\ntopic=theirs\n=======\ntopic=mine\n>>>>>>> mine\n")
+        let tip = try clone.tip("feat/x")
+        try "topic=both\n".write(toFile: clone.path + "/config.ts", atomically: true, encoding: .utf8)
+        try git.run(["add", "config.ts"], in: clone.path)
+        let tree = try git.run(["write-tree"], in: clone.path)
+        let clean = try git.run(["commit-tree", tree, "-p", tip + "~1", "-m", "mine"], in: clone.path)
+        try git.run(["reset", "-q", "--hard"], in: clone.path)
+        try git.run(["replace", tip, clean], in: clone.path)
+        #expect(throws: FixRefusal.conflictMarkers(["config.ts"])) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
+    /// Grafts — still honoured by git — give a commit other parents. Grafting the local commit
+    /// under origin's would make the dropped commit look like origin's own.
+    @Test func aGraftCannotHideADroppedCommit() throws {
+        let start = before
+        try git.run(["rebase", "--abort"], in: clone.path)
+        try git.run(["reset", "-q", "--hard", "origin/feat/x"], in: clone.path)
+        let mine = try world.sha("feat/x", in: world.repo)
+        try "\(try clone.tip("feat/x")) \(mine)\n".write(toFile: clone.path + "/.git/info/grafts", atomically: true, encoding: .utf8)
+        #expect(throws: FixRefusal.droppedCommit("feat/x", sha: mine)) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
+    /// A `shallow` file cuts history short, which can hide a commit from the lost-commit check.
+    @Test func aPlantedShallowFileIsRefused() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        try "\(clone.startTip)\n".write(toFile: clone.path + "/.git/shallow", atomically: true, encoding: .utf8)
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
+    /// The same bytes behind a symlink are not the clone's file.
+    @Test func aConfigSwappedForASymlinkIsRefused() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let copy = world.root + "/config-copy", config = clone.path + "/.git/config"
+        try FileManager.default.copyItem(atPath: config, toPath: copy)
+        try FileManager.default.removeItem(atPath: config)
+        try FileManager.default.createSymbolicLink(atPath: config, withDestinationPath: copy)
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
+    /// A FIFO for a config would hang a plain read, which waits for a writer; it is refused at once.
+    @Test func aConfigSwappedForAFifoIsRefusedWithoutHanging() throws {
+        let config = clone.path + "/.git/config"
+        try FileManager.default.removeItem(atPath: config)
+        #expect(mkfifo(config, 0o644) == 0)
+        let clone = clone
+        let result = Mutex<FixRefusal?>(nil)
+        let done = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            do throws(FixRefusal) { try clone.checkSettings() } catch { result.withLock { $0 = error } }
+            done.signal()
+        }
+        let finished = done.wait(timeout: .now() + 5) == .success
+        if !finished {
+            // Hand the stuck reader a writer, so it returns and the thread ends.
+            let writer = open(config, O_WRONLY | O_NONBLOCK)
+            if writer >= 0 { close(writer) }
+            done.wait()
+        }
+        #expect(finished, "refused within 5 s, not left waiting on the FIFO")
+        #expect(result.withLock { $0 } == .settingsChanged)
     }
 
     /// M3: git failing while checking a fix is a failed check, not a failed preparation.

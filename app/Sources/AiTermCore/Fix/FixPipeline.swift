@@ -50,7 +50,7 @@ public struct FixPipeline: Sendable {
                                                       request: request, sessionID: UUID().uuidString.lowercased())
                 let output = try await run(agent, invocation, in: clone, timeout: lookTimeout, locate: locate)
                 // Read-only is the agent's word: Claude's `git log --output=` can still write `.git/config`.
-                try clone.checkSettings()
+                try await BackgroundWork.run { () throws(FixRefusal) in try clone.checkSettings() }
                 let (answer, session) = try FixerLaunch.lookAnswer(agent, output: output, invocation: invocation)
                 let localOnly = try await read(clone) { try $0.localOnly() }
                 return (try FixLook(validating: answer, request: request, localOnly: localOnly, agent: agent), session)
@@ -65,7 +65,7 @@ public struct FixPipeline: Sendable {
                 let invocation = try FixerLaunch.apply(agent, model: choice.model, reasoning: choice.reasoning, clone: clone,
                                                        proposal: proposal, sessionID: session)
                 let output = try await run(agent, invocation, in: clone, timeout: applyTimeout, locate: locate)
-                try clone.checkSettings()
+                // `FixGuard.check` reads the clone's settings first, before any git.
                 _ = try FixApplied(validating: try FixerLaunch.applyAnswer(agent, output: output, invocation: invocation), agent: agent)
                 let checked = try await BackgroundWork.run { () throws(FixRefusal) -> String in
                     try FixGuard.check(clone, proposal: proposal, before: before)
@@ -84,8 +84,8 @@ public struct FixPipeline: Sendable {
                 }
                 // The sandbox lets `verify` write the clone, `.git` included — its settings, and its
                 // branch: only the tip the checks passed may land.
-                try clone.checkSettings()
                 let now = try await BackgroundWork.run { () throws(FixRefusal) -> String in
+                    try clone.checkSettings()
                     do { return try clone.tip(clone.branch) } catch { throw .uncheckable(error) }
                 }
                 guard now == checked else { throw .movedAfterCheck(clone.branch) }

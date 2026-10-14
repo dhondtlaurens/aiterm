@@ -10,11 +10,12 @@ import Darwin
 /// file, inside `.git` so the agent's `git add -A` and `git clean` never see it, holds this
 /// process's pid: a crashed run's clone is swept on the next launch and a live one never is.
 ///
-/// The agent can write the clone's `.git`, and a `core.fsmonitor` or `filter.*.clean` planted in
-/// its config would run as AiTerm's own git — the person, unsandboxed, with the network on. So the
-/// settings `make` leaves are kept (`settings`) and every run of an agent or `verify` is followed by
-/// `checkSettings()` before AiTerm runs git in the clone again; and that git is `CloneGit`, with
-/// fsmonitor and hooks off on its command line.
+/// The agent can write the clone, `.git` included, and a `core.fsmonitor` or `filter.*.clean` that
+/// AiTerm's own git read would run as the person, unsandboxed, with the network on. So that git is
+/// `CloneGit`: it names the clone's `.git` and work tree itself — git never discovers a repository
+/// the agent laid out — with fsmonitor and hooks off on its command line. And the settings `make`
+/// leaves are kept (`settings`): every run of an agent or `verify` is followed by
+/// `checkSettings()` before AiTerm runs git in the clone again.
 public struct FixClone: Sendable {
     public static let prefix = "aiterm-fix-"
     static let ownerFile = ".git/aiterm-fix-owner"
@@ -29,11 +30,11 @@ public struct FixClone: Sendable {
     /// Every git AiTerm runs in the clone: `CloneGit`, whatever runner it was given.
     let git: any GitRunning
     /// The clone's settings as `make` left them (`settings(at:)`); nil for a clone that never had them read.
-    let settings: Data?
+    let settings: Settings?
 
-    init(path: String, branch: String, startTip: String, originTip: String?, git: any GitRunning, settings: Data? = nil) {
+    init(path: String, branch: String, startTip: String, originTip: String?, git: any GitRunning, settings: Settings? = nil) {
         self.path = path; self.branch = branch; self.startTip = startTip; self.originTip = originTip
-        self.git = git as? CloneGit ?? CloneGit(git); self.settings = settings
+        self.git = CloneGit((git as? CloneGit)?.inner ?? git, clone: path); self.settings = settings
     }
 
     public static func make(for request: FixRequest, git: any GitRunning,
@@ -53,7 +54,7 @@ public struct FixClone: Sendable {
             try git.run(["-c", "core.hooksPath=/dev/null", "clone", "-q", "--shared", "--no-checkout", "--no-tags", project, path],
                         in: root, timeout: GitRunner.checkoutTimeout, environment: quiet)
             try Data(#"{"pid":\#(getpid())}"#.utf8).write(to: URL(fileURLWithPath: path + "/" + ownerFile))
-            let clone = CloneGit(git)
+            let clone = CloneGit(git, clone: path)
             try clone.run(["remote", "remove", "origin"], in: path)
             // The exact commits recorded above, not the branch names: the clone holds what `startTip`
             // and `originTip` say even if the project's branch moves meanwhile.
@@ -116,15 +117,54 @@ public struct FixClone: Sendable {
         guard let settings, Self.settings(at: path) == settings else { throw .settingsChanged }
     }
 
-    /// The bytes of `.git/config` — or nil when git would not take its settings from that file: `.git`
-    /// is no longer a plain folder (a symlink, or a gitfile naming another), or a `commondir` file
-    /// sends git to another repository's config and refs.
-    static func settings(at path: String) -> Data? {
-        let dotGit = path + "/.git", files = FileManager.default
-        // `attributesOfItem` does not follow a symlink, so a `.git` swapped for one is not a directory.
-        guard (try? files.attributesOfItem(atPath: dotGit))?[.type] as? FileAttributeType == .typeDirectory,
-              (try? files.attributesOfItem(atPath: dotGit + "/commondir")) == nil else { return nil }
-        return files.contents(atPath: dotGit + "/config")
+    /// What decides how AiTerm's git reads the clone, beyond the command line: `.git/config`, and
+    /// the `shallow` file, which cuts history short (a project that is itself shallow has one).
+    struct Settings: Equatable, Sendable {
+        var config: Data
+        var shallow: Data?
+    }
+
+    /// The most a settings file may hold; a clone's config is a few hundred bytes.
+    static let settingsLimit = 1 << 20
+
+    /// The clone's settings — or nil when git would not take them from these files: `.git` is no
+    /// longer a plain folder (a symlink, or a gitfile naming another), a `commondir` file sends git
+    /// to another repository's config and refs, or a file is not a regular one under the limit.
+    static func settings(at path: String) -> Settings? {
+        let dotGit = path + "/.git"
+        var info = stat()
+        guard lstat(dotGit, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+              case .absent = entry(dotGit + "/commondir"),
+              case .bytes(let config) = entry(dotGit + "/config") else { return nil }
+        switch entry(dotGit + "/shallow") {
+        case .absent: return Settings(config: config, shallow: nil)
+        case .bytes(let shallow): return Settings(config: config, shallow: shallow)
+        case nil: return nil
+        }
+    }
+
+    private enum Entry { case absent, bytes(Data) }
+
+    /// A regular file's bytes, read without following a symlink or waiting on a FIFO: `.absent` when
+    /// nothing is at `path`, nil for anything else there — a symlink, a FIFO, a folder, a file over
+    /// `settingsLimit`, or one that cannot be read.
+    private static func entry(_ path: String) -> Entry? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return errno == ENOENT ? .absent : nil }
+        guard info.st_mode & S_IFMT == S_IFREG, info.st_size <= settingsLimit else { return nil }
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        // Again on what was opened: the file may have been swapped since the `lstat`.
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 64 << 10)
+        while true {
+            let count = read(fd, &buffer, buffer.count)
+            if count < 0 { if errno == EINTR { continue }; return nil }
+            if count == 0 { return .bytes(data) }
+            data.append(buffer, count: count)
+            if data.count > settingsLimit { return nil }
+        }
     }
 
     /// Clones whose owner is not alive — a run that crashed or was killed. Never by prefix alone: a
@@ -152,16 +192,27 @@ public struct FixClone: Sendable {
     private struct Owner: Decodable { var pid: Int32 }
 }
 
-/// Git in a fix's clone, as AiTerm itself runs it: `core.fsmonitor` and `core.hooksPath` off on the
-/// command line, which outranks the clone's config — a second guard behind `checkSettings()`, for
-/// the two settings that run a command on the commands AiTerm uses.
+/// Git in a fix's clone, as AiTerm itself runs it. The repository is named, never discovered:
+/// `--git-dir` and `--work-tree` are the clone's own, so a broken `.git` fails with “not a git
+/// repository” rather than git taking a layout the agent made at the root (or above it) for one, and
+/// `safe.bareRepository=explicit` refuses any bare repository found by looking. Objects are read as
+/// they are: no replace refs (`--no-replace-objects`) and no grafts (`GIT_GRAFT_FILE`), either of
+/// which could hide a conflict marker or a dropped commit from the checks. `core.fsmonitor` and
+/// `core.hooksPath` are off on the command line, which outranks the clone's config — a second guard
+/// behind `checkSettings()` for the two settings that run a command on the commands AiTerm uses.
 struct CloneGit: GitRunning {
-    static let flags = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
     let inner: any GitRunning
-    init(_ inner: any GitRunning) { self.inner = inner }
+    /// The clone's absolute path.
+    let clone: String
+    init(_ inner: any GitRunning, clone: String) { self.inner = inner; self.clone = clone }
+
+    var flags: [String] {
+        ["--git-dir=" + clone + "/.git", "--work-tree=" + clone, "--no-replace-objects",
+         "-c", "safe.bareRepository=explicit", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+    }
 
     @discardableResult
     func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
-        try inner.run(Self.flags + args, in: dir, timeout: timeout, environment: environment)
+        try inner.run(flags + args, in: dir, timeout: timeout, environment: environment.merging(["GIT_GRAFT_FILE": "/dev/null"]) { $1 })
     }
 }

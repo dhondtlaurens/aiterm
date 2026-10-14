@@ -40,7 +40,9 @@ extension Repository {
         do {
             // Before the fetch: a fetch killed after it wrote the ref must leak nothing.
             defer { _ = try? write(["update-ref", "-d", temporary]) }
-            try write(["fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", clone.path,
+            // From the clone's `.git` itself: at its bare path git would also take a repository the
+            // agent laid out at the clone's root for the clone.
+            try write(["fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", clone.path + "/.git",
                        "+\(checked):\(temporary)"], timeout: GitRunner.checkoutTimeout)
             let new = try git.run(["rev-parse", "--verify", temporary + "^{commit}"], in: path)
             guard new == checked else { throw FixRefusal.movedAfterCheck(branch) }
