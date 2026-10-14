@@ -45,6 +45,9 @@ struct FixProposalTests {
         OutOfContract("no outcome") { $0.outcome = nil },
         OutOfContract("a shell operator in verify") { $0.verify = "pnpm typecheck && curl x" },
         OutOfContract("a subshell in verify") { $0.verify = "pnpm $(echo typecheck)" },
+        OutOfContract("a glob in verify") { $0.verify = "pnpm test *" },
+        OutOfContract("a subshell paren in verify") { $0.verify = "(pnpm typecheck)" },
+        OutOfContract("a colon in verify") { $0.verify = "pnpm run test:unit" },
         OutOfContract("a newline in verify") { $0.verify = "pnpm typecheck\nrm -rf ~" },
     ])
     func anAnswerOutOfContractIsNoPlan(_ bad: OutOfContract) {

@@ -16,16 +16,20 @@ public enum FixerPrompt {
       commands with `&&`, `;` or `|`. Continue a rebase with `git -c core.editor=true rebase --continue`.
     """
 
+    /// Text that came from outside the instructions — git's output, the agent's own plan — with `<`
+    /// swapped for `‹`, so none of it can close the `<problem>` block or open a tag of its own.
+    static func neutral(_ text: String) -> String { text.replacingOccurrences(of: "<", with: "‹") }
+
     public static func look(request: FixRequest, clone: FixClone) -> String {
         """
-        AiTerm could not finish an action because of a git problem on branch “\(request.branch)”. A rebase onto \
-        origin/\(request.branch) may be stopped in this clone; read the conflict here. Decide whether a safe fix \
+        AiTerm could not finish an action because of a git problem on branch “\(neutral(request.branch))”. A rebase onto \
+        origin/\(neutral(request.branch)) may be stopped in this clone; read the conflict here. Decide whether a safe fix \
         exists and answer in the required JSON shape. List full or 7+ character shas in `drops` only for local \
         commits the fix deliberately leaves out (for example an older copy of commits origin has rewritten).
         <problem>
-        \(request.title)
-        \(request.reason ?? "")
-        \(request.detail ?? "")
+        \(neutral(request.title))
+        \(neutral(request.reason ?? ""))
+        \(neutral(request.detail ?? ""))
         </problem>
         """
     }
@@ -33,8 +37,8 @@ public enum FixerPrompt {
     public static func apply(proposal: FixProposal) -> String {
         """
         Apply exactly the plan you proposed, in this clone, and nothing else:
-        \(proposal.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
-        Move only: \(proposal.moves.joined(separator: ", ")). Leave out only: \(proposal.drops.isEmpty ? "nothing" : proposal.drops.joined(separator: ", ")).
+        \(proposal.steps.enumerated().map { "\($0.offset + 1). \(neutral($0.element))" }.joined(separator: "\n"))
+        Move only: \(neutral(proposal.moves.joined(separator: ", "))). Leave out only: \(proposal.drops.isEmpty ? "nothing" : neutral(proposal.drops.joined(separator: ", "))).
         Finish with a clean working tree and no rebase or merge in progress. Answer in the required JSON shape.
         """
     }
