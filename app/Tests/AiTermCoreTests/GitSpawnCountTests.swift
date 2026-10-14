@@ -111,6 +111,31 @@ import Testing
         #expect(spawned.filter { $0 == "diff --numstat" }.count == 6 && spawned.filter { $0 == "ls-files --others" }.count == 6)
     }
 
+    /// A fix's clone sits in the temporary directory for as long as the agent works, and nothing in a
+    /// scan reads it: the first pass and the pass after the diffs expire spawn exactly as many
+    /// commands with an `aiterm-fix-*` clone there as without one.
+    @Test func aFixCloneInTheTemporaryDirectoryCostsAPassNothing() throws {
+        func spawns() throws -> (first: Int, expired: Int) {
+            let recording = RecordingGitRunner(forwardingTo: .hermetic())
+            let passes = Passes(try makeWorkspace(), runner: recording)
+            _ = passes.pass()
+            let first = recording.calls.count
+            passes.clock.advance(by: 6)
+            _ = passes.pass()
+            return (first, recording.calls.count - first)
+        }
+        let without = try spawns()
+        let project = try GitFixture.makeRepo(prefix: "fix-source-", git: git)
+        let request = FixRequest(title: "t", reason: nil, detail: nil, projectPath: project,
+                                 branch: "main", recreateRebase: false, retry: .createReview)
+        let clone = try FixClone.make(for: request, git: git)
+        defer { clone.remove() }
+        #expect(clone.path.hasPrefix(VerifySandbox.realPath(NSTemporaryDirectory())) && (clone.path as NSString).lastPathComponent.hasPrefix(FixClone.prefix))
+        let with = try spawns()
+        #expect(with.first == without.first && with.expired == without.expired, "\(with) with a clone, \(without) without")
+        #expect(without.first == 45 && without.expired == 12)
+    }
+
     /// A folder that is not a repository, in every project's place and again every thirty seconds,
     /// cost three `rev-parse` each time, one per resolver.
     @Test func aProjectThatIsNotARepositoryCostsOneSpawnPerNegativeWindow() throws {
