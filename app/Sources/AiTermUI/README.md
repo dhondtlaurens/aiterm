@@ -375,6 +375,12 @@ actions. A heading over one line of `HelpText`, a `Hairline`, then the rows, one
 The terminal-background row is not one: it has no heading of its own, only a swatch, a title and
 a switch, in the same `groupChrome` box.
 
+`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Fix problems with” over one
+`SegmentedControl` of Claude, Codex, Grok Build, PI and Off. An agent that cannot fix (Grok Build,
+PI) or is not installed is dimmed and disabled, its tooltip saying which; a missing choice stays
+selected but dimmed, so Settings does not quietly swap it for another vendor. The labels are
+`AgentSegmentLabel`, the marks `AgentSegmented` draws, with the short names where five share a row.
+
 `InterfaceSettingsPane` draws its preferences outside cards: the terminal-background row, a
 "Sidebar size" group (a `SegmentedControl` of `InterfaceSize`, applied to the sidebar behind the
 sheet as it is picked and put back by Cancel, where the rest of the tab waits for Save), and a "Sidebar badges" group whose rows preview the real `Badge` beside a switch that drops

@@ -56,6 +56,8 @@ struct SettingsView: View {
     /// Handed to the Agents tab, which is its one observer: this view only starts its load and
     /// its save, so a probe landing redraws that tab and not the whole sheet.
     let harnessModel: HarnessSettingsModel
+    /// The Agents tab's fixer choice and the CLIs it can choose from.
+    let agents: AgentIntegrations
     /// The live state of the chain to iTerm2. A closure rather than a value so this view's own body
     /// reads the controller, and the card follows a reconnect while Settings is open.
     let itermConnection: () -> ItermConnection
@@ -86,6 +88,7 @@ struct SettingsView: View {
     let backpack: BackpackController
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,
+         agents: AgentIntegrations = .inert(),
          itermConnection: @escaping () -> ItermConnection,
          checkIterm: @escaping () async -> ItermEnvironment,
          preferences: InterfacePreferences,
@@ -97,6 +100,7 @@ struct SettingsView: View {
         _tab = State(initialValue: initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
+        self.agents = agents
         _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
                                                                      record: testRecord))
         self.itermConnection = itermConnection
@@ -143,7 +147,7 @@ struct SettingsView: View {
     private var settingsContent: some View {
         Group {
             switch tab {
-            case .agents: HarnessSettingsPane(model: harnessModel)
+            case .agents: HarnessSettingsPane(model: harnessModel, agents: agents)
             case .integrations: integrationSettings
             case .interface:
                 InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,

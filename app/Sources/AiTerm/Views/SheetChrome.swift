@@ -251,10 +251,23 @@ struct AgentSegmented: View {
                        isSelectable: { Self.isSelectable($0, available: available) },
                        help: { Self.isSelectable($0, available: available)
                            ? nil : "\($0.displayName) isn’t installed. Install it in Settings › Agents." }) { agent, on in
-            HStack(spacing: Space.snug) {
-                VendorMark(agent: agent.session, size: Size.vendorMark)
-                Text(agent.displayName).font(on ? Typography.bodyEmphasis : Typography.body)
-            }
+            AgentSegmentLabel(agent: agent, on: on)
+        }
+    }
+}
+
+/// An agent's segment: its vendor mark and name, the name in the emphasised weight while selected.
+/// `name` stands in for the display name where five segments share a row and “Claude Code” would
+/// be cut short.
+struct AgentSegmentLabel: View {
+    let agent: AgentKind
+    let on: Bool
+    var name: String?
+
+    var body: some View {
+        HStack(spacing: Space.snug) {
+            VendorMark(agent: agent.session, size: Size.vendorMark)
+            Text(name ?? agent.displayName).font(on ? Typography.bodyEmphasis : Typography.body)
         }
     }
 }

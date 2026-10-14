@@ -26,6 +26,16 @@ final class AgentIntegrations {
     /// again does not read `~/.claude.json` or launch PI again.
     let catalogue: ModelCatalogue
 
+    /// Settings › Agents' “Fix problems with”, saved on every write. Before the first launch's probe
+    /// has said what is installed there is nothing to choose from, so it reads as the first fixer,
+    /// unsaved; `probe()` settles it.
+    var fixerChoice: FixerChoice {
+        didSet { if fixerChoice != oldValue { FixerSettings.save(fixerChoice, defaults: defaults) } }
+    }
+    /// What every Fix button is: the chosen agent when installed, else named as missing, or Off.
+    var fixer: FixerResolution { fixerChoice.resolve(installed: availableAgents) }
+    private let defaults: UserDefaults
+
     /// The model each agent last ran with, from the workspace. Read live by the Settings model,
     /// which outlives any one sheet.
     private let rememberedModels: @MainActor () -> [AgentKind: String]
@@ -48,7 +58,10 @@ final class AgentIntegrations {
          rememberedModels: @escaping @MainActor () -> [AgentKind: String],
          statusLineIsInstalled: @escaping @Sendable (_ home: URL, _ shimPath: String) -> Bool = {
              ClaudeSettings.statusLineIsInstalled(home: $0, shimPath: $1)
-         }) {
+         },
+         defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        fixerChoice = FixerSettings.saved(defaults: defaults) ?? .agent(FixerAgent.allCases[0])
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]
@@ -56,6 +69,13 @@ final class AgentIntegrations {
         self.locateAgents = locateAgents
         self.rememberedModels = rememberedModels
         self.statusLineIsInstalled = statusLineIsInstalled
+    }
+
+    /// Over a scratch store and no login shell, every agent assumed present: for a Settings sheet or a test that never probes.
+    static func inert() -> AgentIntegrations {
+        AgentIntegrations(harnessHome: FileManager.default.temporaryDirectory.appendingPathComponent("AiTerm.inert"),
+                          bundledResourcesURL: nil, locateAgents: { nil }, rememberedModels: { [:] },
+                          defaults: UserDefaults(suiteName: "AiTerm.Inert.\(UUID().uuidString)")!)
     }
 
     /// Claude Code's status-line shim in the bundle, if it is there and can be run. Bundle lookups
@@ -73,7 +93,13 @@ final class AgentIntegrations {
         let (installed, _) = await (agents, statusLine)
         guard !Task.isCancelled else { return }
         // Unknown when the login shell failed: every agent stays offered rather than none.
-        if let installed { availableAgents = installed }
+        if let installed {
+            availableAgents = installed
+            // First launch: the first installed fixer, saved at once so a later install never moves it.
+            if FixerSettings.saved(defaults: defaults) == nil {
+                fixerChoice = FixerSettings.load(defaults: defaults, installed: installed)
+            }
+        }
     }
 
     /// The status line's launch probe: first the upgrade of an old record of the user's own status

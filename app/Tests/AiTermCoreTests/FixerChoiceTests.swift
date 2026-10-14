@@ -45,4 +45,18 @@ struct FixerChoiceTests {
         defaults.set("gemini", forKey: "fixer")
         #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off)
     }
+
+    /// `saved` answers only for a choice that was made — Off included — and never saves one, so the
+    /// app can tell a first launch from a person who picked.
+    @Test func savedReadsAChoiceWithoutMakingOne() {
+        let defaults = ScratchDefaults.make()
+        #expect(FixerSettings.saved(defaults: defaults) == nil)
+        #expect(FixerSettings.saved(defaults: defaults) == nil, "asking saved nothing")
+        FixerSettings.save(.off, defaults: defaults)
+        #expect(FixerSettings.saved(defaults: defaults) == .off)
+        FixerSettings.save(.agent(.claude), defaults: defaults)
+        #expect(FixerSettings.saved(defaults: defaults) == .agent(.claude))
+        defaults.set("gemini", forKey: "fixer")
+        #expect(FixerSettings.saved(defaults: defaults) == .off, "a value this version does not know reads as Off")
+    }
 }

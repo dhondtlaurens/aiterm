@@ -308,6 +308,7 @@ struct SidebarSheet: View {
                 case .settings(let jira, let gitLab, let gitHub, let tab):
                     SettingsView(jiraConfig: jira, gitLabConfig: gitLab, gitHubConfig: gitHub,
                                  harnessModel: controller.agents.harnessSettingsModel(),
+                                 agents: controller.agents,
                                  itermConnection: { controller.helper.itermConnection },
                                  checkIterm: controller.helper.checkIterm,
                                  preferences: controller.preferences,

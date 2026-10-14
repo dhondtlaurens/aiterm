@@ -51,13 +51,21 @@ public enum FixerResolution: Equatable, Sendable {
 
 public enum FixerSettings {
     private static let key = "fixer"
+    /// What Off is saved as; the one place the word is written.
+    private static let off = "off"
+
+    /// The choice the person made — or that first launch saved for them — and nil before either.
+    /// Never saves, so the app can tell a first launch from a later one. A value this version does
+    /// not know reads as Off.
+    public static func saved(defaults: UserDefaults) -> FixerChoice? {
+        guard let raw = defaults.string(forKey: key) else { return nil }
+        return raw == off ? .off : FixerAgent(rawValue: raw).map(FixerChoice.agent) ?? .off
+    }
 
     /// The saved choice; on first launch the first installed fixer, saved at once so a later
-    /// install never changes it. A value this version does not know reads as Off.
+    /// install never changes it.
     public static func load(defaults: UserDefaults, installed: Set<AgentKind>) -> FixerChoice {
-        if let raw = defaults.string(forKey: key) {
-            return raw == "off" ? .off : FixerAgent(rawValue: raw).map(FixerChoice.agent) ?? .off
-        }
+        if let saved = saved(defaults: defaults) { return saved }
         let first = FixerAgent.allCases.first { installed.contains($0.agent) }
         let choice = first.map(FixerChoice.agent) ?? .off
         save(choice, defaults: defaults)
@@ -66,7 +74,7 @@ public enum FixerSettings {
 
     public static func save(_ choice: FixerChoice, defaults: UserDefaults) {
         switch choice {
-        case .off: defaults.set("off", forKey: key)
+        case .off: defaults.set(off, forKey: key)
         case .agent(let fixer): defaults.set(fixer.rawValue, forKey: key)
         }
     }

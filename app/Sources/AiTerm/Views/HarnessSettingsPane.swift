@@ -44,9 +44,13 @@ enum HarnessCardPresentation {
 
 struct HarnessSettingsPane: View {
     let model: HarnessSettingsModel
+    /// Where the fixer is chosen, and which agents are installed to choose from.
+    let agents: AgentIntegrations
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
+            FixerSettingsGroup(choice: Binding(get: { agents.fixerChoice }, set: { agents.fixerChoice = $0 }),
+                               installed: agents.availableAgents)
             ForEach(HarnessCardPresentation.agents, id: \.self) { agent in
                 if let snapshot = model.snapshots[agent] {
                     card(snapshot)
@@ -129,5 +133,61 @@ struct HarnessSettingsPane: View {
                 }
             }
         }
+    }
+}
+
+/// “Fix problems with”: which agent every Fix button asks, or Off. An agent without an unattended
+/// mode (Grok Build, PI), or not installed, cannot be picked and says why.
+struct FixerSettingsGroup: View {
+    @Binding var choice: FixerChoice
+    let installed: Set<AgentKind>
+
+    private enum Option: Hashable { case agent(AgentKind), off }
+
+    /// Whether a segment can be picked: Off always, an agent only when it can fix and is installed.
+    static func isSelectable(_ agent: AgentKind, installed: Set<AgentKind>) -> Bool {
+        agent.fixer != nil && installed.contains(agent)
+    }
+
+    /// Why a segment is greyed, nil while it can be picked. What the agent can never do comes
+    /// before what is merely not installed.
+    static func help(for agent: AgentKind, installed: Set<AgentKind>) -> String? {
+        if isSelectable(agent, installed: installed) { return nil }
+        switch agent {
+        case .grok: return "Grok Build can’t run with its network off on macOS yet."
+        case .pi: return "PI can’t run unattended."
+        case .claude, .codex: return "\(agent.displayName) isn’t installed."
+        }
+    }
+
+    var body: some View {
+        SettingsGroup(title: "Fix problems with",
+                      help: "The agent a Fix button asks when AiTerm hits a git problem. It proposes a fix and changes nothing until you press Apply, using the model on its card below.") {
+            SegmentedControl(values: AgentKind.allCases.map(Option.agent) + [.off], selection: selection,
+                             isSelectable: { option in
+                                 guard case .agent(let agent) = option else { return true }
+                                 return Self.isSelectable(agent, installed: installed)
+                             },
+                             help: { option in
+                                 guard case .agent(let agent) = option else { return nil }
+                                 return Self.help(for: agent, installed: installed)
+                             }) { option, on in
+                switch option {
+                case .agent(let agent): AgentSegmentLabel(agent: agent, on: on, name: agent.fixer?.shortName)
+                case .off: Text("Off").font(on ? Typography.bodyEmphasis : Typography.body)
+                }
+            }
+            .accessibilityIdentifier("fixer-choice")
+        }
+    }
+
+    private var selection: Binding<Option> {
+        Binding(get: { if case .agent(let fixer) = choice { .agent(fixer.agent) } else { .off } },
+                set: { option in
+                    switch option {
+                    case .off: choice = .off
+                    case .agent(let agent): if let fixer = agent.fixer { choice = .agent(fixer) }
+                    }
+                })
     }
 }

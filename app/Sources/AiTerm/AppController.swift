@@ -148,7 +148,8 @@ final class AppController {
         let focus = RowFocus(peekDelay: peekDelay, workspace: workspace, daemon: daemon, taskFrame: { tiling.taskFrame() },
                              activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
-                                       rememberedModels: { workspace.state.lastModelByAgent })
+                                       rememberedModels: { workspace.state.lastModelByAgent },
+                                       defaults: preferences.defaults)
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, workflow: workflow, git: git, daemon: daemon)
         let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
