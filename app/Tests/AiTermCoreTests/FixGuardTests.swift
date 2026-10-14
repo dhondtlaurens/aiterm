@@ -335,6 +335,48 @@ import Synchronization
         #expect(!files.fileExists(atPath: marker), "the submodule's filter never ran")
     }
 
+    /// Another repository with a clean filter planted, for `.git` to be swapped for.
+    private func plantedRepository() throws -> (gitDir: String, marker: String) {
+        let (hook, marker) = try plantedHook()
+        let other = world.root + "/planted"
+        try git.run(["init", "-q", other], in: world.root)
+        let config = try String(contentsOfFile: other + "/.git/config", encoding: .utf8)
+        try (config + "[filter \"x\"]\n\tclean = \(hook)\n").write(toFile: other + "/.git/config", atomically: true, encoding: .utf8)
+        try "* filter=x\n".write(toFile: other + "/.git/info/attributes", atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: clone.path + "/config.ts")
+        return (other + "/.git", marker)
+    }
+
+    @Test func aDotGitSwappedForAGitfileIsRefusedAndNeverRead() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let (gitDir, marker) = try plantedRepository()
+        try FileManager.default.moveItem(atPath: clone.path + "/.git", toPath: world.root + "/moved-git")
+        try "gitdir: \(gitDir)\n".write(toFile: clone.path + "/.git", atomically: true, encoding: .utf8)
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+        #expect(!FileManager.default.fileExists(atPath: marker), "the planted filter never ran")
+    }
+
+    @Test func aDotGitSwappedForASymlinkIsRefusedAndNeverRead() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        let (gitDir, marker) = try plantedRepository()
+        try FileManager.default.moveItem(atPath: clone.path + "/.git", toPath: world.root + "/moved-git")
+        try FileManager.default.createSymbolicLink(atPath: clone.path + "/.git", withDestinationPath: gitDir)
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+        #expect(!FileManager.default.fileExists(atPath: marker), "the planted filter never ran")
+    }
+
+    /// The same settings behind a symlinked `.git` are still not the clone's own folder: only the
+    /// directory check refuses this one.
+    @Test func aDotGitSymlinkedToAnIdenticalCopyIsRefused() throws {
+        let start = before
+        try resolve(with: "topic=both\n")
+        try FileManager.default.moveItem(atPath: clone.path + "/.git", toPath: world.root + "/moved-git")
+        try FileManager.default.createSymbolicLink(atPath: clone.path + "/.git", withDestinationPath: world.root + "/moved-git")
+        #expect(throws: FixRefusal.settingsChanged) { try FixGuard.check(clone, proposal: plan(), before: start) }
+    }
+
     /// M3: git failing while checking a fix is a failed check, not a failed preparation.
     @Test func gitFailingDuringTheChecksSaysTheCheckFailed() throws {
         let failing = FixClone(path: clone.path, branch: clone.branch, startTip: clone.startTip, originTip: clone.originTip,

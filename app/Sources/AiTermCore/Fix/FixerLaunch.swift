@@ -146,11 +146,10 @@ public enum FixerLaunch {
         }
     }
 
-    /// The file's bytes, unless it is missing or larger than `answerLimit`.
+    /// The file's bytes, unless it is missing, larger than `answerLimit`, or not a regular file: it
+    /// is in the clone's `.git`, which the agent can write — a FIFO there must not hang the read.
     private static func readAnswerFile(_ path: String) -> Data? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: answerLimit + 1), data.count <= answerLimit else { return nil }
+        guard case .bytes(let data) = RegularFile.read(path, limit: answerLimit) else { return nil }
         return data
     }
 

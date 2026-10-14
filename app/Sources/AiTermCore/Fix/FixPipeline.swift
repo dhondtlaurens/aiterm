@@ -50,8 +50,11 @@ public struct FixPipeline: Sendable {
                                                       request: request, sessionID: UUID().uuidString.lowercased())
                 let output = try await run(agent, invocation, in: clone, timeout: lookTimeout, locate: locate)
                 // Read-only is the agent's word: Claude's `git log --output=` can still write `.git/config`.
-                try await BackgroundWork.run { () throws(FixRefusal) in try clone.checkSettings() }
-                let (answer, session) = try FixerLaunch.lookAnswer(agent, output: output, invocation: invocation)
+                // The answer is read off the pool too: Codex's is a file in the clone's `.git`.
+                let (answer, session) = try await BackgroundWork.run { () throws(FixRefusal) -> (FixLookAnswer, sessionID: String) in
+                    try clone.checkSettings()
+                    return try FixerLaunch.lookAnswer(agent, output: output, invocation: invocation)
+                }
                 let localOnly = try await read(clone) { try $0.localOnly() }
                 return (try FixLook(validating: answer, request: request, localOnly: localOnly, agent: agent), session)
             },
@@ -66,7 +69,10 @@ public struct FixPipeline: Sendable {
                                                        proposal: proposal, sessionID: session)
                 let output = try await run(agent, invocation, in: clone, timeout: applyTimeout, locate: locate)
                 // `FixGuard.check` reads the clone's settings first, before any git.
-                _ = try FixApplied(validating: try FixerLaunch.applyAnswer(agent, output: output, invocation: invocation), agent: agent)
+                let answer = try await BackgroundWork.run { () throws(FixRefusal) -> FixApplyAnswer in
+                    try FixerLaunch.applyAnswer(agent, output: output, invocation: invocation)
+                }
+                _ = try FixApplied(validating: answer, agent: agent)
                 let checked = try await BackgroundWork.run { () throws(FixRefusal) -> String in
                     try FixGuard.check(clone, proposal: proposal, before: before)
                 }

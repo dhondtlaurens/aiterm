@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
@@ -257,6 +258,31 @@ final class FixerLaunchTests {
         #expect(throws: FixRefusal.unreadableAnswer(.codex)) {
             try FixerLaunch.lookAnswer(.codex, output: output(#"{"type":"thread.started","thread_id":"T"}"#), invocation: inv)
         }
+    }
+
+    /// The agent can write the clone's `.git`: a FIFO where Codex's answer belongs would make a plain
+    /// read wait for a writer forever. It is no answer, at once.
+    @Test(.blocking) func anAnswerFileThatIsAFifoIsNoAnswerAndNeverWaitedOn() throws {
+        let inv = try look(.codex)
+        let file = try #require(inv.answerFile)
+        try? FileManager.default.removeItem(atPath: file)
+        #expect(mkfifo(file, 0o644) == 0)
+        let out = output(#"{"type":"thread.started","thread_id":"T"}"#)
+        let result = Mutex<FixRefusal?>(nil)
+        let done = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            do throws(FixRefusal) { _ = try FixerLaunch.lookAnswer(.codex, output: out, invocation: inv) } catch { result.withLock { $0 = error } }
+            done.signal()
+        }
+        let finished = done.wait(timeout: .now() + 5) == .success
+        if !finished {
+            // Hand the stuck reader a writer, so it returns and the thread ends.
+            let writer = open(file, O_WRONLY | O_NONBLOCK)
+            if writer >= 0 { close(writer) }
+            done.wait()
+        }
+        #expect(finished, "refused within 5 s, not left waiting on the FIFO")
+        #expect(result.withLock { $0 } == .unreadableAnswer(.codex))
     }
 
     @Test(arguments: ["I think the fix is to rebase.", "", #"{"type":"result"}"#, "{ not json"])

@@ -134,36 +134,12 @@ public struct FixClone: Sendable {
         let dotGit = path + "/.git"
         var info = stat()
         guard lstat(dotGit, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
-              case .absent = entry(dotGit + "/commondir"),
-              case .bytes(let config) = entry(dotGit + "/config") else { return nil }
-        switch entry(dotGit + "/shallow") {
+              case .absent = RegularFile.read(dotGit + "/commondir", limit: settingsLimit),
+              case .bytes(let config) = RegularFile.read(dotGit + "/config", limit: settingsLimit) else { return nil }
+        switch RegularFile.read(dotGit + "/shallow", limit: settingsLimit) {
         case .absent: return Settings(config: config, shallow: nil)
         case .bytes(let shallow): return Settings(config: config, shallow: shallow)
         case nil: return nil
-        }
-    }
-
-    private enum Entry { case absent, bytes(Data) }
-
-    /// A regular file's bytes, read without following a symlink or waiting on a FIFO: `.absent` when
-    /// nothing is at `path`, nil for anything else there — a symlink, a FIFO, a folder, a file over
-    /// `settingsLimit`, or one that cannot be read.
-    private static func entry(_ path: String) -> Entry? {
-        var info = stat()
-        guard lstat(path, &info) == 0 else { return errno == ENOENT ? .absent : nil }
-        guard info.st_mode & S_IFMT == S_IFREG, info.st_size <= settingsLimit else { return nil }
-        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        // Again on what was opened: the file may have been swapped since the `lstat`.
-        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
-        var data = Data(), buffer = [UInt8](repeating: 0, count: 64 << 10)
-        while true {
-            let count = read(fd, &buffer, buffer.count)
-            if count < 0 { if errno == EINTR { continue }; return nil }
-            if count == 0 { return .bytes(data) }
-            data.append(buffer, count: count)
-            if data.count > settingsLimit { return nil }
         }
     }
 
