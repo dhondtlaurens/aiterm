@@ -12,6 +12,9 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
     public var errorDescription: String? { description }
     public var description: String { stderr.isEmpty ? "Git exited with status \(code)." : stderr }
 
+    /// The first line of `s`, or `s` itself when it has none: git's first line of its own words.
+    static func firstLine(_ s: String) -> String { s.split(separator: "\n").first.map(String.init) ?? s }
+
     /// Why git failed, in its own words: its `fatal:` and `error:` lines, else its last line. git
     /// narrates before it fails — `worktree add` opens with "Preparing worktree (…)" — so where
     /// there is room for only a few lines, the first few are the wrong ones. A failure line that ends
