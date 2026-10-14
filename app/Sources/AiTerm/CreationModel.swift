@@ -98,6 +98,8 @@ protocol CreationKind {
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
+    /// Whether an agent's fix for `request` is still about `draft`: its branch is the draft's.
+    func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool
 }
 
 extension CreationKind {
@@ -110,6 +112,8 @@ extension CreationKind {
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool { true }
     /// Only a review's failures offer a fix, so New Task is never asked for one.
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
+    /// Nor for an agent's.
+    func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool { false }
 }
 
 /// What the New Task and New Review sheets share: the draft, the chosen agent's model catalogue and
@@ -392,7 +396,19 @@ final class CreationModel<Kind: CreationKind> {
     }
 
     /// Apply on the proposal that is up: the fix made, checked, landed, then the create run again.
-    func applyFix() { fixSession?.apply() }
+    /// Refused while the workspace cannot change — the create after it could not run — and for a
+    /// proposal about a branch the draft no longer has.
+    func applyFix() {
+        guard let session = fixSession, canChangeWorkspace(), kind.fixApplies(session.request, to: draft) else { return }
+        session.apply()
+    }
+
+    /// The draft moved off what the last failure was about — its branch — so the failure and the
+    /// fixes it offered go with it; a fix at work keeps the footer until it ends.
+    func dropFailure() {
+        guard fixSession?.isBusy != true, error != nil || fixSession != nil else { return }
+        show(nil)
+    }
 
     /// False means nothing was created and the same draft can be corrected — notably when git
     /// refuses the branch. Once a checkout exists, the workspace owns its recovery and the form closes.
@@ -425,7 +441,10 @@ final class CreationModel<Kind: CreationKind> {
         error = failure
         if failure == nil, fixSession?.isBusy == true { return }
         let session = failure?.fix.flatMap { request in pipeline.map { makeFixSession(request, pipeline: $0) } }
-        if session !== fixSession { fixSession = session }
+        guard session !== fixSession else { return }
+        // Let go of, not orphaned: a Look stops and a proposal is declined, each removing its clone.
+        fixSession?.cancel()
+        fixSession = session
     }
 
     /// Once the fix has landed, the create it stopped runs again; a create that fails shows its own
@@ -435,7 +454,8 @@ final class CreationModel<Kind: CreationKind> {
         let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
         return FixSession(request: request, fixer: resolution, pipeline: pipeline) { [weak self] landing in
             guard let self else { return }
-            guard await self.create() else {
+            // A draft on another branch is not the create this fix was for.
+            guard self.kind.fixApplies(request, to: self.draft), await self.create() else {
                 // A create that never started — the workspace locked meanwhile — showed nothing, so
                 // the landed session is still here: let it go, and the footer is the sheet's again.
                 if case .done? = self.fixSession?.state { self.fixSession = nil }

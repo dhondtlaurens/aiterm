@@ -47,6 +47,7 @@ import AiTermUI
             created += 1
             if created == 1 { throw WorktreeError.rebaseConflicted("feat/x", detail: "CONFLICT") }
         }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)))
+        model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let session = try #require(model.fixSession)
@@ -65,6 +66,7 @@ import AiTermUI
             created += 1
             if created == 1 { throw WorktreeError.branchDiverged("feat/x", local: 2, remote: 4) }
         }, fixer: .ready(.codex), pipeline: .stub(look: .fix(proposal)), fixLanded: { landed.append(($0, $1)) })
+        model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let session = try #require(model.fixSession)
@@ -84,6 +86,7 @@ import AiTermUI
         let model = ReviewCreationModelTests.makeModel(create: { _ in
             throw WorktreeError.rebaseConflicted("feat/x", detail: "CONFLICT")
         }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)), fixLanded: { _, _ in landed += 1 })
+        model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let first = try #require(model.fixSession)
@@ -104,15 +107,54 @@ import AiTermUI
         let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
                                                        fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)),
                                                        canChangeWorkspace: { !locked })
+        model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let session = try #require(model.fixSession)
         session.start(); await session.settled()
         locked = true
         model.applyFix(); await session.settled()
+        #expect(session.state == .proposal(proposal), "no Apply while the create after it could not run")
+        locked = false
+        model.applyFix()
+        locked = true   // locked while the fix lands
+        await session.settled()
         #expect(model.fixSession == nil)
         #expect(!model.createdAfterFix)
         #expect(model.error?.fix != nil, "the failure it was offered for stays")
+    }
+
+    /// Going back and picking another branch drops the failure and its offer: both were about the
+    /// branch the draft has left, and a Fix would land on it while the create ran for the new one.
+    @Test func aNewBranchDropsTheFailureAndItsFix() async throws {
+        let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
+                                                       fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)))
+        model.draft.setBranch("feat/x")
+        await model.loadAgentCatalogue()
+        _ = await model.create()
+        let session = try #require(model.fixSession)
+        session.start(); await session.settled()
+        model.draft.setBranch("feat/y")
+        #expect(model.fixSession == nil)
+        #expect(model.error == nil)
+        #expect(session.state == .offered, "the proposal left up was declined")
+    }
+
+    /// A proposal about another branch than the draft's is never applied, nor is its create run.
+    @Test func applyRefusesAProposalForAnotherBranch() async throws {
+        var created = 0
+        let model = ReviewCreationModelTests.makeModel(create: { _ in
+            created += 1
+            throw WorktreeError.rebaseConflicted("feat/y", detail: nil)
+        }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)))
+        model.draft.setBranch("feat/x")
+        await model.loadAgentCatalogue()
+        _ = await model.create()
+        let session = try #require(model.fixSession)
+        session.start(); await session.settled()
+        model.applyFix(); await session.settled()
+        #expect(session.state == .proposal(proposal))
+        #expect(created == 1)
     }
 
     /// No pipeline — New Task, or a sheet built without one — and a failure with nothing to fix
@@ -141,6 +183,7 @@ import AiTermUI
     func aFixerThatCannotRunIsOfferedUnavailable(_ fixer: FixerResolution) async throws {
         let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
                                                        fixer: fixer)
+        model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let session = try #require(model.fixSession)
@@ -155,6 +198,7 @@ import AiTermUI
             created += 1
             if created == 1 { throw WorktreeError.rebaseConflicted("feat/x", detail: nil) }
         }, fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal), slowLook: true))
+        model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let session = try #require(model.fixSession)
@@ -169,6 +213,22 @@ import AiTermUI
         #expect(model.fixSession?.state == .offered)
         #expect(await model.create())
         #expect(model.fixSession == nil, "an offer goes with its failure")
+    }
+
+    /// A new failure replaces the offer — and a Look still running for the old one is stopped, not
+    /// left working in a clone nobody shows.
+    @Test func aNewFailureStopsTheLookItReplaces() async throws {
+        let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
+                                                       fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal), slowLook: true))
+        model.draft.setBranch("feat/x")
+        await model.loadAgentCatalogue()
+        _ = await model.create()
+        let looking = try #require(model.fixSession)
+        looking.start()
+        _ = await model.create()
+        #expect(model.fixSession !== looking)
+        #expect(looking.state == .offered, "cancelled")
+        await looking.settled()
     }
 }
 
@@ -340,6 +400,6 @@ import AiTermUI
         #expect(h.session.state == .applying)
         #expect(h.calls.backs == 0)
         press(36, "\r", [.command], in: h)
-        #expect(h.calls.advances == 0, "never the create")
+        #expect(h.calls.advances == 0 && h.calls.applies == 0, "neither the create nor a second Apply")
     }
 }

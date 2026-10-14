@@ -49,7 +49,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
             CreationFooter(step: step, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
                            closeList: closeOpenList, back: back, advance: advance, recover: recover,
-                           fix: model.fixSession, applyFix: model.applyFix)
+                           fix: model.fixSession, canApply: model.canChangeWorkspace(), applyFix: model.applyFix)
         }
         // A fix being applied is never left half-made: ⎋ does nothing then (the footer's Cancel is
         // the fix's, which ignores it), and neither does any other way of closing the sheet.
@@ -85,6 +85,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     /// Leaving step 1 closes its lists, so going back to it finds them as a fresh sheet does.
     /// While a fix's proposal is up it is Apply (the footer routes its button there too).
     private func advance() {
+        // A backstop only: the footer owns the routing, and sends a proposal's ⌘↩ to Apply itself.
         if model.primaryAction() == .applyFix { model.applyFix(); return }
         if step == 3 { create(); return }
         for picker in pickers { picker.wrappedValue = false }

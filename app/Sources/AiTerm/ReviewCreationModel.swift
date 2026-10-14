@@ -28,8 +28,13 @@ final class ReviewCreation: CreationKind {
     func slug(for draft: ReviewDraft) -> String { BranchNaming.reviewSlug(branch: draft.branch) }
 
     func draftChanged(from old: ReviewDraft, in model: ReviewCreationModel) {
-        if model.draft.branch != old.branch { model.findOwningTask() }
+        guard model.draft.branch != old.branch else { return }
+        model.findOwningTask()
+        // A refusal, its Rebase and its Fix were all about the branch the draft has just left.
+        model.dropFailure()
     }
+
+    func fixApplies(_ request: FixRequest, to draft: ReviewDraft) -> Bool { request.branch == draft.branch }
 
     func branchesChanged(in model: ReviewCreationModel) { model.filterBranches() }
 

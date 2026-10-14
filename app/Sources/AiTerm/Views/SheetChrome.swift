@@ -207,6 +207,8 @@ struct CreationFooter: View {
     let recover: () -> Void
     /// The Fix offered for the failure, if any; its state is the one thing here it observes.
     var fix: FixSession? = nil
+    /// Whether Apply may run: the workspace can change, so the create after the fix can too.
+    var canApply = true
     /// Apply on the proposal that is up.
     var applyFix: () -> Void = {}
 
@@ -230,14 +232,15 @@ struct CreationFooter: View {
             SheetFooter(secondary: shown.buttons == .sheet ? (step == 1 ? "Cancel" : "Back") : "Cancel",
                         primary: primaryTitle(shown.buttons),
                         canCancel: shown.buttons == .applying ? false : !creating,
-                        canSubmit: shown.buttons == .looking ? false : (shown.buttons == .sheet ? canAdvance : true),
+                        canSubmit: canSubmit(shown.buttons),
                         primaryBusy: shown.buttons == .applying,
                         primaryHelp: shown.buttons == .proposal ? "Applies \(fix?.fixer?.shortName ?? "the agent")’s fix, then creates the review." : nil,
                         closeList: closeList,
                         // While a fix holds the buttons, Cancel — and ⎋ — are its: they stop a Look,
-                        // decline a proposal, and do nothing while it is applied.
+                        // decline a proposal, and do nothing while it is applied. ⌘↩ is Apply only
+                        // on a proposal; while it is applied, nothing.
                         cancel: shown.buttons == .sheet ? back : { fix?.cancel() },
-                        submit: shown.buttons == .sheet ? advance : applyFix) {
+                        submit: submit(shown.buttons)) {
                 if shown.showsRecovery, let recovery = error?.recovery {
                     Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
                 }
@@ -249,6 +252,24 @@ struct CreationFooter: View {
                     Text("Applying…").font(Typography.caption).foregroundStyle(Palette.muted)
                 }
             }
+        }
+    }
+
+    private func canSubmit(_ buttons: FixFooterPresentation.Buttons) -> Bool {
+        switch buttons {
+        case .sheet: canAdvance
+        case .looking: false
+        case .proposal: canApply
+        // Drawn as the mock has it, turning and not dimmed; `submit` makes it do nothing.
+        case .applying: true
+        }
+    }
+
+    private func submit(_ buttons: FixFooterPresentation.Buttons) -> () -> Void {
+        switch buttons {
+        case .sheet, .looking: advance
+        case .proposal: applyFix
+        case .applying: {}
         }
     }
 
