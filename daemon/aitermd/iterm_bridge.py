@@ -62,6 +62,20 @@ class ItermNotRunning(ItermUnavailable):
     after this one opens iTerm2's startup window rather than bringing an open one forward."""
 
 
+def _no_cookie_request(launch_if_needed: bool = False, myname: str | None = None) -> bool:
+    """Stands in for the cookie request `iterm2.Connection` makes itself, and says no cookie was
+    fetched. Since iterm2 2.30, `Connection.async_create` answers a 401 by asking iTerm2 for a new
+    cookie through osascript, on the event loop: it could wait there on iTerm2's permission dialog,
+    holding every hook ack, and it swallows the reason for a refusal. `request_cookie` asks off the
+    loop and keeps the reason; told no cookie came, the library raises the 401, which `connect`
+    reports as `ItermAuthFailed`. `_auth_authenticate` is private: verified against iterm2 2.30
+    (pinned)."""
+    return False
+
+
+iterm2.connection._auth_authenticate = _no_cookie_request
+
+
 def request_cookie(runner_class: type | None = None) -> None:
     """Puts an API cookie in the environment for `iterm2.Connection`, the way
     `iterm2.auth.authenticate` does, but keeps the reason when iTerm2 refuses. The library swallows
@@ -171,7 +185,7 @@ def _fail_pending_requests(conn: iterm2.Connection) -> None:
     """Fails the requests still waiting on a closed connection. The library parks each one in
     `Connection.__receivers` until a reply matches it, and its reader stops when the socket dies
     without failing them, so each would otherwise wait out `ITERM_CALL_SECONDS`. That list is
-    private: verified against iterm2 2.23 (pinned), and left alone if it has moved."""
+    private: verified against iterm2 2.30 (pinned), and left alone if it has moved."""
     with contextlib.suppress(AttributeError, TypeError, ValueError):
         receivers = conn._Connection__receivers  # type: ignore[attr-defined]
         for _match, future in receivers:
@@ -190,14 +204,14 @@ def _drop_notification_handlers(bridge: object) -> None:
     over that dead socket; iTerm2 forgets a closed connection's subscriptions by itself. Matched by
     owner rather than by the subscribe tokens, which miss what a failed setup leaves: the library
     registers a handler before its request and keeps it if the request raises, and an App whose
-    construction failed is never returned at all. `_get_handlers` is private: verified against
-    iterm2 2.23 (pinned)."""
+    construction failed is never returned at all. `_handlers` is private: verified against
+    iterm2 2.30 (pinned)."""
     def ours(handler: object) -> bool:
         owner = getattr(handler, "__self__", None)
         return owner is bridge or isinstance(owner, iterm2.app.App)
 
     with contextlib.suppress(AttributeError):
-        handlers = iterm2.notifications._get_handlers()
+        handlers = iterm2.notifications._handlers
         for key, registered in list(handlers.items()):
             # A new list, not an edit in place: a dispatch may be iterating the old one.
             if kept := [handler for handler in registered if not ours(handler)]:
@@ -217,12 +231,12 @@ def _drop_app_refresh_handlers(app: iterm2.App) -> None:
     tick a new session prompts, the tick a terminated one prompts, the service's poll, and `_found`'s
     own refresh on a miss. The layout-change handler stays, as it costs no request: it edits the tree
     from the notification itself. The focus the App tracks between refreshes goes stale, and nothing
-    here reads it: `_placed` reads the focus a refresh has just fetched. `_get_handlers` and
-    `_async_focus_change` are private: verified against iterm2 2.23 (pinned), and nothing is removed
+    here reads it: `_placed` reads the focus a refresh has just fetched. `_handlers` and
+    `_async_focus_change` are private: verified against iterm2 2.30 (pinned), and nothing is removed
     if either has moved."""
     with contextlib.suppress(AttributeError):
         refreshing = {app.async_refresh, app._async_focus_change}
-        handlers = iterm2.notifications._get_handlers()
+        handlers = iterm2.notifications._handlers
         for key, registered in list(handlers.items()):
             # A new list, not an edit in place: a dispatch may be iterating the old one.
             if kept := [handler for handler in registered if handler not in refreshing]:
@@ -325,8 +339,8 @@ class ItermBridge:
             conn = await iterm2.Connection.async_create()
         except Exception as exc:  # the library raises several types here
             if _is_auth_rejection(exc):
-                # iterm2 2.23 only drops a rejected cookie on the legacy `InvalidStatusCode`, which
-                # websockets 17 no longer raises. Left in place, it would be presented forever.
+                # The library drops a rejected cookie only on its own retry, which
+                # `_no_cookie_request` turns down. Left in place, it would be presented forever.
                 _forget_cookie()
                 raise ItermAuthFailed(f"iTerm2 rejected the API cookie ({exc})") from exc
             raise ItermUnavailable(str(exc)) from exc
@@ -643,7 +657,9 @@ class ItermBridge:
             current = win.current_tab.current_session if win.current_tab else None
             current_id = current.session_id if current else None
             for tab_index, tab in enumerate(win.tabs):
-                placed.extend((s, win.window_id, tab_index, s.session_id == current_id) for s in tab.sessions)
+                # `all_sessions`, not `sessions`: the split panes leave out a floating pane and the
+                # panes a maximized one hides, and an agent in either would have no row.
+                placed.extend((s, win.window_id, tab_index, s.session_id == current_id) for s in tab.all_sessions)
         return placed
 
     @staticmethod

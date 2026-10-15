@@ -28,7 +28,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$APP/Contents/Resources/daemon" python3 - 
 import importlib.metadata
 import aitermd.service
 import iterm2
-for name, expected in [("iterm2", "2.23"), ("websockets", "17.1"), ("protobuf", "7.36.1")]:
+for name, expected in [("iterm2", "2.30"), ("websockets", "17.1"), ("protobuf", "7.36.1")]:
     assert importlib.metadata.version(name) == expected, name
 PYCODE
 cmp -s "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE" || { echo "bundled LICENSE is missing or differs from the repo's" >&2; exit 1; }

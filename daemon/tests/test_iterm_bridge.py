@@ -7,6 +7,7 @@ import contextlib
 import json
 import plistlib
 import subprocess
+import sys
 from collections.abc import Awaitable, Set as AbstractSet
 from typing import TypeVar
 
@@ -41,6 +42,15 @@ class _FakeSocket:
 class _FakeConn:
     def __init__(self):
         self.websocket = _FakeSocket()
+
+
+def _patch_everywhere(monkeypatch, home, name: str, value) -> None:
+    """Replaces `home.name` and every binding of it an iterm2 module imported by name: the library's
+    App and notifications call `async_list_sessions` and the rest as their own globals."""
+    original = getattr(home, name)
+    for module in list(sys.modules.values()):
+        if getattr(module, "__name__", "").startswith("iterm2") and getattr(module, name, None) is original:
+            monkeypatch.setattr(module, name, value)
 
 
 def _bundle(tmp_path, info: dict) -> str:
@@ -661,9 +671,36 @@ async def test_a_401_is_an_auth_failure_and_forgets_the_rejected_cookie(monkeypa
         await ItermBridge().connect()
 
     assert "401" in str(err.value)
-    # iterm2 2.23 only re-requests a cookie on the legacy InvalidStatusCode, which websockets 17
-    # no longer raises, so a stale cookie left behind would be presented again forever.
+    # A stale cookie left behind would be presented again on every connect.
     assert "ITERM2_COOKIE" not in iterm2.auth.os.environ and "ITERM2_KEY" not in iterm2.auth.os.environ
+
+
+async def test_a_401_never_makes_the_library_ask_for_a_cookie_on_the_event_loop(monkeypatch):
+    """Since iterm2 2.30 the library's own `async_create` answers a 401 by asking iTerm2 for a new
+    cookie, through a blocking osascript on the event loop, which could wait on iTerm2's permission
+    dialog while every hook ack waits too. `request_cookie` asks off the loop and keeps the reason."""
+    from websockets.legacy.exceptions import InvalidStatusCode
+
+    monkeypatch.setattr(iterm_bridge, "request_cookie", lambda: None)
+    monkeypatch.setenv("ITERM2_COOKIE", "stale")
+    monkeypatch.setenv("ITERM2_KEY", "stale")
+    asked: list[object] = []
+
+    def ask(*args, **_kw):
+        asked.append(args)
+        return "fresh fresh"
+
+    monkeypatch.setattr(iterm2.auth, "request_cookie_and_key", ask)
+    monkeypatch.setattr(iterm2.auth, "gAppKitAvailable", False)
+
+    async def rejected(_self):
+        raise InvalidStatusCode(401, Headers())
+
+    monkeypatch.setattr(iterm2.Connection, "_get_connect_coro", rejected)
+
+    with pytest.raises(ItermAuthFailed):
+        await ItermBridge().connect()
+    assert asked == []
 
 
 async def test_a_refused_connection_is_plain_unavailability(monkeypatch):
@@ -735,7 +772,7 @@ def _dying_connection() -> tuple[iterm2.Connection, _DyingSocket, asyncio.Future
     """A real `iterm2.Connection` over a `_DyingSocket`, with the library's own reader running, as
     `Connection.async_create()` leaves it (without its cookie request)."""
     conn, socket = iterm2.Connection(), _DyingSocket()
-    conn.websocket = socket
+    conn.websocket = socket  # type: ignore[assignment]  # the part of a websocket the library uses
     reader = asyncio.ensure_future(conn._async_dispatch_forever(conn, asyncio.get_running_loop()))
     return conn, socket, reader
 
@@ -789,7 +826,7 @@ def real_registration(monkeypatch, tmp_path):
     conns = _patch_connection(monkeypatch, tmp_path)
     for name, real in subscribe.items():
         monkeypatch.setattr(iterm2.notifications, f"async_subscribe_to_{name}_notification", real)
-    monkeypatch.setattr(iterm2.notifications._get_handlers, "handlers", {}, raising=False)
+    monkeypatch.setattr(iterm2.notifications, "_handlers", {})
     monkeypatch.setattr(iterm2.app.App, "instance", None)
     for cls in (iterm2.session.Session, iterm2.tab.Tab, iterm2.window.Window):
         monkeypatch.setattr(cls, "delegate", getattr(cls, "delegate", None), raising=False)
@@ -802,7 +839,7 @@ def real_registration(monkeypatch, tmp_path):
         return iterm2.api_pb2.ServerOriginatedMessage()
 
     for name in ("async_notification_request", "async_list_sessions", "async_get_focus_info", "async_get_broadcast_domains"):
-        monkeypatch.setattr(iterm2.rpc, name, rpc)
+        _patch_everywhere(monkeypatch, iterm2.rpc, name, rpc)
     return conns, requests
 
 
@@ -820,7 +857,7 @@ async def _reconnected(conns) -> ItermBridge:
 async def test_a_reconnect_leaves_one_handler_per_notification(real_registration):
     conns, requests = real_registration
     bridge = await _reconnected(conns)
-    handlers = iterm2.notifications._get_handlers()
+    handlers = iterm2.notifications._handlers
 
     assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_NEW_SESSION)] == [bridge._on_new]
     assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_TERMINATE_SESSION)] == [bridge._on_closed]
@@ -889,10 +926,10 @@ async def test_a_failed_setup_leaves_no_handler_behind(real_registration, monkey
     async def refused(*_args, **_kw):
         raise ConnectionError("iTerm2 went away during setup")
 
-    monkeypatch.setattr(iterm2.rpc, "async_get_focus_info", refused)
+    _patch_everywhere(monkeypatch, iterm2.rpc, "async_get_focus_info", refused)
     with pytest.raises(ItermUnavailable):
         await ItermBridge().connect()
-    assert not any(iterm2.notifications._get_handlers().values())
+    assert not any(iterm2.notifications._handlers.values())
 
 
 async def test_a_cookie_is_forgotten_once_a_connection_has_spent_it(patched_connect, monkeypatch):
@@ -921,8 +958,8 @@ async def test_a_refresh_overlapping_another_still_fetches_the_hierarchy(monkeyp
     async def no_focus(_conn):
         return iterm2.api_pb2.ServerOriginatedMessage()
 
-    monkeypatch.setattr(iterm2.rpc, "async_list_sessions", list_sessions)
-    monkeypatch.setattr(iterm2.rpc, "async_get_focus_info", no_focus)
+    _patch_everywhere(monkeypatch, iterm2.rpc, "async_list_sessions", list_sessions)
+    _patch_everywhere(monkeypatch, iterm2.rpc, "async_get_focus_info", no_focus)
     conn = object()
     monkeypatch.setattr(iterm2.app.App, "instance", iterm2.app.App(conn, [], []))
     bridge = ItermBridge()
@@ -941,8 +978,10 @@ async def test_a_refresh_overlapping_another_still_fetches_the_hierarchy(monkeyp
 
 def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: AbstractSet[str] = frozenset(),
                       error: Exception | None = None, refused: dict[str, str] | None = None,
-                      multi_get_refusal: str | None = None, unset_omitted: bool = False) -> tuple[ItermBridge, list[tuple[str, list[str]]]]:
-    """A bridge over real `iterm2.Session`s, laid out as {window: [[session, ...] per tab]}, with
+                      multi_get_refusal: str | None = None, unset_omitted: bool = False,
+                      app: iterm2.App | None = None) -> tuple[ItermBridge, list[tuple[str, list[str]]]]:
+    """A bridge over real `iterm2.Session`s, laid out as {window: [[session, ...] per tab]} or as
+    `app` has them, with
     only the variable RPC faked. A session in `closed` answers SESSION_NOT_FOUND, as one closed
     mid-snapshot does; one in `refused` answers the status named there; `multi_get_refusal`, when
     set, is the status every request for more than one name gets; `unset_omitted` leaves a name
@@ -978,6 +1017,7 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
     class Tab:
         def __init__(self, ids):
             self.sessions = [iterm2.session.Session(None, None, iterm2.api_pb2.SessionSummary(unique_identifier=i)) for i in ids]
+            self.all_sessions = self.sessions
             self.current_session = self.sessions[0]
 
     class Window:
@@ -991,12 +1031,54 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
     bridge = ItermBridge()
     bridge._conn = object()  # type: ignore[assignment]  # never read: the variable RPC is faked
 
-    async def app():
-        return App()
+    async def fetched():
+        return app if app is not None else App()
 
-    bridge._app = app  # type: ignore[method-assign]
+    bridge._app = fetched  # type: ignore[method-assign]
     bridge.max_in_flight = lambda: in_flight[1]  # type: ignore[attr-defined]
     return bridge, requests
+
+
+def _listed_app(tabs: list[dict]) -> iterm2.App:
+    """A real App over one window `w1`, built from a ListSessionsResponse as iTerm2 sends one, so the
+    library decides what each tab holds. Each tab is a dict of `split`, `minimized` and `floating`
+    session ids, and the `active` one."""
+    response = iterm2.api_pb2.ListSessionsResponse()
+    window = response.windows.add(window_id="w1", selected_tab_id="0")
+    for index, layout in enumerate(tabs):
+        tab = window.tabs.add(tab_id=str(index))
+        for sid in layout.get("split", []):
+            tab.root.links.add().session.unique_identifier = sid
+        for sid in layout.get("minimized", []):
+            tab.minimized_sessions.add(unique_identifier=sid)
+        for sid in layout.get("floating", []):
+            tab.floating_panes.add().session.unique_identifier = sid
+        if active := layout.get("active"):
+            tab.active_session_id = active
+    conn = None  # never used: nothing here asks iTerm2
+    return iterm2.app.App(conn, iterm2.app.App._windows_from_list_sessions_response(conn, response), [])  # type: ignore[arg-type]
+
+
+async def test_snapshot_lists_a_tabs_floating_and_minimized_panes(monkeypatch):
+    # Neither is among a tab's split panes: an agent in a floating pane, or beside a maximized one,
+    # would have no row, and its hooks would place nowhere.
+    app = _listed_app([{"split": ["s1"], "minimized": ["s2"], "floating": ["s3"], "active": "s3"}, {"split": ["s4"]}])
+    bridge, _requests = _variables_bridge(monkeypatch, {}, app=app)
+
+    out = {s.session_id: s for s in await bridge.snapshot()}
+
+    assert sorted(out) == ["s1", "s2", "s3", "s4"]
+    assert [out[sid].tab_index for sid in ("s1", "s2", "s3", "s4")] == [0, 0, 0, 1]
+    assert [sid for sid, s in out.items() if s.active] == ["s3"], "a floating pane can be the window's current session"
+
+
+async def test_a_new_floating_pane_is_reported(monkeypatch):
+    app = _listed_app([{"split": ["s1"], "floating": ["s3"]}])
+    bridge, _requests = _variables_bridge(monkeypatch, {}, app=app)
+
+    info = await bridge.session_info("s3")
+
+    assert info is not None and (info.window_id, info.tab_index) == ("w1", 0)
 
 
 async def test_snapshot_reads_each_sessions_variables_in_one_request_all_at_once(monkeypatch):
@@ -1102,6 +1184,7 @@ class _CreatingApp:
     class Tab:
         def __init__(self, session):
             self.current_session, self.sessions = session, [session]
+            self.all_sessions = self.sessions
 
     class Window:
         def __init__(self, app, window_id):
