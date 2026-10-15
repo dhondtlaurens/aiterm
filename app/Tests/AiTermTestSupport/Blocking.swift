@@ -2,6 +2,7 @@
 // is built with it, though only tests use it) does not have.
 #if DEBUG
 import Foundation
+import Synchronization
 import Testing
 
 /// For a suite whose tests block their thread — waiting on `git`, `hdiutil`, a shell or a
@@ -19,13 +20,51 @@ import Testing
 /// Every suite whose tests do blocking work off the main actor — a process waited for
 /// (`ProcessRunner`, `GitRunner`, a fixture's git), `Thread.sleep`, a semaphore — must be marked
 /// `@Suite(.blocking)`; nothing checks that it is.
+///
+/// At most one of these test cases per core runs at once (`BlockingSlots`). Most of them start git dozens of
+/// times, and with every one of them under way together the machine ran hundreds of gits side by
+/// side, so a fixture's `git init` waited past `GitRunner.localTimeout` for a core. A case waits
+/// for its slot before its body starts, so no time it measures includes the wait.
 struct BlockingTrait: SuiteTrait, TestTrait, TestScoping {
     var isRecursive: Bool { true }
 
     func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
         // The suite's own scope passes through: only a test case runs a body that blocks.
         guard testCase != nil else { return try await function() }
+        await BlockingSlots.shared.acquire()
+        defer { BlockingSlots.shared.release() }
         try await withTaskExecutorPreference(ThreadPerJob.shared) { try await function() }
+    }
+}
+
+/// The blocking test cases allowed to run at once: one per core, each waiting its turn without a
+/// thread. A case never waits on another case, so holding a slot cannot deadlock.
+final class BlockingSlots: Sendable {
+    static let shared = BlockingSlots(limit: ProcessInfo.processInfo.activeProcessorCount)
+
+    private struct State { var free: Int; var waiting: [CheckedContinuation<Void, Never>] = [] }
+    private let state: Mutex<State>
+
+    init(limit: Int) { state = Mutex(State(free: max(1, limit))) }
+
+    func acquire() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let granted = state.withLock { state -> Bool in
+                guard state.free > 0 else { state.waiting.append(continuation); return false }
+                state.free -= 1
+                return true
+            }
+            if granted { continuation.resume() }
+        }
+    }
+
+    /// Hands the slot straight to the longest waiter, if there is one.
+    func release() {
+        let next = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            guard !state.waiting.isEmpty else { state.free += 1; return nil }
+            return state.waiting.removeFirst()
+        }
+        next?.resume()
     }
 }
 
