@@ -6,15 +6,59 @@ iTerm2 through its Python API — AiTerm does not embed a terminal.
 
 <img src="docs/desktop.png" alt="AiTerm beside iTerm2: the sidebar lists a home folder and the aiterm (GitHub) and acme projects under Personal and Work dividers, with Claude Code, Codex, Grok Build and PI tasks and a merge-request review, and its footer the selected task's context and tokens, the Mac's load in backpack mode and the agents' usage; beside it, the selected task's iTerm2 window shows Claude Code mid-refactor">
 
-- Start a task from a Jira ticket: AiTerm creates the worktree and branch, opens an iTerm2 window
-  and launches the agent with your prompt.
-- See every agent's state — working, waiting for you, done — from Claude Code, Codex, Grok Build
-  and PI hooks.
-- Review a GitLab merge request or a GitHub pull request in its own worktree.
-- Keyboard-first: see [docs/keyboard.md](docs/keyboard.md).
-
 > AiTerm is built for its maintainer's own workflow. Bug reports are welcome; feature requests and
 > pull requests are not taken. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Features
+
+- **Tasks from a Jira ticket or a prompt**: AiTerm creates the worktree and branch, copies the
+  gitignored files `.worktreeinclude` names, opens an iTerm2 window and launches the agent.
+- **Every agent's state at a glance**: working, needs input or done, from Claude Code, Codex,
+  Grok Build and PI, with context, tokens and account usage in the footer.
+- **Reviews**: a GitLab merge request or a GitHub pull request in its own worktree, its resolved
+  review threads counted on the row.
+- **Backpack Mode** (⌘B): keeps the Mac awake with the lid shut and on your iPhone's hotspot while
+  agents work, and turns itself off when they stop.
+- **The Shelf** (⌘S): puts a task away. Its worktree goes and its branch stays; restoring brings
+  back the worktree and its conversations.
+- **Windows that come back**: after a crash, a reboot or iTerm2 quitting, every task's window
+  reopens with its conversations.
+- **Focus View** (⌘F): only the projects with a row waiting on you, which the Dock badge counts.
+- **Keyboard-first**: the arrows peek at each row's window without leaving the sidebar. Every key
+  is in [docs/keyboard.md](docs/keyboard.md).
+
+<details>
+<summary>What each agent and project supports</summary>
+
+What the sidebar knows depends on what each agent reports:
+
+| | Claude Code | Codex | Grok Build | PI |
+|---|:---:|:---:|:---:|:---:|
+| Status: working, needs input, done | ✓ | ✓ | ✓ | ✓ |
+| Reported through | HTTP hooks | hooks, `Stop` over MCP | command hooks | an extension |
+| A second source, should a hook go missing | its session file | the tab title's spinner | — | — |
+| Stays working while a subagent runs | ✓ | ✓ | ✓ | ✓ (pi-subagents) |
+| Context fill and token counts | ✓ | ✓ | ✓ | ✓ |
+| Account usage in the footer | ✓ | ✓ | — | — |
+| Model and reasoning picked per task | ✓ | ✓ | ✓ | ✓ |
+| Skills and commands completed in the first prompt | `/` | `$` and `/prompts:` | `/` | `/skill:` |
+| Conversations resumed when a window comes back | ✓ | ✓ | ✓ | ✓ |
+| Folder-trust dialog shown as needs input | ✓ | — | — | — |
+
+What a project can do depends on where it lives:
+
+| | GitLab | GitHub | Plain git | Folder |
+|---|:---:|:---:|:---:|:---:|
+| Tasks in their own worktree, from a Jira ticket or a prompt | ✓ | ✓ | ✓ | — |
+| Branch and diff badge on each task | ✓ | ✓ | ✓ | — |
+| Reviews of a merge or pull request | ✓ | ✓ | ✓¹ | — |
+| Resolved review threads on a review's row | ✓ | ✓ | ✓¹ | — |
+| Terminals | ✓ | ✓ | ✓ | ✓ |
+
+GitLab means the one host set in *Settings › Integrations*. ¹ Only when the remote is on that host:
+a self-hosted GitLab that AiTerm cannot tell from plain git.
+
+</details>
 
 ## Requirements
 
