@@ -333,8 +333,10 @@ again when chosen — a click or ↩, never the arrows; its hint and tooltip say
 except while the workspace cannot change, when choosing the row retries nothing. A row whose window is
 still coming back is drawn as it was.
 
-`CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` opens —
-the one trigger for every agent; a Codex skill picked there is written as its `$` mention.
+`CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` and `@`
+open — `/` the one trigger for every agent's commands and skills, a Codex skill picked there written
+as its `$` mention; `@` the project's files and folders, each row a `doc` or `folder` glyph and its
+path, truncated in the middle, with no source beside it.
 `SheetFooter` is the foot of every sheet — Cancel (or Back), a `SheetPrimaryButton` and optional
 status text — and owns what ⎋ means: an open list closes first (`closeList`), and only then is it
 Cancel, on a hidden button of its own so that *clicking* Cancel still cancels. An action a sheet does

@@ -32,6 +32,11 @@ class FakeIterm:
         self.titles: dict[str, str] = {}
         self.title_calls = 0
         self.background_requests: list[tuple[list[str], bool]] = []
+        # What each session's screen shows, the sessions whose screen was read, and an error to fail
+        # every read with.
+        self.screens: dict[str, str] = {}
+        self.screen_reads: list[str] = []
+        self.screen_error: Exception | None = None
         # Set to make every snapshot, or every send_text, fail as iTerm2 can mid-call.
         self.snapshot_error: Exception | None = None
         self.send_error: Exception | None = None
@@ -113,6 +118,12 @@ class FakeIterm:
 
     async def set_aiterm_background(self, session_ids: list[str], enabled: bool) -> None:
         self.background_requests.append((list(session_ids), enabled))
+
+    async def screen_text(self, session_id: str) -> str | None:
+        self.screen_reads.append(session_id)
+        if self.screen_error is not None:
+            raise self.screen_error
+        return self.screens.get(session_id, "") if session_id in self.sessions else None
 
     async def snapshot(self) -> list[RawSession]:
         if self.snapshot_error is not None:

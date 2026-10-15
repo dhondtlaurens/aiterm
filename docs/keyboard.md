@@ -88,8 +88,9 @@ same keys while its list is open (`DropdownKeys`), and hands every key back once
 | Keys | Action | Notes |
 |---|---|---|
 | / | Open | At the start of a word, for every agent. The list is the commands and skills that agent actually has installed, for this project. `$` opens nothing, so a price or `$HOME` in a prompt stays plain text. |
+| @ | Open | At the start of a word, so an address stays plain text. The list is the files git tracks in the project — what the task's worktree will have — and the folders that hold them; a folder that is not a checkout is walked instead (`ProjectFiles`). `@../`, `@~/` or `@/` lists that folder on disk instead, `@./` is the project's root. |
 | ↑ ↓ | Move | Wraps at both ends. |
-| ↩ | Accept | Replaces the typed token with the item as its agent runs it: `/bra` → `/brainstorming`. Codex runs a skill as a `$` mention, so for Codex `/imag` → `$imagegen`; its commands, `/prompts:<name>` among them, keep the `/` (`SkillCatalog.invocation`). |
+| ↩ | Accept | Replaces the typed token with the item as its agent runs it: `/bra` → `/brainstorming`. Codex runs a skill as a `$` mention, so for Codex `/imag` → `$imagegen`; its commands, `/prompts:<name>` among them, keep the `/` (`SkillCatalog.invocation`). A file is written as its `@` mention from the project's root, `@rea` → `@README.md`, the form Claude Code, Grok and PI attach a file by. A folder is written without the trailing space, `@ap` → `@app/`, and the list stays open on what is inside it. A pick outside the project is written as its absolute path, since `../` means somewhere else in the task's worktree under `.worktrees/`; one back inside it is written from the project's root. |
 | ⎋ | Close | Only the popup. Every other key, and every key when it is closed, reaches the text view as usual. |
 
 This is the whole reason the editor is a real `NSTextView` on TextKit 1: SwiftUI's `TextEditor`

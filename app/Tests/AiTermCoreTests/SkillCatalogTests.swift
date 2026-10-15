@@ -264,6 +264,10 @@ import Foundation
         #expect(t?.range == 3..<7)
         // `$` opens nothing, Codex included: a price or `$HOME` in a prompt stays plain text.
         #expect(SkillCatalog.trigger(in: "$imag", caret: 5) == nil)
+        // `@` opens the files, its query running through the folders typed.
+        #expect(SkillCatalog.trigger(in: "read @app/So", caret: 12) == CompletionTrigger(sigil: "@", query: "app/So", range: 5..<12))
+        #expect(SkillCatalog.trigger(in: "/rev", caret: 4)?.sigil == "/")
+        #expect(SkillCatalog.trigger(in: "mail me@example.com", caret: 19) == nil, "an `@` inside a word is an address")
     }
 
     /// A picked item is written as its agent runs it: Codex mentions a skill with `$` and keeps `/`

@@ -13,6 +13,8 @@ import AiTermCore
 final class PromptCompletions {
     /// Every command and skill the agent has; the popup draws only `visible`.
     @ObservationIgnored var all: [AgentCompletion] = []
+    /// The project's files and folders, which `@` lists.
+    @ObservationIgnored var files = FileIndex.empty
     var visible: [AgentCompletion] = []
     var index = 0
     /// Top-left of the popup, in the editor's own coordinates.
@@ -30,8 +32,9 @@ final class PromptCompletions {
 /// The first-prompt editor: a real `NSTextView`, which is what makes the completion popup possible
 /// at all — SwiftUI's `TextEditor` exposes neither the caret's position nor the arrow keys.
 ///
-/// Typing `/` (and `$` for Codex, which answers to both) at the start of a word opens the popup with
-/// the slash commands and skills that agent actually has installed. ↑/↓ move, ↩ accepts, ⎋ closes.
+/// Typing `/` at the start of a word opens the popup with the slash commands and skills that agent
+/// actually has installed, and `@` with the project's files and folders. ↑/↓ move, ↩ accepts, ⎋
+/// closes.
 /// Files dropped or pasted from Finder — screenshots, PDFs, anything — go in as their paths.
 struct PromptEditor: NSViewRepresentable {
     @Binding var text: String
@@ -135,21 +138,23 @@ struct PromptEditor: NSViewRepresentable {
         }
 
         /// Replaces the typed token with the picked item as its agent runs it — `/bra` becomes
-        /// `/brainstorming`, and for Codex `/imag` becomes the skill mention `$imagegen`.
+        /// `/brainstorming`, for Codex `/imag` becomes the skill mention `$imagegen`, and `@read`
+        /// becomes `@README.md`. A folder is written without the space after it, and the popup
+        /// stays open on what is inside it.
         func accept(_ item: AgentCompletion) {
             guard let textView, let trigger = currentTrigger() else { return }
             let text = textView.string
             let start = text.index(text.startIndex, offsetBy: trigger.range.lowerBound)
             let end = text.index(text.startIndex, offsetBy: trigger.range.upperBound)
             let range = NSRange(start..<end, in: text)
-            let replacement = SkillCatalog.invocation(of: item, for: parent.agent) + " "
+            let replacement = SkillCatalog.invocation(of: item, for: parent.agent) + (item.kind == .folder ? "" : " ")
             if textView.shouldChangeText(in: range, replacementString: replacement) {
                 textView.textStorage?.replaceCharacters(in: range, with: replacement)
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: range.location + (replacement as NSString).length, length: 0))
             }
             parent.text = textView.string
-            parent.completions.close()
+            if item.kind == .folder { refresh() } else { parent.completions.close() }
         }
 
         private func currentTrigger() -> CompletionTrigger? {
@@ -165,7 +170,8 @@ struct PromptEditor: NSViewRepresentable {
         func refresh() {
             let model = parent.completions
             guard let textView, let trigger = currentTrigger() else { model.close(); return }
-            let matches = SkillCatalog.matches(model.all, query: trigger.query)
+            let matches = trigger.sigil == ProjectFiles.trigger ? model.files.matches(trigger.query)
+                : SkillCatalog.matches(model.all, query: trigger.query)
             guard !matches.isEmpty else { model.close(); return }
             if model.visible != matches { model.visible = matches; model.index = 0 }
             model.anchor = caretAnchor(in: textView, tokenStart: trigger.range.lowerBound)
@@ -259,7 +265,8 @@ final class PromptTextView: NSTextView {
     }
 }
 
-/// The popup itself: a `DropdownList` of the agent's own commands and skills.
+/// The popup itself: a `DropdownList` of the agent's own commands and skills, or of the project's
+/// files and folders.
 struct CompletionPopup: View {
     let completions: PromptCompletions
     let width: CGFloat
@@ -267,8 +274,8 @@ struct CompletionPopup: View {
     /// semibold, and this plain SF Symbol glyph must draw at its regular weight, so it takes the
     /// number on its own rather than the token that carries it.
     private static let iconSize: CGFloat = 10
-    /// The glyph's fixed slot, so "sparkles" and "terminal" — different intrinsic widths — line up
-    /// the name text that follows them.
+    /// The glyph's fixed slot, so "sparkles", "terminal", "doc" and "folder" — different intrinsic
+    /// widths — line up the name text that follows them.
     private static let iconSlot: CGFloat = 12
     var body: some View {
         // The offset lives here, not at the call site: only this view reads the model, so an
@@ -291,26 +298,40 @@ struct CompletionPopup: View {
                      onPick: { completions.accept?($0) }) { Row(item: $0) }
     }
 
-    /// One command or skill, inked for the ground its row declares: white while highlighted, and its
-    /// source, faint at rest, rises to the secondary ink there with the rest.
+    /// One command, skill, file or folder, inked for the ground its row declares: white while
+    /// highlighted, and a command's or skill's source, faint at rest, rises to the secondary ink
+    /// there with the rest. A path names no source: every one is the project's.
     private struct Row: View {
         let item: AgentCompletion
         @Environment(\.surface) private var surface
+        private var isPath: Bool { item.kind == .file || item.kind == .folder }
 
         var body: some View {
             HStack(spacing: Space.base) {
-                Icon(.symbol(item.kind == .skill ? "sparkles" : "terminal"), size: CompletionPopup.iconSize,
+                Icon(.symbol(Self.symbol(for: item.kind)), size: CompletionPopup.iconSize,
                      tint: surface.secondaryInk)
                     .frame(width: CompletionPopup.iconSlot)
+                // A long path keeps its file's name and loses the middle of its folders.
                 Text(item.name).font(Typography.monoCode)
-                    .foregroundStyle(surface.ink).lineLimit(1)
+                    .foregroundStyle(surface.ink).lineLimit(1).truncationMode(isPath ? .middle : .tail)
                 if let detail = item.detail {
                     Text(detail).font(Typography.help)
                         .foregroundStyle(surface.secondaryInk).lineLimit(1)
                 }
                 Spacer(minLength: Space.snug)
-                Text(item.source.label).font(Typography.help)
-                    .foregroundStyle(surface.isOnAccent ? surface.secondaryInk : Palette.faint)
+                if !isPath {
+                    Text(item.source.label).font(Typography.help)
+                        .foregroundStyle(surface.isOnAccent ? surface.secondaryInk : Palette.faint)
+                }
+            }
+        }
+
+        static func symbol(for kind: AgentCompletion.Kind) -> String {
+            switch kind {
+            case .skill: return "sparkles"
+            case .command: return "terminal"
+            case .file: return "doc"
+            case .folder: return "folder"
             }
         }
     }
@@ -320,7 +341,7 @@ struct CompletionPopup: View {
 /// Discoverability hint for the prompt editor’s completion shortcuts. One key for every agent: a
 /// Codex skill picked from `/` is written as its `$` mention.
 struct CompletionHint: View {
-    static let text = "Type / for commands and skills."
+    static let text = "Type / for commands and skills, @ for files and folders."
     var body: some View {
         HelpText(Self.text)
     }

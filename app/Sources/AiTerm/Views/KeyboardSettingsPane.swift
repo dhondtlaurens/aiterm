@@ -74,6 +74,7 @@ enum KeyBindings {
             KeyBinding(action: "Pick the highlighted item", keys: ["↩"]),
             KeyBinding(action: "Close the list", keys: ["⎋"]),
             KeyBinding(action: "Commands and skills", keys: ["/"]),
+            KeyBinding(action: "Files and folders", keys: ["@"]),
         ]),
     ]
 }

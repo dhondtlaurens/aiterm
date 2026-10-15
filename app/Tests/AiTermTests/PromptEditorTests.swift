@@ -178,6 +178,36 @@ import Testing
         #expect(!send(#selector(NSResponder.cancelOperation(_:))), "and the next one is the sheet's")
     }
 
+    /// `@` lists the project's files and folders. A file is written as its mention with a space
+    /// after it, and the popup closes; a folder is written without one, and the popup stays open on
+    /// what is inside it.
+    @Test func atCompletesTheProjectsFilesAndDrillsIntoAFolder() throws {
+        let text = TextBox()
+        let completions = PromptCompletions()
+        completions.all = [AgentCompletion(name: "review", kind: .command, detail: nil, source: .builtIn)]
+        completions.files = FileIndex(paths: ["README.md", "app/Sources/main.swift", "app/Package.swift"])
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
+                                  agent: .claude, completions: completions)
+            .frame(width: 420, height: 150)
+        let host = NSHostingView(rootView: editor)
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        host.layoutSubtreeIfNeeded()
+        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let delegate = try #require(textView.delegate)
+        func accept() -> Bool { delegate.textView?(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))) ?? false }
+
+        textView.insertText("look at @rea", replacementRange: textView.selectedRange())
+        #expect(completions.visible.map(\.name) == ["README.md"], "the files, not the commands")
+        #expect(accept())
+        #expect(text.value == "look at @README.md " && !completions.isOpen)
+
+        textView.insertText("and @ap", replacementRange: textView.selectedRange())
+        #expect(completions.visible.first?.name == "app/")
+        #expect(accept())
+        #expect(text.value == "look at @README.md and @app/")
+        #expect(completions.visible.map(\.name) == ["app/Sources/", "app/Package.swift", "app/Sources/main.swift"])
+    }
+
     /// Codex opens the popup from `/` like every agent, and a skill picked there is written as the
     /// `$` mention Codex runs it by.
     @Test func aCodexSkillPickedFromSlashIsWrittenAsItsMention() throws {

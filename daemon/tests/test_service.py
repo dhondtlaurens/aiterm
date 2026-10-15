@@ -545,6 +545,50 @@ async def test_tick_uses_claude_file_status_and_agent_exit(stack):
     assert svc.registry.get(sid).state == "idle"
 
 
+async def test_a_claude_trust_prompt_needs_input_until_it_is_answered(stack):
+    """Claude asks whether to trust a new folder before it writes its session file or loads its
+    hooks, so the screen is all that shows it."""
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "claude", job_pid=779)
+    it.screens[sid] = " ❯ 1. No, exit\n   2. Yes, I trust this folder\n Enter to confirm · Esc to cancel"
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+    # Trusted: Claude writes its file, and the row was never in a turn.
+    it.screens[sid] = " > "
+    files.root.mkdir(parents=True)
+    write_claude_file(files, 779, "idle", 1001)
+    await svc.tick()
+    assert svc.registry.get(sid).state == "idle"
+    assert it.screen_reads == [sid], "a tab with a session file is past the dialog: its screen is not read"
+
+
+async def test_a_claude_trust_prompt_dismissed_without_a_file_goes_back_to_idle(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "claude", job_pid=780)
+    it.screens[sid] = "Do you trust the files in this folder?"
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+    it.screens[sid] = ""
+    await svc.tick()
+    assert svc.registry.get(sid).state == "idle"
+
+
+async def test_a_screen_that_cannot_be_read_leaves_the_row_alone(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "claude", job_pid=781)
+    it.screens[sid] = "Yes, I trust this folder"
+    await svc.tick()
+    it.screen_error = RuntimeError("iTerm2 refused")
+    await svc.tick()
+    assert svc.registry.get(sid).state == "needsInput"
+
+
 def write_claude_file(files, pid, status, written_at):
     path = files.root / f"{pid}.json"
     path.write_text(json.dumps({"pid": pid, "sessionId": f"c{pid}", "cwd": "/wt", "status": status, "updatedAt": 1}))

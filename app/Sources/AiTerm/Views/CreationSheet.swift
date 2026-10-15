@@ -60,6 +60,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
         .task(id: model.draft.agent) { await model.loadAgentCatalogue() }
         .task { await model.loadBranches() }
         .task { await model.loadWorktreeIncludes() }
+        .task { await model.loadProjectFiles() }
         // Closed while an agent looks, the Look stops and its clone goes; a proposal left up is declined.
         .onDisappear { model.cancelSearch(); model.fixSession?.cancel() }
     }

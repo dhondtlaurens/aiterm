@@ -23,7 +23,7 @@ from .rpc_params import frame_param, guard, param, require_iterm
 from .rpc_server import RpcServer
 from .models import HARNESS_BY_AGENT, SessionInfo, TokenTally
 from .sessions import SessionRegistry, SnapshotDiff
-from .status import StatusEngine, path_is_missing
+from .status import StatusEngine, path_is_missing, shows_trust_prompt
 from .usage import UsageStore, parse_codex_rate_limits
 from .windows import WindowManager
 
@@ -283,10 +283,13 @@ class Service:
             with _logged(f"announcing closed window {wid}"):
                 await self.rpc.broadcast(protocol.WINDOW_CLOSED, {"windowId": wid})
         threads: dict[str, str] = {}
+        screens: list[str] = []
         for s in self.registry.all():
             # Another process's file must not stop the other tabs.
             with _logged(f"corroborating session {s.session_id}"):
-                self._corroborate(s, threads, changed)
+                self._corroborate(s, threads, screens, changed)
+        with _logged("reading the screens for trust prompts"):
+            changed += await self._apply_trust_prompts(screens)
         with _logged("reading the Codex rollouts"):
             changed += await self._apply_codex_rollouts(threads)
         with _logged("reading the Claude transcripts"):
@@ -296,10 +299,12 @@ class Service:
         with _logged("releasing dead subagents"):
             changed += self.status.release_dead_subagents(await self._subagent_tails(self.status.subagent_transcripts()))
 
-    def _corroborate(self, s: SessionInfo, threads: dict[str, str], changed: list[str]) -> None:
+    def _corroborate(self, s: SessionInfo, threads: dict[str, str], screens: list[str], changed: list[str]) -> None:
         """Adds to `changed` what the agent's own files and the tab say of `s` that its hooks have
-        not, and to `threads` the Codex thread it runs, by session. A step that raises keeps the
-        changes before it. The Codex rollout is not read here: see `_apply_codex_rollouts`."""
+        not, to `threads` the Codex thread it runs, by session, and to `screens` a session whose
+        screen may show a folder-trust dialog. A step that raises keeps the changes before it. The
+        Codex rollout and the screens are not read here: see `_apply_codex_rollouts` and
+        `_apply_trust_prompts`."""
         if s.agent == "shell":
             if s.state != "idle":
                 changed += self.status.agent_exited(s.session_id)
@@ -307,14 +312,31 @@ class Service:
         corroboration = HARNESS_BY_AGENT[s.agent].corroboration
         if corroboration == "claude_file":
             if s.job_pid and (f := self.claude_files.read(s.job_pid)):
+                # Claude writes its file only once its folder is trusted.
+                changed += self.status.apply_trust_prompt(s.session_id, False)
                 changed += self.status.apply_claude_file_status(s.session_id, f.status, f.written_at)
                 # The file's cwd is the agent's own, and it follows it into a worktree;
                 # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
                 changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
+            elif s.job_pid and (s.state == "idle" or self.status.showing_trust_prompt(s.session_id)):
+                # No file yet: the trust dialog, which only the screen shows, or a Claude just starting.
+                screens.append(s.session_id)
         elif corroboration == "codex_title":
             changed += self.status.apply_codex_title(s.session_id, s.title)
             if self.codex_files is not None and (thread_id := self.resolver.codex_thread(s.session_id)):
                 threads[s.session_id] = thread_id
+
+    async def _apply_trust_prompts(self, session_ids: list[str]) -> list[str]:
+        """The sessions a folder-trust dialog opened or closed on, read from their screens at once. A
+        screen that cannot be read costs only its own session, and changes nothing."""
+        screens = await asyncio.gather(*(self.iterm.screen_text(sid) for sid in session_ids), return_exceptions=True)
+        changed: list[str] = []
+        for sid, screen in zip(session_ids, screens, strict=True):
+            if isinstance(screen, BaseException):
+                log.warning("reading the screen of session %s failed: %s", sid, screen)
+            elif screen is not None and (s := self.registry.get(sid)) is not None:
+                changed += self.status.apply_trust_prompt(sid, shows_trust_prompt(s.agent, screen))
+        return changed
 
     async def _apply_codex_rollouts(self, threads: dict[str, str]) -> list[str]:
         """The sessions whose context fill or spend their Codex rollouts changed, and the rollouts'
@@ -435,7 +457,7 @@ class Service:
     def _forget_session(self, session_id: str) -> None:
         """Drops what each part keeps of a closed session, each on its own: one that raises keeps
         only its own state, not the others'."""
-        for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.reset_turn),
+        for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.forget_session),
                              ("bindings", self.resolver.forget)):
             with _logged(f"forgetting the {what} of closed session {session_id}"):
                 forget(session_id)

@@ -802,3 +802,86 @@ def test_a_stop_after_needs_input_ends_the_turn_as_without_children(clock):
     eng.apply_event("s1", hook("needsInput"))
     eng.apply_event("s1", hook("done", running_subagents=frozenset()))
     assert reg.get("s1").state == "done", "a Stop says what the turn is doing now, as without children"
+
+
+# What Claude Code 2.1.299 draws in a folder it has not been told to trust, read back from iTerm2.
+CLAUDE_TRUST_SCREEN = """\
+ Accessing workspace:
+ /Users/me/new-project
+ Quick safety check: Is this a project you created or one you trust? (Like your
+ own code, a well-known open source project, or work from your team). If not,
+ take a moment to review what's in this folder first.
+ ❯ 1. No, exit
+   2. Yes, I trust this folder
+ Enter to confirm · Esc to cancel
+"""
+
+
+@pytest.mark.parametrize("screen,expected", [
+    (CLAUDE_TRUST_SCREEN, True),
+    # Drawn with cursor moves for spaces, as a terminal without iTerm2's line model shows it.
+    ("❯No,exit Yes,Itrustthisfolder Entertoconfirm·Esctocancel", True),
+    # The older dialog's wording.
+    (" Do you trust the files in this folder?\n ❯ 1. Yes, proceed\n   2. No, exit", True),
+    ("> what does trust this folder mean?", False),
+    ("", False),
+])
+def test_shows_trust_prompt(screen, expected):
+    assert status.shows_trust_prompt("claude", screen) is expected
+
+
+def test_shows_trust_prompt_knows_only_the_harnesses_that_have_one():
+    assert not status.shows_trust_prompt("pi", CLAUDE_TRUST_SCREEN)
+
+
+def test_a_trust_prompt_turns_an_idle_row_to_needs_input_and_back(eng):
+    engine, reg = eng
+    assert engine.apply_trust_prompt("s1", True) == ["s1"]
+    assert reg.get("s1").state == "needsInput" and engine.showing_trust_prompt("s1")
+    assert engine.apply_trust_prompt("s1", True) == []
+    # Answered: the row was never in a turn, so it goes back to idle rather than done.
+    assert engine.apply_trust_prompt("s1", False) == ["s1"]
+    assert reg.get("s1").state == "idle" and not engine.showing_trust_prompt("s1")
+    assert engine.apply_trust_prompt("s1", False) == []
+
+
+@pytest.mark.parametrize("state", ["working", "done", "needsInput"])
+def test_a_trust_prompt_is_only_read_into_an_idle_row(eng, state):
+    engine, reg = eng
+    reg.set_state("s1", state)
+    assert engine.apply_trust_prompt("s1", True) == []
+    assert reg.get("s1").state == state and not engine.showing_trust_prompt("s1")
+
+
+def test_a_hook_ends_the_trust_prompt(eng):
+    """Claude loads its hooks only once the folder is trusted, so any hook says the dialog is gone."""
+    engine, reg = eng
+    engine.apply_trust_prompt("s1", True)
+    assert engine.apply_event("s1", hook("sessionStart")) == ["s1"]
+    assert reg.get("s1").state == "idle" and not engine.showing_trust_prompt("s1")
+
+
+def test_a_hook_after_the_trust_prompt_still_sets_its_own_state(eng):
+    engine, reg = eng
+    engine.apply_trust_prompt("s1", True)
+    engine.apply_event("s1", hook("needsInput"))
+    assert reg.get("s1").state == "needsInput" and not engine.showing_trust_prompt("s1")
+    # So the tick that finds the dialog gone does not end the real input request.
+    assert engine.apply_trust_prompt("s1", False) == []
+    assert reg.get("s1").state == "needsInput"
+
+
+def test_the_trust_prompt_outlives_a_new_process_in_the_tab_but_not_the_tab(eng):
+    engine, reg = eng
+    engine.apply_trust_prompt("s1", True)
+    engine.reset_turn("s1")
+    assert engine.showing_trust_prompt("s1")
+    engine.forget_session("s1")
+    assert not engine.showing_trust_prompt("s1")
+
+
+def test_an_agent_exiting_from_its_trust_prompt_forgets_it(eng):
+    engine, reg = eng
+    engine.apply_trust_prompt("s1", True)
+    engine.agent_exited("s1")
+    assert reg.get("s1").state == "idle" and not engine.showing_trust_prompt("s1")

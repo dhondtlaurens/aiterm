@@ -280,6 +280,7 @@ class ItermPort(Protocol):
     async def set_session_tags(self, session_id: str, tags: dict[str, str]) -> None: ...
     async def set_session_titles(self, titles: dict[str, str]) -> list[str]: ...
     async def set_aiterm_background(self, session_ids: list[str], enabled: bool) -> None: ...
+    async def screen_text(self, session_id: str) -> str | None: ...
     async def snapshot(self) -> list[RawSession]: ...
     async def session_info(self, session_id: str) -> RawSession | None: ...
     def on_new_session(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
@@ -652,6 +653,17 @@ class ItermBridge:
         user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project), (TERMINAL_TAG, terminal)) if v}
         return RawSession(s.session_id, window_id, tab_index, cmd, int(pid) if pid else None, title or "", path or "", user_vars,
                           active=active)
+
+    @_bounded
+    async def screen_text(self, session_id: str) -> str | None:
+        """The lines a session's screen shows now, without its scrollback; None for a session that has
+        closed."""
+        try:
+            session = await self._session(session_id)
+        except KeyError:
+            return None
+        contents = await session.async_get_screen_contents()
+        return "\n".join(contents.line(i).string for i in range(contents.number_of_lines))
 
     @_bounded
     async def session_info(self, session_id: str) -> RawSession | None:
