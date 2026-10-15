@@ -743,6 +743,34 @@
   .mk-group .tl b { font: 600 12px/1.2 var(--font); color: var(--text); }
   .mk-group .hl { height: 1px; background: var(--border); }
   .mk-group .ai-seg > span.disabled { opacity: 0.4; }
+  /* --- 15 Oct 2026 Fix with AI switch proposal ------------------------------------------ */
+  /* SettingsSwitch: a .small .switch toggle. macOS draws it; the size and knob are approximated. */
+  .mk-sw { width: 26px; height: 15px; border-radius: 999px; background: var(--accent); position: relative; flex: none; }
+  .mk-sw::after { content: ""; position: absolute; top: 1px; right: 1px; width: 13px; height: 13px; border-radius: 50%;
+                  background: #FFFFFF; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.3); }
+  .mk-sw.off { background: var(--control-active); }
+  .mk-sw.off::after { right: auto; left: 1px; }
+  .mk-sw.disabled { opacity: 0.4; }
+  /* A heading with a trailing switch, as SettingsCard's header carries its actions. */
+  .mk-group .head { display: flex; align-items: flex-start; gap: var(--space-gap); }
+  .mk-group .head .tl { flex: 1; min-width: 0; }
+  /* A switch row: Sidebar badges' anatomy, a bodyEmphasis title over HelpText, the control trailing. */
+  .mk-srow { display: flex; align-items: flex-start; gap: var(--space-gap); }
+  .mk-srow .tl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-tight); }
+  .mk-srow .tl b { font: 500 13px/1.2 var(--font); color: var(--text); }
+  .mk-srow.mid { align-items: center; }
+  .mk-srow .ai-select { width: 160px; flex: none; }
+  /* Two FormFields side by side, Space.gap apart, each maxWidth .infinity — the agent card's
+     Default model and Default reasoning row. */
+  .mk-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-gap); }
+  .mk-cols .ai-select { width: auto; }
+  .ai-select.disabled { opacity: 0.4; }
+  .mk-card .chip { display: inline-flex; align-items: center; height: var(--size-chip); padding-inline: var(--space-tight);
+                   background: var(--badge); border-radius: var(--radius-chip); font: 11px/1 var(--font); color: var(--text); }
+  .mk-card .top .tl > div:first-child { display: flex; align-items: center; gap: var(--space-snug); }
+  .mk-card .top .tl .chips { display: flex; gap: var(--space-tight); }
+  .mk-card .acts .btn { height: 22px; }
+  .fig > .scroll > .mk-group { width: 512px; box-sizing: border-box; }
   .mk-sheet .tabbar { display: flex; justify-content: center; }
   .mk-foot .tone { width: 8px; height: 8px; border-radius: 50%; display: block; }
   .mk-foot .tone.ready { background: var(--green); } .mk-foot .tone.attention { background: var(--amber); } .mk-foot .tone.idle { background: var(--muted); }
@@ -2325,7 +2353,74 @@
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
     </div>
 
-    <p class="no-proposals">No open proposals.</p>
+    <div class="section" id="p-fixer-switch">
+      <p class="eyebrow proposal-flag">Proposal · Fix with AI switch · 15 Oct 2026</p>
+      <h2>Fix with AI: a switch, then the agent</h2>
+      <p class="why">Today “Fix problems with” is one <code>SegmentedControl</code> of five segments —
+        Claude, Codex, Grok Build, PI and Off. Two of the five can never be picked, so the row spends
+        most of its width on greyed segments, and on/off is folded into the same control as the choice
+        of agent. This proposal splits the two: a <code>SettingsSwitch</code> turns the feature on and
+        off, and a <code>Select</code> offers only the agents that can fix — Claude and Codex.</p>
+      <p class="why"><b>Everything below is built from parts Settings already has.</b> No new
+        <code>Palette</code> or <code>Metrics</code> value. The switch is the Interface tab’s
+        <code>SettingsSwitch</code>; the select is the agent card’s <code>FormField</code> +
+        <code>Select</code>; the box, heading, help and rule are <code>SettingsGroup</code>’s.</p>
+
+      <h3 style="margin-top: var(--space-section)">Decision 1 · Layout</h3>
+      <div class="options">
+        <div class="option pick">
+          <header><span class="letter">A</span><h3>Switch in the heading, agent below the rule</h3><span class="rec">recommended</span></header>
+          <p>A <code>SettingsGroup</code> whose heading carries the switch at its trailing edge, the way a
+            <code>SettingsCard</code>’s header carries its actions. Below the <code>Hairline</code>, one
+            <code>FormField</code> “Agent” in the <b>same half-width column as the cards’ Default model</b>, so the
+            selects line up down the whole tab. The only code change to shared parts is an optional trailing
+            accessory on <code>SettingsGroup</code>.</p>
+          <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="hd"><div class="ttl">Settings</div><div class="tabbar"><div class="ai-seg accent"><span class="on">Agents</span><span>Integrations</span><span>Interface</span></div></div></div><div class="rule"></div><div class="bd tight"><div class="mk-group"><div class="head"><div class="tl"><b>Fix with AI</b><div class="mk-help">When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply.</div></div><span class="mk-sw" role="img" aria-label="switch on"></span></div><div class="hl"></div><div class="mk-cols"><div class="ai-formfield"><span class="lbl">Agent</span><div class="ai-select"><span>Claude</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div><div></div></div></div><div class="mk-card"><div class="top"><span class="mark" style="background: var(--claude)"><svg width="17" height="17" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><use href="#p-claude"/></svg></span><div class="tl"><div><b>Claude Code</b><span class="chips"><span class="chip"><span style="color: var(--green)">✓</span>&nbsp;CLI</span><span class="chip"><span style="color: var(--green)">✓</span>&nbsp;Driver</span></span></div><div class="st ok"><i></i>Ready</div></div><div class="acts"><span class="btn">Reinstall</span></div></div><div class="hl"></div><div class="mk-cols"><div class="ai-formfield"><span class="lbl">Default model</span><div class="ai-select"><span>Opus</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div><div class="ai-formfield"><span class="lbl">Default reasoning</span><div class="ai-select"><span>High</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div></div></div></div></div></div><figcaption>on, Claude — the Agent select sits in the Default model column of the card below</figcaption></figure>
+        </div>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Two switch rows, as Sidebar badges</h3></header>
+          <p>The <code>SettingsGroup</code> unchanged, with two rows split by a <code>Hairline</code>: a switch row
+            exactly as the badge rows draw it, then an “Agent” row with the select trailing. Zero changes to shared
+            parts, but three tiers of text for one setting, and the select’s width is its own.</p>
+          <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="hd"><div class="ttl">Settings</div><div class="tabbar"><div class="ai-seg accent"><span class="on">Agents</span><span>Integrations</span><span>Interface</span></div></div></div><div class="rule"></div><div class="bd tight"><div class="mk-group"><div class="tl"><b>Fix with AI</b><div class="mk-help">A Fix button proposes a fix when AiTerm hits a git problem, and changes nothing until you press Apply.</div></div><div class="hl"></div><div class="mk-srow"><div class="tl"><b>Offer a Fix button</b><div class="mk-help">On a diverged branch and a rebase that conflicted</div></div><span class="mk-sw" role="img" aria-label="switch on"></span></div><div class="hl"></div><div class="mk-srow mid"><div class="tl"><b>Agent</b><div class="mk-help">Uses the model on its card below</div></div><div class="ai-select"><span>Claude</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div></div></div></div></div><figcaption>on, Claude — heavier: heading, two titles, three help lines</figcaption></figure>
+        </div>
+        <div class="option">
+          <header><span class="letter">C</span><h3>No switch: Off is the select’s third item</h3></header>
+          <p>Only the <code>SegmentedControl</code> swapped for a <code>Select</code> of Claude, Codex and Off. The
+            smallest change, but it is not what was asked: turning the feature off means opening a menu, and
+            turning it back on means remembering which agent it was.</p>
+          <figure class="fig"><div class="scroll"><div class="mk-sheet short"><div class="hd"><div class="ttl">Settings</div><div class="tabbar"><div class="ai-seg accent"><span class="on">Agents</span><span>Integrations</span><span>Interface</span></div></div></div><div class="rule"></div><div class="bd tight"><div class="mk-group"><div class="tl"><b>Fix problems with</b><div class="mk-help">When AiTerm hits a git problem, a Fix button asks the agent chosen here. It proposes a fix, using the model on its card below, and changes nothing until you press Apply.</div></div><div class="hl"></div><div class="mk-cols"><div class="ai-formfield"><span class="lbl">Agent</span><div class="ai-select"><span>Claude</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div><div></div></div></div></div></div></div><figcaption>Claude — Off would be the menu’s third item</figcaption></figure>
+        </div>
+      </div>
+
+      <h3 style="margin-top: var(--space-section)">Decision 2 · The select while the switch is off</h3>
+      <div class="options">
+        <div class="option pick">
+          <header><span class="letter">A</span><h3>Dimmed, still showing the agent</h3><span class="rec">recommended</span></header>
+          <p>The group keeps its height, so the cards below never move, and the select still says which agent
+            comes back when the switch is turned on — as System Settings dims a switch’s dependent controls.</p>
+          <figure class="fig"><div class="scroll"><div class="mk-group"><div class="head"><div class="tl"><b>Fix with AI</b><div class="mk-help">When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply.</div></div><span class="mk-sw off" role="img" aria-label="switch off"></span></div><div class="hl"></div><div class="mk-cols"><div class="ai-formfield"><span class="lbl">Agent</span><div class="ai-select disabled"><span>Claude</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div><div></div></div></div></div><figcaption>off — the select is disabled at its 40 % and keeps Claude</figcaption></figure>
+        </div>
+        <div class="option">
+          <header><span class="letter">B</span><h3>Hidden</h3></header>
+          <p>The group shrinks to its heading, as the terminal-background row is only a heading and a switch.
+            Tidier while off, but the cards below jump by a row each time it is flipped.</p>
+          <figure class="fig"><div class="scroll"><div class="mk-group"><div class="head"><div class="tl"><b>Fix with AI</b><div class="mk-help">When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply.</div></div><span class="mk-sw off" role="img" aria-label="switch off"></span></div></div></div><figcaption>off — heading, help and switch only</figcaption></figure>
+        </div>
+      </div>
+
+      <h3 style="margin-top: var(--space-section)">The edge states, drawn with A + A</h3>
+      <div class="state-strip">
+        <figure class="fig"><div class="scroll"><div class="mk-group"><div class="head"><div class="tl"><b>Fix with AI</b><div class="mk-help">When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply.</div></div><span class="mk-sw" role="img" aria-label="switch on"></span></div><div class="hl"></div><div class="mk-cols"><div class="ai-formfield"><span class="lbl">Agent</span><div class="ai-select"><span>Codex</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div><div class="mk-help">Codex isn’t installed. Install it below, or choose Claude.</div></div><div></div></div></div></div><figcaption>the chosen agent is not installed — it stays chosen (never swapped for the other vendor), one line of HelpText under the select says so, as the agent card says of an unavailable model; Fix buttons grey with the same tooltip as today</figcaption></figure>
+        <figure class="fig"><div class="scroll"><div class="mk-group"><div class="head"><div class="tl"><b>Fix with AI</b><div class="mk-help">No agent that can run unattended is installed. Install Claude Code or Codex below to fix problems with it.</div></div><span class="mk-sw off disabled" role="img" aria-label="switch off"></span></div><div class="hl"></div><div class="mk-cols"><div class="ai-formfield"><span class="lbl">Agent</span><div class="ai-select disabled"><span>Claude</span><span class="chev" aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12"><path fill="#FFFFFF" d="M4 0 7 4H1zM4 12 1 8h6z"/></svg></span></div></div><div></div></div></div></div><figcaption>neither Claude Code nor Codex installed — the switch is off and disabled, the help says what to do; it enables once either is installed</figcaption></figure>
+      </div>
+
+      <p class="why" style="margin-top: var(--space-section)"><b>What changes under it.</b> The saved choice
+        becomes two values, on/off and the agent, so turning the switch off keeps the agent. A saved
+        <code>off</code> reads as off with the first installed fixer; Grok Build’s and PI’s tooltips go, since
+        they are no longer listed. The title becomes “Fix with AI”, the feature’s name everywhere else, because a
+        switch beside “Fix problems with” reads as an unfinished sentence.</p>
+    </div>
 
   </section>
 
