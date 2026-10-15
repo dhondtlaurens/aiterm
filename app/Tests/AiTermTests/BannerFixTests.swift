@@ -164,7 +164,7 @@ import Testing
     @Test func theBannersSessionTakesTheFixerSettingsNames() async throws {
         let fixture = try divergedFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        fixture.controller.agents.fixerChoice = .off
+        fixture.controller.agents.fixerChoice = .off()
         await fixture.controller.pullDefault(project: fixture.project)?.value
         #expect(fixture.controller.notices.fixSession?.state == .unavailable(""))
     }

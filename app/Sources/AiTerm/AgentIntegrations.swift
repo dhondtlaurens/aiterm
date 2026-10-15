@@ -26,7 +26,7 @@ final class AgentIntegrations {
     /// again does not read `~/.claude.json` or launch PI again.
     let catalogue: ModelCatalogue
 
-    /// Settings › Agents' “Fix problems with”, saved on every write. Before the first launch's probe
+    /// Settings › Agents' “Fix with AI”, saved on every write. Before the first launch's probe
     /// has said what is installed there is nothing to choose from, so it reads as the first fixer,
     /// unsaved; `probe()` settles it.
     var fixerChoice: FixerChoice {

@@ -39,15 +39,15 @@ enum SettingsSnapshots {
                 return settings(jira: nil, iterm: .waitingForIterm, environment: apiOff, tab: .integrations)
                     .seeded(itermEnvironment: apiOff)
             },
-            // “Fix problems with” on its own, in its four shapes: Claude Code chosen with Codex
-            // beside it; Codex chosen with Grok Build installed and greyed; nothing installed that
-            // can fix, so Off, with PI greyed; and a chosen agent that is gone. Drawn last: an added
+            // “Fix with AI” on its own, in its four shapes: on with Claude, Codex installed beside
+            // it; off, the select dimmed and still on Codex; nothing installed that can fix, so the
+            // switch is off and disabled; and a chosen agent that is gone. Drawn last: an added
             // image goes after the ones before it (`Snapshots.regressionSet`).
             Snapshot("settings-fixer-claude.png") { fixerGroup(.agent(.claude), installed: [.claude, .codex]) },
-            Snapshot("settings-fixer-codex.png") { fixerGroup(.agent(.codex), installed: [.claude, .codex, .grok]) },
-            Snapshot("settings-fixer-none.png") { fixerGroup(.off, installed: [.pi]) },
-            // Claude Code chosen and since uninstalled: it stays selected, dimmed, not swapped for Codex.
-            Snapshot("settings-fixer-missing.png") { fixerGroup(.agent(.claude), installed: [.codex]) },
+            Snapshot("settings-fixer-off.png") { fixerGroup(.off(keeping: .codex), installed: [.claude, .codex, .grok]) },
+            Snapshot("settings-fixer-none.png") { fixerGroup(.agent(.claude), installed: [.pi]) },
+            // Codex chosen and since uninstalled: it stays chosen, not swapped for Claude, and says so.
+            Snapshot("settings-fixer-missing.png") { fixerGroup(.agent(.codex), installed: [.claude]) },
         ]
     }
 

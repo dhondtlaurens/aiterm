@@ -20,22 +20,24 @@ struct FixerChoiceTests {
     @Test func aMissingChoiceIsNamedNotReplaced() {
         #expect(FixerChoice.agent(.claude).resolve(installed: [.codex]) == .missing(.claude))
         #expect(FixerChoice.agent(.codex).resolve(installed: [.codex, .claude]) == .ready(.codex))
-        #expect(FixerChoice.off.resolve(installed: [.claude]) == .off)
+        #expect(FixerChoice.off().resolve(installed: [.claude]) == .off)
+        #expect(FixerChoice.off(keeping: .codex).resolve(installed: [.codex]) == .off, "off whatever it keeps")
     }
 
-    /// First launch: the first installed of Claude Code, Codex; none → Off. Saved, so a
-    /// later install does not change it.
+    /// First launch: the first installed of Claude Code, Codex, switched on; none → Off. Saved, so
+    /// a later install does not change it.
     @Test func theFirstLaunchPicksTheFirstInstalledAndKeepsIt() {
         let defaults = ScratchDefaults.make()
         #expect(FixerSettings.load(defaults: defaults, installed: [.grok, .codex]) == .agent(.codex))
         #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .agent(.codex), "kept once chosen")
-        #expect(FixerSettings.load(defaults: ScratchDefaults.make(), installed: [.pi]) == .off)
+        #expect(FixerSettings.load(defaults: ScratchDefaults.make(), installed: [.pi]) == .off())
     }
 
-    @Test func aSavedChoiceRoundTrips() {
+    /// Off keeps its agent, so turning the switch back on asks the same one.
+    @Test func aSavedChoiceRoundTripsWithTheAgentItKeepsWhileOff() {
         let defaults = ScratchDefaults.make()
-        FixerSettings.save(.off, defaults: defaults)
-        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off)
+        FixerSettings.save(.off(keeping: .codex), defaults: defaults)
+        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off(keeping: .codex))
         FixerSettings.save(.agent(.codex), defaults: defaults)
         #expect(FixerSettings.load(defaults: defaults, installed: []) == .agent(.codex))
     }
@@ -43,7 +45,16 @@ struct FixerChoiceTests {
     @Test func anUnknownSavedValueReadsAsOff() {
         let defaults = ScratchDefaults.make()
         defaults.set("gemini", forKey: "fixer")
-        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off)
+        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off())
+    }
+
+    /// A version before the switch saved only `fixer`: an agent meant on, `off` meant Off.
+    @Test func aChoiceSavedBeforeTheSwitchReadsAsItMeant() {
+        let defaults = ScratchDefaults.make()
+        defaults.set("codex", forKey: "fixer")
+        #expect(FixerSettings.saved(defaults: defaults) == .agent(.codex))
+        defaults.set("off", forKey: "fixer")
+        #expect(FixerSettings.saved(defaults: defaults) == .off())
     }
 
     /// `saved` answers only for a choice that was made — Off included — and never saves one, so the
@@ -52,11 +63,11 @@ struct FixerChoiceTests {
         let defaults = ScratchDefaults.make()
         #expect(FixerSettings.saved(defaults: defaults) == nil)
         #expect(FixerSettings.saved(defaults: defaults) == nil, "asking saved nothing")
-        FixerSettings.save(.off, defaults: defaults)
-        #expect(FixerSettings.saved(defaults: defaults) == .off)
+        FixerSettings.save(.off(), defaults: defaults)
+        #expect(FixerSettings.saved(defaults: defaults) == .off())
         FixerSettings.save(.agent(.claude), defaults: defaults)
         #expect(FixerSettings.saved(defaults: defaults) == .agent(.claude))
         defaults.set("gemini", forKey: "fixer")
-        #expect(FixerSettings.saved(defaults: defaults) == .off, "a value this version does not know reads as Off")
+        #expect(FixerSettings.saved(defaults: defaults) == .off(), "a value this version does not know reads as Off")
     }
 }

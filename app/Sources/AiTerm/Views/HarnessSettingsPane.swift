@@ -57,7 +57,7 @@ struct HarnessSettingsPane: View {
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. The install and the Fix problems with choice both take effect immediately; Cancel does not undo them.")
+            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. The install and Fix with AI both take effect immediately; Cancel does not undo them.")
         }
     }
 
@@ -136,34 +136,14 @@ struct HarnessSettingsPane: View {
     }
 }
 
-/// “Fix problems with”: which agent every Fix button asks, or Off. An agent without an unattended
-/// mode (Grok Build, PI), or not installed, cannot be picked and says why.
+/// “Fix with AI”: a switch for whether Fix buttons are offered, and a select of the agents that can
+/// fix — Claude and Codex — in the cards' Default model column. Off dims the select and keeps its
+/// agent; a chosen agent that is not installed stays chosen, and a line under the select says so.
 struct FixerSettingsGroup: View {
     @Binding var choice: FixerChoice
     let installed: Set<AgentKind>
 
-    enum Option: Hashable {
-        case agent(AgentKind), off
-
-        /// The segment a choice shows as selected: a fixer that is not installed stays selected.
-        init(_ choice: FixerChoice) {
-            switch choice {
-            case .agent(let fixer): self = .agent(fixer.agent)
-            case .off: self = .off
-            }
-        }
-    }
-
-    /// What picking a segment makes of the choice: a fixer or Off changes it, an agent that cannot
-    /// fix leaves it as it was.
-    static func choice(picking option: Option, from current: FixerChoice) -> FixerChoice {
-        switch option {
-        case .off: .off
-        case .agent(let agent): agent.fixer.map(FixerChoice.agent) ?? current
-        }
-    }
-
-    /// Whether neither Claude Code nor Codex is installed, so that Off is the only segment left.
+    /// Whether neither Claude Code nor Codex is installed, so that the switch can only be off.
     static func noFixerInstalled(_ installed: Set<AgentKind>) -> Bool {
         !installed.contains { $0.fixer != nil }
     }
@@ -172,47 +152,46 @@ struct FixerSettingsGroup: View {
     static func groupHelp(installed: Set<AgentKind>) -> String {
         noFixerInstalled(installed)
             ? "No agent that can run unattended is installed. Install Claude Code or Codex below to fix problems with it."
-            : "The agent a Fix button asks when AiTerm hits a git problem. It proposes a fix, using the model on its card below, and changes nothing until you press Apply."
-    }
-    /// Whether a segment can be picked: Off always, an agent only when it can fix and is installed.
-    static func isSelectable(_ agent: AgentKind, installed: Set<AgentKind>) -> Bool {
-        agent.fixer != nil && installed.contains(agent)
+            : "When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply."
     }
 
-    /// Why a segment is greyed, nil while it can be picked. What the agent can never do comes
-    /// before what is merely not installed.
-    static func help(for agent: AgentKind, installed: Set<AgentKind>) -> String? {
-        if isSelectable(agent, installed: installed) { return nil }
-        switch agent {
-        case .grok: return "Grok Build can’t run with its network off on macOS yet."
-        case .pi: return "PI can’t run unattended."
-        case .claude, .codex: return "\(agent.displayName) isn’t installed."
-        }
+    /// What the switch shows: off, and disabled, while nothing that can fix is installed.
+    static func switchIsOn(_ choice: FixerChoice, installed: Set<AgentKind>) -> Bool {
+        choice.isOn && !noFixerInstalled(installed)
+    }
+
+    /// The line under the select while the switch is on and its agent is not installed, naming the
+    /// installed one to choose instead.
+    static func missingHelp(_ choice: FixerChoice, installed: Set<AgentKind>) -> String? {
+        guard switchIsOn(choice, installed: installed), !installed.contains(choice.agent.agent) else { return nil }
+        let others = FixerAgent.allCases.filter { $0 != choice.agent && installed.contains($0.agent) }
+        let instead = others.first.map { ", or choose \($0.shortName)" } ?? ""
+        return "\(choice.agent.agent.displayName) isn’t installed. Install it below\(instead)."
     }
 
     var body: some View {
-        SettingsGroup(title: "Fix problems with",
-                      help: Self.groupHelp(installed: installed)) {
-            SegmentedControl(values: AgentKind.allCases.map(Option.agent) + [.off], selection: selection,
-                             isSelectable: { option in
-                                 guard case .agent(let agent) = option else { return true }
-                                 return Self.isSelectable(agent, installed: installed)
-                             },
-                             help: { option in
-                                 guard case .agent(let agent) = option else { return nil }
-                                 return Self.help(for: agent, installed: installed)
-                             }) { option, on in
-                switch option {
-                case .agent(let agent): AgentSegmentLabel(agent: agent, on: on, name: agent.fixer?.shortName)
-                // The lone Off, with nothing else to pick, is not an emphasised choice.
-                case .off: Text("Off").font(on && !Self.noFixerInstalled(installed) ? Typography.bodyEmphasis : Typography.body)
+        let isOn = Self.switchIsOn(choice, installed: installed)
+        SettingsGroup(title: "Fix with AI", help: Self.groupHelp(installed: installed)) {
+            SettingsSwitch(title: "Fix with AI", isOn: Binding(get: { isOn }, set: { choice.isOn = $0 }))
+                .disabled(Self.noFixerInstalled(installed))
+                .accessibilityIdentifier("fixer-switch")
+        } rows: {
+            // Two columns, as an agent card's Default model and Default reasoning, so this select
+            // lines up with the cards' below it; the help under them, as the card's is.
+            VStack(alignment: .leading, spacing: Space.base) {
+                HStack(alignment: .top, spacing: Space.gap) {
+                    FormField("Agent") {
+                        Select(values: FixerAgent.allCases, selection: $choice.agent, label: \.shortName)
+                            .disabled(!isOn)
+                            .accessibilityIdentifier("fixer-agent")
+                    }
+                    .frame(maxWidth: .infinity)
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                }
+                if let help = Self.missingHelp(choice, installed: installed) {
+                    HelpText(help)
                 }
             }
-            .accessibilityIdentifier("fixer-choice")
         }
-    }
-
-    private var selection: Binding<Option> {
-        Binding(get: { Option(choice) }, set: { choice = Self.choice(picking: $0, from: choice) })
     }
 }

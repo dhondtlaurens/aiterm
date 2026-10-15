@@ -4,7 +4,7 @@ import Foundation
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// Settings › Agents' “Fix problems with”, as `AgentIntegrations` keeps it.
+/// Settings › Agents' “Fix with AI”, as `AgentIntegrations` keeps it.
 @MainActor struct FixerSettingsTests {
     private func integrations(defaults: UserDefaults, installed: Set<AgentKind>?) -> AgentIntegrations {
         AgentIntegrations(harnessHome: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
@@ -38,19 +38,24 @@ import Foundation
 
     @Test func aSavedChoiceSurvivesTheProbe() async {
         let defaults = ScratchDefaults.make()
-        FixerSettings.save(.off, defaults: defaults)
+        FixerSettings.save(.off(keeping: .codex), defaults: defaults)
         let integrations = integrations(defaults: defaults, installed: [.claude, .codex])
-        #expect(integrations.fixerChoice == .off, "read at launch, before the probe answers")
+        #expect(integrations.fixerChoice == .off(keeping: .codex), "read at launch, before the probe answers")
         await integrations.probe()
-        #expect(integrations.fixerChoice == .off)
+        #expect(integrations.fixerChoice == .off(keeping: .codex))
         #expect(integrations.fixer == .off)
     }
 
-    @Test func offIsSavedToo() {
+    /// The switch turns Fix buttons off and back on to the same agent, each flip saved.
+    @Test func theSwitchIsSavedAndKeepsTheAgent() {
         let defaults = ScratchDefaults.make()
         let integrations = integrations(defaults: defaults, installed: nil)
-        integrations.fixerChoice = .off
-        #expect(FixerSettings.saved(defaults: defaults) == .off)
+        integrations.fixerChoice = .agent(.codex)
+        integrations.fixerChoice.isOn = false
+        #expect(FixerSettings.saved(defaults: defaults) == .off(keeping: .codex))
+        #expect(integrations.fixer == .off)
+        integrations.fixerChoice.isOn = true
+        #expect(integrations.fixer == .ready(.codex))
     }
 
     /// The login shell failing means every agent stays offered, so the first launch settles on the
@@ -63,29 +68,9 @@ import Foundation
         #expect(FixerSettings.saved(defaults: defaults) == nil, "the next launch asks again")
     }
 
-    /// Spec §3: Grok Build and PI are shown but cannot be picked, each saying why; a fixer that is
-    /// not installed says so by name.
-    @Test func aGreyedSegmentSaysWhy() {
-        let installed: Set<AgentKind> = [.claude, .grok, .pi]
-        #expect(FixerSettingsGroup.help(for: .claude, installed: installed) == nil)
-        #expect(FixerSettingsGroup.help(for: .codex, installed: installed) == "Codex isn’t installed.")
-        #expect(FixerSettingsGroup.help(for: .grok, installed: installed)
-                == "Grok Build can’t run with its network off on macOS yet.")
-        #expect(FixerSettingsGroup.help(for: .pi, installed: installed) == "PI can’t run unattended.")
-        #expect(FixerSettingsGroup.help(for: .pi, installed: []) == "PI can’t run unattended.", "never fixing outranks not installed")
-    }
-
-    @Test func onlyAnInstalledFixerCanBePicked() {
-        #expect(FixerSettingsGroup.isSelectable(.codex, installed: [.codex]))
-        #expect(!FixerSettingsGroup.isSelectable(.claude, installed: [.codex]))
-        #expect(!FixerSettingsGroup.isSelectable(.grok, installed: Set(AgentKind.allCases)))
-        #expect(!FixerSettingsGroup.isSelectable(.pi, installed: Set(AgentKind.allCases)))
-    }
-
-    /// Design 4A: with neither Claude Code nor Codex installed the group says what to do, and its
-    /// lone Off is regular weight, not the selected emphasis.
-    @Test func noInstalledFixerSwapsTheHelpAndQuietensOff() {
-        let generic = "The agent a Fix button asks when AiTerm hits a git problem. It proposes a fix, using the model on its card below, and changes nothing until you press Apply."
+    /// With neither Claude Code nor Codex installed the group says what to do instead.
+    @Test func noInstalledFixerSwapsTheHelp() {
+        let generic = "When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply."
         #expect(FixerSettingsGroup.groupHelp(installed: [.claude]) == generic)
         #expect(FixerSettingsGroup.groupHelp(installed: [.codex, .grok]) == generic)
         #expect(FixerSettingsGroup.groupHelp(installed: [.grok, .pi])
@@ -96,36 +81,30 @@ import Foundation
         #expect(!FixerSettingsGroup.noFixerInstalled([.pi, .codex]))
     }
 
-    /// The segment a choice shows as selected: a missing fixer stays selected rather than moving.
-    @Test func theSelectedSegmentFollowsTheChoice() {
-        #expect(FixerSettingsGroup.Option(.agent(.claude)) == .agent(.claude))
-        #expect(FixerSettingsGroup.Option(.agent(.codex)) == .agent(.codex))
-        #expect(FixerSettingsGroup.Option(.off) == .off)
+    /// The switch shows the choice, but reads off — and is disabled — while nothing can fix.
+    @Test func theSwitchIsOffWhileNothingCanFix() {
+        #expect(FixerSettingsGroup.switchIsOn(.agent(.claude), installed: [.claude]))
+        #expect(FixerSettingsGroup.switchIsOn(.agent(.claude), installed: [.codex]), "a missing agent is still on")
+        #expect(!FixerSettingsGroup.switchIsOn(.off(), installed: [.claude, .codex]))
+        #expect(!FixerSettingsGroup.switchIsOn(.agent(.claude), installed: [.grok, .pi]))
     }
 
-    /// Picking a segment: a fixer or Off changes the choice; an agent that cannot fix leaves it alone.
-    @Test func pickingASegmentMapsToAChoice() {
-        #expect(FixerSettingsGroup.choice(picking: .agent(.codex), from: .off) == .agent(.codex))
-        #expect(FixerSettingsGroup.choice(picking: .agent(.claude), from: .agent(.codex)) == .agent(.claude))
-        #expect(FixerSettingsGroup.choice(picking: .off, from: .agent(.claude)) == .off)
-        #expect(FixerSettingsGroup.choice(picking: .agent(.grok), from: .agent(.claude)) == .agent(.claude))
-        #expect(FixerSettingsGroup.choice(picking: .agent(.pi), from: .off) == .off)
-    }
-
-    /// A choice whose agent is not installed stays selected, and its segment is the one dimmed.
-    @Test func aMissingChoiceStaysSelectedAndDimmed() {
-        let installed: Set<AgentKind> = [.codex]
-        let selected = FixerSettingsGroup.Option(.agent(.claude))
-        #expect(selected == .agent(.claude))
-        #expect(!FixerSettingsGroup.isSelectable(.claude, installed: installed))
-        #expect(FixerSettingsGroup.help(for: .claude, installed: installed) == "Claude Code isn’t installed.")
-        #expect(FixerSettingsGroup.isSelectable(.codex, installed: installed))
+    /// A chosen agent that is not installed stays chosen; the line under the select names it, and
+    /// the installed one to choose instead. Nothing is said while it is installed, or while off.
+    @Test func aMissingChoiceSaysSoUnderTheSelect() {
+        #expect(FixerSettingsGroup.missingHelp(.agent(.codex), installed: [.claude])
+                == "Codex isn’t installed. Install it below, or choose Claude.")
+        #expect(FixerSettingsGroup.missingHelp(.agent(.claude), installed: [.codex, .pi])
+                == "Claude Code isn’t installed. Install it below, or choose Codex.")
+        #expect(FixerSettingsGroup.missingHelp(.agent(.claude), installed: [.claude]) == nil)
+        #expect(FixerSettingsGroup.missingHelp(.off(keeping: .codex), installed: [.claude]) == nil)
+        #expect(FixerSettingsGroup.missingHelp(.agent(.claude), installed: [.grok]) == nil, "the group's help says it")
     }
 
     /// Settings' stand-in integrations leave no preferences file of their own behind.
     @Test func theInertIntegrationsKeepTheirChoiceInTheTemporaryFolder() {
         let inert = AgentIntegrations.inert()
-        inert.fixerChoice = .off
+        inert.fixerChoice = .off()
         #expect(inert.fixer == .off)
     }
 }

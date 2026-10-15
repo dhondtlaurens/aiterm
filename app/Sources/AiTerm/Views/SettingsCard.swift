@@ -91,29 +91,42 @@ extension SettingsCard where Chips == EmptyView, Actions == EmptyView {
 /// group: a `SettingsCard`'s box and rule without its mark, status line or actions. A heading over
 /// one line of `HelpText`, a `Hairline`, then the rows, one heading gap (`Space.gap`) either side of
 /// the rule and between the rows, so every group in Settings starts its rows at the same depth.
-/// The rows draw their own `Hairline` between them where they want one.
-struct SettingsGroup<Rows: View>: View {
+/// The rows draw their own `Hairline` between them where they want one. An `accessory` — Fix with
+/// AI's switch — sits at the heading's trailing edge, as a card's actions do.
+struct SettingsGroup<Accessory: View, Rows: View>: View {
     let title: String
     let help: String
+    let accessory: Accessory
     let rows: Rows
 
-    init(title: String, help: String, @ViewBuilder rows: () -> Rows) {
+    init(title: String, help: String, @ViewBuilder accessory: () -> Accessory, @ViewBuilder rows: () -> Rows) {
         self.title = title
         self.help = help
+        self.accessory = accessory()
         self.rows = rows()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.gap) {
-            VStack(alignment: .leading, spacing: Space.tight) {
-                Text(title).font(Typography.card).foregroundStyle(Palette.text)
-                HelpText(help)
+            HStack(alignment: .top, spacing: Space.gap) {
+                VStack(alignment: .leading, spacing: Space.tight) {
+                    Text(title).font(Typography.card).foregroundStyle(Palette.text)
+                    HelpText(help)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                accessory
             }
             Hairline()
             rows
         }
         .padding(Space.block)
         .groupChrome()
+    }
+}
+
+extension SettingsGroup where Accessory == EmptyView {
+    init(title: String, help: String, @ViewBuilder rows: () -> Rows) {
+        self.init(title: title, help: help, accessory: { EmptyView() }, rows: rows)
     }
 }
 

@@ -392,14 +392,18 @@ line of `HelpText` when nothing is. A missing permission does not move the tab S
 Sidebar badges, each keyboard group: the card's box and rule without its mark, status line or
 actions. A heading over one line of `HelpText`, a `Hairline`, then the rows, one heading gap
 (`Space.gap`) either side of the rule and between rows; rows split themselves with a `Hairline`.
+`SettingsGroup(title:help:accessory:rows:)` puts one control at the heading's trailing edge, as a
+card's actions sit — Fix with AI's switch.
 The terminal-background row is not one: it has no heading of its own, only a swatch, a title and
 a switch, in the same `groupChrome` box.
 
-`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Fix problems with” over one
-`SegmentedControl` of Claude, Codex, Grok Build, PI and Off. An agent that cannot fix (Grok Build,
-PI) or is not installed is dimmed and disabled, its tooltip saying which; a missing choice stays
-selected but dimmed, so Settings does not quietly swap it for another vendor. The labels are
-`AgentSegmentLabel`, the marks `AgentSegmented` draws, with the short names where five share a row.
+`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Fix with AI” with a
+`SettingsSwitch` as its accessory, and below the rule a `FormField` “Agent” with a `Select` of the
+agents that can fix — Claude and Codex, by their short names — in the left of two columns, so it
+lines up with the cards' Default model. Off dims the select and keeps its agent. A chosen agent that
+is not installed stays chosen, never swapped for the other vendor, and one `HelpText` under the
+select says so; with neither installed the switch is off and disabled, and the group's help says to
+install one.
 
 `InterfaceSettingsPane` draws its preferences outside cards: the terminal-background row, a
 "Sidebar size" group (a `SegmentedControl` of `InterfaceSize`, applied to the sidebar behind the
