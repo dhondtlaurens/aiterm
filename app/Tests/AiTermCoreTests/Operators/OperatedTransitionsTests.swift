@@ -175,6 +175,22 @@ import Foundation
         #expect(try apply(.resume, again).state == .working)
     }
 
+    /// What failed is kept through the retry and the start that follows it — a retried worker is told —
+    /// and forgotten once the task is accepted or ends with no change.
+    @Test func whatFailedIsKeptThroughARetryAndItsStartAndClearedAtAnEnd() throws {
+        let failed = try apply(.fail(reason: "tests red"), F.operated("A", .working))
+        #expect(failed.lastFailure == "tests red")
+        let retried = try apply(.retry, failed)
+        #expect(retried.blockedReason == nil && retried.lastFailure == "tests red")
+        let started = try apply(.start(LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 5))), retried, by: .aiterm)
+        #expect(started.state == .working && started.blockedReason == nil && started.lastFailure == "tests red")
+        let done = try apply(.noChange(note: nil), started)
+        #expect(done.lastFailure == nil)
+        let accepted = try apply(.accept(TaskAcceptance(resultSHA: "abc1234", prerequisiteSHAs: [], checkOutput: "ok", note: nil, at: Date()),
+                                         branchHead: "abc1234"), started)
+        #expect(accepted.lastFailure == nil)
+    }
+
     @Test func onlyAiTermBlocksAQueuedOrFailedTask() throws {
         #expect(try apply(.block(reason: "limits"), F.operated("A", .failed), by: .aiterm).state == .blocked)
         #expect(throws: OperatedTransitionError.notAllowed(action: "be blocked", from: .queued)) {

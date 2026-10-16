@@ -87,9 +87,22 @@ import Foundation
                                        at: Date(timeIntervalSince1970: 30)),
             publication: TaskPublication(pushedSHA: "4f2a91c", mergeRequestURL: "https://example.net/mr/1"),
             takenOver: true, ownership: 3, launch: LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 40)),
-            retriesUsed: 1, runtimeUsed: 600, blockedReason: "waiting", blockedFrom: .working, flags: [.uncertain, .possiblyStalled])
+            retriesUsed: 1, runtimeUsed: 600, blockedReason: "waiting", blockedFrom: .working, flags: [.uncertain, .possiblyStalled],
+            lastFailure: "tests red")
         #expect(try roundTrip(task) == task)
         #expect(task.started)
+    }
+
+    /// `lastFailure` is new: a file without it loads as none, and none is not written.
+    @Test func lastFailureIsReadWhenPresentAndWrittenOnlyWhenPresent() throws {
+        let json = """
+        {"runId":"1EB4C0DE-0000-0000-0000-000000000001","key":"K","state":"queued","end":"commit","brief":"b","revision":1}
+        """
+        var task = try JSONDecoder().decode(OperatedTask.self, from: Data(json.utf8))
+        #expect(task.lastFailure == nil)
+        #expect(!String(decoding: try JSONEncoder().encode(task), as: UTF8.self).contains("lastFailure"))
+        task.lastFailure = "tests red"
+        #expect(String(decoding: try JSONEncoder().encode(task), as: UTF8.self).contains(#""lastFailure":"tests red""#))
     }
 
     /// A flag is advisory: one a newer build wrote is dropped, the task still reads. Flags are

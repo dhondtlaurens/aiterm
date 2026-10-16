@@ -159,6 +159,7 @@ public enum OperatedTransitions {
             guard task.state == .working else { throw refuse() }
             next.state = .failed
             next.blockedReason = reason
+            next.lastFailure = reason
             next.flags.subtract([.possiblyStalled, .waitingOnYou])
 
         case .resume:
@@ -250,6 +251,7 @@ public enum OperatedTransitions {
     /// A task that reached an end no longer waits on you or looks stalled.
     private static func settle(_ task: inout OperatedTask) {
         task.blockedReason = nil
+        task.lastFailure = nil
         task.flags.subtract([.possiblyStalled, .waitingOnYou])
     }
 

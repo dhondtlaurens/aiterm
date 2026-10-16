@@ -159,19 +159,24 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// The state it was blocked from (`working` or `queued`), which resume returns it to; nil for a
     /// task not blocked, or blocked by an older build.
     public var blockedFrom: OperatedState?
+    /// What the last failed attempt reported (`fail_task`): kept through a retry and its start, so the
+    /// retried worker is told what failed; cleared when the task is accepted or ends with no change.
+    public var lastFailure: String?
     public var flags: Set<OperatedFlag>
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
                 acceptance: TaskAcceptance? = nil, publication: TaskPublication? = nil, takenOver: Bool = false,
                 ownership: Int = 0, launch: LaunchAttempt? = nil, retriesUsed: Int = 0, runtimeUsed: TimeInterval = 0,
-                blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = []) {
+                blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
+                lastFailure: String? = nil) {
         self.runId = runId; self.key = key; self.state = state; self.end = end; self.brief = brief
         self.dependsOn = dependsOn; self.stackedOn = stackedOn; self.revision = revision
         self.firstRevision = firstRevision ?? revision
         self.acceptance = acceptance; self.publication = publication; self.takenOver = takenOver
         self.ownership = ownership; self.launch = launch; self.retriesUsed = retriesUsed; self.runtimeUsed = runtimeUsed
         self.blockedReason = blockedReason; self.blockedFrom = blockedFrom; self.flags = flags
+        self.lastFailure = lastFailure
     }
 
     /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
@@ -180,7 +185,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
-        case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags
+        case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -204,6 +209,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         runtimeUsed = try c.decodeIfPresent(TimeInterval.self, forKey: .runtimeUsed) ?? 0
         blockedReason = try c.decodeIfPresent(String.self, forKey: .blockedReason)
         blockedFrom = try c.decodeIfPresent(OperatedState.self, forKey: .blockedFrom)
+        lastFailure = try c.decodeIfPresent(String.self, forKey: .lastFailure)
         flags = Set((try c.decodeIfPresent([String].self, forKey: .flags) ?? []).compactMap(OperatedFlag.init(rawValue:)))
     }
 
@@ -227,6 +233,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encode(runtimeUsed, forKey: .runtimeUsed)
         try c.encodeIfPresent(blockedReason, forKey: .blockedReason)
         try c.encodeIfPresent(blockedFrom, forKey: .blockedFrom)
+        try c.encodeIfPresent(lastFailure, forKey: .lastFailure)
         // Sorted, so the file does not change on a resave of the same flags.
         try c.encode(flags.map(\.rawValue).sorted(), forKey: .flags)
     }

@@ -201,7 +201,7 @@ final class OperatorController {
     /// The one start pass. What the scheduler says may start — dependencies satisfied, oldest operation
     /// first, operations taking turns — is claimed and saved one task at a time while a slot is free
     /// across every operation, so each claim counts against the cap before the next. A task that cannot
-    /// start now (`start` returns nil: no helper, its save failed) is passed over, and the next may
+    /// start now (`start` returns nil: no helper, or its claim could not be saved and was taken back) is passed over, and the next may
     /// still take the slot.
     func startReadyTasks() {
         let cap = ports.milestone.maxParallel(setting: Self.agentsAtOnce)

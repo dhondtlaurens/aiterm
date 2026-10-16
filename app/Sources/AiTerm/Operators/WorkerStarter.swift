@@ -52,15 +52,24 @@ final class WorkerStarter {
             Log.daemon.error("An operator's task could not start: \(String(describing: error), privacy: .public)")
             return nil
         }
-        // Not on disk, a crash would leave nothing saying a worker may be running.
-        guard workspace.flush() else { return nil }
+        // Not on disk, a crash would leave nothing saying a worker may be running: the claim is taken back,
+        // so the slot is free again and the next pass tries the task afresh.
+        guard workspace.flush() else {
+            release(id, claimedAs: attempt, to: operated)
+            return nil
+        }
         starting.insert(id)
         return Task {
             defer { starting.remove(id) }
-            if operated.retriesUsed > 0, task.hasCheckout, let tab = workerTab(of: id), tab.state != .working {
-                await retryInPlace(task, operated: operated, tab: tab)
+            if operated.retriesUsed > 0, task.hasCheckout, let tab = workerTab(of: id) {
+                // A second agent is never started beside a worker that is still there.
+                if tab.state == .working {
+                    block(id, reason: "AiTerm couldn’t start it: its worker is still busy; stop it or wait.")
+                } else {
+                    await retryInPlace(task, operated: operated, tab: tab, attempt: attempt, before: operated)
+                }
             } else {
-                await launch(id, attempt: attempt)
+                await launch(id, attempt: attempt, before: operated)
             }
         }
     }
@@ -68,7 +77,9 @@ final class WorkerStarter {
     /// Opens the task's worker as `attempt`: its worktree made or adopted, then its window, in the
     /// background. A failure that leaves the window's fate unknown — a timeout, the helper or iTerm2
     /// gone — is left for the reconciler; any other blocks the task with the reason.
-    func launch(_ id: UUID, attempt: LaunchAttempt) async {
+    /// `before` is the task as it stood before `attempt` claimed it: what a claim that no longer holds
+    /// goes back to. The reconciler's relaunch passes none: its claim was made before, and stays.
+    func launch(_ id: UUID, attempt: LaunchAttempt, before: OperatedTask? = nil) async {
         guard let task = state.task(id: id), let operated = task.operated, let run = state.run(id: operated.runId),
               let project = state.project(id: task.projectId), let daemon = daemon() else { return }
         let git = ports.git, autonomy = run.persona.autonomy
@@ -86,6 +97,11 @@ final class WorkerStarter {
             let command = try await BackgroundWork.run {
                 try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
                                        worktreePath: worktree, git: git, operated: autonomy)
+            }
+            // Awaits have passed: the task may have been stopped, taken over or blocked, or its run paused.
+            guard claimHolds(id, attempt) else {
+                release(id, claimedAs: attempt, to: before)
+                return
             }
             let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: worktree, title: task.branch, agentCommand: command,
                                                            frame: taskFrame(), background: true)
@@ -110,7 +126,7 @@ final class WorkerStarter {
 
     /// The worker's first prompt: its brief, and after a failure what failed (spec §6 `retry_task`).
     static func prompt(for task: TaskItem, operated: OperatedTask) -> String {
-        guard operated.retriesUsed > 0, let failure = operated.blockedReason else { return operated.brief }
+        guard operated.retriesUsed > 0, let failure = operated.lastFailure else { return operated.brief }
         return "The last attempt failed: \(failure). Try again from the worktree as it is.\n\n\(operated.brief)"
     }
 
@@ -133,12 +149,41 @@ final class WorkerStarter {
 
     /// A retry with its worker alive and idle: the same session is told to try again. Refused — a
     /// prompt open, you typing — it is not idle after all, and a second worker is never started beside it.
-    private func retryInPlace(_ task: TaskItem, operated: OperatedTask, tab: SessionInfo) async {
+    private func retryInPlace(_ task: TaskItem, operated: OperatedTask, tab: SessionInfo, attempt: LaunchAttempt, before: OperatedTask) async {
         guard let daemon = daemon() else { return }
+        guard claimHolds(task.id, attempt) else {
+            release(task.id, claimedAs: attempt, to: before)
+            return
+        }
         let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: Self.prompt(for: task, operated: operated),
                                                  ownership: operated.ownership, wake: false, worktree: task.worktreePath)
         if delivery == nil || delivery?.result == .refused {
             block(task.id, reason: "Its worker couldn’t take the retry: \(delivery?.reason ?? "the helper didn’t answer").")
+        } else {
+            // Its worker was shown already: never launched again.
+            recordWindow(tab.windowId, of: task.id)
+        }
+    }
+
+    /// Whether the claim `attempt` made still holds: the task is working on it, not taken over, and its
+    /// run is active.
+    private func claimHolds(_ id: UUID, _ attempt: LaunchAttempt) -> Bool {
+        guard let operated = state.task(id: id)?.operated, operated.state == .working, operated.launch == attempt,
+              !operated.takenOver else { return false }
+        return state.run(id: operated.runId)?.state == .active
+    }
+
+    /// Takes a claim back: the task as it was before `attempt`, so it queues again and its slot is free. Only
+    /// while it is still working on that attempt — a task stopped, blocked or changed since is left as it is.
+    private func release(_ id: UUID, claimedAs attempt: LaunchAttempt, to before: OperatedTask?) {
+        // A relaunch has no earlier record: its launch was claimed before, and stays.
+        guard let before else { return }
+        workspace.mutate { state in
+            guard let i = state.tasks.firstIndex(where: { $0.id == id }), let operated = state.tasks[i].operated,
+                  operated.state == .working, operated.launch == attempt else { return }
+            state.tasks[i].operated?.state = before.state
+            state.tasks[i].operated?.launch = before.launch
+            state.tasks[i].operated?.blockedReason = before.blockedReason
         }
     }
 
@@ -146,8 +191,16 @@ final class WorkerStarter {
         live.sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
     }
 
+    /// Blocks the task and asks you — only when the block took: a task already stopped or changed is left
+    /// as it is, and you are not told of a block that did not happen.
     private func block(_ id: UUID, reason: String) {
-        workspace.mutate { state in _ = try? OperatedTransitions.apply(.block(reason: reason), toTask: id, in: &state, by: .aiterm) }
-        if let task = state.task(id: id) { onBlocked(task, reason) }
+        let before = state.task(id: id)?.operated
+        do {
+            try workspace.mutate { state in _ = try OperatedTransitions.apply(.block(reason: reason), toTask: id, in: &state, by: .aiterm) }
+        } catch {
+            Log.daemon.error("An operator's task could not be blocked: \(String(describing: error), privacy: .public)")
+            return
+        }
+        if let task = state.task(id: id), task.operated != before { onBlocked(task, reason) }
     }
 }
