@@ -222,6 +222,45 @@ import Testing
         #expect(try git.run(["rev-parse", "refs/heads/main"], in: origin) == mainBefore)
     }
 
+    @Test func aRemoteSymrefIsFoundWhateverProtocolTheConfigurationAsksFor() throws {
+        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        try git.run(["symbolic-ref", "refs/heads/alias", "refs/heads/main"], in: origin)
+        try git.run(["config", "protocol.version", "0"], in: path)
+        let mainBefore = try git.run(["rev-parse", "refs/heads/main"], in: origin)
+        #expect(throws: PublishRefusal.symbolicBranch("alias")) {
+            try Repository(path, git: git).push(sha, as: "alias", defaultBranch: "main")
+        }
+        #expect(try git.run(["rev-parse", "refs/heads/main"], in: origin) == mainBefore)
+    }
+
+    @Test func theListingAsksForProtocolTwo() throws {
+        let (path, _, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        let recorder = RecordingGitRunner(forwardingTo: git)
+        try Repository(path, git: recorder).push(sha, as: "feat/pluto-231", defaultBranch: "main")
+        let listing = try #require(recorder.calls.first { $0.args.contains("ls-remote") })
+        #expect(listing.args.contains("protocol.version=2"))
+    }
+
+    @Test func aBranchOnOriginAtTheDefaultBranchsCommitIsRefusedAsPossiblyItsAlias() throws {
+        // What a v0-only server shows of a symref: a branch at the default branch's commit, no `ref:` line.
+        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        try git.run(["push", "-q", "origin", "main:refs/heads/twin"], in: path)
+        let before = try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: origin)
+        #expect(throws: PublishRefusal.atDefaultCommit("twin")) {
+            try Repository(path, git: git).push(sha, as: "twin", defaultBranch: "main")
+        }
+        #expect(try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: origin) == before)
+    }
+
+    @Test func aBranchOnOriginAtAnotherCommitIsPushedTo() throws {
+        let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        try git.run(["push", "-q", "origin", "\(sha):refs/heads/older"], in: path)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "next"], in: path)
+        let next = try git.run(["rev-parse", "HEAD"], in: path)
+        try Repository(path, git: git).push(next, as: "older", defaultBranch: "main")
+        #expect(try git.run(["rev-parse", "refs/heads/older"], in: origin) == next)
+    }
+
     @Test func anOriginWhoseHeadCannotBeReadGetsNothing() throws {
         let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
         try git.run(["symbolic-ref", "HEAD", "refs/heads/gone"], in: origin)
@@ -265,6 +304,7 @@ import Testing
         #expect(PublishRefusal.unknownDefaultBranch.errorDescription == "AiTerm does not know the project's default branch, so it pushes nothing.")
         #expect(PublishRefusal.pushDestination("origin has 2 URLs to push to").errorDescription == "AiTerm pushes only to origin's own URL, and origin has 2 URLs to push to.")
         #expect(PublishRefusal.originUnreadable.errorDescription == "AiTerm could not read origin's default branch, so it pushes nothing.")
+        #expect(PublishRefusal.atDefaultCommit("twin").errorDescription == "The branch twin on origin is at the default branch's commit and cannot be told apart from it, so AiTerm pushes nothing to it.")
         #expect(PublishRefusal.symbolicBranch("alias").errorDescription == "The branch alias on origin is another name for a branch, so AiTerm pushes nothing to it.")
     }
 }

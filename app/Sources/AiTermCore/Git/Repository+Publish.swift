@@ -15,6 +15,9 @@ public enum PublishRefusal: Error, Equatable, LocalizedError {
     case originUnreadable
     /// The branch is, on origin, another name for a branch: a push to it moves the other.
     case symbolicBranch(String)
+    /// The branch is on origin already, at the default branch's commit: it cannot be told apart from
+    /// a symbolic ref to it, which an old server or protocol does not show.
+    case atDefaultCommit(String)
 
     public var errorDescription: String? {
         switch self {
@@ -26,6 +29,8 @@ public enum PublishRefusal: Error, Equatable, LocalizedError {
         case .pushDestination(let why): return "AiTerm pushes only to origin's own URL, and \(why)."
         case .originUnreadable: return "AiTerm could not read origin's default branch, so it pushes nothing."
         case .symbolicBranch(let branch): return "The branch \(branch) on origin is another name for a branch, so AiTerm pushes nothing to it."
+        case .atDefaultCommit(let branch):
+            return "The branch \(branch) on origin is at the default branch's commit and cannot be told apart from it, so AiTerm pushes nothing to it."
         }
     }
 }
@@ -99,19 +104,32 @@ extension Repository {
 
     /// Origin's own `HEAD` and `refs/heads/<branch>`, asked of origin right before the push: the
     /// caller's default branch comes from a local guess that fails open to `main`.
+    ///
+    /// Protocol 2 is asked for, because only it lists every symbolic ref; version 0 lists HEAD's alone
+    /// (and a v0-only server cannot do better). So whatever the protocol, a branch already on origin
+    /// at HEAD's own commit is refused too: it may be a symref to the default branch. A branch not
+    /// on origin yet, the usual case, is unaffected. (`remote.origin.receivepack` is left alone: only
+    /// deliberate configuration sets it, and overriding it could break a real setup.)
     private func requireOriginsOwnDefaultBranchIsNot(branch: String, name: String) throws {
-        let listing = try git.runRemote(["ls-remote", "--symref", "origin", "HEAD", "refs/heads/" + branch], in: path)
-        var head: String?, target: String?
+        let listing = try git.runRemote(["-c", "protocol.version=2", "ls-remote", "--symref", "origin", "HEAD", "refs/heads/" + branch], in: path)
+        var head: String?, target: String?, headCommit: String?, branchCommit: String?
         for line in listing.split(separator: "\n") {
-            // `ref: <target>\t<name>` for a symbolic ref, `<sha>\t<name>` for any ref.
             let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-            guard fields.count == 2, fields[0].hasPrefix("ref: refs/heads/") else { continue }
-            let to = String(fields[0].dropFirst("ref: refs/heads/".count))
-            if fields[1] == "HEAD" { head = to } else if fields[1] == "refs/heads/" + branch { target = to }
+            guard fields.count == 2 else { continue }
+            if fields[0].hasPrefix("ref: refs/heads/") {
+                // `ref: <target>\t<name>` for a symbolic ref.
+                let to = String(fields[0].dropFirst("ref: refs/heads/".count))
+                if fields[1] == "HEAD" { head = to } else if fields[1] == "refs/heads/" + branch { target = to }
+            } else if fields[1] == "HEAD" {
+                headCommit = String(fields[0])
+            } else if fields[1] == "refs/heads/" + branch {
+                branchCommit = String(fields[0])
+            }
         }
         guard let head else { throw PublishRefusal.originUnreadable }
         if Self.folded(head) == Self.folded(name) { throw PublishRefusal.defaultBranch(head) }
         if target != nil { throw PublishRefusal.symbolicBranch(branch) }
+        if let branchCommit, branchCommit == headCommit { throw PublishRefusal.atDefaultCommit(branch) }
     }
 
     /// Whether two remote URLs name the same host and path, whatever the scheme, user, port, a
