@@ -55,13 +55,14 @@ enum OperatorMenus {
         }
     }
 
-    /// What a task row's menu leads with while an operator drives the task: Take Over, or Hand Back once
-    /// you have; then Stop Task…. All of it only while the task is open — what Stop can still stop, and
-    /// what the row still calls "taken over" (spec §8: "Stop task in the row's menu"). A finished or
-    /// stopped task has nothing to take over, hand back or stop.
+    /// What a task row's menu leads with while an operator drives the task: Take Over, or Hand Back
+    /// while you have taken it over — whatever its state, so ownership is never stranded with you once
+    /// a task has ended (an accepted one still awaits its `finish_task`) — then, only while the task is
+    /// open, Stop Task… (spec §8: "Stop task in the row's menu").
     static func task(_ operated: OperatedTask?) -> [OperatorMenuItem] {
-        guard let operated, operated.state.isOpen else { return [] }
-        return [operated.takenOver ? .handBack : .takeOver, .separator, .stopTask]
+        guard let operated else { return [] }
+        let owner: OperatorMenuItem = operated.takenOver ? .handBack : .takeOver
+        return operated.state.isOpen ? [owner, .separator, .stopTask] : [owner]
     }
 }
 

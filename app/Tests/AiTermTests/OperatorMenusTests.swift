@@ -42,10 +42,10 @@ struct OperatorMenusTests {
         #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .failed)))
                 == ["Take Over", "—", "Stop Task…"], "failed is still open")
         for ended in [OperatedState.accepted, .noChange, .published, .stopped] {
-            #expect(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: ended, sha: "4f2a91c")).isEmpty,
-                    "\(ended): nothing left to take over, hand back or stop")
-            #expect(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: ended, takenOver: true)).isEmpty,
-                    "\(ended), taken over: the row no longer says so, and nothing is left to hand back")
+            #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: ended, sha: "4f2a91c")))
+                    == ["Take Over"], "\(ended): ended, there is nothing left to stop")
+            #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: ended, takenOver: true)))
+                    == ["Hand Back"], "\(ended), taken over: ownership is never stranded with you")
         }
         #expect(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .working)).filter(\.isDestructive)
                 == [.stopTask])
