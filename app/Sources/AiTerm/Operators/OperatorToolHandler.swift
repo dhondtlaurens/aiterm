@@ -42,12 +42,12 @@ extension JiraClient: OperatorJira {}
 /// the task's current state (spec §11) — the repeat returns what was recorded.
 @MainActor
 final class OperatorToolHandler {
-    private let workspace: WorkspaceStore
-    private let live: LiveSessions
-    private let daemon: @MainActor () -> (any DaemonCommands)?
-    private let ports: OperatorPorts
-    private let notifier: OperatorNotifier
-    private let waker: OperatorWaker
+    let workspace: WorkspaceStore
+    let live: LiveSessions
+    let daemon: @MainActor () -> (any DaemonCommands)?
+    let ports: OperatorPorts
+    let notifier: OperatorNotifier
+    let waker: OperatorWaker
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
     /// The latest reply sent, for a test to await.
@@ -73,7 +73,7 @@ final class OperatorToolHandler {
         self.waker = waker
     }
 
-    private var state: AppState { workspace.state }
+    var state: AppState { workspace.state }
 
     /// Answers `request` through the helper. A reply that cannot be sent is the daemon's to time out:
     /// the operator reads "AiTerm isn't answering" and calls again, which the tool's key makes safe.
@@ -119,6 +119,9 @@ final class OperatorToolHandler {
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "propose_lesson": return try proposeLesson(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
+        case "create_task": return try createTask(call, in: run)
+        case "update_task": return try updateTask(call, in: run)
+        case "submit_plan": return try submitPlan(call, in: run)
         case "finish_task":
             throw ToolRefusal("finish_task is available in M3. In M1 a task ends at its commit: once you accept it, it is done.")
         default: throw ToolRefusal("AiTerm has no tool called \(call.tool).")

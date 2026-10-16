@@ -165,6 +165,22 @@ final class OperatorController {
         }
     }
 
+    /// Approve plan (spec §8): you approve one exact revision — the latest submitted — and its planned
+    /// tasks are released (`PlanRevision.approve`). A click on a revision since replaced is stale: it
+    /// fails with the reason and releases nothing.
+    func approvePlan(run id: UUID, revision: Int) throws {
+        guard self.run(id: id) != nil else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
+        do {
+            try workspace.mutate { state in
+                try PlanRevision.approve(revision, run: id, in: &state)
+                state.updateRun(id: id) { if $0.state == .planning || $0.state == .complete { $0.state = .active } }
+            }
+        } catch let failure as PlanRevision.Failure {
+            throw ActionUnavailable(failure.description)
+        }
+        waker.say("plan approved", to: id)
+    }
+
     // -- starting ---------------------------------------------------------------------------
     /// Starts an operation: the run saved with a snapshot of `persona`, its folder written — `brief.md`,
     /// `mcp.json`, the token, `first-message.md` — the token registered with the helper, and the operator's window opened in
