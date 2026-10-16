@@ -1,6 +1,8 @@
 import AppKit
 import Testing
 @testable import AiTerm
+@testable import AiTermCore
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite(.serialized) struct KeyboardSettingsTests {
@@ -164,5 +166,29 @@ import Testing
         #expect(KeyBinding(action: "Settings", keys: ["⌘", ","]).spokenKeys == "Command ,")
         #expect(KeyBinding(action: "Fold", keys: ["←", "→"]).spokenKeys == "Left Arrow Right Arrow")
         #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–3"]).spokenKeys == "Command 1 to 3")
+    }
+
+    /// ⌘I is the list's, as ⌘⌫ is: listed under Sidebar, and no menu item claims it, so it reaches the list.
+    @Test func theSidebarListsTheOverviewKeyAndNoMenuItemClaimsIt() throws {
+        let sidebar = try #require(KeyBindings.all.first { $0.title == "Sidebar" })
+        #expect(sidebar.bindings.contains(KeyBinding(action: "Show the operation’s overview", keys: ["⌘", "I"])))
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        AiTermApp(controller: AppController(preferences: .scratch())).buildMenu()
+        let items = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).flatMap(\.items)
+        #expect(items.filter { $0.keyEquivalent.lowercased() == "i" }.isEmpty, "⌘I is free in the menu bar")
+    }
+
+    /// ⌘I on the selected operation opens its overview; on any other row it does nothing.
+    @Test func commandIShowsTheSelectedOperationsOverview() throws {
+        let controller = AppController(preferences: .scratch())
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        #expect(!controller.showOverviewOfSelection(), "nothing selected")
+        controller.focus.browse(.operation(run.id))
+        #expect(controller.showOverviewOfSelection())
+        guard case .operationOverview(let id) = controller.sheet else { Issue.record("no overview"); return }
+        #expect(id == run.id)
     }
 }

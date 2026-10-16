@@ -43,8 +43,9 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. A row whose window is still coming back is only selected. |
-| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a row whose window is still coming back waits for it, and one that could not be reopened is tried again. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
+| ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. A row whose window is still coming back is only selected. An operation's row peeks at its operator's window; an operator's header is stepped over, as a divider is — it has no window. |
+| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a row whose window is still coming back waits for it, and one that could not be reopened is tried again. On an operation's row, ↩ — or a click — brings its chat, the operator's window, forward; one you closed comes back, resuming an operation whose operator went offline. On a task an operator drives whose window you closed, ↩ or a click brings it back with its conversation resumed — never a second agent. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
+| ⌘I | Overview | The selected operation's overview: what waits on you, what works, what is next and done, the plan waiting for your approval, what it decided on its own and the lessons to keep. Free in AiTerm — macOS's Get Info. On the list, not a menu command, as ⌘⌫. A click on the row's caption chips and Overview… in its menu open it too. |
 | ⌘⌫ | Remove the task, review or terminal | The row's own Remove, as its context menu has it: a task or a review asks first, a terminal just closes. Nothing on a header. On the list, not a menu command — a menu's key equivalent would beat a text field's own ⌘⌫. |
 | ⌘F | Focus View | Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you — its window shown even when it was already selected — with the keyboard left in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included; the Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | Opens every project that has rows. |
@@ -117,14 +118,17 @@ finds none (`ArchiveSearch`).
 
 ## Every other sheet
 
-New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings and Jira projects.
+New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings, Jira projects, New operator, Edit operator,
+New operation and an operation's overview.
 Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Create Terminal · Add Divider · Rename · Save | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
+| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · Start Operation · Approve Plan · End Operation | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
+
+The overview's ⌘↩ is the moment's: Approve Plan while a plan waits, End Operation once it is done, nothing while it works — Pause and End Operation… are plain buttons. ⎋ is Close.
 
 ## Settings
 
@@ -146,6 +150,9 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 | Uncommitted changes | Keep Task / Keep Review, blue | Keep Task / Keep Review — Delete Changes and Remove, or Delete Changes and Shelve, is the grey button |
 | Remove a shelved task or review | Remove, red | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
+| Stop an operator's task | Stop Task, blue: its window and branch stay | Cancel |
+| End an operation | End Operation, blue: its tasks stay | Cancel |
+| Move an operator to the Trash | Move to Trash, blue: the file can be put back | Cancel |
 | Import worktrees | Import | Skip |
 | An update is available | Update | Later |
 | Unsaved workspace on quit | Cancel Quit | Cancel Quit |

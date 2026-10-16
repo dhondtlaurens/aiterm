@@ -107,6 +107,12 @@ struct SidebarView: View {
                     Task { await controller.removeSelection() }
                     return .handled
                 }
+                // ⌘I, macOS's Get Info: the selected operation's overview. On the list, as ⌘⌫ is.
+                .onKeyPress("i", phases: .down) { press in
+                    guard press.modifiers == .command, controller.focus.selectedOperationId != nil else { return .ignored }
+                    controller.showOverviewOfSelection()
+                    return .handled
+                }
                 .background(SidebarScrollFollower(focus: controller.focus) { id in
                     // The main run loop runs this block on the main thread, where the proxy lives.
                     nonisolated(unsafe) let proxy = scroller

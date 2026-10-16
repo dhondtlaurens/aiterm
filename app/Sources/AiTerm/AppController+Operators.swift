@@ -223,3 +223,13 @@ extension AppController {
         return true
     }
 }
+
+extension AppController {
+    /// ⌘I on the list: the selected operation's overview. Says whether there was one.
+    @discardableResult
+    func showOverviewOfSelection() -> Bool {
+        guard let id = focus.selectedOperationId else { return false }
+        presentOverview(run: id)
+        return sheet != nil
+    }
+}
