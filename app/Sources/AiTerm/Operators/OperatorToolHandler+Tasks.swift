@@ -87,10 +87,17 @@ extension OperatorToolHandler {
             guard sha == tip else {
                 throw ToolRefusal("\(operated.key)’s branch is at \(tip.prefix(7)), not \(given): accept the commit its branch is on.")
             }
+            // A task whose code parent was accepted again builds on the new commit before it is accepted (M3, spec §8).
+            if let why = try await upstreamRefusal(task, result: sha) { throw ToolRefusal(why) }
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
-            // Part C refuses it again on another commit once a code dependent has started (M1, spec §8).
-            action = .accept(TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
-                                            note: call.optionalString("note"), at: ports.now()), branchHead: tip)
+            let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
+                                            note: call.optionalString("note"), at: ports.now())
+            // Accepted again on another commit: its dependents are revoked and flagged. Before M3, part C refuses
+            // it once a code dependent has started (M1, spec §8).
+            if ports.milestone >= .m3, operated.state == .accepted || operated.state == .published {
+                return try reaccept(task, as: acceptance)
+            }
+            action = .accept(acceptance, branchHead: tip)
         case "noChange":
             action = .noChange(note: call.optionalString("note"))
         case "blocked", "failed":
@@ -100,6 +107,8 @@ extension OperatorToolHandler {
             throw ToolRefusal("mark_task’s outcome is accepted, noChange, blocked or failed.")
         }
         try apply(action, to: task)
+        // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
+        if outcome == "accepted" { workspace.mutate { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
         if outcome == "blocked" { notifier.taskBlocked(marked, reason: call.optionalString("note") ?? "", in: run) }
         return Self.taskAnswer(marked, created: false)
@@ -109,12 +118,57 @@ extension OperatorToolHandler {
     private func isRepeat(of outcome: String, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
         switch outcome {
         case "accepted":
-            guard operated.state == .accepted, let given = call.optionalString("sha") else { return false }
+            guard operated.state == .accepted || operated.state == .published, let given = call.optionalString("sha") else { return false }
             return operated.acceptance?.resultSHA == (try await commit(given, in: task))
         case "noChange": return operated.state == .noChange
         case "blocked", "failed": return operated.state.rawValue == outcome && operated.blockedReason == call.optionalString("note")
         default: return false
         }
+    }
+
+    /// Why `task`, flagged upstream replaced, cannot be accepted on `result` yet: git must say `result`
+    /// holds each code parent's accepted commit. Nil for a task that is not flagged.
+    private func upstreamRefusal(_ task: TaskItem, result: String) async throws -> String? {
+        guard task.operated?.flags.contains(.upstreamReplaced) == true,
+              let project = state.project(id: task.projectId) else { return nil }
+        let state = self.state, git = ports.git, path = project.path
+        return try await BackgroundWork.run {
+            let repository = Repository(path, git: git)
+            return try UpstreamReplacement.acceptRefusal(for: task, in: state, contains: { try repository.contains($0, in: result) })
+        }
+    }
+
+    /// An accepted or published task accepted again on another commit, in one change: its acceptance
+    /// replaced (a published draft keeps its request, which `finish_task` pushes the new commit to), its
+    /// accepted code dependents back to working and every started one flagged. The answer names them, and
+    /// each operation holding one is woken once (`finish_task` of one of them refuses meanwhile).
+    private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance) throws -> JSONValue {
+        let revoked: [UUID]
+        do {
+            revoked = try workspace.mutate { state in
+                let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
+                state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
+                // A complete operation holding work again is not complete: it settles once that is done.
+                let runs = Set(([task.id] + revoked).compactMap { state.task(id: $0)?.operated?.runId })
+                for id in runs {
+                    guard let run = state.run(id: id), run.state == .complete, !RunScheduler.isComplete(run, in: state) else { continue }
+                    state.updateRun(id: id) { $0.state = .active }
+                }
+                return revoked
+            }
+        } catch let refusal as UpstreamReplacement.Refusal {
+            switch refusal {
+            case .notAccepted(let why), .merged(let why): throw ToolRefusal(why)
+            }
+        }
+        let keys = revoked.compactMap { id in state.task(id: id)?.operated.map { ($0.runId, $0.key) } }
+        for (run, keys) in Dictionary(grouping: keys, by: \.0) {
+            waker.say("\(keys.map(\.1).joined(separator: ", ")) needs a rebase: \(task.operated?.key ?? task.title) was accepted again", to: run)
+        }
+        let marked = state.task(id: task.id) ?? task
+        guard case .object(var fields) = Self.taskAnswer(marked, created: false) else { return Self.taskAnswer(marked, created: false) }
+        fields["revokedDependents"] = .array(keys.map { JSONValue.string($0.1) })
+        return .object(fields)
     }
 
     /// `blocked` → `working`, once the reason is resolved; a working task answers as it is.

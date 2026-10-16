@@ -255,7 +255,7 @@ public enum OperatedTransitions {
     }
 
     /// A task that reached an end no longer waits on you or looks stalled.
-    private static func settle(_ task: inout OperatedTask) {
+    static func settle(_ task: inout OperatedTask) {
         task.blockedReason = nil
         task.lastFailure = nil
         task.flags.subtract([.possiblyStalled, .waitingOnYou])
