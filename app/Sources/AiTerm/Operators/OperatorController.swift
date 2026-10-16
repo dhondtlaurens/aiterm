@@ -170,6 +170,7 @@ final class OperatorController {
     /// fails with the reason and releases nothing.
     func approvePlan(run id: UUID, revision: Int) throws {
         guard self.run(id: id) != nil else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
+        let before = self.run(id: id)?.approvedRevision
         do {
             try workspace.mutate { state in
                 try PlanRevision.approve(revision, run: id, in: &state)
@@ -178,7 +179,8 @@ final class OperatorController {
         } catch let failure as PlanRevision.Failure {
             throw ActionUnavailable(failure.description)
         }
-        waker.say("plan approved", to: id)
+        // Approving the approved revision again changes nothing, so it wakes nothing.
+        if self.run(id: id)?.approvedRevision != before { waker.say("plan approved", to: id) }
     }
 
     // -- starting ---------------------------------------------------------------------------

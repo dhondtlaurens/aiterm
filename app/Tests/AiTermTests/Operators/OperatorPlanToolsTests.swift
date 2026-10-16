@@ -128,6 +128,62 @@ import Testing
         #expect(await world.call(run.id, "update_task", ["task": "A", "brief": "x"]).message
                 == "A has started: steer it with message_task, and log the steer with log_decision.")
     }
+
+    @Test func switchingAnUnstartedTasksAgentTakesTheNewAgentsModelNotTheOldOnes() async throws {
+        let (world, run) = try makeWorld(.routine)
+        world.workspace.mutate { $0.lastModelByAgent[.claude] = "claude-remembered" }
+        // What Settings › Agents (or the remembered model) gives claude: the fallback create_task uses too.
+        let fallback = AgentIntegrations.fixerModels(remembered: world.state.lastModelByAgent)(.claude)
+        try #require(!fallback.model.isEmpty)
+        _ = await create(world, run, "A")
+        world.workspace.mutate { $0.tasks[0].reasoning = "old-agents-reasoning" }
+        let switched = await world.call(run.id, "update_task", ["task": "A", "agent": "claude"])
+        #expect(switched.value?["created"] == false, "\(switched)")
+        var task = try #require(world.state.tasks.first)
+        #expect(task.agent == .claude && task.model == fallback.model && task.reasoning == fallback.reasoning)
+        #expect(task.model != "gpt-6-astra" && task.reasoning != "old-agents-reasoning")
+        // A model named with the new agent is the one it gets; the same agent with no model keeps its own.
+        _ = await world.call(run.id, "update_task", ["task": "A", "agent": "claude", "model": "claude-named"])
+        _ = await world.call(run.id, "update_task", ["task": "A", "agent": "claude"])
+        task = try #require(world.state.tasks.first)
+        #expect(task.agent == .claude && task.model == "claude-named" && task.reasoning == nil)
+        _ = await world.call(run.id, "update_task", ["task": "A", "model": "claude-other"])
+        #expect(world.state.tasks.first?.model == "claude-other")
+    }
+
+    @Test func aRefusedCreateTaskLeavesTheOperationsProjectsAsTheyWere() async throws {
+        let (world, run) = try makeWorld(.trusted)
+        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Docs", "agent": "grok", "model": "m"])
+        #expect(refused.message == "An operator’s task runs claude or codex.")
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
+        #expect(await create(world, run, "B", project: "Docs", end: "nonsense").message == "A task’s end is commit, draftMR or merge.")
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id])
+        #expect(await create(world, run, "C", project: "Docs").value?["created"] == true)
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
+        // A second task in it does not list it twice.
+        _ = await create(world, run, "D", project: "Docs")
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
+    }
+
+    @Test func approvingAnApprovedRevisionAgainWakesTheOperatorOnlyOnce() async throws {
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .routine), projects: [project, other])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run])) {
+            $0.milestone = .m1
+            $0.wakeCoalesce = .zero
+        }
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        _ = await create(world, run, "A")
+        _ = await world.call(run.id, "submit_plan", ["revision": 1])
+        func wakes() -> [String] { world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String } }
+        try world.controller.approvePlan(run: run.id, revision: 1)
+        try await world.daemon.received("session.deliver")
+        await world.controller.waker.lastSend?.value
+        #expect(wakes() == ["[AiTerm] plan approved — call run_status"])
+        try world.controller.approvePlan(run: run.id, revision: 1)
+        // Nothing was armed, so nothing arrives; a settled wait is all an absence can be checked with.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(wakes().count == 1 && world.run(run.id)?.approvedRevision == 1)
+    }
 }
 
 private extension Array {

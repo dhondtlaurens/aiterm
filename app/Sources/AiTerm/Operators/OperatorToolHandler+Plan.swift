@@ -9,7 +9,7 @@ extension OperatorToolHandler {
         if let existing = state.tasks(inRun: run.id).first(where: { $0.operated?.key == key }) { return Self.taskAnswer(existing, created: false) }
         try acceptsPlanChanges(run)
         let title = try call.string("title"), brief = try call.string("brief")
-        let project = try self.project(call, in: run), agent = try self.agent(call), model = try self.model(call, for: agent)
+        let (project, joins) = try self.project(call, in: run), agent = try self.agent(call), model = try self.model(call, for: agent)
         let end = try self.end(call) ?? .commit
         let dependencies = try self.dependencies(call, in: run, project: project)
         let ticket = call.optionalString("ticket")
@@ -21,7 +21,11 @@ extension OperatorToolHandler {
                             createdAt: ports.now(), windowId: nil)
         task.operated = OperatedTask(runId: run.id, key: key, state: .planned, end: end, brief: brief, dependsOn: dependencies,
                                      stackedOn: dependencies.first { $0.kind == .code }?.task, revision: run.openRevision)
-        workspace.mutate { $0.tasks.append(task) }
+        // Only a call that passed every check widens the operation's projects.
+        workspace.mutate { state in
+            if joins { state.updateRun(id: run.id) { if !$0.projectIds.contains(project.id) { $0.projectIds.append(project.id) } } }
+            state.tasks.append(task)
+        }
         return Self.taskAnswer(task, created: true)
     }
 
@@ -36,7 +40,10 @@ extension OperatorToolHandler {
         let project = state.project(id: task.projectId)
         let brief = call.optionalString("brief")
         let agent = try call.optionalString("agent").map { _ in try self.agent(call) }
-        let model = call.optionalString("model")
+        // A new agent with no model named takes that agent's default, not the old agent's model.
+        let model: (model: String, reasoning: String?)?
+        if let agent, agent != task.agent || call.optionalString("model") != nil { model = try self.model(call, for: agent) }
+        else { model = call.optionalString("model").map { ($0, nil) } }
         let end = try self.end(call)
         let dependencies = try call.arguments["dependsOn"].map { _ in try self.dependencies(call, in: run, project: project) }
         if let dependencies, dependencies.contains(where: { $0.task == task.id }) { throw ToolRefusal("A task can’t depend on itself.") }
@@ -45,7 +52,7 @@ extension OperatorToolHandler {
                 guard let i = state.tasks.firstIndex(where: { $0.id == task.id }), var record = state.tasks[i].operated else { return }
                 if let brief { record.brief = brief; state.tasks[i].firstPrompt = brief }
                 if let agent { state.tasks[i].agent = agent }
-                if let model { state.tasks[i].model = model; state.tasks[i].reasoning = nil }
+                if let model { state.tasks[i].model = model.model; state.tasks[i].reasoning = model.reasoning }
                 if let end { record.end = end }
                 if let dependencies { record.dependsOn = dependencies; record.stackedOn = dependencies.first { $0.kind == .code }?.task }
                 state.tasks[i].operated = record
@@ -98,16 +105,16 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The project a task goes in: one of the operation's. Another project of the workspace joins an
-    /// ungated operation, recorded with the revision; a gated one refuses it, since adding a project
-    /// is a plan change you approve (spec §5.3).
-    private func project(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> Project {
+    /// The project a task goes in: one of the operation's, or — `joins` — another project of the workspace
+    /// that an ungated operation takes in once the call has passed every check; a gated one refuses it,
+    /// since adding a project is a plan change you approve (spec §5.3). Nothing is changed here.
+    private func project(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> (project: Project, joins: Bool) {
         let ref = try call.string("project")
         func named(_ project: Project) -> Bool {
             project.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || project.name.caseInsensitiveCompare(ref) == .orderedSame
         }
         let projects = run.projectIds.compactMap(state.project(id:))
-        if let project = projects.first(where: named) { return project }
+        if let project = projects.first(where: named) { return (project, false) }
         let list = projects.map(\.name).joined(separator: ", ")
         guard let project = state.projects.first(where: named) else {
             throw ToolRefusal("AiTerm has no project called \(ref). This operation’s projects are: \(list).")
@@ -115,8 +122,7 @@ extension OperatorToolHandler {
         guard !run.persona.autonomy.gatesPlans else {
             throw ToolRefusal("\(project.name) isn’t one of this operation’s projects: \(list). Adding a project needs the person’s approval: ask_you first.")
         }
-        workspace.mutate { $0.updateRun(id: run.id) { $0.projectIds.append(project.id) } }
-        return project
+        return (project, true)
     }
 
     private func agent(_ call: ToolCall) throws(ToolRefusal) -> AgentKind {
