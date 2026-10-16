@@ -19,6 +19,12 @@ from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSe
 from .offload import run_detached
 
 log = logging.getLogger(__name__)
+# A key pressed in a session (ItermPort.on_keystroke): the session, the key's characters and the
+# modifiers held, of control, option, command and shift.
+KeystrokeCallback = Callable[[str, str, frozenset[str]], Awaitable[None]]
+# The modifiers a key's effect on a CLI's input depends on: a Return held with one types a newline.
+_MODIFIER_NAMES = {iterm2.api_pb2.Modifiers.CONTROL: "control", iterm2.api_pb2.Modifiers.OPTION: "option",
+                   iterm2.api_pb2.Modifiers.COMMAND: "command", iterm2.api_pb2.Modifiers.SHIFT: "shift"}
 VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}", f"user.{TERMINAL_TAG}")
 # How long one bridge call may wait on iTerm2. The library resolves a request only when its reply
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
@@ -300,6 +306,7 @@ class ItermPort(Protocol):
     def on_new_session(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
     def on_session_closed(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
     def on_window_activated(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
+    def on_keystroke(self, cb: KeystrokeCallback) -> None: ...
     def on_disconnect(self, cb: Callable[[], Awaitable[None]]) -> None: ...
 
 
@@ -314,6 +321,7 @@ class ItermBridge:
         self._new_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._closed_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._activated_cbs: list[Callable[[str], Awaitable[None]]] = []
+        self._keystroke_cbs: list[KeystrokeCallback] = []
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._watch_task: asyncio.Task | None = None
         self._refresh_lock = asyncio.Lock()
@@ -380,6 +388,14 @@ class ItermBridge:
         await iterm2.notifications.async_subscribe_to_new_session_notification(conn, self._on_new)
         await iterm2.notifications.async_subscribe_to_terminate_session_notification(conn, self._on_closed)
         await iterm2.notifications.async_subscribe_to_focus_change_notification(conn, self._on_focus)
+        # Every session's key-downs, for when you last typed in one and whether its input may hold
+        # unsent text (keystrokes.TypingGuard). A monitor reports a key and lets it through, unlike a
+        # keystroke filter. Not fatal when refused: wake lines then cannot wait for your typing,
+        # which is logged.
+        try:
+            await iterm2.notifications.async_subscribe_to_keystroke_notification(conn, self._on_keystroke)
+        except iterm2.notifications.SubscriptionException as exc:
+            log.warning("iTerm2 refused the keystroke monitor (%s): wake lines cannot wait for your typing", exc)
         # Under the lock `_app` takes: a notification handler asking for the app meanwhile would
         # otherwise build a second one.
         async with self._refresh_lock:
@@ -437,9 +453,17 @@ class ItermBridge:
         for cb in self._activated_cbs:
             await cb(notif.window.window_id)
 
+    async def _on_keystroke(self, _conn, notif) -> None:
+        if not notif.session:
+            return
+        modifiers = frozenset(name for modifier in notif.modifiers if (name := _MODIFIER_NAMES.get(modifier)))
+        for cb in self._keystroke_cbs:
+            await cb(notif.session, notif.characters, modifiers)
+
     def on_new_session(self, cb): self._new_cbs.append(cb)
     def on_session_closed(self, cb): self._closed_cbs.append(cb)
     def on_window_activated(self, cb): self._activated_cbs.append(cb)
+    def on_keystroke(self, cb): self._keystroke_cbs.append(cb)
     def on_disconnect(self, cb): self._disc_cbs.append(cb)
 
     # -- helpers ----------------------------------------------------------

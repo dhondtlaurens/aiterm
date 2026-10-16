@@ -4,7 +4,7 @@ import asyncio
 import itertools
 from collections.abc import Awaitable, Callable
 
-from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable
+from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback
 from aitermd.models import Frame, RawSession
 
 
@@ -44,6 +44,7 @@ class FakeIterm:
         self._new_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._closed_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._activated_cbs: list[Callable[[str], Awaitable[None]]] = []
+        self._keystroke_cbs: list[KeystrokeCallback] = []
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._notifications: set[asyncio.Future[None]] = set()
 
@@ -147,6 +148,9 @@ class FakeIterm:
     def on_window_activated(self, cb: Callable[[str], Awaitable[None]]) -> None:
         self._activated_cbs.append(cb)
 
+    def on_keystroke(self, cb: KeystrokeCallback) -> None:
+        self._keystroke_cbs.append(cb)
+
     def on_disconnect(self, cb: Callable[[], Awaitable[None]]) -> None:
         self._disc_cbs.append(cb)
 
@@ -197,6 +201,11 @@ class FakeIterm:
         await self.activate_window(window_id)
         for cb in self._activated_cbs:
             await cb(window_id)
+
+    async def user_types(self, session_id: str, characters: str = "a", modifiers: frozenset[str] = frozenset()) -> None:
+        """Simulates a key pressed in a session: the keystroke monitor reports it, and lets it through."""
+        for cb in self._keystroke_cbs:
+            await cb(session_id, characters, modifiers)
 
     async def user_runs(self, session_id: str, command_line: str, job_pid: int, title: str = ""):
         s = self.sessions[session_id]
