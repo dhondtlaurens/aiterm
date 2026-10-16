@@ -103,12 +103,52 @@ public struct TaskAcceptance: Codable, Equatable, Sendable {
     }
 }
 
-/// Each step `finish_task` has carried out (M3), so calling it again resumes at the next one.
+/// What `finish_task` has done of a task's end, step by step (spec §6, §11). Each step is recorded,
+/// and saved, as it completes, so a repeat — after a lost reply, a crash, a restart — resumes at the
+/// next one and never pushes or opens twice.
 public struct TaskPublication: Codable, Equatable, Sendable {
+    /// The commit pushed to the task's own branch on origin: the accepted one.
     public var pushedSHA: String?
+    /// The merge or pull request opened for it, and its number on its host.
     public var mergeRequestURL: String?
-    public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil) {
-        self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL
+    public var mergeRequestNumber: Int?
+    /// The branch the request targets: the default branch, or a stacked task's parent's — until the
+    /// parent merges and a `merge` end retargets it.
+    public var targetBranch: String?
+    /// A `merge` end: when AiTerm began waiting for the host to call it mergeable — the start of the
+    /// bounded wait (`OperatorTiming.mergeWait`).
+    public var waitingSince: Date?
+    /// A `merge` end: merged by AiTerm, as `mergedSHA`.
+    public var merged: Bool
+    public var mergedSHA: String?
+    /// Why the host will not merge it without someone acting — a failed pipeline, conflicts — or why
+    /// the wait ended. Cleared by the operator's next `finish_task`.
+    public var problem: String?
+
+    public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
+                targetBranch: String? = nil, waitingSince: Date? = nil, merged: Bool = false,
+                mergedSHA: String? = nil, problem: String? = nil) {
+        self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
+        self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.merged = merged
+        self.mergedSHA = mergedSHA; self.problem = problem
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, merged, mergedSHA, problem
+    }
+
+    /// Every field may be missing: a publication saved before the merge steps reads as not merged.
+    /// A key this build does not know is ignored.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pushedSHA = try c.decodeIfPresent(String.self, forKey: .pushedSHA)
+        mergeRequestURL = try c.decodeIfPresent(String.self, forKey: .mergeRequestURL)
+        mergeRequestNumber = try c.decodeIfPresent(Int.self, forKey: .mergeRequestNumber)
+        targetBranch = try c.decodeIfPresent(String.self, forKey: .targetBranch)
+        waitingSince = try c.decodeIfPresent(Date.self, forKey: .waitingSince)
+        merged = try c.decodeIfPresent(Bool.self, forKey: .merged) ?? false
+        mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
+        problem = try c.decodeIfPresent(String.self, forKey: .problem)
     }
 }
 
