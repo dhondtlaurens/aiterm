@@ -170,40 +170,94 @@ public struct GitLabClient: Sendable {
                            body: Retarget(targetBranch: target), notFound: .projectNotFound(project))
     }
 
-    /// How many pages of 100 protected-branch rules `protectedBranches` reads before it gives up.
+    /// How many pages of 100 protected-branch rules a listing reads before it gives up.
     public static let protectedPages = 20
 
-    /// The branch-name patterns `project` protects — exact names and `*` wildcards — every page of them.
-    /// More than `protectedPages` pages is no answer, not a partial one, and a rule that does not
-    /// decode fails the whole list instead of being dropped.
+    /// The branch-name patterns `project` protects itself — exact names and `*` wildcards — every page of
+    /// them (see `protectedRules`). Group-level rules are `branchProtection`'s to add.
     public func protectedBranches(project: String) async throws -> [String] {
+        try await protectedRules(path: "/api/v4/projects/" + Self.encodedProject(project) + "/protected_branches",
+                                 notFound: .projectNotFound(project), noneIfMissing: false)
+    }
+
+    /// Every rule of a protected-branches listing, a page of 100 at a time until an **empty** page: a short
+    /// page proves nothing (a proxy or a newer GitLab may cap `per_page` lower, and offset paging can shift a
+    /// rule between pages). The `protectedPages` pages spent without reaching one is no answer, not a partial
+    /// one, and a rule that does not decode fails the whole list instead of being dropped. A 404 on the first
+    /// page is "no rules" when `noneIfMissing` (a group listing); anywhere else it is an error.
+    private func protectedRules(path: String, notFound: GitLabError, noneIfMissing: Bool) async throws -> [String] {
         struct Protected: Decodable { var name: String }
         var names: [String] = []
         for page in 1...Self.protectedPages {
             let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
-            let batch = try await get([Protected].self, path: "/api/v4/projects/" + Self.encodedProject(project) + "/protected_branches",
-                                      query: query, notFound: .projectNotFound(project))
+            let batch: [Protected]
+            do { batch = try await get([Protected].self, path: path, query: query, notFound: notFound) }
+            catch GitLabError.projectNotFound where noneIfMissing && page == 1 { return [] }
+            if batch.isEmpty { return names }
             names += batch.map(\.name)
-            if batch.count < 100 { return names }
         }
         throw ProtectionUnknown.tooManyRules(Self.protectedPages * 100)
     }
 
-    /// Whether GitLab protects `branch` in `project`, by name or by wildcard — asked before AiTerm pushes it,
-    /// whether or not GitLab has the branch yet. Names are compared case-sensitively, as GitLab does.
+    /// The rules of the top-level group `group`, as GitLab's group-level protected branches (Premium and up).
+    /// A group without any answers 404 and has none; anything else that goes wrong is `ProtectionUnknown`,
+    /// which includes a host that answers 403 for the listing: it refuses every publish rather than guess.
+    private func groupProtectedBranches(group: String) async throws -> [String] {
+        do {
+            return try await protectedRules(path: "/api/v4/groups/" + Self.encodedProject(group) + "/protected_branches",
+                                            notFound: .projectNotFound(group), noneIfMissing: true)
+        } catch let error as GitLabError {
+            let why = (error.errorDescription ?? "").trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            throw ProtectionUnknown.unreadable("AiTerm could not read the protected branches of the GitLab group \(group): \(why)")
+        }
+    }
+
+    /// The top-level group `project` lives under, from its namespace: nil in a user's namespace. A namespace
+    /// GitLab does not describe is no answer.
+    private func topLevelGroup(of project: String) async throws -> String? {
+        struct Owner: Decodable {
+            struct Namespace: Decodable { var kind: String?, fullPath: String? }
+            var namespace: Namespace?
+        }
+        let owner = try await get(Owner.self, path: "/api/v4/projects/" + Self.encodedProject(project), notFound: .projectNotFound(project))
+        switch owner.namespace?.kind {
+        case "user": return nil
+        case "group":
+            if let root = owner.namespace?.fullPath?.split(separator: "/").first { return String(root) }
+        default: break
+        }
+        throw ProtectionUnknown.unreadable("GitLab did not say which namespace \(project) is in")
+    }
+
+    /// Whether GitLab protects `branch` in `project`, asked before AiTerm pushes it, whether or not GitLab
+    /// has the branch yet. Three sources, any of which covers it: the project's protected branches, its
+    /// top-level group's (read through the project's namespace), and — when the branch already exists on
+    /// GitLab, which then computes it from every effective rule — the branch's own `protected` flag. Rules
+    /// match by name or wildcard, case-sensitively, as GitLab compares names.
     /// A failure to ask, a rule list that cannot be read whole, and a rule AiTerm cannot evaluate (unless
     /// another rule covers the branch anyway) throw: nothing is pushed then, never "unprotected".
     public func branchProtection(project: String, branch: String) async throws -> BranchProtection {
         let name = branch.hasPrefix("refs/heads/") ? String(branch.dropFirst("refs/heads/".count)) : branch
         guard !name.isEmpty else { throw ProtectionUnknown.unreadable("There is no branch name to check") }
+        let group = try await topLevelGroup(of: project)
         var unreadable: ProtectionUnknown?
-        for rule in try await protectedBranches(project: project) {
-            do {
-                if try BranchProtection.evaluate(rule, name, starCrossesSlash: true) {
-                    return .protected(rule == name ? "GitLab protects it" : "GitLab protects \(rule)")
-                }
-            } catch let error as ProtectionUnknown { unreadable = unreadable ?? error }
+        func covering(_ rules: [String]) -> String? {
+            for rule in rules {
+                do { if try BranchProtection.evaluate(rule, name, starCrossesSlash: true) { return rule } }
+                catch let error as ProtectionUnknown { unreadable = unreadable ?? error } catch {}
+            }
+            return nil
         }
+        func said(_ rule: String, of owner: String) -> BranchProtection {
+            .protected(rule == name ? "\(owner) protects it" : "\(owner) protects \(rule)")
+        }
+        if let rule = covering(try await protectedBranches(project: project)) { return said(rule, of: "GitLab") }
+        if let group, let rule = covering(try await groupProtectedBranches(group: group)) { return said(rule, of: "GitLab group \(group)") }
+        struct Existing: Decodable { var `protected`: Bool }
+        do {
+            let path = "/api/v4/projects/" + Self.encodedProject(project) + "/repository/branches/" + Self.encodedProject(name)
+            if try await get(Existing.self, path: path, notFound: .projectNotFound(project)).protected { return .protected("GitLab protects it") }
+        } catch GitLabError.projectNotFound {}   // the project was just read: this is a branch GitLab does not have yet
         if let unreadable { throw unreadable }
         return .unprotected
     }
@@ -284,7 +338,10 @@ private struct MergeStatusPayload: Decodable {
         case "canceled": return .blocked("its pipeline was canceled")
         case "created", "waiting_for_resource", "preparing", "waiting_for_callback", "pending", "running", "scheduled", "canceling":
             return .waiting("its pipeline is running")
-        case "", "success", "skipped", "manual": break   // green, or no pipeline at all
+        // A pipeline that stopped at a manual job or never ran has not passed, whatever the project requires.
+        case "manual": return .blocked("the pipeline waits for a manual job")
+        case "skipped": return .blocked("the pipeline was skipped")
+        case "", "success": break   // green, or no pipeline at all
         case let other: return .waiting("its pipeline is \(other.replacingOccurrences(of: "_", with: " "))")
         }
         guard let status = detailedMergeStatus else { return .waiting("GitLab is checking it") }

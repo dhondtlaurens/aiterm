@@ -147,24 +147,66 @@ import Testing
          {"id":2,"name":"release/*","push_access_levels":[],"merge_access_levels":[],"allow_force_push":false}]
         """
 
-    @Test func aBranchGitLabProtectsByNameOrWildcardIsSaid() async throws {
-        let (client, stub) = makeClient { _ in (200, Data(Self.protected.utf8)) }
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "release/2026.10") == .protected("GitLab protects release/*"))
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "main") == .protected("GitLab protects it"))
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "feat/pluto-231-add-gift-card") == .unprotected)
-        let url = try #require(stub.lastRequest?.url?.absoluteString)
-        #expect(url.hasPrefix("https://git.example.net/api/v4/projects/web%2Facme-web/protected_branches?"))
-        #expect(url.contains("per_page=100"))
-        #expect(stub.lastRequest?.httpMethod == "GET")
+    /// GET /projects/:id, trimmed to the namespace that says whose rules also apply.
+    static func project(kind: String = "group", fullPath: String = "web") -> String {
+        #"{"id":42,"name":"acme-web","path_with_namespace":"web/acme-web","namespace":{"id":3,"name":"Web","path":"web","kind":"\#(kind)","full_path":"\#(fullPath)","parent_id":null}}"#
     }
 
-    @Test func everyPageOfProtectedBranchesIsRead() async throws {
-        let full = "[" + (1...100).map { #"{"id":\#($0),"name":"keep/\#($0)"}"# }.joined(separator: ",") + "]"
-        let (client, stub) = makeClient { request in
-            request.url?.query?.contains("page=2") == true ? (200, Data(#"[{"id":101,"name":"hotfix/*"}]"#.utf8)) : (200, Data(full.utf8))
+    typealias Answer = (status: Int, body: Data)
+    static func json(_ text: String, status: Int = 200) -> Answer { (status, Data(text.utf8)) }
+    static func rules(_ names: [String]) -> Answer {
+        json("[" + names.enumerated().map { #"{"id":\#($0.offset + 1),"name":"\#($0.element)"}"# }.joined(separator: ",") + "]")
+    }
+    /// `names` cut into pages of `size`, as a server that honours `page` and caps `per_page` there; an empty page past the end.
+    static func paged(_ names: [String], size: Int) -> @Sendable (Int) -> Answer {
+        { page in rules(Array(names.dropFirst((page - 1) * size).prefix(size))) }
+    }
+    static func page(of request: URLRequest) -> Int {
+        URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value.flatMap(Int.init) ?? 1
+    }
+
+    /// A GitLab that answers each of what AiTerm asks before a push: the project (its namespace), the project's rules,
+    /// its group's rules and the branch itself. By default: a project in the group `web`, no rules, no group rules
+    /// (404, as a group without any answers) and a branch GitLab does not have yet (404).
+    private func protectionClient(project: Answer = json(project()), rules: @escaping @Sendable (Int) -> Answer = { _ in json("[]") },
+                                  group: @escaping @Sendable (Int) -> Answer = { _ in json("{}", status: 404) },
+                                  branch: Answer = json("{}", status: 404)) -> (client: GitLabClient, stub: StubSession) {
+        makeClient { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("/repository/branches/") { return branch }
+            if url.contains("/api/v4/groups/") { return group(Self.page(of: request)) }
+            if url.contains("/protected_branches") { return rules(Self.page(of: request)) }
+            return project
         }
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "hotfix/login") == .protected("GitLab protects hotfix/*"))
-        #expect(stub.requests.count == 2)
+    }
+
+    private func protection(_ branch: String, _ client: GitLabClient) async throws -> BranchProtection {
+        try await client.branchProtection(project: "web/acme-web", branch: branch)
+    }
+
+    @Test func aBranchGitLabProtectsByNameOrWildcardIsSaid() async throws {
+        let (client, stub) = protectionClient(rules: { page in page == 1 ? Self.json(Self.protected) : Self.json("[]") })
+        #expect(try await protection("release/2026.10", client) == .protected("GitLab protects release/*"))
+        #expect(try await protection("main", client) == .protected("GitLab protects it"))
+        #expect(try await protection("feat/pluto-231-add-gift-card", client) == .unprotected)
+        let listing = try #require(stub.requests.first { $0.url?.absoluteString.contains("/projects/web%2Facme-web/protected_branches") == true })
+        #expect(listing.url?.absoluteString.hasPrefix("https://git.example.net/api/v4/projects/web%2Facme-web/protected_branches?") == true)
+        #expect(listing.url?.absoluteString.contains("per_page=100") == true)
+        #expect(listing.httpMethod == "GET")
+        #expect(listing.value(forHTTPHeaderField: "PRIVATE-TOKEN") == "tok")
+    }
+
+    @Test func everyPageOfProtectedBranchesIsReadUntilAnEmptyOne() async throws {
+        let full = (1...100).map { "keep/\($0)" }
+        let (client, stub) = protectionClient(rules: { page in
+            switch page {
+            case 1: Self.rules(full)
+            case 2: Self.rules(["hotfix/*"])
+            default: Self.json("[]")
+            }
+        })
+        #expect(try await protection("hotfix/login", client) == .protected("GitLab protects hotfix/*"))
+        #expect(stub.requests.filter { $0.url?.absoluteString.contains("/projects/web%2Facme-web/protected_branches") == true }.count == 3)
     }
 
     /// What cannot be read is no answer: the caller pushes nothing.
@@ -172,11 +214,12 @@ import Testing
         await #expect(throws: GitLabError.unauthorized) {
             _ = try await self.makeClient { _ in (403, Data()) }.client.branchProtection(project: "web/acme-web", branch: "feat/x")
         }
-        let full = "[" + (1...100).map { #"{"id":\#($0),"name":"keep/\#($0)"}"# }.joined(separator: ",") + "]"
+        let full = Self.rules((1...100).map { "keep/\($0)" })
         await #expect(throws: ProtectionUnknown.tooManyRules(GitLabClient.protectedPages * 100)) {
-            _ = try await self.makeClient { _ in (200, Data(full.utf8)) }.client.branchProtection(project: "web/acme-web", branch: "feat/x")
+            _ = try await self.protectionClient(rules: { _ in full }).client.branchProtection(project: "web/acme-web", branch: "feat/x")
         }
     }
+
 
     // MARK: Beyond the recorded happy path — what must hold when GitLab answers oddly
 
@@ -244,60 +287,168 @@ import Testing
 
     // MARK: Protection fails closed
 
-    private func protectedList(_ names: [String]) -> Data {
-        Data(("[" + names.enumerated().map { #"{"id":\#($0.offset + 1),"name":"\#($0.element)"}"# }.joined(separator: ",") + "]").utf8)
+    @Test func aShortPageProvesNothingAboutThePagesAfterIt() async throws {
+        // A server that caps per_page at 20 (a proxy, a newer default): the covering rule is on page 3.
+        let names = (1...45).map { "keep/\($0)" } + ["hotfix/*"]
+        let (client, stub) = protectionClient(rules: Self.paged(names, size: 20))
+        #expect(try await protection("hotfix/login", client) == .protected("GitLab protects hotfix/*"))
+        #expect(stub.requests.filter { Self.page(of: $0) == 3 }.isEmpty == false)
+        let (none, _) = protectionClient(rules: Self.paged(names, size: 20))
+        #expect(try await protection("feat/x", none) == .unprotected)
+    }
+
+    @Test func aServerThatIgnoresThePageIsNotTakenForTheWholeList() async throws {
+        let (client, _) = protectionClient(rules: { _ in Self.rules(["a", "b", "c"]) })
+        await #expect(throws: ProtectionUnknown.tooManyRules(GitLabClient.protectedPages * 100)) { _ = try await self.protection("feat/x", client) }
     }
 
     @Test func anUnreadableRuleListIsNoAnswer() async throws {
-        for answer in [(200, "<html>sign in</html>"), (200, #"{"message":"ok"}"#), (200, #"[{"id":1}]"#), (200, #"[{"id":1,"name":null}]"#)] {
-            let (client, _) = makeClient { _ in (answer.0, Data(answer.1.utf8)) }
-            await #expect(throws: GitLabError.decoding, "\(answer.1)") {
-                _ = try await client.branchProtection(project: "web/acme-web", branch: "feat/x")
-            }
+        for answer in [("<html>sign in</html>", 200), (#"{"message":"ok"}"#, 200), (#"[{"id":1}]"#, 200), (#"[{"id":1,"name":null}]"#, 200)] {
+            let (client, _) = protectionClient(rules: { _ in Self.json(answer.0, status: answer.1) })
+            await #expect(throws: GitLabError.decoding, "\(answer.0)") { _ = try await self.protection("feat/x", client) }
         }
         for status in [401, 404, 500, 502] {
-            let (client, _) = makeClient { _ in (status, Data()) }
-            await #expect(throws: GitLabError.self, "HTTP \(status)") {
-                _ = try await client.branchProtection(project: "web/acme-web", branch: "feat/x")
-            }
+            let (client, _) = protectionClient(rules: { _ in Self.json("{}", status: status) })
+            await #expect(throws: GitLabError.self, "HTTP \(status)") { _ = try await self.protection("feat/x", client) }
         }
     }
 
     @Test func aLaterPageThatFailsIsNoAnswerEither() async throws {
-        let full = "[" + (1...100).map { #"{"id":\#($0),"name":"keep/\#($0)"}"# }.joined(separator: ",") + "]"
-        let (client, _) = makeClient { request in
-            request.url?.query?.contains("page=2") == true ? (500, Data()) : (200, Data(full.utf8))
-        }
-        await #expect(throws: GitLabError.badResponse(500)) {
-            _ = try await client.branchProtection(project: "web/acme-web", branch: "feat/x")
-        }
+        let full = Self.rules((1...100).map { "keep/\($0)" })
+        let (client, _) = protectionClient(rules: { page in page == 2 ? Self.json("{}", status: 500) : full })
+        await #expect(throws: GitLabError.badResponse(500)) { _ = try await self.protection("feat/x", client) }
     }
 
     @Test func aRuleAiTermCannotEvaluateIsNoAnswer() async throws {
-        let (client, _) = makeClient { _ in (200, self.protectedList(["keep/*", "v[z-a]*"])) }
-        await #expect(throws: ProtectionUnknown.unreadable("AiTerm cannot read the branch pattern v[z-a]*")) {
-            _ = try await client.branchProtection(project: "web/acme-web", branch: "feat/x")
-        }
+        let (client, _) = protectionClient(rules: { page in page == 1 ? Self.rules(["keep/*", "v[z-a]*"]) : Self.json("[]") })
+        await #expect(throws: ProtectionUnknown.unreadable("AiTerm cannot read the branch pattern v[z-a]*")) { _ = try await self.protection("feat/x", client) }
         // A rule that does cover the branch says so whatever else is in the list.
-        let (covered, _) = makeClient { _ in (200, self.protectedList(["v[z-a]*", "feat/*"])) }
-        #expect(try await covered.branchProtection(project: "web/acme-web", branch: "feat/x") == .protected("GitLab protects feat/*"))
+        let (covered, _) = protectionClient(rules: { page in page == 1 ? Self.rules(["v[z-a]*", "feat/*"]) : Self.json("[]") })
+        #expect(try await protection("feat/x", covered) == .protected("GitLab protects feat/*"))
     }
 
     @Test func protectionIsCaseSensitiveAndSpellingProof() async throws {
-        let (client, _) = makeClient { _ in (200, self.protectedList(["main", "Release/*"])) }
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "Main") == .unprotected, "GitLab compares names exactly")
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "release/1") == .unprotected)
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "Release/1") == .protected("GitLab protects Release/*"))
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "refs/heads/main") == .protected("GitLab protects it"))
-        await #expect(throws: ProtectionUnknown.self) { _ = try await client.branchProtection(project: "web/acme-web", branch: "") }
+        let (client, _) = protectionClient(rules: { page in page == 1 ? Self.rules(["main", "Release/*"]) : Self.json("[]") })
+        #expect(try await protection("Main", client) == .unprotected, "GitLab compares names exactly")
+        #expect(try await protection("release/1", client) == .unprotected)
+        #expect(try await protection("Release/1", client) == .protected("GitLab protects Release/*"))
+        #expect(try await protection("refs/heads/main", client) == .protected("GitLab protects it"))
+        await #expect(throws: ProtectionUnknown.self) { _ = try await self.protection("", client) }
     }
 
     @Test func aWildcardSpansSlashesAndOnlyAWildcardDoes() async throws {
-        let (client, _) = makeClient { _ in (200, self.protectedList(["release/*", "prod-*", "a.b"])) }
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "release/2026/10/rc") == .protected("GitLab protects release/*"))
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "prod-") == .protected("GitLab protects prod-*"))
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "axb") == .unprotected)
-        #expect(try await client.branchProtection(project: "web/acme-web", branch: "feat/release/1") == .unprotected)
+        let (client, _) = protectionClient(rules: { page in page == 1 ? Self.rules(["release/*", "prod-*", "a.b"]) : Self.json("[]") })
+        #expect(try await protection("release/2026/10/rc", client) == .protected("GitLab protects release/*"))
+        #expect(try await protection("prod-", client) == .protected("GitLab protects prod-*"))
+        #expect(try await protection("axb", client) == .unprotected)
+        #expect(try await protection("feat/release/1", client) == .unprotected)
+    }
+
+    // MARK: Group-level rules and the branch's own flag
+
+    @Test func theTopLevelGroupsRulesProtectABranchToo() async throws {
+        let (client, stub) = protectionClient(project: Self.json(Self.project(fullPath: "web/team/sub")),
+                                              group: Self.paged(["feat/*"], size: 100))
+        #expect(try await protection("feat/pluto-231", client) == .protected("GitLab group web protects feat/*"))
+        let asked = stub.requests.compactMap { $0.url?.absoluteString }.first { $0.contains("/api/v4/groups/") }
+        #expect(asked?.hasPrefix("https://git.example.net/api/v4/groups/web/protected_branches?") == true, "the root of web/team/sub")
+    }
+
+    @Test func aGroupWithNoRulesAnswers404AndProtectsNothing() async throws {
+        let (client, _) = protectionClient()
+        #expect(try await protection("feat/pluto-231", client) == .unprotected)
+        let (empty, _) = protectionClient(group: { _ in Self.json("[]") })
+        #expect(try await protection("feat/pluto-231", empty) == .unprotected)
+    }
+
+    @Test func groupRulesArePagedLikeTheProjectsAndCapped() async throws {
+        let names = (1...45).map { "keep/\($0)" } + ["hotfix/*"]
+        let (client, _) = protectionClient(group: Self.paged(names, size: 20))
+        #expect(try await protection("hotfix/login", client) == .protected("GitLab group web protects hotfix/*"))
+        let (endless, _) = protectionClient(group: { _ in Self.rules(["a"]) })
+        await #expect(throws: ProtectionUnknown.tooManyRules(GitLabClient.protectedPages * 100)) { _ = try await self.protection("feat/x", endless) }
+    }
+
+    @Test func aGroupListingThatFailsOtherThanWith404IsNoAnswer() async throws {
+        for status in [401, 403, 500, 502] {
+            let (client, _) = protectionClient(group: { _ in Self.json("{}", status: status) })
+            await #expect(throws: ProtectionUnknown.self, "HTTP \(status)") { _ = try await self.protection("feat/x", client) }
+        }
+        for body in ["<html>sign in</html>", #"{"message":"ok"}"#, #"[{"id":1}]"#] {
+            let (client, _) = protectionClient(group: { _ in Self.json(body) })
+            await #expect(throws: ProtectionUnknown.self, "\(body)") { _ = try await self.protection("feat/x", client) }
+        }
+        // A 404 after the first page is no "group without rules".
+        let full = Self.rules((1...100).map { "keep/\($0)" })
+        let (later, _) = protectionClient(group: { page in page == 1 ? full : Self.json("{}", status: 404) })
+        await #expect(throws: ProtectionUnknown.self) { _ = try await self.protection("feat/x", later) }
+        await #expect(throws: ProtectionUnknown.unreadable("AiTerm could not read the protected branches of the GitLab group web: Check your GitLab access token in Settings › Integrations")) {
+            _ = try await self.protection("feat/x", self.protectionClient(group: { _ in Self.json("{}", status: 403) }).client)
+        }
+    }
+
+    @Test func aProjectInAUsersNamespaceHasNoGroupToAsk() async throws {
+        let (client, stub) = protectionClient(project: Self.json(Self.project(kind: "user", fullPath: "laurens")),
+                                              group: { _ in Self.json("{}", status: 500) })
+        #expect(try await protection("feat/x", client) == .unprotected)
+        #expect(stub.requests.contains { $0.url?.absoluteString.contains("/api/v4/groups/") == true } == false)
+    }
+
+    @Test func aNamespaceGitLabDoesNotDescribeIsNoAnswer() async throws {
+        for body in [Self.project(kind: "project", fullPath: "web"), Self.project(kind: "group", fullPath: ""),
+                     #"{"id":42}"#, #"{"id":42,"namespace":{"kind":"group"}}"#] {
+            let (client, _) = protectionClient(project: Self.json(body))
+            await #expect(throws: ProtectionUnknown.self, "\(body)") { _ = try await self.protection("feat/x", client) }
+        }
+        for status in [401, 404, 500] {
+            let (client, _) = protectionClient(project: Self.json("{}", status: status))
+            await #expect(throws: GitLabError.self, "HTTP \(status)") { _ = try await self.protection("feat/x", client) }
+        }
+    }
+
+    @Test func aBranchGitLabAlreadyHasAndCallsProtectedIsProtected() async throws {
+        let (client, stub) = protectionClient(branch: Self.json(#"{"name":"feat/x","protected":true,"default":false,"commit":{"id":"\#(Self.head)"}}"#))
+        #expect(try await protection("feat/x", client) == .protected("GitLab protects it"))
+        let asked = stub.requests.compactMap { $0.url?.absoluteString }.first { $0.contains("/repository/branches/") }
+        #expect(asked == "https://git.example.net/api/v4/projects/web%2Facme-web/repository/branches/feat%2Fx", "the branch is one path segment")
+        let (open, _) = protectionClient(branch: Self.json(#"{"name":"feat/x","protected":false}"#))
+        #expect(try await protection("feat/x", open) == .unprotected)
+        let (notThere, _) = protectionClient(branch: Self.json("{}", status: 404))
+        #expect(try await protection("feat/x", notThere) == .unprotected, "a 404 is a branch GitLab does not have yet")
+    }
+
+    @Test func aBranchAnswerThatIsNotAnAnswerIsNoAnswer() async throws {
+        for answer in [Self.json("{}", status: 500), Self.json("{}", status: 403), Self.json("<html></html>"), Self.json(#"{"name":"feat/x"}"#)] {
+            let (client, _) = protectionClient(branch: answer)
+            await #expect(throws: (any Error).self, "\(answer.status) \(String(decoding: answer.body, as: UTF8.self))") { _ = try await self.protection("feat/x", client) }
+        }
+    }
+
+    @Test func anUnreadablePatternStillStopsABranchTheFlagWouldClear() async throws {
+        let (client, _) = protectionClient(rules: { page in page == 1 ? Self.rules(["v[z-a]*"]) : Self.json("[]") },
+                                           branch: Self.json(#"{"name":"feat/x","protected":false}"#))
+        await #expect(throws: ProtectionUnknown.self) { _ = try await self.protection("feat/x", client) }
+    }
+
+    // MARK: Open requests and pipelines
+
+    @Test func theOpenRequestCarriesItsTargetForTheCallerToCheck() async throws {
+        let toRelease = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""target_branch":"main""#, with: #""target_branch":"release/1.0""#)
+        let toMain = Self.status(detailed: "mergeable", pipeline: "success").replacingOccurrences(of: #""iid":12"#, with: #""iid":13"#)
+        let (client, _) = makeClient { _ in (200, Data("[\(toRelease),\(toMain)]".utf8)) }
+        let found = try #require(try await client.openMergeRequest(project: "web/acme-web", source: "feat/pluto-231-add-gift-card"))
+        #expect(found.iid == 12 && found.targetBranch == "release/1.0" && found.sourceBranch == "feat/pluto-231-add-gift-card")
+    }
+
+    @Test func aPipelineThatDidNotRunIsNotGreen() async throws {
+        let cases: [(pipeline: String, expected: MergeReadiness)] = [
+            ("manual", .blocked("the pipeline waits for a manual job")),
+            ("skipped", .blocked("the pipeline was skipped")),
+        ]
+        for item in cases {
+            let answer = Self.status(detailed: "mergeable", pipeline: item.pipeline)
+            let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
+            #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == item.expected, "\(item.pipeline)")
+        }
     }
 }
-
