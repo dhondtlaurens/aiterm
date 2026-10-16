@@ -29,13 +29,24 @@ extension OperatorToolHandler {
             return ["lastMessage": .string(text)]
         case "diff":
             guard task.hasCheckout else { throw ToolRefusal("\(key) hasn’t started: it has no worktree yet.") }
+            // The committed work mark_task accepts: from where the branch left its base to HEAD, so a base that
+            // moved on is not read back as the worker's changes; edits not yet committed are told apart.
             let git = ports.git, path = task.worktreePath, base = task.baseBranch
-            let (commits, diff) = try await BackgroundWork.run {
-                (try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", base], in: path))
+            let read: (commits: String, diff: String, uncommitted: String)
+            do {
+                read = try await BackgroundWork.run {
+                    (try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "\(base)...HEAD"], in: path),
+                     try git.run(["status", "--porcelain"], in: path))
+                }
+            } catch {
+                throw ToolRefusal("AiTerm couldn’t read \(key)’s branch against \(base.isEmpty ? "its base" : base).")
             }
-            return ["commits": .string(commits), "diff": .string(String(diff.prefix(Self.diffLimit))), "truncated": .bool(diff.count > Self.diffLimit)]
+            return ["commits": .string(read.commits), "diff": .string(String(read.diff.prefix(Self.diffLimit))),
+                    "truncated": .bool(read.diff.count > Self.diffLimit), "uncommitted": .string(read.uncommitted)]
         case "prompt":
-            guard let tab = workerTab(of: task), let daemon = daemon() else { return ["prompt": .null] }
+            guard let tab = workerTab(of: task) else { return ["prompt": .null, "note": "Its worker has no open tab right now."] }
+            // No helper is unknown, not "no prompt".
+            guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             return ["prompt": try await daemon.prompt(sessionId: tab.sessionId).map { .string($0.rawValue) } ?? .null]
         case let other:
             throw ToolRefusal("read_task reads lastMessage, diff or prompt, not \(other).")
@@ -48,8 +59,9 @@ extension OperatorToolHandler {
         let task = try self.task(call, in: run), text = try call.string("text")
         try acceptsWork(run)
         let operated = try notTakenOver(task)
-        guard ![.planned, .queued, .stopped].contains(operated.state) else {
-            throw ToolRefusal("\(operated.key) has no worker to message: it is \(operated.state.rawValue).")
+        // An ended task is left as it ended: more steering would move its branch past what was accepted.
+        guard [.working, .blocked].contains(operated.state) else {
+            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): there is no worker to steer.")
         }
         guard let tab = workerTab(of: task) else { throw ToolRefusal("\(operated.key)’s worker has no open tab right now.") }
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
@@ -61,15 +73,16 @@ extension OperatorToolHandler {
     /// The operator's outcome (spec §6, §8). Accepted needs the commit its branch is on, unmoved, and the
     /// worker's check output; the same outcome for the same commit returns what was recorded.
     func markTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
-        let task = try self.task(call, in: run)
+        let task = try self.task(call, in: run), outcome = try call.string("outcome")
+        // A repeat of what was recorded changes nothing, so it answers even while paused or taken over.
+        if let operated = task.operated, try await isRepeat(of: outcome, call, operated, in: task) { return Self.taskAnswer(task, created: false) }
         try acceptsWork(run)
-        let operated = try notTakenOver(task), outcome = try call.string("outcome")
+        let operated = try notTakenOver(task)
         let action: OperatedAction
         switch outcome {
         case "accepted":
             let given = try call.string("sha"), check = try call.string("checkOutput")
             let sha = try await commit(given, in: task)
-            if operated.state == .accepted, operated.acceptance?.resultSHA == sha { return Self.taskAnswer(task, created: false) }
             let tip = try await commit("refs/heads/" + task.branch, in: task)
             guard sha == tip else {
                 throw ToolRefusal("\(operated.key)’s branch is at \(tip.prefix(7)), not \(given): accept the commit its branch is on.")
@@ -79,11 +92,9 @@ extension OperatorToolHandler {
             action = .accept(TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now()), branchHead: tip)
         case "noChange":
-            if operated.state == .noChange { return Self.taskAnswer(task, created: false) }
             action = .noChange(note: call.optionalString("note"))
         case "blocked", "failed":
             let reason = try call.string("note")
-            if operated.state.rawValue == outcome, operated.blockedReason == reason { return Self.taskAnswer(task, created: false) }
             action = outcome == "blocked" ? .block(reason: reason) : .fail(reason: reason)
         default:
             throw ToolRefusal("mark_task’s outcome is accepted, noChange, blocked or failed.")
@@ -92,6 +103,18 @@ extension OperatorToolHandler {
         let marked = state.task(id: task.id) ?? task
         if outcome == "blocked" { notifier.taskBlocked(marked, reason: call.optionalString("note") ?? "", in: run) }
         return Self.taskAnswer(marked, created: false)
+    }
+
+    /// Whether `outcome` is what the task already records: the same commit accepted, no change, or the same reason.
+    private func isRepeat(of outcome: String, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
+        switch outcome {
+        case "accepted":
+            guard operated.state == .accepted, let given = call.optionalString("sha") else { return false }
+            return operated.acceptance?.resultSHA == (try await commit(given, in: task))
+        case "noChange": return operated.state == .noChange
+        case "blocked", "failed": return operated.state.rawValue == outcome && operated.blockedReason == call.optionalString("note")
+        default: return false
+        }
     }
 
     /// `blocked` → `working`, once the reason is resolved; a working task answers as it is.

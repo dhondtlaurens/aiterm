@@ -38,6 +38,36 @@ import Testing
         #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["lastMessage"] == "Which locale?")
     }
 
+    @Test func theDiffIsTheCommittedWorkSinceTheBaseWentOnAndUncommittedEditsAreToldApart() async throws {
+        let (world, run, task) = try makeWorld()
+        let project = try #require(world.state.project(id: task.projectId))
+        try commit("login.swift", in: task.worktreePath)
+        try commit("moved-on.swift", in: project.path)
+        try "draft\n".write(toFile: task.worktreePath + "/draft.swift", atomically: true, encoding: .utf8)
+        let diff = try #require(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value)
+        #expect(diff["diff"]?.stringValue?.contains("login.swift") == true)
+        #expect(diff["diff"]?.stringValue?.contains("moved-on.swift") == false && diff["commits"]?.stringValue?.contains("moved-on") == false)
+        #expect(diff["diff"]?.stringValue?.contains("draft.swift") == false)
+        #expect(diff["uncommitted"]?.stringValue?.contains("draft.swift") == true)
+        try FileManager.default.removeItem(atPath: task.worktreePath + "/draft.swift")
+        #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).value?["uncommitted"] == "")
+    }
+
+    @Test func aBranchGitCannotReadIsRefusedInAiTermsWords() async throws {
+        let (world, run, task) = try makeWorld()
+        world.workspace.mutate { state in if let i = state.tasks.firstIndex(where: { $0.id == task.id }) { state.tasks[i].baseBranch = "no-such-base" } }
+        #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "diff"]).message
+                == "AiTerm couldn’t read PLUTO-1’s branch against no-such-base.")
+    }
+
+    @Test func readingThePromptWithNoHelperIsRefusedNotAnsweredAsNoPrompt() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .needsInput)])
+        world.link.attached = false
+        #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "prompt"]).message
+                == "AiTerm’s helper isn’t connected; try again in a moment.")
+    }
+
     @Test func readTaskShowsWhatTheBranchAddsAndTheOpenPrompt() async throws {
         let (world, run, task) = try makeWorld()
         try commit("login.swift", in: task.worktreePath)
@@ -103,6 +133,53 @@ import Testing
         #expect(world.task(task.id)?.operated?.acceptance?.resultSHA == tip)
     }
 
+    @Test func aRepeatedAcceptAnswersWhileThePersonHasPausedTheOperation() async throws {
+        let (world, run, task) = try makeWorld()
+        let tip = try commit("a.swift", in: task.worktreePath)
+        let accepted = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused; $0.intent = .paused } }
+        #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"]) == accepted)
+        #expect(world.task(task.id)?.operated?.state == .accepted)
+    }
+
+    @Test func anEndedTaskIsNotMessaged() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
+        let tip = try commit("a.swift", in: task.worktreePath)
+        _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "accepted", "sha": .string(tip), "checkOutput": "ok"])
+        #expect(await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "One more thing."]).message
+                == "PLUTO-1 is accepted: there is no worker to steer.")
+        #expect(world.daemon.requests("session.deliver").isEmpty)
+    }
+
+    @Test func aBlockedTaskNotifiesYouOnceAndARepeatOfTheSameReasonDoesNot() async throws {
+        let (world, run, task) = try makeWorld(autonomy: .routine)
+        let blocked: JSONValue = ["task": "PLUTO-1", "outcome": "blocked", "note": "Needs a decision."]
+        _ = await world.call(run.id, "mark_task", blocked)
+        #expect(world.notifications.posted.map(\.id) == ["blocked-\(task.id.uuidString)"])
+        _ = await world.call(run.id, "mark_task", blocked)
+        #expect(world.notifications.posted.count == 1)
+    }
+
+    @Test func aFailedTaskRepeatedWithTheSameReasonChangesAndNotifiesNothing() async throws {
+        let (world, run, task) = try makeWorld(autonomy: .routine)
+        let failed: JSONValue = ["task": "PLUTO-1", "outcome": "failed", "note": "The build broke."]
+        let first = await world.call(run.id, "mark_task", failed)
+        let before = world.task(task.id)
+        #expect(await world.call(run.id, "mark_task", failed) == first)
+        #expect(world.task(task.id) == before && world.notifications.posted.isEmpty)
+    }
+
+    @Test func resumeAndRetryAreRefusedForATaskThePersonTookOver() async throws {
+        let (world, run, task) = try makeWorld()
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.takenOver = true; $0.state = .blocked } }
+        let refusal = "The person took over PLUTO-1. Leave it until they hand it back."
+        #expect(await world.call(run.id, "resume_task", ["task": "PLUTO-1"]).message == refusal)
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .failed } }
+        #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).message == refusal)
+        #expect(world.task(task.id)?.operated?.state == .failed)
+    }
+
     @Test func aReplyBeyondTheTranscriptsTailIsUnknownNotSilence() async throws {
         let (world, run, task) = try makeWorld()
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done, conversation: "conv-missing")])
@@ -124,11 +201,12 @@ import Testing
     @Test func aFailedTaskIsRetriedWhileRetriesAreLeftAndABlockedOneResumes() async throws {
         let (world, run, task) = try makeWorld(retries: 1)
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "failed", "note": "The build broke."])
-        #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value?["state"] != nil)
+        #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value?["state"] == "queued")
         // Queued again, AiTerm starts it again at once.
         await world.controller.lastStart?.value
         let afterRetry = try #require(world.task(task.id)?.operated)
-        #expect(afterRetry.retriesUsed == 1 && afterRetry.state != .failed)
+        #expect(afterRetry.retriesUsed == 1 && [.queued, .working].contains(afterRetry.state))
+        #expect(afterRetry.lastFailure == "The build broke.")
         world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .failed } }
         #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).message
                 == "PLUTO-1 has used its 1 retry. Ask the person with ask_you how to go on.")
