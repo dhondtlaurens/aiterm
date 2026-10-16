@@ -3,7 +3,9 @@ reading off its screen whether a prompt is open that typed text could answer."""
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -13,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from .iterm_bridge import ItermPort, ItermUnavailable
 from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
+from .offload import run_detached
 from .sessions import SessionRegistry
 
 if TYPE_CHECKING:  # keystrokes imports this module's TYPING_QUIET
@@ -145,6 +148,31 @@ def pasteable(text: str) -> str:
     return _UNPASTEABLE.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
 
 
+def write_message_file(worktree: str, text: str) -> str:
+    """Leaves `text` in the worktree's next `.aiterm/messages/<n>.md` and returns the one line that
+    tells the agent to read it (spec §7.1, the message-file fallback): one known string, so the
+    delivery check tests exactly what is typed. The folder keeps itself out of git with its own
+    `.gitignore`, as `.aiterm/first-prompt.md` is kept out. Numbered on from the highest there, each
+    made exclusively, so two tabs of one worktree cannot take the same number. ValueError for a
+    worktree that is not a folder; OSError for one that cannot be written."""
+    if not os.path.isabs(worktree) or not os.path.isdir(worktree):
+        raise ValueError(f"the worktree {worktree} is not a folder")
+    folder = Path(worktree) / ".aiterm" / "messages"
+    folder.mkdir(parents=True, exist_ok=True)
+    ignore = folder / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("*\n", encoding="utf-8")
+    number = max((int(path.stem) for path in folder.glob("*.md") if path.stem.isdigit()), default=0)
+    while True:
+        number += 1
+        try:
+            with open(folder / f"{number}.md", "x", encoding="utf-8") as f:
+                f.write(text)
+        except FileExistsError:
+            continue
+        return f"Read .aiterm/messages/{number}.md and act on it."
+
+
 @dataclass(frozen=True, slots=True)
 class DeliveryResult:
     """`delivered`: pasted and entered. `partial`: pasted, and the Enter held back -- the text waits
@@ -219,6 +247,21 @@ class Deliverer:
         session, policy = ready
         if not (body := pasteable(text)).strip():
             return _refused("there is nothing to deliver")
+        if len(body) > MESSAGE_FILE_THRESHOLD:
+            if worktree is None:
+                return _refused("the message is too long to paste and has no worktree to be left in")
+            try:
+                # Another repository's disk: written on a worker thread, as the tick reads one.
+                body = await run_detached(functools.partial(write_message_file, worktree, body))
+            except ValueError as exc:
+                return _refused(str(exc))
+            except OSError as exc:
+                return _refused(f"the message file could not be written: {exc}")
+            # The write took a worker thread's while: everything checked before it is checked again,
+            # right before the paste. A refusal now leaves the file behind, unread and out of git.
+            if isinstance(again := await self._check(session_id, ownership, wake, process=session), str):
+                return _refused(again)
+            session, policy = again  # a verdict that changed to paste-only meanwhile keeps the Enter back
         try:
             await self.iterm.send_text(session_id, PASTE_START + body + PASTE_END)
         except KeyError:
@@ -236,13 +279,17 @@ class Deliverer:
             return _partial(f"the Enter could not be sent ({exc}); the text waits unsent in the input")
         return DeliveryResult("delivered")
 
-    async def _check(self, session_id: str, ownership: int, wake: bool) -> tuple[SessionInfo, DeliveryPolicy] | str:
+    async def _check(self, session_id: str, ownership: int, wake: bool, *,
+                     process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | str:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
-        typed into."""
+        typed into. Made before anything is typed, and again right before the paste when a message
+        file was written in between, `process` then the session as the first check found it."""
         if self._ownership.get(session_id) != ownership:
             return "the task changed hands after this message was written"
         if not self.iterm.is_connected():
             return "iTerm2 is not connected"
+        if process is not None and (why := self._replaced(process)) is not None:
+            return why
         if (session := self.registry.get(session_id)) is None:
             return "the session has closed"
         policy, version = self.policy().get(session.agent, NOT_CHECKED)

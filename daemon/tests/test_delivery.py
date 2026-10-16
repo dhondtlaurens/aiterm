@@ -473,3 +473,89 @@ async def test_a_closed_session_forgets_its_generation(rig):
     rig.deliverer.set_ownership(rig.sid, 7)
     rig.deliverer.forget_session(rig.sid)
     assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+
+
+async def test_a_long_message_is_left_in_a_file_and_one_fixed_line_typed(rig, tmp_path):
+    text = "Step.\n" * 400  # 2400 characters, past MESSAGE_FILE_THRESHOLD
+    result = await rig.deliverer.deliver(rig.sid, text, 1, worktree=str(tmp_path))
+    assert result.result == "delivered"
+    assert rig.iterm.sent == [(rig.sid, pasted("Read .aiterm/messages/1.md and act on it.")), (rig.sid, "\r")]
+    messages = tmp_path / ".aiterm" / "messages"
+    assert (messages / "1.md").read_text(encoding="utf-8") == text
+    assert (messages / ".gitignore").read_text(encoding="utf-8") == "*\n", "the folder keeps itself out of git"
+
+
+async def test_message_files_are_numbered_on_from_the_highest(rig, tmp_path):
+    messages = tmp_path / ".aiterm" / "messages"
+    messages.mkdir(parents=True)
+    (messages / "7.md").write_text("earlier", encoding="utf-8")
+    (messages / "notes.md").write_text("not a message", encoding="utf-8")
+    await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, worktree=str(tmp_path))
+    assert rig.iterm.sent[0] == (rig.sid, pasted("Read .aiterm/messages/8.md and act on it."))
+    assert (messages / "8.md").read_text(encoding="utf-8") == "x" * 2001
+    assert (messages / "7.md").read_text(encoding="utf-8") == "earlier"
+
+
+async def test_a_message_at_the_threshold_is_still_pasted(rig, tmp_path):
+    text = "x" * delivery.MESSAGE_FILE_THRESHOLD
+    await rig.deliverer.deliver(rig.sid, text, 1, worktree=str(tmp_path))
+    assert rig.iterm.sent[0] == (rig.sid, pasted(text))
+    assert not (tmp_path / ".aiterm").exists()
+
+
+@pytest.mark.parametrize("worktree,reason", [
+    (None, "the message is too long to paste and has no worktree to be left in"),
+    ("relative/wt", "the worktree relative/wt is not a folder"),
+    ("/nowhere/at/all", "the worktree /nowhere/at/all is not a folder"),
+])
+async def test_a_long_message_with_nowhere_to_go_is_refused(rig, worktree, reason):
+    assert await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, worktree=worktree) == DeliveryResult("refused", reason)
+    assert rig.iterm.sent == []
+
+
+def test_two_writers_never_take_the_same_number(tmp_path):
+    lines = {delivery.write_message_file(str(tmp_path), f"message {i}") for i in range(5)}
+    assert lines == {f"Read .aiterm/messages/{n}.md and act on it." for n in range(1, 6)}
+
+
+def _another_process(rig):
+    tab = rig.iterm.sessions[rig.sid]
+    tab.job_pid = 4343
+    rig.registry.apply_snapshot([tab])
+
+
+@pytest.mark.parametrize("change,wake,reason", [
+    (lambda rig: rig.deliverer.set_ownership(rig.sid, 2), False, "the task changed hands after this message was written"),
+    (lambda rig: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION), False, "a permission prompt is open"),
+    (lambda rig: rig.registry.apply_snapshot([]), False, "the session has closed"),
+    (_another_process, False, "another process now runs in the session"),
+    (lambda rig: rig.policy.__setitem__("claude", ("auto", "2.1.300")), False, "claude 2.1.301 has not passed the delivery check"),
+    (lambda rig: rig.guard.note_key(rig.sid, rig.clock.now, "a"), True, "you are typing"),
+])
+async def test_what_changed_while_the_message_file_was_written_is_checked_again_before_the_paste(
+        rig, tmp_path, monkeypatch, change, wake, reason):
+    write = delivery.write_message_file
+
+    def write_then_change(worktree, text):
+        line = write(worktree, text)
+        change(rig)
+        return line
+
+    monkeypatch.setattr(delivery, "write_message_file", write_then_change)
+    result = await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, wake=wake, worktree=str(tmp_path))
+    assert result == DeliveryResult("refused", reason)
+    assert rig.iterm.sent == []
+
+
+async def test_a_verdict_that_became_paste_only_while_the_file_was_written_keeps_the_enter_back(rig, tmp_path, monkeypatch):
+    write = delivery.write_message_file
+
+    def write_then_downgrade(worktree, text):
+        line = write(worktree, text)
+        rig.policy["claude"] = ("pasteOnly", "2.1.301")
+        return line
+
+    monkeypatch.setattr(delivery, "write_message_file", write_then_downgrade)
+    result = await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, worktree=str(tmp_path))
+    assert result.result == "partial"
+    assert rig.iterm.sent == [(rig.sid, pasted("Read .aiterm/messages/1.md and act on it."))]
