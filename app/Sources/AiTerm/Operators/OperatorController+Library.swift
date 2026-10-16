@@ -23,6 +23,13 @@ extension OperatorController {
         reloadOperators()
     }
 
+    /// A new operator's file: refused if one by that name is there by now, so Create never replaces
+    /// another operator. `saveOperator` is for one that exists — Edit Operator….
+    func createOperator(_ persona: OperatorPersona) throws {
+        try ports.library.create(persona)
+        reloadOperators()
+    }
+
     func trashOperator(handle: String) throws {
         try ports.library.trash(handle: handle)
         reloadOperators()

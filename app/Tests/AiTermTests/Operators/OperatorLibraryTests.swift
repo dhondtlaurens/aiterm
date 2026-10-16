@@ -24,6 +24,32 @@ import Testing
         #expect(world.controller.operators.map(\.handle) == ["senior"])
     }
 
+    @Test func aNewOperatorNeverReplacesAFileThatAppearedWhileItsSheetWasOpen() throws {
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
+        let library = world.ports.library, controller = world.controller
+        var saved: [OperatorPersona] = []
+        // Wired as `AppController.presentNewOperator` wires it.
+        let sheet = OperatorSheetModel(editing: nil, claudeModels: [OperatorSheetModelTests.opus], codexModels: [OperatorSheetModelTests.astra],
+                                       takenHandles: { library.takenHandles() }) {
+            try controller.createOperator($0)
+            saved.append($0)
+        }
+        sheet.name = "Senior engineer"
+        try FileManager.default.createDirectory(at: library.directory, withIntermediateDirectories: true)
+        let theirs = Data("somebody's operator, not parseable".utf8)
+        try theirs.write(to: library.url(for: "senior-engineer"))
+        #expect(sheet.commit())
+        #expect(saved.first?.handle == "senior-engineer-2")
+        #expect(try Data(contentsOf: library.url(for: "senior-engineer")) == theirs, "the file that was there is untouched")
+        #expect(controller.operators.map(\.handle) == ["senior-engineer-2"])
+
+        // And the race inside Create itself — a name taken between asking and writing — is refused, said so.
+        var raced = saved[0]
+        raced.name = "Again"
+        #expect(throws: OperatorLibrary.Failure.alreadyExists("senior-engineer-2")) { try controller.createOperator(raced) }
+        #expect(controller.operators.first?.name == "Senior engineer")
+    }
+
     @Test func operatorsAlreadyInTheFolderAreListedWhenTheControllerStarts() throws {
         let ports = OperatorPorts.scratch()
         try ports.library.save(OperatorServiceFixtures.persona())

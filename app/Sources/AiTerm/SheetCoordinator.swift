@@ -136,7 +136,7 @@ final class SheetCoordinator {
 
     /// The operator sheet — for a new operator (`editing` nil) or one to edit — opened once Claude's and
     /// Codex's model lists are read off the main actor, as New Task's draft is. Not over another sheet.
-    func presentOperatorSheet(editing: OperatorPersona?, takenHandles: Set<String>,
+    func presentOperatorSheet(editing: OperatorPersona?, takenHandles: @escaping @MainActor () -> Set<String>,
                               save: @escaping @MainActor (OperatorPersona) throws -> Void) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()

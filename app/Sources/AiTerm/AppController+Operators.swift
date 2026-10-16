@@ -49,11 +49,13 @@ extension AppController {
     }
 
     /// The names taken are the library's own count — the files in its folder, an unreadable one too —
-    /// so a new operator's file, named as `uniqueHandle` would name it, never lands on one.
+    /// asked again when Create is pressed, so a new operator's file, named as `uniqueHandle` would name
+    /// it, never lands on one, and `createOperator` refuses it if one lands there in between. An edit
+    /// writes its own file.
     private func presentOperatorSheet(editing persona: OperatorPersona?) {
         let controller = operatorController
-        sheets.presentOperatorSheet(editing: persona, takenHandles: controller.ports.library.takenHandles()) {
-            try controller.saveOperator($0)
+        sheets.presentOperatorSheet(editing: persona, takenHandles: { controller.ports.library.takenHandles() }) {
+            if persona == nil { try controller.createOperator($0) } else { try controller.saveOperator($0) }
         }
     }
 }

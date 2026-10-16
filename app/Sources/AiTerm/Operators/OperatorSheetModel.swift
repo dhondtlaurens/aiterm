@@ -21,18 +21,34 @@ enum PersonaText {
     }
 
     /// The persona above a `## Lessons` line, and the bullets below it; without that line, all of it is
-    /// the persona.
+    /// the persona. Nothing typed is dropped: a line that follows a bullet (no blank line between) goes
+    /// on that lesson, and any other text under the heading — a note before the first bullet, a
+    /// paragraph after a blank line — stays with the persona, after what was above the heading.
     static func split(_ text: String) -> (persona: String, lessons: [String]) {
         let lines = text.components(separatedBy: "\n")
         guard let heading = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == lessonsHeading }) else {
             return (text.trimmingCharacters(in: .whitespacesAndNewlines), [])
         }
-        let persona = lines[..<heading].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        let lessons = lines[(heading + 1)...].map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.hasPrefix("- ") }
-            .map { String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        return (persona, lessons)
+        var lessons: [String] = [], strays: [String] = []
+        var continuing = false
+        for raw in lines[(heading + 1)...] {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty {
+                continuing = false
+                if let last = strays.last, !last.isEmpty { strays.append("") }
+            } else if line.hasPrefix("- ") {
+                let lesson = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                continuing = !lesson.isEmpty
+                if continuing { lessons.append(lesson) }
+            } else if continuing {
+                lessons[lessons.count - 1] += " " + line
+            } else {
+                strays.append(line)
+            }
+        }
+        let above = lines[..<heading].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rest = strays.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (rest.isEmpty ? above : above.isEmpty ? rest : above + "\n\n" + rest, lessons)
     }
 }
 
@@ -60,7 +76,9 @@ final class OperatorSheetModel: Identifiable {
     /// Why the last save was refused, in the footer.
     var error: String? = nil
 
-    @ObservationIgnored private let takenHandles: Set<String>
+    /// The names taken, asked when a new operator is saved, not when the sheet opened: a file that
+    /// appeared since is not reused.
+    @ObservationIgnored private let takenHandles: @MainActor () -> Set<String>
     @ObservationIgnored private let save: @MainActor (OperatorPersona) throws -> Void
 
     static let subtitle = "Who it is and how it works. What to do comes with each operation."
@@ -68,7 +86,8 @@ final class OperatorSheetModel: Identifiable {
     /// The lead's default, then Codex's for a second opinion from another family (spec §4.4).
     static let defaultModel = "claude-opus-5-5", defaultSecondOpinion = "gpt-6-astra"
 
-    init(editing: OperatorPersona?, claudeModels: [AgentModel], codexModels: [AgentModel], takenHandles: Set<String>,
+    init(editing: OperatorPersona?, claudeModels: [AgentModel], codexModels: [AgentModel],
+         takenHandles: @escaping @MainActor () -> Set<String>,
          save: @escaping @MainActor (OperatorPersona) throws -> Void) {
         self.editing = editing
         self.takenHandles = takenHandles
@@ -140,7 +159,7 @@ final class OperatorSheetModel: Identifiable {
     func persona() -> OperatorPersona {
         let text = PersonaText.split(personaText)
         return OperatorPersona(
-            name: trimmedName, handle: editing?.handle ?? Self.handle(for: trimmedName, taken: takenHandles),
+            name: trimmedName, handle: editing?.handle ?? Self.handle(for: trimmedName, taken: takenHandles()),
             model: model, effort: efforts.isEmpty ? nil : effort,
             secondOpinion: SecondOpinion(level: level, agent: secondOpinion.agent, model: secondOpinion.model.id,
                                          effort: secondOpinionEfforts.isEmpty ? nil : secondOpinionEffort),

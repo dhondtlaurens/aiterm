@@ -122,4 +122,28 @@ import Foundation
         #expect(library.uniqueHandle(for: "senior engineer") == "senior-engineer-3")
         #expect(library.uniqueHandle(for: "Senior Engineer", excluding: "senior-engineer") == "senior-engineer")
     }
+
+    @Test func creatingRefusesAFileThatIsAlreadyThereAndLeavesItAlone() throws {
+        let (library, root, _) = scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try library.create(persona("Senior", "senior"))
+        #expect(library.load().operators.map(\.handle) == ["senior"], "a free name is written, the folder made")
+
+        var other = persona("Someone else", "senior")
+        other.persona = "Not the same."
+        let before = try Data(contentsOf: library.url(for: "senior"))
+        #expect(throws: OperatorLibrary.Failure.alreadyExists("senior")) { try library.create(other) }
+        #expect(try Data(contentsOf: library.url(for: "senior")) == before)
+
+        // Not an operator at all — still somebody's file.
+        try Data("my notes".utf8).write(to: library.url(for: "notes"))
+        #expect(throws: OperatorLibrary.Failure.alreadyExists("notes")) { try library.create(persona("Notes", "notes")) }
+        #expect(try String(contentsOf: library.url(for: "notes"), encoding: .utf8) == "my notes")
+        #expect(throws: OperatorLibrary.Failure.invalidHandle("Bad Name")) { try library.create(persona("Bad", "Bad Name")) }
+
+        // Saving is how an existing operator is edited.
+        other.name = "Edited"
+        try library.save(other)
+        #expect(library.load().operators.first { $0.handle == "senior" }?.name == "Edited")
+    }
 }

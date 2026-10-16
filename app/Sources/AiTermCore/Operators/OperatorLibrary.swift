@@ -26,10 +26,12 @@ public struct OperatorLibrary: Sendable {
     public enum Failure: Error, Equatable, CustomStringConvertible {
         case invalidHandle(String)
         case notFound(String)
+        case alreadyExists(String)
         public var description: String {
             switch self {
             case .invalidHandle(let h): return "“\(h)” can't name an operator file."
             case .notFound(let h): return "There's no operator “\(h)”."
+            case .alreadyExists(let h): return "There's already an operator file “\(h)”."
             }
         }
     }
@@ -104,6 +106,23 @@ public struct OperatorLibrary: Sendable {
         guard Self.isValidHandle(persona.handle) else { throw Failure.invalidHandle(persona.handle) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(OperatorFile.render(persona).utf8).write(to: url(for: persona.handle), options: .atomic)
+    }
+
+    /// Writes a new operator's file and refuses, rather than replaces, one that is already there —
+    /// whatever it holds, readable or not — so a name taken since the handle was chosen never costs
+    /// another operator its persona and lessons. Written whole to a file of its own and then linked to
+    /// its name, which the file system refuses if the name exists: no half-written operator, and no
+    /// window between the check and the write.
+    public func create(_ persona: OperatorPersona) throws {
+        guard Self.isValidHandle(persona.handle) else { throw Failure.invalidHandle(persona.handle) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let staging = directory.appendingPathComponent(".\(persona.handle).\(UUID().uuidString).tmp")
+        try Data(OperatorFile.render(persona).utf8).write(to: staging)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        guard link(staging.path, url(for: persona.handle).path) == 0 else {
+            if errno == EEXIST { throw Failure.alreadyExists(persona.handle) }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
     }
 
     /// Moves the operator's file to the Trash and says where it went. Operations already running

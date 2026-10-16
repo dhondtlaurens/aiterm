@@ -15,7 +15,7 @@ struct OperatorSheetModelTests {
     private func model(editing: OperatorPersona? = nil, taken: Set<String> = [],
                        save: @escaping @MainActor (OperatorPersona) throws -> Void = { _ in }) -> OperatorSheetModel {
         OperatorSheetModel(editing: editing, claudeModels: [Self.sonnet, Self.opus], codexModels: [Self.astra],
-                           takenHandles: taken, save: save)
+                           takenHandles: { taken }, save: save)
     }
 
     @Test func aNewOperatorOpensOnTheDesignsDefaults() {
@@ -131,6 +131,47 @@ struct OperatorSheetModelTests {
         #expect(OperatorSheetModel.handle(for: "Café — Ops!", taken: []) == "cafe-ops")
         #expect(OperatorSheetModel.handle(for: long, taken: []).count <= 48)
         #expect(OperatorSheetModel.handle(for: "senior engineer", taken: taken) == "senior-engineer-3")
+    }
+
+    @Test func aNameTakenWhileTheSheetIsOpenIsNotReused() throws {
+        var taken: Set<String> = []
+        var saved: [OperatorPersona] = []
+        let sheet = OperatorSheetModel(editing: nil, claudeModels: [Self.opus], codexModels: [Self.astra],
+                                       takenHandles: { taken }, save: { saved.append($0) })
+        sheet.name = "Senior engineer"
+        taken = ["senior-engineer"]    // a file by that name appears after the sheet opened
+        #expect(sheet.commit())
+        #expect(saved.first?.handle == "senior-engineer-2", "asked at Create, not when the sheet opened")
+    }
+
+    @Test func anEditedOperatorKeepsItsHandleWhateverIsTaken() throws {
+        var saved: OperatorPersona?
+        let sheet = model(editing: OperatorUIFixtures.persona("Senior engineer", handle: "senior"), taken: ["senior", "senior-engineer"]) { saved = $0 }
+        sheet.name = "Staff engineer"
+        #expect(sheet.commit())
+        #expect(saved?.handle == "senior")
+    }
+
+    @Test func textUnderTheLessonsHeadingThatIsNotABulletIsKept() {
+        // A wrapped line goes on its lesson; a note before the first bullet and a paragraph after a blank
+        // line stay with the persona.
+        let text = "Be brief.\n\n## Lessons\n\nA note nobody bulleted.\n\n- One,\n  wrapped.\n- Two.\n\nA closing remark."
+        let split = PersonaText.split(text)
+        #expect(split.lessons == ["One, wrapped.", "Two."])
+        #expect(split.persona == "Be brief.\n\nA note nobody bulleted.\n\nA closing remark.")
+        let again = PersonaText.split(PersonaText.join(persona: split.persona, lessons: split.lessons))
+        #expect(again == split, "a save and a reopen lose nothing more")
+    }
+
+    @Test func aSavedOperatorKeepsEveryLineTheEditorHeld() throws {
+        var saved: OperatorPersona?
+        let sheet = model { saved = $0 }
+        sheet.name = "Senior engineer"
+        sheet.personaText = "Be brief.\n\n## Lessons\n\nRemember this.\n- Ask first.\n* Not a bullet we know."
+        #expect(sheet.commit())
+        let persona = try #require(saved)
+        #expect(persona.lessons == ["Ask first. * Not a bullet we know."])
+        #expect(persona.persona == "Be brief.\n\nRemember this.")
     }
 
     @Test func aTakenHandleIsComparedWithoutCase() {
