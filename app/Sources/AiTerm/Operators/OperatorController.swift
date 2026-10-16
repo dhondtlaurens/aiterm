@@ -185,7 +185,10 @@ final class OperatorController {
             try OperatorCommand.prepare(run: run, projects: projects, home: home, milestone: milestone)
         }
         // The workspace may have been locked while the folder was written.
-        guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting an operation.") }
+        guard workspace.canChangeWorkspace else {
+            await discardToken(in: prepared.folder)
+            throw ActionUnavailable("Save or recover the workspace before starting an operation.")
+        }
         workspace.mutate { $0.runs.append(run) }
         // From here a failure takes the run out again: no row without a window, no token left behind.
         var registered = false
@@ -201,6 +204,7 @@ final class OperatorController {
             workspace.mutate { $0.runs.removeAll { $0.id == run.id } }
             _ = workspace.flush()
             waker.forget(run.id)
+            await discardToken(in: prepared.folder)
             if registered {
                 await Log.daemon.attempt("Revoking the token of operation \(run.id.uuidString) that did not start") {
                     try await daemon.revokeOperator(runId: run.id.uuidString)
@@ -209,6 +213,15 @@ final class OperatorController {
             throw error
         }
         return run.id
+    }
+
+    /// A start that failed: the token file it wrote goes, a secret the daemon would adopt again after a restart.
+    /// The brief and the MCP file stay. Best effort, logged when it fails.
+    private func discardToken(in folder: URL) async {
+        let file = folder.appendingPathComponent(OperatorCommand.tokenFile)
+        await Log.workspace.attempt("Removing the token file of an operation that did not start") {
+            try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
+        }
     }
 
     // -- the helper -------------------------------------------------------------------------

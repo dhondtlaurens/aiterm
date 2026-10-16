@@ -154,6 +154,14 @@ import Testing
         }
     }
 
+    /// The folder a failed start wrote: its token file is gone, its brief stays.
+    private func expectTokenDiscarded(_ world: OperatorWorld) throws {
+        let parent = OperatorCommand.runFolder(UUID(), home: world.ports.home).deletingLastPathComponent()
+        let folder = try #require(try FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil).first)
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent(OperatorCommand.tokenFile).path))
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent(OperatorCommand.briefFile).path))
+    }
+
     private func expectNoRun(_ world: OperatorWorld) throws {
         #expect(world.state.runs.isEmpty)
         #expect(try world.workspace.file.load().runs.isEmpty)
@@ -168,6 +176,7 @@ import Testing
         await startFailing(world)
         #expect(world.state.runs.isEmpty)
         #expect(world.daemon.requests("operator.register").isEmpty && world.daemon.requests("window.createTask").isEmpty)
+        try expectTokenDiscarded(world)
     }
 
     @Test func aFailingRegisterTakesTheRunBackOutAndOpensNoWindow() async throws {
@@ -176,6 +185,7 @@ import Testing
         await startFailing(world)
         try expectNoRun(world)
         #expect(world.daemon.requests("window.createTask").isEmpty)
+        try expectTokenDiscarded(world)
     }
 
     @Test func aFailingWindowTakesTheRunBackOutAndRevokesItsToken() async throws {
@@ -183,6 +193,7 @@ import Testing
                                       daemon: RecordingDaemon(failing: ["window.createTask": "temporary_failure"]))
         await startFailing(world)
         try expectNoRun(world)
+        try expectTokenDiscarded(world)
         let registered = try #require(world.daemon.requests("operator.register").first?.params["runId"] as? String)
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [registered])
     }
