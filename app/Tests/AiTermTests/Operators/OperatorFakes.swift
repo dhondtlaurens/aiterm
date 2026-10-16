@@ -72,3 +72,69 @@ final class StepClock {
     private(set) var now = Date(timeIntervalSince1970: 1_000_000)
     func advance(by seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
 }
+
+extension OperatorPorts {
+    /// Ports that reach nothing real: a fresh temporary folder as the home — run folders, operator files
+    /// and the agents' conversations all under it — a Trash that deletes, notifications recorded,
+    /// hermetic git, wake lines with no wait.
+    @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
+                                   git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operators-\(UUID().uuidString)")
+        let library = OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home),
+                                      trasher: { url in try FileManager.default.removeItem(at: url); return nil })
+        return OperatorPorts(home: home, git: git, library: library, notifications: notifications, wakeCoalesce: .zero)
+    }
+}
+
+extension WorkspaceStore {
+    /// A loaded workspace holding `state`, saved to a file nothing else uses: an operation's start
+    /// waits for its run to be on disk.
+    static func saving(_ state: AppState) throws -> WorkspaceStore {
+        let store = WorkspaceStore(file: StateStore(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("aiterm-operators-state-\(UUID().uuidString).json")))
+        try store.load()
+        store.mutate { $0 = state }
+        return store
+    }
+}
+
+/// The helper a world's controller sees: the recording daemon, or none while `attached` is false.
+@MainActor
+final class DaemonSwitch {
+    let daemon: RecordingDaemon
+    var attached = true
+    init(_ daemon: RecordingDaemon) { self.daemon = daemon }
+    var current: (any DaemonCommands)? { attached ? daemon : nil }
+}
+
+/// An `OperatorController` over a saved workspace, the recording daemon and scratch ports.
+@MainActor
+final class OperatorWorld {
+    let workspace: WorkspaceStore, live: LiveSessions, daemon: RecordingDaemon, link: DaemonSwitch
+    let notifications = RecordingNotifications()
+    let ports: OperatorPorts
+    let controller: OperatorController
+
+    init(_ state: AppState, daemon: RecordingDaemon = RecordingDaemon(), git: any GitRunning = GitRunner.hermetic(),
+         adjust: (inout OperatorPorts) -> Void = { _ in }) throws {
+        workspace = try WorkspaceStore.saving(state)
+        live = LiveSessions(workspace: workspace)
+        self.daemon = daemon
+        link = DaemonSwitch(daemon)
+        var ports = OperatorPorts.scratch(notifications: notifications, git: git)
+        adjust(&ports)
+        self.ports = ports
+        controller = OperatorController(workspace: workspace, live: live, notices: Notices(toastLifetime: .seconds(10), isStale: { _ in false }),
+                                        daemon: { [link] in link.current }, taskFrame: { Frame(x: 0, y: 0, w: 800, h: 600) }, ports: ports)
+    }
+
+    var state: AppState { workspace.state }
+    func run(_ id: UUID) -> OperatorRun? { state.runs.first { $0.id == id } }
+    func task(_ id: UUID) -> TaskItem? { state.task(id: id) }
+
+    /// iTerm2's tabs as a connected snapshot reports them.
+    func show(_ sessions: [SessionInfo]) {
+        live.sessions = sessions
+        controller.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: sessions, usage: .empty)))
+    }
+}

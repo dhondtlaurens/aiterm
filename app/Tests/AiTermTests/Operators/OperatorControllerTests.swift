@@ -1,0 +1,149 @@
+import Foundation
+import Testing
+@testable import AiTermCore
+@testable import AiTerm
+@testable import AiTermTestSupport
+
+/// An operation's start and the operator's own tab (spec §4.0.1, §5, §11).
+@MainActor @Suite struct OperatorControllerTests {
+    let project = OperatorServiceFixtures.project()
+
+    @Test func startingAnOperationSavesItRegistersItsTokenAndOpensTheOperatorInFront() async throws {
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
+        let id = try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.",
+                                                           doneWhen: "a commit per ticket", projectIds: [project.id])
+        let run = try #require(world.run(id))
+        #expect(run.name == "Implement PLUTO-1 and PLUTO-2.")
+        #expect(run.state == .planning && run.projectIds == [project.id] && run.doneWhen == "a commit per ticket")
+        #expect(run.planRevision == 0 && run.approvedRevision == nil)
+        let folder = OperatorCommand.runFolder(id, home: world.ports.home)
+        let register = try #require(world.daemon.requests("operator.register").first)
+        #expect(register.params["runId"] as? String == id.uuidString)
+        #expect(register.params["token"] as? String == OperatorCommand.existingToken(in: folder))
+        let firstMessage = try String(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
+        #expect(firstMessage == "Your operation:\n\nImplement PLUTO-1 and PLUTO-2.\nThen tidy.\n\nDone when: a commit per ticket")
+        let window = try #require(world.daemon.requests("window.createTask").first)
+        #expect(window.params["taskId"] as? String == id.uuidString)
+        #expect(window.params["cwd"] as? String == folder.path)
+        #expect(window.params["background"] == nil)
+        #expect((window.params["agentCommand"] as? String)?.hasPrefix("claude") == true)
+        #expect(run.operatorWindowId == "reopened")
+        #expect(world.notifications.authorizationRequests == 1)
+        #expect(try world.workspace.file.load().runs.map(\.id) == [id])
+    }
+
+    @Test func anOperationNeedsABriefAndProjectsOfThisWorkspace() async throws {
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
+        await #expect(throws: ActionUnavailable.self) {
+            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "  ", doneWhen: nil, projectIds: [project.id])
+        }
+        await #expect(throws: ActionUnavailable.self) {
+            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Go", doneWhen: nil, projectIds: [UUID()])
+        }
+        world.link.attached = false
+        await #expect(throws: ActionUnavailable.self) {
+            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Go", doneWhen: nil, projectIds: [project.id])
+        }
+        #expect(world.state.runs.isEmpty)
+        #expect(world.daemon.requests.isEmpty)
+    }
+
+    @Test func theOperatorsTaggedTabGivesTheRunItsSessionWindowAndConversation() throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.show([OperatorServiceFixtures.session("op", window: "w7", tag: run.id, conversation: "c-123")])
+        let saved = try #require(world.run(run.id))
+        #expect(saved.operatorSessionId == "op" && saved.operatorWindowId == "w7" && saved.operatorConversation == "c-123")
+        #expect(world.controller.operatorTab(of: run.id)?.sessionId == "op")
+    }
+
+    @Test func aDaemonAttachingReregistersEveryTokenButAStoppedRunsAndSaysItReconnected() async throws {
+        let active = OperatorServiceFixtures.run(projects: [project], state: .active), stopped = OperatorServiceFixtures.run(projects: [project], state: .stopped)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [active, stopped]))
+        let tokens = [active.id: String(repeating: "a", count: 64), stopped.id: String(repeating: "b", count: 64)]
+        for run in [active, stopped] {
+            _ = try OperatorCommand.prepare(run: run, projects: [project], home: world.ports.home, token: tokens[run.id]!)
+        }
+        world.show([OperatorServiceFixtures.session("op", tag: active.id)])
+        world.controller.daemonAttached()
+        await world.controller.registering?.value
+        #expect(world.daemon.requests("operator.register").map { $0.params["runId"] as? String } == [active.id.uuidString])
+        #expect(world.daemon.requests("operator.register").first?.params["token"] as? String == tokens[active.id])
+        try await world.daemon.received("session.deliver")
+        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] reconnected — call run_status")
+    }
+
+    @Test func anOperationWorksInTheProjectsItsBriefsTicketsBelongTo() {
+        let pluto = OperatorServiceFixtures.project(name: "Pluto", jira: [JiraProjectRef(id: "1", key: "PLUTO", name: "Pluto",
+                                                                                 siteURL: URL(string: "https://acme.atlassian.net")!)])
+        let other = OperatorServiceFixtures.project(name: "Other")
+        let state = OperatorServiceFixtures.state(projects: [pluto, other], runs: [])
+        #expect(OperatorController.projects(for: "Do pluto-12 and PLUTO-13.", in: state) == [pluto.id])
+        #expect(OperatorController.projects(for: "Tidy the docs.", in: state) == [pluto.id, other.id])
+    }
+
+    @Test func aRunChangingIsHeardOnceAndAnUnrelatedChangeNotAtAll() throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        var heard = 0
+        world.controller.onChange { heard += 1 }
+        world.workspace.mutate { $0.sidebarFrame = CGRect(x: 0, y: 0, width: 10, height: 10) }
+        world.controller.mutateRun(run.id) { $0.name = "Renamed" }
+        #expect(heard == 1)
+        world.controller.setActing(UUID(), true)
+        #expect(heard == 2)
+    }
+
+    @Test func anOperationIsNamedFromItsBriefsFirstLine() {
+        #expect(OperatorController.operationName(from: "\n  Fix the login bug  \nmore") == "Fix the login bug")
+        #expect(OperatorController.operationName(from: String(repeating: "a", count: 80)) == String(repeating: "a", count: 47) + "…")
+    }
+
+    /// The operator's window closed (spec §9): the run forgets the window and session — a click on its
+    /// row reopens it — and a complete operation ends, its token revoked. A tab not yet seen, or tabs
+    /// not known while iTerm2 is away, close nothing.
+    @Test func closingTheOperatorsWindowForgetsItAndEndsACompleteOperation() async throws {
+        let active = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let complete = OperatorServiceFixtures.run(projects: [project], state: .complete)
+        var opening = OperatorServiceFixtures.run(projects: [project], state: .planning)
+        opening.operatorWindowId = "w-new"
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [active, complete, opening]))
+        world.show([OperatorServiceFixtures.session("op1", window: "w1", tag: active.id),
+                    OperatorServiceFixtures.session("op2", window: "w2", tag: complete.id)])
+        world.controller.handle(.itermDisconnected)
+        world.live.sessions = []
+        world.controller.handle(.windowClosed("w1"))
+        #expect(world.run(active.id)?.operatorWindowId == "w1", "iTerm2 away: its tabs are not known gone")
+        world.show([])
+        #expect(world.run(active.id)?.operatorWindowId == nil && world.run(active.id)?.operatorSessionId == nil)
+        #expect(world.run(active.id)?.intent == nil)
+        #expect(world.run(opening.id)?.operatorWindowId == "w-new", "a window whose tab was never seen may still be opening")
+        #expect(world.run(complete.id)?.state == .complete && world.run(complete.id)?.intent == .stopped)
+        await world.controller.revoking?.value
+        #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [complete.id.uuidString])
+        #expect(try world.workspace.file.load().run(id: complete.id)?.intent == .stopped)
+    }
+
+    /// A notification's click on an overview (spec §10.3) is for the sidebar to present: it reads
+    /// `presentOverview` and clears it.
+    @Test func aNotificationsClickOnAnOverviewAsksTheSidebarToPresentIt() {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        let id = UUID()
+        controller.openNote(.overview(id))
+        #expect(controller.operatorController.presentOverview == id)
+    }
+
+    /// News that came while the run was paused is not lost: the wake line goes when it resumes.
+    @Test func aPausedRunsWakeNewsGoesWhenItResumes() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .paused)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.workspace.mutate { $0.tasks.append(OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1")) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(world.daemon.requests("session.deliver").isEmpty, "a paused run's operator is not woken")
+        world.controller.mutateRun(run.id) { $0.state = .active }
+        try await world.daemon.received("session.deliver")
+        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] 2 updates — call run_status")  // the task, and the resuming itself
+    }
+}
