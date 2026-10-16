@@ -7,7 +7,9 @@ import os
 
 import pytest
 
+from aitermd import delivery
 from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorRoute, OperatorTokens, well_formed
+from aitermd.rpc_server import RpcError
 
 TOKEN = "ab" * 32
 OTHER = "cd" * 32
@@ -269,3 +271,121 @@ async def test_a_message_that_is_no_request_is_a_json_rpc_error(raw, code):
 async def test_an_unknown_method_is_a_json_rpc_error():
     reply = json.loads((await route_for().serve("POST", AUTH, message("resources/list", 9)))[1])
     assert reply["id"] == 9 and reply["error"]["code"] == -32601
+
+
+async def answer_with(app, route, **reply):
+    """Waits for the route's operator.request and answers it as the app does; returns the request."""
+    await asyncio.wait_for(app.arrived.wait(), 2)
+    _name, payload = app.events[-1]
+    assert await route.reply({"requestId": payload["requestId"], **reply}) == {}
+    return payload
+
+
+def call(tool, arguments=None, request_id=1):
+    params = {"name": tool} if arguments is None else {"name": tool, "arguments": arguments}
+    return message("tools/call", request_id, params)
+
+
+async def test_a_tool_call_is_forwarded_to_the_app_and_its_answer_returned():
+    app = App()
+    route = route_for(app)
+    calling = asyncio.create_task(route.serve("POST", AUTH, call("ask_you", {"key": "q1", "question": "Which project?"}, 7)))
+    request = await answer_with(app, route, result={"open": True}, error=None)
+    status, text = await calling
+    assert app.events[0][0] == "operator.request"
+    assert request == {"requestId": "op-1", "runId": "run-1", "tool": "ask_you", "arguments": {"key": "q1", "question": "Which project?"}}
+    reply = json.loads(text)
+    assert status == 200 and reply["id"] == 7
+    assert reply["result"] == {"content": [{"type": "text", "text": '{"open": true}'}], "structuredContent": {"open": True},
+                               "isError": False}
+
+
+async def test_a_call_without_arguments_forwards_an_empty_object():
+    app = App()
+    route = route_for(app)
+    calling = asyncio.create_task(route.serve("POST", AUTH, call("run_status")))
+    assert (await answer_with(app, route, result=None))["arguments"] == {}
+    assert json.loads((await calling)[1])["result"]["structuredContent"] == {}
+
+
+async def test_the_token_names_the_run_whatever_the_arguments_say():
+    app = App()
+    route = route_for(app)
+    route.tokens.register("run-2", OTHER)
+    calling = asyncio.create_task(route.serve("POST", {"authorization": f"Bearer {OTHER}"}, call("run_status", {"runId": "run-1"})))
+    assert (await answer_with(app, route, result={}))["runId"] == "run-2"
+    await calling
+
+
+async def test_the_apps_error_is_a_tool_error():
+    app = App()
+    route = route_for(app)
+    calling = asyncio.create_task(route.serve("POST", AUTH, call("message_task", {"task": "PLUTO-1", "text": "go on"})))
+    await answer_with(app, route, error="you took PLUTO-1 over")
+    assert json.loads((await calling)[1])["result"] == {"content": [{"type": "text", "text": "you took PLUTO-1 over"}], "isError": True}
+
+
+async def test_without_the_app_the_operator_is_told_aiterm_isnt_open():
+    app = App(attached=False)
+    status, text = await route_for(app).serve("POST", AUTH, call("run_status", {}))
+    assert json.loads(text)["result"] == {"content": [{"type": "text", "text": "AiTerm isn't open"}], "isError": True}
+    assert app.events == []
+
+
+async def test_an_app_that_does_not_answer_in_time_is_not_answering(monkeypatch):
+    monkeypatch.setattr(delivery, "OPERATOR_REQUEST_TIMEOUT", 0.05)
+    app = App()
+    route = route_for(app)
+    _status, text = await route.serve("POST", AUTH, call("run_status", {}))
+    assert json.loads(text)["result"] == {"content": [{"type": "text", "text": "AiTerm isn't answering"}], "isError": True}
+    # Its late answer is dropped, and still answered.
+    assert await route.reply({"requestId": app.events[0][1]["requestId"], "result": {}}) == {}
+
+
+async def test_each_call_gets_its_own_request_id():
+    app = App()
+    route = route_for(app)
+    first = asyncio.create_task(route.serve("POST", AUTH, call("run_status", {}, 1)))
+    second = asyncio.create_task(route.serve("POST", AUTH, call("run_status", {}, 2)))
+    await asyncio.wait_for(_until(lambda: len(app.events) == 2), 2)
+    ids = [payload["requestId"] for _name, payload in app.events]
+    assert ids == ["op-1", "op-2"]
+    await route.reply({"requestId": "op-2", "result": {"which": 2}})
+    await route.reply({"requestId": "op-1", "result": {"which": 1}})
+    assert json.loads((await first)[1])["result"]["structuredContent"] == {"which": 1}
+    assert json.loads((await second)[1])["result"]["structuredContent"] == {"which": 2}
+
+
+async def _until(predicate):
+    while not predicate():
+        await asyncio.sleep(0.005)
+
+
+@pytest.mark.parametrize("params", [{"name": "merge_everything", "arguments": {}}, {"name": "run_status", "arguments": [1]}, None])
+async def test_a_call_to_no_such_tool_is_a_json_rpc_error(params):
+    _status, text = await route_for().serve("POST", AUTH, message("tools/call", 1, params))
+    assert json.loads(text)["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("handler,params", [
+    ("register", {"runId": "run-3", "token": "short"}),
+    ("register", {"runId": "run-3", "token": "xy" * 32}),  # 64 characters, not hex
+    ("register", {"runId": "run-3", "token": TOKEN}),  # run-1's
+    ("register", {"runId": "run-3"}),
+    ("revoke", {}),
+    ("reply", {"result": {}}),
+    ("reply", {"requestId": "op-1", "result": [1]}),
+    ("reply", {"requestId": "op-1", "error": 404}),
+])
+async def test_the_rpc_handlers_refuse_malformed_params(handler, params):
+    with pytest.raises(RpcError) as raised:
+        await getattr(route_for(), handler)(params)
+    assert raised.value.code == "bad_params"
+
+
+async def test_register_opens_and_revoke_closes_the_route():
+    route = OperatorRoute(App().broadcast, lambda: 1)
+    assert await route.register({"runId": "run-9", "token": TOKEN}) == {}
+    assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 200
+    assert await route.revoke({"runId": "run-9"}) == {}
+    assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 401

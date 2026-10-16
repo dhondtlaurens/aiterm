@@ -2,7 +2,9 @@
 serves, and the `/operator` route that forwards every tool call to the app."""
 from __future__ import annotations
 
+import asyncio
 import hmac
+import itertools
 import json
 import logging
 import os
@@ -12,13 +14,24 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from . import delivery, protocol
 from .hooks_server import MCP_PROTOCOL_VERSION
+from .rpc_params import optional_param, param
+from .rpc_server import RpcError
 
 log = logging.getLogger(__name__)
+# What the operator is told when its call cannot reach the app (spec §11): its brief says to wait.
+NOT_OPEN = "AiTerm isn't open"
+NOT_ANSWERING = "AiTerm isn't answering"
 # Where the app keeps each run's folder, named by its id: brief.md, mcp.json and `token` (spec §5.1).
 RUNS_ROOT = Path.home() / "Library" / "Application Support" / "AiTerm" / "operators" / "runs"
 # A run's token: the app's 32 random bytes, as hex.
 _TOKEN = re.compile(r"[0-9a-fA-F]{64}")
+
+
+class ToolError(Exception):
+    """A tool call that failed, with what the operator is told: answered as a tool result with
+    isError, as MCP has a tool's own failures, never as a protocol error."""
 
 
 def well_formed(token: str) -> bool:
@@ -231,6 +244,10 @@ class OperatorRoute:
                  tokens: OperatorTokens | None = None):
         self.broadcast, self.client_count = broadcast, client_count
         self.tokens = tokens if tokens is not None else OperatorTokens()
+        # The tool calls waiting for the app's answer, by the request id the event carried. Ids are
+        # unique within this process; an answer from before a restart finds nothing and is dropped.
+        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._ids = itertools.count(1)
 
     def _run(self, headers: dict[str, str]) -> str | None:
         scheme, _, token = headers.get("authorization", "").partition(" ")
@@ -263,4 +280,73 @@ class OperatorRoute:
             return _answer(request_id, {})
         if name == "tools/list":
             return _answer(request_id, {"tools": list(TOOLS)})
+        if name == "tools/call":
+            return await self._call(run_id, request_id, params)
         return _error(request_id, -32601, f"method not found: {name}")
+
+    async def _call(self, run_id: str, request_id: Any, params: Any) -> str:
+        tool = params.get("name") if isinstance(params, dict) else None
+        arguments = params.get("arguments") if isinstance(params, dict) else None
+        if arguments is None:
+            arguments = {}
+        if not isinstance(tool, str) or tool not in TOOL_NAMES or not isinstance(arguments, dict):
+            return _error(request_id, -32602, f"no such tool, or arguments that are not an object: {tool}")
+        try:
+            result = await self.ask_app(run_id, tool, arguments)
+        except ToolError as exc:
+            return _answer(request_id, {"content": [{"type": "text", "text": str(exc)}], "isError": True})
+        return _answer(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result,
+                                    "isError": False})
+
+    async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """The app's answer to one tool call: broadcast as `operator.request` and awaited until its
+        `operator.reply`, for OPERATOR_REQUEST_TIMEOUT at most. Raises ToolError with what the
+        operator is told: the app's own error, NOT_OPEN with no app attached, NOT_ANSWERING after the
+        timeout -- after which the app may still have acted, which every mutating tool's key makes
+        safe to repeat (spec §11)."""
+        if self.client_count() == 0:
+            raise ToolError(NOT_OPEN)
+        request_id = f"op-{next(self._ids)}"
+        answer: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = answer
+        try:
+            await self.broadcast(protocol.OPERATOR_REQUEST, {"requestId": request_id, "runId": run_id, "tool": tool,
+                                                             "arguments": arguments})
+            async with asyncio.timeout(delivery.OPERATOR_REQUEST_TIMEOUT):
+                return await answer
+        except TimeoutError as exc:
+            raise ToolError(NOT_ANSWERING) from exc
+        finally:
+            self._pending.pop(request_id, None)
+
+    # -- the app's half, over the socket ----------------------------------
+    async def register(self, p: Any) -> dict[str, Any]:
+        """operator.register: opens /operator to a run's token, in memory. The app sends it when a
+        run starts, beside the token file it writes, which is what a restarted daemon reads."""
+        run_id, token = param(p, "runId", str), param(p, "token", str)
+        try:
+            self.tokens.register(run_id, token)
+        except ValueError as exc:
+            raise RpcError(protocol.BAD_PARAMS, str(exc)) from exc
+        return {}
+
+    async def revoke(self, p: Any) -> dict[str, Any]:
+        """operator.revoke: closes /operator to a run's token -- a stopped run's (spec §9) -- and
+        deletes its token file, so no restart brings it back."""
+        self.tokens.revoke(param(p, "runId", str))
+        return {}
+
+    async def reply(self, p: Any) -> dict[str, Any]:
+        """operator.reply: the app's answer to an operator.request, its result or the error the
+        operator is told. One nobody waits for any more -- timed out, or answered already -- is dropped."""
+        request_id = param(p, "requestId", str)
+        result, error = optional_param(p, "result", dict), optional_param(p, "error", str)
+        answer = self._pending.get(request_id)
+        if answer is None or answer.done():
+            log.info("dropped the app's reply to %s: nothing waits for it", request_id)
+            return {}
+        if error is not None:
+            answer.set_exception(ToolError(error))
+        else:
+            answer.set_result(result if result is not None else {})
+        return {}

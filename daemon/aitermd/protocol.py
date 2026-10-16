@@ -23,6 +23,8 @@ SESSION_OPENED = "session.opened"
 SESSION_CHANGED = "session.changed"
 SESSION_CLOSED = "session.closed"
 USAGE_CHANGED = "usage.changed"
+# An operator's tool call, forwarded to the app, which answers it with operator.reply (operator_mcp).
+OPERATOR_REQUEST = "operator.request"
 EVENTS = (ITERM_CONNECTED, ITERM_DISCONNECTED, ITERM_AUTH_FAILED, ITERM_COOKIE_REQUESTED, WINDOW_ACTIVATED, WINDOW_CLOSED,
           SESSION_OPENED, SESSION_CHANGED, SESSION_CLOSED, USAGE_CHANGED)
 
