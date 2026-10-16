@@ -103,6 +103,12 @@ final class WorkerStarter {
                 release(id, claimedAs: attempt, to: before)
                 return
             }
+            // A relaunch: a reply lost to a timeout may have left the window it asked for. Found by its tag
+            // now, it is the worker — never a second one beside it.
+            if before == nil, let orphan = live.sessions.first(where: { $0.taskUUID == id }) {
+                recordWindow(orphan.windowId, of: id)
+                return
+            }
             let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: worktree, title: task.branch, agentCommand: command,
                                                            frame: taskFrame(), background: true)
             recordWindow(window, of: id)
@@ -110,6 +116,39 @@ final class WorkerStarter {
             Log.daemon.info("An operator's worker window may still open; the run reconciler looks again: \(error.message, privacy: .public)")
         } catch {
             block(id, reason: "AiTerm couldn’t start it: \(error.localizedDescription)")
+        }
+    }
+
+    /// A launch that showed no tab, tried again as `attempt` — saved by the caller first.
+    func relaunch(_ id: UUID, attempt: LaunchAttempt) -> Task<Void, Never>? {
+        guard !starting.contains(id) else { return nil }
+        starting.insert(id)
+        return Task {
+            defer { starting.remove(id) }
+            await launch(id, attempt: attempt)
+        }
+    }
+
+    /// A worker's window you closed, brought back on your click (`OperatorController.reopenWorker`):
+    /// reopened behind your work, its conversation resumed under the operation's flags — never a second
+    /// worker. Nil when it is starting, has a tab, has no worktree or no conversation to resume, or no helper is there.
+    func reopen(_ id: UUID) -> Task<Void, Never>? {
+        guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
+              task.hasCheckout, let operated = task.operated, let run = state.run(id: operated.runId), let conversation = task.conversations.first(where: { $0.agent == task.agent }),
+              let daemon = daemon() else { return nil }
+        starting.insert(id)
+        return Task {
+            defer { starting.remove(id) }
+            do {
+                let command = AgentCommand.resumeWorker(agent: task.agent, conversation: conversation.id, model: task.model,
+                                                        reasoning: task.reasoning, autonomy: run.persona.autonomy)
+                let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: task.worktreePath, title: task.branch,
+                                                               agentCommand: command, frame: taskFrame(), background: true)
+                // Left on the row, so a click raises it.
+                recordWindow(window, of: id)
+            } catch {
+                Log.daemon.error("An operator's worker window could not reopen: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

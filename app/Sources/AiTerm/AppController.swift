@@ -257,6 +257,7 @@ final class AppController {
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
         helper.start()
+        operatorController.start()
         // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
         // Blocking disk work, so off the cooperative pool.
         DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
@@ -281,6 +282,7 @@ final class AppController {
         if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
+        operatorController.stop()
         operatorController.tools.cancelChallenges()
         helper.shutdown()
     }

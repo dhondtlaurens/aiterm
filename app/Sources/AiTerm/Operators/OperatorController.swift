@@ -21,6 +21,8 @@ struct OperatorPorts {
     var now: @MainActor () -> Date = { Date() }
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
+    /// How often the run reconciler looks at the real tabs.
+    var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
     /// raising `OperatorMilestone.current` (F1, G6) leaves it as it was.
     var milestone: OperatorMilestone = .current
@@ -50,6 +52,14 @@ final class OperatorController {
     @ObservationIgnored let waker: OperatorWaker
     @ObservationIgnored let tools: OperatorToolHandler
     @ObservationIgnored let starter: WorkerStarter
+    @ObservationIgnored let reconciler: RunReconciler
+    @ObservationIgnored private var loop: Task<Void, Never>?
+    /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
+    @ObservationIgnored private var reattached = false
+    /// The tasks whose open prompt is being read.
+    @ObservationIgnored private var probing: Set<UUID> = []
+    /// The latest prompt probe, for a test to await.
+    @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
     @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
@@ -87,6 +97,7 @@ final class OperatorController {
                               coalesce: ports.wakeCoalesce)
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
+        reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, notifier: notifier, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             self?.observeRuns()
@@ -306,8 +317,18 @@ final class OperatorController {
         switch event {
         case .snapshot(let snapshot):
             tabsKnown = snapshot.connected
+            reconciler.synced = snapshot.connected
             sessionsChanged()
-        case .itermDisconnected, .itermAuthFailed: tabsKnown = false
+            // After a reconnect: the daemon forgot every ownership generation, and what happened meanwhile
+            // is looked at now rather than in a minute (spec §11).
+            if snapshot.connected, reattached {
+                reattached = false
+                resendOwnership()
+                reconcileTick()
+            }
+        case .itermDisconnected, .itermAuthFailed:
+            tabsKnown = false
+            reconciler.synced = false
         case .sessionOpened, .sessionChanged, .sessionClosed, .windowClosed: sessionsChanged()
         case .operatorRequest(let request): tools.handle(request)
         default: break
@@ -320,7 +341,9 @@ final class OperatorController {
     func daemonAttached() {
         // A new daemon's tabs are known once its first connected snapshot comes.
         tabsKnown = false
+        reconciler.synced = false
         guard let daemon = daemon() else { return }
+        reattached = true
         let open = runs.filter { $0.state != .stopped && $0.intent != .stopped }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
         let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id)) }
@@ -371,6 +394,7 @@ final class OperatorController {
         }
         for id in closed { operatorWindowClosed(id) }
         observeRuns()
+        probePrompts()
         for run in runs { waker.operatorSessionChanged(run.id) }
     }
 
@@ -385,6 +409,117 @@ final class OperatorController {
         guard let daemon = daemon() else { return }
         revoking = Task {
             await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") { try await daemon.revokeOperator(runId: id.uuidString) }
+        }
+    }
+
+    // -- reconciling ------------------------------------------------------------------------
+    /// The reconcile tick (spec §7.3): every `reconcileInterval` while AiTerm runs, and on the first
+    /// connected snapshot after the helper attaches. What it changed is scheduled and settled, and
+    /// whatever it freed or the helper's return allows to start starts — the way the tool paths do.
+    func reconcileTick() {
+        guard reconciler.synced else { return }
+        for id in reconciler.tick() { runChanged(id) }
+        // A prompt whose tab left it without an event, or one an event raced.
+        probePrompts()
+        startReadyTasks()
+    }
+
+    /// Starts the reconcile loop; AiTerm's `start()` calls it.
+    func start() {
+        guard loop == nil else { return }
+        let interval = ports.reconcileInterval
+        loop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard (try? await Task.sleep(for: interval)) != nil else { return }
+                self?.reconcileTick()
+            }
+        }
+    }
+
+    func stop() {
+        loop?.cancel()
+        loop = nil
+    }
+
+    /// Each operated task's tab: one that needs input has its prompt read (spec §7.2), and a question
+    /// left open for one whose tab has left the prompt is resolved, whatever the task's state now.
+    func probePrompts() {
+        for task in workspace.state.tasks {
+            guard let operated = task.operated else { continue }
+            let open = run(id: operated.runId)?.questions.contains { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+            if operated.state == .working || operated.state == .blocked || open == true { probePrompt(task.id) }
+        }
+    }
+
+    /// A worker that waits on a prompt: recorded as a question waiting on you, on its task, saying what
+    /// the prompt is, and you are notified with its window; once the tab leaves the prompt the question
+    /// is resolved and the row stops waiting on you. Codex's update offer is declined instead (`dismissStartup`).
+    func probePrompt(_ id: UUID) {
+        guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else { return }
+        let prefix = "prompt-\(id.uuidString)-"
+        let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.resolution == nil }
+        let tab = live.sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
+        if let open, tab?.state != .needsInput {
+            // No tab at all is not an answer: a window that is not listed (yet) leaves the question open.
+            guard tab != nil || tabsKnown else { return }
+            workspace.mutate { state in
+                state.updateRun(id: run.id) { run in
+                    if let i = run.questions.firstIndex(where: { $0.id == open.id }) { run.questions[i].resolution = "Answered in its window." }
+                }
+                if state.run(id: run.id)?.questions.contains(where: { $0.task == id && $0.resolution == nil }) == false {
+                    state.updateOperated(id) { $0.flags.remove(.waitingOnYou) }
+                }
+            }
+            // The last open question may be what kept the operation from completing.
+            runChanged(run.id)
+            return
+        }
+        guard open == nil, let tab, tab.state == .needsInput, !probing.contains(id), let daemon = daemon() else { return }
+        probing.insert(id)
+        let number = run.questions.filter { $0.id.hasPrefix(prefix) }.count + 1
+        lastProbe = Task { [weak self] in
+            let kind = try? await daemon.prompt(sessionId: tab.sessionId)
+            // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
+            // screen shows that dialog. Anything else at startup — a trust question — is yours, and so is
+            // a dismissal that did not happen: only a dismissed offer is never put to you.
+            let declined = kind == .startup ? (try? await daemon.dismissStartup(sessionId: tab.sessionId)) == true : false
+            guard let self else { return }
+            probing.remove(id)
+            guard !declined else { return }
+            // The tab may have left the prompt while it was read: nothing is asked of you then.
+            guard live.sessions.contains(where: { $0.sessionId == tab.sessionId && $0.state == .needsInput }) else { return }
+            let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: task.agent), task: id,
+                                            askedAt: ports.now(), resolution: nil)
+            workspace.mutate { state in
+                state.updateRun(id: run.id) { $0.questions.append(question) }
+                state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
+            }
+            if let current = self.run(id: run.id) { notifier.workerPrompt(kind, task: task, in: current) }
+        }
+    }
+
+    /// What a prompt asks, as the overview and the row say it. The daemon names the prompt's kind,
+    /// not its words, so this is what AiTerm can say of it.
+    static func promptText(_ kind: PromptKind?, agent: AgentKind) -> String {
+        let name = agent.harness.displayName
+        switch kind {
+        case .permission: return "\(name) asks for permission"
+        case .menu: return "\(name) shows a menu"
+        case .startup: return "\(name) shows a startup question"
+        case nil: return "\(name) waits for input AiTerm can’t read"
+        }
+    }
+
+    /// The daemon keeps ownership generations in memory only (part A): after its restart each operated
+    /// task's is set again on its tabs.
+    func resendOwnership() {
+        guard let daemon = daemon() else { return }
+        let owned = workspace.state.tasks.compactMap { task in task.operated.map { (task.id, $0.ownership) } }
+        let sessions = live.sessions
+        Task {
+            for (id, ownership) in owned {
+                for tab in sessions where tab.taskUUID == id { try? await daemon.setOwnership(sessionId: tab.sessionId, ownership: ownership) }
+            }
         }
     }
 

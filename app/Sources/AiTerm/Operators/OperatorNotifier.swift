@@ -58,6 +58,14 @@ final class OperatorNotifier {
         }
     }
 
+    /// A question still open after AiTerm started again: what was held lived in memory only, so it is
+    /// held again, to be sent by `releaseHeld` when the stop says so. Not decided here and not notified.
+    func rehold(_ question: OperatorQuestion, in run: OperatorRun) {
+        guard held[run.id]?.contains(where: { $0.id == question.id }) != true else { return }
+        held[run.id, default: []].append(question)
+        held[run.id]?.sort { $0.askedAt < $1.askedAt }
+    }
+
     /// Sends what the run's stop has held, once the stop says it is time — or the run has ended: asked
     /// on every reconcile pass.
     func releaseHeld(in run: OperatorRun, otherWorkCanProceed: Bool) {
