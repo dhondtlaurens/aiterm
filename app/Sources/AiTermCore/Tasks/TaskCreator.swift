@@ -126,6 +126,28 @@ public enum TaskCreator {
         return Made(task: task, worktreeInclude: copyIncludes(draft.copiesWorktreeInclude, from: repository, into: path))
     }
 
+    /// An operator's worker's worktree, made when AiTerm starts the task: a new branch from `start` — the
+    /// default branch, or a stacked task's parent's accepted commit. A relaunch adopts what an earlier
+    /// attempt left: the worktree it made for the branch, or the branch it made, checked out afresh.
+    public static func checkOutWorker(_ task: TaskItem, project: Project, start: String, reserved: Set<String> = [],
+                                      git: any GitRunning) throws -> Made {
+        let repository = Repository(project.path, git: git)
+        var checkedOut = task
+        checkedOut.baseBranch = start
+        if let earlier = try repository.worktrees().first(where: { $0.branch == task.branch && $0.path != project.path }) {
+            checkedOut.worktreePath = earlier.path
+            return Made(task: checkedOut, worktreeInclude: .complete)
+        }
+        let slug = BranchNaming.unused(BranchNaming.worktreeSlug(branch: task.branch), in: project.path, reserved: reserved)
+        if try repository.commit("refs/heads/" + task.branch) != nil {
+            checkedOut.worktreePath = project.path + "/" + Worktree.directoryName + "/" + slug
+            try repository.restoreWorktree(at: checkedOut.worktreePath, branch: task.branch, kind: .task)
+        } else {
+            checkedOut.worktreePath = try repository.addTaskWorktree(slug: slug, branch: task.branch, base: start)
+        }
+        return Made(task: checkedOut, worktreeInclude: copyIncludes(true, from: repository, into: checkedOut.worktreePath))
+    }
+
     /// An archived row's worktree back where it was, with what `.worktreeinclude` selects copied in
     /// again — never over a file already there — and the row windowless, owed its window.
     public static func restore(_ task: TaskItem, project: Project, git: any GitRunning) throws -> Made {

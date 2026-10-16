@@ -167,7 +167,10 @@ import Testing
 
     @Test func approvingAnApprovedRevisionAgainWakesTheOperatorOnlyOnce() async throws {
         let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .routine), projects: [project, other])
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run])) {
+        // The helper is attached here, so the one slot is taken by a worker already running: the approved
+        // task stays queued and the only news is the approval, not a start.
+        let running = OperatorServiceFixtures.task(in: run, project: project, key: "W", state: .working, worktree: project.path)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run], tasks: [running])) {
             $0.milestone = .m1
             $0.wakeCoalesce = .zero
         }

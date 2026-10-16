@@ -54,6 +54,8 @@ final class OperatorToolHandler {
     private(set) var lastReply: Task<Void, Never>?
     /// Told when a call starts and stops acting on a task: the controller's `acting`.
     var onActing: @MainActor (UUID, Bool) -> Void = { _, _ in }
+    /// Said after an operator's own change to its run: what may start now starts.
+    var onChange: @MainActor (UUID) -> Void = { _ in }
 
     /// The tools that act on one task while they run: its row's operator mark breathes meanwhile.
     static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task"]
@@ -101,6 +103,7 @@ final class OperatorToolHandler {
             let value = try await perform(call, in: run)
             if Self.mutating.contains(call.tool), let before, let after = state.run(id: id).flatMap(currentStatus(of:)) {
                 waker.ownChange(from: before, to: after, of: id)
+                onChange(id)
             }
             return .result(value)
         } catch let refusal as ToolRefusal {

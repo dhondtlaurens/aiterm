@@ -44,6 +44,9 @@ final class OperatorController {
     @ObservationIgnored let notifier: OperatorNotifier
     @ObservationIgnored let waker: OperatorWaker
     @ObservationIgnored let tools: OperatorToolHandler
+    @ObservationIgnored let starter: WorkerStarter
+    /// The latest start a pass made, for a test to await.
+    @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentOverview: UUID?
@@ -78,12 +81,19 @@ final class OperatorController {
                               },
                               coalesce: ports.wakeCoalesce)
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
+        starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             self?.observeRuns()
             self?.heardWorkspace()
         }
         tools.onActing = { [weak self] task, on in self?.setActing(task, on) }
+        tools.onChange = { [weak self] in self?.runChanged($0) }
+        starter.onBlocked = { [weak self] task, reason in
+            guard let self, let run = task.operated.flatMap({ self.run(id: $0.runId) }) else { return }
+            notifier.taskBlocked(task, reason: reason, in: run)
+            runChanged(run.id)
+        }
     }
 
     /// Adds `handler` to what hears that a run, an operated task or `acting` changed: the UI's
@@ -181,6 +191,34 @@ final class OperatorController {
         }
         // Approving the approved revision again changes nothing, so it wakes nothing.
         if self.run(id: id)?.approvedRevision != before { waker.say("plan approved", to: id) }
+        runChanged(id)
+    }
+
+    // -- starting workers -------------------------------------------------------------------
+    /// Agents at once, as M1 has it; part F reads it from Settings › Agents.
+    static let agentsAtOnce = 1
+
+    /// The one start pass. What the scheduler says may start — dependencies satisfied, oldest operation
+    /// first, operations taking turns — is claimed and saved one task at a time while a slot is free
+    /// across every operation, so each claim counts against the cap before the next. A task that cannot
+    /// start now (`start` returns nil: no helper, its save failed) is passed over, and the next may
+    /// still take the slot.
+    func startReadyTasks() {
+        let cap = ports.milestone.maxParallel(setting: Self.agentsAtOnce)
+        for id in RunScheduler.startable(in: workspace.state, maxParallel: .max) where !starter.starting.contains(id) {
+            guard workspace.state.tasks.count(where: { $0.operated?.state == .working }) < cap else { return }
+            guard let started = starter.start(id) else { continue }
+            let run = workspace.state.task(id: id)?.operated?.runId
+            lastStart = Task { [weak self] in
+                await started.value
+                if let run { self?.runChanged(run) }
+            }
+        }
+    }
+
+    /// Something in the run changed: whatever may start now starts.
+    func runChanged(_ id: UUID) {
+        startReadyTasks()
     }
 
     // -- starting ---------------------------------------------------------------------------
