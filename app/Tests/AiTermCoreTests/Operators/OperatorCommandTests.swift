@@ -68,7 +68,7 @@ import Foundation
         #expect(try String(contentsOf: folder.appendingPathComponent(OperatorCommand.mcpFile), encoding: .utf8)
                 == OperatorCommand.mcpConfig(hookPort: 5000, token: token))
         #expect(try String(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
-                == "Implement the sprint.")
+                == "Your operation:\n\nImplement the sprint.\n\nDone when: a commit per item, tests green")
         #expect(try String(contentsOf: folder.appendingPathComponent(OperatorCommand.briefFile), encoding: .utf8)
                 .contains("You are a senior frontend engineer."))
         #expect(prepared.command.contains("--add-dir '/code/shop dir'"))
@@ -77,6 +77,20 @@ import Foundation
         // No leftover temporary files beside them.
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
                 == ["brief.md", "first-message.md", "mcp.json", "token"])
+    }
+
+    /// The first message is `claude`'s prompt argument: a pasted bullet list must never lead it.
+    @Test func aBriefStartingWithADashNeverLeadsTheFirstMessage() throws {
+        let home = home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        var run = F.run()
+        run.brief = "- fix login\n- add tests"
+
+        let prepared = try OperatorCommand.prepare(run: run, projects: [], home: home, token: token)
+
+        let text = try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
+        #expect(text.first != "-")
+        #expect(text.contains("- fix login\n- add tests"))
     }
 
     @Test func aResumeSendsNoFirstMessageAndRewritesTheToken() throws {

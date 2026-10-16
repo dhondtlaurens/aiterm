@@ -91,10 +91,19 @@ public enum OperatorCommand {
         // Exactly the 64 hex digits: the daemon reads the file back after a restart.
         try writePrivate(Data(token.utf8), to: folder.appendingPathComponent(tokenFile))
         let first = conversation == nil && !run.brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if first { try Data(run.brief.utf8).write(to: folder.appendingPathComponent(firstMessageFile), options: .atomic) }
+        if first { try Data(firstMessage(for: run).utf8).write(to: folder.appendingPathComponent(firstMessageFile), options: .atomic) }
         let words = launchWords(model: run.persona.model, effort: run.persona.effort, runFolder: folder,
                                 projectPaths: projects.map(\.path), resuming: conversation)
         return Prepared(folder: folder, command: command(words: words, firstMessage: first), token: token)
+    }
+
+    /// The operator's first message: the operation's brief and its Done when under a fixed header, so
+    /// the text handed to `claude` as its prompt never starts with "-" (a pasted bullet list would be
+    /// read as an option).
+    static func firstMessage(for run: OperatorRun) -> String {
+        var text = "Your operation:\n\n" + run.brief
+        if let done = run.doneWhen?.trimmingCharacters(in: .whitespacesAndNewlines), !done.isEmpty { text += "\n\nDone when: " + done }
+        return text
     }
 
     /// Writes `data` so it is never readable by anyone else, even for a moment: a file made 0600
