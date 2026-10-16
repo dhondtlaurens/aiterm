@@ -1,11 +1,12 @@
 # daemon/tests/test_operator_mcp.py
 """The operator's MCP server (operator_mcp): the run tokens, the tool catalogue, the MCP methods and
 the forwarding of tool calls to the app, driven directly rather than over HTTP."""
+import json
 import os
 
 import pytest
 
-from aitermd.operator_mcp import OperatorTokens, well_formed
+from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorTokens, well_formed
 
 TOKEN = "ab" * 32
 OTHER = "cd" * 32
@@ -127,3 +128,51 @@ def test_memory_wins_over_a_file(tmp_path):
     tokens.register("run-1", OTHER)  # rotated, its file not written yet
     write_token(tmp_path, "run-1", TOKEN)
     assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) == "run-1"
+
+
+CONTRACT_TOOLS = {"run_status", "jira_search", "create_task", "update_task", "submit_plan", "read_task", "message_task",
+                  "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question", "propose_lesson",
+                  "log_decision"}
+
+
+def test_the_tools_are_the_contracts():
+    names = [tool["name"] for tool in TOOLS]
+    assert len(names) == len(set(names))
+    assert set(names) == CONTRACT_TOOLS == TOOL_NAMES
+
+
+@pytest.mark.parametrize("tool", TOOLS, ids=lambda tool: tool["name"])
+def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
+    schema = tool["inputSchema"]
+    assert tool["description"].strip()
+    assert schema["type"] == "object" and schema["additionalProperties"] is False
+    assert set(schema.get("required", [])) <= set(schema["properties"])
+    assert schema.get("required", ["x"]), "an empty required list is left out"
+    for name, prop in schema["properties"].items():
+        assert prop.get("description") or prop.get("type") == "integer", name
+    json.dumps(tool)
+
+
+def test_only_the_challenged_tools_take_a_challenge_reply():
+    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "propose_lesson", "message_task"}
+    for tool in TOOLS:
+        properties = tool["inputSchema"]["properties"]
+        assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)
+        assert "challengeId" not in tool["inputSchema"].get("required", [])
+        if tool["name"] in CHALLENGED_TOOLS:
+            # Integration decision 3: a pending challenge is called again with its id.
+            assert "pending" in properties["challengeId"]["description"]
+
+
+def test_the_values_are_the_apps():
+    properties = {tool["name"]: tool["inputSchema"]["properties"] for tool in TOOLS}
+    assert properties["create_task"]["end"]["enum"] == ["commit", "draftMR", "merge"]
+    assert properties["create_task"]["agent"]["enum"] == ["claude", "codex"]
+    assert properties["create_task"]["dependsOn"]["items"]["properties"]["kind"]["enum"] == ["order", "code"]
+    assert properties["read_task"]["what"]["enum"] == ["lastMessage", "diff", "prompt"]
+    assert properties["mark_task"]["outcome"]["enum"] == ["accepted", "noChange", "blocked", "failed"]
+    assert properties["submit_plan"]["revision"]["type"] == "integer"
+    assert properties["run_status"] == {}
+    required = {tool["name"]: set(tool["inputSchema"].get("required", [])) for tool in TOOLS}
+    assert required["create_task"] == {"key", "title", "brief", "project", "agent", "end"}
+    assert required["mark_task"] == {"task", "outcome"} and required["ask_you"] == {"key", "question"}

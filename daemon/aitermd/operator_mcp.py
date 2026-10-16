@@ -8,6 +8,7 @@ import os
 import re
 import stat
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger(__name__)
 # Where the app keeps each run's folder, named by its id: brief.md, mcp.json and `token` (spec §5.1).
@@ -103,3 +104,104 @@ class OperatorTokens:
                 continue
             if folder.name not in self._tokens and token not in self._runs:
                 self._runs[token], self._tokens[folder.name] = folder.name, token
+
+
+def _text(description: str) -> dict[str, Any]:
+    return {"type": "string", "description": description}
+
+
+def _choice(description: str, *values: str) -> dict[str, Any]:
+    return {"type": "string", "enum": list(values), "description": description}
+
+
+_TASK = _text("The task: its key as you gave it to create_task, or its id from run_status.")
+_KEY = _text("Your idempotency key for this act: the same key again returns what the first call did.")
+_AGENT = _choice("The agent that works the task, among those installed.", "claude", "codex")
+_END = _choice("Where the task ends, from the operation's Done when: commit; draftMR, push and open a draft merge request; "
+               "or merge, push, open a merge request and merge it once the host says it can be.", "commit", "draftMR", "merge")
+_DEPENDS_ON: dict[str, Any] = {
+    "type": "array",
+    "description": "What the task waits for. An order dependency waits until the other task is accepted or needs no change; "
+                   "a code dependency also builds on its accepted commit, in the same project. At most one code dependency.",
+    "items": {"type": "object", "additionalProperties": False, "required": ["task", "kind"],
+              "properties": {"task": _TASK, "kind": _choice("order or code.", "order", "code")}},
+}
+_CHALLENGE = {
+    "challengeId": _text("The challengeId a challenged call returned: send it with your revised arguments, or with "
+                         "challengeReply. A reply that says pending has no critique yet: call again with its challengeId "
+                         "and the same arguments. The same challengeId again, once answered, returns the recorded result."),
+    "challengeReply": _text("Your answer to each point of the second opinion's critique, when you keep the act as it was."),
+}
+# The tools a second opinion can challenge (spec §4.4): the first call returns a critique, and only
+# the call that answers it, with its challengeId, takes effect. A second opinion not back within the
+# app's 20 s answers {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the
+# operator calls again with that challengeId (integration decision 3). Which calls are challenged
+# follows the operator's setting, and is the app's to decide.
+CHALLENGED_TOOLS = ("submit_plan", "mark_task", "propose_lesson", "message_task")
+
+
+def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
+    """One tool as MCP's tools/list serves it. A closed schema: the operator's model shapes its calls
+    by it. The daemon checks no argument; the app does."""
+    properties = dict(properties or {})
+    if name in CHALLENGED_TOOLS:
+        properties |= _CHALLENGE
+    schema: dict[str, Any] = {"type": "object", "properties": properties, "additionalProperties": False}
+    if required:
+        schema["required"] = list(required)
+    return {"name": name, "description": description, "inputSchema": schema}
+
+
+# The operator's tools (spec §6), served by /operator and answered by the app's OperatorToolHandler.
+# Every one that changes something is safe to repeat: the repeat returns the recorded result.
+TOOLS: tuple[dict[str, Any], ...] = (
+    _tool("run_status", "The operation now, numbered by revision: every task with its state, live status, branch, last commit "
+          "and a one-line summary, and what is open -- questions waiting, prompts waiting on the user, tasks ready to accept, "
+          "tasks possibly stalled, anything uncertain. Call it first after any restart or compaction."),
+    _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the operation's projects.",
+          {"jql": _text("The JQL query.")}, ("jql",)),
+    _tool("create_task", "Adds an unstarted task to the open plan revision. The same key in this operation returns the task "
+          "already made.",
+          {"key": _KEY, "title": _text("The task's title, as its row shows it."),
+           "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
+           "project": _text("The project it belongs to, by name or by id from run_status."),
+           "ticket": _text("The Jira key it works, if any."), "agent": _AGENT,
+           "model": _text("The model, when not the agent's default."), "end": _END, "dependsOn": _DEPENDS_ON},
+          ("key", "title", "brief", "project", "agent", "end")),
+    _tool("update_task", "Changes an unstarted task's brief, agent, model, end or dependencies. Steer a started task with "
+          "message_task instead.",
+          {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _text("The new model."), "end": _END,
+           "dependsOn": _DEPENDS_ON}, ("task",)),
+    _tool("submit_plan", "Closes a plan revision. Where the user approves plans, its new and changed tasks wait for that; "
+          "otherwise they are queued at once. Submitting the same revision again returns the earlier result.",
+          {"revision": {"type": "integer", "description": "The revision run_status shows open."}}, ("revision",)),
+    _tool("read_task", "Reads a task: its worker's last message, its diff, or the prompt open in its session.",
+          {"task": _TASK, "what": _choice("lastMessage, diff or prompt.", "lastMessage", "diff", "prompt")}, ("task", "what")),
+    _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
+          "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried.",
+          {"task": _TASK, "text": _text("The message.")}, ("task", "text")),
+    _tool("mark_task", "Records a working task's outcome: accepted, with the result commit on its branch and the worker's check "
+          "output; noChange; blocked or failed, with the reason in note. The same outcome for the same commit returns the earlier "
+          "result.",
+          {"task": _TASK, "outcome": _choice("accepted, noChange, blocked or failed.", "accepted", "noChange", "blocked", "failed"),
+           "sha": _text("The accepted commit, unmoved on the task's branch."),
+           "checkOutput": _text("The worker's check output: tests, lint, build."), "note": _text("Why, for blocked and failed.")},
+          ("task", "outcome")),
+    _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues.",
+          {"task": _TASK}, ("task",)),
+    _tool("retry_task", "Queues a failed task again, if it has retries left.", {"task": _TASK}, ("task",)),
+    _tool("finish_task", "Carries out an accepted task's recorded end: pushes its branch and opens the merge request, and merges "
+          "it where the plan says merge. Calling again resumes where it stopped.", {"task": _TASK}, ("task",)),
+    _tool("ask_you", "Asks the user a question: it shows under Waiting on you and notifies them. They answer in this window; "
+          "close it with resolve_question. The same key returns the open question.",
+          {"key": _KEY, "question": _text("The question, complete on its own."), "task": _TASK}, ("key", "question")),
+    _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer.",
+          {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
+    _tool("propose_lesson", "Offers a lesson after the user corrected you: one sentence of behaviour, and the moment that "
+          "prompted it. Only the user keeps it. The same key is offered once.",
+          {"key": _KEY, "lesson": _text("The behaviour, in one sentence."), "because": _text("The correction that prompted it.")},
+          ("key", "lesson", "because")),
+    _tool("log_decision", "Writes a decision you took on your own to the operation's log. The same key is written once.",
+          {"key": _KEY, "text": _text("The decision, and why."), "task": _TASK}, ("key", "text")),
+)
+TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
