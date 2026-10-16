@@ -177,7 +177,7 @@ struct SidebarContextMenuHighlightTests {
         let setUp = NSSelectorFromString("_setupContextMenuHighlightingForRow:column:")
         #expect(table.responds(to: setUp), "AppKit no longer highlights the clicked row this way — recheck the fix")
         typealias SetUpFn = @convention(c) (AnyObject, Selector, Int, Int) -> Void
-        unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 2, 0)
+        unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 3, 0)
         host.display()
 
         let highlighted = try paintedBox(host: host, table: table, row: 3)
