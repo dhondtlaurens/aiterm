@@ -28,6 +28,11 @@ struct Destination: Equatable {
         Destination(place: "\(owner.kind == .review ? "review" : "task") “\(owner.title)”", branch: owner.branch)
     }
 
+    /// An operation's: its operator's own window, and the tasks it opens wherever the brief needs them.
+    static func operatorWindow(_ operatorName: String) -> Destination {
+        Destination(place: "\(operatorName)’s window", branch: "tasks in the projects the brief needs")
+    }
+
     /// The New Task and New Review steps that end on the line: step 1, which names the checkout,
     /// and step 3, which creates it. Step 2 is the agent's alone, so nothing works the line out there
     /// — finding the unused worktree slug looks at the disk.

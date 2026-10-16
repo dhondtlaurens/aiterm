@@ -64,6 +64,8 @@ extension AppController {
         case archive(ArchiveSheetModel)
         /// New Operator… and Edit Operator…: its model is built once, its catalogues read, as New Task's is.
         case operatorEditor(OperatorSheetModel)
+        /// An operator's "+": the brief and when it is done.
+        case newOperation(NewOperationModel)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -76,6 +78,7 @@ extension AppController {
             case .backpack: return "backpack"
             case .archive: return "archive"
             case .operatorEditor(let model): return "operator-\(model.id)"
+            case .newOperation(let model): return "operation-new-\(model.id)"
             }
         }
     }

@@ -59,3 +59,18 @@ extension AppController {
         }
     }
 }
+
+extension AppController {
+    /// An operator's "+" or New Operation…: the sheet, that operator picked. Started, the operation's
+    /// row is selected; its window comes forward by the operator controller's own start.
+    func presentNewOperation(operator persona: OperatorPersona) {
+        guard canChangeWorkspace else { return }
+        let controller = operatorController
+        sheets.present(operatorSheet: .newOperation(NewOperationModel(operators: controller.operators, picked: persona.handle) {
+            [weak self] persona, brief, doneWhen in
+            let id = try await controller.startOperation(operator: persona, brief: brief, doneWhen: doneWhen)
+            self?.focus.browse(.operation(id))
+            return id
+        }))
+    }
+}
