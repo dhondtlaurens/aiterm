@@ -77,6 +77,19 @@ import Testing
         #expect(notifier.held[run.id] == nil)
     }
 
+    @Test func theSameQuestionAskedTwiceIsHeldAndSentOnce() {
+        let run = makeRun(.trusted), notifier = makeNotifier()
+        let question = OperatorServiceFixtures.question("same", at: clock.now)
+        notifier.questionAsked(question, in: run, otherWorkCanProceed: true)
+        notifier.questionAsked(question, in: run, otherWorkCanProceed: true)
+        #expect(notifier.held[run.id]?.count == 1)
+        notifier.questionAsked(OperatorServiceFixtures.question("other", at: clock.now), in: run, otherWorkCanProceed: true)
+        var finished = run
+        finished.state = .complete
+        notifier.runComplete(finished)
+        #expect(notifications.posted.map(\.body).contains("2 questions wait on you in “Sprint 42”."))
+    }
+
     @Test func aTargetSurvivesTheTripThroughANotificationsUserInfo() {
         let id = UUID()
         #expect(OperatorNote.Target(userInfo: OperatorNote.Target.task(id).userInfo) == .task(id))

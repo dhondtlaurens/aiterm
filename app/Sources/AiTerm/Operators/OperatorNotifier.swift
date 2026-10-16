@@ -52,7 +52,8 @@ final class OperatorNotifier {
     func questionAsked(_ question: OperatorQuestion, in run: OperatorRun, otherWorkCanProceed: Bool) {
         if notifies(.question(holdsUpEverything: !otherWorkCanProceed), run, otherWorkCanProceed: otherWorkCanProceed, waited: 0) {
             post("question-\(run.id.uuidString)-\(question.id)", "\(run.persona.name) asks you", question.text, to: .overview(run.id))
-        } else {
+        } else if held[run.id]?.contains(where: { $0.id == question.id }) != true {
+            // `ask_you` is idempotent by key, so a repeat is not a second question.
             held[run.id, default: []].append(question)
         }
     }

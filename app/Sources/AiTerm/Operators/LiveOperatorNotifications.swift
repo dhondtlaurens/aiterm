@@ -17,7 +17,9 @@ final class LiveOperatorNotifications: NSObject, OperatorNotifications {
         guard !asked, let center else { return }
         asked = true
         center.delegate = self
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // The async form: its completion never runs inside this main-actor class, where a closure
+        // the SDK does not mark @Sendable would trap when the centre calls it off the main queue.
+        Task { _ = try? await center.requestAuthorization(options: [.alert, .sound]) }
     }
 
     func post(_ note: OperatorNote) {
