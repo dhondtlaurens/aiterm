@@ -13,6 +13,7 @@ import Foundation
 final class RecordingDaemon: DaemonCommands {
     struct Request { let method: String; let params: [String: Any] }
     private(set) var requests: [Request] = []
+    var onRequest: (String) -> Void = { _ in }
     /// The code each method fails with: one of the app's, or one only a newer helper would send.
     var failing: [String: DaemonError.Code]
     /// What `session.deliver` answers, in order, the last one repeated; delivered when empty.
@@ -51,6 +52,7 @@ final class RecordingDaemon: DaemonCommands {
     @discardableResult
     private func answer(_ method: String, _ params: [String: Any], id: String = "") async throws -> String {
         requests.append(Request(method: method, params: params))
+        onRequest(method)
         if method == holding, !released { await withCheckedContinuation { held.append($0) } }
         replies[method, default: 0] += 1
         let count = replies[method, default: 1]

@@ -160,6 +160,32 @@ indirect enum StoredJSON: Codable, Equatable, Sendable {
     }
 }
 
+/// Fields from a newer build, written alongside the fields this build understands.
+struct PreservedFields: Equatable, Sendable {
+    private struct Key: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+    private var values: [String: StoredJSON] = [:]
+    init() {}
+    /// `retired`: keys an older build wrote and this one dropped on purpose — not a newer build's, so
+    /// they go on the next save instead of being kept.
+    init<K: CodingKey>(_ decoder: Decoder, known: K.Type, retired: Set<String> = []) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        for key in c.allKeys where K(stringValue: key.stringValue) == nil && !retired.contains(key.stringValue) {
+            values[key.stringValue] = try c.decode(StoredJSON.self, forKey: key)
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        for (name, value) in values {
+            if let key = Key(stringValue: name) { try c.encode(value, forKey: key) }
+        }
+    }
+}
+
 /// A sidebar row of a kind only a newer build knows, held as it was read. It is not drawn and no
 /// action reaches it, but it stays in `AppState.items` where it was, so a save writes it back.
 public struct UnknownSidebarItem: Equatable, Sendable {
@@ -262,6 +288,7 @@ public struct TaskConversation: Codable, Equatable, Sendable {
 }
 
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
+    private var preservedFields = PreservedFields()
     public var id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String
     public var jira: JiraRef?, mr: MergeRequestRef?
     /// Assigning one replaces what the file had: the new value is what is saved from then on.
@@ -308,6 +335,8 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// the whole workspace load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // `lastSelectedAt` was written on every click and never read; a workspace saved with it loses it.
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["lastSelectedAt"])
         id = try c.decode(UUID.self, forKey: .id)
         projectId = try c.decode(UUID.self, forKey: .projectId)
         title = try c.decode(String.self, forKey: .title)
@@ -339,6 +368,7 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(projectId, forKey: .projectId)
@@ -425,6 +455,7 @@ public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct AppState: Codable, Equatable, Sendable {
+    private var preservedFields = PreservedFields()
     /// The sidebar's top level, in the order it is drawn: the projects and the dividers between them.
     public var items: [SidebarItem] = []
     public var tasks: [TaskItem] = [], terminals: [TerminalItem] = []
@@ -507,6 +538,7 @@ public struct AppState: Codable, Equatable, Sendable {
     /// their projects become the list, in order. Same mechanism as `TerminalItem.init(from:)`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         if let stored = try c.decodeIfPresent([SidebarItem].self, forKey: .items) { items = stored }
         else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
@@ -543,6 +575,7 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(items, forKey: .items)
         try c.encode(tasks, forKey: .tasks)

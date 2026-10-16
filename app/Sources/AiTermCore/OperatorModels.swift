@@ -107,6 +107,7 @@ public struct TaskAcceptance: Codable, Equatable, Sendable {
 /// and saved, as it completes, so a repeat — after a lost reply, a crash, a restart — resumes at the
 /// next one and never pushes or opens twice.
 public struct TaskPublication: Codable, Equatable, Sendable {
+    private var preservedFields = PreservedFields()
     /// The commit pushed to the task's own branch on origin: the accepted one.
     public var pushedSHA: String?
     /// The merge or pull request opened for it, and its number on its host.
@@ -146,9 +147,10 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
-    /// A key this build does not know is ignored.
+    /// Keys this build does not know are preserved.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         pushedSHA = try c.decodeIfPresent(String.self, forKey: .pushedSHA)
         mergeRequestURL = try c.decodeIfPresent(String.self, forKey: .mergeRequestURL)
         mergeRequestNumber = try c.decodeIfPresent(Int.self, forKey: .mergeRequestNumber)
@@ -159,6 +161,21 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
         mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(pushedSHA, forKey: .pushedSHA)
+        try c.encodeIfPresent(mergeRequestURL, forKey: .mergeRequestURL)
+        try c.encodeIfPresent(mergeRequestNumber, forKey: .mergeRequestNumber)
+        try c.encodeIfPresent(targetBranch, forKey: .targetBranch)
+        try c.encodeIfPresent(waitingSince, forKey: .waitingSince)
+        try c.encodeIfPresent(readySince, forKey: .readySince)
+        try c.encode(merged, forKey: .merged)
+        try c.encodeIfPresent(mergedSHA, forKey: .mergedSHA)
+        try c.encodeIfPresent(mergedHead, forKey: .mergedHead)
+        try c.encodeIfPresent(problem, forKey: .problem)
     }
 }
 
@@ -182,6 +199,7 @@ public enum OperatedFlag: String, Codable, CaseIterable, Sendable { case possibl
 
 /// Everything an operator adds to a task. `TaskItem.operated` — nil for every task you made yourself.
 public struct OperatedTask: Codable, Equatable, Sendable {
+    private var preservedFields = PreservedFields()
     public var runId: UUID
     /// The operator's idempotency key: `create_task` with a key the run has returns that task.
     public var key: String
@@ -241,6 +259,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         runId = try c.decode(UUID.self, forKey: .runId)
         key = try c.decode(String.self, forKey: .key)
         state = try c.decode(OperatedState.self, forKey: .state)
@@ -264,6 +283,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(runId, forKey: .runId)
         try c.encode(key, forKey: .key)
@@ -359,6 +379,7 @@ public struct ProposedLesson: Codable, Equatable, Sendable {
 
 /// An operation — "run" in code (spec §4.0.1, §5.1). The app is its only writer.
 public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
+    private var preservedFields = PreservedFields()
     public var id: UUID
     public var name: String
     /// The operator as it was when the operation started: editing the operator changes the next one.
@@ -403,6 +424,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// Synthesised but for `challenges`, which a run saved before them reads as none.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         persona = try c.decode(OperatorPersona.self, forKey: .persona)
@@ -425,4 +447,27 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
 
     /// The revision `create_task` and `update_task` add to: the one after the last submitted.
     public var openRevision: Int { planRevision + 1 }
+
+    public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(persona, forKey: .persona)
+        try c.encode(projectIds, forKey: .projectIds)
+        try c.encode(brief, forKey: .brief)
+        try c.encodeIfPresent(doneWhen, forKey: .doneWhen)
+        try c.encode(state, forKey: .state)
+        try c.encodeIfPresent(intent, forKey: .intent)
+        try c.encode(planRevision, forKey: .planRevision)
+        try c.encodeIfPresent(approvedRevision, forKey: .approvedRevision)
+        try c.encode(questions, forKey: .questions)
+        try c.encode(decisions, forKey: .decisions)
+        try c.encode(lessons, forKey: .lessons)
+        try c.encodeIfPresent(operatorConversation, forKey: .operatorConversation)
+        try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)
+        try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
+        try c.encode(challenges, forKey: .challenges)
+        try c.encode(createdAt, forKey: .createdAt)
+    }
 }

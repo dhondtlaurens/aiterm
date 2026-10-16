@@ -37,6 +37,7 @@ final class WorkerStarter {
     private var reopenedAt: [UUID: Date] = [:]
     /// Said when a start blocks its task: you are asked (spec §8).
     var onBlocked: @MainActor (TaskItem, String) -> Void = { _, _ in }
+    var onUncertain: @MainActor (TaskItem) -> Void = { _ in }
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
          taskFrame: @escaping @MainActor () -> Frame, ports: OperatorPorts) {
@@ -228,6 +229,7 @@ final class WorkerStarter {
     func tabsListed(_ sessions: [SessionInfo]) -> Bool {
         let tagged = Set(sessions.compactMap(\.taskUUID))
         for id in reopenedAt.keys where tagged.contains(id) { reopenedAt[id] = nil }
+        for id in tagged { checkWorker(id, sessions: sessions) }
         let workers = Set(sessions.filter(Self.isWorkerTab).compactMap(\.taskUUID))
         let listed = unlisted.keys.filter(workers.contains)
         for id in listed { unlisted[id] = nil }
@@ -247,6 +249,21 @@ final class WorkerStarter {
             guard let i = state.tasks.firstIndex(where: { $0.id == id }) else { return }
             state.tasks[i].windowId = window
             if state.tasks[i].operated?.launch?.openedAt == nil { state.tasks[i].operated?.launch?.openedAt = now }
+        }
+        checkWorker(id, sessions: live.sessions)
+    }
+
+    /// A tagged shell confirms a window, not an agent. Keep that uncertainty visible until an agent appears.
+    private func checkWorker(_ id: UUID, sessions: [SessionInfo]) {
+        guard let task = state.task(id: id), let operated = task.operated, operated.launch != nil,
+              [.working, .blocked].contains(operated.state) else { return }
+        let tabs = sessions.filter { $0.taskUUID == id }
+        guard !tabs.isEmpty else { return }
+        if tabs.contains(where: Self.isWorkerTab) {
+            if operated.flags.contains(.uncertain) { workspace.mutate { $0.updateOperated(id) { $0.flags.remove(.uncertain) } } }
+        } else if !operated.flags.contains(.uncertain) {
+            workspace.mutate { $0.updateOperated(id) { $0.flags.insert(.uncertain) } }
+            onUncertain(state.task(id: id) ?? task)
         }
     }
 

@@ -21,6 +21,7 @@ struct OperatorPorts {
     var now: @MainActor () -> Date = { Date() }
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
+    var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// Settings › Agents' Agents at once (F1), read at every start pass.
     var agentsAtOnce: @MainActor () -> Int = { OperatorSettings.agentsAtOnce() }
     /// How often the run reconciler looks at the real tabs.
@@ -121,7 +122,7 @@ final class OperatorController {
                                   guard let state = workspace.state.run(id: run)?.state else { return false }
                                   return state == .planning || state == .active || state == .complete
                               },
-                              coalesce: ports.wakeCoalesce)
+                              coalesce: ports.wakeCoalesce, sleep: ports.wakeSleep)
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
@@ -134,6 +135,10 @@ final class OperatorController {
         }
         tools.onActing = { [weak self] task, on in self?.setActing(task, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
+        starter.onUncertain = { [weak self] task in
+            guard let operated = task.operated else { return }
+            self?.waker.say("\(operated.key) is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)
+        }
         starter.onBlocked = { [weak self] task, reason in
             guard let self, let run = task.operated.flatMap({ self.run(id: $0.runId) }) else { return }
             notifier.taskBlocked(task, reason: reason, in: run)
@@ -326,7 +331,7 @@ final class OperatorController {
             throw ActionUnavailable("Save or recover the workspace before starting an operation.")
         }
         workspace.mutate { $0.runs.append(run) }
-        // From here a failure takes the run out again: no row without a window, no token left behind.
+        // Definite failures roll back; an uncertain window request keeps its tag and token for adoption.
         var registered = false
         do {
             guard workspace.flush() else { throw ActionUnavailable("The operation couldn’t be saved, so it didn’t start.") }
@@ -336,6 +341,9 @@ final class OperatorController {
             let window = try await daemon.createTaskWindow(taskId: run.id.uuidString, cwd: prepared.folder.path, title: run.name,
                                                            agentCommand: prepared.command, frame: taskFrame(), background: false)
             mutateRun(run.id) { $0.operatorWindowId = window }
+        } catch let error as DaemonError where registered && [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
+            mutateRun(run.id) { $0.state = .operatorOffline }
+            _ = workspace.flush()
         } catch {
             workspace.mutate { $0.runs.removeAll { $0.id == run.id } }
             _ = workspace.flush()

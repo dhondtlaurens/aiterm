@@ -55,6 +55,9 @@ final class OperatorToolHandler {
     var runningChallenges: [String: Task<Void, Never>] = [:]
     /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
     var actingChallenges: Set<String> = []
+    struct MessageKey: Hashable { let task: UUID; let text: String }
+    var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
+    var sendingMessages: Set<MessageKey> = []
     /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
@@ -106,27 +109,44 @@ final class OperatorToolHandler {
     func answer(_ request: OperatorRequest) async -> ToolAnswer {
         guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else { return .error("This operation is no longer in AiTerm.") }
         guard run.state != .stopped, run.intent != .stopped else { return .error("This operation has ended; its tools no longer act.") }
-        let call = ToolCall(tool: request.tool, arguments: request.arguments), before = currentStatus(of: run)
+        let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let actingOn = Self.actsOnTask.contains(call.tool) ? call.optionalString("task").flatMap { state.task(inRun: id, named: $0)?.id } : nil
         if let actingOn { onActing(actingOn, true) }
         defer { if let actingOn { onActing(actingOn, false) } }
         do {
+            if let recorded = try replayedMessage(call, in: run) { return .result(recorded) }
             if let instead = try await challengeGate(call, in: run) { return .result(instead) }
             // The gate marks a challenge it lets act; whatever way this call ends, the mark goes with it.
             let acting = call.optionalString("challengeId").flatMap { actingChallenges.contains($0) ? $0 : nil }
             defer { if let acting { actingChallenges.remove(acting) } }
-            let value = try await perform(call, in: run)
-            recordActed(call, in: id, answer: value)
-            if Self.mutating.contains(call.tool), let before, let after = state.run(id: id).flatMap(currentStatus(of:)) {
-                waker.ownChange(from: before, to: after, of: id)
-                onChange(id)
+            guard let current = state.run(id: id) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+            guard current.state != .stopped, current.intent != .stopped else {
+                throw ToolRefusal("This operation has ended; its tools no longer act.")
             }
+            if Self.mutating.contains(call.tool), current.state != run.state || current.intent != run.intent,
+               current.state == .paused || current.state == .operatorOffline || current.intent == .paused {
+                try acceptsWork(current)
+            }
+            let value = try await perform(call, in: current)
+            recordActed(call, in: id, answer: value)
+            if Self.mutating.contains(call.tool) { onChange(id) }
             return .result(value)
         } catch let refusal as ToolRefusal {
             return .error(refusal.message)
         } catch {
             return .error(error.localizedDescription)
         }
+    }
+
+    /// Only this synchronous write is the call's own news; changes during an await stay unread.
+    @discardableResult
+    func mutate<T>(in id: UUID?, _ body: (inout AppState) throws -> T) rethrows -> T {
+        let before = id.flatMap { state.run(id: $0) }.flatMap(currentStatus(of:))
+        let result = try workspace.mutate(body)
+        if let id, let before, let after = state.run(id: id).flatMap(currentStatus(of:)), before != after {
+            waker.ownChange(from: before, to: after, of: id)
+        }
+        return result
     }
 
     /// One tool, by its name.
@@ -200,7 +220,7 @@ final class OperatorToolHandler {
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
         if let open = run.questions.first(where: { $0.id == key }) { return Self.questionAnswer(open) }
         let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil)
-        workspace.mutate { state in
+        mutate(in: run.id) { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }
             if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
         }
@@ -214,7 +234,7 @@ final class OperatorToolHandler {
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this operation.") }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
-        workspace.mutate { state in
+        mutate(in: run.id) { state in
             state.updateRun(id: run.id) { run in
                 if let i = run.questions.firstIndex(where: { $0.id == key }) { run.questions[i].resolution = summary }
             }
@@ -231,7 +251,7 @@ final class OperatorToolHandler {
         if let proposed = run.lessons.first(where: { $0.key == key }) {
             return ["lesson": .string(key), "proposed": true, "decided": proposed.decided.map { .string($0.rawValue) } ?? .null]
         }
-        workspace.mutate { $0.updateRun(id: run.id) { $0.lessons.append(ProposedLesson(key: key, lesson: lesson, because: because, decided: nil)) } }
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.lessons.append(ProposedLesson(key: key, lesson: lesson, because: because, decided: nil)) } }
         return ["lesson": .string(key), "proposed": true, "decided": .null]
     }
 
@@ -240,7 +260,7 @@ final class OperatorToolHandler {
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
         if !run.decisions.contains(where: { $0.key == key }) {
             let decision = OperatorDecision(key: key, text: text, task: taskId, at: ports.now(), challenge: nil)
-            workspace.mutate { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
         }
         return ["decision": .string(key), "logged": true]
     }

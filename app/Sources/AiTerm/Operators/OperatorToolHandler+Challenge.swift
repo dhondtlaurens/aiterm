@@ -67,7 +67,7 @@ extension OperatorToolHandler {
             }
         }
         let id = UUID().uuidString
-        workspace.mutate { $0.updateRun(id: run.id) { $0.challenges.append(ChallengeRecord(id: id, tool: call.tool, askedAt: ports.now())) } }
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(ChallengeRecord(id: id, tool: call.tool, askedAt: ports.now())) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments),
@@ -104,7 +104,7 @@ extension OperatorToolHandler {
             return Self.challengedAnswer(id, critique)
         case .unchallenged(let reason)??:
             // Its id was never named to the operator, so nothing calls with it: the record goes.
-            workspace.mutate { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
             record(call, in: run, challenge: "unchallenged: \(reason)", reply: "proceeded")
             return nil
         }
@@ -117,7 +117,7 @@ extension OperatorToolHandler {
         guard let id = call.optionalString("challengeId") else { return }
         let invocation = Self.invocation(call), result = Self.json(answer)
         var acted = false
-        workspace.mutate { state in
+        mutate(in: run) { state in
             state.updateRun(id: run) { run in
                 guard let i = run.challenges.firstIndex(where: { $0.id == id && $0.tool == call.tool }),
                       [.delivered, .unchallenged].contains(run.challenges[i].stage) else { return }
@@ -149,7 +149,7 @@ extension OperatorToolHandler {
     }
 
     private func updateChallenge(_ id: String, in run: UUID, _ change: (inout ChallengeRecord) -> Void) {
-        workspace.mutate { state in
+        mutate(in: run) { state in
             state.updateRun(id: run) { run in
                 if let i = run.challenges.firstIndex(where: { $0.id == id }) { change(&run.challenges[i]) }
             }
@@ -161,7 +161,7 @@ extension OperatorToolHandler {
         let taskId = (try? task(call, in: run))?.id
         let decision = OperatorDecision(key: "challenge-\(UUID().uuidString)", text: "\(call.tool): \(reply)", task: taskId,
                                         at: ports.now(), challenge: challenge)
-        workspace.mutate { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
     }
 
     private static func challengedAnswer(_ id: String, _ critique: String) -> JSONValue {

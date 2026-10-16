@@ -53,6 +53,13 @@ extension OperatorToolHandler {
         }
     }
 
+    func replayedMessage(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> JSONValue? {
+        guard call.tool == "message_task" else { return nil }
+        let task = try self.task(call, in: run), text = try call.string("text"), now = ports.now()
+        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < 600 }
+        return deliveredMessages[MessageKey(task: task.id, text: text)]?.answer
+    }
+
     /// Delivered by the daemon's rules (spec §7.1) with the task's ownership generation, so a send begun
     /// before a takeover cannot land after it. Never retried here: the result says what happened.
     func messageTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
@@ -63,11 +70,18 @@ extension OperatorToolHandler {
         guard [.working, .blocked].contains(operated.state) else {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): there is no worker to steer.")
         }
+        let key = MessageKey(task: task.id, text: text), now = ports.now()
+        deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < 600 }
+        if let recorded = deliveredMessages[key] { return recorded.answer }
+        guard sendingMessages.insert(key).inserted else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
+        defer { sendingMessages.remove(key) }
         guard let tab = workerTab(of: task) else { throw ToolRefusal("\(operated.key)’s worker has no open tab right now.") }
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)
-        return ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
+        let answer: JSONValue = ["result": .string(delivery.result.rawValue), "reason": delivery.reason.map(JSONValue.string) ?? .null]
+        if delivery.result == .delivered { deliveredMessages[key] = (ports.now(), answer) }
+        return answer
     }
 
     /// The operator's outcome (spec §6, §8). Accepted needs the commit its branch is on, unmoved, and the
@@ -76,6 +90,7 @@ extension OperatorToolHandler {
         let task = try self.task(call, in: run), outcome = try call.string("outcome")
         // A repeat of what was recorded changes nothing, so it answers even while paused or taken over.
         if let operated = task.operated, try await isRepeat(of: outcome, call, operated, in: task) { return Self.taskAnswer(task, created: false) }
+        try recheck(task)
         try acceptsWork(run)
         let operated = try notTakenOver(task)
         let action: OperatedAction
@@ -83,12 +98,16 @@ extension OperatorToolHandler {
         case "accepted":
             let given = try call.string("sha"), check = try call.string("checkOutput")
             let sha = try await commit(given, in: task)
+            try recheck(task)
             let tip = try await commit("refs/heads/" + task.branch, in: task)
+            try recheck(task)
             guard sha == tip else {
                 throw ToolRefusal("\(operated.key)’s branch is at \(tip.prefix(7)), not \(given): accept the commit its branch is on.")
             }
             // A task whose code parent was accepted again builds on the new commit before it is accepted (M3, spec §8).
-            if let why = try await upstreamRefusal(task, result: sha) { throw ToolRefusal(why) }
+            let why = try await upstreamRefusal(task, result: sha)
+            try recheck(task)
+            if let why { throw ToolRefusal(why) }
             let prerequisites = RunScheduler.baseCommit(for: task.id, in: state).map { [$0] } ?? []
             let acceptance = TaskAcceptance(resultSHA: sha, prerequisiteSHAs: prerequisites, checkOutput: check,
                                             note: call.optionalString("note"), at: ports.now())
@@ -108,7 +127,7 @@ extension OperatorToolHandler {
         }
         try apply(action, to: task)
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
-        if outcome == "accepted" { workspace.mutate { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
+        if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
         if outcome == "blocked" { notifier.taskBlocked(marked, reason: call.optionalString("note") ?? "", in: run) }
         return Self.taskAnswer(marked, created: false)
@@ -143,9 +162,10 @@ extension OperatorToolHandler {
     /// accepted code dependents back to working and every started one flagged. The answer names them, and
     /// each operation holding one is woken once (`finish_task` of one of them refuses meanwhile).
     private func reaccept(_ task: TaskItem, as acceptance: TaskAcceptance) throws -> JSONValue {
+        try recheck(task)
         let revoked: [UUID]
         do {
-            revoked = try workspace.mutate { state in
+            revoked = try mutate(in: task.operated?.runId) { state in
                 let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
                 state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
                 // A complete operation holding work again is not complete: it settles once that is done.
@@ -163,7 +183,9 @@ extension OperatorToolHandler {
         }
         let keys = revoked.compactMap { id in state.task(id: id)?.operated.map { ($0.runId, $0.key) } }
         for (run, keys) in Dictionary(grouping: keys, by: \.0) {
-            waker.say("\(keys.map(\.1).joined(separator: ", ")) needs a rebase: \(task.operated?.key ?? task.title) was accepted again", to: run)
+            let seen = run == task.operated?.runId ? state.run(id: run).flatMap(currentStatus(of:)) : nil
+            waker.say("\(keys.map(\.1).joined(separator: ", ")) needs a rebase: \(task.operated?.key ?? task.title) was accepted again",
+                       to: run, unlessAcknowledged: seen)
         }
         let marked = state.task(id: task.id) ?? task
         guard case .object(var fields) = Self.taskAnswer(marked, created: false) else { return Self.taskAnswer(marked, created: false) }
@@ -195,8 +217,24 @@ extension OperatorToolHandler {
     }
 
     // -- helpers ---------------------------------------------------------------------------------
+    private func recheck(_ original: TaskItem) throws(ToolRefusal) {
+        guard let task = state.task(id: original.id), let operated = task.operated,
+              let run = state.run(id: operated.runId), operated.runId == original.operated?.runId else {
+            throw ToolRefusal("This task is no longer in this operation.")
+        }
+        try acceptsWork(run)
+        _ = try notTakenOver(task)
+        guard operated.ownership == original.operated?.ownership, operated.state == original.operated?.state,
+              operated.acceptance == original.operated?.acceptance, operated.dependsOn == original.operated?.dependsOn,
+              operated.flags == original.operated?.flags else {
+            throw ToolRefusal("This task changed while AiTerm was checking it; read run_status and try again.")
+        }
+    }
+
     /// Work moves only in an active or complete operation (spec §9).
     func acceptsWork(_ run: OperatorRun) throws(ToolRefusal) {
+        if run.intent == .stopped { throw ToolRefusal("This operation was stopped; its tools no longer act.") }
+        if run.intent == .paused { throw ToolRefusal("The person paused this operation. Wait until they resume it.") }
         switch run.state {
         case .active, .complete: return
         case .planning: throw ToolRefusal("This operation’s plan isn’t under way yet.")
@@ -217,7 +255,7 @@ extension OperatorToolHandler {
     func apply(_ action: OperatedAction, to task: TaskItem) throws {
         let milestone = ports.milestone
         do {
-            try workspace.mutate { state in
+            try mutate(in: task.operated?.runId) { state in
                 _ = try OperatedTransitions.apply(action, toTask: task.id, in: &state, by: .operatorTool, milestone: milestone)
             }
         } catch let refused as OperatedTransitionError {

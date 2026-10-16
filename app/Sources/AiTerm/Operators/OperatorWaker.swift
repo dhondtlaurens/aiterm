@@ -25,6 +25,8 @@ final class OperatorWaker {
     private var sending: Set<UUID> = []
     /// The latest delivery, for a test to await.
     private(set) var lastSend: Task<Void, Never>?
+    /// The latest coalescing pass, for a test to release and await.
+    private(set) var lastCoalesce: Task<Void, Never>?
 
     init(daemon: @escaping @MainActor () -> (any DaemonCommands)?, session: @escaping @MainActor (UUID) -> SessionInfo?,
          awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15),
@@ -60,15 +62,16 @@ final class OperatorWaker {
         retrying.removeValue(forKey: run)?.cancel()
     }
 
-    /// A change the operator made with its own call: seen, if it had seen everything before it. News
-    /// that came meanwhile still wakes it.
+    /// One synchronous change the tool made: callers bracket the write, never an await. News that
+    /// arrived while a tool was suspended is already in `before` and stays unread.
     func ownChange(from before: RunStatus, to after: RunStatus, of run: UUID) {
-        guard Self.content(before) == acknowledgedStatus[run] else { return }
+        guard Self.content(before) == acknowledgedStatus[run], reasons[run] == nil else { return }
         acknowledged(after, of: run)
     }
 
     /// A fixed reason to wake it — `reconnected`, `plan approved` — which is the line when it is the only news.
-    func say(_ reason: String, to run: UUID) {
+    func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil) {
+        if let status, Self.content(status) == acknowledgedStatus[run] { return }
         reasons[run] = reason
         // The change that prompted it is often already counted: the reason stands for it.
         updates[run] = max(updates[run, default: 0], 1)
@@ -112,6 +115,7 @@ final class OperatorWaker {
             armed[run] = nil
             send(run)
         }
+        lastCoalesce = armed[run]
     }
 
     private func send(_ run: UUID) {

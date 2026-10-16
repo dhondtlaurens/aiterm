@@ -16,7 +16,10 @@ import Testing
     @Test func anEmptyPublicationAndAnUnknownKeyBothRead() throws {
         #expect(try JSONDecoder().decode(TaskPublication.self, from: Data("{}".utf8)) == TaskPublication())
         let newer = Data(#"{"pushedSHA":"4f2a91c","reviewers":["ann"],"merged":true}"#.utf8)
-        #expect(try JSONDecoder().decode(TaskPublication.self, from: newer) == TaskPublication(pushedSHA: "4f2a91c", merged: true))
+        let read = try JSONDecoder().decode(TaskPublication.self, from: newer)
+        #expect(read.pushedSHA == "4f2a91c" && read.merged && read.mergeRequestURL == nil)
+        // The newer build's key is kept for it on the next save.
+        #expect(String(decoding: try JSONEncoder().encode(read), as: UTF8.self).contains(#""reviewers":["ann"]"#))
     }
 
     @Test func everyStepRoundTripsOnATask() throws {

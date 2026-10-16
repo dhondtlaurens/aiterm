@@ -34,7 +34,7 @@ extension OperatorToolHandler {
         task.operated = OperatedTask(runId: current.id, key: key, state: .planned, end: draft.end, brief: brief, dependsOn: draft.dependencies,
                                      stackedOn: draft.dependencies.first { $0.kind == .code }?.task, revision: current.openRevision)
         // Only a call that passed every check widens the operation's projects.
-        workspace.mutate { state in
+        mutate(in: run.id) { state in
             if draft.joins { state.updateRun(id: current.id) { if !$0.projectIds.contains(draft.project.id) { $0.projectIds.append(draft.project.id) } } }
             state.tasks.append(task)
         }
@@ -80,7 +80,7 @@ extension OperatorToolHandler {
         let dependencies = try call.arguments["dependsOn"].map { _ in try self.dependencies(call, in: run, project: project) }
         if let dependencies, dependencies.contains(where: { $0.task == task.id }) { throw ToolRefusal("A task can’t depend on itself.") }
         do {
-            try workspace.mutate { state in
+            try mutate(in: run.id) { state in
                 guard let i = state.tasks.firstIndex(where: { $0.id == task.id }), var record = state.tasks[i].operated else { return }
                 if let brief { record.brief = brief; state.tasks[i].firstPrompt = brief }
                 if let agent { state.tasks[i].agent = agent }
@@ -109,7 +109,7 @@ extension OperatorToolHandler {
         try acceptsPlanChanges(run)
         let submitted: PlanRevision.Submitted
         do {
-            submitted = try workspace.mutate { try PlanRevision.submit(revision, run: run.id, in: &$0, milestone: ports.milestone) }
+            submitted = try mutate(in: run.id) { try PlanRevision.submit(revision, run: run.id, in: &$0, milestone: ports.milestone) }
         } catch let failure as PlanRevision.Failure {
             throw ToolRefusal(failure.description)
         }
