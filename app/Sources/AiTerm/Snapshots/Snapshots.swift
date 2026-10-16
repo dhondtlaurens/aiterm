@@ -35,7 +35,7 @@ enum Snapshots {
     /// images drawn after it.
     static var regressionSet: [Snapshot] {
         SidebarSnapshots.rows + SheetSnapshots.all + SettingsSnapshots.all + [SidebarSnapshots.marks]
-            + SidebarSnapshots.states
+            + SidebarSnapshots.states + OperatorSnapshots.all
     }
 
     static func runIfRequested() -> Bool {
@@ -85,6 +85,15 @@ enum Snapshots {
             window.orderOut(nil)
             return
         }
+        guard let png = png(view) else { print("could not render \(url.lastPathComponent)"); return }
+        try? png.write(to: url)
+    }
+
+    /// The PNG `snapshot` draws offscreen — `ImageRenderer`, ×2, dark, the fixed clock, still spinners —
+    /// as `scripts/snapshots.sh` writes it: what the tests hold to drawing the same twice.
+    static func png(of snapshot: Snapshot) -> Data? { png(snapshot.view()) }
+
+    private static func png(_ view: some View) -> Data? {
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark).environment(\.snapshotRendering, true)
             .environment(\.footerClock, clock).environment(\.stillSpinners, true))
         renderer.scale = 2
@@ -97,8 +106,7 @@ enum Snapshots {
                   let rep = NSBitmapImageRep(data: tiff) else { return }
             png = rep.representation(using: .png, properties: [:])
         }
-        guard let png else { print("could not render \(url.lastPathComponent)"); return }
-        try? png.write(to: url)
+        return png
     }
 }
 
