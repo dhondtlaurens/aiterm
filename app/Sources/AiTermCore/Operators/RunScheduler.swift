@@ -40,8 +40,10 @@ public enum RunScheduler {
     /// The run's queued tasks whose dependencies are satisfied, in plan order, slots aside.
     static func ready(in state: AppState, run id: UUID) -> [UUID] {
         let byId = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen: Set<UUID> = []
         return state.tasks(inRun: id).filter { task in
-            guard let o = task.operated, o.state == .queued, !o.takenOver else { return false }
+            // A task id held twice starts once: never a second worktree or window for the same task.
+            guard let o = task.operated, o.state == .queued, !o.takenOver, seen.insert(task.id).inserted else { return false }
             return o.dependsOn.allSatisfy { dependency in
                 guard let parent = byId[dependency.task]?.operated?.state else { return false }
                 switch dependency.kind {

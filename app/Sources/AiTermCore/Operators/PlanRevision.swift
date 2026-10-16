@@ -33,6 +33,7 @@ public enum PlanRevision {
         case unknownDependency(key: String)
         case cycle(keys: [String])
         case started(key: String)
+        case duplicateTask(key: String)
 
         public var description: String {
             switch self {
@@ -50,6 +51,7 @@ public enum PlanRevision {
             case .unknownDependency(let key): return "\(key) depends on a task that isn't in this operation."
             case .cycle(let keys): return "The dependencies go round in a circle: \(keys.joined(separator: ", "))."
             case .started(let key): return "\(key) has started; steer it with message_task instead."
+            case .duplicateTask(let key): return "\(key) appears twice in this operation under one task id; the plan can't be read until that is fixed."
             }
         }
     }
@@ -145,6 +147,9 @@ public enum PlanRevision {
     /// `code` parent per task and in its own project, every dependency inside the run, no circle.
     public static func validate(_ state: AppState, run id: UUID, milestone: OperatorMilestone = .current) throws(Failure) {
         let tasks = state.tasks(inRun: id)
+        // One id twice is a corrupt state: reading only the first of them could hide a circle or a bad parent in the other.
+        var seen: Set<UUID> = []
+        for task in tasks where !seen.insert(task.id).inserted { throw .duplicateTask(key: task.operated?.key ?? task.title) }
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for task in tasks {
             guard let o = task.operated else { continue }
