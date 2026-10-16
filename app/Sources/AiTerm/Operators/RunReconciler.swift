@@ -6,8 +6,8 @@ import AiTermCore
 /// whose launch never showed a tab is launched again, but only a minute on, never while one may still
 /// be starting, never while a tab tagged with it is alive, and never once its window showed — one you
 /// closed comes back on your click (`OperatorController.reopenWorker`); a worker's time at work is
-/// counted against its runtime, and one past it is blocked; a worker that shows no change for twenty
-/// minutes is flagged, never replaced. Wake lines and hooks are only hints.
+/// counted against its runtime, and one past it is blocked. (A worker that shows no change for twenty
+/// minutes is flagged, never replaced, by `OperatorController.applyStallFlags`.) Wake lines and hooks are only hints.
 @MainActor
 final class RunReconciler {
     private let workspace: WorkspaceStore
@@ -19,8 +19,6 @@ final class RunReconciler {
     /// Whether a connected snapshot has come since the helper attached: until then, a tab not listed
     /// is not a tab gone.
     var synced = false
-    /// Each working worker's last sign of life — its tab's state, title, context and spend — and since when.
-    private var signs: [UUID: (sign: String, since: Date)] = [:]
     /// The latest relaunch, for a test to await.
     private(set) var lastLaunch: Task<Void, Never>?
     /// When the last tick counted runtime; nil until the first tick after AiTerm starts, which only
@@ -61,7 +59,6 @@ final class RunReconciler {
             }
         }
         changed.formUnion(applyLimits(now: now, sessions: sessions))
-        flagStalls(sessions: sessions, now: now)
         for run in state.runs where run.state != .stopped {
             notifier.releaseHeld(in: run, otherWorkCanProceed: state.otherWorkCanProceed(in: run))
         }
@@ -158,29 +155,5 @@ final class RunReconciler {
             runs.insert(runId)
         }
         return runs
-    }
-
-    /// M1's stall rule (spec §8): a worker at work whose tab shows no change for `stallAfter` is flagged
-    /// possibly stalled and its operator told, once; its next change clears the flag. Nothing is ever
-    /// launched in its place. (Part F's per-task clock, `applyStallFlags`, replaces this.)
-    func flagStalls(sessions: [SessionInfo], now: Date) {
-        var flagged: [UUID: [String]] = [:]
-        for task in state.tasks {
-            guard let operated = task.operated, operated.state == .working,
-                  let tab = sessions.first(where: { $0.taskUUID == task.id && $0.agent.agentKind != nil }) else {
-                signs[task.id] = nil
-                continue
-            }
-            let sign = "\(tab.state.rawValue)|\(tab.title)|\(tab.contextPercent ?? -1)|\(tab.tokens.map { "\($0.input)/\($0.output)" } ?? "")"
-            if signs[task.id]?.sign != sign {
-                signs[task.id] = (sign, now)
-                if operated.flags.contains(.possiblyStalled) { workspace.mutate { $0.updateOperated(task.id) { $0.flags.remove(.possiblyStalled) } } }
-            } else if let since = signs[task.id]?.since, tab.state == .working, now.timeIntervalSince(since) >= OperatorTiming.stallAfter,
-                      !operated.flags.contains(.possiblyStalled) {
-                workspace.mutate { $0.updateOperated(task.id) { $0.flags.insert(.possiblyStalled) } }
-                flagged[operated.runId, default: []].append(operated.key)
-            }
-        }
-        for (run, keys) in flagged { waker.say("\(keys.joined(separator: ", ")) may be stalled", to: run) }
     }
 }

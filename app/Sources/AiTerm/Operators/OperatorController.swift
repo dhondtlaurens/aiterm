@@ -60,6 +60,9 @@ final class OperatorController {
     @ObservationIgnored private var reattached = false
     /// The tasks whose open prompt is being read.
     @ObservationIgnored private var probing: Set<UUID> = []
+    /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
+    /// daemon reports for one of its tabs — status, title, tokens, context, conversation.
+    @ObservationIgnored private var stallWatch = StallWatch()
     /// The latest prompt probe, for a test to await.
     @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
@@ -399,6 +402,7 @@ final class OperatorController {
     /// conversation a resume continues — then whatever the tabs changed in what `run_status` shows.
     /// A tab seen before and missing from iTerm2's whole list is a window closed: the run forgets it.
     private func sessionsChanged() {
+        stallWatch.observe(live.sessions, at: ports.now())
         let sessions = live.sessions, known = tabsKnown
         var closed: [UUID] = []
         workspace.mutate { state in
@@ -450,9 +454,31 @@ final class OperatorController {
     func reconcileTick() {
         guard reconciler.synced else { return }
         for id in reconciler.tick() { runChanged(id) }
+        applyStallFlags()
         // A prompt whose tab left it without an event, or one an event raced.
         probePrompts()
         startReadyTasks()
+    }
+
+    /// On every reconcile tick (spec §8, *possibly stalled*): the tasks quiet for `stallAfter`, each on
+    /// its own clock, are flagged and those that showed a sign since are cleared; each newly quiet one is
+    /// probed for an open prompt without being given work — a prompt found open makes it *waiting on you*
+    /// instead — and each operation's operator is woken once for its quiet tasks. Nothing is ever
+    /// launched in place of a worker that may still be running.
+    func applyStallFlags() {
+        let now = ports.now()
+        stallWatch.observe(live.sessions, at: now)
+        stallWatch.settle(in: workspace.state, at: now)
+        let changes = stallWatch.flagChanges(in: workspace.state, now: now)
+        guard !changes.flag.isEmpty || !changes.clear.isEmpty else { return }
+        workspace.mutate { StallWatch.apply(changes, to: &$0) }
+        var quiet: [UUID: [String]] = [:]
+        for id in changes.flag {
+            probePrompt(id)
+            guard let operated = workspace.state.task(id: id)?.operated else { continue }
+            quiet[operated.runId, default: []].append(operated.key)
+        }
+        for (run, keys) in quiet { waker.say("\(keys.joined(separator: ", ")) may be stalled", to: run) }
     }
 
     /// Starts the reconcile loop; AiTerm's `start()` calls it.
