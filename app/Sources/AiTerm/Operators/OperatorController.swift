@@ -71,6 +71,8 @@ final class OperatorController {
     /// When each operation's operator window was last opened by `reopenOperatorWindow`, until its tab is
     /// listed: a click in the gap before iTerm2 lists it (or past `launchAdoptAfter`) opens no second one.
     @ObservationIgnored var reopenedOperator: [UUID: Date] = [:]
+    /// The latest close of ended operations' operator windows after an attach, for a test to await.
+    @ObservationIgnored var closingEnded: Task<Void, Never>?
     /// The latest re-registration of the runs' tokens, for a test to await.
     @ObservationIgnored private(set) var registering: Task<Void, Never>?
     /// The latest revocation of a complete operation's token after its operator's window closed, for a test to await.
@@ -334,6 +336,7 @@ final class OperatorController {
             if snapshot.connected, reattached {
                 reattached = false
                 resendOwnership()
+                closeEndedOperatorWindows()
                 reconcileTick()
             }
         case .itermDisconnected, .itermAuthFailed:
@@ -358,7 +361,7 @@ final class OperatorController {
         reattached = true
         let open = runs.filter { $0.state != .stopped && $0.intent != .stopped }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
-        let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id), $0.operatorWindowId) }
+        let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id)) }
         registering = Task {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
@@ -366,17 +369,10 @@ final class OperatorController {
                     try await daemon.registerOperator(runId: id.uuidString, token: token)
                 }
             }
-            for (id, folder, window) in ended {
-                if await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) != nil {
-                    await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") {
-                        try await daemon.revokeOperator(runId: id.uuidString)
-                    }
-                }
-                // An operator window an end could not close (no helper then) goes now; one already gone is closed.
-                if let window {
-                    await Log.daemon.attempt("Closing the window of the ended operation \(id.uuidString)") {
-                        try await daemon.closeWindowIfOpen(window)
-                    }
+            for (id, folder) in ended {
+                guard await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) != nil else { continue }
+                await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") {
+                    try await daemon.revokeOperator(runId: id.uuidString)
                 }
             }
         }

@@ -220,7 +220,9 @@ import Testing
         #expect(world.daemon.requests("operator.revoke").isEmpty && world.daemon.requests("window.close").isEmpty)
     }
 
-    @Test func anEndWhileTheHelperIsGoneHoldsAndTheAttachRevokesItsTokenAndClosesItsWindow() async throws {
+    /// An end with no helper: its token is revoked on attach, and its operator's window is closed on the first
+    /// connected snapshot after it — once, and only because that snapshot lists the operator's tab alone in it.
+    @Test func anEndWhileTheHelperIsGoneRevokesOnAttachAndClosesTheListedOperatorWindowOnce() async throws {
         let (world, run, _) = try makeWorld()
         let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -233,7 +235,57 @@ import Testing
         world.controller.daemonAttached()
         await world.controller.registering?.value
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
+        #expect(world.daemon.requests("window.close").isEmpty, "not before a connected snapshot says what the window holds")
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        await world.controller.closingEnded?.value
         #expect(world.daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["w1"])
+        // The window is gone; a later attach finds nothing to close.
+        world.show([])
+        world.controller.daemonAttached()
+        world.show([])
+        await world.controller.closingEnded?.value
+        #expect(world.daemon.requests("window.close").count == 1)
+        #expect(world.run(run.id)?.operatorWindowId == nil && world.run(run.id)?.operatorSessionId == nil)
+    }
+
+    /// A recorded window id proves nothing about what the window holds now: it may be restored under the same id,
+    /// holding the person's own tabs. Nothing is closed for a run whose operator tab is not listed.
+    @Test func anEndedRunsRecordedWindowIsNotClosedWhenOnlyUntaggedTabsAreListedInIt() async throws {
+        let (world, run, _) = try makeWorld()
+        world.link.attached = false
+        try await world.controller.end(run: run.id)
+        world.link.attached = true
+        world.controller.daemonAttached()
+        world.show([OperatorServiceFixtures.session("mine", window: "w1", tag: UUID())])
+        await world.controller.closingEnded?.value
+        #expect(world.daemon.requests("window.close").isEmpty)
+        #expect(world.run(run.id)?.operatorWindowId == nil, "handled: the recorded id does not outlive the snapshot")
+    }
+
+    @Test func aWindowThatHoldsTheOperatorsTabAndAnotherIsNeverClosedAsAWindow() async throws {
+        let (world, run, _) = try makeWorld()
+        world.link.attached = false
+        try await world.controller.end(run: run.id)
+        world.link.attached = true
+        world.controller.daemonAttached()
+        world.show([OperatorServiceFixtures.session("op", window: "w1", tag: run.id), OperatorServiceFixtures.session("mine", window: "w1", tag: UUID())])
+        await world.controller.closingEnded?.value
+        #expect(world.daemon.requests("window.close").isEmpty)
+    }
+
+    @Test func endingWithNoOperatorTabListedClosesNothing() async throws {
+        let (world, run, _) = try makeWorld(tab: false)
+        world.show([])
+        try await world.controller.end(run: run.id)
+        #expect(world.run(run.id)?.intent == .stopped && world.daemon.requests("operator.revoke").count == 1)
+        #expect(world.daemon.requests("window.close").isEmpty, "the recorded id is not a window to close")
+    }
+
+    @Test func endingLeavesAWindowThatHoldsOtherTabsOpen() async throws {
+        let (world, run, _) = try makeWorld()
+        world.show([OperatorServiceFixtures.session("op", window: "w1", tag: run.id), OperatorServiceFixtures.session("mine", window: "w1", tag: UUID())])
+        try await world.controller.end(run: run.id)
+        #expect(world.run(run.id)?.intent == .stopped && world.daemon.requests("window.close").isEmpty)
     }
 
     @Test func endingStartsAnotherOperationsQueuedTaskAtOnce() async throws {
@@ -439,6 +491,21 @@ import Testing
         #expect(world.run(run.id)?.state == .stopped && world.run(run.id)?.intent == .stopped)
         #expect(daemon.requests("operator.revoke").count == 2, "its own, and the one for the token registered since")
         #expect(daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["reopened"])
+    }
+
+    /// An end that lands while the token is being registered: no window is opened for the ended operation at all.
+    @Test func anEndWhileTheTokenIsBeingRegisteredOpensNoWindow() async throws {
+        let daemon = RecordingDaemon(holding: "operator.register")
+        let (world, run, _) = try makeWorld(runState: .operatorOffline, daemon: daemon)
+        world.show([])
+        let resuming = Task { try await world.controller.resume(run: run.id) }
+        try await daemon.received("operator.register")
+        try await world.controller.end(run: run.id)
+        daemon.release()
+        try await resuming.value
+        #expect(daemon.requests("window.createTask").isEmpty)
+        #expect(daemon.requests("operator.revoke").count == 2, "its own, and the one for the token registered since")
+        #expect(world.run(run.id)?.state == .stopped)
     }
 
     @Test func aClickOnAnEndedOperationBringsItsOperatorWindowForwardButNeverReopensIt() async throws {

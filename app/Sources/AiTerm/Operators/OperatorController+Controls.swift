@@ -153,9 +153,37 @@ extension OperatorController {
         startReadyTasks()
         guard let daemon = daemon() else { return }
         await Log.daemon.attempt("Revoking the token of the ended operation \(id.uuidString)") { try await daemon.revokeOperator(runId: id.uuidString) }
-        if let window = operatorTab(of: id)?.windowId ?? run.operatorWindowId {
-            await Log.daemon.attempt("Closing the window of the ended operation \(id.uuidString)") { try await daemon.closeWindowIfOpen(window) }
+        await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
+    }
+
+    /// The first connected snapshot after the helper attaches (spec §9): an ended operation whose operator
+    /// tab is listed — one an end could not close, as no helper was there — has its window closed, once the
+    /// snapshot shows it holds nothing else. No tab listed, nothing is closed: a recorded window id proves
+    /// nothing about what a window holds now (iTerm2 restores windows under saved ids, and you may have
+    /// added tabs of your own). The recorded ids are cleared once each run is handled.
+    func closeEndedOperatorWindows() {
+        guard let daemon = daemon() else { return }
+        let ended = runs.filter { $0.intent == .stopped }.map(\.id)
+        guard !ended.isEmpty else { return }
+        closingEnded = Task {
+            for id in ended {
+                await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
+                mutateRun(id) { $0.operatorWindowId = nil; $0.operatorSessionId = nil }
+            }
         }
+    }
+
+    /// Closes the window of the run's operator tab as the listed tabs show it, and only when every tab in
+    /// it is the run's own: the daemon's close takes the whole window, force and all, and there is no
+    /// closing of one tab. A window that holds other tabs is left, and said in the log; with the tabs not
+    /// known, or none listed for the run, nothing is closed. Never a recorded window id.
+    private func closeOperatorWindowIfOnlyItsOperator(_ id: UUID, daemon: any DaemonCommands) async {
+        guard tabsKnown, let tab = operatorTab(of: id) else { return }
+        guard live.sessions.allSatisfy({ $0.windowId != tab.windowId || $0.taskUUID == id }) else {
+            Log.daemon.info("The window of the ended operation \(id.uuidString, privacy: .public) holds other tabs too, so it is left open")
+            return
+        }
+        await Log.daemon.attempt("Closing the window of the ended operation \(id.uuidString)") { try await daemon.closeWindowIfOpen(tab.windowId) }
     }
 
     /// Interrupt workers (spec §9): Esc to each worker at work, on your click — never the operator's to do.
@@ -227,6 +255,11 @@ extension OperatorController {
             return
         }
         try await daemon.registerOperator(runId: id.uuidString, token: prepared.token)
+        // Ended while the token was registered: no window is opened for it, and the token goes again.
+        guard !hasEnded(id) else {
+            await revokeAfterEnd(id, window: nil, daemon: daemon)
+            return
+        }
         let window: String
         do {
             window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: prepared.folder.path, title: run.name,
