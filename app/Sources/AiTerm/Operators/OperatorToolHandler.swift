@@ -134,7 +134,7 @@ final class OperatorToolHandler {
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "propose_lesson": return try proposeLesson(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
-        case "create_task": return try createTask(call, in: run)
+        case "create_task": return try await createTask(call, in: run)
         case "update_task": return try updateTask(call, in: run)
         case "submit_plan": return try submitPlan(call, in: run)
         case "read_task": return try await readTask(call, in: run)

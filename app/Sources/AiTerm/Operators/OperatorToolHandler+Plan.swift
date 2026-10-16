@@ -4,29 +4,61 @@ import AiTermCore
 /// The plan (spec §6, §8): unstarted tasks added and changed in the open revision, and a revision
 /// submitted. A task gets its row at once and its worktree only when AiTerm starts it.
 extension OperatorToolHandler {
-    func createTask(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+    /// The tool's checks run twice, either side of the one suspension: the repository's branches are read
+    /// off the main actor, and while git answers another call may have made this key, taken a branch,
+    /// widened the operation's projects, or you may have paused or ended it. Everything after that read
+    /// runs without another suspension, so what it checked is what it changes, and two calls never pick
+    /// one branch or make one key twice.
+    func createTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try call.string("key")
-        if let existing = state.tasks(inRun: run.id).first(where: { $0.operated?.key == key }) { return Self.taskAnswer(existing, created: false) }
+        if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
+        let first = try draft(call, in: run)
+        // Every branch name the repository has, local and on origin (F7).
+        let git = ports.git, path = first.project.path
+        let repositoryBranches = await BackgroundWork.run { Repository(path, git: git).branches() }
+        // Another call may have made this key while git was read: this one is its repeat.
+        if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
+        // The operation as it is now, not as the call began: a pause or an end since is the person's.
+        guard let current = state.run(id: run.id), current.state != .stopped, current.intent != .stopped else {
+            throw ToolRefusal("This operation has ended; its tools no longer act.")
+        }
+        if current.intent == .paused { throw ToolRefusal("The person paused this operation. Wait until they resume it.") }
+        let draft = try self.draft(call, in: current)
+        let ticket = draft.ticket, title = draft.title, brief = draft.brief
+        let branch = OperatedBranch.name(ticket: ticket, title: title,
+                                         taken: OperatedBranch.taken(in: state, project: draft.project.id, repositoryBranches: repositoryBranches))
+        var task = TaskItem(id: UUID(), projectId: draft.project.id, title: title, branch: branch, worktreePath: "", baseBranch: "",
+                            jira: ticket.map { JiraRef(key: $0, summary: title, url: Self.ticketURL($0, in: draft.project)) },
+                            agent: draft.agent, model: draft.model.model, reasoning: draft.model.reasoning, firstPrompt: brief, appendTicket: false,
+                            createdAt: ports.now(), windowId: nil)
+        task.operated = OperatedTask(runId: current.id, key: key, state: .planned, end: draft.end, brief: brief, dependsOn: draft.dependencies,
+                                     stackedOn: draft.dependencies.first { $0.kind == .code }?.task, revision: current.openRevision)
+        // Only a call that passed every check widens the operation's projects.
+        workspace.mutate { state in
+            if draft.joins { state.updateRun(id: current.id) { if !$0.projectIds.contains(draft.project.id) { $0.projectIds.append(draft.project.id) } } }
+            state.tasks.append(task)
+        }
+        return Self.taskAnswer(task, created: true)
+    }
+
+    private func existingTask(_ key: String, in run: OperatorRun) -> TaskItem? {
+        state.tasks(inRun: run.id).first { $0.operated?.key == key }
+    }
+
+    /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.
+    private struct NewTask {
+        var title: String, brief: String, ticket: String?
+        var project: Project, joins: Bool, agent: AgentKind, model: (model: String, reasoning: String?), end: TaskEnd
+        var dependencies: [TaskDependency]
+    }
+
+    private func draft(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> NewTask {
         try acceptsPlanChanges(run)
         let title = try call.string("title"), brief = try call.string("brief")
         let (project, joins) = try self.project(call, in: run), agent = try self.agent(call), model = try self.model(call, for: agent)
         let end = try self.end(call) ?? .commit
-        let dependencies = try self.dependencies(call, in: run, project: project)
-        let ticket = call.optionalString("ticket")
-        var task = TaskItem(id: UUID(), projectId: project.id, title: title,
-                            branch: unusedBranch(BranchType.feat.rawValue + "/" + BranchNaming.branchSlug(key: ticket, summary: title), in: project),
-                            worktreePath: "", baseBranch: "",
-                            jira: ticket.map { JiraRef(key: $0, summary: title, url: Self.ticketURL($0, in: project)) },
-                            agent: agent, model: model.model, reasoning: model.reasoning, firstPrompt: brief, appendTicket: false,
-                            createdAt: ports.now(), windowId: nil)
-        task.operated = OperatedTask(runId: run.id, key: key, state: .planned, end: end, brief: brief, dependsOn: dependencies,
-                                     stackedOn: dependencies.first { $0.kind == .code }?.task, revision: run.openRevision)
-        // Only a call that passed every check widens the operation's projects.
-        workspace.mutate { state in
-            if joins { state.updateRun(id: run.id) { if !$0.projectIds.contains(project.id) { $0.projectIds.append(project.id) } } }
-            state.tasks.append(task)
-        }
-        return Self.taskAnswer(task, created: true)
+        return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), project: project, joins: joins, agent: agent, model: model, end: end,
+                       dependencies: try dependencies(call, in: run, project: project))
     }
 
     /// Only an unstarted task changes here; a started one is steered with `message_task` (spec §6).
@@ -167,15 +199,6 @@ extension OperatorToolHandler {
             throw ToolRefusal("A task stacks on at most one code dependency: its worktree branches from one parent.")
         }
         return found
-    }
-
-    /// `branch`, or with `-2`, `-3`… once another task of the project has it.
-    private func unusedBranch(_ branch: String, in project: Project) -> String {
-        let taken = Set(state.tasks.filter { $0.projectId == project.id }.map(\.branch))
-        guard taken.contains(branch) else { return branch }
-        var n = 2
-        while taken.contains("\(branch)-\(n)") { n += 1 }
-        return "\(branch)-\(n)"
     }
 
     /// The ticket's page, from the Jira project of the operation's project it belongs to; none when no link says.
