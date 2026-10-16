@@ -35,10 +35,32 @@ public enum OperatorFile {
         let fields = try frontmatter(Array(lines[1..<close]), firstLine: 2)
         let body = sections(Array(lines[(close + 1)...]))
 
-        func scalar(_ key: String) -> String? { if case .scalar(let v)? = fields[key] { return v } else { return nil } }
-        func map(_ key: String) -> [String: String] { if case .map(let m)? = fields[key] { return m } else { return [:] } }
+        // A known key holds the shape it is documented with: a scalar, a map or a list. One of
+        // another shape is refused, not read as the default: `alwaysAsk: deploys` must not leave
+        // the safety list empty without a word.
+        func scalar(_ key: String) throws(ParseError) -> String? {
+            switch fields[key] {
+            case .scalar(let v)?: return v
+            case nil: return nil
+            case let other?: throw .invalidValue(key: key, value: other.described)
+            }
+        }
+        func map(_ key: String) throws(ParseError) -> [String: String] {
+            switch fields[key] {
+            case .map(let m)?: return m
+            case nil: return [:]
+            case let other?: throw .invalidValue(key: key, value: other.described)
+            }
+        }
+        func list(_ key: String) throws(ParseError) -> [String] {
+            switch fields[key] {
+            case .list(let items)?: return items
+            case nil: return []
+            case let other?: throw .invalidValue(key: key, value: other.described)
+            }
+        }
         func required(_ key: String) throws(ParseError) -> String {
-            guard let value = scalar(key), !value.isEmpty else { throw .missingKey(key) }
+            guard let value = try scalar(key), !value.isEmpty else { throw .missingKey(key) }
             return value
         }
         func value<T: RawRepresentable>(_ raw: String?, _ key: String, default fallback: T) throws(ParseError) -> T where T.RawValue == String {
@@ -55,9 +77,8 @@ public enum OperatorFile {
         // A file without the block gets the standard second opinion; within the block, a missing
         // effort is none — the agent's own default — as `render` leaves it out.
         let standard = SecondOpinion.standard
-        let opinion = map("secondOpinion"), limits = map("limits")
-        var list: [String] = []
-        if case .list(let items)? = fields["alwaysAsk"] { list = items }
+        let opinion = try map("secondOpinion"), limits = try map("limits")
+        let alwaysAsk = try list("alwaysAsk")
         let secondOpinion = fields["secondOpinion"] == nil ? standard : SecondOpinion(
             level: try value(opinion["level"], "secondOpinion.level", default: standard.level),
             agent: try value(opinion["agent"], "secondOpinion.agent", default: standard.agent),
@@ -65,16 +86,27 @@ public enum OperatorFile {
             effort: opinion["effort"].flatMap { $0.isEmpty ? nil : $0 })
         return OperatorPersona(
             name: try required("name"), handle: try required("handle"), model: try required("model"),
-            effort: scalar("effort").flatMap { $0.isEmpty ? nil : $0 },
+            effort: try scalar("effort").flatMap { $0.isEmpty ? nil : $0 },
             secondOpinion: secondOpinion,
-            autonomy: try value(scalar("autonomy"), "autonomy", default: .routine),
-            alwaysAsk: list,
+            autonomy: try value(try scalar("autonomy"), "autonomy", default: .routine),
+            alwaysAsk: alwaysAsk,
             limits: OperatorLimits(retries: try integer(limits["retries"], "limits.retries", default: 2),
                                    runtimeMinutes: try integer(limits["runtimeMinutes"], "limits.runtimeMinutes", default: 90)),
             persona: body.persona, lessons: body.lessons)
     }
 
-    private enum Field: Equatable { case scalar(String), map([String: String]), list([String]) }
+    private enum Field: Equatable {
+        case scalar(String), map([String: String]), list([String])
+
+        /// What an error says the key held.
+        var described: String {
+            switch self {
+            case .scalar(let value): return value
+            case .map: return "a map"
+            case .list(let items): return "[" + items.joined(separator: ", ") + "]"
+            }
+        }
+    }
 
     /// The frontmatter's lines as top-level fields. A key with nothing after its colon opens a
     /// block: the indented lines under it are a map of `key: value` or a list of `- item`.
@@ -106,7 +138,13 @@ public enum OperatorFile {
                     throw .unreadableLine(number, raw)
                 }
             } else {
-                guard let (key, value) = pair(line) else { throw .unreadableLine(number, raw) }
+                guard let (key, written) = split(line) else { throw .unreadableLine(number, raw) }
+                if written.hasPrefix("[") {
+                    guard written.hasSuffix("]"), let items = flowItems(String(written.dropFirst().dropLast())) else { throw .unreadableLine(number, raw) }
+                    open = nil; fields[key] = .list(items)
+                    continue
+                }
+                let value = unquote(written)
                 if value.isEmpty, !line.hasSuffix("\"\""), !line.hasSuffix("''") { open = key }
                 else { open = nil; fields[key] = .scalar(value) }
             }
@@ -114,12 +152,46 @@ public enum OperatorFile {
         return fields
     }
 
-    /// `key: value`, the value unquoted; nil for a line with no `key:`.
-    private static func pair(_ line: String) -> (String, String)? {
+    /// `key: value`, the value as written; nil for a line with no `key:`.
+    private static func split(_ line: String) -> (String, String)? {
         guard let colon = line.firstIndex(of: ":") else { return nil }
         let key = line[..<colon].trimmingCharacters(in: .whitespaces)
         guard !key.isEmpty, !key.contains(" ") else { return nil }
-        return (key, unquote(line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)))
+        return (key, line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces))
+    }
+
+    /// `key: value`, the value unquoted; nil for a line with no `key:`.
+    private static func pair(_ line: String) -> (String, String)? {
+        split(line).map { ($0, unquote($1)) }
+    }
+
+    /// The items of a flow list's inside (`a, "b, c", 'd'`), split at the commas outside quotes and
+    /// unquoted like any scalar; an empty item (`[]`, a trailing comma) is no item. Nil for a quote
+    /// left open.
+    private static func flowItems(_ inside: String) -> [String]? {
+        var items: [String] = [], current = ""
+        var quote: Character?, escaped = false
+        func finish() {
+            let item = current.trimmingCharacters(in: .whitespaces)
+            if !item.isEmpty { items.append(unquote(item)) }
+            current = ""
+        }
+        for char in inside {
+            if let open = quote {
+                if escaped { escaped = false }
+                else if char == "\\", open == "\"" { escaped = true }
+                else if char == open { quote = nil }
+            } else if char == "\"" || char == "'" {
+                quote = char
+            } else if char == "," {
+                finish()
+                continue
+            }
+            current.append(char)
+        }
+        guard quote == nil else { return nil }
+        finish()
+        return items
     }
 
     /// The line without a `#` comment: one at the start of the line or after a space, outside quotes.

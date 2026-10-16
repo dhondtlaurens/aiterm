@@ -73,6 +73,19 @@ import Foundation
         #expect(!OperatorFile.render(p).contains("colour") && !OperatorFile.render(p).contains("extras"))
     }
 
+    /// A flow list reads like the block one, quoting and all; `[]` is none.
+    @Test func aFlowListIsAList() throws {
+        let head = "---\nname: n\nhandle: h\nmodel: m\n"
+        let p = try OperatorFile.parse(head + "alwaysAsk: [database migrations, \"deploys, all of them\", 'it''s']  # why\n---\n")
+        #expect(p.alwaysAsk == ["database migrations", "deploys, all of them", "it's"])
+        #expect(try OperatorFile.parse(head + "alwaysAsk: []\n---\n").alwaysAsk.isEmpty)
+        #expect(try OperatorFile.parse(head + "alwaysAsk: [ one ]\n---\n").alwaysAsk == ["one"])
+        // A quoted "[…]" is a scalar, not a list.
+        #expect(throws: OperatorFile.ParseError.invalidValue(key: "alwaysAsk", value: "[a]")) {
+            try OperatorFile.parse(head + "alwaysAsk: \"[a]\"\n---\n")
+        }
+    }
+
     @Test func missingOptionalKeysTakeTheirDefaults() throws {
         let p = try OperatorFile.parse("---\nname: N\nhandle: n\nmodel: opus\n---\nBe brief.\n")
         #expect(p.effort == nil)
@@ -105,6 +118,15 @@ import Foundation
         ("---\nname: n\nhandle: h\nmodel: m\nsecondOpinion:\n  agent: gemini\n---\n", .invalidValue(key: "secondOpinion.agent", value: "gemini")),
         ("---\nname: n\nhandle: h\n  stray: 1\nmodel: m\n---\n", .unreadableLine(4, "  stray: 1")),
         ("---\nname n\n---\n", .unreadableLine(2, "name n")),
+        // A known key of the wrong shape is refused, never read as its default.
+        ("---\nname: n\nhandle: h\nmodel: m\nalwaysAsk: deploys\n---\n", .invalidValue(key: "alwaysAsk", value: "deploys")),
+        ("---\nname: n\nhandle: h\nmodel: m\nalwaysAsk:\n  kind: deploys\n---\n", .invalidValue(key: "alwaysAsk", value: "a map")),
+        ("---\nname: n\nhandle: h\nmodel: m\nalwaysAsk: [a, \"b]\n---\n", .unreadableLine(5, "alwaysAsk: [a, \"b]")),
+        ("---\nname: n\nhandle: h\nmodel: m\nlimits: 5\n---\n", .invalidValue(key: "limits", value: "5")),
+        ("---\nname: n\nhandle: h\nmodel: m\nlimits:\n  - 5\n---\n", .invalidValue(key: "limits", value: "[5]")),
+        ("---\nname: n\nhandle: h\nmodel: m\nsecondOpinion: codex\n---\n", .invalidValue(key: "secondOpinion", value: "codex")),
+        ("---\nname: n\nhandle: h\nmodel: m\nautonomy: [routine]\n---\n", .invalidValue(key: "autonomy", value: "[routine]")),
+        ("---\nname: [n]\nhandle: h\nmodel: m\n---\n", .invalidValue(key: "name", value: "[n]")),
     ])
     func whatCannotBeReadIsSaid(_ text: String, _ error: OperatorFile.ParseError) {
         #expect(throws: error) { try OperatorFile.parse(text) }
