@@ -125,6 +125,11 @@ final class OperatorToolHandler {
         case "create_task": return try createTask(call, in: run)
         case "update_task": return try updateTask(call, in: run)
         case "submit_plan": return try submitPlan(call, in: run)
+        case "read_task": return try await readTask(call, in: run)
+        case "message_task": return try await messageTask(call, in: run)
+        case "mark_task": return try await markTask(call, in: run)
+        case "resume_task": return try resumeTask(call, in: run)
+        case "retry_task": return try retryTask(call, in: run)
         case "finish_task":
             throw ToolRefusal("finish_task is available in M3. In M1 a task ends at its commit: once you accept it, it is done.")
         default: throw ToolRefusal("AiTerm has no tool called \(call.tool).")

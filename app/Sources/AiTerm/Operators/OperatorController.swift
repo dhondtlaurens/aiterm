@@ -218,7 +218,17 @@ final class OperatorController {
 
     /// Something in the run changed: whatever may start now starts.
     func runChanged(_ id: UUID) {
+        settle(id)
         startReadyTasks()
+    }
+
+    /// An operation whose every task has ended and with no question open is complete (spec §9): the
+    /// operator is told, and you are notified. A later `submit_plan` makes it active again.
+    func settle(_ id: UUID) {
+        guard let run = run(id: id), run.state == .active, RunScheduler.isComplete(run, in: workspace.state) else { return }
+        mutateRun(id) { $0.state = .complete }
+        waker.say("operation complete", to: id)
+        if let complete = self.run(id: id) { notifier.runComplete(complete) }
     }
 
     // -- starting ---------------------------------------------------------------------------
