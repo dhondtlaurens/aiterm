@@ -160,7 +160,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)` |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)`; the operator's mark is `.paper` with `headphones` (`OperatorAvatar`) |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -187,10 +187,12 @@ vendor needs both.
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
-`ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
+`ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
+`OperatorsHeader`, `OperatorHeaderRow`, `OperationRowView`, `OperationCaptionLine`, `OperatorAvatar`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
-`FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `ArchiveSheet`, `ArchiveRow`.
+`FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
+`OperatorSheet`, `NewOperationSheet`, `OperationOverviewSheet`, `OperationOverviewHost`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -228,6 +230,26 @@ joined and is held awake the body becomes a `Size.control` accent disc with a ch
 close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
+
+**Operators.** An OPERATORS group leads the list, above PROJECTS, drawn with no operator at all:
+its "+" is New Operator…, the one way to one (`OperatorsHeader`). Each operator is a header on a
+project's anatomy (`OperatorHeaderRow`) — the chevron, its mark where a provider sits, its name, a
+"+" for New Operation… — off the arrow path, folded in memory only. Its operations sit under it on a
+task row's grid (`OperationRowView`): the agents at work, the name, `OperationCaptionLine` — the
+progress as a quiet `Badge` and an attention `StatusCountChips`, both opening the overview, or the
+operation's state when that says more — and the operation's own `StatusMark`. A click or ↩ brings the
+operator's window forward; ⌘I opens the overview; its menu adds Rename… (`NameSheet`), Pause or
+Resume, Interrupt Agents and End Operation…. Menus and buttons are Title Case, as everywhere. The
+operator's mark (`OperatorAvatar`) is a `.paper` `SymbolMark` with `headphones`, the same for every
+operator; it leads a driven task's avatars, and while the operator acts on that task wears a
+`Size.activityRing` accent ring that breathes, standing still under Reduce Motion — the one Metrics
+value Operators added. A driven task's menu leads with Take Over or Hand Back, and Stop Task… (it
+asks first) while the task is open. A driven task's workflow is a `RowCaption` under its badges,
+decided by `SidebarModel.operatedCaption`; the rows are values in
+`AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `OperatorSheet` (each stepped setting a
+`SegmentedControl` over its `HelpText`), `NewOperationSheet` and `OperationOverviewSheet` (a board on
+its side, decided by `OperationOverview`) — use `SheetLayout`, `SheetSubtitle` and `SheetFooter` like
+every other. No new `Palette` member.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -272,7 +294,7 @@ then Cancel greyed while it is applied. A fix that fails shows the failure in th
 
 `NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",
-"Terminal name") and a divider — each rename's title, field and sentence from `RenameTarget`. A
+"Terminal name"), an operation (its row's Rename…) and a divider — each rename's title, field and sentence from `RenameTarget`. A
 terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraProjectSheet` is
 reached only from a project's context menu: Add Project… has no sheet, the folder chooser adds the
 project at once, and a folder inside a repository adds that repository with a toast saying so.
