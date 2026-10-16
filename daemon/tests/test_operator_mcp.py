@@ -1,12 +1,13 @@
 # daemon/tests/test_operator_mcp.py
 """The operator's MCP server (operator_mcp): the run tokens, the tool catalogue, the MCP methods and
 the forwarding of tool calls to the app, driven directly rather than over HTTP."""
+import asyncio
 import json
 import os
 
 import pytest
 
-from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorTokens, well_formed
+from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorRoute, OperatorTokens, well_formed
 
 TOKEN = "ab" * 32
 OTHER = "cd" * 32
@@ -176,3 +177,95 @@ def test_the_values_are_the_apps():
     required = {tool["name"]: set(tool["inputSchema"].get("required", [])) for tool in TOOLS}
     assert required["create_task"] == {"key", "title", "brief", "project", "agent", "end"}
     assert required["mark_task"] == {"task", "outcome"} and required["ask_you"] == {"key", "question"}
+
+
+AUTH = {"authorization": f"Bearer {TOKEN}"}
+
+
+class App:
+    """The app's end of the socket, as the route sees it: what was broadcast, and whether one is attached."""
+
+    def __init__(self, attached: bool = True):
+        self.attached = attached
+        self.events: list[tuple[str, dict]] = []  # annotated: mypy checks an annotated __init__'s body
+        self.arrived = asyncio.Event()
+
+    async def broadcast(self, name, payload):
+        self.events.append((name, payload))
+        self.arrived.set()
+
+    def client_count(self):
+        return 1 if self.attached else 0
+
+
+def route_for(app=None):
+    app = app or App()
+    route = OperatorRoute(app.broadcast, app.client_count)
+    route.tokens.register("run-1", TOKEN)
+    return route
+
+
+def message(method, request_id=1, params=None):
+    body = {"jsonrpc": "2.0", "method": method}
+    if request_id is not None:
+        body["id"] = request_id
+    if params is not None:
+        body["params"] = params
+    return json.dumps(body).encode()
+
+
+async def test_initialize_names_the_server_and_its_tools():
+    status, text = await route_for().serve("POST", AUTH, message("initialize", params={
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "claude-code", "version": "2.1.301"}}))
+    reply = json.loads(text)
+    assert status == 200 and reply["jsonrpc"] == "2.0" and reply["id"] == 1
+    assert reply["result"] == {"protocolVersion": "2025-06-18", "capabilities": {"tools": {"listChanged": False}},
+                               "serverInfo": {"name": "aiterm", "version": "1"}}
+
+
+async def test_tools_list_serves_the_catalogue():
+    status, text = await route_for().serve("POST", AUTH, message("tools/list", 2))
+    assert status == 200 and json.loads(text)["result"] == {"tools": json.loads(json.dumps(list(TOOLS)))}
+
+
+async def test_ping_is_answered():
+    assert json.loads((await route_for().serve("POST", AUTH, message("ping", 3)))[1])["result"] == {}
+
+
+@pytest.mark.parametrize("headers", [
+    {}, {"authorization": "Bearer"}, {"authorization": "Bearer "}, {"authorization": f"Basic {TOKEN}"},
+    {"authorization": f"Bearer {UNKNOWN}"}, {"authorization": TOKEN},
+])
+async def test_without_a_registered_token_nothing_is_answered(headers):
+    status, _ = await route_for().serve("POST", headers, message("tools/list"))
+    assert status == 401
+
+
+async def test_a_revoked_token_is_refused():
+    route = route_for()
+    route.tokens.revoke("run-1")
+    assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 401
+
+
+async def test_the_scheme_is_read_whatever_its_case():
+    assert (await route_for().serve("POST", {"authorization": f"bearer {TOKEN}"}, message("tools/list")))[0] == 200
+
+
+async def test_only_post_is_served_and_only_once_authorised():
+    assert await route_for().serve("GET", AUTH, b"") == (405, "")
+    assert (await route_for().serve("GET", {}, b""))[0] == 401
+
+
+async def test_a_notification_is_accepted_without_an_answer():
+    assert await route_for().serve("POST", AUTH, message("notifications/initialized", request_id=None)) == (202, "")
+
+
+@pytest.mark.parametrize("raw,code", [(b"{nope", -32700), (b"[1]", -32600)])
+async def test_a_message_that_is_no_request_is_a_json_rpc_error(raw, code):
+    status, text = await route_for().serve("POST", AUTH, raw)
+    assert status == 200 and json.loads(text)["error"]["code"] == code
+
+
+async def test_an_unknown_method_is_a_json_rpc_error():
+    reply = json.loads((await route_for().serve("POST", AUTH, message("resources/list", 9)))[1])
+    assert reply["id"] == 9 and reply["error"]["code"] == -32601

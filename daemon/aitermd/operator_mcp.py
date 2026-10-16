@@ -3,12 +3,16 @@ serves, and the `/operator` route that forwards every tool call to the app."""
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import os
 import re
 import stat
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+
+from .hooks_server import MCP_PROTOCOL_VERSION
 
 log = logging.getLogger(__name__)
 # Where the app keeps each run's folder, named by its id: brief.md, mcp.json and `token` (spec §5.1).
@@ -205,3 +209,58 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"key": _KEY, "text": _text("The decision, and why."), "task": _TASK}, ("key", "text")),
 )
 TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
+
+
+def _answer(request_id: Any, result: dict[str, Any]) -> str:
+    return json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}, separators=(",", ":"))
+
+
+def _error(request_id: Any, code: int, message: str) -> str:
+    return json.dumps({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}, separators=(",", ":"))
+
+
+class OperatorRoute:
+    """The operator's MCP server, on the hook server's /operator route (spec §5): MCP's streamable
+    HTTP transport answered with plain JSON, one POST per message, as the Codex hook MCP is. A request
+    opens only with a registered run's token, sent as `Authorization: Bearer <token>`, which names the
+    run; anything else is a 401. Every tool call is forwarded to the app, the only writer of runs and
+    tasks (`ask_app`). The daemon checks no tool's arguments: the app does, against the run the token
+    named."""
+
+    def __init__(self, broadcast: Callable[[str, Any], Awaitable[None]], client_count: Callable[[], int],
+                 tokens: OperatorTokens | None = None):
+        self.broadcast, self.client_count = broadcast, client_count
+        self.tokens = tokens if tokens is not None else OperatorTokens()
+
+    def _run(self, headers: dict[str, str]) -> str | None:
+        scheme, _, token = headers.get("authorization", "").partition(" ")
+        token = token.strip()
+        return self.tokens.run_for(token) if scheme.lower() == "bearer" and token else None
+
+    async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
+        if (run_id := self._run(headers)) is None:
+            return 401, json.dumps({"error": "a registered run's token is required"})
+        if method != "POST":
+            # No stream from the server: each answer is the reply to its own POST.
+            return 405, ""
+        try:
+            request = json.loads(body or b"{}")
+        except (ValueError, RecursionError):
+            return 200, _error(None, -32700, "parse error")
+        if not isinstance(request, dict):
+            return 200, _error(None, -32600, "a message must be a JSON object")
+        request_id, name = request.get("id"), request.get("method")
+        if request_id is None:
+            # A notification -- notifications/initialized among them -- has no answer.
+            return 202, ""
+        return 200, await self._respond(run_id, request_id, name, request.get("params"))
+
+    async def _respond(self, run_id: str, request_id: Any, name: Any, params: Any) -> str:
+        if name == "initialize":
+            return _answer(request_id, {"protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
+                                        "serverInfo": {"name": "aiterm", "version": "1"}})
+        if name == "ping":
+            return _answer(request_id, {})
+        if name == "tools/list":
+            return _answer(request_id, {"tools": list(TOOLS)})
+        return _error(request_id, -32601, f"method not found: {name}")
