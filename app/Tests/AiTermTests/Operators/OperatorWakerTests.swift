@@ -22,11 +22,10 @@ import Testing
         private(set) var requested = 0
         private var held: [CheckedContinuation<Void, Never>] = []
         func sleep(_ duration: Duration) async { requested += 1; await withCheckedContinuation { held.append($0) } }
-        /// Ends the wait once the waker has started it: the task that sleeps runs a moment after the call that armed it.
-        func release() async {
-            await eventually(describing: "a wait to start") { !held.isEmpty }
-            releaseAll()
-        }
+        /// Waits until the waker has started its `n`th wait, which it does a moment after the call that armed it.
+        func started(_ n: Int) async { await eventually(describing: "wait \(n) to start") { requested == n && !held.isEmpty } }
+        /// Ends the `n`th wait, once it has started.
+        func release(_ n: Int) async { await started(n); releaseAll() }
         func releaseAll() { let waiting = held; held = []; for continuation in waiting { continuation.resume() } }
     }
 
@@ -53,8 +52,7 @@ import Testing
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         waker.observe(status(questions: 2), of: run.id)
-        await hand.release()
-        #expect(hand.requested == 1)
+        await hand.release(1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
         #expect(lines == ["[AiTerm] 2 updates — call run_status"])
@@ -128,14 +126,14 @@ import Testing
         let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
-        await hand.release()
+        await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
-        #expect(hand.requested == 2)
-        await hand.release()
+        await hand.release(2)
         try await daemon.received("session.deliver", count: 2)
         await waker.lastSend?.value
         #expect(lines == ["[AiTerm] 1 update — call run_status", "[AiTerm] 1 update — call run_status"])
+        // It landed: no third wait is started.
+        try await Task.sleep(for: .milliseconds(50))
         #expect(hand.requested == 2)
     }
 
@@ -144,17 +142,17 @@ import Testing
         let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
-        await hand.release()
+        await hand.release(1)
         try await daemon.received("session.deliver")
-        await waker.lastSend?.value
-        // One wait is pending and nothing is sent until it is over, however long that takes.
-        #expect(lines.count == 1 && hand.requested == 2)
-        await hand.release()
+        // One retry wait is started and nothing more is sent until it is over, however long that takes.
+        await hand.started(2)
+        #expect(lines.count == 1)
+        await hand.release(2)
         try await daemon.received("session.deliver", count: 2)
-        await waker.lastSend?.value
-        #expect(lines.count == 2 && hand.requested == 3)
+        await hand.started(3)
+        #expect(lines.count == 2)
         waker.acknowledged(status(questions: 1), of: run.id)
-        await hand.release()
+        hand.releaseAll()
         try await Task.sleep(for: .milliseconds(50))
         #expect(lines.count == 2 && hand.requested == 3)
     }
