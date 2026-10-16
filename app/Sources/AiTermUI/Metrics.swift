@@ -92,6 +92,11 @@ public enum Size {
     /// A vendor mark in an avatar group, and the provider tile beside a project name. Also an
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18
+    /// The accent ring an operator's mark wears in a task's avatar group while the operator acts on
+    /// that task — a message on its way, a reply being read — breathing, and still under Reduce
+    /// Motion. A stroke, drawn outside the group's occluding ring, so like every stroke it does not
+    /// scale. The one new Metrics value the Operators design needed (proposal, 16 Oct 2026).
+    public static let activityRing: CGFloat = 1.5
     /// A vendor mark outside an avatar group: the sidebar footer, the agent picker.
     public static let vendorMark: CGFloat = 16
     /// A status mark on a row, and the sidebar footer's ring drawn to its recipe. A row's mark sits in
