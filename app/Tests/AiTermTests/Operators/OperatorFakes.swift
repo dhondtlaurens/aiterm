@@ -77,13 +77,16 @@ final class StepClock {
 extension OperatorPorts {
     /// Ports that reach nothing real: a fresh temporary folder as the home — run folders, operator files
     /// and the agents' conversations all under it — a Trash that deletes, notifications recorded,
-    /// hermetic git, wake lines with no wait.
+    /// hermetic git, wake lines with no wait, one agent at a time.
     @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operators-\(UUID().uuidString)")
         let library = OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home),
                                       trasher: { url in try FileManager.default.removeItem(at: url); return nil })
-        return OperatorPorts(home: home, git: git, library: library, notifications: notifications, wakeCoalesce: .zero)
+        var ports = OperatorPorts(home: home, git: git, library: library, notifications: notifications, wakeCoalesce: .zero)
+        // One agent at a time, whatever the test host's defaults hold; a test of the cap sets its own.
+        ports.agentsAtOnce = { 1 }
+        return ports
     }
 }
 

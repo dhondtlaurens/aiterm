@@ -21,6 +21,8 @@ struct OperatorPorts {
     var now: @MainActor () -> Date = { Date() }
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
+    /// Settings › Agents' Agents at once (F1), read at every start pass.
+    var agentsAtOnce: @MainActor () -> Int = { OperatorSettings.agentsAtOnce() }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
@@ -223,23 +225,33 @@ final class OperatorController {
     }
 
     // -- starting workers -------------------------------------------------------------------
-    /// Agents at once, as M1 has it; part F reads it from Settings › Agents.
-    static let agentsAtOnce = 1
-
-    /// The one start pass. What the scheduler says may start — dependencies satisfied, oldest operation
-    /// first, operations taking turns — is claimed and saved one task at a time while a slot is free
-    /// across every operation, so each claim counts against the cap before the next. A task that cannot
-    /// start now (`start` returns nil: no helper, or its claim could not be saved and was taken back) is passed over, and the next may
-    /// still take the slot.
+    /// The one start pass (spec §8, §11): what may start now — dependencies satisfied, a slot free across
+    /// every operation under Settings › Agents' Agents at once, operations taking turns oldest first — is
+    /// claimed in one change, saved so the launch intents are on disk before any window is asked for, then
+    /// launched. A pass that overlaps another — two tasks finishing at once, or one while a launch awaits its
+    /// window — counts the other's claims, so the cap holds and no task is claimed twice. Nothing while no
+    /// helper is attached: there is no window to ask for. Called from `runChanged(_:)` (a tool's change, an
+    /// approval, a block, a start ended, a resume, a hand back), `reconcileTick()`, the end of an operation
+    /// and a change of Agents at once.
     func startReadyTasks() {
-        let cap = ports.milestone.maxParallel(setting: Self.agentsAtOnce)
-        for id in RunScheduler.startable(in: workspace.state, maxParallel: .max) where !starter.starting.contains(id) {
-            guard workspace.state.tasks.count(where: { $0.operated?.state == .working }) < cap else { return }
-            guard let started = starter.start(id) else { continue }
-            let run = workspace.state.task(id: id)?.operated?.runId
+        guard daemon() != nil else { return }
+        let cap = ports.milestone.maxParallel(setting: ports.agentsAtOnce())
+        let claimed = starter.claimReady(maxParallel: cap)
+        guard !claimed.isEmpty else { return }
+        // Not on disk, a crash would leave nothing saying a worker may be running: the claims are taken back.
+        guard workspace.flush() else {
+            starter.release(claimed)
+            return
+        }
+        for id in claimed {
+            guard let operated = workspace.state.task(id: id)?.operated, let attempt = operated.launch else {
+                starter.release([id])
+                continue
+            }
+            let run = operated.runId
             lastStart = Task { [weak self] in
-                await started.value
-                if let run { self?.runChanged(run) }
+                await self?.starter.launchClaimed(id, attempt: attempt)
+                self?.runChanged(run)
             }
         }
     }

@@ -17,6 +17,13 @@ final class WorkerStarter {
     /// When each task's last launch task in this run of AiTerm ended: a launch that ended without a
     /// window (a timeout) may still open one, so the reconciler counts its minute from here, not from the claim.
     private(set) var settledAt: [UUID: Date] = [:]
+    /// Each claim made and not yet launched or released: the task as it stood before it, and the attempt
+    /// that claimed it — what a claim that does not hold goes back to, and the failure a retry tells of.
+    private var claims: [UUID: Claim] = [:]
+    private struct Claim {
+        let before: OperatedTask
+        let attempt: LaunchAttempt
+    }
     /// When each task's worker window was last reopened on your click: a click in the gap before iTerm2
     /// lists its tab (up to `launchAdoptAfter`) opens no second window.
     private var reopenedAt: [UUID: Date] = [:]
@@ -39,44 +46,72 @@ final class WorkerStarter {
     /// the default branch instead would silently drop the parent's work.
     private static let noBaseReason = "its code parent has no accepted commit to build on"
 
-    /// Starts the queued task, or nothing: it is already starting, not queued, its run not active, or no
-    /// helper is attached to open its window. The claim — `queued → working` with its attempt — is one
-    /// change, made and saved before this returns, so the next start pass counts it and a crash finds
-    /// it; the worktree and the window follow in the task returned.
-    func start(_ id: UUID) -> Task<Void, Never>? {
-        guard !starting.contains(id), let task = state.task(id: id), let operated = task.operated, operated.state == .queued,
-              state.run(id: operated.runId)?.state == .active, daemon() != nil else { return nil }
-        // Before any claim: no attempt, no worktree, nothing started for a task that cannot be based.
-        if Self.lacksBase(task, in: state) {
-            block(id, reason: "AiTerm couldn’t start it: \(Self.noBaseReason).")
-            return nil
-        }
-        let attempt = LaunchAttempt(number: (operated.launch?.number ?? 0) + 1, requestedAt: ports.now())
-        do {
-            try workspace.mutate { state in _ = try OperatedTransitions.apply(.start(attempt), toTask: id, in: &state, by: .aiterm) }
-        } catch {
-            Log.daemon.error("An operator's task could not start: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-        // Not on disk, a crash would leave nothing saying a worker may be running: the claim is taken back,
-        // so the slot is free again and the next pass tries the task afresh.
-        guard workspace.flush() else {
-            release(id, claimedAs: attempt, to: operated)
-            return nil
-        }
-        starting.insert(id)
-        return Task {
-            defer { settle(id) }
-            if operated.retriesUsed > 0, task.hasCheckout, let tab = workerTab(of: id) {
-                // A second agent is never started beside a worker that is still there.
-                if tab.state == .working {
-                    block(id, reason: "AiTerm couldn’t start it: its worker is still busy; stop it or wait.")
-                } else {
-                    await retryInPlace(task, operated: operated, tab: tab, attempt: attempt, before: operated)
-                }
-            } else {
-                await launch(id, attempt: attempt, before: operated)
+    /// What may start now, claimed on the workspace in one change (`RunScheduler.claim`) and each claim
+    /// marked starting at once, so no pass claims it again and no reconcile pass reopens or relaunches it
+    /// before `launchClaimed` has run. A task already starting — a relaunch, a reopen — is left out, as
+    /// is one whose code parent kept no commit, which is blocked first. The caller saves the claims
+    /// before launching any (spec §11), and releases them if it cannot.
+    func claimReady(maxParallel: Int) -> [UUID] {
+        blockUnbased(maxParallel: maxParallel)
+        let before = state, now = ports.now(), busy = starting
+        let claimed = workspace.mutate { RunScheduler.claim(in: &$0, maxParallel: maxParallel, now: now, excluding: busy) }
+        for id in claimed {
+            starting.insert(id)
+            if let operated = before.task(id: id)?.operated, let attempt = state.task(id: id)?.operated?.launch {
+                claims[id] = Claim(before: operated, attempt: attempt)
             }
+        }
+        return claimed
+    }
+
+    /// Claims that will not be launched now — the workspace did not save them: each is taken back, so
+    /// the task queues again and its slot is free, and the next pass tries it afresh.
+    func release(_ ids: [UUID]) {
+        for id in ids {
+            starting.remove(id)
+            guard let claim = claims.removeValue(forKey: id) else { continue }
+            release(id, claimedAs: claim.attempt, to: claim.before)
+        }
+    }
+
+    /// Opens a claimed task's worker as `attempt`, its claim saved: a retry whose worker is still there is
+    /// told to try again in its own tab if it is idle, and blocked with the reason if it is busy — a second
+    /// worker is never started beside it; anything else is launched, worktree then a window behind your
+    /// work. A claim that no longer holds is taken back. Out of `starting`, its end time kept, when done.
+    func launchClaimed(_ id: UUID, attempt: LaunchAttempt) async {
+        defer {
+            claims[id] = nil
+            settle(id)
+        }
+        guard let claim = claims[id], claim.attempt == attempt, let task = state.task(id: id) else { return }
+        let before = claim.before
+        guard claimHolds(id, attempt) else {
+            release(id, claimedAs: attempt, to: before)
+            return
+        }
+        if before.retriesUsed > 0, task.hasCheckout, let tab = workerTab(of: id) {
+            if tab.state == .working {
+                block(id, reason: "AiTerm couldn’t start it: its worker is still busy; stop it or wait.")
+            } else {
+                await retryInPlace(task, operated: before, tab: tab, attempt: attempt, before: before)
+            }
+        } else {
+            await launch(id, attempt: attempt, before: before)
+        }
+    }
+
+    /// Before any claim, each task the scheduler would start whose code parent kept no commit is blocked:
+    /// no attempt, no worktree, nothing started for a task that cannot be based. Its block's notice may
+    /// run a start pass of its own (`onBlocked`), which claims from the state as it is then; the caller's
+    /// claim, made after, counts those claims.
+    private func blockUnbased(maxParallel: Int) {
+        var seen: Set<UUID> = []
+        while let id = RunScheduler.startable(in: state, maxParallel: maxParallel).first(where: { id in
+            guard !seen.contains(id), !starting.contains(id), let task = state.task(id: id) else { return false }
+            return Self.lacksBase(task, in: state)
+        }) {
+            seen.insert(id)
+            block(id, reason: "AiTerm couldn’t start it: \(Self.noBaseReason).")
         }
     }
 

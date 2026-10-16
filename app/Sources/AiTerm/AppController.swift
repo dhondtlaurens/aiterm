@@ -192,6 +192,8 @@ final class AppController {
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
                                                     taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
         self.operatorController = operatorController
+        // Settings › Agents' Agents at once: a raised cap starts what it now allows.
+        agents.agentsAtOnceChanged = { [weak operatorController] in operatorController?.startReadyTasks() }
         helper.onEvent { [weak operatorController] in operatorController?.handle($0) }
         helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
