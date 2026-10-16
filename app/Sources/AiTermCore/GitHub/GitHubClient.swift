@@ -112,7 +112,7 @@ public struct GitHubClient: Sendable {
 
     /// A branch name as **one** path segment: a `/` inside it must not split the path.
     static func encodedBranch(_ name: String) -> String {
-        var allowed = CharacterSet.alphanumerics
+        var allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         allowed.insert(charactersIn: "-._~")
         return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
     }
@@ -128,7 +128,15 @@ public struct GitHubClient: Sendable {
         guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
                      URLQueryItem(name: "per_page", value: "100")]
-        return try await get([PullPayload].self, path: "/repos/\(repo)/pulls", query: query, notFound: .repoNotFound(repo))
+        // URLComponents leaves a `+` in a value alone, and GitHub reads it as a space: a branch `feat/a+b`
+        // would be looked for as `feat/a b`.
+        guard let url = HTTPJSON.url(Self.api + "/repos/\(repo)/pulls", query: query),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw GitHubError.decoding }
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        guard let encoded = components.url else { throw GitHubError.decoding }
+        return try await HTTPJSON.decode([PullPayload].self, HTTPJSON.request(encoded, headers: headers), session: session) {
+            Self.error(for: $0, notFound: .repoNotFound(repo))
+        }.value
             .map(\.mergeRequest).first { $0.sourceBranch == source && $0.forkHead == nil }
     }
 
@@ -142,7 +150,8 @@ public struct GitHubClient: Sendable {
                               notFound: .repoNotFound(repo)).mergeRequest
     }
 
-    /// Whether GitHub would merge it now: merged or closed first, then a draft, then every check run and
+    /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
+    /// alone, so a caller debounces a ready answer): merged or closed first, then a draft, then every check run and
     /// commit status on its head — a merge end waits for green whatever branch protection requires; a
     /// skipped, neutral or action-required check is not green and a pending one is not yet — then
     /// `mergeable` and `mergeable_state`. Only `clean` and `has_hooks` with `mergeable` true is ready.
@@ -229,10 +238,17 @@ public struct GitHubClient: Sendable {
                            body: Retarget(base: target), notFound: .repoNotFound(repo))
     }
 
-    /// The ruleset rules that mean a branch changes only through review, checks or a merge: a branch
-    /// one covers is protected. A rule that only forbids force-pushes or deletion is not — AiTerm does neither.
-    static let guardingRules: Set<String> = ["creation", "update", "pull_request", "required_status_checks",
-                                             "required_deployments", "merge_queue"]
+    /// The ruleset rule types that do not stop AiTerm pushing its own branch: they forbid force-pushes or
+    /// deletion (AiTerm does neither) or constrain what is pushed — signatures, linear history, message,
+    /// e-mail, branch-name, path, extension and size patterns — which GitHub enforces at push time and
+    /// which a conforming push to a feature branch meets. A ruleset rule of any other type covers the
+    /// branch, and so is protection: `update`, `creation`, `pull_request`, `required_status_checks`,
+    /// `required_deployments`, `merge_queue`, `workflows`, `code_scanning`, and any type GitHub adds later.
+    static let harmlessRules: Set<String> = [
+        "non_fast_forward", "deletion", "required_signatures", "required_linear_history", "commit_message_pattern",
+        "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "file_path_restriction",
+        "max_file_path_length", "file_extension_restriction", "max_file_size",
+    ]
 
     /// Whether GitHub protects `branch` in `repo`, asked before AiTerm pushes it. Three sources, read in
     /// full: the rulesets that apply to the branch, org-level ones too, whether or not it exists yet
@@ -260,15 +276,17 @@ public struct GitHubClient: Sendable {
             let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
             let rules = try await get([Rule].self, path: "/repos/\(repo)/rules/branches/\(segment)", query: query,
                                       notFound: .repoNotFound(repo))
-            if let rule = rules.first(where: { Self.guardingRules.contains($0.type) }) {
+            if let rule = rules.first(where: { !Self.harmlessRules.contains($0.type) }) {
                 return .protected("a ruleset’s \(rule.type.replacingOccurrences(of: "_", with: " ")) rule covers it")
             }
             if rules.isEmpty { listedWhole = true; break }
         }
         guard listedWhole else { throw ProtectionUnknown.tooManyRules(Self.listedPages * 100) }
-        struct Branch: Decodable { var protected: Bool }
+        struct Branch: Decodable { var name: String, protected: Bool }
         do {
             let existing = try await get(Branch.self, path: "/repos/\(repo)/branches/\(segment)", notFound: .badResponse(404))
+            // A renamed branch's old name redirects to the new one, whose flag says nothing of the old.
+            guard existing.name == name else { throw ProtectionUnknown.unreadable("GitHub answered for the branch \(existing.name), not \(name)") }
             return existing.protected ? .protected("GitHub’s branch protection covers it") : .unprotected
         } catch GitHubError.badResponse(404) {
             // The repository was just read, so this is a branch GitHub does not have yet: a classic

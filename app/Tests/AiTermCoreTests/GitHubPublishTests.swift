@@ -303,7 +303,7 @@ import Testing
         return #"{"data":{"repository":{"branchProtectionRules":{"pageInfo":\#(page),"nodes":[\#(nodes)]}}}}"#
     }
     static let notThere = #"{"message":"Branch not found"}"#
-    static func branch(protected: Bool) -> String { #"{"name":"feat/pluto-231","protected":\#(protected),"commit":{"sha":"\#(head)"}}"# }
+    static func branch(protected: Bool, name: String = "feat/pluto-231") -> String { #"{"name":"\#(name)","protected":\#(protected),"commit":{"sha":"\#(head)"}}"# }
 
     /// GitHub answering a branch's rulesets (`/rules/branches/…`, `rulesets` being page 1 and every other
     /// page empty), the branch itself (`/branches/…`, a 404 for one not pushed yet) and its classic
@@ -338,14 +338,44 @@ import Testing
                 == .protected("GitHub’s branch protection covers it"), "a full ref names the same branch")
     }
 
-    @Test func everyRulesetGuardingRuleProtectsAndAnotherDoesNot() async throws {
-        for type in GitHubClient.guardingRules {
+    @Test func aRulesetRuleOtherThanAHarmlessOneProtects() async throws {
+        let named = ["update", "creation", "pull_request", "required_status_checks", "required_deployments", "merge_queue",
+                     "workflows", "code_scanning"]
+        // A type GitHub has not announced yet is protection too, never harmless by default.
+        for type in named + ["a_rule_from_the_future"] {
             let rule = #"[{"type":"\#(type)","ruleset_source_type":"Organization","ruleset_source":"octocat","ruleset_id":1}]"#
-            let (client, _) = makeClient(protectionHost(rulesets: rule))
-            guard case .protected = try await client.branchProtection(repo: "octocat/hello", branch: "feat/x") else {
-                Issue.record("\(type) should protect"); continue
-            }
+            let (client, _) = makeClient(protectionHost(rulesets: rule, branch: (200, Self.branch(protected: false, name: "feat/x"))))
+            #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+                    == .protected("a ruleset’s \(type.replacingOccurrences(of: "_", with: " ")) rule covers it"), "\(type)")
         }
+        // One harmless rule beside a protective one does not hide it.
+        let both = #"[{"type":"deletion"},{"type":"workflows"}]"#
+        #expect(try await makeClient(protectionHost(rulesets: both)).client.branchProtection(repo: "octocat/hello", branch: "feat/x")
+                == .protected("a ruleset’s workflows rule covers it"))
+    }
+
+    @Test func everyHarmlessRulesetRuleLeavesTheBranchToTheOtherSources() async throws {
+        for type in GitHubClient.harmlessRules {
+            let rule = #"[{"type":"\#(type)","ruleset_source_type":"Organization","ruleset_source":"octocat","ruleset_id":1}]"#
+            let (client, _) = makeClient(protectionHost(rulesets: rule, branch: (200, Self.branch(protected: false, name: "feat/x"))))
+            #expect(try await client.branchProtection(repo: "octocat/hello", branch: "feat/x") == .unprotected, "\(type)")
+        }
+        #expect(GitHubClient.harmlessRules.count == 12)
+    }
+
+    @Test func aBranchThatWasRenamedIsNotAnsweredForByItsNewNamesFlag() async throws {
+        let (client, _) = makeClient(protectionHost(branch: (200, Self.branch(protected: false, name: "feat/renamed"))))
+        await #expect(throws: ProtectionUnknown.self) {
+            _ = try await client.branchProtection(repo: "octocat/hello", branch: "feat/old")
+        }
+    }
+
+    @Test func aPlusInABranchIsSentAsAPlus() async throws {
+        let (client, stub) = makeClient { _ in (200, Data("[]".utf8)) }
+        #expect(try await client.openPullRequest(repo: "octocat/hello", source: "feat/a+b") == nil)
+        let url = try #require(stub.lastRequest?.url?.absoluteString)
+        #expect(url.contains("head=octocat:feat/a%2Bb"))
+        #expect(!url.contains("+"))
     }
 
     @Test func aRuleThatOnlyForbidsForcePushesProtectsNothingAiTermDoes() async throws {
@@ -466,7 +496,7 @@ import Testing
         }
         // The same sources, each answering as it does for a branch that is not protected, are unprotected.
         #expect(try await makeClient(protectionHost()).client.branchProtection(repo: "octocat/hello", branch: "feat/x") == .unprotected)
-        #expect(try await makeClient(protectionHost(branch: (200, Self.branch(protected: false)))).client
+        #expect(try await makeClient(protectionHost(branch: (200, Self.branch(protected: false, name: "feat/x")))).client
                 .branchProtection(repo: "octocat/hello", branch: "feat/x") == .unprotected)
     }
 }
