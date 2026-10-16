@@ -243,6 +243,17 @@ final class AppController {
         rows.actingSource = { [weak operators] in operators?.acting ?? [] }
         operators.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
+        // A chosen operation without a window — closed, or its operator offline — is the operator
+        // controller's to bring back.
+        focus.onChoosingOperationWithoutWindow { [weak operators] id in
+            Task { await operators?.focusOperatorWindow(run: id) }
+        }
+        // A driven task whose window you closed: its conversation resumed by the operator controller,
+        // never a second worker beside a live one (integration decision 7). The row raises the window
+        // it opened once the reopen is done.
+        focus.onChoosingOperatedTaskWithoutWindow { [weak operators] id in
+            Task { await operators?.reopenWorker(task: id) }
+        }
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -500,7 +511,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case nil: nil
+        case .operation, nil: nil
         }
     }
 

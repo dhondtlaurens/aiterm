@@ -127,7 +127,7 @@ final class SidebarProjection {
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts,
                                                  tokens: live.tokens)
-        case .project, nil: return nil
+        case .project, .operation, nil: return nil
         }
     }
 }
