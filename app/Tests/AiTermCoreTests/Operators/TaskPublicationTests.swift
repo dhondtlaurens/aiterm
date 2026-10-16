@@ -25,7 +25,8 @@ import Testing
         world.update(task) {
             $0.publication = TaskPublication(pushedSHA: "4f2a91c", mergeRequestURL: "https://github.com/octocat/hello/pull/88",
                                              mergeRequestNumber: 88, targetBranch: "main",
-                                             waitingSince: Date(timeIntervalSince1970: 1_800_000_000), merged: true,
+                                             waitingSince: Date(timeIntervalSince1970: 1_800_000_000),
+                                             readySince: Date(timeIntervalSince1970: 1_800_000_030), merged: true,
                                              mergedSHA: "5eed5eed", problem: nil)
         }
         let item = try #require(world.state.tasks.first)

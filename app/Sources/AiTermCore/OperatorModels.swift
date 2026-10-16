@@ -118,6 +118,10 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// A `merge` end: when AiTerm began waiting for the host to call it mergeable — the start of the
     /// bounded wait (`OperatorTiming.mergeWait`).
     public var waitingSince: Date?
+    /// A `merge` end: when the host was first read calling it mergeable at the accepted commit. It is
+    /// merged only on a later read, `OperatorTiming.mergePoll` on, that still says so: a pipeline may
+    /// not have registered yet. Cleared by every read that does not.
+    public var readySince: Date?
     /// A `merge` end: merged by AiTerm, as `mergedSHA`.
     public var merged: Bool
     public var mergedSHA: String?
@@ -126,15 +130,15 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     public var problem: String?
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
-                targetBranch: String? = nil, waitingSince: Date? = nil, merged: Bool = false,
+                targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, problem: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
-        self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.merged = merged
+        self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.problem = problem
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, merged, mergedSHA, problem
+        case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, problem
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -146,6 +150,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         mergeRequestNumber = try c.decodeIfPresent(Int.self, forKey: .mergeRequestNumber)
         targetBranch = try c.decodeIfPresent(String.self, forKey: .targetBranch)
         waitingSince = try c.decodeIfPresent(Date.self, forKey: .waitingSince)
+        readySince = try c.decodeIfPresent(Date.self, forKey: .readySince)
         merged = try c.decodeIfPresent(Bool.self, forKey: .merged) ?? false
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)

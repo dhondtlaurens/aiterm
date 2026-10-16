@@ -46,6 +46,20 @@ extension Repository {
         try commit("refs/heads/" + branch)
     }
 
+    /// The commit `branch` points at on origin, asked of origin; nil when origin has no such branch.
+    /// `TaskPublisher` asks before it pushes: a push that timed out may have landed, since only git is
+    /// killed at the deadline and a hook or ssh can outlive it.
+    public func originTip(of branch: String) throws -> String? {
+        let ref = "refs/heads/" + branch
+        // ls-remote matches its patterns from the end, so only the line naming exactly this ref counts.
+        let listing = try git.runRemote(["ls-remote", "origin", ref], in: path)
+        for line in listing.split(separator: "\n") {
+            let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            if fields.count == 2, fields[1] == ref { return String(fields[0]) }
+        }
+        return nil
+    }
+
     /// Whether `ancestor` is in `commit`'s history: a stacked task's result must contain its parent's
     /// accepted commit.
     public func contains(_ ancestor: String, in commit: String) throws -> Bool {

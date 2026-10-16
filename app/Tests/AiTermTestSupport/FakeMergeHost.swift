@@ -11,6 +11,8 @@ final class FakeMergeHost: MergeRequestPublishing {
         var protected: [String: String] = [:]
         /// The host cannot say what it protects.
         var protectionFails = false
+        /// Thrown by the protection check instead: a host's own error, a GitLab or GitHub one.
+        var protectionError: (any Error)?
         /// Awaited inside a create, after it is logged: a test holds a create in flight with it.
         var beforeCreate: (@Sendable () async -> Void)?
         var existing: MergeRequest?
@@ -34,7 +36,8 @@ final class FakeMergeHost: MergeRequestPublishing {
 
     func protection(of branch: String) async throws -> BranchProtection {
         calls.withLock { $0.append("protection \(branch)") }
-        let (protected, fails) = script.withLock { ($0.protected, $0.protectionFails) }
+        let (protected, fails, error) = script.withLock { ($0.protected, $0.protectionFails, $0.protectionError) }
+        if let error { throw error }
         if fails { throw ProtectionUnknown.unreadable("The host didn’t say which branches it protects") }
         return protected[branch].map { .protected($0) } ?? .unprotected
     }

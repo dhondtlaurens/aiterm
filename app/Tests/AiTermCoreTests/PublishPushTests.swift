@@ -16,6 +16,18 @@ import Testing
         #expect(try git.run(["rev-parse", "refs/heads/feat/pluto-231"], in: origin) == sha)
     }
 
+    /// Origin's own tip of a branch, asked of origin: nil until the push, then the pushed commit —
+    /// and a branch whose name ends like it is not taken for it.
+    @Test func originsTipOfABranchIsAskedOfOrigin() throws {
+        let (path, _, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        let repo = Repository(path, git: git)
+        #expect(try repo.originTip(of: "feat/pluto-231") == nil)
+        try repo.push(sha, as: "feat/pluto-231", defaultBranch: "main")
+        #expect(try repo.originTip(of: "feat/pluto-231") == sha)
+        try repo.push(sha, as: "web/refs/heads/pluto-231", defaultBranch: "main")
+        #expect(try repo.originTip(of: "pluto-231") == nil)
+    }
+
     @Test func theAcceptedCommitIsPushedNotTheBranchTip() throws {
         let (path, origin, sha) = try GitFixture.withOrigin(branch: "feat/pluto-231")
         try git.run(["commit", "--allow-empty", "-q", "-m", "after acceptance"], in: path)
