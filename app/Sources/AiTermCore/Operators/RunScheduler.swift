@@ -30,6 +30,16 @@ public enum RunScheduler {
         return picked
     }
 
+    /// `startable(in:maxParallel:)` with the queued tasks `excluding` names left out — ones whose window the
+    /// caller is opening or has just opened: the turns and the slots are dealt as if they were not there. A
+    /// task left out holds no slot, and a dependent of it is not ready; nothing else changes.
+    public static func startable(in state: AppState, maxParallel: Int, excluding: Set<UUID>) -> [UUID] {
+        guard !excluding.isEmpty else { return startable(in: state, maxParallel: maxParallel) }
+        var view = state
+        view.tasks.removeAll { excluding.contains($0.id) && $0.operated?.state == .queued }
+        return startable(in: view, maxParallel: maxParallel)
+    }
+
     /// The tasks of `run` among `startable(in:maxParallel:)`: what this operation may start now,
     /// its turn with the others taken into account.
     public static func startable(in state: AppState, run id: UUID, maxParallel: Int) -> [UUID] {
@@ -101,14 +111,10 @@ extension RunScheduler {
     /// at once each end in a call to this; whichever runs second counts the first's claims, so the cap
     /// holds and no task is claimed twice — nor is an id the state holds twice (F3).
     ///
-    /// `excluding` names queued tasks the caller is already opening a window for (a reopen): the turns
-    /// and the slots are dealt as if they were not there.
+    /// `excluding` names queued tasks the caller may already have a window for (`startable(in:maxParallel:excluding:)`).
     public static func claim(in state: inout AppState, maxParallel: Int, now: Date, excluding: Set<UUID> = []) -> [UUID] {
-        var view = state
-        // A queued task left out holds no slot, and a dependent of it is not ready: nothing else changes.
-        view.tasks.removeAll { excluding.contains($0.id) && $0.operated?.state == .queued }
         var claimed: [UUID] = []
-        for id in startable(in: view, maxParallel: maxParallel) where !claimed.contains(id) {
+        for id in startable(in: state, maxParallel: maxParallel, excluding: excluding) where !claimed.contains(id) {
             let attempt = LaunchAttempt(number: (state.task(id: id)?.operated?.launch?.number ?? 0) + 1, requestedAt: now)
             // A refusal, or a repeat that changed nothing, is no claim: it is left for the next pass.
             guard let changed = try? OperatedTransitions.apply(.start(attempt), toTask: id, in: &state, by: .aiterm),

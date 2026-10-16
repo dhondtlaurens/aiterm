@@ -24,6 +24,11 @@ final class WorkerStarter {
         let before: OperatedTask
         let attempt: LaunchAttempt
     }
+    /// When a launch or a reopen last asked iTerm2 for each task's window, or ended not knowing whether one
+    /// opens, until iTerm2 lists a tab tagged with the task. A claim in that gap — the task failed and was
+    /// retried meanwhile — would find no worker to retry in and open a second one beside it, so none is made
+    /// for `launchAdoptAfter`, the time a slow iTerm2 has to list it.
+    private var unlisted: [UUID: Date] = [:]
     /// When each task's worker window was last reopened on your click: a click in the gap before iTerm2
     /// lists its tab (up to `launchAdoptAfter`) opens no second window.
     private var reopenedAt: [UUID: Date] = [:]
@@ -48,12 +53,14 @@ final class WorkerStarter {
 
     /// What may start now, claimed on the workspace in one change (`RunScheduler.claim`) and each claim
     /// marked starting at once, so no pass claims it again and no reconcile pass reopens or relaunches it
-    /// before `launchClaimed` has run. A task already starting — a relaunch, a reopen — is left out, as
-    /// is one whose code parent kept no commit, which is blocked first. The caller saves the claims
-    /// before launching any (spec §11), and releases them if it cannot.
+    /// before `launchClaimed` has run. A task already starting — a launch, a relaunch, a reopen — is left
+    /// out, and so is one whose window was just asked for and is not listed yet (`unlisted`); one whose
+    /// code parent kept no commit is blocked first. The caller saves the claims before launching any
+    /// (spec §11), and releases them if it cannot.
     func claimReady(maxParallel: Int) -> [UUID] {
-        blockUnbased(maxParallel: maxParallel)
-        let before = state, now = ports.now(), busy = starting
+        let busy = busy()
+        blockUnbased(maxParallel: maxParallel, excluding: busy)
+        let before = state, now = ports.now()
         let claimed = workspace.mutate { RunScheduler.claim(in: &$0, maxParallel: maxParallel, now: now, excluding: busy) }
         for id in claimed {
             starting.insert(id)
@@ -83,7 +90,11 @@ final class WorkerStarter {
             claims[id] = nil
             settle(id)
         }
-        guard let claim = claims[id], claim.attempt == attempt, let task = state.task(id: id) else { return }
+        guard let claim = claims[id], claim.attempt == attempt, let task = state.task(id: id) else {
+            // Only `claimReady`'s claims are launched here; the reconciler relaunches this one a minute on.
+            Log.daemon.error("An operator's task was launched with no claim of attempt \(attempt.number, privacy: .public); nothing opened")
+            return
+        }
         let before = claim.before
         guard claimHolds(id, attempt) else {
             release(id, claimedAs: attempt, to: before)
@@ -104,10 +115,18 @@ final class WorkerStarter {
     /// no attempt, no worktree, nothing started for a task that cannot be based. Its block's notice may
     /// run a start pass of its own (`onBlocked`), which claims from the state as it is then; the caller's
     /// claim, made after, counts those claims.
-    private func blockUnbased(maxParallel: Int) {
+    /// The tasks no claim may take now: those starting, and those whose window was asked for within
+    /// `launchAdoptAfter` and is not listed yet. Older ones are forgotten — that window never came.
+    private func busy() -> Set<UUID> {
+        let now = ports.now()
+        unlisted = unlisted.filter { now.timeIntervalSince($0.value) < OperatorTiming.launchAdoptAfter }
+        return starting.union(unlisted.keys)
+    }
+
+    private func blockUnbased(maxParallel: Int, excluding busy: Set<UUID>) {
         var seen: Set<UUID> = []
-        while let id = RunScheduler.startable(in: state, maxParallel: maxParallel).first(where: { id in
-            guard !seen.contains(id), !starting.contains(id), let task = state.task(id: id) else { return false }
+        while let id = RunScheduler.startable(in: state, maxParallel: maxParallel, excluding: busy).first(where: { id in
+            guard !seen.contains(id), let task = state.task(id: id) else { return false }
             return Self.lacksBase(task, in: state)
         }) {
             seen.insert(id)
@@ -152,8 +171,10 @@ final class WorkerStarter {
             }
             let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: worktree, title: task.branch, agentCommand: command,
                                                            frame: taskFrame(), background: true)
+            unlisted[id] = ports.now()
             recordWindow(window, of: id)
         } catch let error as DaemonError where [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
+            unlisted[id] = ports.now()
             Log.daemon.info("An operator's worker window may still open; the run reconciler looks again: \(error.message, privacy: .public)")
         } catch {
             block(id, reason: "AiTerm couldn’t start it: \(error.localizedDescription)")
@@ -190,15 +211,22 @@ final class WorkerStarter {
                 // Left on the row, so a click raises it.
                 recordWindow(window, of: id)
                 reopenedAt[id] = ports.now()
+                unlisted[id] = ports.now()
             } catch {
                 Log.daemon.error("An operator's worker window could not reopen: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
-    /// The tasks iTerm2 lists a tab for now: a reopened worker whose tab has come needs no more waiting.
-    func tabsListed(for tasks: Set<UUID>) {
+    /// The tasks iTerm2 lists a tab for now: a reopened worker whose tab has come needs no more waiting, and
+    /// a task held back from claims until its window was listed may be claimed. Whether one was: a start
+    /// pass may have something new to start.
+    @discardableResult
+    func tabsListed(for tasks: Set<UUID>) -> Bool {
         for id in reopenedAt.keys where tasks.contains(id) { reopenedAt[id] = nil }
+        let listed = unlisted.keys.filter(tasks.contains)
+        for id in listed { unlisted[id] = nil }
+        return !listed.isEmpty
     }
 
     private func settle(_ id: UUID) {

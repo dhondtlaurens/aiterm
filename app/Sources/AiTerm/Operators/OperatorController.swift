@@ -420,11 +420,13 @@ final class OperatorController {
             }
         }
         for id in reopenedOperator.keys where Self.operatorTab(of: id, in: sessions) != nil { reopenedOperator[id] = nil }
-        starter.tabsListed(for: Set(sessions.compactMap(\.taskUUID)))
+        let held = starter.tabsListed(for: Set(sessions.compactMap(\.taskUUID)))
         for id in closed { operatorWindowClosed(id) }
         observeRuns()
         probePrompts()
         for run in runs { waker.operatorSessionChanged(run.id) }
+        // A retried task held back until its worker's window was listed: the retry goes to that worker now.
+        if held { startReadyTasks() }
     }
 
     /// The operator's window closed (spec §9). A complete operation ends: your stop, persisted, and its
