@@ -59,7 +59,7 @@ struct OperationOverviewTests {
         #expect(plan?.rows.map(\.detail) == ["pluto-cms · Claude · commit", "pluto-web · Claude · builds on PLUTO-231 · commit",
                                              "pluto-web · Codex · commit", "pluto-web · Codex · merge"])
         #expect(overview.groups.isEmpty, "what waits for approval is in the plan, not on the board")
-        #expect(OperationOverview.PlanRow(id: UUID(), change: .changed, key: .todo, title: "t", detail: "d").sign == "~")
+        #expect(OperationOverview.PlanRow(id: "t", change: .changed, key: .todo, title: "t", detail: "d").sign == "~")
         #expect(overview.footer == .planWaits)
     }
 
@@ -149,5 +149,31 @@ struct OperationOverviewTests {
         all.append(all[0])
         let overview = OperationOverview.make(run: run, state: state(run, all))
         #expect(overview.groups.map(\.title) == ["Working"])
+    }
+
+    /// The sheet's `ForEach`s draw these items by id, so a question or a task that repeats, in the board,
+    /// the plan, the decisions or the lessons, is told apart by its place — and the first keeps its own id.
+    @Test func everyRowsIdIsUniqueEvenWhenWhatItIsMadeFromRepeats() {
+        let twice = [OperatorUIFixtures.question("First?", id: "scope"), OperatorUIFixtures.question("Again?", id: "scope"),
+                     OperatorUIFixtures.question("About the task", id: "q", task: footerId),
+                     OperatorUIFixtures.question("About it again", id: "q", task: footerId)]
+        let decision = OperatorDecision(key: "same", text: "Did it.", task: nil, at: OperatorUIFixtures.epoch, challenge: nil)
+        let lesson = ProposedLesson(key: "fields", lesson: "Ask first.", because: "You said.", decided: nil)
+        let run = OperatorUIFixtures.run(questions: twice, decisions: [decision, decision], lessons: [lesson, lesson])
+        var all = tasks(run.id, [.accepted, .working, .working, .queued])
+        all.append(all[1]); all.append(all[3])
+        let overview = OperationOverview.make(run: run, state: state(run, all))
+        func unique(_ ids: [String]) -> Bool { Set(ids).count == ids.count }
+        #expect(overview.groups.map(\.title).contains("Waiting on you"))
+        for group in overview.groups { #expect(unique(group.items.map(\.id)), "\(group.title)") }
+        #expect(overview.groups[0].items.map(\.id).first == "scope", "the first of a repeat keeps its id")
+        #expect(unique(overview.decisions.map(\.id)) && overview.decisions.map(\.key) == ["same", "same"])
+        #expect(unique(overview.lessons.map(\.id)) && overview.lessons.map(\.key) == ["fields", "fields"])
+
+        let planning = OperatorUIFixtures.run(state: .planning, planRevision: 1, approvedRevision: nil)
+        var planned = tasks(planning.id, [.planned, .planned, .planned, .planned])
+        planned.append(planned[0])
+        let plan = OperationOverview.make(run: planning, state: state(planning, planned)).plan
+        #expect(plan.map { unique($0.rows.map(\.id)) } == true && plan?.rows.count == 5)
     }
 }

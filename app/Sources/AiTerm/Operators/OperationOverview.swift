@@ -51,7 +51,8 @@ struct OperationOverview: Equatable {
     }
 
     struct PlanRow: Equatable, Identifiable {
-        var id: UUID
+        /// The task's id, told apart by its place when a task is listed twice.
+        var id: String
         /// New in this revision, or changed since the one you approved (C's `PlanRevision`).
         var change: PlanChange.Kind
         var key: Key
@@ -72,9 +73,15 @@ struct OperationOverview: Equatable {
 
     /// A decision or a lesson: what, and why.
     struct Note: Equatable, Identifiable {
+        /// Unique among the notes drawn together; `key` is the run's own, which a lesson's Keep sends back.
         var id: String
+        var key: String
         var text: String
         var why: String
+
+        init(id: String, key: String? = nil, text: String, why: String) {
+            self.id = id; self.key = key ?? id; self.text = text; self.why = why
+        }
     }
 
     enum Footer: Equatable { case planWaits, working, paused, done }
@@ -149,27 +156,27 @@ struct OperationOverview: Equatable {
 
         let finished = tasks.filter { $0.operated.map { SidebarModel.isFinished($0.state) } ?? false }.count
         let doneTitle = run.state == .complete ? "Done · \(finished) of \(tasks.count)" : "Done"
-        let groups = [Group(title: "Waiting on you", attention: waiting.count, items: waiting),
-                      Group(title: "Working", items: working), Group(title: "Up next", items: upNext),
-                      Group(title: doneTitle, items: done)].filter { !$0.items.isEmpty }
+        let groups = [Group(title: "Waiting on you", attention: waiting.count, items: Self.unique(waiting, \.id)),
+                      Group(title: "Working", items: Self.unique(working, \.id)), Group(title: "Up next", items: Self.unique(upNext, \.id)),
+                      Group(title: doneTitle, items: Self.unique(done, \.id))].filter { !$0.items.isEmpty }
 
         let plan: Plan? = !planWaits ? nil : Plan(
             revision: run.planRevision,
             help: Self.planHelp(run, challenger: challenger),
-            rows: pending.compactMap { task in
+            rows: Self.unique(pending.compactMap { task -> PlanRow? in
                 guard let operated = task.operated else { return nil }
                 let detail = [state.project(id: task.projectId)?.name, SidebarModel.agentName(task.agent),
                               Self.dependency(of: operated, tasks: byId), Self.endWord(operated.end)]
-                return PlanRow(id: task.id, change: changes[task.id] ?? .added, key: Self.key(of: task), title: task.title,
+                return PlanRow(id: task.id.uuidString, change: changes[task.id] ?? .added, key: Self.key(of: task), title: task.title,
                                detail: detail.compactMap { $0 }.joined(separator: " · "))
-            })
+            }, \.id))
 
-        let decisions = run.decisions.map { decision in
+        let decisions = Self.unique(run.decisions.map { decision in
             Note(id: decision.key, text: decision.text,
                  why: decision.challenge.map { "\(challenger) said: “\($0)” Overrule it in the window if not." }
                     ?? "Overrule it in the window if not.")
-        }
-        let lessons = run.lessons.filter { $0.decided == nil }.map { Note(id: $0.key, text: $0.lesson, why: $0.because) }
+        }, \.id)
+        let lessons = Self.unique(run.lessons.filter { $0.decided == nil }.map { Note(id: $0.key, text: $0.lesson, why: $0.because) }, \.id)
         let footer: Footer = planWaits ? .planWaits
             : run.state == .complete ? .done
             : run.state == .paused || run.state == .operatorOffline ? .paused
@@ -182,6 +189,22 @@ struct OperationOverview: Equatable {
             decisionsTitle: decisions.isEmpty ? nil : "Decided on its own · \(decisions.count)", decisions: decisions,
             lessonsTitle: lessons.isEmpty ? nil : lessons.count == 1 ? "A lesson to keep?" : "Lessons to keep?", lessons: lessons,
             footer: footer)
+    }
+
+    /// `values` with each repeat of an id told apart by its place (`id#3`), so a `ForEach` over them never
+    /// sees one twice: the first keeps its own id, and no new id is one another value already has.
+    private static func unique<T>(_ values: [T], _ id: WritableKeyPath<T, String>) -> [T] {
+        var taken = Set(values.map { $0[keyPath: id] }), first = Set<String>()
+        var result = values
+        for i in result.indices {
+            let own = result[i][keyPath: id]
+            if first.insert(own).inserted { continue }
+            var candidate = "\(own)#\(i)"
+            while taken.contains(candidate) { candidate += "’" }
+            taken.insert(candidate)
+            result[i][keyPath: id] = candidate
+        }
+        return result
     }
 
     private static func key(of task: TaskItem) -> Key { task.jira.map { .ticket($0.key) } ?? .todo }

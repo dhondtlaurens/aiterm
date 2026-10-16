@@ -380,6 +380,7 @@ struct SidebarSheet: View {
                         case .divider(let divider): controller.rename(divider: divider, to: name)
                         case .task(let task): controller.rename(task: task, to: name)
                         case .terminal(let terminal): controller.rename(terminal: terminal, to: name)
+                        case .operation(let run): controller.rename(run: run, to: name)
                         }
                     })
                 case .settings(let jira, let gitLab, let gitHub, let tab):
@@ -397,6 +398,7 @@ struct SidebarSheet: View {
                 case .archive(let model): ArchiveSheet(model: model)
                 case .operatorEditor(let model): OperatorSheet(model: model)
                 case .newOperation(let model): NewOperationSheet(model: model)
+                case .operationOverview(let id): OperationOverviewHost(runId: id, controller: controller)
             }
         }
         .interfaceScale(.standard)

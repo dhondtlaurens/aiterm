@@ -254,6 +254,10 @@ final class AppController {
         focus.onChoosingOperatedTaskWithoutWindow { [weak operators] id in
             Task { await operators?.reopenWorker(task: id) }
         }
+        // A notification's click on a waiting plan, a done or a blocked operation opens its overview:
+        // D7 records the request on the operator controller; this presents it, and any made before now.
+        presentRequestedOverview()
+        watchOverviewRequests()
     }
 
     // -- workspace ------------------------------------------------------------------

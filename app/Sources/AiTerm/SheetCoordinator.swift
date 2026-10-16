@@ -96,6 +96,11 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
+    func presentRename(run: OperatorRun) {
+        guard canChangeWorkspace, let current = state.runs.first(where: { $0.id == run.id }) else { return }
+        present(.rename(.operation(current)))
+    }
+
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘B and the footer's Mac rows reach it while one may be up, and it refuses rather than
     /// take that sheet's place, as Settings does.
