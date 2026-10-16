@@ -44,7 +44,7 @@ struct OperatorPorts {
 final class OperatorController {
     private let workspace: WorkspaceStore
     private let live: LiveSessions
-    private let notices: Notices
+    let notices: Notices
     private let daemon: @MainActor () -> (any DaemonCommands)?
     private let taskFrame: @MainActor () -> Frame
     @ObservationIgnored let ports: OperatorPorts
@@ -75,6 +75,9 @@ final class OperatorController {
     /// The tasks the operator is acting on right now — a `message_task` or `mark_task` in flight: their
     /// rows' operator mark breathes (spec §10.4).
     private(set) var acting: Set<UUID> = [] { didSet { if acting != oldValue { changed() } } }
+    /// Every operator, as its file says, by name: the sidebar's OPERATORS group. Set only by `reloadOperators()`
+    /// (`OperatorController+Library.swift`); internal rather than `private(set)` because that is another file.
+    var operators: [OperatorPersona] = []
     @ObservationIgnored private var changeHooks: [@MainActor () -> Void] = []
     /// The runs and operated tasks as the hooks last heard of them.
     @ObservationIgnored private var lastHeard: ([OperatorRun], [TaskItem]) = ([], [])
@@ -110,6 +113,7 @@ final class OperatorController {
             notifier.taskBlocked(task, reason: reason, in: run)
             runChanged(run.id)
         }
+        reloadOperators()
     }
 
     /// Adds `handler` to what hears that a run, an operated task or `acting` changed: the UI's
@@ -128,7 +132,7 @@ final class OperatorController {
         changed()
     }
 
-    private func changed() { for hook in changeHooks { hook() } }
+    func changed() { for hook in changeHooks { hook() } }
 
     /// The tool handler's report of what the operator is acting on.
     func setActing(_ task: UUID, _ on: Bool) {
