@@ -12,10 +12,10 @@ import Testing
 
     /// The plan tools need no helper, and without one nothing a released task starts (D10's
     /// `WorkerStarter.start` returns nil), so a queued task stays queued for the test to read. M1's
-    /// rules by name: F1 and G6 raise `OperatorMilestone.current`.
-    func makeWorld(_ autonomy: Autonomy) throws -> (OperatorWorld, OperatorRun) {
+    /// rules by name unless a test asks for another milestone: F1 and G6 raised `OperatorMilestone.current`.
+    func makeWorld(_ autonomy: Autonomy, milestone: OperatorMilestone = .m1) throws -> (OperatorWorld, OperatorRun) {
         let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: autonomy), projects: [project, other])
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run])) { $0.milestone = .m1 }
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run])) { $0.milestone = milestone }
         world.link.attached = false
         return (world, run)
     }
@@ -107,13 +107,16 @@ import Testing
         #expect(operated(world, "B")?.state == .queued)
     }
 
-    @Test func m1RefusesAPlanThatEndsBeyondACommitWithTheReason() async throws {
-        let (world, run) = try makeWorld(.handsOff)
-        _ = await create(world, run, "A", end: "merge")
+    /// M3 carries out every end; a stacked task whose end its parent can't carry is refused with the reason.
+    @Test func aPlanWhoseStackedEndItsParentCannotCarryIsRefusedWithTheReason() async throws {
+        let (world, run) = try makeWorld(.handsOff, milestone: .m3)
+        _ = await create(world, run, "A")
+        _ = await create(world, run, "B", end: "draftMR", dependsOn: [["task": "A", "kind": "code"]])
+        let why = try #require(PlanEndRules.refusal(for: world.state.tasks))
         let refused = await world.call(run.id, "submit_plan", ["revision": 1])
-        #expect(refused.message == PlanRevision.Failure.unsupportedEnd(key: "A", .merge).description)
-        #expect(world.run(run.id)?.planRevision == 0 && operated(world, "A")?.state == .planned)
-        _ = await world.call(run.id, "update_task", ["task": "A", "end": "commit"])
+        #expect(refused.message == PlanRevision.Failure.endsDisagree(why).description)
+        #expect(world.run(run.id)?.planRevision == 0 && operated(world, "B")?.state == .planned)
+        _ = await world.call(run.id, "update_task", ["task": "A", "end": "merge"])
         #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["submitted"] == true)
     }
 

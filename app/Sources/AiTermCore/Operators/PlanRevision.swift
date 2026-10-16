@@ -28,6 +28,8 @@ public enum PlanRevision {
         case nothingSubmitted
         case notGated
         case unsupportedEnd(key: String, TaskEnd)
+        /// M3: a stacked task's end its parent's end cannot carry (`PlanEndRules`), in its own words.
+        case endsDisagree(String)
         case tooManyCodeParents(key: String)
         case codeParentInAnotherProject(key: String)
         case unknownDependency(key: String)
@@ -46,6 +48,7 @@ public enum PlanRevision {
             case .notGated: return "This operation's plans start without approval."
             case .unsupportedEnd(let key, let end):
                 return "\(key) ends in a \(end.displayName), which this version of AiTerm can't carry out yet; end it at a commit."
+            case .endsDisagree(let why): return why
             case .tooManyCodeParents(let key): return "\(key) builds on more than one task's code; a task can stack on one."
             case .codeParentInAnotherProject(let key): return "\(key) builds on code in another project; a code dependency stays in one project."
             case .unknownDependency(let key): return "\(key) depends on a task that isn't in this operation."
@@ -144,7 +147,8 @@ public enum PlanRevision {
     }
 
     /// Whether the run's plan can be carried out: every end supported by `milestone`, at most one
-    /// `code` parent per task and in its own project, every dependency inside the run, no circle.
+    /// `code` parent per task and in its own project, every dependency inside the run, no circle, and every stacked end one its parent's can carry
+    /// (`PlanEndRules`, over every revision's tasks of the run).
     public static func validate(_ state: AppState, run id: UUID, milestone: OperatorMilestone = .current) throws(Failure) {
         let tasks = state.tasks(inRun: id)
         // One id twice is a corrupt state: reading only the first of them could hide a circle or a bad parent in the other.
@@ -162,6 +166,7 @@ public enum PlanRevision {
             }
         }
         if let loop = cycle(in: tasks) { throw .cycle(keys: loop) }
+        if let why = PlanEndRules.refusal(for: tasks) { throw .endsDisagree(why) }
     }
 
     /// The keys of the tasks on a dependency circle, sorted; nil when there is none.

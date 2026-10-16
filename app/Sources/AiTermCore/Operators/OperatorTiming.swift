@@ -37,8 +37,8 @@ public enum OperatorTiming {
 public enum OperatorMilestone: Int, Comparable, CaseIterable, Sendable {
     case m1 = 1, m2, m3
 
-    /// The milestone this build ships: M2, several agents at once (G6 raises it to `.m3`).
-    public static let current: OperatorMilestone = .m2
+    /// The milestone this build ships: M3, every end carried out.
+    public static let current: OperatorMilestone = .m3
 
     public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 

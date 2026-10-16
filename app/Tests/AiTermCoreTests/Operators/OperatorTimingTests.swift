@@ -61,7 +61,7 @@ import Foundation
 
     /// Spec §13 and the 16 Oct change: commit from M1; draft MR and merge from M3.
     @Test func eachEndArrivesWithItsMilestone() {
-        #expect(OperatorMilestone.current == .m2)
+        #expect(OperatorMilestone.current == .m3)
         #expect(TaskEnd.allCases.filter(OperatorMilestone.m1.supports) == [.commit])
         #expect(TaskEnd.allCases.filter(OperatorMilestone.m2.supports) == [.commit])
         #expect(TaskEnd.allCases.filter(OperatorMilestone.m3.supports) == [.commit, .draftMR, .merge])
