@@ -1391,3 +1391,17 @@ async def test_a_refused_keystroke_monitor_does_not_fail_the_connection(patched_
     assert await bridge.connect() == "3.7.2"
     assert bridge.is_connected()
     assert "keystroke monitor" in caplog.text
+    assert bridge.keystroke_epoch() is None
+
+
+async def test_monitor_epoch_exists_only_while_subscription_is_live(patched_connect):
+    bridge = ItermBridge()
+    assert bridge.keystroke_epoch() is None
+    await bridge.connect()
+    first = bridge.keystroke_epoch()
+    assert first is not None
+    await bridge.close()
+    assert bridge.keystroke_epoch() is None
+    await bridge.connect()
+    assert bridge.keystroke_epoch() is not None and bridge.keystroke_epoch() is not first
+    await bridge.close()

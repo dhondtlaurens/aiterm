@@ -93,10 +93,10 @@ final class DaemonOperatorWireTests {
 
     @Test func aReplyToTheOperatorSendsItsResultAndAnExplicitNullError() async throws {
         try connect { _ in [String: Any]() }
-        try await client.replyToOperator(requestId: "r1", result: ["task": "T1", "created": true], error: nil)
+        try await client.replyToOperator(requestId: "op-00000000000000000000000000000001-1", result: ["task": "T1", "created": true], error: nil)
         try await client.replyToOperator(requestId: "r2", result: nil, error: "AiTerm says no")
         #expect(method() == "operator.reply")
-        #expect(params(0)["requestId"] as? String == "r1")
+        #expect(params(0)["requestId"] as? String == "op-00000000000000000000000000000001-1")
         #expect((params(0)["result"] as? [String: Any])?["created"] as? Bool == true)
         #expect(params(0)["error"] is NSNull)
         #expect(params(1)["result"] is NSNull)
@@ -104,9 +104,9 @@ final class DaemonOperatorWireTests {
     }
 
     @Test func anOperatorRequestArrivesWithItsArguments() throws {
-        let line = Data(#"{"event":"operator.request","payload":{"requestId":"r1","runId":"R","tool":"create_task","arguments":{"key":"a","dependsOn":[{"task":"b","kind":"code"}],"n":2}}}"#.utf8)
+        let line = Data(#"{"event":"operator.request","payload":{"requestId":"op-00000000000000000000000000000001-1","runId":"R","tool":"create_task","arguments":{"key":"a","dependsOn":[{"task":"b","kind":"code"}],"n":2}}}"#.utf8)
         let event = try DaemonClient.decodeEvent("operator.request", from: line)
-        #expect(event == .operatorRequest(OperatorRequest(requestId: "r1", runId: "R", tool: "create_task",
+        #expect(event == .operatorRequest(OperatorRequest(requestId: "op-00000000000000000000000000000001-1", runId: "R", tool: "create_task",
                                                           arguments: ["key": "a", "dependsOn": [["task": "b", "kind": "code"]], "n": 2])))
     }
 

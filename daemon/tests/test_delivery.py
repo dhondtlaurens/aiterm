@@ -226,11 +226,12 @@ class Pauses:
 async def rig():
     """A Claude 2.1.301 idle in a task's tab, a Deliverer over it whose policy says auto for that
     Claude and Codex 0.160.0, and the clock and pauses it runs on."""
-    iterm, registry, guard, clock, pauses = FakeIterm(), SessionRegistry(), TypingGuard(), Clock(), Pauses()
+    iterm, registry, guard, clock, pauses = FakeIterm(), SessionRegistry(), TypingGuard(lambda: True), Clock(), Pauses()
     _wid, sid = await iterm.create_window("/wt", "x", {"aiterm_task": "t1"}, Frame(0, 0, 10, 10))
     await iterm.user_runs(sid, "claude", job_pid=4242)
     registry.apply_snapshot(await iterm.snapshot())
     registry.set_cli_version(sid, "2.1.301")
+    guard.note_key(sid, -100, "\r")
     iterm.screens[sid] = IDLE
     policy = {"claude": ("auto", "2.1.301"), "codex": ("auto", "0.160.0")}
     deliverer = Deliverer(iterm, registry, lambda: policy, guard, monotonic=clock, sleep=pauses)
@@ -606,3 +607,44 @@ async def test_a_generation_is_never_lowered(rig):
     rig.deliverer.set_ownership(rig.sid, 2)
     assert (await rig.deliverer.deliver(rig.sid, "hello", 4)).result == "refused"
     assert (await rig.deliverer.deliver(rig.sid, "hello", 5)).result == "delivered"
+
+
+@pytest.mark.parametrize("read_number", [1, 2])
+@pytest.mark.parametrize("change", ["ownership", "typing", "dirty", "closed", "prompt"])
+async def test_screen_read_rechecks_safety_after_await(rig, read_number, change):
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = rig.iterm.screen_text
+    reads = 0
+
+    async def held(sid):
+        nonlocal reads
+        reads += 1
+        if reads == read_number:
+            entered.set()
+            await release.wait()
+        return await original(sid)
+
+    rig.iterm.screen_text = held
+    task = asyncio.create_task(rig.deliverer.deliver(rig.sid, "wake", 1, wake=True))
+    await entered.wait()
+    if change == "ownership":
+        rig.deliverer.set_ownership(rig.sid, 2)
+    elif change == "typing":
+        rig.guard.note_key(rig.sid, rig.clock(), "\x1b")
+    elif change == "dirty":
+        rig.guard.mark_unsent(rig.sid)
+    elif change == "closed":
+        rig.registry.apply_snapshot([])
+    else:
+        rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION
+    release.set()
+    result = await task
+    assert result.result == ("refused" if read_number == 1 else "partial")
+    assert len(rig.iterm.sent) == read_number - 1
+
+
+async def test_wake_refused_without_observed_input_history(rig):
+    rig.guard.forget(rig.sid)
+    result = await rig.deliverer.deliver(rig.sid, "wake", 1, wake=True)
+    assert result.result == "refused"
+    assert rig.iterm.sent == []

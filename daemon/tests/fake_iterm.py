@@ -59,6 +59,9 @@ class FakeIterm:
             raise ItermNotRunning("iTerm2 not running")
         return "3.7.2"
 
+    def keystroke_epoch(self):
+        return self if self._connected else None
+
     def is_connected(self) -> bool:
         return self._connected
 

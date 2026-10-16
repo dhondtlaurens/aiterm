@@ -23,7 +23,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, get_args
 
-from aitermd import delivery, protocol, service
+from aitermd import delivery, operator_mcp, protocol, service
+from uuid import UUID
 from aitermd.models import HARNESS_BY_AGENT, AgentKind, State
 from tests.conftest import operator_post
 from tests.fake_iterm import FakeIterm
@@ -94,6 +95,7 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     next, opens a task window with a PI tab and a terminal, closes the terminal, and loses iTerm2.
     Each frame is taken as the app receives it. Ids are FakeIterm's counters and the request ids
     the script sends; the clock is make_service's, stopped at 1000."""
+    monkeypatch.setattr(operator_mcp.uuid, "uuid4", lambda: UUID(int=1))
     # Only this script ticks: a poll between its steps would make what each event carries depend
     # on timing.
     monkeypatch.setattr(service, "POLL_SECONDS", 3600)

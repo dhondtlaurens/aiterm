@@ -44,7 +44,7 @@ from aitermd.sessions import SessionRegistry
 
 # Which scenarios each verdict needs. Paste-safe: text pasted into an open prompt never acts as its
 # keys. Submit-safe: the whole text arrives, Enter submits it once, and a takeover holds Enter back.
-PASTE_SAFE = ("permissionPaste", "startupPaste")
+PASTE_SAFE = ("permissionPaste", "startupPaste", "menuPaste", "updatePaste", "approvalRace")
 SUBMIT_SAFE = ("idleSubmit", "multiLine", "busyQueue", "takeover")
 # iTerm2's own, checked once: the keystroke monitor lets keys through, and a background window stays behind.
 ITERM_CHECKS = ("keystrokesPassThrough", "backgroundWindow")
@@ -178,7 +178,7 @@ class Live:
     """The real iTerm2, through the daemon's own bridge, and the daemon's own adapter over it."""
 
     def __init__(self, bridge: ItermPort):
-        self.bridge, self.registry, self.typing = bridge, SessionRegistry(), TypingGuard()
+        self.bridge, self.registry, self.typing = bridge, SessionRegistry(), TypingGuard(bridge.keystroke_epoch)
         self.keys: Counter[str] = Counter()
         # Each CLI's version, as its `--version` printed it: the one the verdict is written for.
         self.versions: dict[AgentKind, str] = {}

@@ -4,10 +4,11 @@ the forwarding of tool calls to the app, driven directly rather than over HTTP."
 import asyncio
 import json
 import os
+from uuid import UUID
 
 import pytest
 
-from aitermd import delivery
+from aitermd import delivery, operator_mcp
 from aitermd.operator_mcp import CHALLENGED_TOOLS, TOOL_NAMES, TOOLS, OperatorRoute, OperatorTokens, well_formed
 from aitermd.rpc_server import RpcError
 
@@ -293,7 +294,8 @@ async def test_a_tool_call_is_forwarded_to_the_app_and_its_answer_returned():
     request = await answer_with(app, route, result={"open": True}, error=None)
     status, text = await calling
     assert app.events[0][0] == "operator.request"
-    assert request == {"requestId": "op-1", "runId": "run-1", "tool": "ask_you", "arguments": {"key": "q1", "question": "Which project?"}}
+    assert request == {"requestId": request["requestId"], "runId": "run-1", "tool": "ask_you",
+                       "arguments": {"key": "q1", "question": "Which project?"}}
     reply = json.loads(text)
     assert status == 200 and reply["id"] == 7
     assert reply["result"] == {"content": [{"type": "text", "text": '{"open": true}'}], "structuredContent": {"open": True},
@@ -349,9 +351,10 @@ async def test_each_call_gets_its_own_request_id():
     second = asyncio.create_task(route.serve("POST", AUTH, call("run_status", {}, 2)))
     await asyncio.wait_for(_until(lambda: len(app.events) == 2), 2)
     ids = [payload["requestId"] for _name, payload in app.events]
-    assert ids == ["op-1", "op-2"]
-    await route.reply({"requestId": "op-2", "result": {"which": 2}})
-    await route.reply({"requestId": "op-1", "result": {"which": 1}})
+    assert ids[0] != ids[1]
+    assert ids[0].endswith("-1") and ids[1].endswith("-2")
+    await route.reply({"requestId": ids[1], "result": {"which": 2}})
+    await route.reply({"requestId": ids[0], "result": {"which": 1}})
     assert json.loads((await first)[1])["result"]["structuredContent"] == {"which": 1}
     assert json.loads((await second)[1])["result"]["structuredContent"] == {"which": 2}
 
@@ -389,3 +392,22 @@ async def test_register_opens_and_revoke_closes_the_route():
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 200
     assert await route.revoke({"runId": "run-9"}) == {}
     assert (await route.serve("POST", AUTH, message("tools/list")))[0] == 401
+
+
+async def test_restart_drops_old_reply_while_new_call_waits(monkeypatch):
+    prefixes = iter([UUID(int=1), UUID(int=2)])
+    monkeypatch.setattr(operator_mcp.uuid, "uuid4", lambda: next(prefixes))
+    ids = []
+    routes = []
+
+    async def broadcast(_event, payload):
+        ids.append(payload["requestId"])
+        route = routes[-1]
+        if len(ids) == 2:
+            await route.reply({"requestId": ids[0], "result": {"stale": True}})
+        await route.reply({"requestId": ids[-1], "result": {"fresh": True}})
+
+    for _ in range(2):
+        routes.append(OperatorRoute(broadcast, lambda: 1))
+        assert await routes[-1].ask_app("run", "run_status", {}) == {"fresh": True}
+    assert ids[0] != ids[1]

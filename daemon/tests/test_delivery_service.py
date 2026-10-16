@@ -150,5 +150,5 @@ async def test_a_closed_session_forgets_its_generation_and_last_key(claude):
     await call("session.setOwnership", {"sessionId": sid, "ownership": 5})
     await it.user_types(sid)
     await it.user_closes_session(sid)  # the service ticks on the close, and forgets the session
-    assert not svc.typing.is_typing(sid, 500.0) and not svc.typing.has_unsent_input(sid)
+    assert not svc.typing.is_typing(sid, 500.0) and svc.typing.has_unsent_input(sid)
     assert sid not in svc.deliverer._ownership

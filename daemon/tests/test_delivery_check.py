@@ -101,3 +101,14 @@ def test_an_allow_rule_a_paste_wrote_is_found(tmp_path):
     (tmp_path / "work" / ".claude" / "settings.local.json").write_text("{}", encoding="utf-8")
     assert allow_rules("codex", tmp_path) == [str(tmp_path / "codex-home" / "rules" / "default.rules")]
     assert allow_rules("claude", tmp_path) == [str(tmp_path / "work" / ".claude" / "settings.local.json")]
+
+
+@pytest.mark.parametrize("missing", ["menuPaste", "updatePaste", "approvalRace"])
+@pytest.mark.parametrize("failed", [False, True])
+def test_required_prompt_checks_must_run_and_pass(tmp_path, missing, failed):
+    results = every(PASTE_SAFE + SUBMIT_SAFE + ("menuPaste", "updatePaste", "approvalRace"), OK)
+    results.pop(missing)
+    if failed:
+        results[missing] = FAILED
+    entry = agent_entry("2.1.301", results, NOW)
+    assert read_back(tmp_path, {"claude": entry})["claude"].policy == "off"

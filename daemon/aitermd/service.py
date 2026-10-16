@@ -91,7 +91,7 @@ class Service:
         # holds back an operator's wake line (§7.4). The policy is read on every delivery, so the
         # delivery check that writes it needs no restart.
         self._monotonic = monotonic
-        self.typing = TypingGuard()
+        self.typing = TypingGuard(self.iterm.keystroke_epoch)
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
         # are forwarded to the attached app, which answers them over this socket.

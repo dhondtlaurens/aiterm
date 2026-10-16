@@ -290,6 +290,7 @@ def _is_auth_rejection(exc: BaseException) -> bool:
 class ItermPort(Protocol):
     async def connect(self) -> str | None: ...
     def is_connected(self) -> bool: ...
+    def keystroke_epoch(self) -> object | None: ...
     async def close(self) -> None: ...
     async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
                             background: bool = False) -> tuple[str, str]: ...
@@ -319,6 +320,7 @@ _Placement = tuple[iterm2.Session, str, int, bool]
 class ItermBridge:
     def __init__(self) -> None:
         self._conn: iterm2.Connection | None = None
+        self._key_conn: iterm2.Connection | None = None
         self._new_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._closed_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._activated_cbs: list[Callable[[str], Awaitable[None]]] = []
@@ -391,16 +393,21 @@ class ItermBridge:
         await iterm2.notifications.async_subscribe_to_focus_change_notification(conn, self._on_focus)
         # Every session's key-downs, for when you last typed in one and whether its input may hold
         # unsent text (keystrokes.TypingGuard). A monitor reports a key and lets it through, unlike a
-        # keystroke filter. Not fatal when refused: wake lines then cannot wait for your typing,
-        # which is logged.
+        # keystroke filter. A refused monitor leaves wake delivery disabled.
+        self._key_conn = None
         try:
             await iterm2.notifications.async_subscribe_to_keystroke_notification(conn, self._on_keystroke)
         except iterm2.notifications.SubscriptionException as exc:
-            log.warning("iTerm2 refused the keystroke monitor (%s): wake lines cannot wait for your typing", exc)
+            log.warning("iTerm2 refused the keystroke monitor (%s): wake delivery is disabled", exc)
+        else:
+            self._key_conn = conn
         # Under the lock `_app` takes: a notification handler asking for the app meanwhile would
         # otherwise build a second one.
         async with self._refresh_lock:
             _drop_app_refresh_handlers(await _get_app(conn))
+
+    def keystroke_epoch(self) -> object | None:
+        return self._conn if self._conn is self._key_conn else None
 
     def is_connected(self) -> bool:
         return self._conn is not None

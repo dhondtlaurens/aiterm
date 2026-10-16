@@ -55,7 +55,8 @@ async def test_a_tool_call_reaches_the_app_and_its_reply_reaches_the_operator(ap
     assert (await register(r, w))["result"] == {}
     calling = asyncio.create_task(operator_post(svc.hooks.port, tool_call("run_status", {}), token=TOKEN))
     request = (await read_until(r, lambda m: m.get("event") == "operator.request"))["payload"]
-    assert request == {"requestId": "op-1", "runId": "run-1", "tool": "run_status", "arguments": {}}
+    assert request["requestId"].startswith("op-") and request["requestId"].endswith("-1")
+    assert {k: v for k, v in request.items() if k != "requestId"} == {"runId": "run-1", "tool": "run_status", "arguments": {}}
     await send(w, 2, "operator.reply", {"requestId": request["requestId"], "result": {"revision": 4}, "error": None})
     assert (await read_until(r, lambda m: m.get("id") == 2))["result"] == {}
     status, reply = await calling

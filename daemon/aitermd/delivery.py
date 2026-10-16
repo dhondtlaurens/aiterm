@@ -299,6 +299,16 @@ class Deliverer:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
         typed into. Made before anything is typed, and again right before the paste when a message
         file was written in between, `process` then the session as the first check found it."""
+        ready = self._ready(session_id, ownership, wake, process=process)
+        if isinstance(ready, str):
+            return ready
+        session, _policy = ready
+        if (why := await self._ineligible(session_id, session.agent)) is not None:
+            return why
+        return self._ready(session_id, ownership, wake, process=session)
+
+    def _ready(self, session_id: str, ownership: int, wake: bool, *,
+               process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | str:
         if self._ownership.get(session_id) != ownership:
             return "the task changed hands after this message was written"
         if not self.iterm.is_connected():
@@ -320,8 +330,6 @@ class Deliverer:
         if wake and self.typing.has_unsent_input(session_id):
             # Pasted after words not yet sent, the wake line's Enter would send them with it.
             return "unsent text waits in its input"
-        if (why := await self._ineligible(session_id, session.agent)) is not None:
-            return why
         return session, policy
 
     def _replaced(self, session: SessionInfo) -> str | None:
@@ -353,12 +361,15 @@ class Deliverer:
 
     async def _changed(self, session: SessionInfo, ownership: int, wake: bool) -> str | None:
         """What holds the Enter back: anything that changed while the paste settled."""
-        if self._ownership.get(session.session_id) != ownership:
-            return "you took the task over before Enter; the text waits unsent in the input"
-        if wake and self.typing.is_typing(session.session_id, self._monotonic()):
-            return "you started typing before Enter; the wake line waits unsent in the input"
-        if (why := self._replaced(session) or await self._ineligible(session.session_id, session.agent)) is not None:
-            return f"before Enter, {why}; the text waits unsent in the input"
+        ready = await self._check(session.session_id, ownership, wake, process=session)
+        if isinstance(ready, str):
+            if ready == "the task changed hands after this message was written":
+                return "you took the task over before Enter; the text waits unsent in the input"
+            if ready == "you are typing":
+                return "you started typing before Enter; the wake line waits unsent in the input"
+            return f"before Enter, {ready}; the text waits unsent in the input"
+        if ready[1] != "auto":
+            return "before Enter, automatic submission is no longer checked safe"
         return None
 
     async def prompt(self, session_id: str) -> PromptKind | None:

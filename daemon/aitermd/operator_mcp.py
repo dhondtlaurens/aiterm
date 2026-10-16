@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import itertools
+import uuid
 import json
 import logging
 import os
@@ -265,9 +266,10 @@ class OperatorRoute:
         self.broadcast, self.client_count = broadcast, client_count
         self.tokens = tokens if tokens is not None else OperatorTokens()
         # The tool calls waiting for the app's answer, by the request id the event carried. Ids are
-        # unique within this process; an answer from before a restart finds nothing and is dropped.
+        # unique across route lifetimes; an answer from before a restart finds nothing and is dropped.
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._ids = itertools.count(1)
+        self._prefix = uuid.uuid4().hex
 
     def _run(self, headers: dict[str, str]) -> str | None:
         scheme, _, token = headers.get("authorization", "").partition(" ")
@@ -326,7 +328,7 @@ class OperatorRoute:
         safe to repeat (spec §11)."""
         if self.client_count() == 0:
             raise ToolError(NOT_OPEN)
-        request_id = f"op-{next(self._ids)}"
+        request_id = f"op-{self._prefix}-{next(self._ids)}"
         answer: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = answer
         try:
