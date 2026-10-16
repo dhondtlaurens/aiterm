@@ -81,9 +81,11 @@ final class OperatorToolHandler {
         lastReply = Task {
             let answer = await self.answer(request)
             guard let daemon = daemon() else { return }
-            switch answer {
-            case .result(let value): try? await daemon.replyToOperator(requestId: request.requestId, result: value, error: nil)
-            case .error(let message): try? await daemon.replyToOperator(requestId: request.requestId, result: nil, error: message)
+            await Log.daemon.attempt("Replying to the operator’s \(request.tool) request \(request.requestId)") {
+                switch answer {
+                case .result(let value): try await daemon.replyToOperator(requestId: request.requestId, result: value, error: nil)
+                case .error(let message): try await daemon.replyToOperator(requestId: request.requestId, result: nil, error: message)
+                }
             }
         }
     }

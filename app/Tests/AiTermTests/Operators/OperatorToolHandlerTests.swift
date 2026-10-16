@@ -87,4 +87,92 @@ import Testing
         #expect((reply.params["error"] as? String)?.hasPrefix("finish_task is available in M3.") == true)
         #expect(reply.params["result"] == nil)
     }
+
+    /// A started task of `run`, as an operator names it by its key.
+    func workingTask(in run: OperatorRun, key: String = "T1") -> TaskItem {
+        OperatorServiceFixtures.task(in: run, project: project, key: key, state: .working, worktree: "/tmp/aiterm-operators-wt-\(key)")
+    }
+
+    func makeWorld(_ run: OperatorRun, tasks: [TaskItem]) throws -> OperatorWorld {
+        try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: tasks))
+    }
+
+    @Test func aQuestionAboutATaskMarksItWaitingOnYouUntilNoneOfItsQuestionsIsOpen() async throws {
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .askFirst), projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        func waiting() -> Bool { world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true }
+        _ = await world.call(run.id, "ask_you", ["key": "a", "question": "First?", "task": "T1"])
+        _ = await world.call(run.id, "ask_you", ["key": "b", "question": "Second?", "task": .string(task.id.uuidString)])
+        #expect(waiting())
+        #expect(world.run(run.id)?.questions.map(\.task) == [task.id, task.id])
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "yes"])
+        #expect(waiting())
+        _ = await world.call(run.id, "resolve_question", ["key": "b", "summary": "no"])
+        #expect(!waiting())
+    }
+
+    @Test func aRepeatedResolveReturnsTheRecordedResolution() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "ask_you", ["key": "locale", "question": "Which locale?"])
+        _ = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "nl-BE"])
+        let again = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "fr-BE"])
+        #expect(again.value?["open"] == false)
+        #expect(again.value?["resolution"] == "nl-BE")
+        #expect(world.run(run.id)?.questions.first?.resolution == "nl-BE")
+    }
+
+    @Test func anEndedOperationsToolsDoNotAct() async throws {
+        let stopped = OperatorServiceFixtures.run(projects: [project], state: .stopped)
+        let world = try makeWorld(stopped)
+        let ended = "This operation has ended; its tools no longer act."
+        #expect(await world.call(stopped.id, "ask_you", ["key": "k", "question": "Q?"]).message == ended)
+        #expect(world.run(stopped.id)?.questions.isEmpty == true)
+        // Ended by you, its state not yet caught up.
+        let live = OperatorServiceFixtures.run(projects: [project])
+        let second = try makeWorld(live)
+        second.workspace.mutate { $0.updateRun(id: live.id) { $0.intent = .stopped } }
+        #expect(await second.call(live.id, "run_status").message == ended)
+    }
+
+    @Test func jiraSearchNeedsAJiraProjectLinkedToTheOperation() async throws {
+        let unlinked = OperatorServiceFixtures.project(name: "Plain")
+        let run = OperatorServiceFixtures.run(projects: [unlinked])
+        let jira = FakeJira(tickets: [])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [unlinked], runs: [run])) { $0.jira = { jira } }
+        let answer = await world.call(run.id, "jira_search", ["jql": "x"])
+        #expect(answer.message == "None of this operation’s projects is linked to a Jira project, so there is nothing jira_search may search.")
+        #expect(jira.searches.isEmpty)
+    }
+
+    @Test func aMissingArgumentOrAnUnknownTaskIsSaidPlainly() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        #expect(await world.call(run.id, "ask_you", ["key": "k"]).message == "ask_you needs `question`.")
+        #expect(await world.call(run.id, "ask_you", ["key": "k", "question": "   "]).message == "ask_you needs `question`.")
+        #expect(await world.call(run.id, "jira_search").message == "jira_search needs `jql`.")
+        #expect(await world.call(run.id, "log_decision", ["key": "d", "text": "t", "task": "nope"]).message == "No task nope in this operation.")
+        #expect(await world.call(run.id, "ask_you", ["key": "k", "question": "Q?", "task": "nope"]).message == "No task nope in this operation.")
+        #expect(world.run(run.id)?.questions.isEmpty == true && world.run(run.id)?.decisions.isEmpty == true)
+    }
+
+    @Test func aToolThatActsOnATaskTellsWhenItStartsAndStops() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        var events: [String] = []
+        world.controller.tools.onActing = { id, on in events.append("\(id == task.id ? "T1" : "?") \(on)") }
+        _ = await world.call(run.id, "finish_task", ["task": "T1"])
+        #expect(events == ["T1 true", "T1 false"])
+        events = []
+        _ = await world.call(run.id, "message_task", ["task": .string(task.id.uuidString), "text": "hi"])
+        #expect(events == ["T1 true", "T1 false"])
+        // A tool that does not act on a task, or names none, tells nothing; the row is not left breathing.
+        events = []
+        _ = await world.call(run.id, "run_status")
+        _ = await world.call(run.id, "finish_task", ["task": "nope"])
+        #expect(events.isEmpty)
+        #expect(world.controller.acting.isEmpty)
+    }
 }

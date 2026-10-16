@@ -90,6 +90,35 @@ import Testing
         #expect(lines.isEmpty)
     }
 
+    @Test func theOperatorsOwnChangeIsSeenWhenItHadSeenEverythingBefore() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        waker.acknowledged(status(questions: 0), of: run.id)
+        waker.ownChange(from: status(questions: 0), to: status(questions: 1), of: run.id)
+        // What its own call made is looked at next: it is the news the operator already has.
+        waker.observe(status(questions: 1), of: run.id)
+        #expect(hand.requested == 0)
+        #expect(lines.isEmpty)
+        // A change after that is news again.
+        waker.observe(status(questions: 2), of: run.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        #expect(lines == ["[AiTerm] 1 update — call run_status"])
+    }
+
+    @Test func anOwnChangeAfterNewsTheOperatorHasNotSeenStillWakesIt() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        waker.acknowledged(status(questions: 0), of: run.id)
+        // News arrives, then the operator's call changes the run on top of it without having seen it.
+        waker.observe(status(questions: 1), of: run.id)
+        await hand.started(1)
+        waker.ownChange(from: status(questions: 1), to: status(questions: 2), of: run.id)
+        waker.observe(status(questions: 2), of: run.id)
+        await hand.release(1)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(lines == ["[AiTerm] 2 updates — call run_status"])
+    }
+
     @Test func anOperationThatMayNotBeWokenIsNot() async throws {
         let waker = makeWaker()
         op.awake = false
