@@ -109,3 +109,25 @@ def daemon():
     server.shutdown()
     server.server_close()
     thread.join()
+
+
+async def operator_post(port, body, token=None, *, method="POST", hook=True):
+    """One request to the daemon's /operator route, sent as the operator's Claude sends it: the
+    status, and the body as JSON -- as text when it is not JSON, None when there is none."""
+    r, w = await asyncio.open_connection("127.0.0.1", port)
+    data = json.dumps(body).encode() if body is not None else b""
+    head = f"{method} /operator HTTP/1.1\r\nHost: x\r\n"
+    if hook:
+        head += "X-AiTerm-Hook: 1\r\n"
+    if token is not None:
+        head += f"Authorization: Bearer {token}\r\n"
+    w.write((head + f"Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n").encode() + data)
+    await w.drain()
+    raw = await asyncio.wait_for(r.read(), 5)
+    w.close()
+    status_and_headers, _, payload = raw.partition(b"\r\n\r\n")
+    try:
+        parsed = json.loads(payload) if payload else None
+    except ValueError:
+        parsed = payload.decode()
+    return int(status_and_headers.split()[1]), parsed
