@@ -42,11 +42,11 @@ struct OperatorPorts {
 @MainActor
 @Observable
 final class OperatorController {
-    private let workspace: WorkspaceStore
-    private let live: LiveSessions
+    let workspace: WorkspaceStore
+    let live: LiveSessions
     let notices: Notices
-    private let daemon: @MainActor () -> (any DaemonCommands)?
-    private let taskFrame: @MainActor () -> Frame
+    let daemon: @MainActor () -> (any DaemonCommands)?
+    let taskFrame: @MainActor () -> Frame
     @ObservationIgnored let ports: OperatorPorts
     @ObservationIgnored let notifier: OperatorNotifier
     @ObservationIgnored let waker: OperatorWaker
@@ -65,6 +65,9 @@ final class OperatorController {
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentOverview: UUID?
+    /// The operations whose operator window is being opened now (`reopenOperatorWindow`, D16): a second
+    /// click on the row meanwhile opens no second operator.
+    @ObservationIgnored var reopeningOperator: Set<UUID> = []
     /// The latest re-registration of the runs' tokens, for a test to await.
     @ObservationIgnored private(set) var registering: Task<Void, Never>?
     /// The latest revocation of a complete operation's token after its operator's window closed, for a test to await.
