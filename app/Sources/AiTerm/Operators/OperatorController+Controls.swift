@@ -116,7 +116,8 @@ extension OperatorController {
     /// changes, so a reopening that fails leaves the operation as it was. Then whatever was held back starts.
     func resume(run id: UUID) async throws {
         guard let run = self.run(id: id), run.state == .paused || run.state == .operatorOffline else { return }
-        if operatorTab(of: id) == nil { try await reopenOperatorWindow(id) }
+        // A reopening already under way (a second click) is the first one's to finish: it sets the state and wakes.
+        if operatorTab(of: id) == nil, try await reopenOperatorWindow(id) == .underway { return }
         // The reopening took a while: it may have been ended meanwhile.
         guard let current = self.run(id: id), current.state != .stopped, current.intent != .stopped else { return }
         if current.state == .paused || current.state == .operatorOffline {
@@ -214,7 +215,7 @@ extension OperatorController {
         if operatorTab(of: id) == nil, !ended {
             do {
                 if run.state == .operatorOffline { try await resume(run: id) }
-                else { try await reopenOperatorWindow(id) }
+                else { _ = try await reopenOperatorWindow(id) }
             } catch {
                 notices.report(OperationIssue(title: "Couldn’t reopen \(run.persona.name)’s window.", error: error))
                 return
@@ -230,13 +231,17 @@ extension OperatorController {
     /// folder is written afresh with its token kept. Nothing when its window is open, is being opened, or
     /// was opened a moment ago and iTerm2 has not listed its tab yet; refused while iTerm2's tabs are not
     /// known, as a tab not listed then is not a tab closed. An operation ended meanwhile (an await passed)
-    /// is left ended: the token registered is revoked and the window opened is closed.
-    func reopenOperatorWindow(_ id: UUID) async throws {
+    /// is left ended: the token registered is revoked and the window opened is closed. Says whether it
+    /// opened one, or left it to a reopening already under way (or within its wait): a caller that goes on
+    /// to change the operation waits for that one instead.
+    @discardableResult
+    func reopenOperatorWindow(_ id: UUID) async throws -> OperatorReopening {
         guard let run = self.run(id: id) else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
         guard !hasEnded(id) else { throw ActionUnavailable("This operation has ended.") }
-        guard operatorTab(of: id) == nil, !reopeningOperator.contains(id) else { return }
+        guard operatorTab(of: id) == nil else { return .open }
+        guard !reopeningOperator.contains(id) else { return .underway }
         guard let daemon = daemon(), tabsKnown else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        if let at = reopenedOperator[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return }
+        if let at = reopenedOperator[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return .underway }
         reopeningOperator.insert(id)
         defer { reopeningOperator.remove(id) }
         let projects = run.projectIds.compactMap(workspace.state.project(id:)), home = ports.home, folder = self.folder(of: id)
@@ -252,13 +257,13 @@ extension OperatorController {
             await Log.workspace.attempt("Removing the token file of an operation ended while its operator reopened") {
                 try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
             }
-            return
+            return .ended
         }
         try await daemon.registerOperator(runId: id.uuidString, token: prepared.token)
         // Ended while the token was registered: no window is opened for it, and the token goes again.
         guard !hasEnded(id) else {
             await revokeAfterEnd(id, window: nil, daemon: daemon)
-            return
+            return .ended
         }
         let window: String
         do {
@@ -270,10 +275,11 @@ extension OperatorController {
         }
         guard !hasEnded(id) else {
             await revokeAfterEnd(id, window: window, daemon: daemon)
-            return
+            return .ended
         }
         reopenedOperator[id] = ports.now()
         mutateRun(id) { $0.operatorWindowId = window }
+        return .opened
     }
 
     private func hasEnded(_ id: UUID) -> Bool {
@@ -317,4 +323,11 @@ extension OperatorController {
             }
         }
     }
+}
+
+/// What `reopenOperatorWindow` did: opened the operator's window, found it open already, left the
+/// opening to one already under way (or opened a moment ago and not yet listed), or found the operation
+/// ended and opened nothing.
+enum OperatorReopening: Equatable {
+    case opened, open, underway, ended
 }

@@ -162,6 +162,34 @@ import Testing
         #expect(daemon.requests("window.createTask").count == 1)
     }
 
+    /// Two clicks on an offline operation's row (or a click and ↩): the second finds the reopening under
+    /// way and leaves the rest to the first — the state changes once, when the window is there, and the
+    /// operator hears of the resume once.
+    @Test func twoClicksOnAnOfflineOperationOpenOneWindowChangeItOnceAndWakeItOnce() async throws {
+        let daemon = RecordingDaemon(holding: "window.createTask")
+        let (world, run, _) = try makeWorld(runState: .operatorOffline, daemon: daemon)
+        world.show([])
+        var states: [OperatorRunState] = [.operatorOffline]
+        let hook = world.workspace.onChange {
+            guard let state = world.run(run.id)?.state, states.last != state else { return }
+            states.append(state)
+        }
+        defer { world.workspace.removeHook(hook) }
+        let first = Task { await world.controller.focusOperatorWindow(run: run.id) }
+        try await daemon.received("window.createTask")
+        await world.controller.focusOperatorWindow(run: run.id)
+        #expect(world.run(run.id)?.state == .operatorOffline, "the second click changed nothing while the window is not there")
+        #expect(daemon.requests("session.deliver").isEmpty)
+        daemon.release()
+        await first.value
+        #expect(daemon.requests("window.createTask").count == 1)
+        #expect(states == [.operatorOffline, .active] && world.run(run.id)?.state == .active)
+        world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
+        try await daemon.received("session.deliver")
+        let lines = daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
+        #expect(lines.count == 1 && lines[0].hasSuffix("— call run_status"), "one line, as a single click's: \(lines)")
+    }
+
     @Test func anOperatorWithItsWindowOpenIsNotOpenedAgain() async throws {
         let (world, run, _) = try makeWorld(runState: .paused)
         try await world.controller.reopenOperatorWindow(run.id)
