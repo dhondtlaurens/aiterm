@@ -292,3 +292,50 @@ def test_totals_are_not_reread_until_a_rollout_changes(tmp_path, monkeypatch):
     files.tally("t1")
     files.tally("t1")
     assert len(reads) == 1
+
+
+def versioned(thread_id, version):
+    record = meta(thread_id)
+    record["payload"]["cli_version"] = version
+    return record
+
+
+def test_the_cli_version_is_the_newest_the_threads_rollout_names(tmp_path):
+    root = tmp_path / "sessions"
+    path = write_rollout(root, "thread-1", [versioned("thread-1", "0.160.0"), token_count(5, 100)])
+    files = CodexSessionFiles(root)
+    assert files.cli_version("thread-1") == "0.160.0"
+    with path.open("a") as stream:  # resumed under a newer Codex
+        stream.write(json.dumps(versioned("thread-1", "0.161.0")) + "\n")
+    assert files.cli_version("thread-1") == "0.161.0"
+    assert files.cli_version("thread-404") is None
+
+
+def test_another_threads_session_meta_is_not_its_version(tmp_path):
+    root = tmp_path / "sessions"
+    write_rollout(root, "thread-2", [versioned("thread-1", "0.150.0"), meta("thread-2"), token_count(5, 100)])
+    assert CodexSessionFiles(root).cli_version("thread-2") is None
+
+
+def test_a_session_meta_half_written_is_read_once_it_is_complete(tmp_path):
+    root = tmp_path / "sessions"
+    path = write_rollout(root, "thread-3", [token_count(5, 100)])
+    line = json.dumps(versioned("thread-3", "0.160.0"))
+    files = CodexSessionFiles(root)
+    with path.open("a") as stream:
+        stream.write(line[:40])
+    assert files.cli_version("thread-3") is None
+    with path.open("a") as stream:
+        stream.write(line[40:] + "\n")
+    assert files.cli_version("thread-3") == "0.160.0"
+
+
+def test_a_rewritten_rollout_is_read_again_from_its_start(tmp_path):
+    root = tmp_path / "sessions"
+    path = write_rollout(root, "thread-4", [versioned("thread-4", "0.161.0"), token_count(5, 100)])
+    files = CodexSessionFiles(root)
+    assert files.cli_version("thread-4") == "0.161.0"
+    path.write_text(json.dumps(versioned("thread-4", "0.160.0")) + "\n")
+    assert files.cli_version("thread-4") == "0.160.0"
+    files.retain(set())
+    assert files._versions == {}

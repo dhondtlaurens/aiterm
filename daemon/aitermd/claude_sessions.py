@@ -12,6 +12,9 @@ class ClaudeSessionFile:
     status: str
     # When Claude last wrote the file (its st_mtime): a status older than the latest hook is stale.
     written_at: float
+    # The Claude Code version that writes the file: the running process's own, from its start, even
+    # in a conversation an older version began. None when the file names none.
+    version: str | None = None
 
 
 # A session file as last parsed, keyed by (st_mtime_ns, st_size): only a file Claude has rewritten
@@ -55,7 +58,8 @@ class ClaudeSessionFiles:
     def _parse(path: Path, written_at: float) -> ClaudeSessionFile | None:
         try:
             d = json.loads(path.read_text())
+            version = d.get("version")
             return ClaudeSessionFile(int(d["pid"]), str(d["sessionId"]), str(d.get("cwd", "")), str(d.get("status", "")),
-                                     written_at)
+                                     written_at, version if isinstance(version, str) and version else None)
         except (OSError, ValueError, KeyError, TypeError, OverflowError):
             return None

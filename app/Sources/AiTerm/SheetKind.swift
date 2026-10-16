@@ -6,12 +6,13 @@ extension AppController {
     /// What a rename sheet is pointed at. Each case carries its own copy so the sheet keeps showing
     /// the name it opened with while the workspace changes underneath it.
     enum RenameTarget: Identifiable, Equatable {
-        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem)
+        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem), operation(OperatorRun)
         var id: UUID {
             switch self {
             case .divider(let d): return d.id
             case .task(let t): return t.id
             case .terminal(let t): return t.id
+            case .operation(let r): return r.id
             }
         }
         var name: String {
@@ -19,6 +20,7 @@ extension AppController {
             case .divider(let d): return d.name
             case .task(let t): return t.title
             case .terminal(let t): return t.name
+            case .operation(let r): return r.name
             }
         }
         var title: String {
@@ -26,6 +28,7 @@ extension AppController {
             case .divider: return "Rename divider"
             case .task: return "Rename task"
             case .terminal: return "Rename terminal"
+            case .operation: return "Rename operation"
             }
         }
         var fieldLabel: String {
@@ -33,6 +36,7 @@ extension AppController {
             case .divider: return "Divider name"
             case .task: return "Task name"
             case .terminal: return "Terminal name"
+            case .operation: return "Operation name"
             }
         }
         /// The band's one sentence: what the new name changes, and what keeps its own.
@@ -43,6 +47,8 @@ extension AppController {
             // The row's name only: a tab is titled with its branch (`sessions.setTitles`), and
             // the window's profile name is set once, when it opens.
             case .terminal: return "Renames the row in the sidebar; its iTerm2 tabs keep their branch titles."
+            // The row and the overview only; the operator's window was titled when it opened.
+            case .operation: return "Renames its row and its overview; its operator’s window and its tasks keep theirs."
             }
         }
     }
@@ -62,6 +68,12 @@ extension AppController {
         case backpack(BackpackSheetModel)
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
         case archive(ArchiveSheetModel)
+        /// New Operator… and Edit Operator…: its model is built once, its catalogues read, as New Task's is.
+        case operatorEditor(OperatorSheetModel)
+        /// An operator's "+": the brief and when it is done.
+        case newOperation(NewOperationModel)
+        /// An operation's overview: read live from the workspace, so it carries only the run's id.
+        case operationOverview(UUID)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -73,6 +85,9 @@ extension AppController {
             case .settings: return "settings"
             case .backpack: return "backpack"
             case .archive: return "archive"
+            case .operatorEditor(let model): return "operator-\(model.id)"
+            case .newOperation(let model): return "operation-new-\(model.id)"
+            case .operationOverview(let id): return "overview-\(id)"
             }
         }
     }

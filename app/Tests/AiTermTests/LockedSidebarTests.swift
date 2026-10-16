@@ -38,7 +38,7 @@ struct LockedSidebarTests {
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
 
         let list = try #require(host.firstDescendant(NSTableView.self))
-        var row = list.convert(list.rect(ofRow: 1), to: host)
+        var row = list.convert(list.rect(ofRow: 2), to: host)
         row.size.width = 340 - SidebarRowLayout.trailingInset(.standard) - SidebarRowLayout.trailingSlot(.standard) - 4
         // Rows exist before their SwiftUI content has drawn: wait for ink, a pixel that is not the row's ground.
         var bitmap: NSBitmapImageRep?

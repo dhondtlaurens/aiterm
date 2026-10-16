@@ -49,7 +49,7 @@ daemon_suite() {
         env -u PYTHONPATH "$DAEMON_VENV/bin/python" -m pip install --quiet --disable-pip-version-check -e "$ROOT/daemon[dev]"
     fi
     (cd "$ROOT/daemon" && env -u PYTHONPATH "$PYTEST" -q)
-    # The daemon's lint: types across the package and the tests (FakeIterm is checked against the
+    # The daemon's lint: types across the package, the tests and the tools (FakeIterm is checked against the
     # ItermPort it stands in for), then ruff. Both come with the venv's `dev` extra, and are always the
     # venv's, not tools beside a PYTEST override: that need not be in a venv (the toolchain guard passes
     # /usr/bin/true).
@@ -59,7 +59,7 @@ daemon_suite() {
             exit 1
         fi
     done
-    (cd "$ROOT/daemon" && env -u PYTHONPATH "$DAEMON_VENV/bin/mypy" aitermd tests && env -u PYTHONPATH "$DAEMON_VENV/bin/ruff" check aitermd tests)
+    (cd "$ROOT/daemon" && env -u PYTHONPATH "$DAEMON_VENV/bin/mypy" aitermd tests tools && env -u PYTHONPATH "$DAEMON_VENV/bin/ruff" check aitermd tests tools)
 }
 
 if [[ "$SUITE" != swift ]]; then daemon_suite; fi

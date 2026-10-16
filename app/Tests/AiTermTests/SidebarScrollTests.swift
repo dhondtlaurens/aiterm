@@ -46,7 +46,7 @@ struct SidebarScrollTests {
 
         // The last terminal is the last row. Not `selectedRow`: a selection set from the model
         // reaches the table's own `selectedRow` only later, if at all.
-        #expect(list.numberOfRows == 41)
+        #expect(list.numberOfRows == 42)
         #expect(list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1)))
     }
 }

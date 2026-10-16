@@ -142,7 +142,7 @@ final class WindowReconciler {
                 workspace.mutate { $0 = $0.rememberingConversations(from: live.sessions, only: [task]) }
             }
             pass()
-        case .sessionClosed, .usageChanged, .unknown: break // `live`'s, or nobody's
+        case .sessionClosed, .usageChanged, .operatorRequest, .unknown: break // `live`'s, the operators', or nobody's
         }
     }
 
@@ -265,7 +265,8 @@ final class WindowReconciler {
         let token: WorkInFlight.Token?
         switch row {
         case .task(let id):
-            guard let task = state.task(id: id), task.windowId == nil else { return nil }
+            // A driven task's worker is the operator controller's to resume, never a fresh agent here.
+            guard let task = state.task(id: id), task.windowId == nil, task.operated == nil else { return nil }
             token = work.begin(.reopening, onTask: id)
         case .terminal(let id):
             guard let terminal = state.terminal(id: id), terminal.windowId == nil else { return nil }
@@ -337,12 +338,16 @@ final class WindowReconciler {
     /// A row chosen — a click or ↩ — whose window is owed: a restore under way is the answer again, so
     /// the choice raises the window it opens; one that failed is tried again. With iTerm2 away it is
     /// started, and the window comes back with the snapshot that follows. Nil when nothing opens now.
-    private func choose(_ selection: RowSelection) -> Task<Void, Never>? {
+    /// A task an operator drives is never planned here — its worker is resumed by the operator
+    /// controller (integration decision 7) — nor is an operation, whose window is its operator's.
+    func choose(_ selection: RowSelection) -> Task<Void, Never>? {
         let row: WindowRow
         switch selection {
-        case .task(let id): row = .task(id)
+        case .task(let id):
+            if state.task(id: id)?.operated != nil { return nil }
+            row = .task(id)
         case .terminal(let id): row = .terminal(id)
-        case .project: return nil
+        case .project, .operation: return nil
         }
         if let running = restoring[row.id] { return running }
         if failed.remove(row.id) != nil { failedRows[row.id] = false }

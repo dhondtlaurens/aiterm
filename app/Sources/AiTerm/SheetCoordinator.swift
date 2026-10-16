@@ -14,7 +14,10 @@ import AiTermCore
 final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
-    var sheet: SheetKind?
+    var sheet: SheetKind? {
+        didSet { if sheet == nil { onDismiss?() } }
+    }
+    @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -96,6 +99,11 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
+    func presentRename(run: OperatorRun) {
+        guard canChangeWorkspace, let current = state.runs.first(where: { $0.id == run.id }) else { return }
+        present(.rename(.operation(current)))
+    }
+
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘B and the footer's Mac rows reach it while one may be up, and it refuses rather than
     /// take that sheet's place, as Settings does.
@@ -132,6 +140,28 @@ final class SheetCoordinator {
             guard !Task.isCancelled, canPresentSettings else { return }
             sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: tab)
         }
+    }
+
+    /// The operator sheet — for a new operator (`editing` nil) or one to edit — opened once Claude's and
+    /// Codex's model lists are read off the main actor, as New Task's draft is. Not over another sheet.
+    func presentOperatorSheet(editing: OperatorPersona?, takenHandles: @escaping @MainActor () -> Set<String>,
+                              save: @escaping @MainActor (OperatorPersona) throws -> Void) {
+        guard canChangeWorkspace, sheet == nil else { return }
+        preparingSheet?.cancel()
+        let catalogue = agents.catalogue
+        preparingSheet = Task {
+            let models = await BackgroundWork.run {
+                (claude: (try? catalogue.models(for: .claude)) ?? [], codex: (try? catalogue.models(for: .codex)) ?? [])
+            }
+            guard !Task.isCancelled, canChangeWorkspace, sheet == nil else { return }
+            sheet = .operatorEditor(OperatorSheetModel(editing: editing, claudeModels: models.claude, codexModels: models.codex,
+                                                       takenHandles: takenHandles, save: save))
+        }
+    }
+
+    /// An operator sheet built by its caller — New operation, an overview — put in the slot at once.
+    func present(operatorSheet kind: SheetKind) {
+        present(kind)
     }
 
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the

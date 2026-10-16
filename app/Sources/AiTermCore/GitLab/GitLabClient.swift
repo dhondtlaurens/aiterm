@@ -41,7 +41,12 @@ public struct GitLabClient: Sendable {
     /// setting `queryItems` does not touch it, so the project's `%2F` survives — which assigning
     /// to `components.path` would not (it re-escapes the `%`).
     static func apiURL(host: URL, path: String, query: [URLQueryItem] = []) -> URL? {
-        HTTPJSON.url(base(host) + path, query: query)
+        guard let url = HTTPJSON.url(base(host) + path, query: query) else { return nil }
+        guard !query.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        // URLComponents leaves a `+` in a value alone, and GitLab reads it as a space: a branch `feat/a+b`
+        // would be looked for as `feat/a b`.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return components.url
     }
 
     /// The host as written in Settings, less its trailing slashes.
@@ -87,7 +92,7 @@ public struct GitLabClient: Sendable {
     /// The merge request's review threads: its discussions that can be resolved, and how many of
     /// them are. Read a page at a time until one comes back short — GitLab's paging headers are not
     /// read, `HTTPJSON` hands back the body and the status only — and at most `discussionPages`.
-    /// Read-only, as everything this client does.
+    /// Read-only.
     public func reviewThreads(project: String, iid: Int) async throws -> ReviewThreads {
         let path = "/api/v4/projects/" + Self.encodedProject(project) + "/merge_requests/\(iid)/discussions"
         var resolutions: [Bool] = []
@@ -100,6 +105,171 @@ public struct GitLabClient: Sendable {
             if discussions.count < Self.discussionsPerPage { break }
         }
         return ReviewThreads(resolutions: resolutions)
+    }
+
+    // MARK: Publishing — the only writes this client makes, for an operator's finish_task (spec §6)
+
+    static func requestsPath(_ project: String) -> String {
+        "/api/v4/projects/" + encodedProject(project) + "/merge_requests"
+    }
+
+    /// The open merge request from `source`, if there is one: what a repeated finish_task finds
+    /// instead of opening a second after a reply was lost. An entry that does not decode is no
+    /// answer, not an absent request, and one from a fork's branch of the same name is not this one.
+    public func openMergeRequest(project: String, source: String) async throws -> MergeRequest? {
+        let query = [URLQueryItem(name: "state", value: "opened"), URLQueryItem(name: "source_branch", value: source)]
+        return try await get([MergeRequestPayload].self, path: Self.requestsPath(project), query: query,
+                             notFound: .projectNotFound(project))
+            .first { $0.sourceProjectId == nil || $0.targetProjectId == nil || $0.sourceProjectId == $0.targetProjectId }?.mergeRequest
+    }
+
+    /// A merge request from `source` into `target`. A draft is GitLab's `Draft:` title prefix. The
+    /// source branch is kept after a merge: deleting a branch is ask-first. Nothing here asks GitLab
+    /// to merge, squash or rebase it: merging is `merge`, at the accepted commit.
+    public func createMergeRequest(project: String, source: String, target: String, title: String,
+                                   description: String, draft: Bool) async throws -> MergeRequest {
+        struct Create: Encodable { var sourceBranch, targetBranch, title, description: String; var removeSourceBranch = false }
+        let body = Create(sourceBranch: source, targetBranch: target, title: (draft ? "Draft: " : "") + title, description: description)
+        return try await send(MergeRequestPayload.self, method: "POST", path: Self.requestsPath(project), body: body,
+                              notFound: .projectNotFound(project)).mergeRequest
+    }
+
+    /// Whether GitLab would merge it now: its pipeline first — a merge end waits for green whatever
+    /// the project requires — then GitLab's `detailed_merge_status`.
+    public func mergeReadiness(project: String, iid: Int) async throws -> MergeReadiness {
+        try await get(MergeStatusPayload.self, path: Self.requestsPath(project) + "/\(iid)",
+                      notFound: .projectNotFound(project)).readiness
+    }
+
+    /// Merges it at `sha`, the accepted commit: GitLab refuses (409) when the branch's head is any
+    /// other. Only `sha` is sent — never auto-merge on a pipeline, squash or deleting the source
+    /// branch. A refusal is `.blocked`, with GitLab's status; only a failure to ask throws. GitLab may
+    /// answer before the merge has run (the request still open): that is `.waiting`, and `mergeReadiness`
+    /// says when it has.
+    public func merge(project: String, iid: Int, sha: String) async throws -> MergeReadiness {
+        struct Merge: Encodable { var sha: String }
+        do {
+            let answer = try await send(MergeStatusPayload.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)/merge",
+                                        body: Merge(sha: sha), notFound: .projectNotFound(project))
+            switch answer.readiness {
+            case .merged(let commit, let head, let target): return .merged(commit: commit.isEmpty ? sha : commit, head: head.isEmpty ? sha : head, target: target)
+            case .ready, .waiting: return .waiting("GitLab has not finished merging it")
+            case .blocked(let why): return .blocked(why)
+            }
+        } catch GitLabError.badResponse(409) {
+            return .blocked("the branch moved past the accepted commit")
+        } catch GitLabError.badResponse(let status) where [405, 406, 422].contains(status) {
+            return .blocked("GitLab refused to merge it (HTTP \(status))")
+        }
+    }
+
+    /// Points it at `target`: a stacked request, once its parent has merged.
+    public func retarget(project: String, iid: Int, to target: String) async throws {
+        struct Retarget: Encodable { var targetBranch: String }
+        _ = try await send(MergeRequestPayload.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)",
+                           body: Retarget(targetBranch: target), notFound: .projectNotFound(project))
+    }
+
+    /// How many pages of 100 protected-branch rules a listing reads before it gives up.
+    public static let protectedPages = 20
+
+    /// The branch-name patterns `project` protects itself — exact names and `*` wildcards — every page of
+    /// them (see `protectedRules`). Group-level rules are `branchProtection`'s to add.
+    public func protectedBranches(project: String) async throws -> [String] {
+        try await protectedRules(path: "/api/v4/projects/" + Self.encodedProject(project) + "/protected_branches",
+                                 notFound: .projectNotFound(project), noneIfMissing: false)
+    }
+
+    /// Every rule of a protected-branches listing, a page of 100 at a time until an **empty** page: a short
+    /// page proves nothing (a proxy or a newer GitLab may cap `per_page` lower, and offset paging can shift a
+    /// rule between pages). The `protectedPages` pages spent without reaching one is no answer, not a partial
+    /// one, and a rule that does not decode fails the whole list instead of being dropped. A 404 on the first
+    /// page is "no rules" when `noneIfMissing` (a group listing); anywhere else it is an error.
+    private func protectedRules(path: String, notFound: GitLabError, noneIfMissing: Bool) async throws -> [String] {
+        struct Protected: Decodable { var name: String }
+        var names: [String] = []
+        for page in 1...Self.protectedPages {
+            let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let batch: [Protected]
+            do { batch = try await get([Protected].self, path: path, query: query, notFound: notFound) }
+            catch GitLabError.projectNotFound where noneIfMissing && page == 1 { return [] }
+            if batch.isEmpty { return names }
+            names += batch.map(\.name)
+        }
+        throw ProtectionUnknown.tooManyRules(Self.protectedPages * 100)
+    }
+
+    /// The rules of the top-level group `group`, as GitLab's group-level protected branches (Premium and up).
+    /// A group without any answers 404 and has none; anything else that goes wrong is `ProtectionUnknown`,
+    /// which includes a host that answers 403 for the listing: it refuses every publish rather than guess.
+    private func groupProtectedBranches(group: String) async throws -> [String] {
+        do {
+            return try await protectedRules(path: "/api/v4/groups/" + Self.encodedProject(group) + "/protected_branches",
+                                            notFound: .projectNotFound(group), noneIfMissing: true)
+        } catch let error as GitLabError {
+            let why = (error.errorDescription ?? "").trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            throw ProtectionUnknown.unreadable("AiTerm could not read the protected branches of the GitLab group \(group): \(why)")
+        }
+    }
+
+    /// The top-level group `project` lives under, from its namespace: nil in a user's namespace. A namespace
+    /// GitLab does not describe is no answer.
+    private func topLevelGroup(of project: String) async throws -> String? {
+        struct Owner: Decodable {
+            struct Namespace: Decodable { var kind: String?, fullPath: String? }
+            var namespace: Namespace?
+        }
+        let owner = try await get(Owner.self, path: "/api/v4/projects/" + Self.encodedProject(project), notFound: .projectNotFound(project))
+        switch owner.namespace?.kind {
+        case "user": return nil
+        case "group":
+            if let root = owner.namespace?.fullPath?.split(separator: "/").first { return String(root) }
+        default: break
+        }
+        throw ProtectionUnknown.unreadable("GitLab did not say which namespace \(project) is in")
+    }
+
+    /// Whether GitLab protects `branch` in `project`, asked before AiTerm pushes it, whether or not GitLab
+    /// has the branch yet. Three sources, any of which covers it: the project's protected branches, its
+    /// top-level group's (read through the project's namespace), and — when the branch already exists on
+    /// GitLab, which then computes it from every effective rule — the branch's own `protected` flag. Rules
+    /// match by name or wildcard, case-sensitively, as GitLab compares names.
+    /// A failure to ask, a rule list that cannot be read whole, and a rule AiTerm cannot evaluate (unless
+    /// another rule covers the branch anyway) throw: nothing is pushed then, never "unprotected".
+    public func branchProtection(project: String, branch: String) async throws -> BranchProtection {
+        let name = branch.hasPrefix("refs/heads/") ? String(branch.dropFirst("refs/heads/".count)) : branch
+        guard !name.isEmpty else { throw ProtectionUnknown.unreadable("There is no branch name to check") }
+        let group = try await topLevelGroup(of: project)
+        var unreadable: ProtectionUnknown?
+        func covering(_ rules: [String]) -> String? {
+            for rule in rules {
+                do { if try BranchProtection.evaluate(rule, name, starCrossesSlash: true) { return rule } }
+                catch let error as ProtectionUnknown { unreadable = unreadable ?? error } catch {}
+            }
+            return nil
+        }
+        func said(_ rule: String, of owner: String) -> BranchProtection {
+            .protected(rule == name ? "\(owner) protects it" : "\(owner) protects \(rule)")
+        }
+        if let rule = covering(try await protectedBranches(project: project)) { return said(rule, of: "GitLab") }
+        if let group, let rule = covering(try await groupProtectedBranches(group: group)) { return said(rule, of: "GitLab group \(group)") }
+        struct Existing: Decodable { var `protected`: Bool }
+        do {
+            let path = "/api/v4/projects/" + Self.encodedProject(project) + "/repository/branches/" + Self.encodedProject(name)
+            if try await get(Existing.self, path: path, notFound: .projectNotFound(project)).protected { return .protected("GitLab protects it") }
+        } catch GitLabError.projectNotFound {}   // the project was just read: this is a branch GitLab does not have yet
+        if let unreadable { throw unreadable }
+        return .unprotected
+    }
+
+    private func send<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, method: String, path: String, body: Body,
+                                                           notFound: GitLabError) async throws -> Payload {
+        guard let url = Self.apiURL(host: config.hostURL, path: path) else { throw GitLabError.decoding }
+        var request = HTTPJSON.request(url, headers: ["PRIVATE-TOKEN": config.token, "Accept": "application/json",
+                                                      "Content-Type": "application/json"])
+        request.httpMethod = method
+        request.httpBody = try JSONEncoder.snakeCase.encode(body)
+        return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
     }
 
     static func iid(_ text: String) -> Int? {
@@ -131,6 +301,8 @@ private struct MergeRequestPayload: Decodable {
     struct Author: Decodable { var name: String? }
     var iid: Int, title: String, sourceBranch: String, targetBranch: String, webUrl: String
     var author: Author?, state: String?, draft: Bool?
+    /// Where the branch lives and where the request goes; they differ for a request from a fork.
+    var sourceProjectId: Int?, targetProjectId: Int?
 
     var mergeRequest: MergeRequest {
         MergeRequest(iid: iid, title: title, sourceBranch: sourceBranch, targetBranch: targetBranch,
@@ -148,5 +320,42 @@ private struct DiscussionPayload: Decodable {
     var resolution: Bool? {
         let resolvable = (notes ?? []).filter { $0.resolvable == true }
         return resolvable.isEmpty ? nil : resolvable.allSatisfy { $0.resolved == true }
+    }
+}
+
+/// The fields of a merge request that say whether it can merge now.
+private struct MergeStatusPayload: Decodable {
+    struct Pipeline: Decodable { var status: String? }
+    var state: String?, detailedMergeStatus: String?, sha: String?, draft: Bool?
+    var targetBranch: String?
+    var mergeCommitSha: String?, squashCommitSha: String?, headPipeline: Pipeline?
+
+    var readiness: MergeReadiness {
+        if state == "merged" { return .merged(commit: mergeCommitSha ?? squashCommitSha ?? sha ?? "", head: sha ?? "", target: targetBranch) }
+        guard state == "opened" else { return .blocked("the merge request is \(state ?? "not open")") }
+        if draft == true { return .blocked("it is a draft") }
+        switch headPipeline?.status ?? "" {
+        case "failed": return .blocked("its pipeline failed")
+        case "canceled": return .blocked("its pipeline was canceled")
+        case "created", "waiting_for_resource", "preparing", "waiting_for_callback", "pending", "running", "scheduled", "canceling":
+            return .waiting("its pipeline is running")
+        // A pipeline that stopped at a manual job or never ran has not passed, whatever the project requires.
+        case "manual": return .blocked("the pipeline waits for a manual job")
+        case "skipped": return .blocked("the pipeline was skipped")
+        case "", "success": break   // green, or no pipeline at all
+        case let other: return .waiting("its pipeline is \(other.replacingOccurrences(of: "_", with: " "))")
+        }
+        guard let status = detailedMergeStatus else { return .waiting("GitLab is checking it") }
+        switch status {
+        case "mergeable": return sha.map { .ready(head: $0) } ?? .waiting("GitLab is checking it")
+        case "checking", "unchecked", "preparing", "approvals_syncing", "ci_still_running": return .waiting("GitLab is checking it")
+        case "ci_must_pass": return .waiting("its pipeline must pass")
+        case "not_approved": return .waiting("it needs an approval")
+        case "conflict": return .blocked("it has conflicts")
+        case "need_rebase": return .blocked("it needs a rebase")
+        case "draft_status": return .blocked("it is a draft")
+        case "discussions_not_resolved": return .blocked("it has unresolved threads")
+        default: return .blocked("GitLab says " + status.replacingOccurrences(of: "_", with: " "))
+        }
     }
 }

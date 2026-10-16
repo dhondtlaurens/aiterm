@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 from .hook_events import HOOK_PARSERS, STATUSLINE_PARSERS
 from .models import ITERM_SESSION_FIELD
@@ -20,6 +20,15 @@ MAX_HEAD_BYTES = 32 << 10
 # How long a client may take to send its whole request before the connection is dropped.
 READ_TIMEOUT_SECONDS = 5.0
 MCP_PROTOCOL_VERSION = "2025-06-18"
+# The operator's MCP server (operator_mcp.OperatorRoute): apart from the hook routes and the Codex
+# hook MCP, and opened by a run's token rather than by anything a hook may send.
+OPERATOR_ROUTE = "/operator"
+
+
+class Route(Protocol):
+    """A route that answers its own requests: method, headers (names lower-cased) and raw body in,
+    status and JSON body out."""
+    async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]: ...
 
 
 class _HeadTooLarge(Exception):
@@ -32,6 +41,8 @@ class HookServer:
         self.host, self.port, self.on_post = host, port, on_post
         self.read_timeout = read_timeout
         self._server: asyncio.AbstractServer | None = None
+        # Set by the service to the operator's MCP server; /operator is a 404 without it.
+        self.operator_route: Route | None = None
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._serve, self.host, self.port)
@@ -94,6 +105,10 @@ class HookServer:
                 await self._reply(writer, 404, "not found")
                 return
 
+            if path == OPERATOR_ROUTE and (route := self.operator_route) is not None:
+                await self._serve_route(writer, route, method, headers, body)
+                return
+
             if method != "POST" or path not in ROUTES:
                 await self._reply(writer, 404, "not found")
                 return
@@ -130,6 +145,17 @@ class HookServer:
             if isinstance(test_id := payload.get(field), str) and test_id:
                 return json.dumps({"ok": True, key: test_id}, separators=(",", ":"))
         return None
+
+    async def _serve_route(self, writer: asyncio.StreamWriter, route: Route, method: str, headers: dict[str, str],
+                           body: bytes) -> None:
+        """A route's own answer. One that raises is a 500, so its client sees a failed request rather
+        than a connection dropped without a word."""
+        try:
+            status, text = await route.serve(method, headers, body)
+        except Exception:  # noqa: BLE001 - answered, not left to end the connection
+            log.exception("the operator route failed")
+            status, text = 500, json.dumps({"error": "internal"})
+        await self._reply(writer, status, text)
 
     async def _deliver(self, path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         if self.on_post is None:
@@ -205,8 +231,8 @@ class HookServer:
 
     @staticmethod
     async def _reply(writer: asyncio.StreamWriter, status: int, text: str) -> None:
-        reason = {200: "OK", 202: "Accepted", 400: "Bad Request", 404: "Not Found", 413: "Payload Too Large",
-                  431: "Request Header Fields Too Large"}[status]
+        reason = {200: "OK", 202: "Accepted", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found", 405: "Method Not Allowed",
+                  413: "Payload Too Large", 431: "Request Header Fields Too Large", 500: "Internal Server Error"}[status]
         body = text.encode()
         head = f"HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n"
         writer.write(head.encode() + body)

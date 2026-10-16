@@ -56,6 +56,21 @@ import Testing
         #expect(all.contains { $0.starts(with: ["branch"]) })
     }
 
+    /// An operator's task removed or archived before AiTerm started it has no worktree: no `git status` in
+    /// an unnamed folder, no `worktree unlock ""` and no prune for it. Only the branch is looked for.
+    @Test func aTaskWithNoWorktreeYetIsRemovedAndArchivedWithoutWorktreeGit() async throws {
+        let (project, _) = try fixture()
+        defer { try? FileManager.default.removeItem(atPath: project.path) }
+        let recording = RecordingGitRunner(forwardingTo: .hermetic())
+        let workflow = TaskWorkflow(git: recording)
+        let planned = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "feat/t", worktreePath: "", baseBranch: "", jira: nil,
+                               agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        #expect(try await workflow.hasUnsavedWork(task: planned, project: project) == false)
+        try await workflow.archive(task: planned, project: project, force: false)
+        #expect(try await workflow.remove(task: planned, project: project, deleteBranch: true, force: false).branchRefusal == nil)
+        #expect(recording.calls.map(\.args).allSatisfy { $0.first == "for-each-ref" })
+    }
+
     @Test func refusedRemovalPreservesCheckoutAndLock() async throws {
         let (project, draft) = try fixture()
         defer { try? FileManager.default.removeItem(atPath: project.path) }

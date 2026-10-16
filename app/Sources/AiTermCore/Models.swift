@@ -160,6 +160,32 @@ indirect enum StoredJSON: Codable, Equatable, Sendable {
     }
 }
 
+/// Fields from a newer build, written alongside the fields this build understands.
+struct PreservedFields: Equatable, Sendable {
+    private struct Key: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+    private var values: [String: StoredJSON] = [:]
+    init() {}
+    /// `retired`: keys an older build wrote and this one dropped on purpose — not a newer build's, so
+    /// they go on the next save instead of being kept.
+    init<K: CodingKey>(_ decoder: Decoder, known: K.Type, retired: Set<String> = []) throws {
+        let c = try decoder.container(keyedBy: Key.self)
+        for key in c.allKeys where K(stringValue: key.stringValue) == nil && !retired.contains(key.stringValue) {
+            values[key.stringValue] = try c.decode(StoredJSON.self, forKey: key)
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: Key.self)
+        for (name, value) in values {
+            if let key = Key(stringValue: name) { try c.encode(value, forKey: key) }
+        }
+    }
+}
+
 /// A sidebar row of a kind only a newer build knows, held as it was read. It is not drawn and no
 /// action reaches it, but it stays in `AppState.items` where it was, so a save writes it back.
 public struct UnknownSidebarItem: Equatable, Sendable {
@@ -262,6 +288,7 @@ public struct TaskConversation: Codable, Equatable, Sendable {
 }
 
 public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
+    private var preservedFields = PreservedFields()
     public var id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String
     public var jira: JiraRef?, mr: MergeRequestRef?
     /// Assigning one replaces what the file had: the new value is what is saved from then on.
@@ -281,11 +308,18 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     /// `kind` as the file has it, written back as it was: none for a task saved without one, and a
     /// raw value a newer build saved, which this build reads as `.task`.
     private var savedKind: String?
+    /// What an operator adds to the task (spec §5.1); nil for every task you made yourself.
+    /// Assigning one drops `unreadableOperated`, as for `agent`.
+    public var operated: OperatedTask? { didSet { unreadableOperated = nil } }
+    /// `operated` as the file had it when this build cannot read it — a state or an end only a
+    /// newer build knows. The task reads as one you made meanwhile, and a save writes it back.
+    private var unreadableOperated: StoredJSON?
     /// A `.task` is made with no `kind` to save, as every task has been: only a review is stamped.
-    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = []) {
+    public init(id: UUID, projectId: UUID, title: String, branch: String, worktreePath: String, baseBranch: String, jira: JiraRef?, kind: TaskKind = .task, mr: MergeRequestRef? = nil, agent: AgentKind, model: String, reasoning: String?, firstPrompt: String?, appendTicket: Bool, createdAt: Date, windowId: String?, conversations: [TaskConversation] = [], operated: OperatedTask? = nil) {
         self.id = id; self.projectId = projectId; self.title = title; self.branch = branch; self.worktreePath = worktreePath; self.baseBranch = baseBranch
         self.jira = jira; self.kind = kind; self.mr = mr; self.agent = agent; self.model = model; self.reasoning = reasoning; self.firstPrompt = firstPrompt; self.appendTicket = appendTicket
         self.createdAt = createdAt; self.windowId = windowId; self.conversations = conversations
+        self.operated = operated
         savedKind = kind == .task ? nil : kind.rawValue
     }
 
@@ -294,13 +328,15 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, projectId, title, branch, worktreePath, baseBranch, jira, kind, mr, agent, model
-        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations
+        case reasoning, firstPrompt, appendTicket, createdAt, windowId, conversations, operated
     }
 
     /// Written by hand so a `kind` or `agent` this build has no case for is kept instead of failing
     /// the whole workspace load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // `lastSelectedAt` was written on every click and never read; a workspace saved with it loses it.
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self, retired: ["lastSelectedAt"])
         id = try c.decode(UUID.self, forKey: .id)
         projectId = try c.decode(UUID.self, forKey: .projectId)
         title = try c.decode(String.self, forKey: .title)
@@ -324,9 +360,15 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         // list it cannot read at all is none, rather than failing the whole workspace load.
         conversations = (try? c.decodeIfPresent([SavedConversation].self, forKey: .conversations))?
             .compactMap(\.conversation) ?? []
+        switch try c.decodeIfPresent(SavedOperated.self, forKey: .operated) {
+        case .known(let task)?: operated = task
+        case .unknown(let raw)?: operated = nil; unreadableOperated = raw
+        case nil: operated = nil
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(projectId, forKey: .projectId)
@@ -346,6 +388,18 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         try c.encodeIfPresent(windowId, forKey: .windowId)
         // Left out while empty, so a workspace with none is written as it always was.
         if !conversations.isEmpty { try c.encode(conversations, forKey: .conversations) }
+        // Left out for a task you made yourself, so it is written as it always was.
+        if let operated { try c.encode(operated, forKey: .operated) }
+        else { try c.encodeIfPresent(unreadableOperated, forKey: .operated) }
+    }
+
+    /// `operated` as the file has it: read when this build can, kept whole when it cannot.
+    private enum SavedOperated: Decodable {
+        case known(OperatedTask), unknown(StoredJSON)
+        init(from decoder: Decoder) throws {
+            if let task = try? OperatedTask(from: decoder) { self = .known(task) }
+            else { self = .unknown(try StoredJSON(from: decoder)) }
+        }
     }
 
     /// A conversation as the file has it, its agent's raw value read whether or not this build knows it;
@@ -401,6 +455,7 @@ public struct TerminalItem: Codable, Identifiable, Equatable, Sendable {
 }
 
 public struct AppState: Codable, Equatable, Sendable {
+    private var preservedFields = PreservedFields()
     /// The sidebar's top level, in the order it is drawn: the projects and the dividers between them.
     public var items: [SidebarItem] = []
     public var tasks: [TaskItem] = [], terminals: [TerminalItem] = []
@@ -411,6 +466,11 @@ public struct AppState: Codable, Equatable, Sendable {
     public var sidebarFrame: CGRect? = nil
     public var lastAgentByProject: [UUID: AgentKind] = [:]
     public var lastModelByAgent: [AgentKind: String] = [:]
+    /// The operations, in the order they were started (spec §5.1). The app is their only writer.
+    public var runs: [OperatorRun] = []
+    /// Runs this build cannot read — a state or field only a newer build knows — kept as they came
+    /// and written back after `runs`, so a downgrade and a later upgrade lose none.
+    private var unreadableRuns: [StoredJSON] = []
     public static let empty = AppState()
     public init() {}
 
@@ -471,13 +531,14 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent
+        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent, runs
     }
 
     /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
     /// their projects become the list, in order. Same mechanism as `TerminalItem.init(from:)`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         if let stored = try c.decodeIfPresent([SidebarItem].self, forKey: .items) { items = stored }
         else { items = (try c.decodeIfPresent([Project].self, forKey: .projects) ?? []).map(SidebarItem.project) }
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
@@ -488,6 +549,21 @@ public struct AppState: Codable, Equatable, Sendable {
         lastAgentByProject = (try c.decodeIfPresent([UUID: SavedAgent].self, forKey: .lastAgentByProject) ?? [:]).compactMapValues(\.agent)
         lastModelByAgent = Dictionary(uniqueKeysWithValues: (try c.decodeIfPresent([SavedAgent: String].self, forKey: .lastModelByAgent) ?? [:])
             .compactMap { saved, model in saved.agent.map { ($0, model) } })
+        for saved in try c.decodeIfPresent([SavedRun].self, forKey: .runs) ?? [] {
+            switch saved {
+            case .known(let run): runs.append(run)
+            case .unknown(let raw): unreadableRuns.append(raw)
+            }
+        }
+    }
+
+    /// A run as the file has it: read when this build can, kept whole when it cannot.
+    private enum SavedRun: Decodable {
+        case known(OperatorRun), unknown(StoredJSON)
+        init(from decoder: Decoder) throws {
+            if let run = try? OperatorRun(from: decoder) { self = .known(run) }
+            else { self = .unknown(try StoredJSON(from: decoder)) }
+        }
     }
 
     /// An agent as it was saved, known to this build or not. Neither a `String` nor
@@ -499,6 +575,7 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     public func encode(to encoder: Encoder) throws {
+        try preservedFields.encode(to: encoder)
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(items, forKey: .items)
         try c.encode(tasks, forKey: .tasks)
@@ -508,6 +585,12 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(sidebarFrame, forKey: .sidebarFrame)
         try c.encode(lastAgentByProject, forKey: .lastAgentByProject)
         try c.encode(lastModelByAgent, forKey: .lastModelByAgent)
+        // Left out while there are none, so a workspace without operations is written as it always was.
+        if !runs.isEmpty || !unreadableRuns.isEmpty {
+            var list = c.nestedUnkeyedContainer(forKey: .runs)
+            for run in runs { try list.encode(run) }
+            for raw in unreadableRuns { try list.encode(raw) }
+        }
     }
 
     /// A window iTerm2 no longer has: its row is owed it — a task's and a terminal's alike — and

@@ -1,0 +1,75 @@
+import Foundation
+import AiTermCore
+
+/// The last thing a worker said, read from its agent's own conversation file — never the screen, where
+/// Claude's grey suggestion reads as typed text (spec §2.2). Claude keeps a conversation in
+/// `~/.claude/projects/<folder>/<id>.jsonl`, Codex in `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-…-<id>.jsonl`;
+/// both are named by the conversation id the daemon reports (`SessionInfo.conversationId`).
+enum WorkerTranscript {
+    /// How much of a conversation's end is read: a reply is kilobytes, the file can be megabytes.
+    static let tailBytes = 512 * 1024
+
+    /// The conversation's file under `home`, if there is one. An id that could name a path finds none.
+    static func file(agent: AgentKind, conversation: String, home: URL) -> URL? {
+        guard TaskConversation.isResumable(conversation), !conversation.contains("/"), !conversation.contains("..") else { return nil }
+        let fileManager = FileManager.default
+        switch agent {
+        case .claude:
+            let projects = home.appendingPathComponent(".claude/projects")
+            let folders = (try? fileManager.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil)) ?? []
+            return folders.map { $0.appendingPathComponent(conversation + ".jsonl") }.first { fileManager.fileExists(atPath: $0.path) }
+        case .codex:
+            guard let walk = fileManager.enumerator(at: home.appendingPathComponent(".codex/sessions"), includingPropertiesForKeys: nil)
+            else { return nil }
+            for case let url as URL in walk
+            where url.lastPathComponent.hasPrefix("rollout-") && url.lastPathComponent.hasSuffix("-\(conversation).jsonl") {
+                return url
+            }
+            return nil
+        case .grok, .pi:
+            return nil
+        }
+    }
+
+    static func lastMessage(agent: AgentKind, conversation: String, home: URL) -> String? {
+        file(agent: agent, conversation: conversation, home: home).flatMap { lastMessage(in: $0, agent: agent) }
+    }
+
+    /// The newest reply in the file's last `tailBytes`, read from the end.
+    static func lastMessage(in file: URL, agent: AgentKind) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0
+        guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
+        var lines = String(decoding: data, as: UTF8.self).split(separator: "\n")
+        // A read that starts mid-file starts mid-line.
+        if start > 0, !lines.isEmpty { lines.removeFirst() }
+        let decoder = JSONDecoder()
+        for line in lines.reversed() {
+            guard let record = try? decoder.decode(JSONValue.self, from: Data(line.utf8)),
+                  let text = agent == .codex ? codexReply(record) : claudeReply(record), !text.isEmpty else { continue }
+            return text
+        }
+        return nil
+    }
+
+    /// An assistant record's text blocks, joined; a record of tool calls alone says nothing.
+    static func claudeReply(_ record: JSONValue) -> String? {
+        guard record["type"]?.stringValue == "assistant", let content = record["message"]?["content"]?.arrayValue else { return nil }
+        let texts = content.compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Codex's `agent_message` event, or an assistant message's output text.
+    static func codexReply(_ record: JSONValue) -> String? {
+        let payload = record["payload"]
+        if record["type"]?.stringValue == "event_msg", payload?["type"]?.stringValue == "agent_message" {
+            return payload?["message"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard record["type"]?.stringValue == "response_item", payload?["type"]?.stringValue == "message",
+              payload?["role"]?.stringValue == "assistant", let content = payload?["content"]?.arrayValue else { return nil }
+        let texts = content.compactMap { $0["type"]?.stringValue == "output_text" ? $0["text"]?.stringValue : nil }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

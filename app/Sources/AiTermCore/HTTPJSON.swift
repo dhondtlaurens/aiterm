@@ -100,6 +100,15 @@ extension JSONDecoder {
     }()
 }
 
+extension JSONEncoder {
+    /// GitLab's request bodies are snake_case.
+    static let snakeCase: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        return encoder
+    }()
+}
+
 /// An element of a JSON list that may not decode, so one malformed entry drops only itself.
 struct Lenient<Value: Decodable>: Decodable {
     var value: Value?

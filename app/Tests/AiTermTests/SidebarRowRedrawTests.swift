@@ -61,8 +61,8 @@ import Testing
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        // Header, two project rows, two terminals and seven tasks.
-        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 12 } ?? false }
+        // OPERATORS, header, two project rows, two terminals and seven tasks.
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 13 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
         let sidebar = Sidebar(controller: controller, counter: counter, host: host, window: window, list: list,
                               project: projects[0], tasks: tasks, terminals: terminals)

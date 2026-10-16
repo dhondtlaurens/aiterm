@@ -4,7 +4,7 @@ import asyncio
 import itertools
 from collections.abc import Awaitable, Callable
 
-from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable
+from aitermd.iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, KeystrokeCallback
 from aitermd.models import Frame, RawSession
 
 
@@ -26,7 +26,8 @@ class FakeIterm:
         self.auth_error: str | None = None
         # Set to make the next connect() fail the way a running iTerm2 that does not answer does.
         self.connect_error: ItermUnavailable | None = None
-        self.windows: dict[str, dict] = {}       # window_id -> {"frame": Frame, "sessions": [session_id], "active": bool}
+        # window_id -> {"frame": Frame, "sessions": [session_id], "active": bool, "background": bool}
+        self.windows: dict[str, dict] = {}
         self.sessions: dict[str, RawSession] = {}
         self.sent: list[tuple[str, str]] = []
         self.titles: dict[str, str] = {}
@@ -44,6 +45,7 @@ class FakeIterm:
         self._new_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._closed_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._activated_cbs: list[Callable[[str], Awaitable[None]]] = []
+        self._keystroke_cbs: list[KeystrokeCallback] = []
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._notifications: set[asyncio.Future[None]] = set()
 
@@ -57,15 +59,20 @@ class FakeIterm:
             raise ItermNotRunning("iTerm2 not running")
         return "3.7.2"
 
+    def keystroke_epoch(self):
+        return self if self._connected else None
+
     def is_connected(self) -> bool:
         return self._connected
 
     async def close(self) -> None:
         self.closed, self._connected = True, False
 
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame) -> tuple[str, str]:
+    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
+                            background: bool = False) -> tuple[str, str]:
         wid = f"w{next(self._ids)}"
-        self.windows[wid] = {"frame": frame, "sessions": [], "active": True, "current": None}
+        # A background window is placed but never activated, as a task an operator starts.
+        self.windows[wid] = {"frame": frame, "sessions": [], "active": not background, "current": None, "background": background}
         sid = await self._add_session(wid, cwd, tags, command_line="-zsh", title=title)
         await self._announce_new(sid)
         return wid, sid
@@ -147,6 +154,9 @@ class FakeIterm:
     def on_window_activated(self, cb: Callable[[str], Awaitable[None]]) -> None:
         self._activated_cbs.append(cb)
 
+    def on_keystroke(self, cb: KeystrokeCallback) -> None:
+        self._keystroke_cbs.append(cb)
+
     def on_disconnect(self, cb: Callable[[], Awaitable[None]]) -> None:
         self._disc_cbs.append(cb)
 
@@ -197,6 +207,11 @@ class FakeIterm:
         await self.activate_window(window_id)
         for cb in self._activated_cbs:
             await cb(window_id)
+
+    async def user_types(self, session_id: str, characters: str = "a", modifiers: frozenset[str] = frozenset()) -> None:
+        """Simulates a key pressed in a session: the keystroke monitor reports it, and lets it through."""
+        for cb in self._keystroke_cbs:
+            await cb(session_id, characters, modifiers)
 
     async def user_runs(self, session_id: str, command_line: str, job_pid: int, title: str = ""):
         s = self.sessions[session_id]

@@ -51,6 +51,7 @@ struct HarnessSettingsPane: View {
         VStack(alignment: .leading, spacing: Space.block) {
             FixerSettingsGroup(choice: Binding(get: { agents.fixerChoice }, set: { agents.fixerChoice = $0 }),
                                installed: agents.availableAgents)
+            AgentsAtOnceGroup(count: Binding(get: { agents.agentsAtOnce }, set: { agents.agentsAtOnce = $0 }))
             ForEach(HarnessCardPresentation.agents, id: \.self) { agent in
                 if let snapshot = model.snapshots[agent] {
                     card(snapshot)
@@ -192,6 +193,27 @@ struct FixerSettingsGroup: View {
                     HelpText(help)
                 }
             }
+        }
+    }
+}
+
+/// "Agents at once": how many workers every operation together has at work at the same time — a
+/// segmented control of 1 to 5, as Sidebar size picks a size. Saved as it is picked, as Fix with AI is.
+struct AgentsAtOnceGroup: View {
+    @Binding var count: Int
+
+    /// The group's one line of help, for the count picked.
+    static func help(_ count: Int) -> String {
+        let start = count == 1 ? "Operators start one agent at a time" : "Operators run up to \(count) agents at once"
+        return start + ", across every operation, each in its own worktree and window. Lowering it stops no agent that is running."
+    }
+
+    var body: some View {
+        SettingsGroup(title: "Agents at once", help: Self.help(count)) {
+            SegmentedControl(values: Array(OperatorSettings.agentsAtOnceRange), selection: $count) { value, _ in
+                Text("\(value)").font(Typography.body)
+            }
+            .accessibilityIdentifier("agents-at-once")
         }
     }
 }

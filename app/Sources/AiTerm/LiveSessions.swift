@@ -74,7 +74,7 @@ final class LiveSessions {
         case .windowClosed(let wid): sessions.removeAll { $0.windowId == wid }
         case .usageChanged(let value): usage = value
         case .itermConnected, .itermDisconnected, .itermAuthFailed, .itermCookieRequested,
-             .windowActivated, .unknown: break
+             .windowActivated, .operatorRequest, .unknown: break
         }
     }
 

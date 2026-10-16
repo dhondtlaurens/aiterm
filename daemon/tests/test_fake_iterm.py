@@ -93,5 +93,15 @@ async def test_panes_share_a_tab_index_and_closing_one_renumbers_nothing():
     assert it.sessions[second].tab_index == 0
 
 
+async def test_a_key_the_user_types_is_reported_with_its_session():
+    it = FakeIterm()
+    seen: list[tuple[str, str, frozenset[str]]] = []
+    it.on_keystroke(lambda sid, characters, modifiers: _record(seen, (sid, characters, modifiers)))
+    _, sid = await it.create_window("/w", "t", {}, Frame(0, 0, 10, 10))
+    await it.user_types(sid)
+    await it.user_types(sid, "\r", frozenset({"shift"}))
+    assert seen == [(sid, "a", frozenset()), (sid, "\r", frozenset({"shift"}))]
+
+
 async def _record(seen, sid):
     seen.append(sid)

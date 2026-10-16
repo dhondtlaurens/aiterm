@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio
 from aitermd import hooks_server
 from aitermd.hooks_server import HookServer
+from tests.conftest import operator_post
 
 
 async def http(port, method, path, body=None, header=True, iterm_session_id=None):
@@ -380,3 +381,51 @@ async def test_pi_oversized_body_is_rejected_with_413():
         w.close()
     finally:
         await srv.stop()
+
+
+class StubRoute:
+    """Answers /operator with what a test set, and records what reached it."""
+
+    def __init__(self, status=200, text='{"ok":true}'):
+        self.status, self.text, self.seen = status, text, []
+
+    async def serve(self, method, headers, body):
+        self.seen.append((method, headers.get("authorization"), body))
+        if self.status == 500:
+            raise RuntimeError("the route failed")
+        return self.status, self.text
+
+
+async def test_the_operator_route_reaches_its_own_handler_not_the_hooks(server):
+    srv, received = server
+    srv.operator_route = route = StubRoute()
+    status, body = await operator_post(srv.port, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, token="t" * 40)
+    assert (status, body) == (200, {"ok": True})
+    assert route.seen == [("POST", "Bearer " + "t" * 40, b'{"jsonrpc": "2.0", "id": 1, "method": "ping"}')]
+    assert received == []
+
+
+@pytest.mark.parametrize("status", [401, 405])
+async def test_the_operator_routes_refusals_are_its_own(server, status):
+    srv, _ = server
+    srv.operator_route = StubRoute(status=status, text="")
+    assert await operator_post(srv.port, None, method="GET") == (status, None)
+
+
+async def test_the_operator_route_hides_behind_the_hook_header_like_every_route(server):
+    srv, _ = server
+    srv.operator_route = route = StubRoute()
+    assert (await operator_post(srv.port, {}, token="t" * 40, hook=False))[0] == 404
+    assert route.seen == []
+
+
+async def test_without_an_operator_route_there_is_none(server):
+    srv, _ = server
+    assert (await operator_post(srv.port, {}, token="t" * 40))[0] == 404
+
+
+async def test_an_operator_route_that_fails_is_a_500_not_a_dropped_connection(server, caplog):
+    srv, _ = server
+    srv.operator_route = StubRoute(status=500)
+    assert (await operator_post(srv.port, {}, token="t" * 40))[0] == 500
+    assert "operator route failed" in caplog.text

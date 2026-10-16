@@ -142,12 +142,56 @@ public enum ItermCookieAnswer: Equatable, Sendable {
     case refused(String)
 }
 
+/// How a `session.deliver` went: typed and submitted, typed but left unsent, or not typed at all.
+/// An outcome a newer daemon names that this app does not decodes as `.refused`: nothing is assumed typed.
+public enum DeliveryOutcome: String, Codable, Sendable {
+    case delivered, partial, refused
+    public init(from decoder: Decoder) throws {
+        self = DeliveryOutcome(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .refused
+    }
+}
+
+/// A delivery's result and, unless it was delivered, why.
+public struct Delivery: Codable, Equatable, Sendable {
+    public var result: DeliveryOutcome
+    public var reason: String?
+    public init(result: DeliveryOutcome, reason: String?) { self.result = result; self.reason = reason }
+}
+
+/// The prompt a session has open, as the daemon's screen markers classify it.
+/// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
+/// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)
+public enum PromptKind: String, Codable, CaseIterable, Sendable {
+    case permission, startup, menu
+    public init(from decoder: Decoder) throws {
+        self = PromptKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .menu
+    }
+}
+
+/// One tool call from an operator: answered with `operator.reply` and the same `requestId`.
+public struct OperatorRequest: Decodable, Equatable, Sendable {
+    public var requestId: String, runId: String, tool: String
+    /// An object; a call with none reads as an empty one.
+    public var arguments: JSONValue
+    public init(requestId: String, runId: String, tool: String, arguments: JSONValue) {
+        self.requestId = requestId; self.runId = runId; self.tool = tool; self.arguments = arguments
+    }
+    private enum CodingKeys: String, CodingKey { case requestId, runId, tool, arguments }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        requestId = try c.decode(String.self, forKey: .requestId)
+        runId = try c.decode(String.self, forKey: .runId)
+        tool = try c.decode(String.self, forKey: .tool)
+        arguments = try c.decodeIfPresent(JSONValue.self, forKey: .arguments) ?? .object([:])
+    }
+}
+
 public enum DaemonEvent: Equatable, Sendable {
     case snapshot(DaemonSnapshot)
     case itermConnected(String?), itermDisconnected, itermAuthFailed(String), itermCookieRequested(Int)
     case windowActivated(String), windowClosed(String)
     case sessionOpened(SessionInfo), sessionClosed(String), sessionChanged(SessionInfo)
-    case usageChanged(UsageSnapshot), unknown(String)
+    case usageChanged(UsageSnapshot), operatorRequest(OperatorRequest), unknown(String)
 }
 
 /// What routes a line from the daemon: a reply's `id` and `error`, or an event's name. The rest of

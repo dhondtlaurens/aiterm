@@ -54,6 +54,7 @@ class SessionRegistry:
             if info.agent == old.agent and info.job_pid == old.job_pid:
                 info.model, info.reasoning, info.agent_cwd = old.model, old.reasoning, old.agent_cwd
                 info.context_percent, info.tokens, info.transcript = old.context_percent, old.tokens, old.transcript
+                info.cli_version = old.cli_version
                 info.conversation_id = old.conversation_id
             if info != old:
                 self._sessions[r.session_id] = info
@@ -128,6 +129,15 @@ class SessionRegistry:
         if s is None or s.transcript == transcript:
             return False
         s.transcript = transcript
+        return True
+
+    def set_cli_version(self, session_id: str, version: str | None) -> bool:
+        """The version the tab's agent CLI reports (SessionInfo.cli_version). None or empty is no
+        reading, which leaves the last one standing: a process's version does not change."""
+        s = self._sessions.get(session_id)
+        if s is None or not version or s.cli_version == version:
+            return False
+        s.cli_version = version
         return True
 
     def set_model(self, session_id: str, model: str | None) -> bool:

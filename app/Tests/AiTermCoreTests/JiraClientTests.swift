@@ -9,6 +9,21 @@ import Synchronization
     let issue: [String: Any] = ["key": "WEB-5447", "fields": ["summary": "Add graceful SIGTERM", "status": ["name": "In Progress"], "issuetype": ["name": "Task"],
                                                             "description": ["type": "doc", "content": [["type": "paragraph", "content": [["type": "text", "text": "Drain tasks."]]]]]]]
 
+    /// An operator's JQL is kept inside the operation's projects: an `OR` cannot reach past the scope,
+    /// its ordering stays last, and parentheses that could close the scope's are refused.
+    @Test func anOperatorsQueryIsConfinedToItsProjects() {
+        let scope = #"project in ("PLUTO")"#
+        #expect(JiraClient.confined("sprint in openSprints() OR assignee = x ORDER BY rank", to: scope)
+                == #"project in ("PLUTO") AND (sprint in openSprints() OR assignee = x) ORDER BY rank"#)
+        #expect(JiraClient.confined("ORDER BY updated", to: scope) == #"project in ("PLUTO") ORDER BY updated"#)
+        #expect(JiraClient.confined(#"summary ~ "a)" AND status = Open"#, to: scope) == #"project in ("PLUTO") AND (summary ~ "a)" AND status = Open)"#)
+        #expect(JiraClient.confined("a) OR (b", to: scope) == nil)
+        // The ordering is the last ORDER BY outside quoted text.
+        #expect(JiraClient.confined(#"summary ~ "order by x" ORDER BY rank"#, to: scope)
+                == #"project in ("PLUTO") AND (summary ~ "order by x") ORDER BY rank"#)
+        #expect(JiraClient.confined(#"summary ~ "a ORDER BY b""#, to: scope) == #"project in ("PLUTO") AND (summary ~ "a ORDER BY b")"#)
+    }
+
     @Test func testMyOpenIssuesParsesAndAuthenticates() async throws {
         let page = try JSONSerialization.data(withJSONObject: ["issues": [issue]])
         let stub = StubSession { _ in (200, page) }

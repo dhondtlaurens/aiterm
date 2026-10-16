@@ -91,6 +91,8 @@ final class AppController {
     let remover: TaskRemover
     /// Archives tasks and reviews.
     let archiver: TaskArchiver
+    /// The operations: their runs, their operators' tabs and tokens, and the services under them.
+    let operatorController: OperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
     /// Nothing here has a default: every dependency that reaches outside the process — the state
@@ -108,6 +110,7 @@ final class AppController {
     /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when AiTerm starts
     /// while `itermRunning` says it is not, and when a row is chosen while it is away.
     /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`).
+    /// `operatorPorts` are what the operators reach: run folders, the agents' home, notifications.
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -134,7 +137,8 @@ final class AppController {
          now: @escaping @MainActor () -> ContinuousClock.Instant,
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner,
-         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval) {
+         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval,
+         operatorPorts: OperatorPorts) {
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
@@ -183,6 +187,15 @@ final class AppController {
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
+        // After the window lock, which hands the live sessions each event first: the operators read
+        // the operator's tab from them.
+        let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
+                                                    taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
+        self.operatorController = operatorController
+        // Settings › Agents' Agents at once: a raised cap starts what it now allows.
+        agents.agentsAtOnceChanged = { [weak operatorController] in operatorController?.startReadyTasks() }
+        helper.onEvent { [weak operatorController] in operatorController?.handle($0) }
+        helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher, workflow: workflow)
@@ -223,6 +236,31 @@ final class AppController {
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
         // The banner's Fix needs the agents and the pull, both built after the notices.
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
+        // A notification's click: an overview opens over the sidebar, a task's window comes forward.
+        operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
+        // The OPERATORS group and the driven task rows read the operator library and what the operator
+        // is acting on, which the operator controller owns; a change to either derives the rows again.
+        let operators = operatorController
+        rows.operatorSource = { [weak operators] in operators?.operators ?? [] }
+        rows.actingSource = { [weak operators] in operators?.acting ?? [] }
+        operators.onChange { [weak self] in self?.refreshRows() }
+        refreshRows()
+        // A chosen operation without a window — closed, or its operator offline — is the operator
+        // controller's to bring back.
+        focus.onChoosingOperationWithoutWindow { [weak operators] id in
+            Task { await operators?.focusOperatorWindow(run: id) }
+        }
+        // A driven task whose window you closed: its conversation resumed by the operator controller,
+        // never a second worker beside a live one (integration decision 7). The row raises the window
+        // it opened once the reopen is done.
+        focus.onChoosingOperatedTaskWithoutWindow { [weak operators] id in
+            Task { await operators?.reopenWorker(task: id) }
+        }
+        // A notification's click on a waiting plan, a done or a blocked operation opens its overview:
+        // D7 records the request on the operator controller; this presents it, and any made before now.
+        sheets.onDismiss = { [weak self] in self?.presentRequestedOverview() }
+        presentRequestedOverview()
+        watchOverviewRequests()
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -244,6 +282,7 @@ final class AppController {
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
         helper.start()
+        operatorController.start()
         // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
         // Blocking disk work, so off the cooperative pool.
         DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
@@ -268,6 +307,8 @@ final class AppController {
         if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
+        operatorController.stop()
+        operatorController.tools.cancelChallenges()
         helper.shutdown()
     }
 
@@ -477,7 +518,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case nil: nil
+        case .operation, nil: nil
         }
     }
 
@@ -490,6 +531,15 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
+    /// What a notification's click opens (spec §10.3): an operation's overview — the sidebar presents
+    /// what `presentOverview` names — or the window of the task whose prompt waits on you.
+    func openNote(_ target: OperatorNote.Target) {
+        switch target {
+        case .overview(let id): operatorController.presentOverview = id
+        case .task(let id): focus.select(.task(id))
+        }
+    }
+
     /// ↩ on the list: a header folds or opens its project; any other row goes to its window. An
     /// empty project has nothing to fold, so its header opens its context menu — its first items
     /// are the ones that give it a row.
@@ -562,7 +612,8 @@ extension AppController {
                       machineSensor: machineSensor,
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
-                      git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
+                      git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
+                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }))
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

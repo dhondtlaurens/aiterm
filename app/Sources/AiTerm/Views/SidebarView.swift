@@ -27,8 +27,8 @@ struct SidebarView: View {
     /// frame and remembered choices no row draws.
     let controller: AppController
 
-    /// One entry's rows, in the order the list draws them: a divider, or a project's header and —
-    /// open — its terminals, then its tasks. The snapshots stack the same rows, since
+    /// One entry's rows, in the order the list draws them, after the operators': a divider, or a
+    /// project's header and — open — its terminals, then its tasks. The snapshots stack the same rows, since
     /// `ImageRenderer` cannot draw a `List`, so they cannot show another order.
     @ViewBuilder static func rows(of entry: SidebarEntry, in rows: SidebarProjection, controller: AppController) -> some View {
         switch entry {
@@ -56,6 +56,18 @@ struct SidebarView: View {
         }
     }
 
+    /// An operator's header and — open — its operations, as the list draws them above the projects.
+    /// The header is off the arrow path, as a divider is: it has no window.
+    @ViewBuilder static func operatorRows(of section: OperatorSection, in rows: SidebarProjection,
+                                          controller: AppController) -> some View {
+        OperatorHeaderRow(section: section, controller: controller).selectionDisabled()
+        if !section.collapsed {
+            ForEach(section.operations) { row in
+                OperationRowView(row: row, run: rows.runs[row.id], controller: controller).tag(row.id)
+            }
+        }
+    }
+
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
         let rows = controller.rows
@@ -63,6 +75,9 @@ struct SidebarView: View {
             SidebarBanners(controller: controller)
             ScrollViewReader { scroller in
                 List(selection: selection) {
+                    OperatorsHeader(controller: controller).selectionDisabled()
+                    ForEach(rows.operatorSections) { Self.operatorRows(of: $0, in: rows, controller: controller) }
+                    .listRowSeparator(.hidden)
                     SidebarHeader(controller: controller).selectionDisabled()
                     if !rows.hasProjects {
                         SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
@@ -90,6 +105,12 @@ struct SidebarView: View {
                     // an alert run modally came up without its "Delete local branch" checkbox
                     // (`Prompter`).
                     Task { await controller.removeSelection() }
+                    return .handled
+                }
+                // ⌘I, macOS's Get Info: the selected operation's overview. On the list, as ⌘⌫ is.
+                .onKeyPress("i", phases: .down) { press in
+                    guard press.modifiers == .command, controller.focus.selectedOperationId != nil else { return .ignored }
+                    controller.showOverviewOfSelection()
                     return .handled
                 }
                 .background(SidebarScrollFollower(focus: controller.focus) { id in
@@ -380,6 +401,7 @@ struct SidebarSheet: View {
                         case .divider(let divider): controller.rename(divider: divider, to: name)
                         case .task(let task): controller.rename(task: task, to: name)
                         case .terminal(let terminal): controller.rename(terminal: terminal, to: name)
+                        case .operation(let run): controller.rename(run: run, to: name)
                         }
                     })
                 case .settings(let jira, let gitLab, let gitHub, let tab):
@@ -395,6 +417,9 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
+                case .operatorEditor(let model): OperatorSheet(model: model)
+                case .newOperation(let model): NewOperationSheet(model: model)
+                case .operationOverview(let id): OperationOverviewHost(runId: id, controller: controller)
             }
         }
         .interfaceScale(.standard)

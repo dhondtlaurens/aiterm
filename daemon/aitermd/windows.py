@@ -85,15 +85,17 @@ class WindowManager:
         self._applied_titles.clear()
         self._titles_in_flight.clear()
 
-    async def _create(self, p: dict[str, Any], tags: dict[str, str], title: str) -> dict[str, Any]:
+    async def _create(self, p: dict[str, Any], tags: dict[str, str], title: str, background: bool = False) -> dict[str, Any]:
         frame, cwd, cmd = frame_param(p), param(p, "cwd", str), optional_param(p, "agentCommand", str)
         require_iterm(self.iterm)
-        wid, sid = await guard(self.iterm.create_window(cwd, title, tags, frame))
+        wid, sid = await guard(self.iterm.create_window(cwd, title, tags, frame, background=background))
         await self._set_up_created(sid, cmd)
         return {"windowId": wid}
 
     async def create_task(self, p: Any) -> dict[str, Any]:
         task_id, title = param(p, "taskId", str), optional_param(p, "title", str)
+        # A task an operator starts opens behind your current work (Operators spec §10.9).
+        background = bool(optional_param(p, "background", bool))
         frame_param(p)  # rejected before a retry could return an existing window for it
         async with self._creation_lock:
             require_iterm(self.iterm)
@@ -101,7 +103,7 @@ class WindowManager:
             existing = next((s for s in self.registry.all() if s.task_id == task_id), None)
             if existing:
                 return {"windowId": existing.window_id}
-            return await self._create(p, {TASK_TAG: task_id}, title or task_id)
+            return await self._create(p, {TASK_TAG: task_id}, title or task_id, background=background)
 
     async def create_terminal(self, p: Any) -> dict[str, Any]:
         project_id, title = param(p, "projectId", str), optional_param(p, "title", str)

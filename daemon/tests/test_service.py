@@ -169,14 +169,34 @@ async def test_a_new_session_missing_from_the_snapshot_still_refreshes_the_regis
     assert svc.registry.get(other) is not None
 
 
+async def test_a_task_window_can_open_in_the_background(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME,
+                                                  "background": True}))["result"]["windowId"]
+    assert it.windows[wid]["background"] and not it.windows[wid]["active"]
+    assert it.windows[wid]["frame"].w == 1104, "snapped beside the sidebar all the same"
+
+
+async def test_a_task_window_comes_forward_unless_asked_not_to(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    assert not it.windows[wid]["background"] and it.windows[wid]["active"]
+
+
+async def test_background_must_be_a_bool(stack):
+    svc, it, files, r, w = stack
+    reply = await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "frame": FRAME, "background": "yes"})
+    assert reply["error"]["code"] == "bad_params" and it.windows == {}
+
+
 async def test_a_window_created_before_its_tick_fails_is_still_returned(stack, caplog):
     """The window exists whatever the tick after it finds. An error would make the app retry, and
     a retried window.createTerminal, which has no dedupe, opens a second window."""
     svc, it, files, r, w = stack
     create_window = it.create_window
 
-    async def created_then_unreadable(*args):
-        created = await create_window(*args)
+    async def created_then_unreadable(*args, **kwargs):
+        created = await create_window(*args, **kwargs)
         it.snapshot_error = ItermUnavailable("iTerm2 did not answer within 10s")
         return created
 
@@ -914,11 +934,11 @@ async def test_user_tab_in_other_window_is_redirected_during_unrelated_create(st
     real_create_window = it.create_window
     captured: dict[str, str] = {}
 
-    async def create_window_with_race(cwd, title, tags, frame):
+    async def create_window_with_race(cwd, title, tags, frame, background=False):
         # Fire the race before the second window exists at all, i.e. well
         # before its (still-unknown) window id could ever be recorded.
         captured["sid"] = await it.user_opens_tab(wid1, cwd="/Users/me")
-        return await real_create_window(cwd, title, tags, frame)
+        return await real_create_window(cwd, title, tags, frame, background=background)
 
     it.create_window = create_window_with_race
 
@@ -2030,3 +2050,32 @@ async def test_windows_iterm2_lost_while_away_are_announced_after_it_reconnects_
     assert {"event": "window.closed", "payload": {"windowId": wid}} in before_reply
     assert msg["result"]["connected"] is True and msg["result"]["sessions"] == []
     w.close()
+
+
+async def test_the_tick_reads_each_clis_version_from_its_own_files(stack):
+    svc, it, files, r, w = stack
+    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
+    first = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    second = (await call(r, w, "window.createTask", {"taskId": "t2", "cwd": "/wt2", "title": "y", "frame": FRAME},
+                         id_=2))["result"]["windowId"]
+    claude, codex = it.windows[first]["sessions"][0], it.windows[second]["sessions"][0]
+    files.root.mkdir(parents=True)
+    (files.root / "4242.json").write_text(json.dumps({"pid": 4242, "sessionId": "c1", "cwd": "/wt", "status": "idle",
+                                                      "version": "2.1.301"}))
+    await it.user_runs(claude, "claude", job_pid=4242)
+    await it.user_runs(codex, "codex", job_pid=4343, title="Codex")
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-v",
+                                                      "cwd": "/wt2", "_aiterm_iterm_session_id": codex})
+    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-v.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(json.dumps({"type": "session_meta", "payload": {"id": "thread-v", "session_id": "thread-v",
+                                                                       "cli_version": "0.160.0"}}) + "\n")
+
+    await svc.tick()
+
+    assert svc.registry.get(claude).cli_version == "2.1.301"
+    assert svc.registry.get(codex).cli_version == "0.160.0"
+    await it.user_runs(claude, "claude", job_pid=4244)  # another Claude in the tab, its file not written yet
+    await svc.tick()
+    assert svc.registry.get(claude).cli_version is None

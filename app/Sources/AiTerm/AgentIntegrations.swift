@@ -35,6 +35,18 @@ final class AgentIntegrations {
     /// What every Fix button is: the chosen agent when installed, else named as missing, or Off.
     var fixer: FixerResolution { fixerChoice.resolve(installed: availableAgents) }
 
+    /// Settings › Agents' "Agents at once", saved on every change. The operator controller reads it
+    /// at every scheduling pass and is told of a change, so a raised cap starts what it now allows.
+    var agentsAtOnce: Int {
+        didSet {
+            guard agentsAtOnce != oldValue else { return }
+            OperatorSettings.saveAgentsAtOnce(agentsAtOnce, defaults: defaults)
+            agentsAtOnceChanged()
+        }
+    }
+    /// Run after a changed count is saved: the operator controller's scheduling pass.
+    @ObservationIgnored var agentsAtOnceChanged: @MainActor () -> Void = {}
+
     /// The model and reasoning a fixer runs with, for every surface's Fix: its card's default in
     /// Settings › Agents, else the model last picked for that agent (`remembered`, the workspace's),
     /// else empty — the agent's own default (`FixerLaunch.modelWords`). Read as each run starts,
@@ -76,6 +88,7 @@ final class AgentIntegrations {
          defaults: UserDefaults = .standard) {
         self.defaults = defaults
         fixerChoice = FixerSettings.saved(defaults: defaults) ?? .agent(FixerAgent.allCases[0])
+        agentsAtOnce = OperatorSettings.agentsAtOnce(defaults: defaults)
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]

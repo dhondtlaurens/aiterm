@@ -21,6 +21,19 @@ final class SidebarProjection {
     /// Each task and terminal by id: the saved item a drawn row also reads.
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
+    /// The OPERATORS group, above the projects: each operator and its operations.
+    private(set) var operatorSections: [OperatorSection] = []
+    /// Each live or ended run by id: what an operation's row and its overview read.
+    private(set) var runs: [UUID: OperatorRun] = [:]
+    /// The tasks the operator is acting on now, as `actingSource` last said.
+    private(set) var acting: Set<UUID> = []
+    /// The operators folded to their header, by handle. Not saved: an operator's file holds who it is,
+    /// not how the sidebar shows it, and the group opens unfolded at launch.
+    private(set) var foldedOperators: Set<String> = []
+    /// The operator library and the tasks the operator acts on, read on every derivation. The app
+    /// points them at its `OperatorController`; a test or a snapshot at values of its own.
+    @ObservationIgnored var operatorSource: @MainActor () -> [OperatorPersona] = { [] }
+    @ObservationIgnored var actingSource: @MainActor () -> Set<UUID> = { [] }
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
     var hasProjects: Bool { !sections.isEmpty }
@@ -47,6 +60,7 @@ final class SidebarProjection {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
+        var runs: [OperatorRun], operators: [OperatorPersona], acting: Set<UUID>, folded: Set<String>
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
@@ -57,13 +71,22 @@ final class SidebarProjection {
         let state = workspace.state
         let next = Inputs(items: state.items, tasks: state.tasks, terminals: state.terminals, sessions: live.rowSessions,
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
-                          diffByTask: checkouts.diffByTask)
+                          diffByTask: checkouts.diffByTask,
+                          runs: state.runs, operators: operatorSource(), acting: actingSource(), folded: foldedOperators)
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
         derivations += 1
+        if next.acting != acting { acting = next.acting }
+        if next.runs != previous?.runs {
+            let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            if runs != self.runs { self.runs = runs }
+        }
+        let operatorSections = SidebarModel.operatorSections(operators: next.operators, state: state, acting: next.acting,
+                                                             folded: next.folded)
+        if operatorSections != self.operatorSections { self.operatorSections = operatorSections }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
-                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask)
+                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting)
         // Rebuilt only when their own list changed, since most derivations are for a status; and
         // written only when the lookup differs, which a reordered list leaves as it was.
         if next.tasks != previous?.tasks {
@@ -82,6 +105,13 @@ final class SidebarProjection {
         return true
     }
 
+    /// Folds an operator to its header, or opens it. An operator with no operation draws folded
+    /// whatever this says, as an empty project does.
+    func toggleCollapsed(operator handle: String) {
+        if foldedOperators.contains(handle) { foldedOperators.remove(handle) } else { foldedOperators.insert(handle) }
+        refresh()
+    }
+
     /// The footer's context row, under SYSTEM, for `row`: what runs in the task's or terminal's
     /// active tab, its last-known `ctx` and what that tab has spent. With nothing selected there is no
     /// such row at all. Read from the rows' tabs, so a session event that moved only a fill or a count
@@ -97,7 +127,7 @@ final class SidebarProjection {
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts,
                                                  tokens: live.tokens)
-        case .project, nil: return nil
+        case .project, .operation, nil: return nil
         }
     }
 }

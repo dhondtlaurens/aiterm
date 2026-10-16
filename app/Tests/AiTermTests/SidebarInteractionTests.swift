@@ -38,7 +38,7 @@ struct SidebarInteractionTests {
             return view.subviews.lazy.compactMap { table(in: $0) }.first
         }
         let list = try #require(table(in: host))
-        #expect(list.numberOfRows == 5)
+        #expect(list.numberOfRows == 6)
         func click(row: Int, eventNumber: Int) throws {
             let point = list.convert(NSPoint(x: list.bounds.midX, y: list.rect(ofRow: row).midY), to: nil)
             let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
@@ -51,14 +51,14 @@ struct SidebarInteractionTests {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
 
-        // Header, project, terminal, first task, second task — the same type order as the create menu.
-        try click(row: 2, eventNumber: 1)
+        // OPERATORS, header, project, terminal, first task, second task — the same type order as the create menu.
+        try click(row: 3, eventNumber: 1)
         #expect(controller.focus.selectedTerminalId == terminal.id)
 
         other.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         #expect(!sidebar.isKeyWindow)
-        try click(row: 4, eventNumber: 2)
+        try click(row: 5, eventNumber: 2)
         #expect(controller.focus.selectedTaskId == tasks[1].id)
     }
 
@@ -350,8 +350,8 @@ struct SidebarInteractionTests {
             return view.subviews.lazy.compactMap { table(in: $0) }.first
         }
         let list = try #require(table(in: host))
-        // Header, project a, the divider, project b. Both projects are collapsed, so nothing else.
-        #expect(list.numberOfRows == 4)
+        // OPERATORS, header, project a, the divider, project b. Both projects are collapsed, so nothing else.
+        #expect(list.numberOfRows == 5)
     }
 
     /// With no project, a block under PROJECTS says what to add and offers the header's own action;
@@ -374,14 +374,14 @@ struct SidebarInteractionTests {
             return view.subviews.lazy.compactMap { table(in: $0) }.first
         }
         let list = try #require(table(in: host))
-        // Header, the block, the divider.
-        #expect(list.numberOfRows == 3)
+        // OPERATORS, header, the block, the divider.
+        #expect(list.numberOfRows == 4)
 
         controller.workspace.mutate { $0.append(project: Project(id: UUID(), name: "a", path: "/a", provider: .git, remoteUrl: nil,
                                                                   addedAt: Date(), collapsed: true)) }
         settle(host, for: 0.05) // Absence: the row count is the same before and after.
-        // Header, the divider, project a.
-        #expect(list.numberOfRows == 3)
+        // OPERATORS, header, the divider, project a.
+        #expect(list.numberOfRows == 4)
         #expect(controller.state.projects.count == 1)
     }
 

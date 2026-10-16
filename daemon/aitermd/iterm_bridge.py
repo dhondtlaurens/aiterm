@@ -19,6 +19,12 @@ from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSe
 from .offload import run_detached
 
 log = logging.getLogger(__name__)
+# A key pressed in a session (ItermPort.on_keystroke): the session, the key's characters and the
+# modifiers held, of control, option, command and shift.
+KeystrokeCallback = Callable[[str, str, frozenset[str]], Awaitable[None]]
+# The modifiers a key's effect on a CLI's input depends on: a Return held with one types a newline.
+_MODIFIER_NAMES = {iterm2.api_pb2.Modifiers.CONTROL: "control", iterm2.api_pb2.Modifiers.OPTION: "option",
+                   iterm2.api_pb2.Modifiers.COMMAND: "command", iterm2.api_pb2.Modifiers.SHIFT: "shift"}
 VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}", f"user.{TERMINAL_TAG}")
 # How long one bridge call may wait on iTerm2. The library resolves a request only when its reply
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
@@ -284,8 +290,10 @@ def _is_auth_rejection(exc: BaseException) -> bool:
 class ItermPort(Protocol):
     async def connect(self) -> str | None: ...
     def is_connected(self) -> bool: ...
+    def keystroke_epoch(self) -> object | None: ...
     async def close(self) -> None: ...
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame) -> tuple[str, str]: ...
+    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
+                            background: bool = False) -> tuple[str, str]: ...
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str: ...
     async def activate_window(self, window_id: str) -> None: ...
     async def set_frame(self, window_id: str, frame: Frame) -> None: ...
@@ -300,6 +308,7 @@ class ItermPort(Protocol):
     def on_new_session(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
     def on_session_closed(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
     def on_window_activated(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
+    def on_keystroke(self, cb: KeystrokeCallback) -> None: ...
     def on_disconnect(self, cb: Callable[[], Awaitable[None]]) -> None: ...
 
 
@@ -311,9 +320,11 @@ _Placement = tuple[iterm2.Session, str, int, bool]
 class ItermBridge:
     def __init__(self) -> None:
         self._conn: iterm2.Connection | None = None
+        self._key_conn: iterm2.Connection | None = None
         self._new_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._closed_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._activated_cbs: list[Callable[[str], Awaitable[None]]] = []
+        self._keystroke_cbs: list[KeystrokeCallback] = []
         self._disc_cbs: list[Callable[[], Awaitable[None]]] = []
         self._watch_task: asyncio.Task | None = None
         self._refresh_lock = asyncio.Lock()
@@ -380,10 +391,23 @@ class ItermBridge:
         await iterm2.notifications.async_subscribe_to_new_session_notification(conn, self._on_new)
         await iterm2.notifications.async_subscribe_to_terminate_session_notification(conn, self._on_closed)
         await iterm2.notifications.async_subscribe_to_focus_change_notification(conn, self._on_focus)
+        # Every session's key-downs, for when you last typed in one and whether its input may hold
+        # unsent text (keystrokes.TypingGuard). A monitor reports a key and lets it through, unlike a
+        # keystroke filter. A refused monitor leaves wake delivery disabled.
+        self._key_conn = None
+        try:
+            await iterm2.notifications.async_subscribe_to_keystroke_notification(conn, self._on_keystroke)
+        except iterm2.notifications.SubscriptionException as exc:
+            log.warning("iTerm2 refused the keystroke monitor (%s): wake delivery is disabled", exc)
+        else:
+            self._key_conn = conn
         # Under the lock `_app` takes: a notification handler asking for the app meanwhile would
         # otherwise build a second one.
         async with self._refresh_lock:
             _drop_app_refresh_handlers(await _get_app(conn))
+
+    def keystroke_epoch(self) -> object | None:
+        return self._conn if self._conn is self._key_conn else None
 
     def is_connected(self) -> bool:
         return self._conn is not None
@@ -437,9 +461,17 @@ class ItermBridge:
         for cb in self._activated_cbs:
             await cb(notif.window.window_id)
 
+    async def _on_keystroke(self, _conn, notif) -> None:
+        if not notif.session:
+            return
+        modifiers = frozenset(name for modifier in notif.modifiers if (name := _MODIFIER_NAMES.get(modifier)))
+        for cb in self._keystroke_cbs:
+            await cb(notif.session, notif.characters, modifiers)
+
     def on_new_session(self, cb): self._new_cbs.append(cb)
     def on_session_closed(self, cb): self._closed_cbs.append(cb)
     def on_window_activated(self, cb): self._activated_cbs.append(cb)
+    def on_keystroke(self, cb): self._keystroke_cbs.append(cb)
     def on_disconnect(self, cb): self._disc_cbs.append(cb)
 
     # -- helpers ----------------------------------------------------------
@@ -491,10 +523,11 @@ class ItermBridge:
     # Making a window or tab and setting it up are bounded separately. Once iTerm2 has made it, its
     # ids are returned whatever the setup meets: an error would make the app retry, and a retry
     # opens a second one.
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame) -> tuple[str, str]:
+    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
+                            background: bool = False) -> tuple[str, str]:
         win, session = await _call(self._new_window(cwd, title))
         try:
-            await _call(self._set_up_window(win, session, tags, frame))
+            await _call(self._set_up_window(win, session, tags, frame, background))
         except Exception:  # noqa: BLE001 - the window exists either way
             log.exception("iTerm2 made window %s but setting it up failed", win.window_id)
         return win.window_id, session.session_id
@@ -506,10 +539,14 @@ class ItermBridge:
         prof.set_name(f"AiTerm · {title}")
         return await self._make(None, prof)
 
-    async def _set_up_window(self, win: iterm2.Window, session: iterm2.Session, tags: dict[str, str], frame: Frame) -> None:
+    async def _set_up_window(self, win: iterm2.Window, session: iterm2.Session, tags: dict[str, str], frame: Frame,
+                             background: bool) -> None:
         await self._tag(session, tags)
         await win.async_set_frame(_iterm_frame(frame))
-        await win.async_activate()
+        # A window opened in the background -- a task an operator starts -- is placed but not
+        # brought forward, and iTerm2 is not raised: it stays behind your current work.
+        if not background:
+            await win.async_activate()
 
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str:
         session = await _call(self._new_tab(window_id, cwd))

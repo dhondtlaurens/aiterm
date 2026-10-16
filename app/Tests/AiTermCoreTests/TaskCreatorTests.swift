@@ -38,6 +38,28 @@ import Darwin
         return url
     }
 
+    private func head(_ path: String) throws -> String {
+        try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func worker(branch: String) -> TaskItem {
+        TaskItem(id: UUID(), projectId: project.id, title: "W", branch: branch, worktreePath: "", baseBranch: "", jira: nil, agent: .codex,
+                 model: "m", reasoning: nil, firstPrompt: "Do it.", appendTicket: false, createdAt: Date(), windowId: nil)
+    }
+
+    /// An operator's worker gets its worktree when it starts, on a new branch from its start point —
+    /// a stacked task's parent's accepted commit — and a relaunch adopts the one an earlier attempt made.
+    @Test func aWorkersWorktreeBranchesFromItsStartPointAndARelaunchAdoptsIt() throws {
+        let accepted = try head(repo)
+        try git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "later"], in: repo)
+        let made = try TaskCreator.checkOutWorker(worker(branch: "feat/w"), project: project, start: accepted, git: git)
+        #expect(made.task.worktreePath.hasPrefix(repo + "/.worktrees/"))
+        #expect(made.task.baseBranch == accepted)
+        #expect(try head(made.task.worktreePath) == accepted)
+        let again = try TaskCreator.checkOutWorker(worker(branch: "feat/w"), project: project, start: accepted, git: git)
+        #expect(again.task.worktreePath == made.task.worktreePath)
+    }
+
     @Test func testDraftFollowsTicketUntilEdited() {
         var state = AppState.empty; state.lastAgentByProject[project.id] = .codex; state.lastModelByAgent[.codex] = "gpt-5.6"
         var d = TaskDraft.initial(project: project, state: state, git: git, home: bareHome, defaults: defaults)

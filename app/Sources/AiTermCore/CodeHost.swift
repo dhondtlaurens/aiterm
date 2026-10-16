@@ -50,3 +50,85 @@ public struct ReviewThreads: Equatable, Sendable {
         self.init(resolved: resolutions.filter { $0 }.count, total: resolutions.count)
     }
 }
+
+/// What a code host says of merging a request now, in its own words.
+public enum MergeReadiness: Equatable, Sendable {
+    /// It would merge now, its pipelines green; `head` is the commit it would merge.
+    case ready(head: String)
+    /// Not yet: a pipeline running, the host still checking, an approval to come.
+    case waiting(String)
+    /// Not without someone acting: conflicts, a failed pipeline, a closed request, a refused merge.
+    case blocked(String)
+    /// Merged — by this call, or an earlier one whose answer was lost, or by someone on the host — as
+    /// `commit`, with `head` the request's head commit that was merged ("" when the host did not say).
+    /// `target` is the live target when the host supplies it; nil must not be inferred from saved state.
+    case merged(commit: String, head: String, target: String? = nil)
+}
+
+/// Whether a code host protects a branch. AiTerm never pushes to a protected branch (spec §3):
+/// `TaskPublisher` asks before every push, and pushes nothing unless the answer is `.unprotected`.
+public enum BranchProtection: Equatable, Sendable {
+    case unprotected
+    /// Protected, and why, in the host's terms: the rule or ruleset that covers it.
+    case protected(String)
+
+    /// `branch` against a host's branch-name pattern, case-sensitively as both hosts compare names.
+    /// GitLab's `*` spans any characters, `/` too (`starCrossesSlash`); GitHub's patterns are fnmatch
+    /// with FNM_PATHNAME, where `*` and `?` stop at `/` and `**` does not. `[…]` is a character class,
+    /// `[!…]` its negation; everything else is literal.
+    ///
+    /// A pattern AiTerm cannot evaluate matches: a caller that only asks yes or no then treats the
+    /// branch as covered. Callers that must tell "covered" from "cannot tell" use `evaluate`.
+    public static func matches(_ pattern: String, _ branch: String, starCrossesSlash: Bool) -> Bool {
+        (try? evaluate(pattern, branch, starCrossesSlash: starCrossesSlash)) ?? true
+    }
+
+    /// `matches`, throwing `ProtectionUnknown.unreadable` for a pattern that is no valid glob here
+    /// (an empty or reversed character class, say) instead of guessing an answer.
+    public static func evaluate(_ pattern: String, _ branch: String, starCrossesSlash: Bool) throws -> Bool {
+        let one = starCrossesSlash ? "." : "[^/]"
+        var regex = "(?s)\\A", rest = Substring(pattern)
+        while let character = rest.first {
+            rest = rest.dropFirst()
+            switch character {
+            case "*" where rest.first == "*":
+                rest = rest.dropFirst()
+                regex += ".*"
+            case "*":
+                regex += one + "*"
+            case "?":
+                regex += one
+            case "[":
+                guard let close = rest.firstIndex(of: "]") else { regex += "\\["; continue }
+                var set = String(rest[..<close])
+                if set.hasPrefix("!") { set = "^" + set.dropFirst() }
+                // ICU reads `[` and `&&` inside a class as set syntax; in a glob they are characters.
+                for special in ["\\", "[", "&"] { set = set.replacingOccurrences(of: special, with: "\\" + special) }
+                regex += "[" + set + "]"
+                rest = rest[rest.index(after: close)...]
+            default:
+                regex += NSRegularExpression.escapedPattern(for: String(character))
+            }
+        }
+        guard let expression = try? NSRegularExpression(pattern: regex + "\\z") else {
+            throw ProtectionUnknown.unreadable("AiTerm cannot read the branch pattern \(pattern)")
+        }
+        return expression.firstMatch(in: branch, range: NSRange(branch.startIndex..., in: branch)) != nil
+    }
+}
+
+/// Why a host's protection could not be established: the caller then pushes nothing (fail closed).
+public enum ProtectionUnknown: Error, Equatable, LocalizedError {
+    /// The host answered without the rules — GitHub's GraphQL with a null and an error beside it —
+    /// or with one AiTerm cannot evaluate.
+    case unreadable(String)
+    /// More rules than AiTerm reads.
+    case tooManyRules(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unreadable(let what): return "\(what)."
+        case .tooManyRules(let count): return "The host has more than \(count) branch protection rules, more than AiTerm reads."
+        }
+    }
+}
