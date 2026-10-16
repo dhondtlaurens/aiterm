@@ -104,5 +104,11 @@ import Testing
         #expect(caption(operated(.published, end: .draftMR, sha: "9b3e07d1234")) == OperatedCaption("draft MR · 9b3e07d"))
         #expect(caption(operated(.stopped)) == OperatedCaption("stopped"))
         #expect(caption(operated(.working, takenOver: true)) == OperatedCaption("taken over"))
+        // Taking a task over does not outlast its end: stopped and done win over the flag.
+        #expect(caption(operated(.stopped, takenOver: true)) == OperatedCaption("stopped"))
+        #expect(caption(operated(.accepted, sha: "4f2a91cdeadbeef", takenOver: true)) == OperatedCaption("done · 4f2a91c"))
+        #expect(caption(operated(.noChange, takenOver: true)) == OperatedCaption("done · no change"))
+        #expect(caption(operated(.failed, takenOver: true, reason: "npm ci failed"))
+                == OperatedCaption("failed · npm ci failed", warns: true))
     }
 }

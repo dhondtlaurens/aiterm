@@ -48,7 +48,9 @@ public extension SidebarModel {
     /// the tasks it depends on; `run`'s open questions say what one waiting on you is asked.
     static func operatedCaption(task: TaskItem, run: OperatorRun?, tasks: [UUID: TaskItem], acting: Bool) -> OperatedCaption? {
         guard let operated = task.operated else { return nil }
-        if operated.takenOver { return OperatedCaption("taken over") }
+        // Taken over only while the task is still going: a stopped, failed or finished one says so,
+        // as `operatorPresence` lets go of it either way.
+        if operated.takenOver, operated.state.isOpen, operated.state != .failed { return OperatedCaption("taken over") }
         let agent = agentName(task.agent)
         if operated.flags.contains(.waitingOnYou), !isFinished(operated.state), operated.state != .stopped {
             let asked = run?.questions.first { $0.task == task.id && $0.resolution == nil }?.text
