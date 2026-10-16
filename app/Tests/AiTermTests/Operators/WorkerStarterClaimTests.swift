@@ -128,11 +128,19 @@ import Testing
         #expect(daemon.requests("window.createTask").count == 1, "held until iTerm2 lists the window it opened")
         #expect(world.task(task.id)?.operated?.state == .queued)
 
-        world.show([OperatorServiceFixtures.session("s7", window: window, tag: task.id, state: .idle)])
+        // Listed first as the shell the agent command is typed into: no worker there yet, so still held.
+        world.show([OperatorServiceFixtures.session("s7", window: window, tag: task.id, agent: .shell, state: .idle)])
+        world.controller.startReadyTasks()
+        #expect(world.task(task.id)?.operated?.state == .queued, "a shell is not its worker")
+        #expect(daemon.requests("window.createTask").count == 1 && daemon.requests("session.deliver").isEmpty)
+
+        world.show([OperatorServiceFixtures.session("s7", window: window, tag: task.id, agent: .claude, state: .idle)])
         #expect(await eventually(describing: "the retry delivered to its worker") { daemon.requests("session.deliver").count == 1 })
         #expect(await eventually(describing: "the retry to settle") { world.controller.starter.starting.isEmpty })
         #expect(daemon.requests("window.createTask").count == 1, "one window, ever")
         #expect(world.task(task.id)?.operated?.state == .working)
         #expect(world.task(task.id)?.operated?.launch?.number == 2)
+        #expect(daemon.requests("session.deliver").count == 1, "delivered once")
+        #expect(daemon.requests("session.deliver").first?.params["sessionId"] as? String == "s7")
     }
 }

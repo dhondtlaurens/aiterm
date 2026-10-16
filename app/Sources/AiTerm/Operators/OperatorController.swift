@@ -420,7 +420,7 @@ final class OperatorController {
             }
         }
         for id in reopenedOperator.keys where Self.operatorTab(of: id, in: sessions) != nil { reopenedOperator[id] = nil }
-        let held = starter.tabsListed(for: Set(sessions.compactMap(\.taskUUID)))
+        let held = starter.tabsListed(sessions)
         for id in closed { operatorWindowClosed(id) }
         observeRuns()
         probePrompts()

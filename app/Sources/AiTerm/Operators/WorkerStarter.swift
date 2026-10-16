@@ -25,9 +25,12 @@ final class WorkerStarter {
         let attempt: LaunchAttempt
     }
     /// When a launch or a reopen last asked iTerm2 for each task's window, or ended not knowing whether one
-    /// opens, until iTerm2 lists a tab tagged with the task. A claim in that gap — the task failed and was
-    /// retried meanwhile — would find no worker to retry in and open a second one beside it, so none is made
-    /// for `launchAdoptAfter`, the time a slow iTerm2 has to list it.
+    /// opens, until iTerm2 lists a worker tab tagged with the task (`isWorkerTab`) — not the shell the agent
+    /// command is still being typed into. A claim in that gap — the task failed and was retried meanwhile —
+    /// would find no worker to retry in and launch again, so none is made for `launchAdoptAfter`, the time a
+    /// slow iTerm2 has to list it. Past that, the claim goes ahead: with a worker listed by then the retry goes
+    /// to it in place; with none, it is launched, and a window still tagged with the task is the one the
+    /// helper hands back — never a second — though its shell is not told of the retry.
     private var unlisted: [UUID: Date] = [:]
     /// When each task's worker window was last reopened on your click: a click in the gap before iTerm2
     /// lists its tab (up to `launchAdoptAfter`) opens no second window.
@@ -218,13 +221,15 @@ final class WorkerStarter {
         }
     }
 
-    /// The tasks iTerm2 lists a tab for now: a reopened worker whose tab has come needs no more waiting, and
-    /// a task held back from claims until its window was listed may be claimed. Whether one was: a start
-    /// pass may have something new to start.
+    /// The tabs iTerm2 lists now: a reopened worker whose tab has come needs no more waiting, and a task
+    /// held back from claims until its worker was listed — a tab running its agent, as `workerTab` finds it —
+    /// may be claimed. Whether one was: a start pass may have something new to start.
     @discardableResult
-    func tabsListed(for tasks: Set<UUID>) -> Bool {
-        for id in reopenedAt.keys where tasks.contains(id) { reopenedAt[id] = nil }
-        let listed = unlisted.keys.filter(tasks.contains)
+    func tabsListed(_ sessions: [SessionInfo]) -> Bool {
+        let tagged = Set(sessions.compactMap(\.taskUUID))
+        for id in reopenedAt.keys where tagged.contains(id) { reopenedAt[id] = nil }
+        let workers = Set(sessions.filter(Self.isWorkerTab).compactMap(\.taskUUID))
+        let listed = unlisted.keys.filter(workers.contains)
         for id in listed { unlisted[id] = nil }
         return !listed.isEmpty
     }
@@ -309,8 +314,11 @@ final class WorkerStarter {
     }
 
     private func workerTab(of id: UUID) -> SessionInfo? {
-        live.sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
+        live.sessions.filter { $0.taskUUID == id && Self.isWorkerTab($0) }.min { $0.tabIndex < $1.tabIndex }
     }
+
+    /// A tab running an agent: a worker. A new worker's tab is listed first as the shell its command is typed into.
+    static func isWorkerTab(_ tab: SessionInfo) -> Bool { tab.agent.agentKind != nil }
 
     /// Blocks the task and asks you — only when the block took: a task already stopped or changed is left
     /// as it is, and you are not told of a block that did not happen.
