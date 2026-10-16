@@ -207,8 +207,28 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("resume_task", "Puts a blocked task back to work once its reason is resolved; the same worker session continues.",
           {"task": _TASK}, ("task",)),
     _tool("retry_task", "Queues a failed task again, if it has retries left.", {"task": _TASK}, ("task",)),
-    _tool("finish_task", "Carries out an accepted task's recorded end: pushes its branch and opens the merge request, and merges "
-          "it where the plan says merge. Calling again resumes where it stopped.", {"task": _TASK}, ("task",)),
+    _tool("finish_task",
+          "Carries out an accepted task's end from the plan, for its accepted commit only. "
+          "draft MR: pushes the task's own branch and opens a draft merge request; a stacked task's targets "
+          "its parent's branch, so finish the parent first. "
+          "merge: pushes, opens a merge request and merges it at the accepted commit, once the host calls it "
+          "mergeable with its pipelines green, read twice at least 30 seconds apart. A stacked task waits for its "
+          "parent's merge, then retargets to the default branch. While it waits this answers waitingToMerge, and "
+          "AiTerm wakes you when it merged or is blocked; after about an hour of waiting it answers blocked. A failed "
+          "pipeline or a conflict blocks it: have the worker fix it, accept the new commit, and call finish_task "
+          "again. A task that ends in a commit has nothing to finish. "
+          "It answers result: published, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
+          "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
+          "done. "
+          "Each step is recorded and calling again resumes at the next step: it never pushes or opens a request "
+          "twice, and on a task that is done it answers what was done. A push that timed out may have landed: call "
+          "finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed "
+          "back. "
+          "Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit, "
+          "its parent was accepted again, the operation is paused, stopped or offline, the host protects its branch "
+          "or cannot say whether it does, or it is the default branch. "
+          "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
+          {"task": _TASK}, ("task",)),
     _tool("ask_you", "Asks the user a question: it shows under Waiting on you and notifies them. They answer in this window; "
           "close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."), "task": _TASK}, ("key", "question")),
