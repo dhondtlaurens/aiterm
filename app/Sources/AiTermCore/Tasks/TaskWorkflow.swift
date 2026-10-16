@@ -80,6 +80,7 @@ public struct TaskWorkflow: Sendable {
     /// Whether removing the task's worktree without `force` would be refused for its uncommitted
     /// changes or untracked files.
     public func hasUnsavedWork(task: TaskItem, project: Project) async throws -> Bool {
+        guard task.hasCheckout else { return false }
         let git = git
         return try await BackgroundWork.run(on: Self.queue) {
             try Repository(project.path, git: git).hasUnsavedWork(at: task.worktreePath)
@@ -119,6 +120,8 @@ public struct TaskWorkflow: Sendable {
 
     /// The task's worktree removed — or, already gone, unlocked and pruned.
     private static func takeWorktree(of task: TaskItem, from project: Project, force: Bool, git: any GitRunning) throws {
+        // An operator's task not started yet has no worktree to remove, unlock or prune.
+        guard task.hasCheckout else { return }
         let repository = Repository(project.path, git: git)
         if FileManager.default.fileExists(atPath: task.worktreePath) {
             try repository.removeWorktree(at: task.worktreePath, deleteBranch: nil, force: force)

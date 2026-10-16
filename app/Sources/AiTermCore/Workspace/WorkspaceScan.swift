@@ -40,6 +40,8 @@ public struct WorkspaceScan: Equatable, Sendable {
     public static func run(cwds: [String], projects: [Project], tasks: [TaskItem],
                            branches: BranchResolver, remotes: RemoteResolver,
                            diffs: DiffStatResolver, defaultBranches: DefaultBranchResolver) -> WorkspaceScan {
+        // An operator's task not started yet has no worktree, which is not a worktree gone.
+        let tasks = tasks.filter(\.hasCheckout)
         // The resolvers keep what they learn per directory; a directory no tab or project is in any
         // more — a worktree removed, a tab that wandered off — is forgotten rather than kept for good.
         let projectDirectories = Set(projects.map(\.path))
