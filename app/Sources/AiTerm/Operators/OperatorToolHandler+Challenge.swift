@@ -22,10 +22,18 @@ extension OperatorToolHandler {
     /// Nil: the call takes effect. Otherwise what the operator reads instead.
     func challengeGate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue? {
         let opinion = run.persona.secondOpinion
-        guard Self.isChallenged(call, level: opinion.level, answersQuestion: answersQuestion(call, in: run)) else { return nil }
+        // A call naming a challenge of its tool is that challenge's, whatever the level or the worker's tab say now: the
+        // worker may have started working since, and the acting call repeated must still replay, not act again.
+        let named = call.optionalString("challengeId").flatMap { id in
+            state.run(id: run.id)?.challenges.first { $0.id == id && $0.tool == call.tool }
+        }
+        if named == nil, !Self.isChallenged(call, level: opinion.level, answersQuestion: answersQuestion(call, in: run)) { return nil }
         if let id = call.optionalString("challengeId") {
-            guard let kept = state.run(id: run.id)?.challenges.first(where: { $0.id == id }), kept.tool == call.tool else {
+            guard let kept = named else {
                 throw ToolRefusal("No challenge \(id) for \(call.tool) here; call again without challengeId.")
+            }
+            guard !actingChallenges.contains(id) else {
+                throw ToolRefusal("Challenge \(id) is already acting on \(call.tool); call again for its result.")
             }
             let reply = call.optionalString("challengeReply")
             switch kept.stage {
@@ -43,15 +51,18 @@ extension OperatorToolHandler {
                 let reason = "AiTerm restarted before the second opinion answered."
                 updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = reason }
                 record(call, in: run, challenge: "unchallenged: \(reason)", reply: reply ?? "proceeded")
+                actingChallenges.insert(id)
                 return nil
             case .ready:
                 updateChallenge(id, in: run.id) { $0.stage = .delivered }
                 return Self.challengedAnswer(id, kept.critique ?? "")
             case .delivered:
                 record(call, in: run, challenge: kept.critique ?? "", reply: reply ?? "revised the call")
+                actingChallenges.insert(id)
                 return nil
             case .unchallenged:
                 record(call, in: run, challenge: "unchallenged: \(kept.unchallengedReason ?? "")", reply: reply ?? "proceeded")
+                actingChallenges.insert(id)
                 return nil
             }
         }
@@ -117,7 +128,7 @@ extension OperatorToolHandler {
             }
         }
         if acted, !workspace.flush() {
-            Log.daemon.error("A challenged call's answer could not be saved; a repeat after a restart is refused instead of replayed")
+            Log.workspace.error("A challenged call's answer could not be saved; a repeat after a restart is refused instead of replayed")
         }
     }
 
@@ -198,8 +209,9 @@ extension OperatorToolHandler {
             let finish: @Sendable (Value?) -> Void = { verdict in
                 if once.done.withLock({ done in defer { done = true }; return !done }) { continuation.resume(returning: verdict) }
             }
-            Task { finish(await task.value) }
-            Task { try? await Task.sleep(for: budget); finish(nil) }
+            // A ready value cancels the timer, so no sleep outlasts it by the rest of the budget.
+            let timer = Task { try? await Task.sleep(for: budget); finish(nil) }
+            Task { finish(await task.value); timer.cancel() }
         }
     }
 }

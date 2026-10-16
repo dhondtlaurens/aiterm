@@ -53,6 +53,8 @@ final class OperatorToolHandler {
     /// The second opinions running now, by challenge id: one in a run's records but not here was lost
     /// with AiTerm's restart.
     var runningChallenges: [String: Task<Void, Never>] = [:]
+    /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
+    var actingChallenges: Set<String> = []
     /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
@@ -106,6 +108,9 @@ final class OperatorToolHandler {
         defer { if let actingOn { onActing(actingOn, false) } }
         do {
             if let instead = try await challengeGate(call, in: run) { return .result(instead) }
+            // The gate marks a challenge it lets act; whatever way this call ends, the mark goes with it.
+            let acting = call.optionalString("challengeId").flatMap { actingChallenges.contains($0) ? $0 : nil }
+            defer { if let acting { actingChallenges.remove(acting) } }
             let value = try await perform(call, in: run)
             recordActed(call, in: id, answer: value)
             if Self.mutating.contains(call.tool), let before, let after = state.run(id: id).flatMap(currentStatus(of:)) {
