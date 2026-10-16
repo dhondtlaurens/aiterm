@@ -66,18 +66,18 @@ struct SidebarRowGeometryTests {
             return view.subviews.lazy.compactMap { table(in: $0) }.first
         }
         let list = try #require(table(in: host))
-        // The header and the project row come first; the three task rows follow in order.
-        #expect(list.numberOfRows == 5)
-        let selectedRow = host.convert(list.rect(ofRow: 2), from: list)
-        let hoveredRow = host.convert(list.rect(ofRow: 3), from: list)
-        #expect(list.selectedRow == 2)
+        // The OPERATORS heading, the PROJECTS heading and the project row come first; the three task rows follow in order.
+        #expect(list.numberOfRows == 6)
+        let selectedRow = host.convert(list.rect(ofRow: 3), from: list)
+        let hoveredRow = host.convert(list.rect(ofRow: 4), from: list)
+        #expect(list.selectedRow == 3)
         #expect(selectedRow.size == hoveredRow.size)
 
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
         // Empty list, below the last row: the backdrop every pill is measured against.
-        let backdrop = try #require(bitmap.colorAt(x: 1, y: Int((host.convert(list.rect(ofRow: 4), from: list).maxY + 20) * scale)))
+        let backdrop = try #require(bitmap.colorAt(x: 1, y: Int((host.convert(list.rect(ofRow: 5), from: list).maxY + 20) * scale)))
         let selected = try #require(paintedBox(bitmap: bitmap, scale: scale, row: selectedRow, backdrop: backdrop))
         let hovered = try #require(paintedBox(bitmap: bitmap, scale: scale, row: hoveredRow, backdrop: backdrop))
         return (selected, hovered)
@@ -167,9 +167,9 @@ struct SidebarContextMenuHighlightTests {
     @Test func aRowsContextMenuPaintsNothingOutsideItsPill() throws {
         let (host, table, window) = try hostedSidebar()
         defer { window.orderOut(nil) }
-        // Header, project row, then the one task.
-        #expect(table.numberOfRows == 3)
-        let pill = try paintedBox(host: host, table: table, row: 2)
+        // OPERATORS, PROJECTS, the project row, then the one task.
+        #expect(table.numberOfRows == 4)
+        let pill = try paintedBox(host: host, table: table, row: 3)
 
         // What AppKit does when the row's context menu opens.
         #expect(ContextMenuHighlight.silence(),
@@ -180,7 +180,7 @@ struct SidebarContextMenuHighlightTests {
         unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 2, 0)
         host.display()
 
-        let highlighted = try paintedBox(host: host, table: table, row: 2)
+        let highlighted = try paintedBox(host: host, table: table, row: 3)
         #expect(highlighted == pill, "the context menu ring \(highlighted) grew the row past its pill \(pill)")
     }
 }

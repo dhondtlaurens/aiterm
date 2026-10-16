@@ -196,3 +196,30 @@ extension AppController {
             })
     }
 }
+
+extension AppController {
+    /// An operator header's chevron.
+    func toggleCollapsed(operator handle: String) { rows.toggleCollapsed(operator: handle) }
+
+    /// An operator header's "+" and menu.
+    func perform(_ item: OperatorMenuItem, on persona: OperatorPersona) {
+        let controller = operatorController
+        switch item {
+        case .newOperation: presentNewOperation(operator: persona)
+        case .editOperator: presentEditOperator(persona)
+        case .duplicate: attempt("Couldn’t duplicate “\(persona.name)”") { try controller.duplicateOperator(handle: persona.handle) }
+        case .moveToTrash: Task { await confirmTrash(persona) }
+        default: break
+        }
+    }
+
+    /// Move to Trash…: asks first; the file goes to the Trash, and operations already running keep
+    /// their snapshot. Says whether it went.
+    @discardableResult
+    func confirmTrash(_ persona: OperatorPersona) async -> Bool {
+        guard await prompter.ask(OperatorAlerts.moveToTrash(persona)).confirmed else { return false }
+        let controller = operatorController
+        attempt("Couldn’t move “\(persona.name)” to the Trash") { try controller.trashOperator(handle: persona.handle) }
+        return true
+    }
+}

@@ -19,10 +19,10 @@ enum SidebarRowLayout {
     static func chevronWidth(_ scale: InterfaceScale) -> CGFloat { scale(Size.chevron) }
 }
 
-/// The add glyph, drawn identically wherever it appears. `.borderlessButton` hands the label to
+/// The add glyph of a project's and an operator's header, drawn identically wherever it appears. `.borderlessButton` hands the label to
 /// an AppKit pop-up button, which draws the same `Image` a point larger than a `Button` does;
 /// `.button` + `.plain` keeps the menu's click and gives back the button's own rendering.
-private struct AddMenu<Items: View>: View {
+struct AddMenu<Items: View>: View {
     let help: String?
     let enabled: Bool
     @ViewBuilder let items: () -> Items
@@ -256,8 +256,8 @@ struct RowPill: ViewModifier {
     }
 }
 
-/// A project header's disclosure chevron, in its surface's secondary ink.
-private struct HeaderChevron: View {
+/// A project's and an operator's header's disclosure chevron, in its surface's secondary ink.
+struct HeaderChevron: View {
     let collapsed: Bool
     @Environment(\.surface) private var surface
 
@@ -267,8 +267,8 @@ private struct HeaderChevron: View {
     }
 }
 
-/// A project header's name, in its surface's ink — white on the selection.
-private struct HeaderTitle: View {
+/// A project's and an operator's header's name, in its surface's ink — white on the selection.
+struct HeaderTitle: View {
     let text: String
     @Environment(\.surface) private var surface
 

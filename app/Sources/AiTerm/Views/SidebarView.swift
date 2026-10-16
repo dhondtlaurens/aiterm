@@ -27,8 +27,8 @@ struct SidebarView: View {
     /// frame and remembered choices no row draws.
     let controller: AppController
 
-    /// One entry's rows, in the order the list draws them: a divider, or a project's header and —
-    /// open — its terminals, then its tasks. The snapshots stack the same rows, since
+    /// One entry's rows, in the order the list draws them, after the operators': a divider, or a
+    /// project's header and — open — its terminals, then its tasks. The snapshots stack the same rows, since
     /// `ImageRenderer` cannot draw a `List`, so they cannot show another order.
     @ViewBuilder static func rows(of entry: SidebarEntry, in rows: SidebarProjection, controller: AppController) -> some View {
         switch entry {
@@ -56,6 +56,18 @@ struct SidebarView: View {
         }
     }
 
+    /// An operator's header and — open — its operations, as the list draws them above the projects.
+    /// The header is off the arrow path, as a divider is: it has no window.
+    @ViewBuilder static func operatorRows(of section: OperatorSection, in rows: SidebarProjection,
+                                          controller: AppController) -> some View {
+        OperatorHeaderRow(section: section, controller: controller).selectionDisabled()
+        if !section.collapsed {
+            ForEach(section.operations) { row in
+                OperationRowView(row: row, run: rows.runs[row.id], controller: controller).tag(row.id)
+            }
+        }
+    }
+
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
         let rows = controller.rows
@@ -63,6 +75,9 @@ struct SidebarView: View {
             SidebarBanners(controller: controller)
             ScrollViewReader { scroller in
                 List(selection: selection) {
+                    OperatorsHeader(controller: controller).selectionDisabled()
+                    ForEach(rows.operatorSections) { Self.operatorRows(of: $0, in: rows, controller: controller) }
+                    .listRowSeparator(.hidden)
                     SidebarHeader(controller: controller).selectionDisabled()
                     if !rows.hasProjects {
                         SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
