@@ -95,4 +95,66 @@ import Testing
         let changes = StallWatch().flagChanges(in: world.state, now: minutes(21))
         #expect(changes.flag.filter { $0 == quiet }.count == 1)
     }
+
+    /// A task `settle` has seen: working, a quiet agent tab observed at minute 0 (its busy sibling is judged too, so these look at `task` alone).
+    func quietWorker() -> (world: OperatedWorld, task: UUID, watch: StallWatch) {
+        var (world, _, quiet) = twoWorkers()
+        var watch = StallWatch()
+        watch.observe([session("b", task: quiet)], at: minutes(0))
+        watch.settle(in: world.state, at: minutes(0))
+        return (world, quiet, watch)
+    }
+
+    @Test func aTaskResumedAfterAThirtyMinuteBlockStartsAFreshClock() {
+        var (world, task, watch) = quietWorker()
+        world.update(task) { $0.state = .blocked }
+        watch.settle(in: world.state, at: minutes(29))
+        world.update(task) { $0.state = .working }
+        watch.settle(in: world.state, at: minutes(30))
+        #expect(!watch.stalled(in: world.state, now: minutes(31)).contains(task))
+        #expect(!watch.stalled(in: world.state, now: minutes(48)).contains(task))
+        #expect(watch.stalled(in: world.state, now: minutes(50)).contains(task))
+    }
+
+    @Test func aRelaunchCountsFromItsOwnRequest() {
+        var (world, task, watch) = quietWorker()
+        world.update(task) { $0.launch = LaunchAttempt(number: 2, requestedAt: minutes(25)) }
+        watch.settle(in: world.state, at: minutes(25))
+        #expect(!watch.stalled(in: world.state, now: minutes(26)).contains(task))
+        #expect(watch.stalled(in: world.state, now: minutes(46)).contains(task))
+    }
+
+    @Test func clearingWaitingOnYouWithTheSessionUnchangedStartsAFreshClock() {
+        var (world, task, watch) = quietWorker()
+        world.update(task) { $0.flags.insert(.waitingOnYou) }
+        watch.observe([session("b", task: task)], at: minutes(39))
+        watch.settle(in: world.state, at: minutes(39))
+        world.update(task) { $0.flags.remove(.waitingOnYou) }
+        watch.observe([session("b", task: task)], at: minutes(40))
+        watch.settle(in: world.state, at: minutes(40))
+        #expect(!watch.stalled(in: world.state, now: minutes(41)).contains(task))
+        #expect(!watch.stalled(in: world.state, now: minutes(58)).contains(task))
+        #expect(watch.stalled(in: world.state, now: minutes(59)).contains(task))
+    }
+
+    @Test func aShellTabInTheTaskIsNoSign() {
+        let (world, _, quiet) = twoWorkers()
+        var watch = StallWatch()
+        var shell = session("sh", task: quiet)
+        shell.agent = .shell
+        watch.observe([shell], at: minutes(0))
+        shell.title = "~/project"
+        watch.observe([shell], at: minutes(15))
+        #expect(watch.stalled(in: world.state, now: minutes(21)).contains(quiet), "counted from its launch")
+    }
+
+    @Test func aTaskGoneFromTheStateIsForgotten() {
+        var (world, task, watch) = quietWorker()
+        watch.noteSign(of: task, at: minutes(30))
+        let kept = world.state.tasks
+        world.state.tasks.removeAll { $0.id == task }
+        watch.settle(in: world.state, at: minutes(31))
+        world.state.tasks = kept
+        #expect(watch.stalled(in: world.state, now: minutes(40)).contains(task), "its sign at 30 was dropped, so from its launch")
+    }
 }
