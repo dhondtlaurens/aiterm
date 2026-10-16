@@ -29,6 +29,9 @@ final class RunReconciler {
     /// Whether the open questions have been held again since AiTerm started: the notifier keeps what it
     /// holds in memory only.
     private var reheld = false
+    /// When the first synced tick of this run of AiTerm came: a launch it knows no end of (it began before
+    /// AiTerm started) is counted a minute from here at the soonest, so a slow iTerm2 has listed its window.
+    private var firstSynced: Date?
 
     init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, waker: OperatorWaker, notifier: OperatorNotifier,
          ports: OperatorPorts) {
@@ -47,6 +50,7 @@ final class RunReconciler {
     func tick() -> Set<UUID> {
         guard synced else { return [] }
         let sessions = live.sessions, now = ports.now()
+        firstSynced = firstSynced ?? now
         holdOpenQuestionsAgain()
         var changed: Set<UUID> = []
         for run in state.runs where run.state != .stopped && run.intent != .stopped {
@@ -56,7 +60,7 @@ final class RunReconciler {
                 reconcileWorker(task, active: active, sessions: sessions, now: now)
             }
         }
-        changed.formUnion(applyLimits(now: now))
+        changed.formUnion(applyLimits(now: now, sessions: sessions))
         flagStalls(sessions: sessions, now: now)
         for run in state.runs where run.state != .stopped {
             notifier.releaseHeld(in: run, otherWorkCanProceed: state.otherWorkCanProceed(in: run))
@@ -101,7 +105,9 @@ final class RunReconciler {
     /// recorded — whatever the task's state, so a worker that D10 blocked as busy is adopted, never launched
     /// again. A working task of an active run whose launch never showed a tab or window and named no
     /// conversation, its launch older than `launchAdoptAfter`, with no tab tagged with it, is launched
-    /// again as the next attempt, saved first. A window that showed and was closed is left for your click
+    /// again as the next attempt, saved first, a minute after its launch task ended — the claim is long before
+    /// the window is asked for, and a request that timed out may still open one — or, with no end known, a
+    /// minute after this tick pass began. A window that showed and was closed is left for your click
     /// (`OperatorController.reopenWorker`).
     private func reconcileWorker(_ task: TaskItem, active: Bool, sessions: [SessionInfo], now: Date) {
         guard let operated = task.operated, operated.state == .working || operated.state == .blocked,
@@ -112,7 +118,8 @@ final class RunReconciler {
         }
         guard active, operated.state == .working, !operated.takenOver, launch.openedAt == nil, task.windowId == nil,
               task.conversations.isEmpty, !starter.starting.contains(task.id),
-              now.timeIntervalSince(launch.requestedAt) > OperatorTiming.launchAdoptAfter else { return }
+              now.timeIntervalSince(max(launch.requestedAt, starter.settledAt[task.id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
+        else { return }
         let attempt = LaunchAttempt(number: launch.number + 1, requestedAt: now)
         workspace.mutate { $0.updateOperated(task.id) { $0.launch = attempt } }
         guard workspace.flush() else { return }
@@ -120,18 +127,21 @@ final class RunReconciler {
     }
 
     /// Spec §8's limits. Each tick adds the time since the last one to every working task of an active
-    /// run that neither waits on you nor is taken over — at most two intervals' worth, so a Mac asleep
-    /// is not work — saved with the task. A task past its runtime, or failed with no retry left, is
+    /// run that has a worker tab and neither waits on you nor is taken over — at most two intervals'
+    /// worth, so a Mac asleep is not work — saved with the task. A task past its runtime, or failed with no retry left, is
     /// blocked with the reason and you are asked. The runs it blocked a task in.
-    private func applyLimits(now: Date) -> Set<UUID> {
-        let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * OperatorTiming.reconcileInterval) } ?? 0
+    private func applyLimits(now: Date, sessions: [SessionInfo]) -> Set<UUID> {
+        let interval = ports.reconcileInterval.components
+        let step = TimeInterval(interval.seconds) + TimeInterval(interval.attoseconds) / 1e18
+        let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * step) } ?? 0
         lastCounted = now
         var blocked: [(task: UUID, reason: String)] = []
         workspace.mutate { state in
             for task in state.tasks {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
                 else { continue }
-                if elapsed > 0, operated.state == .working, !operated.takenOver, !operated.flags.contains(.waitingOnYou) {
+                let worked = sessions.contains { $0.taskUUID == task.id && $0.agent.agentKind != nil }
+                if elapsed > 0, worked, operated.state == .working, !operated.takenOver, !operated.flags.contains(.waitingOnYou) {
                     state.updateOperated(task.id) { $0.runtimeUsed += elapsed }
                 }
                 guard let current = state.task(id: task.id)?.operated,

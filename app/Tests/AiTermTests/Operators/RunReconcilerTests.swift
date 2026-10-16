@@ -336,4 +336,186 @@ import Testing
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
         #expect(world.run(run.id)?.state == .complete)
     }
+
+    // -- fix round 1 --------------------------------------------------------------------------
+
+    /// Spec §8: you resolve a runtime block by resuming, and the task gets a fresh allowance — left with the
+    /// time it used, the next pass would block it again. A block for another reason keeps its runtime.
+    @Test func aTaskBlockedForItsRuntimeIsResumedWithAFreshAllowanceAndOneBlockedForAnotherReasonKeepsItsTime() throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-20", state: .working, worktree: "/tmp/aiterm-wt")
+        spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        spent.operated?.runtimeUsed = 90 * 60
+        var partway = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-21", state: .working, worktree: "/tmp/aiterm-wt2")
+        partway.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        partway.operated?.runtimeUsed = 30 * 60
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [spent, partway]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: spent.id, state: .working),
+                    OperatorServiceFixtures.session("w2", window: "w8", tag: partway.id, state: .working)])
+        world.controller.reconcileTick()
+        #expect(world.task(spent.id)?.operated?.state == .blocked && world.task(spent.id)?.operated?.runtimeUsed == 90 * 60)
+        world.workspace.mutate { state in
+            _ = try? OperatedTransitions.apply(.block(reason: "needs a key"), toTask: partway.id, in: &state, by: .operatorTool)
+            _ = try? OperatedTransitions.apply(.resume, toTask: spent.id, in: &state, by: .operatorTool)
+            _ = try? OperatedTransitions.apply(.resume, toTask: partway.id, in: &state, by: .operatorTool)
+        }
+        clock.advance(by: 30)
+        world.controller.reconcileTick()
+        let resumed = try #require(world.task(spent.id)?.operated)
+        #expect(resumed.state == .working && resumed.runtimeUsed == 30, "a fresh 90 minutes, counted from its resume")
+        let kept = try #require(world.task(partway.id)?.operated)
+        #expect(kept.state == .working && kept.runtimeUsed == 30 * 60 + 30)
+    }
+
+    /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none.
+    @Test func aWorkingTaskWithNoWorkerTabCountsNoRuntime() throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-22", state: .working, worktree: "/tmp/aiterm-wt")
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.controller.reconcileTick()
+        clock.advance(by: 50)
+        world.controller.reconcileTick()
+        #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
+    }
+
+    /// A request that timed out may still open its window: the minute before the reconciler launches again
+    /// is counted from when the launch ended, not from its claim, which came before the worktree and the request.
+    @Test func aWindowRequestThatTimedOutIsGivenAMinuteFromWhenItEndedBeforeAnotherLaunch() async throws {
+        let daemon = RecordingDaemon(holding: "window.createTask")
+        let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-timeout-"))
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .queued)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon)
+        let op = OperatorServiceFixtures.session("op", tag: run.id)
+        world.show([op])
+        world.controller.startReadyTasks()
+        try await daemon.received("window.createTask")
+        clock.advance(by: 90)   // the claim is old by the time the request times out
+        daemon.failing["window.createTask"] = .timeout
+        daemon.release()
+        await world.controller.lastStart?.value
+        #expect(world.task(task.id)?.operated?.launch?.openedAt == nil)
+        world.controller.reconcileTick()
+        await world.controller.reconciler.lastLaunch?.value
+        #expect(daemon.requests("window.createTask").count == 1, "its window may still be listed: a minute from the end, not the claim")
+        clock.advance(by: 61)
+        daemon.failing = [:]
+        world.controller.reconcileTick()
+        await world.controller.reconciler.lastLaunch?.value
+        #expect(daemon.requests("window.createTask").count == 2)
+        #expect(world.task(task.id)?.operated?.launch?.number == 2)
+    }
+
+    /// With no end of its launch known — AiTerm started after it — the minute is counted from the first pass
+    /// that saw the tabs, so a window iTerm2 was slow to list is found first.
+    @Test func aLaunchFromBeforeAiTermStartedWaitsAMinuteFromTheFirstPass() async throws {
+        let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-restart-"))
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working)
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now.addingTimeInterval(-3600))
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.controller.reconcileTick()
+        await world.controller.reconciler.lastLaunch?.value
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+        clock.advance(by: 61)
+        world.controller.reconcileTick()
+        await world.controller.reconciler.lastLaunch?.value
+        #expect(world.daemon.requests("window.createTask").count == 1)
+    }
+
+    /// Two passes while a relaunch is still asking for its window make one request, not two.
+    @Test func twoTicksWhileARelaunchIsHeldMakeOneWindowRequest() async throws {
+        let daemon = RecordingDaemon(holding: "window.createTask")
+        let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-overlap-"))
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-25", state: .working)
+        task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon)
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.controller.reconcileTick()
+        clock.advance(by: 61)
+        world.controller.reconcileTick()
+        try await daemon.received("window.createTask")
+        clock.advance(by: 120)
+        world.controller.reconcileTick()
+        world.controller.reconcileTick()
+        #expect(daemon.requests("window.createTask").count == 1)
+        daemon.release()
+        await world.controller.reconciler.lastLaunch?.value
+        #expect(daemon.requests("window.createTask").count == 1)
+        #expect(world.task(task.id)?.operated?.launch?.number == 2)
+    }
+
+    /// Spec §7.3: iTerm2 coming back with the helper still there is reconciled on its snapshot, not a minute later.
+    @Test func anItermReconnectIsReconciledAtOnce() throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.controller.handle(.itermDisconnected)
+        #expect(world.run(run.id)?.state == .active, "no tab is gone while iTerm2 is")
+        world.show([])
+        #expect(world.run(run.id)?.state == .operatorOffline)
+    }
+
+    /// A prompt read that fails because the helper is gone records nothing; the next pass asks again.
+    @Test func aPromptReadThatFailsRecordsNoQuestionAndIsAskedAgain() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-26", state: .working, agent: .codex, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.daemon.failing["session.prompt"] = .disconnected
+        world.daemon.prompts["w1"] = .permission
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .needsInput)])
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.isEmpty == true && world.notifications.posted.isEmpty)
+        world.daemon.failing = [:]
+        world.controller.probePrompts()
+        await world.controller.lastProbe?.value
+        #expect(world.run(run.id)?.questions.last?.text == "Codex asks for permission")
+    }
+
+    /// A question this run of AiTerm already sent is not held again by the pass that follows a restart's rule.
+    @Test func aQuestionAlreadySentThisSessionIsNotHeldAgain() throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .askFirst), projects: [project], state: .active, planRevision: 1)
+        run.questions = [OperatorServiceFixtures.question("q1", at: clock.now)]
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        world.controller.notifier.questionAsked(run.questions[0], in: run, otherWorkCanProceed: false)
+        #expect(world.notifications.posted.count == 1)
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        world.controller.reconcileTick()
+        #expect(world.controller.notifier.held[run.id] == nil)
+        #expect(world.notifications.posted.count == 1)
+    }
+
+    /// `start()` ticks every `reconcileInterval` and `stop()` ends it: the interval is injected, and what a
+    /// tick does is waited for, never counted after a sleep.
+    @Test func theLoopTicksEveryIntervalUntilItIsStopped() async throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        let op = OperatorServiceFixtures.session("op", tag: run.id)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
+            ports.now = { [clock] in clock.now }
+            ports.reconcileInterval = .milliseconds(5)
+        }
+        world.show([op])
+        world.live.sessions = []   // the tab is gone, with no event to say so
+        world.controller.start()
+        world.controller.start()
+        await eventually(describing: "the loop to see the tab gone") { world.run(run.id)?.state == .operatorOffline }
+        world.controller.stop()
+        world.live.sessions = [op]
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(world.run(run.id)?.state == .operatorOffline, "stopped: no tick brings it back")
+        world.controller.start()
+        await eventually(describing: "the loop to see the tab back") { world.run(run.id)?.state == .active }
+        world.controller.stop()
+    }
 }

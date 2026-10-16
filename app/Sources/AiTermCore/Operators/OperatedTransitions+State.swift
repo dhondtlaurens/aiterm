@@ -30,7 +30,7 @@ public extension OperatedTransitions {
                 guard let o = other.operated else { return false }
                 return o.started && o.dependsOn.contains(TaskDependency(task: id, kind: .code))
             },
-            milestone: milestone)
+            milestone: milestone, runtimeLimit: TimeInterval(run.persona.limits.runtimeMinutes * 60))
 
         let next = try apply(action, to: task, by: actor, context: context)
         guard next != task else { return [] }

@@ -14,6 +14,9 @@ final class WorkerStarter {
     private let ports: OperatorPorts
     /// The tasks being started now: a pass that meets one again leaves it be.
     private(set) var starting: Set<UUID> = []
+    /// When each task's last launch task in this run of AiTerm ended: a launch that ended without a
+    /// window (a timeout) may still open one, so the reconciler counts its minute from here, not from the claim.
+    private(set) var settledAt: [UUID: Date] = [:]
     /// Said when a start blocks its task: you are asked (spec §8).
     var onBlocked: @MainActor (TaskItem, String) -> Void = { _, _ in }
 
@@ -60,7 +63,7 @@ final class WorkerStarter {
         }
         starting.insert(id)
         return Task {
-            defer { starting.remove(id) }
+            defer { settle(id) }
             if operated.retriesUsed > 0, task.hasCheckout, let tab = workerTab(of: id) {
                 // A second agent is never started beside a worker that is still there.
                 if tab.state == .working {
@@ -124,7 +127,7 @@ final class WorkerStarter {
         guard !starting.contains(id) else { return nil }
         starting.insert(id)
         return Task {
-            defer { starting.remove(id) }
+            defer { settle(id) }
             await launch(id, attempt: attempt)
         }
     }
@@ -150,6 +153,11 @@ final class WorkerStarter {
                 Log.daemon.error("An operator's worker window could not reopen: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    private func settle(_ id: UUID) {
+        starting.remove(id)
+        settledAt[id] = ports.now()
     }
 
     /// The worker's window, and that its launch showed one: from now on it comes back only on your

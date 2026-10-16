@@ -147,6 +147,25 @@ import Foundation
         #expect(try apply(.resume, resumed) == resumed)
     }
 
+    /// A task blocked for its runtime is resumed with a fresh allowance; one blocked for another reason keeps the time it used.
+    @Test func resumingATaskBlockedForItsRuntimeGrantsAFreshAllowance() throws {
+        let limit: TimeInterval = 90 * 60
+        let context = OperatedContext(runState: .active, retryLimit: 2, milestone: .m1, runtimeLimit: limit)
+        var spent = F.operated("A", .working)
+        spent.runtimeUsed = limit
+        let reason = try #require(OperatedTransitions.limitReason(for: spent, limits: OperatorLimits(retries: 2, runtimeMinutes: 90)))
+        let blocked = try apply(.block(reason: reason), spent, by: .aiterm, context)
+        #expect(blocked.runtimeUsed == limit, "what it used is still shown while it is blocked")
+        let resumed = try apply(.resume, blocked, context)
+        #expect(resumed.state == .working && resumed.runtimeUsed == 0)
+        #expect(try apply(.resume, resumed, context) == resumed)
+
+        var partway = F.operated("B", .working)
+        partway.runtimeUsed = 30 * 60
+        let other = try apply(.block(reason: "needs a key"), partway, context)
+        #expect(try apply(.resume, other, context).runtimeUsed == 30 * 60)
+    }
+
     /// A task blocked before it ever ran — upstream failed, then retried — waits its turn again.
     @Test func resumingATaskThatNeverRanQueuesIt() throws {
         var task = F.operated("B", .blocked, launched: false)

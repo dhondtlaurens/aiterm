@@ -43,6 +43,9 @@ final class OperatorNotifier {
     private let now: @MainActor () -> Date
     /// The questions each run's stop is holding back, oldest first.
     private(set) var held: [UUID: [OperatorQuestion]] = [:]
+    /// The questions this run of AiTerm has sent (`runId/questionId`): holding one again after a restart
+    /// is for what was lost with the last run, not for what went out in this one.
+    private var sent: Set<String> = []
 
     init(notifications: any OperatorNotifications, now: @escaping @MainActor () -> Date) {
         self.notifications = notifications
@@ -52,6 +55,7 @@ final class OperatorNotifier {
     func questionAsked(_ question: OperatorQuestion, in run: OperatorRun, otherWorkCanProceed: Bool) {
         if notifies(.question(holdsUpEverything: !otherWorkCanProceed), run, otherWorkCanProceed: otherWorkCanProceed, waited: 0) {
             post("question-\(run.id.uuidString)-\(question.id)", "\(run.persona.name) asks you", question.text, to: .overview(run.id))
+            sent.insert("\(run.id.uuidString)/\(question.id)")
         } else if held[run.id]?.contains(where: { $0.id == question.id }) != true {
             // `ask_you` is idempotent by key, so a repeat is not a second question.
             held[run.id, default: []].append(question)
@@ -61,7 +65,8 @@ final class OperatorNotifier {
     /// A question still open after AiTerm started again: what was held lived in memory only, so it is
     /// held again, to be sent by `releaseHeld` when the stop says so. Not decided here and not notified.
     func rehold(_ question: OperatorQuestion, in run: OperatorRun) {
-        guard held[run.id]?.contains(where: { $0.id == question.id }) != true else { return }
+        guard held[run.id]?.contains(where: { $0.id == question.id }) != true,
+              !sent.contains("\(run.id.uuidString)/\(question.id)") else { return }
         held[run.id, default: []].append(question)
         held[run.id]?.sort { $0.askedAt < $1.askedAt }
     }
@@ -113,6 +118,7 @@ final class OperatorNotifier {
 
     private func postHeld(in run: OperatorRun) {
         guard let questions = held.removeValue(forKey: run.id), let first = questions.first else { return }
+        for question in questions { sent.insert("\(run.id.uuidString)/\(question.id)") }
         let body = questions.count == 1 ? first.text : "\(questions.count) questions wait on you in “\(run.name)”."
         post("questions-\(run.id.uuidString)", "\(run.persona.name) asks you", body, to: .overview(run.id))
     }

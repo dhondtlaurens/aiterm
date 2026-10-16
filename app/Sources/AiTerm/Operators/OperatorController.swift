@@ -329,6 +329,8 @@ final class OperatorController {
         case .itermDisconnected, .itermAuthFailed:
             tabsKnown = false
             reconciler.synced = false
+            // iTerm2 back with the helper still there: its tabs are looked at on the next snapshot, as after an attach.
+            reattached = true
         case .sessionOpened, .sessionChanged, .sessionClosed, .windowClosed: sessionsChanged()
         case .operatorRequest(let request): tools.handle(request)
         default: break
@@ -430,8 +432,9 @@ final class OperatorController {
         let interval = ports.reconcileInterval
         loop = Task { [weak self] in
             while !Task.isCancelled {
-                guard (try? await Task.sleep(for: interval)) != nil else { return }
-                self?.reconcileTick()
+                // A sleep that ended just as `stop()` ran still resumes: it must not tick after it.
+                guard (try? await Task.sleep(for: interval)) != nil, !Task.isCancelled, let self else { return }
+                reconcileTick()
             }
         }
     }
@@ -478,7 +481,12 @@ final class OperatorController {
         probing.insert(id)
         let number = run.questions.filter { $0.id.hasPrefix(prefix) }.count + 1
         lastProbe = Task { [weak self] in
-            let kind = try? await daemon.prompt(sessionId: tab.sessionId)
+            // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
+            let kind: PromptKind?
+            do { kind = try await daemon.prompt(sessionId: tab.sessionId) } catch {
+                self?.probing.remove(id)
+                return
+            }
             // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
             // screen shows that dialog. Anything else at startup — a trust question — is yours, and so is
             // a dismissal that did not happen: only a dismissed offer is never put to you.
@@ -518,7 +526,11 @@ final class OperatorController {
         let sessions = live.sessions
         Task {
             for (id, ownership) in owned {
-                for tab in sessions where tab.taskUUID == id { try? await daemon.setOwnership(sessionId: tab.sessionId, ownership: ownership) }
+                for tab in sessions where tab.taskUUID == id {
+                    await Log.daemon.attempt("Setting the ownership of task \(id.uuidString) on its tab") {
+                        try await daemon.setOwnership(sessionId: tab.sessionId, ownership: ownership)
+                    }
+                }
             }
         }
     }

@@ -39,11 +39,14 @@ public struct OperatedContext: Equatable, Sendable {
     /// Whether a task with a `code` dependency on this one has started (M1 re-accept rule, spec §8).
     public var codeDependentStarted: Bool
     public var milestone: OperatorMilestone
+    /// The run's snapshot `limits.runtimeMinutes`, in seconds; nil where a caller does not say.
+    public var runtimeLimit: TimeInterval?
 
     public init(runState: OperatorRunState, retryLimit: Int, codeDependentStarted: Bool = false,
-                milestone: OperatorMilestone = .current) {
+                milestone: OperatorMilestone = .current, runtimeLimit: TimeInterval? = nil) {
         self.runState = runState; self.retryLimit = retryLimit
         self.codeDependentStarted = codeDependentStarted; self.milestone = milestone
+        self.runtimeLimit = runtimeLimit
     }
 }
 
@@ -168,6 +171,9 @@ public enum OperatedTransitions {
             // Back to where it was blocked from: a queued task waits its turn again, a working one
             // continues in its session. Older files have no record: a task that never ran has no session.
             next.state = task.blockedFrom ?? (task.started ? .working : .queued)
+            // A task blocked for its runtime is resumed with a fresh allowance: with the time it used left
+            // over, the next pass would block it again. A block for any other reason keeps what was used.
+            if next.state == .working, let limit = context.runtimeLimit, task.runtimeUsed >= limit { next.runtimeUsed = 0 }
             next.blockedReason = nil
             next.blockedFrom = nil
 
