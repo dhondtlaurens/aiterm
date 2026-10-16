@@ -16,6 +16,8 @@ final class OperatorWaker {
     private let coalesce: Duration
     /// How long a refused wake waits before it is tried again when the tab gives no sign meanwhile.
     private let retryAfter: Duration
+    /// Waits out `coalesce` and `retryAfter`; a test hands in one it releases by hand.
+    private let sleep: @MainActor (Duration) async throws -> Void
     /// What the operator last saw of each run, and what was last looked at, both without their revision.
     private var acknowledgedStatus: [UUID: RunStatus] = [:], lastSeen: [UUID: RunStatus] = [:]
     private var updates: [UUID: Int] = [:], reasons: [UUID: String] = [:]
@@ -25,12 +27,14 @@ final class OperatorWaker {
     private(set) var lastSend: Task<Void, Never>?
 
     init(daemon: @escaping @MainActor () -> (any DaemonCommands)?, session: @escaping @MainActor (UUID) -> SessionInfo?,
-         awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15)) {
+         awake: @escaping @MainActor (UUID) -> Bool, coalesce: Duration, retryAfter: Duration = .seconds(15),
+         sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.daemon = daemon
         self.session = session
         self.awake = awake
         self.coalesce = coalesce
         self.retryAfter = retryAfter
+        self.sleep = sleep
     }
 
     /// What `run_status` would answer now. The first look at a run is taken as seen — after a restart
@@ -94,9 +98,9 @@ final class OperatorWaker {
 
     private func arm(_ run: UUID) {
         guard armed[run] == nil else { return }
-        let coalesce = self.coalesce
+        let coalesce = self.coalesce, sleep = self.sleep
         armed[run] = Task { [weak self] in
-            try? await Task.sleep(for: coalesce)
+            try? await sleep(coalesce)
             guard !Task.isCancelled, let self else { return }
             armed[run] = nil
             send(run)
@@ -128,9 +132,9 @@ final class OperatorWaker {
     /// next `run_status` shows the news whether or not it ever lands.
     private func retryLater(_ run: UUID) {
         guard retrying[run] == nil, updates[run, default: 0] > 0 else { return }
-        let wait = retryAfter
+        let wait = retryAfter, sleep = self.sleep
         retrying[run] = Task { [weak self] in
-            try? await Task.sleep(for: wait)
+            try? await sleep(wait)
             guard !Task.isCancelled, let self else { return }
             retrying[run] = nil
             send(run)

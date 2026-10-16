@@ -17,9 +17,26 @@ import Testing
         op.tab = OperatorServiceFixtures.session("op", tag: run.id)
     }
 
-    func makeWaker(coalesce: Duration = .zero, retryAfter: Duration = .seconds(60)) -> OperatorWaker {
-        OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake }, coalesce: coalesce,
-                      retryAfter: retryAfter)
+    /// A sleep a test ends by hand: each wait the waker starts is counted and held until `releaseAll`.
+    @MainActor final class HandSleeper {
+        private(set) var requested = 0
+        private var held: [CheckedContinuation<Void, Never>] = []
+        func sleep(_ duration: Duration) async { requested += 1; await withCheckedContinuation { held.append($0) } }
+        /// Ends the wait once the waker has started it: the task that sleeps runs a moment after the call that armed it.
+        func release() async {
+            await eventually(describing: "a wait to start") { !held.isEmpty }
+            releaseAll()
+        }
+        func releaseAll() { let waiting = held; held = []; for continuation in waiting { continuation.resume() } }
+    }
+
+    func makeWaker(coalesce: Duration = .zero, retryAfter: Duration = .seconds(60), by hand: HandSleeper? = nil) -> OperatorWaker {
+        guard let hand else {
+            return OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake },
+                                 coalesce: coalesce, retryAfter: retryAfter)
+        }
+        return OperatorWaker(daemon: { [daemon] in daemon }, session: { [op] _ in op.tab }, awake: { [op] _ in op.awake },
+                             coalesce: coalesce, retryAfter: retryAfter, sleep: { await hand.sleep($0) })
     }
 
     /// The run as `run_status` would show it with `questions` open questions.
@@ -32,10 +49,12 @@ import Testing
     var lines: [String] { daemon.requests("session.deliver").compactMap { $0.params["text"] as? String } }
 
     @Test func aBurstOfChangesIsOneLineSayingHowMany() async throws {
-        let waker = makeWaker(coalesce: .milliseconds(50))
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
         waker.observe(status(questions: 2), of: run.id)
+        await hand.release()
+        #expect(hand.requested == 1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
         #expect(lines == ["[AiTerm] 2 updates — call run_status"])
@@ -106,25 +125,37 @@ import Testing
 
     @Test func aRefusedWakeIsKeptAndTriedAgainLaterEvenIfTheTabNeverChanges() async throws {
         daemon.deliveries = [Delivery(result: .refused, reason: "you are typing"), Delivery(result: .delivered, reason: nil)]
-        let waker = makeWaker(retryAfter: .milliseconds(50))
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
+        await hand.release()
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(hand.requested == 2)
+        await hand.release()
         try await daemon.received("session.deliver", count: 2)
         await waker.lastSend?.value
-        try await Task.sleep(for: .milliseconds(200))
         #expect(lines == ["[AiTerm] 1 update — call run_status", "[AiTerm] 1 update — call run_status"])
+        #expect(hand.requested == 2)
     }
 
     @Test func aWakeStaysRefusedWithoutSpinning() async throws {
         daemon.deliveries = [Delivery(result: .refused, reason: "unsent text waits in its input")]
-        let waker = makeWaker(retryAfter: .milliseconds(100))
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)
         waker.observe(status(questions: 1), of: run.id)
-        try await Task.sleep(for: .milliseconds(350))
-        #expect(lines.count >= 2 && lines.count <= 5)
+        await hand.release()
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        // One wait is pending and nothing is sent until it is over, however long that takes.
+        #expect(lines.count == 1 && hand.requested == 2)
+        await hand.release()
+        try await daemon.received("session.deliver", count: 2)
+        await waker.lastSend?.value
+        #expect(lines.count == 2 && hand.requested == 3)
         waker.acknowledged(status(questions: 1), of: run.id)
-        let after = lines.count
-        try await Task.sleep(for: .milliseconds(250))
-        #expect(lines.count == after)
+        await hand.release()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(lines.count == 2 && hand.requested == 3)
     }
 }
