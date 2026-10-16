@@ -54,8 +54,8 @@ extension OperatorController {
     /// conversation resumed in a window behind your work under the operation's flags (`WorkerStarter.reopen`),
     /// the row's `windowId` left on that window so the click can raise it — whether it still names the closed
     /// one or not. Never a second worker, and never a fresh launch: a tab still tagged with the task is
-    /// brought forward instead, and with iTerm2's tabs not known none is opened. What stands in the way is
-    /// said in the banner.
+    /// brought forward instead, and with iTerm2's tabs not known none is opened. A launch that never showed a window
+    /// is left to the reconciler. What stands in the way is said in the banner.
     func reopenWorker(task id: UUID) async {
         guard let task = workspace.state.task(id: id), task.operated != nil else { return }
         if let tab = live.sessions.filter({ $0.taskUUID == id }).min(by: { $0.tabIndex < $1.tabIndex }) {
@@ -63,6 +63,11 @@ extension OperatorController {
             return
         }
         guard !starter.starting.contains(id) else { return }
+        // A launch that showed no window is the reconciler's to launch again; a click only asks it to look.
+        if task.hasCheckout, let launch = task.operated?.launch, launch.openedAt == nil {
+            reconcileTick()
+            return
+        }
         let reason: String
         if daemon() == nil || !tabsKnown { reason = OperationIssue.disconnected("again").title }
         else if !task.hasCheckout { reason = "It hasn’t started: AiTerm opens its window when it does." }
@@ -123,8 +128,8 @@ extension OperatorController {
 
     /// End operation (spec §9): your stop, persisted first — one that cannot be saved is taken back and
     /// nothing else is done. Its open tasks end `stopped`, its second opinions are cancelled and its
-    /// operator is no longer woken; its token is revoked and its operator's window closed, each only logged
-    /// when it fails (an attach revokes again). Workers already running are left to finish — Interrupt workers
+    /// operator is no longer woken, and the slots its tasks held go to what waits; its token is revoked and
+    /// its operator's window closed, each only logged when it fails (an attach does both again). Workers already running are left to finish — Interrupt workers
     /// is separate. A complete operation stays complete, ended.
     func end(run id: UUID) async throws {
         guard let run = self.run(id: id), run.intent != .stopped else { return }
@@ -144,6 +149,8 @@ extension OperatorController {
         }
         for challenge in run.challenges { tools.runningChallenges[challenge.id]?.cancel() }
         waker.forget(id)
+        // Its working tasks no longer hold a slot: another operation's queued task may take it now.
+        startReadyTasks()
         guard let daemon = daemon() else { return }
         await Log.daemon.attempt("Revoking the token of the ended operation \(id.uuidString)") { try await daemon.revokeOperator(runId: id.uuidString) }
         if let window = operatorTab(of: id)?.windowId ?? run.operatorWindowId {
@@ -152,10 +159,10 @@ extension OperatorController {
     }
 
     /// Interrupt workers (spec §9): Esc to each worker at work, on your click — never the operator's to do.
-    /// Every one is tried; the first failure is thrown after.
+    /// A task you took over is yours to drive and is left alone. Every one is tried; the first failure is thrown after.
     func interruptWorkers(run id: UUID) async throws {
         guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        let working = Set(workspace.state.tasks(inRun: id).filter { $0.operated?.state == .working }.map(\.id))
+        let working = Set(workspace.state.tasks(inRun: id).filter { $0.operated?.state == .working && $0.operated?.takenOver == false }.map(\.id))
         var failure: (any Error)?
         for tab in live.sessions where tab.taskUUID.map(working.contains) == true && tab.state == .working && tab.agent.agentKind != nil {
             do { try await daemon.interrupt(sessionId: tab.sessionId) } catch { failure = failure ?? error }
@@ -171,10 +178,12 @@ extension OperatorController {
     }
 
     /// The operation's chat (spec §10.3): its operator's window brought forward, reopened first when it
-    /// was closed — which resumes an operation that went offline. An ended operation has none.
+    /// was closed — which resumes an operation that went offline. An ended operation's window is brought
+    /// forward if it is still there, and never reopened.
     func focusOperatorWindow(run id: UUID) async {
-        guard let run = self.run(id: id), run.state != .stopped, run.intent != .stopped, let daemon = daemon() else { return }
-        if operatorTab(of: id) == nil {
+        guard let run = self.run(id: id), let daemon = daemon() else { return }
+        let ended = run.state == .stopped || run.intent == .stopped
+        if operatorTab(of: id) == nil, !ended {
             do {
                 if run.state == .operatorOffline { try await resume(run: id) }
                 else { try await reopenOperatorWindow(id) }
@@ -190,12 +199,16 @@ extension OperatorController {
     /// The operator's window opened again, in front: its conversation resumed under the same frozen
     /// profile, or — with no conversation to resume — a fresh operator, its first message the brief again
     /// (`OperatorCommand.prepare` writes and reads `first-message.md` only for a fresh start). The run
-    /// folder is written afresh with its token kept. Nothing when its window is open or being opened.
+    /// folder is written afresh with its token kept. Nothing when its window is open, is being opened, or
+    /// was opened a moment ago and iTerm2 has not listed its tab yet; refused while iTerm2's tabs are not
+    /// known, as a tab not listed then is not a tab closed. An operation ended meanwhile (an await passed)
+    /// is left ended: the token registered is revoked and the window opened is closed.
     func reopenOperatorWindow(_ id: UUID) async throws {
         guard let run = self.run(id: id) else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
-        guard run.state != .stopped, run.intent != .stopped else { throw ActionUnavailable("This operation has ended.") }
+        guard !hasEnded(id) else { throw ActionUnavailable("This operation has ended.") }
         guard operatorTab(of: id) == nil, !reopeningOperator.contains(id) else { return }
-        guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
+        guard let daemon = daemon(), tabsKnown else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
+        if let at = reopenedOperator[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return }
         reopeningOperator.insert(id)
         defer { reopeningOperator.remove(id) }
         let projects = run.projectIds.compactMap(workspace.state.project(id:)), home = ports.home, folder = self.folder(of: id)
@@ -205,10 +218,47 @@ extension OperatorController {
             return try OperatorCommand.prepare(run: run, projects: projects, home: home, token: token,
                                                resuming: run.operatorConversation, milestone: milestone)
         }
+        // Ended while the folder was written: prepare made its token file again, and nothing was registered.
+        guard !hasEnded(id) else {
+            let file = folder.appendingPathComponent(OperatorCommand.tokenFile)
+            await Log.workspace.attempt("Removing the token file of an operation ended while its operator reopened") {
+                try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
+            }
+            return
+        }
         try await daemon.registerOperator(runId: id.uuidString, token: prepared.token)
-        let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: prepared.folder.path, title: run.name,
+        let window: String
+        do {
+            window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: prepared.folder.path, title: run.name,
                                                        agentCommand: prepared.command, frame: taskFrame(), background: false)
+        } catch {
+            if hasEnded(id) { await revokeAfterEnd(id, window: nil, daemon: daemon) }
+            throw error
+        }
+        guard !hasEnded(id) else {
+            await revokeAfterEnd(id, window: window, daemon: daemon)
+            return
+        }
+        reopenedOperator[id] = ports.now()
         mutateRun(id) { $0.operatorWindowId = window }
+    }
+
+    private func hasEnded(_ id: UUID) -> Bool {
+        guard let run = run(id: id) else { return true }
+        return run.state == .stopped || run.intent == .stopped
+    }
+
+    /// What an end that came while the operator reopened could not undo itself: the token registered
+    /// after its revoke goes again, and the window opened after its close is closed.
+    private func revokeAfterEnd(_ id: UUID, window: String?, daemon: any DaemonCommands) async {
+        await Log.daemon.attempt("Revoking the token of operation \(id.uuidString) ended while its operator reopened") {
+            try await daemon.revokeOperator(runId: id.uuidString)
+        }
+        if let window {
+            await Log.daemon.attempt("Closing the window of operation \(id.uuidString) ended while its operator reopened") {
+                try await daemon.closeWindowIfOpen(window)
+            }
+        }
     }
 
     // -- taking a change back ---------------------------------------------------------------------

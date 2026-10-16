@@ -17,6 +17,9 @@ final class WorkerStarter {
     /// When each task's last launch task in this run of AiTerm ended: a launch that ended without a
     /// window (a timeout) may still open one, so the reconciler counts its minute from here, not from the claim.
     private(set) var settledAt: [UUID: Date] = [:]
+    /// When each task's worker window was last reopened on your click: a click in the gap before iTerm2
+    /// lists its tab (up to `launchAdoptAfter`) opens no second window.
+    private var reopenedAt: [UUID: Date] = [:]
     /// Said when a start blocks its task: you are asked (spec §8).
     var onBlocked: @MainActor (TaskItem, String) -> Void = { _, _ in }
 
@@ -134,8 +137,10 @@ final class WorkerStarter {
 
     /// A worker's window you closed, brought back on your click (`OperatorController.reopenWorker`):
     /// reopened behind your work, its conversation resumed under the operation's flags — never a second
-    /// worker. Nil when it is starting, has a tab, has no worktree or no conversation to resume, or no helper is there.
+    /// worker. Nil when it is starting, has a tab, was reopened a moment ago and its tab is not listed yet, has no worktree
+    /// or no conversation to resume, or no helper is there.
     func reopen(_ id: UUID) -> Task<Void, Never>? {
+        if let at = reopenedAt[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return nil }
         guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
               task.hasCheckout, let operated = task.operated, let run = state.run(id: operated.runId), let conversation = task.conversations.first(where: { $0.agent == task.agent }),
               let daemon = daemon() else { return nil }
@@ -149,10 +154,16 @@ final class WorkerStarter {
                                                                agentCommand: command, frame: taskFrame(), background: true)
                 // Left on the row, so a click raises it.
                 recordWindow(window, of: id)
+                reopenedAt[id] = ports.now()
             } catch {
                 Log.daemon.error("An operator's worker window could not reopen: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// The tasks iTerm2 lists a tab for now: a reopened worker whose tab has come needs no more waiting.
+    func tabsListed(for tasks: Set<UUID>) {
+        for id in reopenedAt.keys where tasks.contains(id) { reopenedAt[id] = nil }
     }
 
     private func settle(_ id: UUID) {

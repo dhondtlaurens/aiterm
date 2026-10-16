@@ -9,10 +9,10 @@ import Testing
     let project = OperatorServiceFixtures.project()
 
     func makeWorld(runState: OperatorRunState = .active, taskState: OperatedState = .working, daemon: RecordingDaemon = RecordingDaemon(),
-                   tab: Bool = true) throws -> (OperatorWorld, OperatorRun, TaskItem) {
+                   tab: Bool = true, adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> (OperatorWorld, OperatorRun, TaskItem) {
         let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: runState, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: taskState, worktree: "/tmp/aiterm-wt")
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon, adjust: adjust)
         world.show(tab ? [OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .done)]
                        : [OperatorServiceFixtures.session("op", tag: run.id)])
         return (world, run, task)
@@ -140,6 +140,7 @@ import Testing
         let fresh = try #require(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String)
         #expect(fresh.contains(OperatorCommand.firstMessageFile), "no conversation: the brief is its first message")
         #expect(world.daemon.requests("operator.register").first?.params["token"] as? String == token)
+        world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
         world.show([])
         world.controller.mutateRun(run.id) { $0.operatorConversation = "c-3" }
         try await world.controller.reopenOperatorWindow(run.id)
@@ -219,11 +220,31 @@ import Testing
         #expect(world.daemon.requests("operator.revoke").isEmpty && world.daemon.requests("window.close").isEmpty)
     }
 
-    @Test func anEndWhileTheHelperIsGoneHoldsAndTheAttachRevokesTheTokenAgain() async throws {
+    @Test func anEndWhileTheHelperIsGoneHoldsAndTheAttachRevokesItsTokenAndClosesItsWindow() async throws {
         let (world, run, _) = try makeWorld()
+        let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(OperatorCommand.makeToken().utf8).write(to: folder.appendingPathComponent(OperatorCommand.tokenFile))
         world.link.attached = false
         try await world.controller.end(run: run.id)
-        #expect(world.run(run.id)?.intent == .stopped && world.daemon.requests("operator.revoke").isEmpty)
+        #expect(world.run(run.id)?.intent == .stopped)
+        #expect(world.daemon.requests("operator.revoke").isEmpty && world.daemon.requests("window.close").isEmpty)
+        world.link.attached = true
+        world.controller.daemonAttached()
+        await world.controller.registering?.value
+        #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
+        #expect(world.daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["w1"])
+    }
+
+    @Test func endingStartsAnotherOperationsQueuedTaskAtOnce() async throws {
+        let (world, run, _) = try makeWorld()
+        let other = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active, planRevision: 1)
+        let queued = OperatorServiceFixtures.task(in: other, project: project, key: "OTHER-1", state: .queued)
+        world.workspace.mutate { $0.runs.append(other); $0.tasks.append(queued) }
+        #expect(world.task(queued.id)?.operated?.launch == nil, "no slot while the first operation's worker holds it")
+        try await world.controller.end(run: run.id)
+        #expect(world.task(queued.id)?.operated?.launch?.number == 1, "claimed by the start pass at once")
+        await world.controller.lastStart?.value
     }
 
     @Test func aFailedRevokeIsLoggedAndTheWindowIsStillClosed() async throws {
@@ -241,6 +262,20 @@ import Testing
                     OperatorServiceFixtures.session("w2", window: "w8", tag: idle.id, state: .idle)])
         try await world.controller.interruptWorkers(run: run.id)
         #expect(world.daemon.requests("session.interrupt").map { $0.params["sessionId"] as? String } == ["w1"])
+    }
+
+    @Test func interruptingTriesEveryWorkerPastAFailureAndLeavesATakenOverOneAlone() async throws {
+        let daemon = RecordingDaemon(failing: ["session.interrupt": .internal])
+        let (world, run, first) = try makeWorld(daemon: daemon)
+        let second = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt2")
+        var mine = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-3", state: .working, worktree: "/tmp/aiterm-wt3")
+        mine.operated?.takenOver = true
+        world.workspace.mutate { $0.tasks.append(second); $0.tasks.append(mine) }
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: first.id, state: .working),
+                    OperatorServiceFixtures.session("w2", window: "w8", tag: second.id, state: .working),
+                    OperatorServiceFixtures.session("w3", window: "w7", tag: mine.id, state: .working)])
+        await #expect(throws: DaemonError.self) { try await world.controller.interruptWorkers(run: run.id) }
+        #expect(daemon.requests("session.interrupt").compactMap { $0.params["sessionId"] as? String }.sorted() == ["w1", "w2"])
     }
 
     @Test func stoppingOneTaskRenamingAndBringingTheChatForward() async throws {
@@ -263,10 +298,9 @@ import Testing
         try world.controller.stop(task: task.id)
         #expect(world.run(run.id)?.state == .complete)
         #expect(world.run(run.id)?.questions.first?.resolution != nil, "a question about a stopped task has nothing left to ask")
-        #expect(!world.notifications.posted.isEmpty)
-        // Its operator is woken: the line says the operation is complete, or counts it among the news.
+        #expect(world.notifications.posted.contains { $0.id == "done-\(run.id.uuidString)" && $0.target == .overview(run.id) }, "you are told it is done")
+        // Its operator is woken; the waker may count the completion among several updates, so only that a line went is pinned.
         try await world.daemon.received("session.deliver")
-        #expect((world.daemon.requests("session.deliver").last?.params["text"] as? String)?.hasPrefix("[AiTerm]") == true)
     }
 
     @Test func stoppingATaskFreesItsSlotForTheNextQueuedTask() async throws {
@@ -338,6 +372,7 @@ import Testing
         await world.controller.reopenWorker(task: task.id)
         #expect(world.daemon.requests("window.createTask").count == 1)
         #expect(world.controller.notices.issue?.title == "Couldn’t reopen Task PLUTO-1’s worker.")
+        #expect(world.controller.notices.issue?.reason == "Its window wouldn’t open.")
         #expect(world.task(task.id)?.windowId == nil)
     }
 
@@ -356,5 +391,109 @@ import Testing
         await world.controller.reopenWorker(task: queued.id)
         #expect(world.daemon.requests("window.createTask").isEmpty)
         #expect(world.controller.notices.issue?.reason == "It hasn’t started: AiTerm opens its window when it does.")
+    }
+
+    // -- reopening the operator --------------------------------------------------------------------
+    @Test func noOperatorIsReopenedWhileTheTabsAreNotKnown() async throws {
+        let (world, run, _) = try makeWorld(runState: .operatorOffline)
+        world.show([])
+        world.controller.handle(.itermDisconnected)
+        await #expect(throws: ActionUnavailable.self) { try await world.controller.reopenOperatorWindow(run.id) }
+        await world.controller.focusOperatorWindow(run: run.id)
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+        #expect(world.controller.notices.issue?.title == "Couldn’t reopen Senior engineer’s window.")
+        #expect(world.run(run.id)?.state == .operatorOffline)
+    }
+
+    @Test func aClickBeforeTheNewOperatorTabIsListedOpensNothingUntilItIsListedAndClosedOrTheWaitHasPassed() async throws {
+        let clock = StepClock()
+        let (world, run, _) = try makeWorld(runState: .operatorOffline, adjust: { $0.now = { clock.now } })
+        world.show([])
+        try await world.controller.reopenOperatorWindow(run.id)
+        try await world.controller.reopenOperatorWindow(run.id)
+        #expect(world.daemon.requests("window.createTask").count == 1, "the tab is not listed yet")
+        // Listed, then closed again: a click opens it again at once.
+        world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
+        world.show([])
+        try await world.controller.reopenOperatorWindow(run.id)
+        #expect(world.daemon.requests("window.createTask").count == 2)
+        // Never listed: opened again once the wait has passed.
+        try await world.controller.reopenOperatorWindow(run.id)
+        #expect(world.daemon.requests("window.createTask").count == 2)
+        clock.advance(by: OperatorTiming.launchAdoptAfter + 1)
+        try await world.controller.reopenOperatorWindow(run.id)
+        #expect(world.daemon.requests("window.createTask").count == 3)
+    }
+
+    /// An end that comes while the operator is reopening: the token registered after its revoke goes again,
+    /// and the window opened after its close is closed. The operation stays ended.
+    @Test func anEndWhileResumeIsReopeningTheOperatorLeavesNothingOpen() async throws {
+        let daemon = RecordingDaemon(holding: "window.createTask")
+        let (world, run, _) = try makeWorld(runState: .operatorOffline, daemon: daemon)
+        world.show([])
+        let resuming = Task { try await world.controller.resume(run: run.id) }
+        try await daemon.received("window.createTask")
+        try await world.controller.end(run: run.id)
+        daemon.release()
+        try await resuming.value
+        #expect(world.run(run.id)?.state == .stopped && world.run(run.id)?.intent == .stopped)
+        #expect(daemon.requests("operator.revoke").count == 2, "its own, and the one for the token registered since")
+        #expect(daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["reopened"])
+    }
+
+    @Test func aClickOnAnEndedOperationBringsItsOperatorWindowForwardButNeverReopensIt() async throws {
+        let (world, run, _) = try makeWorld()
+        try await world.controller.end(run: run.id)
+        await world.controller.focusOperatorWindow(run: run.id)
+        #expect(world.daemon.requests("window.activate").first?.params["windowId"] as? String == "w1")
+        world.show([])
+        await world.controller.focusOperatorWindow(run: run.id)
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+    }
+
+    @Test func aClickOnAnOfflineOperationResumesItInFront() async throws {
+        let (world, run, _) = try makeWorld(runState: .operatorOffline)
+        world.show([])
+        await world.controller.focusOperatorWindow(run: run.id)
+        #expect(world.daemon.requests("window.createTask").count == 1)
+        #expect(world.run(run.id)?.state == .active)
+        #expect(world.daemon.requests("window.activate").last?.params["windowId"] as? String == "reopened")
+        #expect(world.controller.notices.issue == nil)
+    }
+
+    @Test func resumingStartsATaskThatQueuedWhileItWasPaused() async throws {
+        let (world, _, task) = try makeWorld(runState: .paused, taskState: .queued, tab: true)
+        world.controller.reconcileTick()
+        #expect(world.task(task.id)?.operated?.launch == nil, "paused: nothing starts")
+        try await world.controller.resume(run: task.operated!.runId)
+        #expect(world.task(task.id)?.operated?.launch?.number == 1, "claimed by the start pass at once")
+        await world.controller.lastStart?.value
+    }
+
+    // -- reopening a worker, more ------------------------------------------------------------------
+    @Test func aWorkerWindowClickedTwiceBeforeItsTabIsListedOpensOne() async throws {
+        let (world, run, task) = try makeWorld(tab: false)
+        world.workspace.mutate { $0.tasks[0].conversations = [TaskConversation(agent: .claude, id: "conv-7")] }
+        await world.controller.reopenWorker(task: task.id)
+        await world.controller.reopenWorker(task: task.id)
+        #expect(world.daemon.requests("window.createTask").count == 1, "the tab is not listed yet")
+        // Listed, then closed again: the next click opens it.
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "reopened", tag: task.id)])
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        await world.controller.reopenWorker(task: task.id)
+        #expect(world.daemon.requests("window.createTask").count == 2)
+    }
+
+    /// A launch that never showed a window is D14's to launch again: a click resumes nothing of an earlier attempt.
+    @Test func aLaunchThatNeverShowedAWindowIsLeftToTheReconciler() async throws {
+        let (world, _, task) = try makeWorld(tab: false)
+        world.workspace.mutate { state in
+            state.tasks[0].conversations = [TaskConversation(agent: .claude, id: "conv-7")]
+            state.tasks[0].operated?.launch = LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 0))
+        }
+        await world.controller.reopenWorker(task: task.id)
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+        #expect(world.controller.notices.issue == nil)
+        #expect(world.task(task.id)?.operated?.launch?.openedAt == nil && world.task(task.id)?.windowId == nil)
     }
 }
