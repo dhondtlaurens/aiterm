@@ -112,6 +112,15 @@ import Foundation
         #expect(throws: PlanRevision.Failure.unknownRevision(open: 2, asked: 5)) { try PlanRevision.submit(5, run: F.runId, in: &s) }
     }
 
+    /// Revision 0 (or below) is not a closed revision: it is no repeat, and a fresh run has nothing to repeat.
+    @Test(arguments: [0, -1])
+    func aRevisionBelowOneIsNeverARepeat(_ revision: Int) {
+        var (s, _, _) = planning()
+        let before = s
+        #expect(throws: PlanRevision.Failure.unknownRevision(open: 1, asked: revision)) { try PlanRevision.submit(revision, run: F.runId, in: &s) }
+        #expect(s == before)
+    }
+
     /// Spec §9: a new `submit_plan` reopens a complete run as active.
     @Test func aSubmissionReopensACompleteRun() throws {
         var s = F.state(F.run(state: .complete, autonomy: .handsOff, planRevision: 1, approvedRevision: nil),

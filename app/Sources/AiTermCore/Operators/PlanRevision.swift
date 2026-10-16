@@ -94,7 +94,7 @@ public enum PlanRevision {
         guard let run = state.run(id: id) else { throw .unknownRun(id) }
         guard [.planning, .active, .complete].contains(run.state) else { throw .runIs(run.state) }
         let gated = run.persona.autonomy.gatesPlans
-        if revision <= run.planRevision {
+        if revision >= 1, revision <= run.planRevision {
             let waiting = gated && revision > (run.approvedRevision ?? 0)
             return Submitted(revision: revision, awaitingApproval: waiting, repeated: true)
         }
