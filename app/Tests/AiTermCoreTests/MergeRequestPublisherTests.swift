@@ -92,6 +92,95 @@ import Testing
         await #expect(throws: ProtectionUnknown.self) { _ = try await onGitHub.protection(of: "feat/x") }
     }
 
+    private func sentBody(_ request: URLRequest?) throws -> [String: Any] {
+        let data = try #require(request?.httpBody)
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// Four strings of one type: each distinct, so a swap in an adapter changes what is sent.
+    @Test func gitLabCreatesTheRequestWithEachArgumentInItsOwnField() async throws {
+        let stub = StubSession { _ in (201, Data(GitLabPublishTests.created.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        _ = try await publisher.createRequest(from: "feat/source", into: "release/target", title: "The title", description: "The description", draft: true)
+        var fields = try sentBody(stub.lastRequest)
+        #expect(fields["source_branch"] as? String == "feat/source")
+        #expect(fields["target_branch"] as? String == "release/target")
+        #expect(fields["title"] as? String == "Draft: The title", "GitLab's draft is its title prefix")
+        #expect(fields["description"] as? String == "The description")
+        _ = try await publisher.createRequest(from: "feat/source", into: "release/target", title: "The title", description: "The description", draft: false)
+        fields = try sentBody(stub.lastRequest)
+        #expect(fields["title"] as? String == "The title")
+        #expect(stub.lastRequest?.httpMethod == "POST")
+    }
+
+    @Test func gitHubCreatesThePullRequestWithEachArgumentInItsOwnField() async throws {
+        let stub = StubSession { _ in (201, Data(GitHubPublishTests.pull(draft: true, mergeable: "null", mergeableState: "unknown").utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        let request = try await publisher.createRequest(from: "feat/source", into: "release/target", title: "The title", description: "The description", draft: true)
+        #expect(request.iid == 88)
+        #expect(stub.lastRequest?.httpMethod == "POST")
+        #expect(stub.lastRequest?.url?.absoluteString == GitHubPublishTests.api + "/pulls")
+        var fields = try sentBody(stub.lastRequest)
+        #expect(fields["head"] as? String == "feat/source")
+        #expect(fields["base"] as? String == "release/target")
+        #expect(fields["title"] as? String == "The title")
+        #expect(fields["body"] as? String == "The description")
+        #expect(fields["draft"] as? Bool == true)
+        _ = try await publisher.createRequest(from: "feat/source", into: "release/target", title: "The title", description: "The description", draft: false)
+        fields = try sentBody(stub.lastRequest)
+        #expect(fields["draft"] as? Bool == false)
+        #expect(fields["head"] as? String == "feat/source" && fields["base"] as? String == "release/target")
+    }
+
+    @Test func gitLabFindsTheOpenRequestFromTheSourceBranchAndMapsWhatItCannotTrust() async throws {
+        let listed = "[" + GitLabPublishTests.status(detailed: "mergeable", pipeline: "success") + "]"
+        let stub = StubSession { _ in (200, Data(listed.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        let found = try await publisher.existingRequest(from: "feat/pluto-231-add-gift-card")
+        #expect(found?.iid == 12)
+        #expect(found?.targetBranch == "main", "the request carries where it points")
+        let url = try #require(stub.lastRequest?.url)
+        #expect(url.absoluteString.hasPrefix("https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests?"))
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(query.first { $0.name == "source_branch" }?.value == "feat/pluto-231-add-gift-card")
+        #expect(query.first { $0.name == "state" }?.value == "opened")
+        #expect(stub.lastRequest?.httpMethod == "GET")
+
+        // A fork's request of the same branch name is not the task's: none, not a wrong one.
+        let fork = GitLabPublishTests.status(detailed: "mergeable", pipeline: "success")
+            .replacingOccurrences(of: #""project_id":42"#, with: #""source_project_id":99,"target_project_id":42"#)
+        let forked = StubSession { _ in (200, Data(("[" + fork + "]").utf8)) }
+        let other = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: forked.session)
+        #expect(try await other.existingRequest(from: "feat/pluto-231-add-gift-card") == nil)
+
+        // An answer that cannot be read is an error, never "no request" (which would open a second).
+        let garbled = StubSession { _ in (200, Data(#"[{"iid":"twelve"}]"#.utf8)) }
+        let broken = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: garbled.session)
+        await #expect(throws: GitLabError.decoding) { _ = try await broken.existingRequest(from: "feat/pluto-231-add-gift-card") }
+    }
+
+    @Test func gitHubFindsTheOpenPullRequestFromTheSourceBranchAndMapsWhatItCannotTrust() async throws {
+        let stub = StubSession { _ in (200, Data(("[" + GitHubPublishTests.pull() + "]").utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        let found = try await publisher.existingRequest(from: "feat/pluto-231")
+        #expect(found?.iid == 88)
+        #expect(found?.targetBranch == "main")
+        let url = try #require(stub.lastRequest?.url)
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(url.path == "/repos/octocat/hello/pulls")
+        #expect(query.first { $0.name == "head" }?.value == "octocat:feat/pluto-231")
+        #expect(query.first { $0.name == "state" }?.value == "open")
+
+        let fork = GitHubPublishTests.pull(headRepo: "mallory/hello", headLabel: "mallory:feat/pluto-231")
+        let forked = StubSession { _ in (200, Data(("[" + fork + "]").utf8)) }
+        let other = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: forked.session)
+        #expect(try await other.existingRequest(from: "feat/pluto-231") == nil)
+
+        let garbled = StubSession { _ in (200, Data(#"[{"number":"eighty-eight"}]"#.utf8)) }
+        let broken = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: garbled.session)
+        await #expect(throws: GitHubError.decoding) { _ = try await broken.existingRequest(from: "feat/pluto-231") }
+    }
+
     @Test func gitLabReadsMergesAndRetargetsTheRequestByItsIid() async throws {
         let stub = StubSession { request in
             let path = request.url?.path ?? ""
