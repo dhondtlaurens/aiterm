@@ -3,10 +3,13 @@
 how it types."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from aitermd import delivery
-from aitermd.delivery import open_prompt
+from aitermd.delivery import load_policy, open_prompt
 from aitermd.models import HARNESS_BY_AGENT
 
 # What Claude Code 2.1.301 and Codex 0.160.0 drew in the spike (15 Oct 2026), read back from iTerm2.
@@ -106,3 +109,61 @@ def test_the_timings_are_the_contracts():
     assert (delivery.SUBMIT_DELAY, delivery.TYPING_QUIET, delivery.MESSAGE_FILE_THRESHOLD) == (0.4, 10.0, 2000)
     assert (delivery.WAKE_COALESCE, delivery.RECONCILE_INTERVAL, delivery.STALL_AFTER) == (3.0, 60.0, 1200.0)
     assert (delivery.CHALLENGE_TIMEOUT, delivery.OPERATOR_REQUEST_TIMEOUT, delivery.LAUNCH_ADOPT_AFTER) == (180.0, 30.0, 60.0)
+
+
+def _policy_file(tmp_path, content):
+    path = tmp_path / "delivery-policy.json"
+    path.write_bytes(content if isinstance(content, bytes) else json.dumps(content).encode())
+    return path
+
+
+NOTHING_CHECKED = {"claude": ("off", None), "codex": ("off", None), "grok": ("off", None), "pi": ("off", None)}
+
+
+def test_paste_and_submit_safe_is_auto_and_paste_safe_alone_is_paste_only(tmp_path):
+    path = _policy_file(tmp_path, {
+        "claude": {"version": "2.1.301", "pasteSafe": True, "submitSafe": True, "checkedAt": "2026-10-16T08:00:00Z"},
+        "codex": {"version": "0.160.0", "pasteSafe": True, "submitSafe": False, "checkedAt": "2026-10-16T08:00:00Z"},
+        # The delivery check's own iTerm2 entry is no harness: it is read past.
+        "iterm": {"version": "3.7.5", "keystrokesPassThrough": True},
+    })
+    assert load_policy(path) == {"claude": ("auto", "2.1.301"), "codex": ("pasteOnly", "0.160.0"), "grok": ("off", None),
+                                 "pi": ("off", None)}
+    assert load_policy(path)["claude"].version == "2.1.301"
+
+
+@pytest.mark.parametrize("entry", [
+    {"version": "2.1.301", "pasteSafe": False, "submitSafe": True},   # submit-safe means nothing without paste-safe
+    {"version": "2.1.301", "pasteSafe": "true", "submitSafe": True},  # only a JSON true counts
+    {"version": "2.1.301", "pasteSafe": 1, "submitSafe": 1},
+    {"version": "2.1.301", "submitSafe": True},
+    "auto",
+])
+def test_anything_short_of_paste_safe_is_off(tmp_path, entry):
+    assert load_policy(_policy_file(tmp_path, {"claude": entry}))["claude"].policy == "off"
+
+
+@pytest.mark.parametrize("version", [None, "", 2, ["2.1.301"]])
+def test_a_verdict_that_names_no_version_vouches_for_none(tmp_path, version):
+    entry = {"pasteSafe": True, "submitSafe": True} | ({} if version is None else {"version": version})
+    assert load_policy(_policy_file(tmp_path, {"claude": entry}))["claude"] == ("off", None)
+
+
+@pytest.mark.parametrize("content", [b"{not json", b"[]", b"null", b"\xff\xfe{}"])
+def test_an_unreadable_policy_turns_every_delivery_off(tmp_path, content):
+    assert load_policy(_policy_file(tmp_path, content)) == NOTHING_CHECKED
+
+
+def test_a_missing_policy_turns_every_delivery_off(tmp_path):
+    assert load_policy(tmp_path / "nowhere.json") == NOTHING_CHECKED
+
+
+def test_the_policy_lives_in_application_support():
+    assert delivery.POLICY_PATH == Path.home() / "Library" / "Application Support" / "AiTerm" / "delivery-policy.json"
+
+
+@pytest.mark.parametrize("agent", ["grok", "pi"])
+def test_a_harness_with_no_prompt_markers_stays_off_whatever_the_file_says(tmp_path, agent):
+    # open_prompt sees nothing on such a harness's screen, which proves nothing: it must not fail open.
+    entry = {"version": "1.0.44", "pasteSafe": True, "submitSafe": True}
+    assert load_policy(_policy_file(tmp_path, {agent: entry}))[agent] == ("off", None)

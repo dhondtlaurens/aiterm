@@ -2,7 +2,9 @@
 reading off its screen whether a prompt is open that typed text could answer."""
 from __future__ import annotations
 
-from typing import Literal
+import json
+from pathlib import Path
+from typing import Any, Literal, NamedTuple
 
 from .models import HARNESS_BY_AGENT, AgentKind
 
@@ -53,3 +55,54 @@ def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
     if _shows(screen, harness.menu_prompt):
         return "menu"
     return None
+
+
+# How AiTerm may type into one CLI, from the delivery check it last passed (tools/delivery_check.py):
+# `auto` pastes and presses Enter; `pasteOnly` pastes and leaves the Enter to you; `off` types nothing.
+DeliveryPolicy = Literal["auto", "pasteOnly", "off"]
+# Written by the delivery check; read on every delivery, so a new check needs no daemon restart.
+POLICY_PATH = Path.home() / "Library" / "Application Support" / "AiTerm" / "delivery-policy.json"
+
+
+class Verdict(NamedTuple):
+    """What the delivery check found for one CLI: the policy, and the version it was checked against.
+    It vouches for that version alone: the Deliverer types into a session only while the CLI there
+    reports the same version (SessionInfo.cli_version), so an update the CLI installed since gets
+    nothing until it is checked again."""
+    policy: DeliveryPolicy
+    version: str | None
+
+
+# A CLI the delivery check has not passed, or passed for no version it named.
+NOT_CHECKED = Verdict("off", None)
+
+
+def _has_prompt_markers(agent: AgentKind) -> bool:
+    harness = HARNESS_BY_AGENT[agent]
+    return bool(harness.permission_prompt or harness.startup_prompt or harness.menu_prompt)
+
+
+def load_policy(path: Path) -> dict[AgentKind, Verdict]:
+    """Every harness's verdict from the delivery check's file: paste-safe and submit-safe is `auto`,
+    paste-safe alone `pasteOnly`, and anything else -- a harness the file does not name, a value
+    that is not a JSON true, an entry that names no version, a file missing or unreadable -- `off`.
+    So is a harness with no prompt markers, whatever the file says: `open_prompt` reads none off its
+    screen, and that must not pass for a screen with no prompt open. Delivery fails closed: a CLI
+    whose pasted text might act as keys in one of its prompts gets none at all (spec §7.1)."""
+    raw: Any
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):  # ValueError: not JSON, or bytes that are not UTF-8
+        raw = None
+    entries = raw if isinstance(raw, dict) else {}
+    verdicts: dict[AgentKind, Verdict] = {}
+    for agent in HARNESS_BY_AGENT:
+        entry = entries.get(agent)
+        version = entry.get("version") if isinstance(entry, dict) else None
+        if not isinstance(version, str) or not version or not _has_prompt_markers(agent):
+            verdicts[agent] = NOT_CHECKED
+            continue
+        paste = isinstance(entry, dict) and entry.get("pasteSafe") is True
+        submit = isinstance(entry, dict) and entry.get("submitSafe") is True
+        verdicts[agent] = Verdict("auto" if paste and submit else "pasteOnly" if paste else "off", version)
+    return verdicts
