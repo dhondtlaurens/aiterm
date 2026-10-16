@@ -395,6 +395,7 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
+                case .operatorEditor(let model): OperatorSheet(model: model)
             }
         }
         .interfaceScale(.standard)

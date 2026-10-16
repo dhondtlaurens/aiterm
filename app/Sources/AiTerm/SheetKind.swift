@@ -62,6 +62,8 @@ extension AppController {
         case backpack(BackpackSheetModel)
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
         case archive(ArchiveSheetModel)
+        /// New Operator… and Edit Operator…: its model is built once, its catalogues read, as New Task's is.
+        case operatorEditor(OperatorSheetModel)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -73,6 +75,7 @@ extension AppController {
             case .settings: return "settings"
             case .backpack: return "backpack"
             case .archive: return "archive"
+            case .operatorEditor(let model): return "operator-\(model.id)"
             }
         }
     }

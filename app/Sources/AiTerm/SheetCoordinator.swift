@@ -134,6 +134,28 @@ final class SheetCoordinator {
         }
     }
 
+    /// The operator sheet — for a new operator (`editing` nil) or one to edit — opened once Claude's and
+    /// Codex's model lists are read off the main actor, as New Task's draft is. Not over another sheet.
+    func presentOperatorSheet(editing: OperatorPersona?, takenHandles: Set<String>,
+                              save: @escaping @MainActor (OperatorPersona) throws -> Void) {
+        guard canChangeWorkspace, sheet == nil else { return }
+        preparingSheet?.cancel()
+        let catalogue = agents.catalogue
+        preparingSheet = Task {
+            let models = await BackgroundWork.run {
+                (claude: (try? catalogue.models(for: .claude)) ?? [], codex: (try? catalogue.models(for: .codex)) ?? [])
+            }
+            guard !Task.isCancelled, canChangeWorkspace, sheet == nil else { return }
+            sheet = .operatorEditor(OperatorSheetModel(editing: editing, claudeModels: models.claude, codexModels: models.codex,
+                                                       takenHandles: takenHandles, save: save))
+        }
+    }
+
+    /// An operator sheet built by its caller — New operation, an overview — put in the slot at once.
+    func present(operatorSheet kind: SheetKind) {
+        present(kind)
+    }
+
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
     /// terminal opens in the project folder and starts no agent. The branch the destination line
     /// names is the project checkout's, as the checkout monitor read it on its last pass — the

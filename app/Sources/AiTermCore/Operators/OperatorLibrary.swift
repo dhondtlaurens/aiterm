@@ -132,13 +132,24 @@ public struct OperatorLibrary: Sendable {
     /// and `-2`, `-3`… past the ones taken. Compared without case, as the Mac's file system does.
     /// `excluding` is the operator being renamed, whose own handle is not in the way.
     public func uniqueHandle(for name: String, excluding: String? = nil) -> String {
+        Self.handle(for: name, taken: takenHandles().subtracting([excluding?.lowercased()].compactMap { $0 }))
+    }
+
+    /// The names the folder's files hold, lowercased: every `*.md`, an operator or not, since a new
+    /// operator's file must not land on one of them. What the operator sheet is told is taken.
+    public func takenHandles() -> Set<String> {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return Set(names.filter { $0.hasSuffix(".md") }.map { String($0.dropLast(3)).lowercased() })
+    }
+
+    /// `name` as a handle, free among `taken` (compared without case): the one rule `uniqueHandle` and
+    /// the operator sheet both name a new operator's file by.
+    public static func handle(for name: String, taken: Set<String>) -> String {
         let words = name.lowercased().folding(options: .diacriticInsensitive, locale: nil)
             .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
         let base = String(words.joined(separator: "-").prefix(48)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        let stem = Self.isValidHandle(base) ? base : "operator"
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        let taken = Set(names.filter { $0.hasSuffix(".md") }.map { String($0.dropLast(3)).lowercased() })
-            .subtracting([excluding?.lowercased()].compactMap { $0 })
+        let stem = isValidHandle(base) ? base : "operator"
+        let taken = Set(taken.map { $0.lowercased() })
         guard taken.contains(stem) else { return stem }
         var n = 2
         while taken.contains("\(stem)-\(n)") { n += 1 }

@@ -36,3 +36,24 @@ extension AppController {
         }
     }
 }
+
+extension AppController {
+    /// OPERATORS' "+": a new operator, its file named from its name.
+    func presentNewOperator() {
+        presentOperatorSheet(editing: nil)
+    }
+
+    /// An operator header's Edit Operator…: the same sheet, titled with its name.
+    func presentEditOperator(_ persona: OperatorPersona) {
+        presentOperatorSheet(editing: persona)
+    }
+
+    /// The names taken are the library's own count — the files in its folder, an unreadable one too —
+    /// so a new operator's file, named as `uniqueHandle` would name it, never lands on one.
+    private func presentOperatorSheet(editing persona: OperatorPersona?) {
+        let controller = operatorController
+        sheets.presentOperatorSheet(editing: persona, takenHandles: controller.ports.library.takenHandles()) {
+            try controller.saveOperator($0)
+        }
+    }
+}
