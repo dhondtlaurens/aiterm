@@ -67,6 +67,15 @@ def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
     return None
 
 
+def shows_input_box(agent: AgentKind, screen: str) -> bool:
+    """Whether some line of `screen` starts, past its spaces, with the harness's input-box marker
+    (Claude's `❯`, Codex's `›`): the positive sign that this is the CLI's own screen, idle or at work,
+    and not a blank, a crashed shell or something unrecognised. A harness without markers shows none."""
+    if (harness := HARNESS_BY_AGENT.get(agent)) is None or not harness.input_box:
+        return False
+    return any(line.lstrip()[:1] in harness.input_box for line in screen.splitlines() if line.strip())
+
+
 # How AiTerm may type into one CLI, from the delivery check it last passed (tools/delivery_check.py):
 # `auto` pastes and presses Enter; `pasteOnly` pastes and leaves the Enter to you; `off` types nothing.
 DeliveryPolicy = Literal["auto", "pasteOnly", "off"]
@@ -87,9 +96,10 @@ class Verdict(NamedTuple):
 NOT_CHECKED = Verdict("off", None)
 
 
-def _has_prompt_markers(agent: AgentKind) -> bool:
+def _screen_is_readable(agent: AgentKind) -> bool:
+    # Prompt markers to refuse on and an input box to recognise the screen by: delivery needs both.
     harness = HARNESS_BY_AGENT[agent]
-    return bool(harness.permission_prompt or harness.startup_prompt or harness.menu_prompt)
+    return bool(harness.permission_prompt or harness.startup_prompt or harness.menu_prompt) and bool(harness.input_box)
 
 
 def load_policy(path: Path) -> dict[AgentKind, Verdict]:
@@ -109,7 +119,7 @@ def load_policy(path: Path) -> dict[AgentKind, Verdict]:
     for agent in HARNESS_BY_AGENT:
         entry = entries.get(agent)
         version = entry.get("version") if isinstance(entry, dict) else None
-        if not isinstance(version, str) or not version or not _has_prompt_markers(agent):
+        if not isinstance(version, str) or not version or not _screen_is_readable(agent):
             verdicts[agent] = NOT_CHECKED
             continue
         paste = isinstance(entry, dict) and entry.get("pasteSafe") is True
@@ -249,6 +259,9 @@ class Deliverer:
             return "the screen came back empty, so whether a prompt is open is unknown"
         if (prompt := open_prompt(agent, screen)) is not None:
             return f"a {prompt} prompt is open"
+        if not shows_input_box(agent, screen):
+            # Prompts are checked first: an approval's menu draws `❯` on its selected option too.
+            return "unrecognised screen"
         return None
 
     async def _changed(self, session: SessionInfo, ownership: int, wake: bool) -> str | None:

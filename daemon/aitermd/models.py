@@ -53,6 +53,9 @@ class Harness:
     permission_prompt: tuple[str, ...] = ()
     startup_prompt: tuple[str, ...] = ()
     menu_prompt: tuple[str, ...] = ()
+    # What an idle or working CLI draws at the start of its input line (delivery.shows_input_box): the
+    # positive sign that the screen is the CLI's own and recognised, which no prompt marker proves.
+    input_box: tuple[str, ...] = ()
 
 
 HARNESSES: tuple[Harness, ...] = (
@@ -63,13 +66,15 @@ HARNESSES: tuple[Harness, ...] = (
             trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
             permission_prompt=("Do you want to proceed?",), menu_prompt=("Enter to select", "Esc to cancel"),
             # The trust dialog, by the same words as `trust_prompt`.
-            startup_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?")),
+            startup_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
+            input_box=("❯",)),
     # `Stop` over MCP; the other hooks are spawned curl.
     Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
             menu_prompt=("Press enter to confirm or esc to cancel",),
             # The update dialog by its own options: the idle banner also says "Update available".
-            startup_prompt=("Trust this folder?", "Skip until next version", "Update now")),
+            startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
+            input_box=("›",)),
     # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
     # process may be titled with the resolved name: versioned since 1.0.44
     # (`grok-1.0.44-macos-aarch64`), and naming the architecture (`grok-macos-x86_64`).

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from aitermd import delivery
-from aitermd.delivery import PASTE_END, PASTE_START, Deliverer, DeliveryResult, load_policy, open_prompt
+from aitermd.delivery import PASTE_END, PASTE_START, Deliverer, DeliveryResult, load_policy, open_prompt, shows_input_box
 from aitermd.iterm_bridge import ItermUnavailable
 from aitermd.keystrokes import TypingGuard
 from aitermd.models import HARNESS_BY_AGENT, Frame
@@ -71,7 +71,14 @@ CODEX_IDLE_WITH_UPDATE_BANNER = """\
 ›\x20
   ? for shortcuts
 """
-IDLE = " ╭──────────╮\n │ >        │\n ╰──────────╯\n  ? for shortcuts"
+# Idle and at work, as the spike drew them: Claude's input line starts with ❯ between two rules,
+# Codex's with ›. (The empty input's trailing space is written \x20 for ruff's W291.)
+IDLE = "────────────────\n❯\x20\n────────────────\n  ? for shortcuts"
+CLAUDE_WORKING = "✻ Thinking… (esc to interrupt)\n\n────────────────\n❯\x20\n────────────────\n  ⏵⏵ accept edits on"
+CODEX_IDLE = "›\x20Ask Codex to do anything\n\n  ? for shortcuts"
+CODEX_WORKING = "• Working (3s • esc to interrupt)\n\n›\x20Ask Codex to do anything\n\n  ? for shortcuts"
+# A shell prompt, a crash trace: non-empty, no prompt open, and not the CLI's own screen.
+UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
 
 
 @pytest.mark.parametrize("agent,screen,expected", [
@@ -84,7 +91,7 @@ IDLE = " ╭──────────╮\n │ >        │\n ╰───�
     ("codex", CODEX_PERMISSION, "permission"),
     ("codex", CODEX_TRUST, "startup"),
     ("codex", CODEX_UPDATE, "startup"),
-    ("codex", IDLE, None),
+    ("codex", CODEX_IDLE, None),
     # The banner only announces an update; the dialog is known by its own options.
     ("codex", CODEX_IDLE_WITH_UPDATE_BANNER, None),
     # Drawn with cursor moves for spaces, or wrapped where the window is narrow.
@@ -93,6 +100,22 @@ IDLE = " ╭──────────╮\n │ >        │\n ╰───�
 ])
 def test_open_prompt_reads_each_harness_markers(agent, screen, expected):
     assert open_prompt(agent, screen) == expected
+
+
+@pytest.mark.parametrize("agent,screen", [
+    ("claude", IDLE), ("claude", CLAUDE_WORKING), ("codex", CODEX_IDLE), ("codex", CODEX_WORKING),
+    ("codex", CODEX_IDLE_WITH_UPDATE_BANNER),
+])
+def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
+    assert shows_input_box(agent, screen)
+
+
+@pytest.mark.parametrize("agent,screen", [
+    ("claude", UNRECOGNISED), ("claude", "  \n"), ("codex", IDLE),  # Claude's ❯ is not Codex's ›
+    ("claude", "text then ❯ mid-line"), ("grok", IDLE), ("pi", CODEX_IDLE), ("shell", IDLE),
+])
+def test_anything_else_shows_no_input_box(agent, screen):
+    assert not shows_input_box(agent, screen)
 
 
 @pytest.mark.parametrize("agent", ["grok", "pi", "shell"])
@@ -346,3 +369,39 @@ async def test_deliveries_to_one_session_take_turns(rig):
     second = asyncio.create_task(rig.deliverer.deliver(rig.sid, "two", 1))
     await asyncio.gather(first, second)
     assert [text for _sid, text in rig.iterm.sent] == [pasted("one"), "\r", pasted("two"), "\r"]
+
+
+@pytest.mark.parametrize("screen", [IDLE, CLAUDE_WORKING])
+async def test_claudes_idle_and_working_screens_take_text(rig, screen):
+    rig.iterm.screens[rig.sid] = screen
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+
+
+@pytest.mark.parametrize("screen", [CODEX_IDLE, CODEX_WORKING])
+async def test_codexs_idle_and_working_screens_take_text(rig, screen):
+    rig.iterm.sessions[rig.sid].job_pid = 4343
+    await rig.iterm.user_runs(rig.sid, "codex", job_pid=4343)
+    rig.registry.apply_snapshot([rig.iterm.sessions[rig.sid]])
+    rig.registry.set_cli_version(rig.sid, "0.160.0")
+    rig.iterm.screens[rig.sid] = screen
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+
+
+async def test_a_non_empty_screen_without_the_input_box_is_refused_and_nothing_is_typed(rig):
+    rig.iterm.screens[rig.sid] = UNRECOGNISED
+    assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("refused", "unrecognised screen")
+    assert rig.iterm.sent == []
+
+
+async def test_a_prompt_is_named_before_the_screen_is_called_unrecognised(rig):
+    # An approval's selected option starts with the input marker too; the prompt wins.
+    assert "❯" in CLAUDE_PERMISSION
+    rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).reason == "a permission prompt is open"
+
+
+async def test_an_input_box_that_disappears_between_paste_and_enter_gets_no_enter(rig):
+    rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, UNRECOGNISED))
+    result = await rig.deliverer.deliver(rig.sid, "hello", 1)
+    assert result == DeliveryResult("partial", "before Enter, unrecognised screen; the text waits unsent in the input")
+    assert rig.iterm.sent == [(rig.sid, pasted("hello"))]
