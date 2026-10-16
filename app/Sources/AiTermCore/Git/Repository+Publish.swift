@@ -163,12 +163,12 @@ extension Repository {
     }
 
     /// `name` without a leading `refs/heads/`: `refs/heads/main` names the default branch's own ref.
-    private static func shortBranch(_ name: String) -> String {
+    static func shortBranch(_ name: String) -> String {
         name.hasPrefix("refs/heads/") ? String(name.dropFirst("refs/heads/".count)) : name
     }
 
     /// `name` compared the way a case-insensitive or normalising file system or host would.
-    private static func folded(_ name: String) -> String {
+    static func folded(_ name: String) -> String {
         name.precomposedStringWithCanonicalMapping.folding(options: [.caseInsensitive], locale: nil)
     }
 }
