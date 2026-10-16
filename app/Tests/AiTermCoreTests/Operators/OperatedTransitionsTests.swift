@@ -1,0 +1,242 @@
+import Testing
+import Foundation
+@testable import AiTermCore
+
+/// Spec §8's table, row by row, on one task: who may ask, from which state, in which run state,
+/// and that every action repeated returns the task unchanged (spec §11).
+@Suite struct OperatedTransitionsTests {
+    typealias F = OperatorFixtures
+    let head = "4f2a91c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6"
+    /// M1's rules, named rather than `OperatorMilestone.current`'s: parts F and G raise that, and the
+    /// rules that change with it are tested at each milestone below.
+    let active = OperatedContext(runState: .active, retryLimit: 2, milestone: .m1)
+
+    private func apply(_ action: OperatedAction, _ task: OperatedTask, by actor: OperatedActor = .operatorTool,
+                       _ context: OperatedContext? = nil) throws(OperatedTransitionError) -> OperatedTask {
+        try OperatedTransitions.apply(action, to: task, by: actor, context: context ?? active)
+    }
+
+    // MARK: planned → queued
+
+    @Test func approvingARevisionQueuesItsPlannedTasks() throws {
+        let task = F.operated("A", .planned, revision: 2)
+        #expect(try apply(.approve(revision: 2), task, by: .you).state == .queued)
+        #expect(try apply(.approve(revision: 3), task, by: .you).state == .queued)
+        #expect(try apply(.release(revision: 2), task, by: .aiterm).state == .queued)
+    }
+
+    @Test func anOlderRevisionDoesNotReleaseATaskChangedSince() {
+        #expect(throws: OperatedTransitionError.notInRevision(approved: 1, taskRevision: 2)) {
+            try apply(.approve(revision: 1), F.operated("A", .planned, revision: 2), by: .you)
+        }
+    }
+
+    @Test func onlyYouApproveAndOnlyAiTermReleasesOrStarts() {
+        let planned = F.operated("A", .planned)
+        #expect(throws: OperatedTransitionError.wrongActor(action: "be approved", actor: .operatorTool)) {
+            try apply(.approve(revision: 1), planned)
+        }
+        #expect(throws: OperatedTransitionError.wrongActor(action: "be released", actor: .you)) {
+            try apply(.release(revision: 1), planned, by: .you)
+        }
+        #expect(throws: OperatedTransitionError.wrongActor(action: "start", actor: .operatorTool)) {
+            try apply(.start(LaunchAttempt(number: 1, requestedAt: F.epoch)), F.operated("A", .queued))
+        }
+    }
+
+    // MARK: queued → working
+
+    @Test func startingSavesTheLaunchIntent() throws {
+        let attempt = LaunchAttempt(number: 1, requestedAt: F.epoch)
+        let started = try apply(.start(attempt), F.operated("A", .queued), by: .aiterm)
+        #expect(started.state == .working && started.launch == attempt && started.started)
+        #expect(try apply(.start(attempt), started, by: .aiterm) == started)
+    }
+
+    @Test(arguments: [OperatorRunState.planning, .paused, .operatorOffline, .complete, .stopped])
+    func nothingStartsOutsideAnActiveRun(_ runState: OperatorRunState) {
+        #expect(throws: OperatedTransitionError.runIs(runState)) {
+            try apply(.start(LaunchAttempt(number: 1, requestedAt: F.epoch)), F.operated("A", .queued), by: .aiterm,
+                      OperatedContext(runState: runState, retryLimit: 2))
+        }
+    }
+
+    // MARK: working → accepted / noChange
+
+    @Test func acceptingRecordsTheFullHeadAndSettlesTheFlags() throws {
+        var task = F.operated("A", .working)
+        task.flags = [.possiblyStalled, .waitingOnYou, .uncertain]
+        let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), task)
+        #expect(accepted.state == .accepted)
+        #expect(accepted.acceptance?.resultSHA == head)
+        #expect(accepted.acceptance?.checkOutput == "42 tests passed")
+        #expect(accepted.flags == [.uncertain])
+        #expect(try apply(.accept(F.acceptance(head), branchHead: head), accepted) == accepted, "the same SHA again is the earlier result")
+    }
+
+    @Test func aMovedBranchIsNotAccepted() {
+        #expect(throws: OperatedTransitionError.notTheBranchHead(sha: "4f2a91c", head: "9999999aaaa")) {
+            try apply(.accept(F.acceptance("4f2a91c"), branchHead: "9999999aaaa"), F.operated("A", .working))
+        }
+    }
+
+    @Test(arguments: [("", "ok"), ("4f2a91c", ""), ("4f2a91c", "  \n")])
+    func acceptingNeedsTheSHAAndTheCheckOutput(_ sha: String, _ check: String) {
+        #expect(throws: OperatedTransitionError.missingEvidence) {
+            try apply(.accept(F.acceptance(sha, check: check), branchHead: head), F.operated("A", .working))
+        }
+    }
+
+    /// M1: once a `code` dependent started, the parent cannot be accepted again on another SHA.
+    @Test func reacceptingOnAnotherSHAIsRefusedOnceACodeDependentStarted() throws {
+        let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("A", .working))
+        let newHead = "abcdef0123456789"
+        let moved = try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted)
+        #expect(moved.acceptance?.resultSHA == newHead, "no dependent started: the new SHA replaces the old")
+        #expect(throws: OperatedTransitionError.reacceptAfterDependentStarted) {
+            try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted,
+                      OperatedContext(runState: .active, retryLimit: 2, codeDependentStarted: true, milestone: .m1))
+        }
+    }
+
+    /// M3 lifts that rule (spec §8): a parent accepted again replaces what its dependents built on, and a
+    /// published task is accepted again on a new commit for `finish_task` to push. Before M3 a published
+    /// task is never accepted again.
+    @Test func fromM3AParentIsAcceptedAgainAfterItsDependentStartedAndAfterItWasPublished() throws {
+        let m3 = OperatedContext(runState: .active, retryLimit: 2, codeDependentStarted: true, milestone: .m3)
+        let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("A", .working), m3)
+        let newHead = "abcdef0123456789"
+        #expect(try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), accepted, m3).acceptance?.resultSHA == newHead)
+        var published = accepted
+        published.state = .published
+        let again = try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), published, m3)
+        #expect(again.state == .accepted && again.acceptance?.resultSHA == newHead)
+        #expect(try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), published, m3) == published, "the same commit is a repeat")
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be accepted", from: .published)) {
+            try apply(.accept(F.acceptance("abcdef0"), branchHead: newHead), published)
+        }
+    }
+
+    @Test func noChangeIsAnEnd() throws {
+        let done = try apply(.noChange(note: "already fixed"), F.operated("A", .working))
+        #expect(done.state == .noChange)
+        #expect(try apply(.noChange(note: nil), done) == done)
+        #expect(throws: OperatedTransitionError.notAllowed(action: "end with no change", from: .queued)) {
+            try apply(.noChange(note: nil), F.operated("A", .queued))
+        }
+    }
+
+    // MARK: blocked, failed, retries
+
+    @Test func blockingAndResumingKeepTheSameWorker() throws {
+        let blocked = try apply(.block(reason: "needs the API key"), F.operated("A", .working))
+        #expect(blocked.state == .blocked && blocked.blockedReason == "needs the API key")
+        #expect(try apply(.block(reason: "needs the API key"), blocked) == blocked)
+        let resumed = try apply(.resume, blocked)
+        #expect(resumed.state == .working && resumed.blockedReason == nil)
+        #expect(try apply(.resume, resumed) == resumed)
+    }
+
+    /// A task blocked before it ever ran — upstream failed, then retried — waits its turn again.
+    @Test func resumingATaskThatNeverRanQueuesIt() throws {
+        var task = F.operated("B", .blocked, launched: false)
+        task.blockedReason = "upstream failed: A"
+        #expect(try apply(.resume, task).state == .queued)
+    }
+
+    @Test func onlyAiTermBlocksAQueuedOrFailedTask() throws {
+        #expect(try apply(.block(reason: "limits"), F.operated("A", .failed), by: .aiterm).state == .blocked)
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be blocked", from: .queued)) {
+            try apply(.block(reason: "x"), F.operated("A", .queued))
+        }
+    }
+
+    @Test func aFailedTaskIsRetriedWhileRetriesAreLeft() throws {
+        let failed = try apply(.fail(reason: "tests red"), F.operated("A", .working))
+        #expect(failed.state == .failed && failed.blockedReason == "tests red")
+        let once = try apply(.retry, failed)
+        #expect(once.state == .queued && once.retriesUsed == 1 && once.blockedReason == nil)
+        #expect(try apply(.retry, once) == once, "a repeated retry is the earlier result")
+        var spent = failed
+        spent.retriesUsed = 2
+        #expect(throws: OperatedTransitionError.noRetriesLeft(limit: 2)) { try apply(.retry, spent) }
+    }
+
+    @Test func limitsSayWhyAiTermBlocks() {
+        var failed = F.operated("A", .failed)
+        failed.retriesUsed = 2
+        #expect(OperatedTransitions.limitReason(for: failed, limits: OperatorLimits(retries: 2)) != nil)
+        failed.retriesUsed = 1
+        #expect(OperatedTransitions.limitReason(for: failed, limits: OperatorLimits(retries: 2)) == nil)
+        var working = F.operated("A", .working)
+        working.runtimeUsed = 90 * 60
+        #expect(OperatedTransitions.limitReason(for: working, limits: OperatorLimits(runtimeMinutes: 90)) != nil)
+        working.runtimeUsed = 89 * 60
+        #expect(OperatedTransitions.limitReason(for: working, limits: OperatorLimits(runtimeMinutes: 90)) == nil)
+    }
+
+    // MARK: run state and takeover
+
+    /// Spec §9: a paused, offline or stopped run refuses the operator's mutations; a complete one
+    /// still takes them.
+    @Test(arguments: [OperatorRunState.planning, .paused, .operatorOffline, .stopped])
+    func theOperatorsMutationsNeedAnActiveRun(_ runState: OperatorRunState) {
+        #expect(throws: OperatedTransitionError.runIs(runState)) {
+            try apply(.fail(reason: "x"), F.operated("A", .working), OperatedContext(runState: runState, retryLimit: 2))
+        }
+    }
+
+    @Test func aCompleteRunStillTakesAnAcceptance() throws {
+        let accepted = try apply(.accept(F.acceptance(head), branchHead: head), F.operated("A", .working),
+                                 OperatedContext(runState: .complete, retryLimit: 2))
+        #expect(accepted.state == .accepted)
+    }
+
+    @Test func aTakenOverTaskRefusesTheOperatorButNotYou() throws {
+        var task = F.operated("A", .working)
+        task.takenOver = true
+        #expect(throws: OperatedTransitionError.takenOver) { try apply(.fail(reason: "x"), task) }
+        #expect(throws: OperatedTransitionError.takenOver) { try apply(.block(reason: "x"), task, by: .aiterm) }
+        #expect(try apply(.stop, task, by: .you).state == .stopped)
+    }
+
+    // MARK: published, stopped
+
+    @Test func publishingCarriesOutADraftMROrAMergeFromM3Only() throws {
+        let m3 = OperatedContext(runState: .active, retryLimit: 2, milestone: .m3)
+        var task = F.operated("A", .accepted, end: .merge)
+        task.acceptance = F.acceptance(head)
+        let publication = TaskPublication(pushedSHA: head, mergeRequestURL: "https://example.net/mr/1")
+        let published = try apply(.publish(publication), task, m3)
+        #expect(published.state == .published && published.publication == publication)
+        #expect(try apply(.publish(publication), published, m3) == published)
+        #expect(throws: OperatedTransitionError.notInThisMilestone(.merge)) { try apply(.publish(publication), task) }
+        #expect(throws: OperatedTransitionError.publishedSHANotAccepted("0000000ff")) {
+            try apply(.publish(TaskPublication(pushedSHA: "0000000ff")), task, m3)
+        }
+        var commit = task
+        commit.end = .commit
+        #expect(throws: OperatedTransitionError.endIsCommit) { try apply(.publish(publication), commit, m3) }
+    }
+
+    @Test(arguments: [OperatedState.planned, .queued, .working, .blocked, .failed])
+    func youStopAnyOpenTask(_ state: OperatedState) throws {
+        let stopped = try apply(.stop, F.operated("A", state), by: .you, OperatedContext(runState: .paused, retryLimit: 2, milestone: .m1))
+        #expect(stopped.state == .stopped)
+        #expect(try apply(.stop, stopped, by: .you) == stopped)
+    }
+
+    @Test(arguments: [OperatedState.accepted, .noChange, .published])
+    func anEndedTaskCannotBeStopped(_ state: OperatedState) {
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be stopped", from: state)) {
+            try apply(.stop, F.operated("A", state), by: .you)
+        }
+    }
+
+    @Test func shortAndFullSHAsNameOneCommit() {
+        #expect(OperatedTransitions.sameCommit("4F2A91C", head))
+        #expect(!OperatedTransitions.sameCommit("4f2a91", head), "six characters is too short to trust")
+        #expect(!OperatedTransitions.sameCommit("", ""))
+        #expect(!OperatedTransitions.sameCommit("4f2a91d", head))
+    }
+}
