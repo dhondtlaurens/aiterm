@@ -23,8 +23,7 @@ struct NewOperationModelTests {
         sheet.handle = "investigator"
         #expect(sheet.subtitle == "Incident investigator plans it, then starts it at once; you watch the plan run.")
         #expect(NewOperationModel.briefHelp == "What to work on, as you would tell a colleague. A Jira key brings in its ticket.")
-        #expect(NewOperationModel.doneWhenHelp
-                == "Optional. Without it, the operator stops at a commit per task. Ask for draft MRs or merges here and it may push.")
+        #expect(NewOperationModel.doneWhenHelp == "What finished looks like. A draft MR or a merge happens only when this brief or the operator’s persona asks for it, as an end in the plan you approve.")
         #expect(NewOperationModel.doneWhenPlaceholder == "a commit per item, tests green — I review and push")
     }
 

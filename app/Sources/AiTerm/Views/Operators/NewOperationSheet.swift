@@ -4,8 +4,9 @@ import AiTermCore
 
 /// An operator's "+": what to hand it (spec §10.6, proposal step 3). The operator, picked from the
 /// header used; the Brief in the prompt editor — a wall of tickets and loose to-dos alike; Done when,
-/// which decides whether the operator may push; the destination line; Start Operation on ⌘↩, which
-/// opens the operator's window with the brief as its first message.
+/// what finished looks like, which grants nothing itself (a draft MR or merge is an end in the plan you
+/// approve); the destination line; Start Operation on ⌘↩, which opens the operator's window with the
+/// brief as its first message.
 struct NewOperationSheet: View {
     @Bindable var model: NewOperationModel
     @Environment(\.dismiss) private var dismiss

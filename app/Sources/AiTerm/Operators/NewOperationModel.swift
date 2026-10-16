@@ -19,7 +19,7 @@ final class NewOperationModel: Identifiable {
 
     static let title = "New operation"
     static let briefHelp = "What to work on, as you would tell a colleague. A Jira key brings in its ticket."
-    static let doneWhenHelp = "Optional. Without it, the operator stops at a commit per task. Ask for draft MRs or merges here and it may push."
+    static let doneWhenHelp = "What finished looks like. A draft MR or a merge happens only when this brief or the operator’s persona asks for it, as an end in the plan you approve."
     static let doneWhenPlaceholder = "a commit per item, tests green — I review and push"
 
     init(operators: [OperatorPersona], picked handle: String,
