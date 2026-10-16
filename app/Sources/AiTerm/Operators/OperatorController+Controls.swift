@@ -14,7 +14,8 @@ extension OperatorController {
         guard !operated.takenOver else { return try await setOwnership(operated.ownership, on: id) }
         let ownership = operated.ownership + 1
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = true; $0.ownership = ownership } }
-        finisher.stopWatching(id)
+        // A merge waiting is disarmed until the operator's next finish_task, whatever is handed back or resumed.
+        finisher.disarm(id, because: TaskFinisher.takenOverProblem)
         waker.say("the person took over \(operated.key)", to: operated.runId)
         try await setOwnership(ownership, on: id)
     }
@@ -48,6 +49,7 @@ extension OperatorController {
         } catch let refused as OperatedTransitionError {
             throw ActionUnavailable(refused.description)
         }
+        // Defensive: `.stop` refuses an accepted task, the only kind watched.
         finisher.stopWatching(id)
         runChanged(runId)
     }
@@ -127,7 +129,6 @@ extension OperatorController {
             mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
         }
         waker.say("resumed", to: id)
-        finisher.resumeWatching()
         runChanged(id)
     }
 

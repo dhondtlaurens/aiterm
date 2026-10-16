@@ -18,6 +18,16 @@ actor Ticker {
     }
 }
 
+/// The time a publication reads: a watch's sleep moves it on by what it slept, a test by hand.
+final class MergeClock: Sendable {
+    private let at = Mutex(Date(timeIntervalSince1970: 1_800_000_000))
+    private let naps = Mutex<[TimeInterval]>([])
+    var now: Date { at.withLock { $0 } }
+    var sleeps: [TimeInterval] { naps.withLock { $0 } }
+    func pass(_ seconds: TimeInterval) { at.withLock { $0 = $0.addingTimeInterval(seconds) } }
+    func slept(_ seconds: TimeInterval) { naps.withLock { $0.append(seconds) }; pass(seconds) }
+}
+
 /// finish_task as the app runs it: steps saved to the workspace as they complete, a merge end
 /// watched until it merges, stopped by a takeover or a pause — never a second watch, push or request.
 @MainActor @Suite(.blocking) struct TaskFinisherTests {
@@ -25,15 +35,6 @@ actor Ticker {
 
     final class Changed { var ids: [UUID] = [] }
 
-    /// The time the finisher reads: a watch's sleep moves it on by what it slept, a test by hand.
-    final class Clock: Sendable {
-        private let at = Mutex(Date(timeIntervalSince1970: 1_800_000_000))
-        private let naps = Mutex<[TimeInterval]>([])
-        var now: Date { at.withLock { $0 } }
-        var sleeps: [TimeInterval] { naps.withLock { $0 } }
-        func pass(_ seconds: TimeInterval) { at.withLock { $0 = $0.addingTimeInterval(seconds) } }
-        func slept(_ seconds: TimeInterval) { naps.withLock { $0.append(seconds) }; pass(seconds) }
-    }
 
     /// What a callback was handed, in order, from any thread.
     final class Recorded<Value: Sendable>: Sendable {
@@ -52,9 +53,9 @@ actor Ticker {
     }
 
     struct Setup {
-        let store: WorkspaceStore, finisher: TaskFinisher, host: FakeMergeHost, ticker: Ticker, changed: Changed, clock: Clock
+        let store: WorkspaceStore, finisher: TaskFinisher, host: FakeMergeHost, ticker: Ticker, changed: Changed, clock: MergeClock
         let task: UUID, run: UUID, sha: String, origin: String, path: String
-        let remotes: Recorded<RemoteInfo>, mergedOnHost: Recorded<UUID>
+        let remotes: Recorded<RemoteInfo>, mergedOnHost: Recorded<UUID>, stopped: Recorded<String>
     }
 
     func setUp(end: TaskEnd, git finisherGit: (any GitRunning)? = nil,
@@ -68,8 +69,8 @@ actor Ticker {
         try store.load()
         let state = world.state
         store.mutate { $0 = state }
-        let host = FakeMergeHost(), ticker = Ticker(), changed = Changed(), clock = Clock()
-        let remotes = Recorded<RemoteInfo>(), mergedOnHost = Recorded<UUID>()
+        let host = FakeMergeHost(), ticker = Ticker(), changed = Changed(), clock = MergeClock()
+        let remotes = Recorded<RemoteInfo>(), mergedOnHost = Recorded<UUID>(), stopped = Recorded<String>()
         let finisher = TaskFinisher(store: store, git: finisherGit ?? git,
                                     connect: { remote in
                                         remotes.append(remote)
@@ -79,9 +80,10 @@ actor Ticker {
                                     sleep: { seconds in await ticker.wait(); clock.slept(seconds) })
         finisher.changed = { changed.ids.append($0) }
         finisher.mergedOnHost = { id, _ in mergedOnHost.append(id) }
+        finisher.watchStopped = { _, why in stopped.append(why) }
         return Setup(store: store, finisher: finisher, host: host, ticker: ticker, changed: changed, clock: clock,
                      task: task, run: run, sha: fixture.sha, origin: fixture.origin, path: fixture.path,
-                     remotes: remotes, mergedOnHost: mergedOnHost)
+                     remotes: remotes, mergedOnHost: mergedOnHost, stopped: stopped)
     }
 
     func operated(_ s: Setup) -> OperatedTask? { s.store.state.task(id: s.task)?.operated }
@@ -168,7 +170,46 @@ actor Ticker {
         #expect(await eventually(describing: "the watch to stop") { s.finisher.watching.isEmpty })
         #expect(!s.host.log.contains { $0.hasPrefix("merge") })
         #expect(operated(s)?.state == .accepted)
-        #expect(s.changed.ids.isEmpty, "nothing to tell: the operator hears of the takeover itself")
+        let why = "You've taken PLUTO-231 over; it is published only once you hand it back."
+        #expect(s.stopped.all == [why], "never silently: the reason is said")
+        #expect(operated(s)?.publication?.problem == why)
+        #expect(s.changed.ids.isEmpty)
+    }
+
+    /// The branch moved past the accepted commit while the merge waited: the reason is recorded, the
+    /// operator told once, and nothing watches it again until its next finish_task.
+    @Test func aBranchMovedDuringTheWaitStopsTheWatchAndSaysWhy() async throws {
+        let s = try setUp(end: .merge)
+        s.host.update { $0.readiness = [.waiting("its pipeline is running"), .ready(head: s.sha)] }
+        _ = await s.finisher.finish(s.task)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "one more"], in: s.path)
+        await s.ticker.tick()
+        #expect(await eventually(describing: "the watch to stop") { s.finisher.watching.isEmpty })
+        #expect(s.stopped.all.count == 1)
+        #expect(s.stopped.all.first?.hasPrefix("feat/pluto-231 moved past the accepted commit") == true)
+        #expect(operated(s)?.publication?.problem == s.stopped.all.first)
+        #expect(try StateStore(url: s.store.file.url).load().task(id: s.task)?.operated?.publication?.problem == s.stopped.all.first)
+        s.finisher.resumeWatching()
+        #expect(s.finisher.watching.isEmpty, "a recorded problem waits for finish_task")
+        #expect(!s.host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    /// A takeover disarms a waiting merge for good: handed back, resumed or relaunched, nothing watches it
+    /// until the operator's next finish_task, which starts the wait afresh.
+    @Test func aTakeoverDisarmsTheWaitUntilTheNextFinish() async throws {
+        let s = try setUp(end: .merge)
+        _ = await s.finisher.finish(s.task)
+        s.store.mutate { $0.updateOperated(s.task) { $0.takenOver = true; $0.ownership += 1 } }
+        s.finisher.disarm(s.task, because: TaskFinisher.takenOverProblem)
+        #expect(s.finisher.watching.isEmpty)
+        #expect(operated(s)?.publication?.problem == TaskFinisher.takenOverProblem)
+        s.store.mutate { $0.updateOperated(s.task) { $0.takenOver = false } }
+        s.finisher.resumeWatching()
+        #expect(s.finisher.watching.isEmpty)
+        #expect(s.stopped.all.isEmpty && s.changed.ids.isEmpty, "you did it: no word to the operator from here")
+        #expect(await s.finisher.finish(s.task).result == "waitingToMerge")
+        #expect(s.finisher.watching == [s.task])
+        #expect(operated(s)?.publication?.problem == nil)
     }
 
     /// A watch whose poll finds the operation paused stops there, before the host is asked anything.
@@ -331,17 +372,90 @@ actor Ticker {
         #expect(world.controller.finisher.watching.isEmpty)
         try await world.controller.resume(run: run)
         #expect(world.controller.finisher.watching == [task])
-        try await world.controller.takeOver(task: task)
-        #expect(world.controller.finisher.watching.isEmpty)
-        world.controller.finisher.resumeWatching()
-        #expect(world.controller.finisher.watching.isEmpty, "a task you took over is not watched")
-        try await world.controller.handBack(task: task)
-        world.controller.finisher.resumeWatching()
-        #expect(world.controller.finisher.watching == [task])
         try await world.controller.end(run: run)
         #expect(world.controller.finisher.watching.isEmpty)
         world.controller.finisher.resumeWatching()
         #expect(world.controller.finisher.watching.isEmpty, "an ended operation is never watched again")
+    }
+
+    /// Take over, hand back, then a Resume of another operation and a relaunch: nothing merges until
+    /// the operator's next finish_task, and then it does.
+    @Test func aTakeoverHoldsTheMergeUntilTheNextFinish() async throws {
+        let host = FakeMergeHost(), ticker = Ticker(), clock = MergeClock()
+        let fixture = try GitFixture.withOrigin(branch: "feat/pluto-231")
+        var operated = OperatedWorld(projectPath: fixture.path)
+        let run = operated.addRun(), other = operated.addRun(.paused)
+        let task = operated.addTask("PLUTO-231", run: run, state: .accepted, end: .merge, branch: "feat/pluto-231", acceptedSHA: fixture.sha)
+        host.update { $0.readiness = [.waiting("its pipeline is running"), .ready(head: fixture.sha)] }
+        let world = try OperatorWorld(operated.state, git: git) { ports in
+            ports.publisher = { _ in host }
+            ports.mergeSleep = { seconds in await ticker.wait(); clock.slept(seconds) }
+            ports.publishNow = { clock.now }
+        }
+        world.show([OperatorServiceFixtures.session("op", tag: run), OperatorServiceFixtures.session("op2", window: "w2", tag: other)])
+        #expect(await world.call(run, "finish_task", ["task": "PLUTO-231"]).value?["result"] == "waitingToMerge")
+        try await world.controller.takeOver(task: task)
+        #expect(world.controller.finisher.watching.isEmpty)
+        try await world.controller.handBack(task: task)
+        try await world.controller.resume(run: other)
+        world.controller.start()
+        defer { world.controller.stop() }
+        #expect(world.controller.finisher.watching.isEmpty, "handed back, resumed, relaunched: still disarmed")
+        await ticker.tick()
+        await ticker.tick()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+        #expect(await world.call(run, "finish_task", ["task": "PLUTO-231"]).value?["result"] == "waitingToMerge")
+        #expect(world.controller.finisher.watching == [task])
+        await ticker.tick()
+        await ticker.tick()
+        #expect(await eventually(describing: "the merge") { world.task(task)?.operated?.state == .published })
+        #expect(host.log.last == "merge 12 at \(fixture.sha)")
+        #expect(await eventually(describing: "the operation to complete") { world.run(run)?.state == .complete })
+    }
+
+    /// The operator's tab gone, the poll is refused and the watch suspended; back, the reconciler
+    /// makes the operation active again and the watch picks up.
+    @Test func anOperatorOfflineAndBackIsWatchedAgain() async throws {
+        let host = FakeMergeHost(), ticker = Ticker()
+        let (world, run, task, _) = try makeWorld(end: .merge, host: host, ticker: ticker)
+        #expect(await world.call(run, "finish_task", ["task": "PLUTO-231"]).value?["result"] == "waitingToMerge")
+        world.show([])
+        world.controller.reconcileTick()
+        #expect(world.run(run)?.state == .operatorOffline)
+        let asked = host.log
+        await ticker.tick()
+        #expect(await eventually(describing: "the watch to be suspended") { world.controller.finisher.watching.isEmpty })
+        #expect(host.log == asked)
+        #expect(world.task(task)?.operated?.publication?.problem == nil, "suspended, not stopped")
+        world.show([OperatorServiceFixtures.session("op", tag: run)])
+        world.controller.reconcileTick()
+        #expect(world.run(run)?.state == .active)
+        #expect(world.controller.finisher.watching == [task])
+    }
+
+    /// A branch moved during the wait: the operator is woken once with the reason, and neither a
+    /// change in the run nor a relaunch watches it again.
+    @Test func aBranchMovedWakesTheOperatorOnce() async throws {
+        let host = FakeMergeHost(), ticker = Ticker()
+        let (world, run, task, _) = try makeWorld(end: .merge, host: host, ticker: ticker)
+        #expect(await world.call(run, "finish_task", ["task": "PLUTO-231"]).value?["result"] == "waitingToMerge")
+        let projectId = try #require(world.task(task)?.projectId)
+        let path = try #require(world.state.project(id: projectId)?.path)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "one more"], in: path)
+        await ticker.tick()
+        #expect(await eventually(describing: "the watch to stop") { world.controller.finisher.watching.isEmpty })
+        let stopped = { world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("merge watch stopped") } }
+        #expect(await eventually(describing: "the operator told") { stopped().count == 1 })
+        #expect(stopped().first?.contains("PLUTO-231: the merge watch stopped — feat/pluto-231 moved past the accepted commit") == true)
+        #expect(world.task(task)?.operated?.publication?.problem?.hasPrefix("feat/pluto-231 moved past") == true)
+        world.controller.runChanged(run)
+        world.controller.start()
+        defer { world.controller.stop() }
+        #expect(world.controller.finisher.watching.isEmpty)
+        for _ in 0..<50 { await Task.yield() }
+        await world.controller.waker.lastSend?.value
+        #expect(stopped().count == 1, "told once")
     }
 
     @Test func aStartPicksUpTheWaitsSavedBefore() async throws {

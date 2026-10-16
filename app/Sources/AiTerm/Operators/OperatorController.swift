@@ -35,6 +35,8 @@ struct OperatorPorts {
     }
     /// The merge watch's wait between polls.
     var mergeSleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
+    /// The clock a publication reads — its bounded wait, its two ready reads apart.
+    var publishNow: @Sendable () -> Date = { Date() }
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, library: OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home)),
@@ -123,7 +125,7 @@ final class OperatorController {
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
-        finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: Date.init, sleep: ports.mergeSleep)
+        finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, notifier: notifier, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
@@ -139,6 +141,7 @@ final class OperatorController {
         }
         finisher.changed = { [weak self] id in self?.publicationChanged(id) }
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
+        finisher.watchStopped = { [weak self] id, why in self?.mergeWatchStopped(id, why) }
         tools.finish = { [weak self] id in
             guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
             return await self.finisher.finish(id)
@@ -276,9 +279,11 @@ final class OperatorController {
         }
     }
 
-    /// Something in the run changed: whatever may start now starts.
+    /// Something in the run changed: whatever may start now starts, and a merge it was waiting for is
+    /// watched again once it runs — your Resume, or its operator back from offline.
     func runChanged(_ id: UUID) {
         settle(id)
+        finisher.resumeWatching(inRun: id)
         startReadyTasks()
     }
 
@@ -524,6 +529,13 @@ final class OperatorController {
         runChanged(operated.runId)
     }
 
+    /// A merge watch stopped for what it found — the branch moved, the task changed hands: its operator
+    /// is told once, with the reason recorded on the task.
+    func mergeWatchStopped(_ id: UUID, _ why: String) {
+        guard let operated = workspace.state.task(id: id)?.operated else { return }
+        waker.say("\(operated.key): the merge watch stopped — \(why); call finish_task again when it can go on", to: operated.runId)
+    }
+
     /// The host merged the task's request with a head nobody accepted (spec §6): only you can say how the
     /// operation goes on, so it is a question for you, asked once — as `ask_you` asks it — on the task.
     func askAboutMergeOnHost(_ id: UUID, _ why: String) {
@@ -543,6 +555,7 @@ final class OperatorController {
     func stop() {
         loop?.cancel()
         loop = nil
+        finisher.stopAll()
     }
 
     /// Each operated task's tab: one that needs input has its prompt read (spec §7.2), and a question

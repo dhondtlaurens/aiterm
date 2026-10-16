@@ -51,6 +51,10 @@ final class TaskFinisher {
     /// Told when the host merged the task's request with a head nobody accepted, and why: a question for
     /// you (the controller's), never retried. Set like `changed`.
     var mergedOnHost: @MainActor (UUID, String) -> Void = { _, _ in }
+    /// Told when a watch stopped because a poll was refused for a reason that is not the operation's own
+    /// state — the branch moved, the task changed hands — with that reason, recorded as the problem. Set
+    /// like `changed`.
+    var watchStopped: @MainActor (UUID, String) -> Void = { _, _ in }
     /// Each task's publication in flight.
     private var inFlight: [UUID: Task<Result, Never>] = [:]
     private var watchers: [UUID: Task<Void, Never>] = [:]
@@ -69,15 +73,37 @@ final class TaskFinisher {
     /// The tasks with a publication in flight.
     var running: Set<UUID> { Set(inFlight.keys) }
 
-    /// The operator's `finish_task`: clears a recorded problem and goes on from the saved steps.
+    /// What a takeover records on a waiting merge: it is watched again only after a new `finish_task`.
+    static let takenOverProblem = "taken over by you; call finish_task again once it's handed back"
+
+    /// The operator's `finish_task`: clears a recorded problem and goes on from the saved steps. While its
+    /// merge is watched it is one more poll, so asking again never starts the bounded wait over.
     func finish(_ id: UUID) async -> Result {
-        await run(id, restart: true)
+        await run(id, restart: watchers[id] == nil)
     }
 
-    /// At launch and when an operation resumes: watch every merge end that was waiting when AiTerm last
-    /// stopped. A task watched already is not watched twice.
-    func resumeWatching() {
-        for task in store.state.tasks { watch(task.id) }
+    /// At launch, and whenever an operation runs again — your Resume, its operator back from offline:
+    /// watch every merge end (of `run`, or of every operation) that was waiting and is watchable. A task
+    /// watched already is not watched twice, and one with a recorded problem waits for `finish_task`.
+    func resumeWatching(inRun run: UUID? = nil) {
+        for task in store.state.tasks where run == nil || task.operated?.runId == run { watch(task.id) }
+    }
+
+    /// On a takeover: the watch stops, and a merge waiting is disarmed for good — its problem recorded,
+    /// so neither a hand back, a Resume nor a relaunch watches it again until the operator's next
+    /// `finish_task`.
+    func disarm(_ id: UUID, because why: String) {
+        stopWatching(id)
+        guard let operated = store.state.task(id: id)?.operated, operated.end == .merge, operated.state == .accepted,
+              let publication = operated.publication, publication.mergeRequestNumber != nil,
+              !publication.merged, publication.mergedSHA == nil, publication.problem == nil else { return }
+        store.mutate { $0.updateOperated(id) { $0.publication?.problem = why } }
+        _ = store.flush()
+    }
+
+    /// When AiTerm quits: every watch.
+    func stopAll() {
+        for id in Array(watchers.keys) { stopWatching(id) }
     }
 
     /// On a takeover or a stopped task.
@@ -155,7 +181,7 @@ final class TaskFinisher {
                 },
                 record: { @MainActor [weak self] publication in
                     guard let self else { throw NotSaved() }
-                    try self.record(publication, for: id)
+                    try self.record(publication, for: id, ownership: ownership)
                 })
             return apply(outcome, to: id)
         } catch is NotSaved {
@@ -184,16 +210,35 @@ final class TaskFinisher {
                                         ownership: ownership, acceptedSHA: sha)
     }
 
-    /// A completed step: on the task, and on disk before the next step starts.
-    private func record(_ publication: TaskPublication, for id: UUID) throws {
+    /// A completed step: on the task, and on disk before the next step starts. A task gone from the
+    /// workspace holds nothing, so the step is not saved. A problem recorded since the publication began
+    /// under another owner — a takeover's — is kept: only the operator's own `finish_task` clears it.
+    private func record(_ publication: TaskPublication, for id: UUID, ownership: Int) throws {
+        guard store.state.task(id: id)?.operated != nil else { throw NotSaved() }
         store.mutate { state in
-            guard let index = state.tasks.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = state.tasks.firstIndex(where: { $0.id == id }), let operated = state.tasks[index].operated else { return }
+            var publication = publication
+            if operated.ownership != ownership, let problem = operated.publication?.problem { publication.problem = problem }
             state.tasks[index].operated?.publication = publication
             if let number = publication.mergeRequestNumber, let url = publication.mergeRequestURL {
                 state.tasks[index].mr = MergeRequestRef(iid: number, title: state.tasks[index].title, url: url)
             }
         }
         guard store.flush() else { throw NotSaved() }
+    }
+
+    /// The task's operation does not run now — paused, ended, its operator offline, its plan not approved:
+    /// a watch refused for that is suspended, not stopped, and picked up when the operation runs again.
+    private func isSuspended(_ id: UUID) -> Bool {
+        guard let operated = store.state.task(id: id)?.operated, let run = store.state.run(id: operated.runId) else { return false }
+        return run.intent != nil || !(run.state == .active || run.state == .complete)
+    }
+
+    /// A watch that has to stop for what it found: the reason recorded as the problem and saved, so
+    /// nothing watches it again until `finish_task`.
+    private func recordProblem(_ why: String, on id: UUID) {
+        store.mutate { $0.updateOperated(id) { $0.publication?.problem = why } }
+        _ = store.flush()
     }
 
     private func apply(_ outcome: TaskPublisher.Outcome, to id: UUID) -> Result {
@@ -219,12 +264,17 @@ final class TaskFinisher {
     }
 
     /// Polls until the merge is done or stuck, each poll through `run`, so it never overlaps the
-    /// operator's own call. A poll that finds the operation paused or ended, or the task no longer the
-    /// operator's, is refused and ends the watch without a word: you did that, and the operator hears
-    /// of it from you. Three failures in a row to reach the host end it, as a stuck one: the operator
-    /// is told and its next `finish_task` starts again. Nothing is watched that is not watchable now —
-    /// a poll that answers after a Pause does not start a watch again. The entry is cleared when the
-    /// poll ends — unless `stopWatching` replaced it meanwhile with a newer one.
+    /// operator's own call. A watch never ends without a word:
+    /// - refused while the operation does not run (a pause, an end, the operator offline), it is
+    ///   suspended — your own act has its own line, and the operator back is told `reconnected` — and
+    ///   `resumeWatching(inRun:)` picks it up when the operation runs again;
+    /// - refused for anything else (the branch moved, the task changed hands, gone), the reason is
+    ///   recorded as the problem and the operator told once (`watchStopped`);
+    /// - three failures in a row to reach the host end it as a stuck one, the last reason recorded;
+    /// - merged, blocked or out of time, the operator is told (`changed`).
+    /// A watch stopped meanwhile (`stopWatching`, `disarm`) says nothing. Nothing is watched that is not
+    /// watchable now — a poll that answers after a Pause does not start a watch again. The entry is
+    /// cleared when the poll ends — unless `stopWatching` replaced it meanwhile with a newer one.
     private func watch(_ id: UUID) {
         guard watchers[id] == nil, isWatchable(id) else { return }
         let current = Task { [weak self] in
@@ -234,9 +284,24 @@ final class TaskFinisher {
                 do { try await self.sleep(OperatorTiming.mergePoll) } catch { return }
                 guard !Task.isCancelled else { return }
                 let result = await self.run(id, restart: false)
-                if result.result == "waitingToMerge" { failures = 0; continue }
-                if result.result == "failed" { failures += 1; if failures < 3 { continue } }
-                if result.result != "refused" { self.changed(id) }
+                guard !Task.isCancelled else { return }
+                switch result.result {
+                case "waitingToMerge":
+                    failures = 0
+                    continue
+                case "refused":
+                    guard !self.isSuspended(id), self.store.state.task(id: id)?.operated != nil else { return }
+                    let why = result.reason ?? PublicationGuard.changedMidway
+                    self.recordProblem(why, on: id)
+                    self.watchStopped(id, why)
+                case "failed":
+                    failures += 1
+                    if failures < 3 { continue }
+                    self.recordProblem(result.reason ?? "AiTerm couldn’t reach the host", on: id)
+                    self.changed(id)
+                default:
+                    self.changed(id)
+                }
                 return
             }
         }
