@@ -13,6 +13,11 @@ struct OperatorPorts {
     var notifications: any OperatorNotifications
     /// The Jira client `jira_search` runs through, while Settings has one.
     var jira: @Sendable () -> (any OperatorJira)? = { nil }
+    /// The second opinion's runner (spec §4.4).
+    var secondOpinion: SecondOpinionRunner = .unavailable
+    /// How long a challenged call waits for its critique before answering that it is still coming: well
+    /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
+    var challengeReplyBudget: Duration = .seconds(20)
     var now: @MainActor () -> Date = { Date() }
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
@@ -22,7 +27,7 @@ struct OperatorPorts {
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, library: OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home)),
-                      notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } })
+                      notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
     }
 }
 

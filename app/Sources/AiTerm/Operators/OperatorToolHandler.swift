@@ -50,6 +50,11 @@ final class OperatorToolHandler {
     let waker: OperatorWaker
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
+    /// The second opinions running now, by challenge id: one in a run's records but not here was lost
+    /// with AiTerm's restart.
+    var runningChallenges: [String: Task<Void, Never>] = [:]
+    /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
+    var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
     private(set) var lastReply: Task<Void, Never>?
     /// Told when a call starts and stops acting on a task: the controller's `acting`.
@@ -100,7 +105,9 @@ final class OperatorToolHandler {
         if let actingOn { onActing(actingOn, true) }
         defer { if let actingOn { onActing(actingOn, false) } }
         do {
+            if let instead = try await challengeGate(call, in: run) { return .result(instead) }
             let value = try await perform(call, in: run)
+            recordActed(call, in: id, answer: value)
             if Self.mutating.contains(call.tool), let before, let after = state.run(id: id).flatMap(currentStatus(of:)) {
                 waker.ownChange(from: before, to: after, of: id)
                 onChange(id)

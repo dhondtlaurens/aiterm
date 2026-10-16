@@ -281,6 +281,7 @@ final class AppController {
         if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
+        operatorController.tools.cancelChallenges()
         helper.shutdown()
     }
 

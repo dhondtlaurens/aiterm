@@ -158,3 +158,14 @@ extension OperatorWorld {
         await controller.tools.answer(OperatorRequest(requestId: UUID().uuidString, runId: run.uuidString, tool: tool, arguments: arguments))
     }
 }
+
+extension SecondOpinionRunner {
+    /// A second opinion that answers `critique` after `delay`, as Claude's JSON result.
+    static func answering(_ critique: String, after delay: Duration = .zero) -> SecondOpinionRunner {
+        SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, _ in
+            try? await Task.sleep(for: delay)
+            let json = String(decoding: try JSONEncoder().encode(["result": critique]), as: UTF8.self)
+            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
+        })
+    }
+}
