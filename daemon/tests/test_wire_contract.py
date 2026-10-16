@@ -25,6 +25,7 @@ from typing import Any, get_args
 
 from aitermd import delivery, protocol, service
 from aitermd.models import HARNESS_BY_AGENT, AgentKind, State
+from tests.conftest import operator_post
 from tests.fake_iterm import FakeIterm
 
 WIRE = Path(__file__).parent / "wire"
@@ -34,6 +35,8 @@ TASK_ID = "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F"
 PROJECT_ID = "7D6E5F4A-3B2C-4D1E-8F9A-0B1C2D3E4F5A"
 WORKTREE = "/repo/.worktrees/feat-wire"
 REFUSAL = "execution error: Not authorized to send Apple events to iTerm2. (-1743)"
+RUN_ID = "5B8A2C1D-9E7F-4A6B-8C3D-2E1F0A9B8C7D"
+RUN_TOKEN = "3f9a" * 16
 
 
 class App:
@@ -177,6 +180,17 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         replies["session.prompt"] = await app.call("session.prompt", {"sessionId": pi})
         replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": pi})
         replies["session.interrupt"] = await app.call("session.interrupt", {"sessionId": pi})
+
+        # The operator asks for run_status over /operator; the app answers the request it is sent.
+        replies["operator.register"] = await app.call("operator.register", {"runId": RUN_ID, "token": RUN_TOKEN})
+        mark = app.mark()
+        calling = asyncio.ensure_future(operator_post(svc.hooks.port, {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "run_status", "arguments": {}}}, token=RUN_TOKEN))
+        events[protocol.OPERATOR_REQUEST] = await app.event(protocol.OPERATOR_REQUEST, mark)
+        replies["operator.reply"] = await app.call("operator.reply", {
+            "requestId": events[protocol.OPERATOR_REQUEST]["payload"]["requestId"], "result": {"revision": 3}, "error": None})
+        assert (await calling)[1]["result"]["structuredContent"] == {"revision": 3}
+        replies["operator.revoke"] = await app.call("operator.revoke", {"runId": RUN_ID})
         replies["interface.setMatchItermBackground"] = await app.call("interface.setMatchItermBackground", {"matchItermBackground": True})
         replies["sessions.list"] = await app.call("sessions.list")
         replies["usage.get"] = await app.call("usage.get")

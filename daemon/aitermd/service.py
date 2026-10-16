@@ -5,6 +5,7 @@ import logging
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, TypeVar
 
 from . import protocol
@@ -19,6 +20,7 @@ from .hooks_server import HookServer
 from .iterm_bridge import ItermPort
 from .keystrokes import TypingGuard
 from .offload import run_detached
+from .operator_mcp import OperatorRoute, OperatorTokens
 from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
@@ -66,7 +68,8 @@ class Service:
                  clock: Callable[[], float], codex_files: CodexSessionFiles | None = None,
                  supervisor: ItermSupervisor | None = None, path_missing: Callable[[str], bool] = path_is_missing,
                  monotonic: Callable[[], float] = time.monotonic,
-                 delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None):
+                 delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
+                 operator_runs: Path | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
@@ -90,6 +93,12 @@ class Service:
         self._monotonic = monotonic
         self.typing = TypingGuard()
         self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
+        # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
+        # are forwarded to the attached app, which answers them over this socket.
+        # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
+        # (spec §11); None keeps tokens in memory only.
+        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs))
+        self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame and window.activate each leave a state the next one replaces, and the app
         # sends them from separate tasks; requests are answered concurrently, so they take this in
@@ -162,6 +171,9 @@ class Service:
         r("session.dismissStartup", self._h_dismiss_startup)
         r("session.interrupt", self._h_interrupt)
         r("session.setOwnership", self._h_set_ownership)
+        r("operator.register", self.operators.register)
+        r("operator.revoke", self.operators.revoke)
+        r("operator.reply", self.operators.reply)
         r("usage.get", self._h_usage_get)
         r("interface.setMatchItermBackground", self.windows.set_match_iterm_background)
 

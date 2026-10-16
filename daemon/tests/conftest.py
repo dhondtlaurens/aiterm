@@ -64,7 +64,8 @@ async def make_service(tmp_path, sock_dir):
     stopped at 1000 and an orphan check that finds every directory present -- a fake tab's `/wt`
     need not exist -- unless overridden: any Service argument can be, and `supervisor` can also be a
     dict of ItermSupervisor arguments, built over that service's iTerm2 and RPC server. A supervisor
-    the factory builds opens iTerm2 through a LaunchRecorder, unless told otherwise."""
+    the factory builds opens iTerm2 through a LaunchRecorder, unless told otherwise. Operator run tokens
+    are read from `tmp_path / "operator-runs"`, never the real Application Support folder."""
     built: list[Service] = []
 
     def make(*, supervisor=None, **overrides) -> Service:
@@ -74,7 +75,8 @@ async def make_service(tmp_path, sock_dir):
             options = {"launch_iterm": LaunchRecorder(), **(supervisor or {})}
             supervisor = ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count, **options)
         arguments = {"hooks": HookServer(on_post=None, port=0), "claude_files": ClaudeSessionFiles(tmp_path / "claude-sessions"),
-                     "clock": lambda: 1000, "path_missing": lambda path: False, **overrides}
+                     "clock": lambda: 1000, "path_missing": lambda path: False,
+                     "operator_runs": tmp_path / "operator-runs", **overrides}
         built.append(Service(iterm=iterm, rpc=rpc, supervisor=supervisor, **arguments))
         return built[-1]
 

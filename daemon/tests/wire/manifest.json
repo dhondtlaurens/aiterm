@@ -12,6 +12,7 @@
     "iterm.connected",
     "iterm.cookieRequested",
     "iterm.disconnected",
+    "operator.request",
     "session.changed",
     "session.closed",
     "session.opened",
@@ -33,6 +34,7 @@
       "iterm.connected": "event.iterm.connected.json",
       "iterm.cookieRequested": "event.iterm.cookieRequested.json",
       "iterm.disconnected": "event.iterm.disconnected.json",
+      "operator.request": "event.operator.request.json",
       "session.changed": "event.session.changed.json",
       "session.closed": "event.session.closed.json",
       "session.opened": "event.session.opened.json",
@@ -49,6 +51,15 @@
       ],
       "iterm.status": [
         "reply.iterm.status.json"
+      ],
+      "operator.register": [
+        "reply.operator.register.json"
+      ],
+      "operator.reply": [
+        "reply.operator.reply.json"
+      ],
+      "operator.revoke": [
+        "reply.operator.revoke.json"
       ],
       "session.deliver": [
         "reply.session.deliver.json"
@@ -106,6 +117,9 @@
     "interface.setMatchItermBackground",
     "iterm.provideCookie",
     "iterm.status",
+    "operator.register",
+    "operator.reply",
+    "operator.revoke",
     "session.deliver",
     "session.dismissStartup",
     "session.interrupt",

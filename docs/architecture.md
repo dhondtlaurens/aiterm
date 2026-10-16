@@ -199,6 +199,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
 | `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
+| `operator_mcp.py` · `OperatorRoute` | the operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request` |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 
@@ -222,6 +223,8 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `session.dismissStartup` | declines the CLI's update offer with Esc when the screen shows one — Codex's, by its own options; any other startup dialog, a folder's trust above all, is left for you: `{dismissed: false}` |
 | `session.interrupt` | Esc, the agent's interrupt key — only ever on your click |
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
+| `operator.register` / `operator.revoke` | open and close `/operator` to a run's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
+| `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of
@@ -246,6 +249,7 @@ effect in the order it was sent.
 | `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its restore); a tab tagged with a row's id in a window the row lacks hands the row that window |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
+| `operator.request` | an operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
 
 An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read
 is logged and drops the connection, so the app reconnects to a fresh snapshot rather than keep a

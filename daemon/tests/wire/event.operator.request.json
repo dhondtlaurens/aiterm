@@ -1,0 +1,9 @@
+{
+  "event": "operator.request",
+  "payload": {
+    "arguments": {},
+    "requestId": "op-1",
+    "runId": "5B8A2C1D-9E7F-4A6B-8C3D-2E1F0A9B8C7D",
+    "tool": "run_status"
+  }
+}
