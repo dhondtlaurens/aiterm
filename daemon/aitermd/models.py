@@ -46,6 +46,13 @@ class Harness:
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
     # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
     trust_prompt: tuple[str, ...] = ()
+    # Text that marks a prompt open on the CLI's screen, which delivery must not type into
+    # (delivery.open_prompt): an approval, a startup dialog -- folder trust, an update offer -- and
+    # any other menu. Any one enough, compared without whitespace. From the spike against Claude
+    # Code 2.1.301 and Codex 0.160.0; a harness without them gets no automated delivery.
+    permission_prompt: tuple[str, ...] = ()
+    startup_prompt: tuple[str, ...] = ()
+    menu_prompt: tuple[str, ...] = ()
 
 
 HARNESSES: tuple[Harness, ...] = (
@@ -53,9 +60,16 @@ HARNESSES: tuple[Harness, ...] = (
     Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file", end_of_turn_survives_cwd_loss=True,
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
-            trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?")),
+            trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
+            permission_prompt=("Do you want to proceed?",), menu_prompt=("Enter to select", "Esc to cancel"),
+            # The trust dialog, by the same words as `trust_prompt`.
+            startup_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?")),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True),
+    Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True,
+            permission_prompt=("Would you like to run the following command?",),
+            menu_prompt=("Press enter to confirm or esc to cancel",),
+            # The update dialog by its own options: the idle banner also says "Update available".
+            startup_prompt=("Trust this folder?", "Skip until next version", "Update now")),
     # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
     # process may be titled with the resolved name: versioned since 1.0.44
     # (`grok-1.0.44-macos-aarch64`), and naming the architecture (`grok-macos-x86_64`).
