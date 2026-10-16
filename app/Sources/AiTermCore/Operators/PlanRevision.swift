@@ -145,7 +145,7 @@ public enum PlanRevision {
     /// `code` parent per task and in its own project, every dependency inside the run, no circle.
     public static func validate(_ state: AppState, run id: UUID, milestone: OperatorMilestone = .current) throws(Failure) {
         let tasks = state.tasks(inRun: id)
-        let byId = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for task in tasks {
             guard let o = task.operated else { continue }
             if !o.started, !milestone.supports(o.end) { throw .unsupportedEnd(key: o.key, o.end) }
@@ -161,8 +161,8 @@ public enum PlanRevision {
 
     /// The keys of the tasks on a dependency circle, sorted; nil when there is none.
     static func cycle(in tasks: [TaskItem]) -> [String]? {
-        let parents = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0.operated?.dependsOn.map(\.task) ?? []) })
-        let keys = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0.operated?.key ?? $0.title) })
+        let parents = Dictionary(tasks.map { ($0.id, $0.operated?.dependsOn.map(\.task) ?? []) }, uniquingKeysWith: { first, _ in first })
+        let keys = Dictionary(tasks.map { ($0.id, $0.operated?.key ?? $0.title) }, uniquingKeysWith: { first, _ in first })
         var done: Set<UUID> = [], path: [UUID] = []
         func visit(_ id: UUID) -> [UUID]? {
             if let start = path.firstIndex(of: id) { return Array(path[start...]) }

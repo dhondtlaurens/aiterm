@@ -39,7 +39,7 @@ public enum RunScheduler {
 
     /// The run's queued tasks whose dependencies are satisfied, in plan order, slots aside.
     static func ready(in state: AppState, run id: UUID) -> [UUID] {
-        let byId = Dictionary(uniqueKeysWithValues: state.tasks.map { ($0.id, $0) })
+        let byId = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return state.tasks(inRun: id).filter { task in
             guard let o = task.operated, o.state == .queued, !o.takenOver else { return false }
             return o.dependsOn.allSatisfy { dependency in
@@ -73,5 +73,20 @@ public enum RunScheduler {
             default: return false
             }
         }
+    }
+}
+
+extension RunScheduler {
+    /// How many of AiTerm's slots are taken: every operated task at work, in every operation, taken
+    /// over or not — a worker you drive is still an agent running. A blocked task holds none:
+    /// `resume_task` continues its live session at once, even over the cap, and new starts wait
+    /// until the count is back under it.
+    public static func occupiedSlots(in state: AppState) -> Int {
+        state.tasks.reduce(0) { $0 + ($1.operated?.state == .working ? 1 : 0) }
+    }
+
+    /// What `maxParallel` leaves free now. Never negative, so a lowered cap starts nothing and stops nothing.
+    public static func freeSlots(in state: AppState, maxParallel: Int) -> Int {
+        max(0, maxParallel - occupiedSlots(in: state))
     }
 }

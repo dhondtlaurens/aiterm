@@ -101,7 +101,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts]) -> RunStatus? {
         guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
-        let keys = Dictionary(uniqueKeysWithValues: items.compactMap { item in item.operated.map { (item.id, $0.key) } })
+        let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
         var lines: [TaskLine] = []
         var prompts: [String] = [], ready: [String] = [], stalled: [String] = [], uncertain: [String] = []
         for item in items {

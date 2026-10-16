@@ -308,9 +308,9 @@ extension OperatorController {
 
     private func snapshot(of id: UUID) -> Snapshot? {
         guard let run = self.run(id: id) else { return nil }
-        return Snapshot(run: run, tasks: Dictionary(uniqueKeysWithValues: workspace.state.tasks(inRun: id).compactMap { task in
+        return Snapshot(run: run, tasks: Dictionary(workspace.state.tasks(inRun: id).compactMap { task in
             task.operated.map { (task.id, $0) }
-        }))
+        }, uniquingKeysWith: { first, _ in first }))
     }
 
     /// Puts `before` back. Nothing awaits between a change and its save, so nothing else has moved since.
