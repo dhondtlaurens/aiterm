@@ -123,12 +123,13 @@ public enum OperatedTransitions {
             // replacement): `finish_task` then pushes it to the same request. Before M3 nothing is published.
             let accepted: Set<OperatedState> = context.milestone >= .m3 ? [.accepted, .published] : [.accepted]
             guard task.state == .working || accepted.contains(task.state) else { throw refuse() }
-            let sha = acceptance.resultSHA.trimmingCharacters(in: .whitespaces)
+            let sha = acceptance.resultSHA.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sha.isEmpty, !acceptance.checkOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { throw .missingEvidence }
+            // A repeat names the commit already accepted: the earlier result, even if the branch moved since.
+            if accepted.contains(task.state), let earlier = task.acceptance, sameCommit(sha, earlier.resultSHA) { return task }
             guard sameCommit(sha, head) else { throw .notTheBranchHead(sha: sha, head: head) }
-            if accepted.contains(task.state), let earlier = task.acceptance {
-                if sameCommit(earlier.resultSHA, head) { return task }
+            if accepted.contains(task.state), task.acceptance != nil {
                 // M1 and M2 (spec §8); from M3 the started dependents are replaced instead (part G's `UpstreamReplacement`).
                 if context.codeDependentStarted, context.milestone < .m3 { throw .reacceptAfterDependentStarted }
             }
@@ -148,6 +149,8 @@ public enum OperatedTransitions {
             if task.state == .blocked, task.blockedReason == reason { return task }
             let from: [OperatedState] = actor == .aiterm ? [.working, .failed, .queued, .blocked] : [.working, .blocked]
             guard from.contains(task.state) else { throw refuse() }
+            // Remember where it was blocked from, so resume returns it there (a blocked block keeps the first).
+            if task.state != .blocked { next.blockedFrom = [.queued, .working].contains(task.state) ? task.state : nil }
             next.state = .blocked
             next.blockedReason = reason
 
@@ -159,11 +162,13 @@ public enum OperatedTransitions {
             next.flags.subtract([.possiblyStalled, .waitingOnYou])
 
         case .resume:
-            if task.state == .working { return task }
+            if task.state == .working || (task.state == .queued && task.blockedReason == nil) { return task }
             guard task.state == .blocked else { throw refuse() }
-            // A task blocked before it ever ran has no session to continue: it waits its turn again.
-            next.state = task.started ? .working : .queued
+            // Back to where it was blocked from: a queued task waits its turn again, a working one
+            // continues in its session. Older files have no record: a task that never ran has no session.
+            next.state = task.blockedFrom ?? (task.started ? .working : .queued)
             next.blockedReason = nil
+            next.blockedFrom = nil
 
         case .retry:
             if task.state == .queued, task.retriesUsed > 0 { return task }
@@ -188,6 +193,7 @@ public enum OperatedTransitions {
             if task.state == .stopped { return task }
             guard task.state.isOpen else { throw refuse() }
             next.state = .stopped
+            next.blockedFrom = nil
             next.flags.subtract([.possiblyStalled, .waitingOnYou])
         }
         return next

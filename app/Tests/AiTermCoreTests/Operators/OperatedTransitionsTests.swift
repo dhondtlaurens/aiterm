@@ -117,6 +117,16 @@ import Foundation
         }
     }
 
+    /// Spec §11: a lost reply is asked again, and the branch may have moved since the first acceptance.
+    @Test func aRepeatedAcceptanceIsTheEarlierResultEvenAfterTheBranchMoved() throws {
+        let accepted = try apply(.accept(F.acceptance("4f2a91c"), branchHead: head), F.operated("A", .working))
+        let moved = "abcdef0123456789"
+        #expect(try apply(.accept(F.acceptance("4f2a91c"), branchHead: moved), accepted) == accepted)
+        #expect(throws: OperatedTransitionError.notTheBranchHead(sha: "9999999", head: moved)) {
+            try apply(.accept(F.acceptance("9999999"), branchHead: moved), accepted)
+        }
+    }
+
     @Test func noChangeIsAnEnd() throws {
         let done = try apply(.noChange(note: "already fixed"), F.operated("A", .working))
         #expect(done.state == .noChange)
@@ -141,7 +151,28 @@ import Foundation
     @Test func resumingATaskThatNeverRanQueuesIt() throws {
         var task = F.operated("B", .blocked, launched: false)
         task.blockedReason = "upstream failed: A"
-        #expect(try apply(.resume, task).state == .queued)
+        let queued = try apply(.resume, task)
+        #expect(queued.state == .queued)
+        #expect(try apply(.resume, queued) == queued, "a repeated resume is the earlier result")
+    }
+
+    /// Resume returns a task to the state it was blocked from: a retried task keeps its launch, but
+    /// blocked while queued it has no session to continue.
+    @Test func resumeReturnsATaskToWhereItWasBlockedFrom() throws {
+        let failed = try apply(.fail(reason: "tests red"), F.operated("A", .working))
+        let retried = try apply(.retry, failed)
+        #expect(retried.started)
+        let blocked = try apply(.block(reason: "limits"), retried, by: .aiterm)
+        #expect(blocked.blockedFrom == .queued)
+        let resumed = try apply(.resume, blocked)
+        #expect(resumed.state == .queued && resumed.blockedFrom == nil)
+        #expect(try apply(.resume, resumed) == resumed)
+
+        let working = try apply(.block(reason: "needs a key"), F.operated("A", .working))
+        #expect(working.blockedFrom == .working)
+        let again = try apply(.block(reason: "other"), working, by: .aiterm)
+        #expect(again.blockedFrom == .working, "blocking a blocked task keeps where it came from")
+        #expect(try apply(.resume, again).state == .working)
     }
 
     @Test func onlyAiTermBlocksAQueuedOrFailedTask() throws {
@@ -231,6 +262,11 @@ import Foundation
         #expect(throws: OperatedTransitionError.notAllowed(action: "be stopped", from: state)) {
             try apply(.stop, F.operated("A", state), by: .you)
         }
+    }
+
+    @Test func refusalsReadAsTheToolsAnswer() {
+        #expect(OperatedTransitionError.notAllowed(action: "be stopped", from: .accepted).description == "A task that is accepted can't be stopped.")
+        #expect(OperatedTransitionError.runIs(.paused).description == "The operation is paused.")
     }
 
     @Test func shortAndFullSHAsNameOneCommit() {

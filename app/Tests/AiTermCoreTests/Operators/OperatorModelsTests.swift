@@ -87,7 +87,7 @@ import Foundation
                                        at: Date(timeIntervalSince1970: 30)),
             publication: TaskPublication(pushedSHA: "4f2a91c", mergeRequestURL: "https://example.net/mr/1"),
             takenOver: true, ownership: 3, launch: LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 40)),
-            retriesUsed: 1, runtimeUsed: 600, blockedReason: "waiting", flags: [.uncertain, .possiblyStalled])
+            retriesUsed: 1, runtimeUsed: 600, blockedReason: "waiting", blockedFrom: .working, flags: [.uncertain, .possiblyStalled])
         #expect(try roundTrip(task) == task)
         #expect(task.started)
     }
