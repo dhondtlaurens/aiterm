@@ -59,8 +59,9 @@ public enum MergeReadiness: Equatable, Sendable {
     case waiting(String)
     /// Not without someone acting: conflicts, a failed pipeline, a closed request, a refused merge.
     case blocked(String)
-    /// Merged — by this call, or an earlier one whose answer was lost — as `commit`.
-    case merged(commit: String)
+    /// Merged — by this call, or an earlier one whose answer was lost, or by someone on the host — as
+    /// `commit`, with `head` the request's head commit that was merged ("" when the host did not say).
+    case merged(commit: String, head: String)
 }
 
 /// Whether a code host protects a branch. AiTerm never pushes to a protected branch (spec §3):

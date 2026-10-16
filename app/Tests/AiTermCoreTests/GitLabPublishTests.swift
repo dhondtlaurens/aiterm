@@ -96,7 +96,7 @@ import Testing
             ("opened", "success", "need_rebase", .blocked("it needs a rebase")),
             ("opened", "success", "discussions_not_resolved", .blocked("it has unresolved threads")),
             ("opened", "success", "jira_association_missing", .blocked("GitLab says jira association missing")),
-            ("merged", "success", "not_open", .merged(commit: Self.mergeCommit)),
+            ("merged", "success", "not_open", .merged(commit: Self.mergeCommit, head: Self.head)),
             ("closed", nil, "not_open", .blocked("the merge request is closed")),
         ]
         for item in cases {
@@ -111,7 +111,7 @@ import Testing
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
         let answer = Self.status(state: "merged", detailed: "not_open", pipeline: "success")
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .merged(commit: Self.mergeCommit))
+        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .merged(commit: Self.mergeCommit, head: Self.head))
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
         #expect(sent.url?.absoluteString == Self.base + "/12/merge")
@@ -247,7 +247,7 @@ import Testing
     @Test func aFastForwardMergeIsTheAcceptedCommit() async throws {
         let answer = #"{"iid":12,"state":"merged","sha":"\#(Self.head)","merge_commit_sha":null,"squash_commit_sha":null}"#
         let (client, _) = makeClient { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .merged(commit: Self.head))
+        #expect(try await client.merge(project: "web/acme-web", iid: 12, sha: Self.head) == .merged(commit: Self.head, head: Self.head))
     }
 
     @Test func aDraftIsNeverReady() async throws {

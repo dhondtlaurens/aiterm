@@ -17,7 +17,8 @@ final class FakeMergeHost: MergeRequestPublishing {
         var beforeCreate: (@Sendable () async -> Void)?
         var existing: MergeRequest?
         var readiness: [MergeReadiness] = [.waiting("its pipeline is running")]
-        var merge: MergeReadiness = .merged(commit: "5eed5eed")
+        /// The merge's answer; nil: merged as `5eed5eed`, at the commit it was asked to merge.
+        var merge: MergeReadiness?
         /// The create fails before the host has it (a timeout on the way there).
         var createFails = false
         /// The host opens it, then the answer is lost.
@@ -68,7 +69,7 @@ final class FakeMergeHost: MergeRequestPublishing {
 
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness {
         calls.withLock { $0.append("merge \(number) at \(sha)") }
-        return script.withLock { $0.merge }
+        return script.withLock { $0.merge } ?? .merged(commit: "5eed5eed", head: sha)
     }
 
     func retarget(_ number: Int, to target: String) async throws {

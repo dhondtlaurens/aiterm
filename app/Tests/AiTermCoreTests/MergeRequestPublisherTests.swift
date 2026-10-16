@@ -191,7 +191,7 @@ import Testing
         let base = "https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests/12"
         #expect(try await publisher.readiness(of: 12) == .ready(head: GitLabPublishTests.head))
         #expect(stub.lastRequest?.url?.absoluteString == base)
-        #expect(try await publisher.merge(12, at: GitLabPublishTests.head) == .merged(commit: GitLabPublishTests.mergeCommit))
+        #expect(try await publisher.merge(12, at: GitLabPublishTests.head) == .merged(commit: GitLabPublishTests.mergeCommit, head: GitLabPublishTests.head))
         #expect(stub.lastRequest?.httpMethod == "PUT")
         #expect(stub.lastRequest?.url?.absoluteString == base + "/merge")
         try await publisher.retarget(12, to: "main")
@@ -209,7 +209,7 @@ import Testing
         }
         let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
         #expect(try await publisher.readiness(of: 88) == .ready(head: GitHubPublishTests.head))
-        #expect(try await publisher.merge(88, at: GitHubPublishTests.head) == .merged(commit: GitHubPublishTests.mergeCommit))
+        #expect(try await publisher.merge(88, at: GitHubPublishTests.head) == .merged(commit: GitHubPublishTests.mergeCommit, head: GitHubPublishTests.head))
         #expect(stub.lastRequest?.httpMethod == "PUT")
         #expect(stub.lastRequest?.url?.absoluteString == GitHubPublishTests.api + "/pulls/88/merge")
         try await publisher.retarget(88, to: "main")

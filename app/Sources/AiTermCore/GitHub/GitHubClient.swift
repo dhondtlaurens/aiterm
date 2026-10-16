@@ -157,7 +157,7 @@ public struct GitHubClient: Sendable {
     /// `mergeable` and `mergeable_state`. Only `clean` and `has_hooks` with `mergeable` true is ready.
     public func mergeReadiness(repo: String, number: Int) async throws -> MergeReadiness {
         let pull = try await get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
-        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha) }
+        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha) }
         guard pull.state == "open" else { return .blocked("the pull request is closed") }
         if pull.draft == true { return .blocked("it is a draft") }
         let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
@@ -223,7 +223,8 @@ public struct GitHubClient: Sendable {
             let answer = try await send(Merged.self, method: "PUT", path: "/repos/\(repo)/pulls/\(number)/merge",
                                         body: Merge(sha: sha), notFound: .repoNotFound(repo))
             guard answer.merged == true, let commit = answer.sha, !commit.isEmpty else { return .waiting("GitHub has not finished merging it") }
-            return .merged(commit: commit)
+            // GitHub merges at `sha` only when it is the head.
+            return .merged(commit: commit, head: sha)
         } catch GitHubError.badResponse(409) {
             return .blocked("the branch moved past the accepted commit")
         } catch GitHubError.badResponse(let status) where [405, 422].contains(status) {

@@ -168,9 +168,11 @@ import Synchronization
         for k in 1...clean.saves {
             let run = try await publish(crashAfter: k)
             #expect(run.pushes == 1, "crash after save \(k)")
-            for step in ["protection", "existing", "create"] {
+            for step in ["protection", "create"] {
                 #expect(run.log.filter { $0.hasPrefix(step) }.count == 1, "\(step), crash after save \(k)")
             }
+            // The lookup before opening, and for a merge end the live read before merging.
+            #expect(run.log.filter { $0.hasPrefix("existing") }.count == (end == .merge ? 2 : 1), "crash after save \(k)")
             #expect(run.log.filter { $0.hasPrefix("merge") }.count == (end == .merge ? 1 : 0), "crash after save \(k)")
             #expect(run.log.last == (end == .merge ? "merge 12 at \(run.sha)" : "create feat/pluto-231 → main draft"), "crash after save \(k)")
         }
@@ -430,11 +432,119 @@ import Synchronization
 
     @Test func aRequestMergedBeforeTheAnswerCameIsRecordedNotMergedAgain() async throws {
         var s = try setUp(end: .merge)
-        let host = FakeMergeHost(.init(readiness: [.merged(commit: "abc123")]))
+        let host = FakeMergeHost(.init(readiness: [.merged(commit: "abc123", head: s.sha)]))
         let outcome = try await advance(&s, host: host)
         guard case .published(let publication) = outcome else { Issue.record("\(outcome)"); return }
         #expect(publication.mergedSHA == "abc123")
+        #expect(publication.mergedHead == s.sha)
         #expect(!host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    /// The operator's call while a first ready read is on record keeps it: no merge before
+    /// `mergePoll` has passed, and none later than it either.
+    @Test func aRestartInsideTheWindowNeitherMergesEarlyNorResetsTheConfirmation() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.ready(head: s.sha)] }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        let first = clock.now
+        clock.pass(10)
+        let early = try await advance(&s, host: host, restart: true, now: { clock.now })
+        guard case .waiting(let publication, let why) = early else { Issue.record("\(early)"); return }
+        #expect(why == TaskPublisher.confirming)
+        #expect(publication.readySince == first, "the restart kept the first read")
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+        clock.pass(OperatorTiming.mergePoll - 10)
+        guard case .published = try await advance(&s, host: host, restart: true, now: { clock.now }) else { Issue.record("not merged"); return }
+        #expect(host.log.filter { $0.hasPrefix("merge") } == ["merge 12 at \(s.sha)"])
+    }
+
+    /// A first ready read from long ago — a pause, a quit, hours unpolled — is a first read again.
+    @Test func aFirstReadyLongAgoIsAFirstReadAgain() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.ready(head: s.sha)] }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        clock.pass(TaskPublisher.readyCountsFor + 1)
+        let stale = try await advance(&s, host: host, restart: false, now: { clock.now })
+        guard case .waiting(let publication, let why) = stale else { Issue.record("\(stale)"); return }
+        #expect(why == TaskPublisher.confirming)
+        #expect(publication.readySince == clock.now)
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+        clock.pass(OperatorTiming.mergePoll)
+        guard case .published = try await advance(&s, host: host, restart: false, now: { clock.now }) else { Issue.record("not merged"); return }
+    }
+
+    /// The hour is held: a first ready read after it has run out blocks rather than starting a confirmation.
+    @Test func aFirstReadyAfterTheWaitRanOutBlocks() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.waiting("its pipeline is running"), .ready(head: s.sha)] }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        clock.pass(OperatorTiming.mergeWait)
+        let late = try await advance(&s, host: host, restart: false, now: { clock.now })
+        guard case .blocked(let publication, let why) = late else { Issue.record("\(late)"); return }
+        #expect(why == "Still not mergeable after 60 minutes: the host called it mergeable only once the wait had run out, too late to read it twice.")
+        #expect(publication.readySince == nil)
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    /// Someone retargets the request on the host between the two ready reads: a host merges into the
+    /// target as it is now, so it is not merged.
+    @Test func aRequestRetargetedOnTheHostIsNotMerged() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.ready(head: s.sha)] }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        host.update { $0.existing?.targetBranch = "release" }
+        clock.pass(OperatorTiming.mergePoll)
+        let outcome = try await advance(&s, host: host, restart: false, now: { clock.now })
+        guard case .blocked(let publication, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "The request \(FakeMergeHost.url) targets release on the host now, not main: AiTerm never merges it there. Retarget it to main, then call finish_task again.")
+        #expect(publication.readySince == nil)
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    @Test func aRequestClosedOnTheHostIsNotMerged() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.ready(head: s.sha)] }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        host.update { $0.existing = nil }
+        clock.pass(OperatorTiming.mergePoll)
+        let outcome = try await advance(&s, host: host, restart: false, now: { clock.now })
+        #expect(outcome == .blocked(try #require(s.world.operated(s.task)?.publication),
+                                    "The request \(FakeMergeHost.url) is no longer open on the host, so AiTerm did not merge it."))
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    /// Someone pushed more onto the request and merged it on the host: what was merged is recorded,
+    /// never as this task's merge of its accepted commit, and a repeat answers it from the record.
+    @Test func aRequestMergedOnTheHostWithAnotherHeadIsRecordedNotPublished() async throws {
+        var s = try setUp(end: .merge)
+        let other = "0123456789abcdef0123456789abcdef01234567"
+        let host = FakeMergeHost(.init(readiness: [.merged(commit: "abc123", head: other)]))
+        let outcome = try await advance(&s, host: host)
+        let why = "PLUTO-231 was merged on the host at 0123456, not the accepted \(s.sha.prefix(7)): it holds commits that weren't accepted."
+        guard case .blocked(let publication, let reason) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(reason == why)
+        #expect(!publication.merged)
+        #expect(publication.mergedSHA == "abc123")
+        #expect(publication.mergedHead == other)
+        let calls = host.log.count
+        #expect(try await advance(&s, host: host) == .blocked(publication, why))
+        #expect(host.log.count == calls, "answered from the record")
+    }
+
+    @Test func aChildOfAParentMergedWithUnacceptedCommitsBlocks() async throws {
+        var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
+        s.world.update(parent) { $0.publication?.mergedSHA = "abc123"; $0.publication?.mergedHead = "0123456789abcdef0123456789abcdef01234567" }
+        let host = FakeMergeHost()
+        let outcome = try await advance(&s, host: host, parent: parent)
+        guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "PLUTO-230 was merged on the host with commits that weren't accepted: AiTerm publishes nothing on top of it.")
+        #expect(host.log.isEmpty)
+        #expect(originHas("feat/pluto-231", in: s.origin) == nil)
     }
 
     /// An open request from the branch into another branch than the task's is not AiTerm's to use:
@@ -516,6 +626,15 @@ import Synchronization
         let outcome = try await advance(&s, host: host, restart: false, current: Current(opensFor: 0), parent: parent)
         #expect(outcome == .refused(PublicationGuard.changedMidway))
         #expect(!host.log.contains { $0.hasPrefix("retarget") })
+    }
+
+    @Test func aStackedDraftWhoseParentMergedOpensIntoTheDefaultBranch() async throws {
+        var (s, parent) = try stacked(childEnd: .draftMR, parentEnd: .merge)
+        s.world.update(parent) { $0.publication?.merged = true; $0.publication?.mergedSHA = "p4r3nt" }
+        let host = FakeMergeHost()
+        guard case .published(let publication) = try await advance(&s, host: host, parent: parent) else { Issue.record("not published"); return }
+        #expect(publication.targetBranch == "main")
+        #expect(host.log.last == "create feat/pluto-231 → main draft")
     }
 
     /// The parent merged before the child's request was opened: it opens into the default branch,

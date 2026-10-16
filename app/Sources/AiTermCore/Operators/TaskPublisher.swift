@@ -8,7 +8,7 @@ import Foundation
 ///    request for a merge end — into the default branch, or a stacked task's parent's branch;
 /// 3. a merge end only: wait for a stacked parent's merge, then retarget to the default branch; ask
 ///    the host whether it can merge, and merge at the accepted commit once it has said so twice,
-///    `OperatorTiming.mergePoll` apart.
+///    `OperatorTiming.mergePoll` apart, and the request still targets the default branch.
 ///
 /// Before the push the host is asked whether it protects the branch: protected, or no answer, and
 /// nothing is pushed. Each completed step is handed to `record`, which saves it before the next starts,
@@ -42,6 +42,9 @@ public struct TaskPublisher: Sendable {
         }
     }
 
+    /// A first ready read counts for this long: one older is a first read again.
+    static let readyCountsFor = 3 * OperatorTiming.mergePoll
+
     /// Why a merge end the host first called mergeable is not merged yet: its pipelines may not have registered.
     static let confirming = "the host calls it mergeable; AiTerm asks once more in \(Int(OperatorTiming.mergePoll)) seconds before it merges, in case its pipelines had not started"
 
@@ -61,6 +64,9 @@ public struct TaskPublisher: Sendable {
         var publication = operated.publication ?? TaskPublication()
         // A repeat of what is done answers what was done, whatever has changed since.
         if operated.state == .published || publication.merged { return .published(publication) }
+        if publication.mergedSHA != nil {
+            return .blocked(publication, publication.problem ?? Self.mergedUnaccepted(operated.key, publication))
+        }
 
         let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
         if let refusal = PublicationGuard.refusal(task: task, run: context.run, parent: context.parent,
@@ -70,6 +76,10 @@ public struct TaskPublisher: Sendable {
         guard let acceptance = operated.acceptance else { return .refused(PublicationGuard.notOperated) }
         let sha = acceptance.resultSHA
         let parentMerged = context.parent?.operated?.publication?.merged == true
+        // Nothing builds on a parent the host merged with commits nobody accepted.
+        if let parent = context.parent?.operated, !parentMerged, parent.publication?.mergedSHA != nil {
+            return try await blocked(publication, "\(parent.key) was merged on the host with commits that weren't accepted: AiTerm publishes nothing on top of it.", record)
+        }
 
         if restart, publication.problem != nil || publication.waitingSince != nil {
             publication.problem = nil
@@ -104,17 +114,17 @@ public struct TaskPublisher: Sendable {
         if let recorded = publication.mergeRequestNumber {
             number = recorded
         } else {
-            let target = Self.target(end: operated.end, parent: context.parent, parentMerged: parentMerged, defaultBranch: defaultBranch)
+            let target = Self.target(parent: context.parent, parentMerged: parentMerged, defaultBranch: defaultBranch)
             if let why = await recheck() { return .refused(why) }
             let open = try await host.existingRequest(from: branch)
             // The look took a while: right before opening one, the task must still be the operator's.
             if let why = await recheck() { return .refused(why) }
             let request: MergeRequest
             if let open {
-                // One into another branch is never used as it is; the stacking rule's retarget, step 3's,
-                // is the only one AiTerm makes.
-                let retargetable = operated.end == .merge && parentMerged && open.targetBranch == context.parent?.branch
-                guard open.targetBranch == target || retargetable else {
+                // One into another branch is never used as it is. One into the parent's branch opened
+                // before the parent merged is AiTerm's own: a merge end retargets it in step 3.
+                let openedEarlier = parentMerged && open.targetBranch == context.parent?.branch
+                guard open.targetBranch == target || openedEarlier else {
                     return .refused("\(branch) already has an open request into \(open.targetBranch), not \(target): \(open.url). AiTerm never publishes through it as it is: retarget it to \(target) or close it, then call finish_task again.")
                 }
                 request = open
@@ -151,34 +161,55 @@ public struct TaskPublisher: Sendable {
             }
         }
         let answer = try await host.readiness(of: number)
-        guard case .ready(let head) = answer else { return try await settle(answer, publication, record) }
+        guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, publication, record) }
         guard head == sha else {
             publication.readySince = nil
             return try await blocked(publication, "The request's branch is at \(head.prefix(7)) on the host, not the accepted \(sha.prefix(7)).", record)
         }
         // Never on the first ready: GitHub with no checks yet, GitLab with no pipeline yet, read ready.
-        // The wait's bound does not cut this short; the read after it decides.
-        guard let since = publication.readySince else {
+        // A first read long ago — before a pause, a quit, hours unpolled — is a first read again.
+        guard let since = publication.readySince, now().timeIntervalSince(since) <= Self.readyCountsFor else {
+            if let waited = publication.waitingSince, now().timeIntervalSince(waited) >= OperatorTiming.mergeWait {
+                publication.readySince = nil
+                return try await blocked(publication, "Still not mergeable after \(Int(OperatorTiming.mergeWait / 60)) minutes: the host called it mergeable only once the wait had run out, too late to read it twice.", record)
+            }
             publication.readySince = now()
             try await record(publication)
             return .waiting(publication, Self.confirming)
         }
         guard now().timeIntervalSince(since) >= OperatorTiming.mergePoll else { return .waiting(publication, Self.confirming) }
         if let why = await recheck() { return .refused(why) }
-        return try await settle(try await host.merge(number, at: sha), publication, record)
+        // The recorded target is what AiTerm last set; someone may have retargeted it on the host
+        // since, and a host merges into the request's target as it is now.
+        let url = publication.mergeRequestURL ?? "#\(number)"
+        let live = try await host.existingRequest(from: branch)
+        guard let live, live.iid == number else {
+            publication.readySince = nil
+            let found = live.map { "\(branch)'s open request on the host is \($0.url) now, not \(url)" } ?? "The request \(url) is no longer open on the host"
+            return try await blocked(publication, "\(found), so AiTerm did not merge it.", record)
+        }
+        guard live.targetBranch == defaultBranch else {
+            publication.readySince = nil
+            return try await blocked(publication, "The request \(url) targets \(live.targetBranch) on the host now, not \(defaultBranch): AiTerm never merges it there. Retarget it to \(defaultBranch), then call finish_task again.", record)
+        }
+        if let why = await recheck() { return .refused(why) }
+        return try await settle(try await host.merge(number, at: sha), sha: sha, key: operated.key, publication, record)
     }
 
     /// What a readiness read that is not ready, or a merge's answer, makes of the publication. Any
-    /// answer but merged means the next ready is a first one again.
-    private func settle(_ answer: MergeReadiness, _ publication: TaskPublication,
+    /// answer but merged means the next ready is a first one again. Merged with another head than the
+    /// accepted `sha` is recorded as it happened, and is no published end.
+    private func settle(_ answer: MergeReadiness, sha: String, key: String, _ publication: TaskPublication,
                         _ record: @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
         var publication = publication
         let wasReady = publication.readySince != nil
         publication.readySince = nil
         switch answer {
-        case .merged(let commit):
-            publication.merged = true
+        case .merged(let commit, let head):
             publication.mergedSHA = commit
+            publication.mergedHead = head
+            guard head == sha else { return try await blocked(publication, Self.mergedUnaccepted(key, publication), record) }
+            publication.merged = true
             publication.problem = nil
             try await record(publication)
             return .published(publication)
@@ -210,12 +241,18 @@ public struct TaskPublisher: Sendable {
         return .waiting(publication, why)
     }
 
-    /// Where the task's request goes: the default branch, or a stacked task's parent's branch — but a
-    /// merge end's whose parent has merged goes where its retarget would take it, the default branch,
+    /// Where the task's request goes: the default branch, or a stacked task's parent's branch until
+    /// the parent has merged — then the default branch, where a merge end's retarget would take it,
     /// as the parent's branch may be gone from the host.
-    static func target(end: TaskEnd, parent: TaskItem?, parentMerged: Bool, defaultBranch: String) -> String {
-        guard let parent, !(end == .merge && parentMerged) else { return defaultBranch }
+    static func target(parent: TaskItem?, parentMerged: Bool, defaultBranch: String) -> String {
+        guard let parent, !parentMerged else { return defaultBranch }
         return parent.branch
+    }
+
+    /// Why a request the host merged with another head than the accepted one is not this task's end.
+    static func mergedUnaccepted(_ key: String, _ publication: TaskPublication) -> String {
+        let head = publication.mergedHead.map { $0.isEmpty ? "a head it didn't name" : String($0.prefix(7)) } ?? "a head it didn't name"
+        return "\(key) was merged on the host at \(head), not the accepted \(publication.pushedSHA.map { String($0.prefix(7)) } ?? "commit"): it holds commits that weren't accepted."
     }
 
     /// The request's title: the task's, after its ticket key unless it already starts with it.

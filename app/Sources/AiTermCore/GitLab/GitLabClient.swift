@@ -152,7 +152,7 @@ public struct GitLabClient: Sendable {
             let answer = try await send(MergeStatusPayload.self, method: "PUT", path: Self.requestsPath(project) + "/\(iid)/merge",
                                         body: Merge(sha: sha), notFound: .projectNotFound(project))
             switch answer.readiness {
-            case .merged(let commit): return .merged(commit: commit.isEmpty ? sha : commit)
+            case .merged(let commit, let head): return .merged(commit: commit.isEmpty ? sha : commit, head: head.isEmpty ? sha : head)
             case .ready, .waiting: return .waiting("GitLab has not finished merging it")
             case .blocked(let why): return .blocked(why)
             }
@@ -330,7 +330,7 @@ private struct MergeStatusPayload: Decodable {
     var mergeCommitSha: String?, squashCommitSha: String?, headPipeline: Pipeline?
 
     var readiness: MergeReadiness {
-        if state == "merged" { return .merged(commit: mergeCommitSha ?? squashCommitSha ?? sha ?? "") }
+        if state == "merged" { return .merged(commit: mergeCommitSha ?? squashCommitSha ?? sha ?? "", head: sha ?? "") }
         guard state == "opened" else { return .blocked("the merge request is \(state ?? "not open")") }
         if draft == true { return .blocked("it is a draft") }
         switch headPipeline?.status ?? "" {

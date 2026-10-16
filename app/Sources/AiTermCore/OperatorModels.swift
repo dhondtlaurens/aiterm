@@ -122,23 +122,27 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// merged only on a later read, `OperatorTiming.mergePoll` on, that still says so: a pipeline may
     /// not have registered yet. Cleared by every read that does not.
     public var readySince: Date?
-    /// A `merge` end: merged by AiTerm, as `mergedSHA`.
+    /// A `merge` end: merged at the accepted commit, as `mergedSHA` — by AiTerm, or on the host before
+    /// AiTerm's answer came. A request the host merged with another head is not: `mergedSHA` and
+    /// `mergedHead` say what happened, `merged` stays false and nothing stacked on it merges.
     public var merged: Bool
     public var mergedSHA: String?
+    /// The request's head commit the host merged, as the host reported it.
+    public var mergedHead: String?
     /// Why the host will not merge it without someone acting — a failed pipeline, conflicts — or why
     /// the wait ended. Cleared by the operator's next `finish_task`.
     public var problem: String?
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
-                mergedSHA: String? = nil, problem: String? = nil) {
+                mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
-        self.mergedSHA = mergedSHA; self.problem = problem
+        self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, problem
+        case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -153,6 +157,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         readySince = try c.decodeIfPresent(Date.self, forKey: .readySince)
         merged = try c.decodeIfPresent(Bool.self, forKey: .merged) ?? false
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
+        mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
     }
 }

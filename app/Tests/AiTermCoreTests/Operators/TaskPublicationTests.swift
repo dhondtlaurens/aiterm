@@ -27,7 +27,7 @@ import Testing
                                              mergeRequestNumber: 88, targetBranch: "main",
                                              waitingSince: Date(timeIntervalSince1970: 1_800_000_000),
                                              readySince: Date(timeIntervalSince1970: 1_800_000_030), merged: true,
-                                             mergedSHA: "5eed5eed", problem: nil)
+                                             mergedSHA: "5eed5eed", mergedHead: "4f2a91c", problem: nil)
         }
         let item = try #require(world.state.tasks.first)
         let back = try JSONDecoder().decode(TaskItem.self, from: JSONEncoder().encode(item))

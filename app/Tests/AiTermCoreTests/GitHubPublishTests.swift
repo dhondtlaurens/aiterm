@@ -151,7 +151,7 @@ import Testing
             (Self.pull(mergeableState: "blocked"), Self.green, Self.statuses([]), .waiting("it needs a review or a required check")),
             (Self.pull(mergeableState: "something_new"), Self.green, Self.statuses([]), .waiting("GitHub is checking it")),
             (Self.pull(draft: true, mergeableState: "draft"), Self.green, Self.statuses([]), .blocked("it is a draft")),
-            (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit)),
+            (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit, head: Self.head)),
             (Self.pull(state: "closed"), Self.green, Self.statuses([]), .blocked("the pull request is closed")),
         ]
         for item in cases {
@@ -253,7 +253,7 @@ import Testing
     @Test func itIsMergedAtTheAcceptedCommit() async throws {
         let answer = #"{"sha":"\#(Self.mergeCommit)","merged":true,"message":"Pull Request successfully merged"}"#
         let (client, stub) = makeClient { _ in (200, Data(answer.utf8)) }
-        #expect(try await client.merge(repo: "octocat/hello", number: 88, sha: Self.head) == .merged(commit: Self.mergeCommit))
+        #expect(try await client.merge(repo: "octocat/hello", number: 88, sha: Self.head) == .merged(commit: Self.mergeCommit, head: Self.head))
         let sent = try #require(stub.lastRequest)
         #expect(sent.httpMethod == "PUT")
         #expect(sent.url?.absoluteString == Self.api + "/pulls/88/merge")
