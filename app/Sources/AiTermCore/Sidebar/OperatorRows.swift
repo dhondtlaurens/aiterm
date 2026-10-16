@@ -90,3 +90,130 @@ public extension SidebarModel {
         }
     }
 }
+
+/// One operation under its operator, ready to draw on a task row's grid: the agents at work in it,
+/// its name, its caption — its progress, `1 of 4 done`, or its state when that says more:
+/// `plan waits for you`, `paused · 2 workers still running`, `operator offline`, `done · 4 of 4` —
+/// what waits on you, and the operation's state as a status mark (spec §10.3).
+public struct OperationRow: Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var avatars: AvatarGroup
+    public var caption: String
+    /// The caption in amber, off the accent: a plan waiting, an operator gone offline.
+    public var captionWarns: Bool
+    /// Whether `caption` is the progress, drawn as a quiet `Badge` with the attention count beside it;
+    /// otherwise it is a plain caption and the count is not drawn.
+    public var showsProgress: Bool
+    /// What waits on you: the open questions, and the driven tasks waiting on you or blocked that no
+    /// open question already names.
+    public var attention: Int
+    public var status: TaskStatus
+}
+
+/// An operator's header and its operations, as the OPERATORS group draws them, on a project's
+/// pattern. `inLibrary` is false for an operator moved to the Trash whose operations still run on the
+/// snapshot they started with: its header stays while they do, offering nothing that needs its file.
+public struct OperatorSection: Equatable, Identifiable, Sendable {
+    public var persona: OperatorPersona
+    public var inLibrary: Bool
+    public var operations: [OperationRow]
+    /// Folded by the person (`SidebarProjection.foldedOperators`).
+    public var folded: Bool
+    public var id: String { persona.handle }
+    /// No operation: nothing to disclose.
+    public var isEmpty: Bool { operations.isEmpty }
+    /// An operator with no operation always draws folded, as an empty project does.
+    public var collapsed: Bool { folded || isEmpty }
+}
+
+public extension SidebarModel {
+    /// Ask first and Routine wait for your approval of each plan; Trusted and Hands-off start it (§4.1).
+    static func gatesPlans(_ autonomy: Autonomy) -> Bool { autonomy.gatesPlans }
+
+    /// Whether a submitted plan revision waits for your approval: a gated operator, and a revision
+    /// past the last one you approved (`PlanRevision.awaitsApproval`; what it would release is
+    /// `PlanRevision.pending`, which the overview reads).
+    static func planWaitsForYou(_ run: OperatorRun) -> Bool { PlanRevision.awaitsApproval(run) }
+
+    /// The OPERATORS group: every operator in the library in `operators`' order, each with its
+    /// operations that have not ended, then any operator moved to the Trash whose operations still run.
+    static func operatorSections(operators: [OperatorPersona], state: AppState, acting: Set<UUID> = [],
+                                 folded: Set<String> = []) -> [OperatorSection] {
+        let live = state.runs.filter { $0.state != .stopped }
+        let byRun = state.tasks.reduce(into: [UUID: [TaskItem]]()) { grouped, task in
+            if let run = task.operated?.runId { grouped[run, default: []].append(task) }
+        }
+        func rows(_ handle: String) -> [OperationRow] {
+            live.filter { $0.persona.handle == handle }.map { operationRow(run: $0, tasks: byRun[$0.id] ?? [], acting: acting) }
+        }
+        let known = Set(operators.map(\.handle))
+        var trashed: [OperatorPersona] = []
+        for run in live where !known.contains(run.persona.handle) && !trashed.contains(where: { $0.handle == run.persona.handle }) {
+            trashed.append(run.persona)
+        }
+        return operators.map { OperatorSection(persona: $0, inLibrary: true, operations: rows($0.handle), folded: folded.contains($0.handle)) }
+            + trashed.map { OperatorSection(persona: $0, inLibrary: false, operations: rows($0.handle), folded: folded.contains($0.handle)) }
+    }
+
+    /// One operation's row, from its run and the tasks it made.
+    static func operationRow(run: OperatorRun, tasks: [TaskItem], acting: Set<UUID> = []) -> OperationRow {
+        let counted = tasks.filter { ($0.operated?.state).map { $0 != .stopped } ?? false }
+        let done = counted.filter { ($0.operated?.state).map(isFinished) ?? false }.count
+        let working = counted.filter { $0.operated?.state == .working && $0.operated?.takenOver == false }
+        let attention = attentionCount(run: run, tasks: counted)
+        var row = OperationRow(id: run.id, name: run.name, avatars: agentsAtWork(working),
+                               caption: "\(done) of \(counted.count) done", captionWarns: false, showsProgress: true,
+                               attention: attention, status: .idle)
+        func says(_ caption: String, warns: Bool = false, status: TaskStatus) -> OperationRow {
+            row.caption = caption; row.captionWarns = warns; row.showsProgress = false; row.status = status
+            return row
+        }
+        if run.state == .complete { return says("done · \(done) of \(counted.count)", status: .done) }
+        if planWaitsForYou(run) { return says("plan waits for you", warns: true, status: .needsInput) }
+        switch run.state {
+        case .operatorOffline:
+            return says("operator offline", warns: true, status: .needsInput)
+        case .paused:
+            let n = working.count
+            return says(n == 0 ? "paused" : "paused · \(n) \(n == 1 ? "worker" : "workers") still running", status: .idle)
+        case .planning:
+            return says("planning", status: .working)
+        case .active, .complete, .stopped:
+            let busy = !working.isEmpty || counted.contains { acting.contains($0.id) }
+            row.status = attention > 0 ? .needsInput : busy ? .working : .idle
+            return row
+        }
+    }
+
+    /// The agents at work in an operation, each drawn once in the order its first task was made: the
+    /// avatar column's two places, the second becoming `+n` past two.
+    static func agentsAtWork(_ tasks: [TaskItem]) -> AvatarGroup {
+        var agents: [SessionAgent] = []
+        for task in tasks where !agents.contains(task.agent.session) { agents.append(task.agent.session) }
+        guard agents.count > avatarMax else { return AvatarGroup(marks: agents, overflow: 0) }
+        return AvatarGroup(marks: Array(agents.prefix(avatarMax - 1)), overflow: agents.count - (avatarMax - 1))
+    }
+
+    /// A folded operator's chips: its operations by state, in `statusOrder`, empty states left out —
+    /// as a folded project counts its rows.
+    static func operationStatusCounts(_ operations: [OperationRow]) -> [StatusCount] {
+        statusOrder.compactMap { status in
+            let n = operations.filter { $0.status == status }.count
+            return n > 0 ? StatusCount(status: status, count: n) : nil
+        }
+    }
+
+    /// Open questions, plus the open tasks waiting on you or blocked that no open question names (a
+    /// finished task's leftover flag asks nothing, as `operatedCaption` ignores it).
+    private static func attentionCount(run: OperatorRun, tasks: [TaskItem]) -> Int {
+        let open = run.questions.filter { $0.resolution == nil }
+        let asked = Set(open.compactMap(\.task))
+        let waiting = tasks.filter { task in
+            guard let operated = task.operated, !operated.takenOver, !isFinished(operated.state),
+                  !asked.contains(task.id) else { return false }
+            return operated.flags.contains(.waitingOnYou) || operated.state == .blocked
+        }
+        return open.count + waiting.count
+    }
+}
