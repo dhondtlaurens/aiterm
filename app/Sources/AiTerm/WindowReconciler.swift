@@ -142,7 +142,7 @@ final class WindowReconciler {
                 workspace.mutate { $0 = $0.rememberingConversations(from: live.sessions, only: [task]) }
             }
             pass()
-        case .sessionClosed, .usageChanged, .unknown: break // `live`'s, or nobody's
+        case .sessionClosed, .usageChanged, .operatorRequest, .unknown: break // `live`'s, the operators', or nobody's
         }
     }
 

@@ -62,6 +62,10 @@ import Testing
         case (.sessionOpened, .sessionOpened(let session)), (.sessionChanged, .sessionChanged(let session)):
             try Self.expectSame(session, payload)
         case (.usageChanged, .usageChanged(let usage)): try Self.expectSame(usage, payload)
+        case (.operatorRequest, .operatorRequest(let request)):
+            #expect(request.requestId == payload["requestId"] as? String)
+            #expect(request.runId == payload["runId"] as? String)
+            #expect(request.tool == payload["tool"] as? String)
         case (_, let event): Issue.record("\(name.rawValue) read as \(event)")
         }
     }
@@ -79,8 +83,12 @@ import Testing
             func field(_ key: String) throws -> Any? { try #require(result["result"] as? [String: Any])[key] }
             switch method {
             // The liveness check: any answer is a helper that is there, so nothing in it is read.
-            case .itermStatus, .windowActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground:
+            case .itermStatus, .windowActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
+                 .sessionInterrupt, .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
                 _ = try read(DaemonClient.Empty.self)
+            case .sessionDeliver: #expect(try read(Delivery.self).result.rawValue == field("result") as? String)
+            case .sessionPrompt: #expect(try read(DaemonClient.PromptResult.self).kind?.rawValue == field("kind") as? String)
+            case .sessionDismissStartup: #expect(try read(DaemonClient.DismissResult.self).dismissed == field("dismissed") as? Bool)
             case .itermProvideCookie: #expect(try read(DaemonClient.AcceptedResult.self).accepted == field("accepted") as? Bool)
             case .windowCreateTask, .windowCreateTerminal: #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
             case .tabCreate: #expect(try read(DaemonClient.SessionResult.self).sessionId == field("sessionId") as? String)
