@@ -17,13 +17,14 @@ outside the `aitermd` package, so nothing ships them in the app bundle."""
 from __future__ import annotations
 import asyncio
 import json
+import dataclasses
 import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, get_args
 
-from aitermd import protocol, service
-from aitermd.models import AgentKind, State
+from aitermd import delivery, protocol, service
+from aitermd.models import HARNESS_BY_AGENT, AgentKind, State
 from tests.fake_iterm import FakeIterm
 
 WIRE = Path(__file__).parent / "wire"
@@ -93,13 +94,19 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     # Only this script ticks: a poll between its steps would make what each event carries depend
     # on timing.
     monkeypatch.setattr(service, "POLL_SECONDS", 3600)
+    monkeypatch.setattr(delivery, "SUBMIT_DELAY", 0)
+    # PI has no input-box marker of its own, so no screen of its is recognised: the script's PI tab
+    # shows `›` as Codex's does, for the deliveries only.
+    monkeypatch.setitem(HARNESS_BY_AGENT, "pi", dataclasses.replace(HARNESS_BY_AGENT["pi"], input_box=("›",)))
 
     async def no_pause(_seconds: float) -> None:
         await asyncio.sleep(0)
 
     iterm = FakeIterm(connected=False)
+    # PI's tab takes the deliveries: a policy that lets its version is all the script needs.
     svc = make_service(iterm=iterm, supervisor={"cookies_from_app": True, "apply_cookie": lambda cookie, key: None,
-                                                "reconnect_sleep": no_pause})
+                                                "reconnect_sleep": no_pause},
+                       delivery_policy=lambda: {"pi": ("auto", "0.70.0")})
     await svc.start()
     app = App(*await asyncio.open_unix_connection(svc.rpc.path))
     events: dict[str, dict[str, Any]] = {}
@@ -161,6 +168,15 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         replies["window.setFrame"] = await app.call("window.setFrame", {"windowId": task_window, "frame": FRAME})
         replies["sessions.setTitles"] = await app.call("sessions.setTitles", {"titles": [{"sessionId": pi, "title": "feat/wire"}]})
         replies["sessions.markSeen"] = await app.call("sessions.markSeen", {"taskId": TASK_ID})
+        iterm.screens[pi] = "› "
+        # The tick reads Claude's and Codex's versions from their files, and no file of PI's: set as it would be.
+        svc.registry.set_cli_version(pi, "0.70.0")
+        replies["session.setOwnership"] = await app.call("session.setOwnership", {"sessionId": pi, "ownership": 1})
+        replies["session.deliver"] = await app.call("session.deliver", {
+            "sessionId": pi, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
+        replies["session.prompt"] = await app.call("session.prompt", {"sessionId": pi})
+        replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": pi})
+        replies["session.interrupt"] = await app.call("session.interrupt", {"sessionId": pi})
         replies["interface.setMatchItermBackground"] = await app.call("interface.setMatchItermBackground", {"matchItermBackground": True})
         replies["sessions.list"] = await app.call("sessions.list")
         replies["usage.get"] = await app.call("usage.get")

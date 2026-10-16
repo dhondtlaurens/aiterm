@@ -559,3 +559,50 @@ async def test_a_verdict_that_became_paste_only_while_the_file_was_written_keeps
     result = await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, worktree=str(tmp_path))
     assert result.result == "partial"
     assert rig.iterm.sent == [(rig.sid, pasted("Read .aiterm/messages/1.md and act on it."))]
+
+
+async def _now_codex(rig):
+    await rig.iterm.user_runs(rig.sid, "codex", job_pid=5151)
+    rig.registry.apply_snapshot(await rig.iterm.snapshot())
+
+
+async def test_codexs_update_offer_is_declined_with_esc(rig):
+    await _now_codex(rig)
+    rig.iterm.screens[rig.sid] = CODEX_UPDATE
+    assert await rig.deliverer.dismiss_startup(rig.sid) is True
+    assert rig.iterm.sent == [(rig.sid, "\x1b")]
+
+
+@pytest.mark.parametrize("agent,screen", [
+    ("codex", CODEX_TRUST),                    # trusting a folder is yours to answer
+    ("codex", CODEX_IDLE_WITH_UPDATE_BANNER),  # the banner is no dialog
+    ("codex", CODEX_PERMISSION),
+    ("codex", IDLE),
+    ("claude", CLAUDE_TRUST),
+    ("claude", CODEX_UPDATE),                  # Claude has no update offer of its own to decline
+])
+async def test_any_other_screen_is_left_as_it_is(rig, agent, screen):
+    if agent == "codex":
+        await _now_codex(rig)
+    rig.iterm.screens[rig.sid] = screen
+    assert await rig.deliverer.dismiss_startup(rig.sid) is False
+    assert rig.iterm.sent == []
+
+
+async def test_dismissing_needs_an_open_session(rig):
+    with pytest.raises(KeyError):
+        await rig.deliverer.dismiss_startup("s404")
+
+
+def test_the_update_offer_is_known_by_every_one_of_its_markers():
+    assert HARNESS_BY_AGENT["codex"].update_prompt == ("Update now", "Skip until next version")
+    assert HARNESS_BY_AGENT["claude"].update_prompt == ()
+    assert delivery.shows_update_offer("codex", CODEX_UPDATE)
+    assert not delivery.shows_update_offer("codex", CODEX_UPDATE.replace("Skip until next version", "Not now"))
+
+
+async def test_a_generation_is_never_lowered(rig):
+    rig.deliverer.set_ownership(rig.sid, 5)
+    rig.deliverer.set_ownership(rig.sid, 2)
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 4)).result == "refused"
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 5)).result == "delivered"

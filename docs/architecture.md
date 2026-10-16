@@ -197,6 +197,8 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `hook_router.py` · `HookRouter` | a hook post, placed on a tab and applied to status or usage |
 | `publisher.py` · `Publisher` | `session.changed` and `usage.changed`, rendered when sent, for the router and the tick alike |
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
+| `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
+| `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 
@@ -215,6 +217,11 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `sessions.markSeen` | clear a done mark when its row is opened |
 | `interface.setMatchItermBackground` | paint AiTerm windows #1E1E1E |
 | `iterm.provideCookie` | the answer to `iterm.cookieRequested`: a cookie and key, "not running", or why iTerm2 refused. An answer to a request that has timed out or been answered is not accepted |
+| `session.deliver` | types a message into an agent's tab by the delivery adapter's rules: refused unless the CLI passed the delivery check (`delivery-policy.json`) for the version the tab runs (Claude's session file, Codex's rollout), its screen reads and no prompt is open; a bracketed paste, 0.4 s, the same checks again, then Enter — anything changed in between, a takeover among it, holds the Enter back and answers `partial`. Over 2000 characters it is left in `<worktree>/.aiterm/messages/<n>.md`, everything checked again, and one fixed line typed. With `wake`, refused while you typed in that tab in the last 10 s, or while its input may hold text not yet sent |
+| `session.prompt` | the prompt the tab's screen shows open: `permission`, `startup`, `menu` or none |
+| `session.dismissStartup` | declines the CLI's update offer with Esc when the screen shows one — Codex's, by its own options; any other startup dialog, a folder's trust above all, is left for you: `{dismissed: false}` |
+| `session.interrupt` | Esc, the agent's interrupt key — only ever on your click |
+| `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of

@@ -53,6 +53,10 @@ class Harness:
     permission_prompt: tuple[str, ...] = ()
     startup_prompt: tuple[str, ...] = ()
     menu_prompt: tuple[str, ...] = ()
+    # Text that marks the CLI's update offer, every one of them needed: the one startup dialog AiTerm
+    # answers itself, declining it with Esc (session.dismissStartup, spec §7.1). A folder's trust is
+    # yours to give: no harness marks it here.
+    update_prompt: tuple[str, ...] = ()
     # What an idle or working CLI draws at the start of its input line (delivery.shows_input_box): the
     # positive sign that the screen is the CLI's own and recognised, which no prompt marker proves.
     input_box: tuple[str, ...] = ()
@@ -74,6 +78,7 @@ HARNESSES: tuple[Harness, ...] = (
             menu_prompt=("Press enter to confirm or esc to cancel",),
             # The update dialog by its own options: the idle banner also says "Update available".
             startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
+            update_prompt=("Update now", "Skip until next version"),
             input_box=("›",)),
     # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
     # process may be titled with the resolved name: versioned since 1.0.44

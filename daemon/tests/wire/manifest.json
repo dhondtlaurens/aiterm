@@ -50,6 +50,21 @@
       "iterm.status": [
         "reply.iterm.status.json"
       ],
+      "session.deliver": [
+        "reply.session.deliver.json"
+      ],
+      "session.dismissStartup": [
+        "reply.session.dismissStartup.json"
+      ],
+      "session.interrupt": [
+        "reply.session.interrupt.json"
+      ],
+      "session.prompt": [
+        "reply.session.prompt.json"
+      ],
+      "session.setOwnership": [
+        "reply.session.setOwnership.json"
+      ],
       "sessions.list": [
         "reply.sessions.list.json"
       ],
@@ -91,6 +106,11 @@
     "interface.setMatchItermBackground",
     "iterm.provideCookie",
     "iterm.status",
+    "session.deliver",
+    "session.dismissStartup",
+    "session.interrupt",
+    "session.prompt",
+    "session.setOwnership",
     "sessions.list",
     "sessions.markSeen",
     "sessions.setTitles",

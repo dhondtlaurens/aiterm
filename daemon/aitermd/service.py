@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
@@ -13,15 +13,17 @@ from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .claude_tokens import ClaudeTranscriptTallies
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
+from .delivery import Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
 from .hooks_server import HookServer
 from .iterm_bridge import ItermPort
+from .keystrokes import TypingGuard
 from .offload import run_detached
 from .publisher import Publisher
 from .resolver import SessionResolver
-from .rpc_params import frame_param, guard, param, require_iterm
+from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcServer
-from .models import HARNESS_BY_AGENT, SessionInfo, TokenTally
+from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, TokenTally
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, path_is_missing, shows_trust_prompt
 from .usage import UsageStore, parse_codex_rate_limits
@@ -63,7 +65,8 @@ class Service:
     def __init__(self, iterm: ItermPort, rpc: RpcServer, hooks: HookServer, claude_files: ClaudeSessionFiles,
                  clock: Callable[[], float], codex_files: CodexSessionFiles | None = None,
                  supervisor: ItermSupervisor | None = None, path_missing: Callable[[str], bool] = path_is_missing,
-                 monotonic: Callable[[], float] = time.monotonic):
+                 monotonic: Callable[[], float] = time.monotonic,
+                 delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
@@ -81,6 +84,12 @@ class Service:
         self.windows = WindowManager(iterm, self.registry, self.tick)
         self.supervisor.on_connected = self.windows.forget_titles
         self.supervisor.on_launched_connected = self.windows.capture_startup_window
+        # The delivery adapter (Operators spec §7.1), and when you last typed in each session, which
+        # holds back an operator's wake line (§7.4). The policy is read on every delivery, so the
+        # delivery check that writes it needs no restart.
+        self._monotonic = monotonic
+        self.typing = TypingGuard()
+        self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame and window.activate each leave a state the next one replaces, and the app
         # sends them from separate tasks; requests are answered concurrently, so they take this in
@@ -107,6 +116,7 @@ class Service:
         self.iterm.on_new_session(self.windows.on_new_session)
         self.iterm.on_session_closed(self._on_session_closed)
         self.iterm.on_window_activated(self._on_window_activated)
+        self.iterm.on_keystroke(self._on_keystroke)
         await self.rpc.start()
         try:
             await self.hooks.start()
@@ -147,6 +157,11 @@ class Service:
         r("sessions.list", self._h_sessions_list)
         r("sessions.setTitles", self.windows.set_titles)
         r("sessions.markSeen", self._h_mark_seen)
+        r("session.deliver", self._h_deliver)
+        r("session.prompt", self._h_prompt)
+        r("session.dismissStartup", self._h_dismiss_startup)
+        r("session.interrupt", self._h_interrupt)
+        r("session.setOwnership", self._h_set_ownership)
         r("usage.get", self._h_usage_get)
         r("interface.setMatchItermBackground", self.windows.set_match_iterm_background)
 
@@ -196,6 +211,31 @@ class Service:
     async def _h_usage_get(self, _p: Any) -> dict[str, Any]:
         return self.usage.snapshot()
 
+    async def _h_deliver(self, p: Any) -> dict[str, Any]:
+        session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)
+        wake, worktree = bool(optional_param(p, "wake", bool)), optional_param(p, "worktree", str)
+        return (await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)).to_json()
+
+    async def _h_prompt(self, p: Any) -> dict[str, Any]:
+        session_id = param(p, "sessionId", str)
+        require_iterm(self.iterm)
+        return {"kind": await guard(self.deliverer.prompt(session_id))}
+
+    async def _h_dismiss_startup(self, p: Any) -> dict[str, Any]:
+        session_id = param(p, "sessionId", str)
+        require_iterm(self.iterm)
+        return {"dismissed": await guard(self.deliverer.dismiss_startup(session_id))}
+
+    async def _h_interrupt(self, p: Any) -> dict[str, Any]:
+        session_id = param(p, "sessionId", str)
+        require_iterm(self.iterm)
+        await guard(self.deliverer.interrupt(session_id))
+        return {}
+
+    async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
+        self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))
+        return {}
+
     # -- iTerm2 notifications ------------------------------------------------
     async def _on_window_activated(self, window_id: str) -> None:
         # A macOS notification can bring an iTerm2 window forward without an AiTerm row being
@@ -205,6 +245,11 @@ class Service:
             await self.rpc.broadcast(protocol.WINDOW_ACTIVATED, {"windowId": window_id})
         except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
             log.exception("on_window_activated failed for %s", window_id)
+
+    async def _on_keystroke(self, session_id: str, characters: str, modifiers: frozenset[str]) -> None:
+        # Only the moment and the key's effect on the input are kept (keystrokes.TypingGuard), and
+        # nothing here can raise into the library's dispatch.
+        self.typing.note_key(session_id, self._monotonic(), characters, modifiers)
 
     async def _on_session_closed(self, session_id: str) -> None:
         try:
@@ -467,7 +512,8 @@ class Service:
         """Drops what each part keeps of a closed session, each on its own: one that raises keeps
         only its own state, not the others'."""
         for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.forget_session),
-                             ("bindings", self.resolver.forget)):
+                             ("bindings", self.resolver.forget), ("delivery state", self.deliverer.forget_session),
+                             ("last key", self.typing.forget)):
             with _logged(f"forgetting the {what} of closed session {session_id}"):
                 forget(session_id)
 

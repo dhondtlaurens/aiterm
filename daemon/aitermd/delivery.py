@@ -131,6 +131,20 @@ def load_policy(path: Path) -> dict[AgentKind, Verdict]:
     return verdicts
 
 
+def read_policy() -> dict[AgentKind, Verdict]:
+    """The policy as the delivery check last wrote it: the daemon's, read on every delivery."""
+    return load_policy(POLICY_PATH)
+
+
+def shows_update_offer(agent: AgentKind, screen: str) -> bool:
+    """Whether `screen` shows the CLI's update offer: a startup dialog (open_prompt) that bears every
+    one of the harness's update markers. Never a folder's trust dialog, which has other words."""
+    harness = HARNESS_BY_AGENT.get(agent)
+    if harness is None or not harness.update_prompt or open_prompt(agent, screen) != "startup":
+        return False
+    return all(_shows(screen, (phrase,)) for phrase in harness.update_prompt)
+
+
 # Bracketed paste: what a terminal wraps pasted text in, so the CLI reads it as text, not keys. A
 # prompt that opens while it arrives receives a paste rather than shortcut keys (spec §7.1).
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
@@ -218,8 +232,9 @@ class Deliverer:
     def set_ownership(self, session_id: str, ownership: int) -> None:
         """The task's ownership generation, which a takeover increments (session.setOwnership): a
         send begun under an older one is refused, and one in flight when it changes gets no Enter.
-        Kept in memory only: after a daemon restart the app sets each again."""
-        self._ownership[session_id] = ownership
+        Kept in memory only: after a daemon restart the app sets each again. Never lowered: a late or
+        repeated call cannot turn an older send current again."""
+        self._ownership[session_id] = max(ownership, self._ownership.get(session_id, ownership))
 
     def _turn(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
@@ -359,3 +374,19 @@ class Deliverer:
             raise KeyError(session_id)
         async with self._turn(session_id):
             await self.iterm.send_text(session_id, ESC)
+
+    async def dismiss_startup(self, session_id: str) -> bool:
+        """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one
+        itself (spec §7.1), so a task's agent is not left waiting on it. Sent only while the screen,
+        read within the session's turn, shows that offer by every one of its markers: any other
+        startup dialog -- a folder's trust above all -- is yours to answer, and is left open. True
+        when Esc was sent. KeyError for a session not open."""
+        if (session := self.registry.get(session_id)) is None:
+            raise KeyError(session_id)
+        async with self._turn(session_id):
+            if (screen := await self.iterm.screen_text(session_id)) is None:
+                raise KeyError(session_id)
+            if not shows_update_offer(session.agent, screen):
+                return False
+            await self.iterm.send_text(session_id, ESC)
+            return True
