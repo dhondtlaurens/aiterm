@@ -14,7 +14,10 @@ import AiTermCore
 final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
-    var sheet: SheetKind?
+    var sheet: SheetKind? {
+        didSet { if sheet == nil { onDismiss?() } }
+    }
+    @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 

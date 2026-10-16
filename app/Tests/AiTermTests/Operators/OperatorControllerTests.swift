@@ -211,4 +211,39 @@ import Testing
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [endedByYou.id.uuidString])
         #expect(world.daemon.requests("operator.register").isEmpty)
     }
+
+    @Test func aNotificationOverviewWaitsForTheRenameSheetToDismiss() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorServiceFixtures.run(projects: [project])
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.sheet = .rename(.operation(run))
+        controller.openNote(.overview(run.id))
+        controller.presentRequestedOverview()
+        #expect(controller.sheet?.id == "rename-\(run.id)")
+        #expect(controller.operatorController.presentOverview == run.id)
+        controller.sheets.sheet = nil
+        guard case .operationOverview(let id)? = controller.sheet else { Issue.record("No deferred overview"); return }
+        #expect(id == run.id)
+        #expect(controller.operatorController.presentOverview == nil)
+        controller.sheet = nil
+        #expect(controller.sheet == nil)
+    }
+
+    @Test func aDeferredOverviewForARemovedRunClearsSilently() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorServiceFixtures.run(projects: [project])
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.sheet = .newDivider
+        controller.openNote(.overview(run.id))
+        controller.presentRequestedOverview()
+        #expect(controller.operatorController.presentOverview == run.id)
+        controller.workspace.mutate { $0.runs = [] }
+        controller.sheets.sheet = nil
+        #expect(controller.sheet == nil)
+        #expect(controller.operatorController.presentOverview == nil)
+    }
 }

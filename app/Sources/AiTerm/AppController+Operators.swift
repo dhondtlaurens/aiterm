@@ -85,9 +85,12 @@ extension AppController {
     }
 
     /// The overview a notification's click asked for (D7 sets `OperatorController.presentOverview`),
-    /// presented and cleared, so it opens once.
+    /// held behind an editing sheet, then presented and cleared so it opens once.
     func presentRequestedOverview() {
         guard let id = operatorController.presentOverview else { return }
+        if let sheet {
+            guard case .operationOverview = sheet else { return }
+        }
         operatorController.presentOverview = nil
         presentOverview(run: id)
     }

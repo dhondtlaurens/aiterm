@@ -137,4 +137,32 @@ import Testing
         #expect(changed.filter { $0 == both }.count == 1)
         #expect(Set(changed) == [made.child, other, both])
     }
+
+    @Test func aReplacedTaskWaitsForItsCodeParentToBeAccepted() throws {
+        let made = family(.working)
+        for parentState in [OperatedState.working, .blocked, .queued] {
+            var world = made.world
+            world.update(made.parent) { $0.state = parentState; $0.acceptance = nil }
+            world.update(made.child) { $0.flags.insert(.upstreamReplaced) }
+            let task = try #require(world.state.task(id: made.child))
+            let reason = UpstreamReplacement.acceptRefusal(for: task, in: world.state, contains: { _ in
+                Issue.record("No ancestry check without an accepted parent")
+                return true
+            })
+            #expect(reason == "PLUTO-231 cannot be accepted until PLUTO-230, its code parent, is accepted.")
+        }
+    }
+
+    @Test func aGrandchildCannotBeAcceptedBeforeItsRevokedParent() throws {
+        let made = family(.accepted)
+        var world = made.world
+        let grandchild = world.addTask("PLUTO-232", run: world.state.runs[0].id, state: .accepted,
+                                      dependsOn: [TaskDependency(task: made.child, kind: .code)], acceptedSHA: "grand")
+        _ = try UpstreamReplacement.reaccept(made.parent, as: acceptance("new"), in: &world.state)
+        let task = try #require(world.state.task(id: grandchild))
+        #expect(UpstreamReplacement.acceptRefusal(for: task, in: world.state, contains: { _ in true })
+                == "PLUTO-232 cannot be accepted until PLUTO-231, its code parent, is accepted.")
+        world.update(made.child) { $0.state = .accepted; $0.acceptance = acceptance("rebased") }
+        #expect(UpstreamReplacement.acceptRefusal(for: task, in: world.state, contains: { $0 == "rebased" }) == nil)
+    }
 }

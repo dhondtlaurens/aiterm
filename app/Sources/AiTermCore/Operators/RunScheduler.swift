@@ -55,7 +55,9 @@ public enum RunScheduler {
             // A task id held twice starts once: never a second worktree or window for the same task.
             guard let o = task.operated, o.state == .queued, !o.takenOver, seen.insert(task.id).inserted else { return false }
             return o.dependsOn.allSatisfy { dependency in
-                guard let parent = byId[dependency.task]?.operated?.state else { return false }
+                guard let operated = byId[dependency.task]?.operated,
+                      operated.publication?.mergedSHA == nil || operated.publication?.merged == true else { return false }
+                let parent = operated.state
                 switch dependency.kind {
                 case .order: return [.accepted, .noChange, .published].contains(parent)
                 case .code: return [.accepted, .published].contains(parent)
@@ -113,6 +115,14 @@ extension RunScheduler {
     ///
     /// `excluding` names queued tasks the caller may already have a window for (`startable(in:maxParallel:excluding:)`).
     public static func claim(in state: inout AppState, maxParallel: Int, now: Date, excluding: Set<UUID> = []) -> [UUID] {
+        // A foreign merge holds its children even though the parent still has an acceptance.
+        for task in state.tasks where task.operated?.state == .queued {
+            guard let parent = task.operated?.dependsOn.compactMap({ state.task(id: $0.task)?.operated }).first(where: {
+                $0.publication?.mergedSHA != nil && $0.publication?.merged != true
+            }) else { continue }
+            let reason = parent.publication?.problem ?? "\(parent.key) was merged on the host outside its accepted publication"
+            _ = try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)
+        }
         var claimed: [UUID] = []
         for id in startable(in: state, maxParallel: maxParallel, excluding: excluding) where !claimed.contains(id) {
             let attempt = LaunchAttempt(number: (state.task(id: id)?.operated?.launch?.number ?? 0) + 1, requestedAt: now)

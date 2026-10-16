@@ -151,7 +151,7 @@ import Testing
             (Self.pull(mergeableState: "blocked"), Self.green, Self.statuses([]), .waiting("it needs a review or a required check")),
             (Self.pull(mergeableState: "something_new"), Self.green, Self.statuses([]), .waiting("GitHub is checking it")),
             (Self.pull(draft: true, mergeableState: "draft"), Self.green, Self.statuses([]), .blocked("it is a draft")),
-            (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit, head: Self.head)),
+            (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit, head: Self.head, target: "main")),
             (Self.pull(state: "closed"), Self.green, Self.statuses([]), .blocked("the pull request is closed")),
         ]
         for item in cases {

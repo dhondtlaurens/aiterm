@@ -191,7 +191,7 @@ import Testing
         let base = "https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests/12"
         #expect(try await publisher.readiness(of: 12) == .ready(head: GitLabPublishTests.head))
         #expect(stub.lastRequest?.url?.absoluteString == base)
-        #expect(try await publisher.merge(12, at: GitLabPublishTests.head) == .merged(commit: GitLabPublishTests.mergeCommit, head: GitLabPublishTests.head))
+        #expect(try await publisher.merge(12, at: GitLabPublishTests.head) == .merged(commit: GitLabPublishTests.mergeCommit, head: GitLabPublishTests.head, target: "main"))
         #expect(stub.lastRequest?.httpMethod == "PUT")
         #expect(stub.lastRequest?.url?.absoluteString == base + "/merge")
         try await publisher.retarget(12, to: "main")

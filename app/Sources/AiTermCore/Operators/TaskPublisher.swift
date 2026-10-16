@@ -76,9 +76,10 @@ public struct TaskPublisher: Sendable {
         guard let acceptance = operated.acceptance else { return .refused(PublicationGuard.notOperated) }
         let sha = acceptance.resultSHA
         let parentMerged = context.parent?.operated?.publication?.merged == true
-        // Nothing builds on a parent the host merged with commits nobody accepted.
+        // Nothing builds on a parent merged outside its accepted publication.
         if let parent = context.parent?.operated, !parentMerged, parent.publication?.mergedSHA != nil {
-            return try await blocked(publication, "\(parent.key) was merged on the host with commits that weren't accepted: AiTerm publishes nothing on top of it.", record)
+            let reason = parent.publication?.problem ?? "\(parent.key) was merged on the host with commits that weren't accepted"
+            return try await blocked(publication, "\(reason): AiTerm publishes nothing on top of it.", record)
         }
 
         if restart, publication.problem != nil || publication.waitingSince != nil {
@@ -161,7 +162,7 @@ public struct TaskPublisher: Sendable {
             }
         }
         let answer = try await host.readiness(of: number)
-        guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, publication, record) }
+        guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record) }
         guard head == sha else {
             publication.readySince = nil
             return try await blocked(publication, "The request's branch is at \(head.prefix(7)) on the host, not the accepted \(sha.prefix(7)).", record)
@@ -193,22 +194,32 @@ public struct TaskPublisher: Sendable {
             return try await blocked(publication, "The request \(url) targets \(live.targetBranch) on the host now, not \(defaultBranch): AiTerm never merges it there. Retarget it to \(defaultBranch), then call finish_task again.", record)
         }
         if let why = await recheck() { return .refused(why) }
-        return try await settle(try await host.merge(number, at: sha), sha: sha, key: operated.key, publication, record)
+        return try await settle(try await host.merge(number, at: sha), sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record, verifiedTarget: live.targetBranch)
     }
 
     /// What a readiness read that is not ready, or a merge's answer, makes of the publication. Any
     /// answer but merged means the next ready is a first one again. Merged with another head than the
-    /// accepted `sha` is recorded as it happened, and is no published end.
-    private func settle(_ answer: MergeReadiness, sha: String, key: String, _ publication: TaskPublication,
-                        _ record: @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
+    /// accepted `sha`, or into another target, is recorded as it happened and is no published end.
+    private func settle(_ answer: MergeReadiness, sha: String, key: String, branch: String, expectedTarget: String, _ publication: TaskPublication,
+                        _ record: @Sendable (TaskPublication) async throws -> Void, verifiedTarget: String? = nil) async throws -> Outcome {
         var publication = publication
         let wasReady = publication.readySince != nil
         publication.readySince = nil
         switch answer {
-        case .merged(let commit, let head):
+        case .merged(let commit, let head, let target):
             publication.mergedSHA = commit
             publication.mergedHead = head
+            let liveTarget: String?
+            if let target = target ?? verifiedTarget { liveTarget = target }
+            else {
+                let live = try? await host.existingRequest(from: branch)
+                liveTarget = live?.iid == publication.mergeRequestNumber ? live?.targetBranch : nil
+            }
+            publication.targetBranch = liveTarget
             guard head == sha else { return try await blocked(publication, Self.mergedUnaccepted(key, publication), record) }
+            guard liveTarget == expectedTarget else {
+                return try await blocked(publication, "\(key) was merged on the host into \(liveTarget ?? "an unknown branch"), not \(expectedTarget): AiTerm does not count it as the task’s merge.", record)
+            }
             publication.merged = true
             publication.problem = nil
             try await record(publication)

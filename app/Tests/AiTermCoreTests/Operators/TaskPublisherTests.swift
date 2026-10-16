@@ -660,4 +660,69 @@ import Synchronization
         #expect(host.log.contains("retarget 12 → main"))
         #expect(s.world.operated(s.task)?.publication?.targetBranch == "main")
     }
+
+    @Test func aRecordedRequestMergedIntoAnotherTargetIsForeign() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        _ = try await advance(&s, host: host, now: { clock.now })
+        host.update {
+            $0.existing = nil
+            $0.readiness = [.merged(commit: "foreign", head: s.sha, target: "release")]
+        }
+        let outcome = try await advance(&s, host: host, now: { clock.now })
+        guard case .blocked(let publication, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(!publication.merged)
+        #expect(publication.mergedSHA == "foreign" && publication.mergedHead == s.sha)
+        #expect(publication.targetBranch == "release")
+        #expect(why.contains("into release, not main"))
+        let calls = host.log.count
+        #expect(try await advance(&s, host: host, now: { clock.now }) == .blocked(publication, why))
+        #expect(host.log.count == calls)
+    }
+
+    @Test func aMergedReadUsesTheLiveRequestAndFailsClosedWhenItIsGone() async throws {
+        for target in ["release", nil] as [String?] {
+            var s = try setUp(end: .merge)
+            let host = FakeMergeHost(), clock = Clock()
+            _ = try await advance(&s, host: host, now: { clock.now })
+            host.update {
+                if let target { $0.existing?.targetBranch = target } else { $0.existing = nil }
+                $0.readiness = [.merged(commit: "foreign", head: s.sha)]
+            }
+            let outcome = try await advance(&s, host: host, now: { clock.now })
+            guard case .blocked(let publication, _) = outcome else { Issue.record("\(outcome)"); continue }
+            #expect(!publication.merged && publication.mergedSHA == "foreign")
+            #expect(publication.targetBranch == target)
+        }
+    }
+
+    @Test func aChildOfAParentMergedIntoAnotherTargetBlocksWithItsReason() async throws {
+        var (s, parent) = try stacked(childEnd: .merge, parentEnd: .merge)
+        let why = "PLUTO-230 was merged on the host into release, not main"
+        s.world.update(parent) {
+            $0.publication?.mergedSHA = "foreign"
+            $0.publication?.mergedHead = $0.acceptance?.resultSHA
+            $0.publication?.targetBranch = "release"
+            $0.publication?.problem = why
+        }
+        let host = FakeMergeHost(), clock = Clock()
+        let outcome = try await advance(&s, host: host, parent: parent, now: { clock.now })
+        guard case .blocked(_, let reason) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(reason == "\(why): AiTerm publishes nothing on top of it.")
+        #expect(host.log.isEmpty)
+    }
+
+    @Test func aMergedReadWithTheExpectedLiveTargetNeedsNoOpenRequest() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        _ = try await advance(&s, host: host, now: { clock.now })
+        host.update {
+            $0.existing = nil
+            $0.readiness = [.merged(commit: "merged", head: s.sha, target: "main")]
+        }
+        let outcome = try await advance(&s, host: host, now: { clock.now })
+        guard case .published(let publication) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(publication.merged && publication.targetBranch == "main")
+        #expect(publication.mergedSHA == "merged" && publication.mergedHead == s.sha)
+    }
 }

@@ -96,4 +96,18 @@ import Foundation
         run.questions[0].resolution = "yes"
         #expect(RunScheduler.isComplete(run, in: F.state(run, done)))
     }
+
+    @Test(arguments: [DependencyKind.code, .order])
+    func aForeignMergeBlocksItsQueuedChildWithTheRecordedReason(_ kind: DependencyKind) {
+        var parent = F.task("P", .accepted)
+        let reason = "P was merged on the host into release, not main"
+        parent.operated?.publication = TaskPublication(mergedSHA: "foreign", mergedHead: "accepted", problem: reason)
+        let child = F.task("C", dependsOn: [TaskDependency(task: parent.id, kind: kind)])
+        var state = F.state(F.run(), [parent, child])
+        #expect(startable(state).isEmpty)
+        #expect(RunScheduler.claim(in: &state, maxParallel: 1, now: F.epoch).isEmpty)
+        #expect(state.task(id: child.id)?.operated?.state == .blocked)
+        #expect(state.task(id: child.id)?.operated?.blockedReason == reason)
+        #expect(state.task(id: child.id)?.operated?.launch == nil)
+    }
 }

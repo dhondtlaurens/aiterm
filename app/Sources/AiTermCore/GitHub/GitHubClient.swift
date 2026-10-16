@@ -157,7 +157,7 @@ public struct GitHubClient: Sendable {
     /// `mergeable` and `mergeable_state`. Only `clean` and `has_hooks` with `mergeable` true is ready.
     public func mergeReadiness(repo: String, number: Int) async throws -> MergeReadiness {
         let pull = try await get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
-        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha) }
+        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha, target: pull.base?.ref) }
         guard pull.state == "open" else { return .blocked("the pull request is closed") }
         if pull.draft == true { return .blocked("it is a draft") }
         let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
@@ -441,6 +441,8 @@ private protocol PagedList: Decodable {
 
 /// The fields of a pull request that say whether it can merge now.
 private struct PullStatusPayload: Decodable {
+    struct Base: Decodable { var ref: String }
+    var base: Base?
     struct Head: Decodable { var sha: String }
     var state: String, draft: Bool?, merged: Bool?, mergeable: Bool?, mergeableState: String?, mergeCommitSha: String?
     var head: Head

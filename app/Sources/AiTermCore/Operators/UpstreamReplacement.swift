@@ -73,8 +73,13 @@ public enum UpstreamReplacement {
                                      contains: (_ parentSHA: String) throws -> Bool) rethrows -> String? {
         guard let operated = task.operated, operated.flags.contains(.upstreamReplaced) else { return nil }
         for dependency in operated.dependsOn where dependency.kind == .code {
-            guard let parent = state.tasks.first(where: { $0.id == dependency.task })?.operated,
-                  let parentSHA = parent.acceptance?.resultSHA else { continue }
+            guard let parent = state.tasks.first(where: { $0.id == dependency.task })?.operated else {
+                return "\(operated.key) cannot be accepted: its code parent is missing."
+            }
+            guard parent.state == .accepted || parent.state == .published,
+                  let parentSHA = parent.acceptance?.resultSHA else {
+                return "\(operated.key) cannot be accepted until \(parent.key), its code parent, is accepted."
+            }
             if try !contains(parentSHA) {
                 return "\(operated.key) doesn't contain \(parent.key)'s accepted commit \(parentSHA.prefix(7)) yet: have its worker rebase on it first."
             }

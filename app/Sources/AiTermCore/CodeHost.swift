@@ -61,7 +61,8 @@ public enum MergeReadiness: Equatable, Sendable {
     case blocked(String)
     /// Merged — by this call, or an earlier one whose answer was lost, or by someone on the host — as
     /// `commit`, with `head` the request's head commit that was merged ("" when the host did not say).
-    case merged(commit: String, head: String)
+    /// `target` is the live target when the host supplies it; nil must not be inferred from saved state.
+    case merged(commit: String, head: String, target: String? = nil)
 }
 
 /// Whether a code host protects a branch. AiTerm never pushes to a protected branch (spec §3):
