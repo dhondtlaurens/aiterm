@@ -63,6 +63,10 @@ final class OperatorToolHandler {
     var onActing: @MainActor (UUID, Bool) -> Void = { _, _ in }
     /// Said after an operator's own change to its run: what may start now starts.
     var onChange: @MainActor (UUID) -> Void = { _ in }
+    /// Carries out a task's recorded end (G10): the controller's `TaskFinisher`.
+    var finish: @MainActor (UUID) async -> TaskFinisher.Result = { _ in
+        TaskFinisher.Result(result: "refused", reason: "AiTerm isn’t ready to publish yet.")
+    }
 
     /// The tools that act on one task while they run: its row's operator mark breathes meanwhile.
     static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task"]
@@ -143,7 +147,9 @@ final class OperatorToolHandler {
         case "resume_task": return try resumeTask(call, in: run)
         case "retry_task": return try retryTask(call, in: run)
         case "finish_task":
-            throw ToolRefusal("finish_task is available in M3. In M1 a task ends at its commit: once you accept it, it is done.")
+            let task = try self.task(call, in: run)
+            let result = await finish(task.id)
+            return try JSONValue(encoding: result)
         default: throw ToolRefusal("AiTerm has no tool called \(call.tool).")
         }
     }

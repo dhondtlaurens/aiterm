@@ -201,6 +201,7 @@ struct SettingsView: View {
                             FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
                                 .frame(maxWidth: .infinity)
                         }
+                        HelpText("Reading needs read_api. An operator that opens or merges merge requests needs api.")
                         if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
                 }
@@ -209,7 +210,7 @@ struct SettingsView: View {
                         FormField("Access token") {
                             Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
                         }
-                        HelpText("Needs read access to pull requests.")
+                        HelpText("Needs read access to pull requests. An operator that opens or merges them needs write access to pull requests and contents, and read access to administration to see branch protection.")
                         if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
                 }

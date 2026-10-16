@@ -86,6 +86,9 @@ extension OperatorPorts {
         var ports = OperatorPorts(home: home, git: git, library: library, notifications: notifications, wakeCoalesce: .zero)
         // One agent at a time, whatever the test host's defaults hold; a test of the cap sets its own.
         ports.agentsAtOnce = { 1 }
+        // Nothing is published but through a test's own fake host, and no merge watch waits for real.
+        ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
+        ports.mergeSleep = { _ in throw CancellationError() }
         return ports
     }
 }

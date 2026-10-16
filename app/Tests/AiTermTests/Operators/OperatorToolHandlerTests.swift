@@ -72,7 +72,7 @@ import Testing
     @Test func finishTaskComesInM3AndAnUnknownToolOrRunIsAnError() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
-        #expect(await world.call(run.id, "finish_task", ["task": "x"]).message?.hasPrefix("finish_task is available in M3.") == true)
+        #expect(await world.call(run.id, "finish_task", ["task": "x"]).message == "No task x in this operation.")
         #expect(await world.call(run.id, "merge_everything").message == "AiTerm has no tool called merge_everything.")
         #expect(await world.call(UUID(), "run_status").message == "This operation is no longer in AiTerm.")
     }
@@ -80,11 +80,11 @@ import Testing
     @Test func aRequestIsAnsweredThroughTheDaemonWithItsId() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
-        world.controller.handle(.operatorRequest(OperatorRequest(requestId: "r7", runId: run.id.uuidString, tool: "finish_task", arguments: [:])))
+        world.controller.handle(.operatorRequest(OperatorRequest(requestId: "r7", runId: run.id.uuidString, tool: "merge_everything", arguments: [:])))
         await world.controller.tools.lastReply?.value
         let reply = try #require(world.daemon.requests("operator.reply").first)
         #expect(reply.params["requestId"] as? String == "r7")
-        #expect((reply.params["error"] as? String)?.hasPrefix("finish_task is available in M3.") == true)
+        #expect(reply.params["error"] as? String == "AiTerm has no tool called merge_everything.")
         #expect(reply.params["result"] == nil)
     }
 

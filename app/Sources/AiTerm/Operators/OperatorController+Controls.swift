@@ -14,6 +14,7 @@ extension OperatorController {
         guard !operated.takenOver else { return try await setOwnership(operated.ownership, on: id) }
         let ownership = operated.ownership + 1
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = true; $0.ownership = ownership } }
+        finisher.stopWatching(id)
         waker.say("the person took over \(operated.key)", to: operated.runId)
         try await setOwnership(ownership, on: id)
     }
@@ -47,6 +48,7 @@ extension OperatorController {
         } catch let refused as OperatedTransitionError {
             throw ActionUnavailable(refused.description)
         }
+        finisher.stopWatching(id)
         runChanged(runId)
     }
 
@@ -109,6 +111,7 @@ extension OperatorController {
             restore(before)
             throw ActionUnavailable("The pause couldn’t be saved, so the operation was left as it was.")
         }
+        finisher.stopWatching(inRun: id)
     }
 
     /// Resume (spec §9), from paused or offline: an operator still there is kept and woken; one gone is
@@ -124,6 +127,7 @@ extension OperatorController {
             mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
         }
         waker.say("resumed", to: id)
+        finisher.resumeWatching()
         runChanged(id)
     }
 
@@ -148,6 +152,7 @@ extension OperatorController {
             restore(before)
             throw ActionUnavailable("The end couldn’t be saved, so the operation was left as it was.")
         }
+        finisher.stopWatching(inRun: id)
         for challenge in run.challenges { tools.runningChallenges[challenge.id]?.cancel() }
         waker.forget(id)
         // Its working tasks no longer hold a slot: another operation's queued task may take it now.

@@ -28,6 +28,13 @@ struct OperatorPorts {
     /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
     /// raising `OperatorMilestone.current` (F1, G6) leaves it as it was.
     var milestone: OperatorMilestone = .current
+    /// The code host a project's requests are published on, with the connections Settings saved (G10):
+    /// `remote` is origin's, the repository the push goes to. The tokens stay in the clients.
+    var publisher: @Sendable (RemoteInfo) throws -> any MergeRequestPublishing = { remote in
+        try MergeRequestPublisher.publisher(for: remote, gitLab: GitLabSettings.load(), gitHub: GitHubSettings.load())
+    }
+    /// The merge watch's wait between polls.
+    var mergeSleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, library: OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home)),
@@ -54,6 +61,8 @@ final class OperatorController {
     @ObservationIgnored let waker: OperatorWaker
     @ObservationIgnored let tools: OperatorToolHandler
     @ObservationIgnored let starter: WorkerStarter
+    /// `finish_task` and the merge watch (G10).
+    @ObservationIgnored let finisher: TaskFinisher
     @ObservationIgnored let reconciler: RunReconciler
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
@@ -113,6 +122,8 @@ final class OperatorController {
                               coalesce: ports.wakeCoalesce)
         tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
+        // It captures nothing of `self`: its callbacks are installed once every stored property is set.
+        finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: Date.init, sleep: ports.mergeSleep)
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, notifier: notifier, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
@@ -125,6 +136,12 @@ final class OperatorController {
             guard let self, let run = task.operated.flatMap({ self.run(id: $0.runId) }) else { return }
             notifier.taskBlocked(task, reason: reason, in: run)
             runChanged(run.id)
+        }
+        finisher.changed = { [weak self] id in self?.publicationChanged(id) }
+        finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
+        tools.finish = { [weak self] id in
+            guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
+            return await self.finisher.finish(id)
         }
         reloadOperators()
     }
@@ -481,7 +498,8 @@ final class OperatorController {
         for (run, keys) in quiet { waker.say("\(keys.joined(separator: ", ")) may be stalled", to: run) }
     }
 
-    /// Starts the reconcile loop; AiTerm's `start()` calls it.
+    /// Starts the reconcile loop; AiTerm's `start()` calls it. The merges AiTerm was waiting for when it
+    /// last quit are watched again.
     func start() {
         guard loop == nil else { return }
         let interval = ports.reconcileInterval
@@ -492,6 +510,34 @@ final class OperatorController {
                 reconcileTick()
             }
         }
+        finisher.resumeWatching()
+    }
+
+    // -- publishing -------------------------------------------------------------------------
+    /// A watched merge ended — merged, blocked, or out of time: its operator is told, and the run is
+    /// settled, so an operation's last merge completes it (spec §9).
+    func publicationChanged(_ id: UUID) {
+        guard let operated = workspace.state.task(id: id)?.operated else { return }
+        let line = operated.state == .published ? "\(operated.key) merged"
+            : "\(operated.key) can’t merge: \(operated.publication?.problem ?? "the host gave no reason")"
+        waker.say(line, to: operated.runId)
+        runChanged(operated.runId)
+    }
+
+    /// The host merged the task's request with a head nobody accepted (spec §6): only you can say how the
+    /// operation goes on, so it is a question for you, asked once — as `ask_you` asks it — on the task.
+    func askAboutMergeOnHost(_ id: UUID, _ why: String) {
+        guard let operated = workspace.state.task(id: id)?.operated, let run = run(id: operated.runId) else { return }
+        let key = "merged-on-host-\(id.uuidString)"
+        guard !run.questions.contains(where: { $0.id == key }) else { return }
+        let question = OperatorQuestion(id: key, text: "\(why) AiTerm publishes nothing more of it or on top of it: decide how the operation goes on.",
+                                        task: id, askedAt: ports.now(), resolution: nil)
+        workspace.mutate { state in
+            state.updateRun(id: run.id) { $0.questions.append(question) }
+            state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
+        }
+        let updated = self.run(id: run.id) ?? run
+        notifier.questionAsked(question, in: updated, otherWorkCanProceed: workspace.state.otherWorkCanProceed(in: updated))
     }
 
     func stop() {
