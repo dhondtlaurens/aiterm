@@ -226,6 +226,10 @@ class SessionInfo:
     # Where a Claude conversation writes its transcript, which its tokens are summed from. Neither
     # sent nor compared: only the service's tally reads it.
     transcript: str | None = field(default=None, compare=False)
+    # The version of the agent CLI the tab runs, as the CLI's own files report it: Claude's session
+    # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).
+    # Neither sent nor compared; it goes with the agent's process, as the transcript does.
+    cli_version: str | None = field(default=None, compare=False)
 
     def to_json(self) -> dict[str, Any]:
         return {

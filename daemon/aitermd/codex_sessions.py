@@ -4,6 +4,7 @@ import json
 import math
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,18 @@ CHILD_DAYS = 31
 
 # What every `token_count` record contains, so a line without it can be skipped unparsed.
 _TOKEN_COUNT = b'"token_count"'
+# The same for a `session_meta` record, the one that names the Codex version.
+_SESSION_META = b'"session_meta"'
+
+
+@dataclass(slots=True)
+class _MetaCursor:
+    """How far one rollout has been read for its `session_meta` records: the byte offset, the inode it
+    was read from, the start of a line Codex was still writing, and the version found so far."""
+    inode: int
+    offset: int = 0
+    partial: bytes = b""
+    version: str | None = None
 
 Stamp = tuple[Path, int, int]  # path, st_mtime_ns, st_size
 
@@ -44,6 +57,8 @@ class CodexSessionFiles:
         self._totals: dict[Path, tuple[Stamp, TokenTally | None]] = {}
         # Thread id -> the rollouts of its subagents as last found, for `retain`.
         self._children: dict[str, list[Path]] = {}
+        # Rollout -> how far it has been read for the Codex version (cli_version).
+        self._versions: dict[Path, _MetaCursor] = {}
         # The rollouts `rate_limits()` last consulted, by (path, mtime), and what they said: the
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
         self._limits_seen: tuple[tuple[Path, int], ...] | None = None
@@ -57,6 +72,8 @@ class CodexSessionFiles:
         kept = {*self._paths.values(), *(p for paths in self._children.values() for p in paths)}
         for path in self._totals.keys() - kept:
             del self._totals[path]
+        for path in self._versions.keys() - set(self._paths.values()):
+            del self._versions[path]
 
     def context_percent(self, session_id: str) -> int | None:
         path = self._path_for(session_id)
@@ -73,6 +90,35 @@ class CodexSessionFiles:
         percent = self._read_context(path)
         self._context[session_id] = (stamp, percent)
         return percent
+
+    def cli_version(self, thread_id: str) -> str | None:
+        """The Codex version that runs the thread: `cli_version` in the newest `session_meta` record
+        its rollout holds for it -- the record a session starts with; another one later in the file,
+        from a resume, wins. None before the rollout names one. A rollout only grows, so it is read on
+        from where the last read stopped, and one rewritten is read again from its start."""
+        path = self._path_for(thread_id)
+        if path is None:
+            return None
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        cursor = self._versions.get(path)
+        if cursor is None or cursor.inode != st.st_ino or st.st_size < cursor.offset:
+            cursor = self._versions[path] = _MetaCursor(st.st_ino)
+        if st.st_size > cursor.offset:
+            try:
+                with path.open("rb") as stream:
+                    stream.seek(cursor.offset)
+                    chunk = stream.read(st.st_size - cursor.offset)
+            except OSError:
+                return cursor.version
+            cursor.offset += len(chunk)
+            *lines, cursor.partial = (cursor.partial + chunk).split(b"\n")
+            for line in lines:
+                if _SESSION_META in line and (version := _meta_version(line, thread_id)) is not None:
+                    cursor.version = version
+        return cursor.version
 
     def _read_context(self, path: Path) -> int | None:
         for _, payload in self._token_counts(path):
@@ -329,3 +375,15 @@ def _spawned_by(source: Any) -> str | None:
 
 def _string(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _meta_version(line: bytes, thread_id: str) -> str | None:
+    """The `cli_version` of a `session_meta` record for `thread_id`; None for any other line."""
+    try:
+        record = json.loads(line)
+    except (UnicodeDecodeError, ValueError):
+        return None
+    payload = record.get("payload") if isinstance(record, dict) and record.get("type") == "session_meta" else None
+    if not isinstance(payload, dict) or payload.get("id") != thread_id:
+        return None
+    return _string(payload.get("cli_version"))

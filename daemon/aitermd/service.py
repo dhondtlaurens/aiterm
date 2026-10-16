@@ -318,6 +318,8 @@ class Service:
                 # The file's cwd is the agent's own, and it follows it into a worktree;
                 # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
                 changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
+                # The running Claude's own version, which delivery is held against (delivery.Verdict).
+                self.registry.set_cli_version(s.session_id, f.version)
             elif s.job_pid and (s.state == "idle" or self.status.showing_trust_prompt(s.session_id)):
                 # No file yet: the trust dialog, which only the screen shows, or a Claude just starting.
                 screens.append(s.session_id)
@@ -345,13 +347,14 @@ class Service:
         if (files := self.codex_files) is None:
             return []
 
-        def read() -> dict[str, tuple[int | None, TokenTally | None]]:
-            readings: dict[str, tuple[int | None, TokenTally | None]] = {}
+        def read() -> dict[str, tuple[int | None, TokenTally | None, str | None]]:
+            readings: dict[str, tuple[int | None, TokenTally | None, str | None]] = {}
             for thread_id in set(threads.values()):
                 # Another process's file: one that cannot be read costs only its own thread, and only
                 # the reading that failed -- a tally that raises still lets the context through.
                 context: int | None = None
                 tally: TokenTally | None = None
+                version: str | None = None
                 try:
                     context = files.context_percent(thread_id)
                 except Exception:  # noqa: BLE001
@@ -360,15 +363,21 @@ class Service:
                     tally = files.tally(thread_id)
                 except Exception:  # noqa: BLE001
                     log.exception("reading the Codex tally of thread %s failed", thread_id)
-                readings[thread_id] = (context, tally)
+                try:
+                    version = files.cli_version(thread_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("reading the Codex version of thread %s failed", thread_id)
+                readings[thread_id] = (context, tally, version)
             files.retain(set(threads.values()))
             return readings
 
-        none: dict[str, tuple[int | None, TokenTally | None]] = {}
+        none: dict[str, tuple[int | None, TokenTally | None, str | None]] = {}
         readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
-            context, tally = readings.get(thread_id, (None, None))
+            context, tally, version = readings.get(thread_id, (None, None, None))
+            # The running Codex's version, which delivery is held against (delivery.Verdict).
+            self.registry.set_cli_version(session_id, version)
             # None is no reading, which apply_metadata leaves alone; on a new thread it is no spend yet.
             if tally is None and self._codex_threads.get(session_id) != thread_id and self.registry.set_tokens(session_id, None):
                 changed.append(session_id)

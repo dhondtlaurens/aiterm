@@ -87,3 +87,12 @@ def test_pid_lookup_parses_a_file_again_only_once_it_changes(tmp_path, monkeypat
 
     (tmp_path / "1.json").unlink()
     assert files.pid_for_session("sid-1") is None
+
+
+def test_read_names_the_version_claude_wrote_into_its_file(tmp_path):
+    write(tmp_path, 42, version="2.1.301")
+    write(tmp_path, 43)
+    write(tmp_path, 44, version=7)
+    write(tmp_path, 45, version="")
+    files = ClaudeSessionFiles(tmp_path)
+    assert [files.read(pid).version for pid in (42, 43, 44, 45)] == ["2.1.301", None, None, None]

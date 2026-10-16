@@ -2030,3 +2030,32 @@ async def test_windows_iterm2_lost_while_away_are_announced_after_it_reconnects_
     assert {"event": "window.closed", "payload": {"windowId": wid}} in before_reply
     assert msg["result"]["connected"] is True and msg["result"]["sessions"] == []
     w.close()
+
+
+async def test_the_tick_reads_each_clis_version_from_its_own_files(stack):
+    svc, it, files, r, w = stack
+    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
+    first = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    second = (await call(r, w, "window.createTask", {"taskId": "t2", "cwd": "/wt2", "title": "y", "frame": FRAME},
+                         id_=2))["result"]["windowId"]
+    claude, codex = it.windows[first]["sessions"][0], it.windows[second]["sessions"][0]
+    files.root.mkdir(parents=True)
+    (files.root / "4242.json").write_text(json.dumps({"pid": 4242, "sessionId": "c1", "cwd": "/wt", "status": "idle",
+                                                      "version": "2.1.301"}))
+    await it.user_runs(claude, "claude", job_pid=4242)
+    await it.user_runs(codex, "codex", job_pid=4343, title="Codex")
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-v",
+                                                      "cwd": "/wt2", "_aiterm_iterm_session_id": codex})
+    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-v.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(json.dumps({"type": "session_meta", "payload": {"id": "thread-v", "session_id": "thread-v",
+                                                                       "cli_version": "0.160.0"}}) + "\n")
+
+    await svc.tick()
+
+    assert svc.registry.get(claude).cli_version == "2.1.301"
+    assert svc.registry.get(codex).cli_version == "0.160.0"
+    await it.user_runs(claude, "claude", job_pid=4244)  # another Claude in the tab, its file not written yet
+    await svc.tick()
+    assert svc.registry.get(claude).cli_version is None
