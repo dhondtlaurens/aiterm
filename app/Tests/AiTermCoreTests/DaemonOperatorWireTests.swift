@@ -54,6 +54,23 @@ final class DaemonOperatorWireTests {
         #expect(method() == "session.prompt")
     }
 
+    @Test func anUnknownPromptKindReadsAsAnOpenMenuAndANullKindStaysNone() async throws {
+        try connect { req in
+            switch (req["params"] as? [String: Any])?["sessionId"] as? String {
+            case "s1": ["kind": "somethingNew"]
+            default: ["kind": NSNull()]
+            }
+        }
+        #expect(try await client.prompt(sessionId: "s1") == .menu)
+        #expect(try await client.prompt(sessionId: "s2") == nil)
+    }
+
+    @Test func anUnknownDeliveryResultReadsAsRefused() async throws {
+        try connect { _ in ["result": "somethingNew", "reason": NSNull()] }
+        let delivery = try await client.deliver(sessionId: "s1", text: "hi", ownership: 1, wake: false, worktree: nil)
+        #expect(delivery == Delivery(result: .refused, reason: nil))
+    }
+
     @Test func theSessionAndOperatorRequestsNameWhatTheyAreAbout() async throws {
         try connect { _ in [String: Any]() }
         try await client.interrupt(sessionId: "s1")

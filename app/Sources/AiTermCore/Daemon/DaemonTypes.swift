@@ -143,7 +143,13 @@ public enum ItermCookieAnswer: Equatable, Sendable {
 }
 
 /// How a `session.deliver` went: typed and submitted, typed but left unsent, or not typed at all.
-public enum DeliveryOutcome: String, Codable, Sendable { case delivered, partial, refused }
+/// An outcome a newer daemon names that this app does not decodes as `.refused`: nothing is assumed typed.
+public enum DeliveryOutcome: String, Codable, Sendable {
+    case delivered, partial, refused
+    public init(from decoder: Decoder) throws {
+        self = DeliveryOutcome(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .refused
+    }
+}
 
 /// A delivery's result and, unless it was delivered, why.
 public struct Delivery: Codable, Equatable, Sendable {
@@ -153,7 +159,14 @@ public struct Delivery: Codable, Equatable, Sendable {
 }
 
 /// The prompt a session has open, as the daemon's screen markers classify it.
-public enum PromptKind: String, Codable, CaseIterable, Sendable { case permission, startup, menu }
+/// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
+/// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)
+public enum PromptKind: String, Codable, CaseIterable, Sendable {
+    case permission, startup, menu
+    public init(from decoder: Decoder) throws {
+        self = PromptKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .menu
+    }
+}
 
 /// One tool call from an operator: answered with `operator.reply` and the same `requestId`.
 public struct OperatorRequest: Decodable, Equatable, Sendable {
