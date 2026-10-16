@@ -214,7 +214,7 @@ class Deliverer:
         if ownership < self._ownership.setdefault(session_id, ownership):
             return _refused("the task changed hands after this message was written")
         self._ownership[session_id] = ownership
-        if isinstance(ready := await self._check(session_id, wake), str):
+        if isinstance(ready := await self._check(session_id, ownership, wake), str):
             return _refused(ready)
         session, policy = ready
         if not (body := pasteable(text)).strip():
@@ -236,9 +236,11 @@ class Deliverer:
             return _partial(f"the Enter could not be sent ({exc}); the text waits unsent in the input")
         return DeliveryResult("delivered")
 
-    async def _check(self, session_id: str, wake: bool) -> tuple[SessionInfo, DeliveryPolicy] | str:
+    async def _check(self, session_id: str, ownership: int, wake: bool) -> tuple[SessionInfo, DeliveryPolicy] | str:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
         typed into."""
+        if self._ownership.get(session_id) != ownership:
+            return "the task changed hands after this message was written"
         if not self.iterm.is_connected():
             return "iTerm2 is not connected"
         if (session := self.registry.get(session_id)) is None:
