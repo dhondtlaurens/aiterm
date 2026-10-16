@@ -405,3 +405,71 @@ async def test_an_input_box_that_disappears_between_paste_and_enter_gets_no_ente
     result = await rig.deliverer.deliver(rig.sid, "hello", 1)
     assert result == DeliveryResult("partial", "before Enter, unrecognised screen; the text waits unsent in the input")
     assert rig.iterm.sent == [(rig.sid, pasted("hello"))]
+
+
+WAKE = "[AiTerm] 2 updates — call run_status"
+
+
+async def test_a_send_older_than_the_tasks_ownership_is_refused(rig):
+    rig.deliverer.set_ownership(rig.sid, 3)
+    result = await rig.deliverer.deliver(rig.sid, "hello", 2)
+    assert result == DeliveryResult("refused", "the task changed hands after this message was written")
+    assert rig.iterm.sent == []
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 3)).result == "delivered"
+
+
+async def test_a_takeover_between_paste_and_enter_holds_the_enter_back(rig):
+    rig.deliverer.set_ownership(rig.sid, 1)
+    rig.pauses.during.append(lambda: rig.deliverer.set_ownership(rig.sid, 2))
+    result = await rig.deliverer.deliver(rig.sid, "hello", 1)
+    assert result == DeliveryResult("partial", "you took the task over before Enter; the text waits unsent in the input")
+    assert rig.iterm.sent == [(rig.sid, pasted("hello"))]
+
+
+async def test_a_session_with_no_generation_takes_the_first_sends_and_any_newer(rig):
+    assert (await rig.deliverer.deliver(rig.sid, "one", 4)).result == "delivered"
+    assert (await rig.deliverer.deliver(rig.sid, "two", 3)).result == "refused"
+    assert (await rig.deliverer.deliver(rig.sid, "three", 5)).result == "delivered"
+
+
+async def test_a_wake_line_waits_while_you_type(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 3, "a")
+    rig.guard.note_key(rig.sid, rig.clock.now - 2, "\r")  # sent: only the moment holds the line back
+    assert await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True) == DeliveryResult("refused", "you are typing")
+    assert rig.iterm.sent == []
+    # A worker's message is not held by typing: you take a worker's task over to type in it.
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+    rig.clock.now += delivery.TYPING_QUIET
+    assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
+
+
+async def test_a_wake_line_waits_while_your_words_wait_unsent(rig):
+    rig.guard.note_key(rig.sid, rig.clock.now - 600, "a")  # typed long ago, never sent
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert result == DeliveryResult("refused", "unsent text waits in its input")
+    assert rig.iterm.sent == []
+    rig.guard.note_key(rig.sid, rig.clock.now - 60, "\x15")  # Ctrl-U: the input is empty again
+    assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
+
+
+async def test_typing_between_a_wake_lines_paste_and_enter_holds_the_enter_back(rig):
+    rig.pauses.during.append(lambda: rig.guard.note_key(rig.sid, rig.clock.now, "a"))
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert result == DeliveryResult("partial", "you started typing before Enter; the wake line waits unsent in the input")
+
+
+async def test_text_left_without_its_enter_holds_back_the_next_wake_line(rig):
+    rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION))
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "partial"
+    rig.pauses.during.clear()
+    rig.iterm.screens[rig.sid] = IDLE
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert result == DeliveryResult("refused", "unsent text waits in its input")
+    rig.guard.note_key(rig.sid, rig.clock.now - delivery.TYPING_QUIET, "\r")  # you sent it, or cleared it
+    assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
+
+
+async def test_a_closed_session_forgets_its_generation(rig):
+    rig.deliverer.set_ownership(rig.sid, 7)
+    rig.deliverer.forget_session(rig.sid)
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"

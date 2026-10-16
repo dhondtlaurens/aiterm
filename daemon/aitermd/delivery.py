@@ -180,10 +180,18 @@ class Deliverer:
         self.iterm, self.registry, self.policy, self.typing = iterm, registry, policy, typing
         self._monotonic, self._sleep = monotonic, sleep
         self._locks: dict[str, asyncio.Lock] = {}
+        self._ownership: dict[str, int] = {}
 
     def forget_session(self, session_id: str) -> None:
-        """What a closed session leaves behind: its turn lock."""
+        """What a closed session leaves behind: its turn lock and its ownership generation."""
         self._locks.pop(session_id, None)
+        self._ownership.pop(session_id, None)
+
+    def set_ownership(self, session_id: str, ownership: int) -> None:
+        """The task's ownership generation, which a takeover increments (session.setOwnership): a
+        send begun under an older one is refused, and one in flight when it changes gets no Enter.
+        Kept in memory only: after a daemon restart the app sets each again."""
+        self._ownership[session_id] = ownership
 
     def _turn(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
@@ -194,10 +202,19 @@ class Deliverer:
         `wake` marks an operator's wake line, which waits while you type; `worktree` is where a
         message too long to paste is left."""
         async with self._turn(session_id):
-            return await self._deliver(session_id, text, ownership, wake, worktree)
+            result = await self._deliver(session_id, text, ownership, wake, worktree)
+            if result.result == "partial":
+                # The text waits in the input: a wake line pasted after it would be sent with it.
+                self.typing.mark_unsent(session_id)
+            return result
 
     async def _deliver(self, session_id: str, text: str, ownership: int, wake: bool, worktree: str | None) -> DeliveryResult:
-        if isinstance(ready := await self._check(session_id), str):
+        # A session no generation was set for takes the first send's: until the app sets one, a
+        # send is as current as anything known. A newer one becomes the session's.
+        if ownership < self._ownership.setdefault(session_id, ownership):
+            return _refused("the task changed hands after this message was written")
+        self._ownership[session_id] = ownership
+        if isinstance(ready := await self._check(session_id, wake), str):
             return _refused(ready)
         session, policy = ready
         if not (body := pasteable(text)).strip():
@@ -219,7 +236,7 @@ class Deliverer:
             return _partial(f"the Enter could not be sent ({exc}); the text waits unsent in the input")
         return DeliveryResult("delivered")
 
-    async def _check(self, session_id: str) -> tuple[SessionInfo, DeliveryPolicy] | str:
+    async def _check(self, session_id: str, wake: bool) -> tuple[SessionInfo, DeliveryPolicy] | str:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
         typed into."""
         if not self.iterm.is_connected():
@@ -233,6 +250,12 @@ class Deliverer:
             # The check vouches for the version it ran against: one updated since, or one whose files
             # have not named their version yet, gets nothing until it is checked.
             return f"{session.agent} {session.cli_version or '(version unknown)'} has not passed the delivery check"
+        if wake and self.typing.is_typing(session_id, self._monotonic()):
+            # Not lost: the operator sees the news at its next run_status (spec §7.4).
+            return "you are typing"
+        if wake and self.typing.has_unsent_input(session_id):
+            # Pasted after words not yet sent, the wake line's Enter would send them with it.
+            return "unsent text waits in its input"
         if (why := await self._ineligible(session_id, session.agent)) is not None:
             return why
         return session, policy
@@ -266,6 +289,10 @@ class Deliverer:
 
     async def _changed(self, session: SessionInfo, ownership: int, wake: bool) -> str | None:
         """What holds the Enter back: anything that changed while the paste settled."""
+        if self._ownership.get(session.session_id) != ownership:
+            return "you took the task over before Enter; the text waits unsent in the input"
+        if wake and self.typing.is_typing(session.session_id, self._monotonic()):
+            return "you started typing before Enter; the wake line waits unsent in the input"
         if (why := self._replaced(session) or await self._ineligible(session.session_id, session.agent)) is not None:
             return f"before Enter, {why}; the text waits unsent in the input"
         return None
