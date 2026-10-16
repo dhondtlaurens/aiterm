@@ -146,4 +146,58 @@ import Testing
         try await world.daemon.received("session.deliver")
         #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] 2 updates — call run_status")  // the task, and the resuming itself
     }
+
+    // -- a start that fails leaves nothing behind -----------------------------------------------
+    private func startFailing(_ world: OperatorWorld) async {
+        await #expect(throws: (any Error).self) {
+            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Go", doneWhen: nil, projectIds: [project.id])
+        }
+    }
+
+    private func expectNoRun(_ world: OperatorWorld) throws {
+        #expect(world.state.runs.isEmpty)
+        #expect(try world.workspace.file.load().runs.isEmpty)
+    }
+
+    @Test func aFailingSaveTakesTheRunBackOutAndRegistersNothing() async throws {
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
+        #expect(world.workspace.flush())
+        let backup = world.workspace.file.backupURL
+        try? FileManager.default.removeItem(at: backup)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        await startFailing(world)
+        #expect(world.state.runs.isEmpty)
+        #expect(world.daemon.requests("operator.register").isEmpty && world.daemon.requests("window.createTask").isEmpty)
+    }
+
+    @Test func aFailingRegisterTakesTheRunBackOutAndOpensNoWindow() async throws {
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []),
+                                      daemon: RecordingDaemon(failing: ["operator.register": "temporary_failure"]))
+        await startFailing(world)
+        try expectNoRun(world)
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+    }
+
+    @Test func aFailingWindowTakesTheRunBackOutAndRevokesItsToken() async throws {
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []),
+                                      daemon: RecordingDaemon(failing: ["window.createTask": "temporary_failure"]))
+        await startFailing(world)
+        try expectNoRun(world)
+        let registered = try #require(world.daemon.requests("operator.register").first?.params["runId"] as? String)
+        #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [registered])
+    }
+
+    @Test func aDaemonAttachingRevokesTheTokenOfARunYouEndedWhileItsTokenFileIsThere() async throws {
+        let ended = OperatorServiceFixtures.run(projects: [project], state: .complete)
+        let gone = OperatorServiceFixtures.run(projects: [project], state: .complete)
+        var endedByYou = ended, goneByYou = gone
+        endedByYou.intent = .stopped
+        goneByYou.intent = .stopped
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [endedByYou, goneByYou]))
+        _ = try OperatorCommand.prepare(run: endedByYou, projects: [project], home: world.ports.home, token: String(repeating: "c", count: 64))
+        world.controller.daemonAttached()
+        await world.controller.registering?.value
+        #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [endedByYou.id.uuidString])
+        #expect(world.daemon.requests("operator.register").isEmpty)
+    }
 }

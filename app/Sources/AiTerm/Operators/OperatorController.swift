@@ -184,13 +184,30 @@ final class OperatorController {
         let prepared = try await BackgroundWork.run {
             try OperatorCommand.prepare(run: run, projects: projects, home: home, milestone: milestone)
         }
+        // The workspace may have been locked while the folder was written.
+        guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting an operation.") }
         workspace.mutate { $0.runs.append(run) }
-        guard workspace.flush() else { throw ActionUnavailable("The operation couldn’t be saved, so it didn’t start.") }
-        ports.notifications.requestAuthorization()
-        try await daemon.registerOperator(runId: run.id.uuidString, token: prepared.token)
-        let window = try await daemon.createTaskWindow(taskId: run.id.uuidString, cwd: prepared.folder.path, title: run.name,
-                                                       agentCommand: prepared.command, frame: taskFrame(), background: false)
-        mutateRun(run.id) { $0.operatorWindowId = window }
+        // From here a failure takes the run out again: no row without a window, no token left behind.
+        var registered = false
+        do {
+            guard workspace.flush() else { throw ActionUnavailable("The operation couldn’t be saved, so it didn’t start.") }
+            ports.notifications.requestAuthorization()
+            try await daemon.registerOperator(runId: run.id.uuidString, token: prepared.token)
+            registered = true
+            let window = try await daemon.createTaskWindow(taskId: run.id.uuidString, cwd: prepared.folder.path, title: run.name,
+                                                           agentCommand: prepared.command, frame: taskFrame(), background: false)
+            mutateRun(run.id) { $0.operatorWindowId = window }
+        } catch {
+            workspace.mutate { $0.runs.removeAll { $0.id == run.id } }
+            _ = workspace.flush()
+            waker.forget(run.id)
+            if registered {
+                await Log.daemon.attempt("Revoking the token of operation \(run.id.uuidString) that did not start") {
+                    try await daemon.revokeOperator(runId: run.id.uuidString)
+                }
+            }
+            throw error
+        }
         return run.id
     }
 
@@ -208,17 +225,27 @@ final class OperatorController {
     }
 
     /// A daemon attached — after AiTerm's launch, or the daemon's restart, which forgets the tokens:
-    /// every run's token is registered again but a stopped run's, and each operator that may be woken
+    /// every run's token is registered again but a stopped run's (a revoke that failed is tried again), and each operator that may be woken
     /// is told `reconnected` (spec §11).
     func daemonAttached() {
         // A new daemon's tabs are known once its first connected snapshot comes.
         tabsKnown = false
         guard let daemon = daemon() else { return }
         let open = runs.filter { $0.state != .stopped && $0.intent != .stopped }.map { ($0.id, folder(of: $0.id)) }
+        // Runs you ended: a revocation that failed before is tried again while their token file is there.
+        let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id)) }
         registering = Task {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
-                try? await daemon.registerOperator(runId: id.uuidString, token: token)
+                await Log.daemon.attempt("Registering the token of operation \(id.uuidString)") {
+                    try await daemon.registerOperator(runId: id.uuidString, token: token)
+                }
+            }
+            for (id, folder) in ended {
+                guard await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) != nil else { continue }
+                await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") {
+                    try await daemon.revokeOperator(runId: id.uuidString)
+                }
             }
         }
         for (id, _) in open {
@@ -266,12 +293,14 @@ final class OperatorController {
         _ = workspace.flush()
         waker.forget(id)
         guard let daemon = daemon() else { return }
-        revoking = Task { try? await daemon.revokeOperator(runId: id.uuidString) }
+        revoking = Task {
+            await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") { try await daemon.revokeOperator(runId: id.uuidString) }
+        }
     }
 
     /// What each open run's `run_status` would show now, for the waker.
     private func observeRuns() {
-        for run in runs where run.state != .stopped {
+        for run in runs where run.state != .stopped && run.intent != .stopped {
             if let status = status(of: run) { waker.observe(status, of: run.id) }
         }
     }
