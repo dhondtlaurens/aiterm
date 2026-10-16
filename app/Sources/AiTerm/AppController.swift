@@ -236,6 +236,13 @@ final class AppController {
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
         // A notification's click: an overview opens over the sidebar, a task's window comes forward.
         operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
+        // The OPERATORS group and the driven task rows read the operator library and what the operator
+        // is acting on, which the operator controller owns; a change to either derives the rows again.
+        let operators = operatorController
+        rows.operatorSource = { [weak operators] in operators?.operators ?? [] }
+        rows.actingSource = { [weak operators] in operators?.acting ?? [] }
+        operators.onChange { [weak self] in self?.refreshRows() }
+        refreshRows()
     }
 
     // -- workspace ------------------------------------------------------------------
