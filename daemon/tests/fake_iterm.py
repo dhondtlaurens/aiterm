@@ -26,7 +26,8 @@ class FakeIterm:
         self.auth_error: str | None = None
         # Set to make the next connect() fail the way a running iTerm2 that does not answer does.
         self.connect_error: ItermUnavailable | None = None
-        self.windows: dict[str, dict] = {}       # window_id -> {"frame": Frame, "sessions": [session_id], "active": bool}
+        # window_id -> {"frame": Frame, "sessions": [session_id], "active": bool, "background": bool}
+        self.windows: dict[str, dict] = {}
         self.sessions: dict[str, RawSession] = {}
         self.sent: list[tuple[str, str]] = []
         self.titles: dict[str, str] = {}
@@ -64,9 +65,11 @@ class FakeIterm:
     async def close(self) -> None:
         self.closed, self._connected = True, False
 
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame) -> tuple[str, str]:
+    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
+                            background: bool = False) -> tuple[str, str]:
         wid = f"w{next(self._ids)}"
-        self.windows[wid] = {"frame": frame, "sessions": [], "active": True, "current": None}
+        # A background window is placed but never activated, as a task an operator starts.
+        self.windows[wid] = {"frame": frame, "sessions": [], "active": not background, "current": None, "background": background}
         sid = await self._add_session(wid, cwd, tags, command_line="-zsh", title=title)
         await self._announce_new(sid)
         return wid, sid

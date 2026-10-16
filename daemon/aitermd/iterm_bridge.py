@@ -291,7 +291,8 @@ class ItermPort(Protocol):
     async def connect(self) -> str | None: ...
     def is_connected(self) -> bool: ...
     async def close(self) -> None: ...
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame) -> tuple[str, str]: ...
+    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
+                            background: bool = False) -> tuple[str, str]: ...
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str: ...
     async def activate_window(self, window_id: str) -> None: ...
     async def set_frame(self, window_id: str, frame: Frame) -> None: ...
@@ -515,10 +516,11 @@ class ItermBridge:
     # Making a window or tab and setting it up are bounded separately. Once iTerm2 has made it, its
     # ids are returned whatever the setup meets: an error would make the app retry, and a retry
     # opens a second one.
-    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame) -> tuple[str, str]:
+    async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
+                            background: bool = False) -> tuple[str, str]:
         win, session = await _call(self._new_window(cwd, title))
         try:
-            await _call(self._set_up_window(win, session, tags, frame))
+            await _call(self._set_up_window(win, session, tags, frame, background))
         except Exception:  # noqa: BLE001 - the window exists either way
             log.exception("iTerm2 made window %s but setting it up failed", win.window_id)
         return win.window_id, session.session_id
@@ -530,10 +532,14 @@ class ItermBridge:
         prof.set_name(f"AiTerm · {title}")
         return await self._make(None, prof)
 
-    async def _set_up_window(self, win: iterm2.Window, session: iterm2.Session, tags: dict[str, str], frame: Frame) -> None:
+    async def _set_up_window(self, win: iterm2.Window, session: iterm2.Session, tags: dict[str, str], frame: Frame,
+                             background: bool) -> None:
         await self._tag(session, tags)
         await win.async_set_frame(_iterm_frame(frame))
-        await win.async_activate()
+        # A window opened in the background -- a task an operator starts -- is placed but not
+        # brought forward, and iTerm2 is not raised: it stays behind your current work.
+        if not background:
+            await win.async_activate()
 
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str:
         session = await _call(self._new_tab(window_id, cwd))

@@ -1340,6 +1340,16 @@ async def test_a_window_is_returned_even_if_setting_it_up_times_out(creating_app
     assert await asyncio.wait_for(bridge.create_window("/wt", "x", {"aiterm_task": "t1"}, frame), 2) == ("w1", "s2")
 
 
+async def test_a_background_window_is_placed_and_tagged_but_not_activated(creating_app):
+    """A task an operator starts opens behind your work (Operators spec §10.9)."""
+    bridge, app = creating_app()
+    frame = iterm_bridge.Frame(0, 0, 10, 10)
+    assert await bridge.create_window("/wt", "x", {"aiterm_task": "t1"}, frame, background=True) == ("w1", "s2")
+    window = app.live["w1"]
+    assert window.frames and not window.activated
+    assert window.current_tab.current_session.variables == {"user.aiterm_task": "t1"}
+
+
 async def test_a_tab_is_returned_even_if_tagging_it_fails(creating_app):
     bridge, app = creating_app(fails=True)
     app.add_window("w0")

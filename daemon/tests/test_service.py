@@ -169,14 +169,34 @@ async def test_a_new_session_missing_from_the_snapshot_still_refreshes_the_regis
     assert svc.registry.get(other) is not None
 
 
+async def test_a_task_window_can_open_in_the_background(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME,
+                                                  "background": True}))["result"]["windowId"]
+    assert it.windows[wid]["background"] and not it.windows[wid]["active"]
+    assert it.windows[wid]["frame"].w == 1104, "snapped beside the sidebar all the same"
+
+
+async def test_a_task_window_comes_forward_unless_asked_not_to(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    assert not it.windows[wid]["background"] and it.windows[wid]["active"]
+
+
+async def test_background_must_be_a_bool(stack):
+    svc, it, files, r, w = stack
+    reply = await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "frame": FRAME, "background": "yes"})
+    assert reply["error"]["code"] == "bad_params" and it.windows == {}
+
+
 async def test_a_window_created_before_its_tick_fails_is_still_returned(stack, caplog):
     """The window exists whatever the tick after it finds. An error would make the app retry, and
     a retried window.createTerminal, which has no dedupe, opens a second window."""
     svc, it, files, r, w = stack
     create_window = it.create_window
 
-    async def created_then_unreadable(*args):
-        created = await create_window(*args)
+    async def created_then_unreadable(*args, **kwargs):
+        created = await create_window(*args, **kwargs)
         it.snapshot_error = ItermUnavailable("iTerm2 did not answer within 10s")
         return created
 
@@ -914,11 +934,11 @@ async def test_user_tab_in_other_window_is_redirected_during_unrelated_create(st
     real_create_window = it.create_window
     captured: dict[str, str] = {}
 
-    async def create_window_with_race(cwd, title, tags, frame):
+    async def create_window_with_race(cwd, title, tags, frame, background=False):
         # Fire the race before the second window exists at all, i.e. well
         # before its (still-unknown) window id could ever be recorded.
         captured["sid"] = await it.user_opens_tab(wid1, cwd="/Users/me")
-        return await real_create_window(cwd, title, tags, frame)
+        return await real_create_window(cwd, title, tags, frame, background=background)
 
     it.create_window = create_window_with_race
 
