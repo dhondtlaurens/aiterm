@@ -11,6 +11,8 @@ struct OperatorPorts {
     /// The operator files, `~/Library/Application Support/AiTerm/operators/`; Move to Trash goes through it.
     var library: OperatorLibrary
     var notifications: any OperatorNotifications
+    /// The Jira client `jira_search` runs through, while Settings has one.
+    var jira: @Sendable () -> (any OperatorJira)? = { nil }
     var now: @MainActor () -> Date = { Date() }
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
@@ -18,9 +20,9 @@ struct OperatorPorts {
     /// raising `OperatorMilestone.current` (F1, G6) leaves it as it was.
     var milestone: OperatorMilestone = .current
 
-    @MainActor static func live(home: URL, git: any GitRunning) -> OperatorPorts {
+    @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, library: OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home)),
-                      notifications: LiveOperatorNotifications())
+                      notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } })
     }
 }
 
@@ -41,6 +43,7 @@ final class OperatorController {
     @ObservationIgnored let ports: OperatorPorts
     @ObservationIgnored let notifier: OperatorNotifier
     @ObservationIgnored let waker: OperatorWaker
+    @ObservationIgnored let tools: OperatorToolHandler
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentOverview: UUID?
@@ -74,11 +77,13 @@ final class OperatorController {
                                   return state == .planning || state == .active || state == .complete
                               },
                               coalesce: ports.wakeCoalesce)
+        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             self?.observeRuns()
             self?.heardWorkspace()
         }
+        tools.onActing = { [weak self] task, on in self?.setActing(task, on) }
     }
 
     /// Adds `handler` to what hears that a run, an operated task or `acting` changed: the UI's
@@ -233,6 +238,7 @@ final class OperatorController {
             sessionsChanged()
         case .itermDisconnected, .itermAuthFailed: tabsKnown = false
         case .sessionOpened, .sessionChanged, .sessionClosed, .windowClosed: sessionsChanged()
+        case .operatorRequest(let request): tools.handle(request)
         default: break
         }
     }

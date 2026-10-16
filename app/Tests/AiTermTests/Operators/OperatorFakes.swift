@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 @testable import AiTermCore
 @testable import AiTerm
 @testable import AiTermTestSupport
@@ -136,5 +137,24 @@ final class OperatorWorld {
     func show(_ sessions: [SessionInfo]) {
         live.sessions = sessions
         controller.handle(.snapshot(DaemonSnapshot(protocolVersion: 1, connected: true, sessions: sessions, usage: .empty)))
+    }
+}
+
+/// Jira as `jira_search` sees it: the tickets it answers with, and every search it was asked for.
+final class FakeJira: OperatorJira {
+    let tickets: [JiraTicket]
+    private let seen = Mutex<[(jql: String, projects: [String])]>([])
+    init(tickets: [JiraTicket]) { self.tickets = tickets }
+    var searches: [(jql: String, projects: [String])] { seen.withLock { $0 } }
+    func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket] {
+        seen.withLock { $0.append((jql, projects.map(\.key))) }
+        return tickets
+    }
+}
+
+extension OperatorWorld {
+    /// One tool call, as the daemon would forward it for `run`.
+    func call(_ run: UUID, _ tool: String, _ arguments: JSONValue = [:]) async -> ToolAnswer {
+        await controller.tools.answer(OperatorRequest(requestId: UUID().uuidString, runId: run.uuidString, tool: tool, arguments: arguments))
     }
 }

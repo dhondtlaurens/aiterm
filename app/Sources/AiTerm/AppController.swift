@@ -585,7 +585,7 @@ extension AppController {
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
                       git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                      operatorPorts: .live(home: harnessHome, git: GitRunner()))
+                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }))
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

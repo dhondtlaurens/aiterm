@@ -60,6 +60,13 @@ final class OperatorWaker {
         retrying.removeValue(forKey: run)?.cancel()
     }
 
+    /// A change the operator made with its own call: seen, if it had seen everything before it. News
+    /// that came meanwhile still wakes it.
+    func ownChange(from before: RunStatus, to after: RunStatus, of run: UUID) {
+        guard Self.content(before) == acknowledgedStatus[run] else { return }
+        acknowledged(after, of: run)
+    }
+
     /// A fixed reason to wake it — `reconnected`, `plan approved` — which is the line when it is the only news.
     func say(_ reason: String, to run: UUID) {
         reasons[run] = reason
