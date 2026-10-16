@@ -100,6 +100,239 @@ public struct GitHubClient: Sendable {
         return ReviewThreads(resolutions: resolutions)
     }
 
+    // MARK: Publishing — the only writes this client makes, for an operator's finish_task (spec §6).
+    // A fine-grained token needs write access to pull requests (open, retarget) and contents (merge).
+
+    /// `owner/name` as its two parts; nil for anything else.
+    static func ownerAndName(_ repo: String) -> (owner: String, name: String)? {
+        let parts = repo.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        return (parts[0], parts[1])
+    }
+
+    /// A branch name as **one** path segment: a `/` inside it must not split the path.
+    static func encodedBranch(_ name: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
+    }
+
+    /// How many pages of 100 a listing reads before it gives up: check runs, statuses, rules.
+    static let listedPages = 20
+
+    /// The open pull request from `source` in `repo` itself, if there is one: what a repeated
+    /// finish_task finds instead of opening a second after a reply was lost. An entry that does not
+    /// decode is no answer, not an absent request, and one from a fork's branch of the same name is
+    /// not this one.
+    public func openPullRequest(repo: String, source: String) async throws -> MergeRequest? {
+        guard let (owner, _) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        let query = [URLQueryItem(name: "state", value: "open"), URLQueryItem(name: "head", value: "\(owner):\(source)"),
+                     URLQueryItem(name: "per_page", value: "100")]
+        return try await get([PullPayload].self, path: "/repos/\(repo)/pulls", query: query, notFound: .repoNotFound(repo))
+            .map(\.mergeRequest).first { $0.sourceBranch == source && $0.forkHead == nil }
+    }
+
+    /// A pull request from `source` into `target`, a draft or not. The branch is never deleted
+    /// afterwards and auto-merge is never enabled: merging is `merge`, at the accepted commit.
+    public func createPullRequest(repo: String, source: String, target: String, title: String, body: String,
+                                  draft: Bool) async throws -> MergeRequest {
+        struct Create: Encodable { var title, head, base, body: String; var draft: Bool }
+        return try await send(PullPayload.self, method: "POST", path: "/repos/\(repo)/pulls",
+                              body: Create(title: title, head: source, base: target, body: body, draft: draft),
+                              notFound: .repoNotFound(repo)).mergeRequest
+    }
+
+    /// Whether GitHub would merge it now: merged or closed first, then a draft, then every check run and
+    /// commit status on its head — a merge end waits for green whatever branch protection requires; a
+    /// skipped, neutral or action-required check is not green and a pending one is not yet — then
+    /// `mergeable` and `mergeable_state`. Only `clean` and `has_hooks` with `mergeable` true is ready.
+    public func mergeReadiness(repo: String, number: Int) async throws -> MergeReadiness {
+        let pull = try await get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha) }
+        guard pull.state == "open" else { return .blocked("the pull request is closed") }
+        if pull.draft == true { return .blocked("it is a draft") }
+        let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
+        guard let runs = try await listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo),
+              let statuses = try await listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo) else {
+            return .waiting("GitHub has not listed all its checks")
+        }
+        var running = false
+        for run in runs {
+            guard run.status == "completed" else { running = true; continue }
+            switch run.conclusion ?? "" {
+            case "success": continue
+            case "failure", "timed_out", "startup_failure": return .blocked("its check \(run.name) failed")
+            case "cancelled": return .blocked("its check \(run.name) was cancelled")
+            case "action_required": return .blocked("its check \(run.name) needs someone to act")
+            case "neutral", "skipped", "stale": return .blocked("its check \(run.name) did not pass (\(run.conclusion ?? ""))")
+            default: running = true   // a conclusion AiTerm does not know is not green
+            }
+        }
+        for status in statuses {
+            switch status.state {
+            case "success": continue
+            case "failure", "error": return .blocked("its status \(status.context) failed")
+            default: running = true
+            }
+        }
+        if running { return .waiting("its checks are running") }
+        switch pull.mergeableState ?? "unknown" {
+        case "clean", "has_hooks": return pull.mergeable == true ? .ready(head: pull.head.sha) : .waiting("GitHub is checking it")
+        case "dirty": return .blocked("it has conflicts")
+        case "behind": return .blocked("it is behind its base branch")
+        case "blocked": return .waiting("it needs a review or a required check")
+        case "draft": return .blocked("it is a draft")
+        // GitHub says a check does not pass that every list read here shows green: not ready until it agrees.
+        case "unstable": return .waiting("GitHub says its checks are not all passing")
+        default: return .waiting("GitHub is checking it")
+        }
+    }
+
+    /// Every item of a paged list that reports its own `total`, a page of 100 at a time. HTTPJSON shows no
+    /// headers and a short page proves nothing, so it reads until it holds `total` items or a page is empty,
+    /// and nil — not a partial list — when that is fewer, or `listedPages` pages did not reach it.
+    private func listed<Page: PagedList>(_ type: Page.Type, path: String, repo: String) async throws -> [Page.Item]? {
+        var items: [Page.Item] = []
+        for page in 1...Self.listedPages {
+            let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let batch = try await get(Page.self, path: path, query: query, notFound: .repoNotFound(repo))
+            items += batch.items
+            if items.count >= batch.total { return items }
+            if batch.items.isEmpty { return nil }
+        }
+        return nil
+    }
+
+    /// Merges it at `sha`, the accepted commit: GitHub refuses (409) when the head is any other. Only
+    /// `sha` is sent, so the merge is GitHub's own default, a merge commit — never a squash or a rebase,
+    /// never auto-merge, never the branch deleted. A refusal is `.blocked`; only a failure to ask throws.
+    /// An answer that does not say it merged is `.waiting`: `mergeReadiness` says when it has.
+    public func merge(repo: String, number: Int, sha: String) async throws -> MergeReadiness {
+        struct Merge: Encodable { var sha: String }
+        struct Merged: Decodable { var sha: String?, merged: Bool? }
+        do {
+            let answer = try await send(Merged.self, method: "PUT", path: "/repos/\(repo)/pulls/\(number)/merge",
+                                        body: Merge(sha: sha), notFound: .repoNotFound(repo))
+            guard answer.merged == true, let commit = answer.sha, !commit.isEmpty else { return .waiting("GitHub has not finished merging it") }
+            return .merged(commit: commit)
+        } catch GitHubError.badResponse(409) {
+            return .blocked("the branch moved past the accepted commit")
+        } catch GitHubError.badResponse(let status) where [405, 422].contains(status) {
+            return .blocked("GitHub refused to merge it (HTTP \(status))")
+        }
+    }
+
+    /// Points it at `target`: a stacked pull request, once its parent has merged.
+    public func retarget(repo: String, number: Int, to target: String) async throws {
+        struct Retarget: Encodable { var base: String }
+        _ = try await send(PullPayload.self, method: "PATCH", path: "/repos/\(repo)/pulls/\(number)",
+                           body: Retarget(base: target), notFound: .repoNotFound(repo))
+    }
+
+    /// The ruleset rules that mean a branch changes only through review, checks or a merge: a branch
+    /// one covers is protected. A rule that only forbids force-pushes or deletion is not — AiTerm does neither.
+    static let guardingRules: Set<String> = ["creation", "update", "pull_request", "required_status_checks",
+                                             "required_deployments", "merge_queue"]
+
+    /// Whether GitHub protects `branch` in `repo`, asked before AiTerm pushes it. Three sources, read in
+    /// full: the rulesets that apply to the branch, org-level ones too, whether or not it exists yet
+    /// (`/rules/branches/…`); the branch's own `protected` flag when GitHub already has it; and — only when
+    /// it does not yet — the patterns of the classic protection rules, which would cover it once pushed.
+    /// A token needs read access to the repository's metadata, and administration for the last.
+    /// Anything that cannot be read whole throws `ProtectionUnknown`: an error, a refusal, a body that does
+    /// not decode, a list longer than AiTerm reads, a rule it cannot evaluate. Never "unprotected" by default.
+    public func branchProtection(repo: String, branch: String) async throws -> BranchProtection {
+        let name = branch.hasPrefix("refs/heads/") ? String(branch.dropFirst("refs/heads/".count)) : branch
+        guard !name.isEmpty else { throw ProtectionUnknown.unreadable("There is no branch name to check") }
+        do { return try await protection(repo: repo, branch: name) }
+        catch let error as GitHubError {
+            let why = (error.errorDescription ?? "").trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            throw ProtectionUnknown.unreadable("AiTerm could not read GitHub’s protection of \(name) in \(repo): \(why)")
+        }
+    }
+
+    private func protection(repo: String, branch name: String) async throws -> BranchProtection {
+        guard Self.ownerAndName(repo) != nil else { throw GitHubError.repoNotFound(repo) }
+        let segment = Self.encodedBranch(name)
+        struct Rule: Decodable { var type: String }
+        var listedWhole = false
+        for page in 1...Self.listedPages {
+            let query = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            let rules = try await get([Rule].self, path: "/repos/\(repo)/rules/branches/\(segment)", query: query,
+                                      notFound: .repoNotFound(repo))
+            if let rule = rules.first(where: { Self.guardingRules.contains($0.type) }) {
+                return .protected("a ruleset’s \(rule.type.replacingOccurrences(of: "_", with: " ")) rule covers it")
+            }
+            if rules.isEmpty { listedWhole = true; break }
+        }
+        guard listedWhole else { throw ProtectionUnknown.tooManyRules(Self.listedPages * 100) }
+        struct Branch: Decodable { var protected: Bool }
+        do {
+            let existing = try await get(Branch.self, path: "/repos/\(repo)/branches/\(segment)", notFound: .badResponse(404))
+            return existing.protected ? .protected("GitHub’s branch protection covers it") : .unprotected
+        } catch GitHubError.badResponse(404) {
+            // The repository was just read, so this is a branch GitHub does not have yet: a classic
+            // rule's pattern may still cover it once pushed.
+        }
+        var unreadable: ProtectionUnknown?
+        for pattern in try await protectionPatterns(repo: repo) {
+            do {
+                if try BranchProtection.evaluate(pattern, name, starCrossesSlash: false) {
+                    return .protected("the branch protection rule \(pattern) covers it")
+                }
+            } catch let error as ProtectionUnknown { unreadable = unreadable ?? error }
+        }
+        if let unreadable { throw unreadable }
+        return .unprotected
+    }
+
+    static let protectionRulesQuery = """
+        query($owner: String!, $name: String!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            branchProtectionRules(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { pattern } }
+          }
+        }
+        """
+
+    /// The patterns of `repo`'s classic branch protection rules, through GraphQL (REST lists them to
+    /// admins only), every page. A null repository, any error beside the data, a rule that does not
+    /// decode, or more pages than are read is no answer.
+    func protectionPatterns(repo: String) async throws -> [String] {
+        guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        struct Request: Encodable {
+            struct Variables: Encodable { var owner: String, name: String, after: String? }
+            var query: String, variables: Variables
+        }
+        struct Answer: Decodable {
+            struct Problem: Decodable { var message: String? }
+            struct Node: Decodable { var pattern: String }
+            struct PageInfo: Decodable { var hasNextPage: Bool, endCursor: String? }
+            struct Rules: Decodable { var pageInfo: PageInfo, nodes: [Node] }
+            struct Repository: Decodable { var branchProtectionRules: Rules }
+            struct Payload: Decodable { var repository: Repository? }
+            var data: Payload?, errors: [Problem]?
+        }
+        var patterns: [String] = [], cursor: String?
+        for _ in 0..<Self.listedPages {
+            let answer = try await post(Answer.self, path: "/graphql",
+                                        body: Request(query: Self.protectionRulesQuery, variables: .init(owner: owner, name: name, after: cursor)),
+                                        notFound: .repoNotFound(repo))
+            if let problem = answer.errors?.first {
+                throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules (\(problem.message ?? "an error"))")
+            }
+            guard let rules = answer.data?.repository?.branchProtectionRules else {
+                throw ProtectionUnknown.unreadable("GitHub didn’t show \(repo)’s branch protection rules")
+            }
+            patterns += rules.nodes.map(\.pattern)
+            if !rules.pageInfo.hasNextPage { return patterns }
+            guard let next = rules.pageInfo.endCursor, !next.isEmpty, next != cursor else {
+                throw ProtectionUnknown.unreadable("GitHub didn’t page \(repo)’s branch protection rules")
+            }
+            cursor = next
+        }
+        throw ProtectionUnknown.tooManyRules(Self.listedPages * 100)
+    }
+
     /// The token and the API version every request carries.
     private var headers: [String: String] {
         ["Authorization": "Bearer \(config.token)", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"]
@@ -114,9 +347,14 @@ public struct GitHubClient: Sendable {
 
     private func post<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, path: String, body: Body,
                                                            notFound: GitHubError) async throws -> Payload {
+        try await send(type, method: "POST", path: path, body: body, notFound: notFound)
+    }
+
+    private func send<Body: Encodable, Payload: Decodable>(_ type: Payload.Type, method: String, path: String, body: Body,
+                                                           notFound: GitHubError) async throws -> Payload {
         guard let url = HTTPJSON.url(Self.api + path) else { throw GitHubError.decoding }
         var request = HTTPJSON.request(url, headers: headers.merging(["Content-Type": "application/json"]) { $1 })
-        request.httpMethod = "POST"
+        request.httpMethod = method
         request.httpBody = try JSONEncoder().encode(body)
         return try await HTTPJSON.decode(type, request, session: session) { Self.error(for: $0, notFound: notFound) }.value
     }
@@ -173,4 +411,34 @@ private struct ThreadsPayload: Decodable {
     struct Repository: Decodable { var pullRequest: PullRequest? }
     struct Answer: Decodable { var repository: Repository? }
     var data: Answer?, errors: [Problem]?
+}
+
+/// A list a page at a time that says how many items it holds in all.
+private protocol PagedList: Decodable {
+    associatedtype Item
+    var items: [Item] { get }
+    var total: Int { get }
+}
+
+/// The fields of a pull request that say whether it can merge now.
+private struct PullStatusPayload: Decodable {
+    struct Head: Decodable { var sha: String }
+    var state: String, draft: Bool?, merged: Bool?, mergeable: Bool?, mergeableState: String?, mergeCommitSha: String?
+    var head: Head
+}
+
+/// A commit's check runs (GitHub Actions and other apps).
+private struct CheckRunsPayload: PagedList {
+    struct Run: Decodable { var name: String, status: String, conclusion: String? }
+    var totalCount: Int, checkRuns: [Run]
+    var items: [Run] { checkRuns }
+    var total: Int { totalCount }
+}
+
+/// A commit's statuses (the older API some CI still reports through).
+private struct CombinedStatusPayload: PagedList {
+    struct Status: Decodable { var context: String, state: String }
+    var totalCount: Int, statuses: [Status]
+    var items: [Status] { statuses }
+    var total: Int { totalCount }
 }
