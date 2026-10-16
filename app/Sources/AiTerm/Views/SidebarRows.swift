@@ -319,8 +319,10 @@ struct RowCaption: View {
     }
 }
 
-/// One task or review: its agents, title, badges and branch, and — when there is something to say —
-/// why its window could not come back.
+/// One task or review: its agents — the operator's mark first while one drives it — title, badges and
+/// branch, and, when there is something to say, why its window could not come back or where the
+/// operator's workflow has it. A driven task's menu leads with Take Over or Hand Back, and Stop Task…
+/// while it is open.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
@@ -382,7 +384,13 @@ struct TaskRowView: View {
                             BranchLabelView(label: row.branch).layoutPriority(1)
                         }
                     }
-                    if let note = caption.note { RowCaption(note.text, warns: note.warns).lineLimit(1) }
+                    // Why a removal stopped, or what the task is missing, comes first; else the line an
+                    // operator's workflow writes: `queued · builds on PLUTO-231`, `done · 4f2a91c`.
+                    if let note = caption.note {
+                        RowCaption(note.text, warns: note.warns).lineLimit(1)
+                    } else if let operated = row.operated {
+                        RowCaption(operated.text, warns: operated.warns).lineLimit(1)
+                    }
                 }
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window.
@@ -394,7 +402,7 @@ struct TaskRowView: View {
         .environment(\.rowHovered, hoveredRow == row.id)
         #endif
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.status.label)
+        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operated?.text ?? row.status.label)
         .accessibilityActions {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
@@ -411,6 +419,13 @@ struct TaskRowView: View {
         .selectionDisabled(removing)
         .contextMenu {
             if let task {
+                let operatorItems = OperatorMenus.task(task.operated)
+                if !operatorItems.isEmpty {
+                    OperatorMenuButtons(items: operatorItems, enabled: { _ in controller.canChangeWorkspace && !removing }) {
+                        controller.perform($0, on: task)
+                    }
+                    Divider()
+                }
                 Button("Rename…") { controller.presentRename(task: task) }
                     .disabled(!controller.canChangeWorkspace || removing)
                 Divider()
