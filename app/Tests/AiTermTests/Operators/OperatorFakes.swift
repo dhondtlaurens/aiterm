@@ -196,7 +196,14 @@ final class FakeJira: OperatorJira {
         try record(.create(project: project, type: type, summary: summary, description: description, parent: parent))
         return "\(project)-\(100 + writes.count)"
     }
-    func transition(key: String, to statusName: String) async throws { try record(.move(key: key, status: statusName)) }
+    /// The status each ticket is in already, by key; a ticket not named is in none the Operator names.
+    private let statuses = Mutex<[String: String]>([:])
+    func put(_ key: String, in status: String) { statuses.withLock { $0[key] = status } }
+    func transition(key: String, to statusName: String) async throws -> Bool {
+        if statuses.withLock({ $0[key] }) == statusName { return false }
+        try record(.move(key: key, status: statusName))
+        return true
+    }
     func link(key: String, to other: String, type: String) async throws { try record(.link(key: key, to: other, type: type)) }
     private func record(_ write: Write) throws {
         if failing.withLock({ $0 }) { throw JiraError.badResponse(500) }

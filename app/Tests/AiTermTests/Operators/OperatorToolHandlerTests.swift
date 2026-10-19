@@ -120,7 +120,7 @@ import Testing
 
     /// A `jira_create` call for PLUTO, with `changes` over its arguments.
     func ticket(_ changes: [String: JSONValue] = [:]) -> JSONValue {
-        .object(["project": "PLUTO", "type": "Task", "summary": "Handle SIGTERM", "description": "Drain the tasks."]
+        .object(["key": "t1", "project": "PLUTO", "type": "Task", "summary": "Handle SIGTERM", "description": "Drain the tasks."]
             .merging(changes) { _, new in new })
     }
 
@@ -151,7 +151,8 @@ import Testing
         #expect(jira.writes == [.create(project: "PLUTO", type: "Task", summary: "Handle SIGTERM", description: "Drain the tasks.", parent: "PLUTO-7"),
                                 .move(key: "PLUTO-231", status: "Done"), .link(key: "PLUTO-1", to: "WEB-2", type: "Blocks")])
         #expect(world.run(run.id)?.leftForYou.isEmpty == true)
-        #expect(await world.call(run.id, "jira_create", ["project": "PLUTO", "type": "Task", "description": "d"]).message == "jira_create needs `summary`.")
+        #expect(await world.call(run.id, "jira_create", ["key": "t2", "project": "PLUTO", "type": "Task", "description": "d"]).message == "jira_create needs `summary`.")
+        #expect(await world.call(run.id, "jira_create", ["project": "PLUTO", "type": "Task", "summary": "s", "description": "d"]).message == "jira_create needs `key`.")
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.profile.slices.jira = false } }
         #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-1", "status": "Done"]).message == "The Jira slice is off for this broadcast.",
                 "the slice is read as it is when the call acts")
@@ -175,6 +176,38 @@ import Testing
         let offWorld = try makeWorld(off, jira: jira)
         #expect(await offWorld.call(off.id, "jira_move", ["key": "PAY-9", "status": "Done"]).message == "PAY-9 \(outside)")
         #expect(offWorld.run(off.id)?.leftForYou.isEmpty == true)
+    }
+
+    /// The Operator's retry after a lost reply is the same ticket, however many times.
+    @Test func jiraCreateIsSafeToRepeat() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let first = await world.call(run.id, "jira_create", ticket())
+        let again = await world.call(run.id, "jira_create", ticket(["summary": "Another words"]))
+        #expect(first.value?["key"] == "PLUTO-101" && first.value?["created"] == true)
+        #expect(again.value?["key"] == "PLUTO-101" && again.value?["created"] == false)
+        #expect(jira.writes.count == 1, "one POST for one key")
+        #expect(world.run(run.id)?.jiraCreated == ["t1": "PLUTO-101"])
+        #expect(await world.call(run.id, "jira_create", ticket(["key": "t2"])).value?["key"] == "PLUTO-102")
+        // A failed create records nothing: the same key may try again.
+        let broken = FakeJira()
+        broken.failWrites()
+        let other = jiraRun(slice: true)
+        let otherWorld = try makeWorld(other, jira: broken)
+        #expect(await otherWorld.call(other.id, "jira_create", ticket()).message == "Jira returned an error (HTTP 500). Try again.")
+        broken.failWrites(false)
+        #expect(await otherWorld.call(other.id, "jira_create", ticket()).value?["created"] == true)
+    }
+
+    @Test func jiraMoveToTheStatusItIsInSucceedsWithoutATransition() async throws {
+        let jira = FakeJira()
+        jira.put("PLUTO-231", in: "Done")
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let answer = await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"])
+        #expect(answer.value?["moved"] == false && answer.value?["note"] == "PLUTO-231 is already in Done.")
+        #expect(jira.writes.isEmpty)
     }
 
     @Test func jiraWritesWithoutJiraOrAFailureSayWhy() async throws {

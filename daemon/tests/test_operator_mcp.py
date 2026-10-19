@@ -182,7 +182,7 @@ def test_the_values_are_the_apps():
     assert required["mark_task"] == {"task", "outcome"} and required["ask_you"] == {"key", "question"}
     assert properties["create_task"]["agentPinned"]["type"] == "boolean"
     assert "objection" in properties["log_decision"] and required["log_decision"] == {"key", "text"}
-    assert required["jira_create"] == {"project", "type", "summary", "description"} and "parent" in properties["jira_create"]
+    assert required["jira_create"] == {"key", "project", "type", "summary", "description"} and "parent" in properties["jira_create"]
     assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
 
 

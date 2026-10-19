@@ -33,7 +33,8 @@ protocol OperatorJira: Sendable {
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket]
     /// The Jira slice's writes (spec §5).
     func createIssue(project: String, type: String, summary: String, description: String, parent: String?) async throws -> String
-    func transition(key: String, to statusName: String) async throws
+    /// False when the ticket was in that status already and nothing was made.
+    func transition(key: String, to statusName: String) async throws -> Bool
     func link(key: String, to other: String, type: String) async throws
 }
 

@@ -9,20 +9,30 @@ extension OperatorToolHandler {
     private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
 
     func jiraCreate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let callKey = try call.string("key")
+        // The same key again is the same ticket: what the first call made, and nothing more.
+        if let made = run.jiraCreated[callKey] { return ["key": .string(made), "created": false] }
         let project = try call.string("project"), type = try call.string("type")
         let summary = try call.string("summary"), description = try call.string("description")
         let projectKey = try inScope(project: project, of: run)
         let parent = try call.optionalString("parent").map { try inScope(ticket: $0, of: run) }
         try requireSlice(in: run, otherwise: "Create the Jira ticket “\(summary)” in \(projectKey)")
-        let key = try await connectedJira().createIssue(project: projectKey, type: type, summary: summary, description: description, parent: parent)
+        let jira = try connectedJira()
+        // Another call with this key is creating now: this one would make the ticket twice.
+        let flight = "\(run.id.uuidString)/create/\(callKey)"
+        guard filingFinds.insert(flight).inserted else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
+        defer { filingFinds.remove(flight) }
+        let key = try await jira.createIssue(project: projectKey, type: type, summary: summary, description: description, parent: parent)
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.jiraCreated[callKey] = key } }
         return ["key": .string(key), "created": true]
     }
 
     func jiraMove(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try inScope(ticket: try call.string("key"), of: run), status = try call.string("status")
         try requireSlice(in: run, otherwise: "Move \(key) to \(status)")
-        try await connectedJira().transition(key: key, to: status)
-        return ["key": .string(key), "status": .string(status), "moved": true]
+        let moved = try await connectedJira().transition(key: key, to: status)
+        return moved ? ["key": .string(key), "status": .string(status), "moved": true]
+                     : ["key": .string(key), "status": .string(status), "moved": false, "note": .string("\(key) is already in \(status).")]
     }
 
     func jiraLink(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {

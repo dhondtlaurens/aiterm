@@ -391,6 +391,8 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var questions: [OperatorQuestion], decisions: [OperatorDecision]
     /// The off-brief finds, for the debrief; and what the slices kept the Operator from doing.
     public var finds: [OffBriefFind], leftForYou: [String]
+    /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
+    public var jiraCreated: [String: String]
     /// The Oracle's challenges of this run's calls, the ones acted on kept with their answer.
     public var challenges: [ChallengeRecord]
     /// The Operator's Claude conversation, for `claude --resume`.
@@ -403,19 +405,21 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
                 intent: OperatorRunState? = nil, planRevision: Int = 0, firstPlanSize: Int? = nil,
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
                 leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
-                operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], createdAt: Date) {
+                operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], jiraCreated: [String: String] = [:],
+                createdAt: Date) {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
-        self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.createdAt = createdAt
+        self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
+        self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, leftForYou, challenges, operatorConversation, operatorWindowId
-        case operatorSessionId, createdAt
+        case operatorSessionId, jiraCreated, createdAt
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -443,6 +447,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         operatorConversation = try c.decodeIfPresent(String.self, forKey: .operatorConversation)
         operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
         operatorSessionId = try c.decodeIfPresent(String.self, forKey: .operatorSessionId)
+        jiraCreated = try c.decodeIfPresent([String: String].self, forKey: .jiraCreated) ?? [:]
         createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 
@@ -472,6 +477,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(operatorConversation, forKey: .operatorConversation)
         try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)
         try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
+        try c.encode(jiraCreated, forKey: .jiraCreated)
         try c.encode(createdAt, forKey: .createdAt)
     }
 }

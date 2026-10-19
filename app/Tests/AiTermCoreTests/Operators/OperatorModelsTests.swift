@@ -70,13 +70,14 @@ import Foundation
             challenges: [ChallengeRecord(id: "ch-1", tool: "submit_plan", stage: .acted, critique: "Split A.",
                                          actedArguments: #"{"revision":3}"#, result: #"{"submitted":true}"#,
                                          askedAt: Date(timeIntervalSince1970: 25))],
+            jiraCreated: ["t1": "PLUTO-241"],
             createdAt: Date(timeIntervalSince1970: 0))
         #expect(try roundTrip(run) == run)
         #expect(run.openRevision == 4)
 
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         let keys = try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
-        for key in ["profile", "jiraProjectKeys", "prompt", "review", "done", "firstPlanSize", "finds", "leftForYou"] {
+        for key in ["profile", "jiraProjectKeys", "prompt", "review", "done", "firstPlanSize", "finds", "leftForYou", "jiraCreated"] {
             #expect(keys.contains(key), "\(key) is not written")
         }
         for key in ["persona", "brief", "doneWhen", "lessons"] { #expect(!keys.contains(key), "\(key) is still written") }
@@ -85,7 +86,8 @@ import Foundation
     /// A run made without a scope, a review or a done has none; its lists are empty.
     @Test func aRunMadeWithTheLeastHasNone() throws {
         let run = OperatorRun(id: UUID(), name: "Old", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
-        #expect(run.projectIds.isEmpty && run.jiraProjectKeys.isEmpty && run.challenges.isEmpty && run.finds.isEmpty && run.leftForYou.isEmpty)
+        #expect(run.projectIds.isEmpty && run.jiraProjectKeys.isEmpty && run.challenges.isEmpty && run.finds.isEmpty && run.leftForYou.isEmpty
+                && run.jiraCreated.isEmpty)
         #expect(run.review == nil && run.done == nil && run.firstPlanSize == nil)
         #expect(try roundTrip(run) == run)
     }

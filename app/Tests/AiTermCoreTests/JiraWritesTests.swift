@@ -46,21 +46,37 @@ import Foundation
 
     @Test func transitionPicksByStatusName() async throws {
         let moves = #"{"transitions":[{"id":"11","name":"Start","to":{"name":"In Progress"}},{"id":"31","name":"Finish up","to":{"name":"Done"}}]}"#
-        let stub = StubSession { request in request.httpMethod == "GET" ? (200, Data(moves.utf8)) : (204, Data()) }
-        try await JiraClient(config: config, session: stub.session).transition(key: "PAY-231", to: "done")
+        let stub = StubSession { request in
+            if request.url?.path.hasSuffix("/transitions") == true { return request.httpMethod == "GET" ? (200, Data(moves.utf8)) : (204, Data()) }
+            return (200, Data(#"{"fields":{"status":{"name":"To Do"}}}"#.utf8))
+        }
+        let moved = try await JiraClient(config: config, session: stub.session).transition(key: "PAY-231", to: "done")
+        #expect(moved)
         #expect(stub.requests.map { "\($0.httpMethod ?? "") \($0.url?.path ?? "")" }
-                == ["GET /rest/api/3/issue/PAY-231/transitions", "POST /rest/api/3/issue/PAY-231/transitions"])
+                == ["GET /rest/api/3/issue/PAY-231", "GET /rest/api/3/issue/PAY-231/transitions", "POST /rest/api/3/issue/PAY-231/transitions"])
+        #expect(stub.requests.first?.url?.query == "fields=status")
         #expect((try body(stub.lastRequest)["transition"] as? [String: String]) == ["id": "31"], "the transition's own name, Finish up, is not what picks it")
     }
 
     @Test func aStatusNoTransitionLeadsToMovesNothingAndSaysWhatIsOffered() async throws {
-        let stub = StubSession { _ in (200, Data(#"{"transitions":[{"id":"11","name":"Start","to":{"name":"In Progress"}}]}"#.utf8)) }
+        let stub = StubSession { request in
+            request.url?.path.hasSuffix("/transitions") == true
+                ? (200, Data(#"{"transitions":[{"id":"11","name":"Start","to":{"name":"In Progress"}}]}"#.utf8))
+                : (200, Data(#"{"fields":{"status":{"name":"To Do"}}}"#.utf8))
+        }
         await #expect(throws: JiraError.noTransition(key: "PAY-231", status: "Done", offered: ["In Progress"])) {
             try await JiraClient(config: config, session: stub.session).transition(key: "PAY-231", to: "Done")
         }
-        #expect(stub.requests.count == 1, "nothing was posted")
+        #expect(stub.requests.filter { $0.httpMethod == "POST" }.isEmpty, "nothing was posted")
         #expect(JiraError.noTransition(key: "PAY-231", status: "Done", offered: ["In Progress"]).errorDescription
                 == "PAY-231 can’t move to “Done” from where it is. Jira offers: In Progress.")
+    }
+
+    @Test func aTicketAlreadyInTheStatusIsNotTransitioned() async throws {
+        let stub = StubSession { _ in (200, Data(#"{"fields":{"status":{"name":"Done"}}}"#.utf8)) }
+        let moved = try await JiraClient(config: config, session: stub.session).transition(key: "PAY-231", to: "done")
+        #expect(!moved)
+        #expect(stub.requests.count == 1 && stub.requests.first?.httpMethod == "GET", "one read of the status, nothing else")
     }
 
     @Test func linkPostsTheTypeAndBothEnds() async throws {

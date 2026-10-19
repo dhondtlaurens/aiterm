@@ -185,13 +185,13 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the operation's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
-          "is on, and outside its Jira projects; AiTerm then leaves it for the person. Not idempotent: look the ticket up "
-          "with jira_search before trying again after an error.",
-          {"project": _text("The Jira project's key, one of the broadcast's."),
+          "is on, and outside its Jira projects; AiTerm then leaves it for the person. The same key returns the ticket "
+          "the first call made, so call again with it after a lost reply.",
+          {"key": _KEY, "project": _text("The Jira project's key, one of the broadcast's."),
            "type": _text("The issue type, such as Task, Bug or Story."),
            "summary": _text("The ticket's title."), "description": _text("What the ticket says, in plain text."),
            "parent": _text("The key of the epic or parent ticket it belongs under, if any.")},
-          ("project", "type", "summary", "description")),
+          ("key", "project", "type", "summary", "description")),
     _tool("jira_move", "Moves a Jira ticket to the status of that name, by the transition that leads there. Refused unless the "
           "broadcast's Jira slice is on, and outside its Jira projects. A status the ticket cannot reach from where it is "
           "is refused with the statuses it can reach.",

@@ -14,10 +14,14 @@ extension JiraClient {
         return try await decode(Created.self, req).key
     }
 
-    /// Moves `key` to the status named `statusName`: Jira's transitions for it are read, and the one whose target
-    /// status has that name (case aside) is made. A ticket with no such way from where it is stays as it was.
-    public func transition(key: String, to statusName: String) async throws {
+    /// Moves `key` to the status named `statusName`: false, with nothing made, when it is in that status already; else
+    /// Jira's transitions for it are read, and the one whose target status has that name (case aside) is made. A ticket
+    /// with no such way from where it is stays as it was.
+    @discardableResult
+    public func transition(key: String, to statusName: String) async throws -> Bool {
         let path = "/rest/api/3/issue/\(try Self.validKey(key))/transitions"
+        let current = try await decode(Current.self, request(path: "/rest/api/3/issue/\(key)", queryItems: [URLQueryItem(name: "fields", value: "status")]))
+        if current.fields.status?.value?.name?.caseInsensitiveCompare(statusName) == .orderedSame { return false }
         let offered = try await decode(Transitions.self, request(path: path)).transitions.compactMap(\.value)
         guard let chosen = offered.first(where: { $0.to?.value?.name?.caseInsensitiveCompare(statusName) == .orderedSame }) else {
             throw JiraError.noTransition(key: key, status: statusName, offered: offered.compactMap { $0.to?.value?.name })
@@ -25,6 +29,7 @@ extension JiraClient {
         var req = request(path: path); req.httpMethod = "POST"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["transition": ["id": chosen.id]])
         try await perform(req)
+        return true
     }
 
     /// `key` linked to `other` by the link type named `type` (`Blocks`, `Relates`, `Duplicate`), read from `key`'s
@@ -51,6 +56,13 @@ extension JiraClient {
 }
 
 private struct Created: Decodable { var key: String }
+
+/// `/issue/{key}?fields=status`: the status it is in.
+private struct Current: Decodable {
+    struct Status: Decodable { var name: String? }
+    struct Fields: Decodable { var status: Lenient<Status>? }
+    var fields: Fields
+}
 
 /// `/issue/{key}/transitions`: the moves it has; one that is not one drops alone.
 private struct Transitions: Decodable {
