@@ -14,7 +14,6 @@ import Foundation
         #expect(OperatorTiming.challengeTimeout == 180)
         #expect(OperatorTiming.operatorRequestTimeout == 30)
         #expect(OperatorTiming.launchAdoptAfter == 60)
-        #expect(OperatorTiming.routineBundleAfter == 1800)
         #expect(OperatorTiming.mergePoll == 30)
         #expect(OperatorTiming.mergeWait == 3600)
     }

@@ -156,7 +156,7 @@ import Testing
         let (world, run, task) = try makeWorld()
         let blocked: JSONValue = ["task": "PLUTO-1", "outcome": "blocked", "note": "Needs a decision."]
         _ = await world.call(run.id, "mark_task", blocked)
-        #expect(world.notifications.posted.map(\.id) == ["blocked-\(task.id.uuidString)"])
+        #expect(world.notifications.posted.map(\.id) == ["request-\(run.id.uuidString)-\(task.id.uuidString)-blocked"])
         _ = await world.call(run.id, "mark_task", blocked)
         #expect(world.notifications.posted.count == 1)
     }
@@ -192,7 +192,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange", "note": "Already fixed upstream."])
         #expect(world.run(run.id)?.state == .complete)
-        #expect(world.notifications.posted.map(\.id) == ["done-\(run.id.uuidString)"])
+        #expect(world.notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
         try await world.daemon.received("session.deliver")
         #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] operation complete, call run_status")
         #expect(world.task(task.id)?.operated?.state == .noChange)

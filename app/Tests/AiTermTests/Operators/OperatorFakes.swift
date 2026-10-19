@@ -72,10 +72,13 @@ enum OperatorServiceFixtures {
 @MainActor
 final class RecordingNotifications: OperatorNotifications {
     private(set) var posted: [OperatorNote] = []
+    /// The ids taken back, in order.
+    private(set) var withdrawn: [String] = []
     private(set) var authorizationRequests = 0
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)?
     func requestAuthorization() { authorizationRequests += 1 }
     func post(_ note: OperatorNote) { posted.append(note) }
+    func withdraw(ids: [String]) { withdrawn += ids }
 }
 
 /// A wall clock a test moves by hand.

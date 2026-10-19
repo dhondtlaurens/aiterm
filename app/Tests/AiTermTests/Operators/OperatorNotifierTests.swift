@@ -3,89 +3,170 @@ import Testing
 @testable import AiTermCore
 @testable import AiTerm
 
-/// When AiTerm notifies you (spec §4.1), by round 1's Routine rule until the plan's Task 8: a question
-/// that holds up everything notifies at once, one that does not is held up to half an hour; a worker's
-/// prompt, a blocked task, a waiting plan and a finished operation notify at once.
+/// When AiTerm notifies you (spec §4.1): the moment something needs you, and never again for the same
+/// thing; withdrawn once it is answered, unblocked or the broadcast ends.
 @MainActor @Suite struct OperatorNotifierTests {
-    let notifications = RecordingNotifications(), clock = StepClock()
-    func makeNotifier() -> OperatorNotifier { OperatorNotifier(notifications: notifications, now: { [clock] in clock.now }) }
+    let notifications = RecordingNotifications()
     let project = OperatorServiceFixtures.project()
+    let workspace: Box
+    let run: OperatorRun
+    let task: TaskItem
 
-    func makeRun(state: OperatorRunState = .active) -> OperatorRun {
-        OperatorServiceFixtures.run(projects: [project], state: state)
+    /// The state the notifier reads, which a test changes between its calls.
+    @MainActor final class Box { var state = AppState.empty }
+
+    init() {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-1", state: .working, agent: .codex)
+        run.name = "Payment broadcast"
+        self.run = run
+        self.task = task
+        workspace = Box()
+        workspace.state = OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])
     }
 
-    @Test func aQuestionThatHoldsUpEverythingNotifiesAtOnceAndOpensTheOverview() {
-        let run = makeRun(), notifier = makeNotifier()
-        notifier.questionAsked(OperatorServiceFixtures.question(at: clock.now), in: run, otherWorkCanProceed: false)
-        #expect(notifications.posted.map(\.target) == [.overview(run.id)])
-        #expect(notifications.posted.first?.title == "The Operator asks you")
-        #expect(notifications.posted.first?.body == "Which locale is the default?")
-        #expect(notifier.held.isEmpty)
+    func makeNotifier(prompts: [UUID: String] = [:]) -> OperatorNotifier {
+        OperatorNotifier(notifications: notifications, state: { [workspace] in workspace.state }, prompts: { prompts })
     }
 
-    @Test func aHeldQuestionIsSentWhenTheOperationEnds() {
-        let run = makeRun(), notifier = makeNotifier()
-        notifier.questionAsked(OperatorServiceFixtures.question("a", at: clock.now), in: run, otherWorkCanProceed: true)
-        notifier.questionAsked(OperatorServiceFixtures.question("b", at: clock.now), in: run, otherWorkCanProceed: true)
-        #expect(notifications.posted.isEmpty)
-        var finished = run
-        finished.state = .complete
-        notifier.runComplete(finished)
-        #expect(notifications.posted.map(\.body).contains("2 questions wait on you in “Sprint 42”."))
-        #expect(notifications.posted.first?.body == "The Operator finished the operation.")
-        #expect(notifier.held[run.id] == nil)
+    func change(_ edit: (inout AppState) -> Void) { edit(&workspace.state) }
+    var current: OperatorRun { workspace.state.runs[0] }
+
+    func ask(_ key: String = "q1", text: String = "Which locale is the default?") {
+        change { $0.updateRun(id: run.id) { $0.questions.append(OperatorQuestion(id: key, text: text, task: nil, askedAt: Date(timeIntervalSince1970: 0))) } }
     }
 
-    @Test func aHeldQuestionIsSentAfterHalfAnHour() {
-        let run = makeRun(), notifier = makeNotifier()
-        notifier.questionAsked(OperatorServiceFixtures.question(at: clock.now), in: run, otherWorkCanProceed: true)
-        notifier.releaseHeld(in: run, otherWorkCanProceed: true)
-        #expect(notifications.posted.isEmpty)
-        clock.advance(by: 31 * 60)
-        notifier.releaseHeld(in: run, otherWorkCanProceed: true)
-        #expect(notifications.posted.map(\.target) == [.overview(run.id)])
-    }
-
-    @Test func aWorkersPermissionPromptOpensThatTasksWindowAtOnce() {
-        let run = makeRun()
-        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working)
-        makeNotifier().workerPrompt(.permission, task: task, in: run)
-        #expect(notifications.posted.last?.target == .task(task.id))
-        #expect(notifications.posted.last?.id == "prompt-\(task.id.uuidString)")
+    @Test func aRequestPostsAtOnce() {
+        let notifier = makeNotifier()
+        ask()
+        notifier.requestsChanged(run: current)
         #expect(notifications.posted.count == 1)
+        let note = notifications.posted.first
+        #expect(note?.title == "Payment broadcast")
+        #expect(note?.body == "The Operator asks: Which locale is the default?")
+        #expect(note?.id == "request-\(run.id.uuidString)-run-question")
+        #expect(note?.target == .overview(run.id))
     }
 
-    @Test func aBlockedTaskOpensTheOverview() {
-        let run = makeRun(), notifier = makeNotifier()
-        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .blocked)
-        notifier.taskBlocked(task, reason: "Retries used up.", in: run)
-        #expect(notifications.posted.map(\.target) == [.overview(run.id)])
-        #expect(notifications.posted.last?.body == "Task PLUTO-2: Retries used up.")
+    @Test func aRequestAlreadyPostedIsNotPostedAgain() {
+        let notifier = makeNotifier()
+        ask()
+        notifier.requestsChanged(run: current)
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.count == 1 && notifications.withdrawn.isEmpty)
     }
 
-    @Test func aBlockedTaskSendsTheQuestionsHeld() {
-        let run = makeRun(), notifier = makeNotifier()
-        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-3", state: .blocked)
-        notifier.questionAsked(OperatorServiceFixtures.question(at: clock.now), in: run, otherWorkCanProceed: true)
-        #expect(notifications.posted.isEmpty)
-        notifier.taskBlocked(task, reason: "Retries used up.", in: run)
-        #expect(notifications.posted.map(\.id) == ["blocked-\(task.id.uuidString)", "questions-\(run.id.uuidString)"])
-        #expect(notifications.posted.last?.body == "Which locale is the default?")
-        #expect(notifier.held[run.id] == nil)
+    @Test func aWorkersPromptOpensItsWindow() {
+        let notifier = makeNotifier(prompts: [task.id: "run npm install"])
+        change { state in
+            state.updateRun(id: run.id) {
+                $0.questions.append(OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission",
+                                                     task: task.id, askedAt: Date(timeIntervalSince1970: 0)))
+            }
+            state.tasks[0].title = "Payment provider switch"
+        }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.body) == ["Codex asks to run npm install in Payment provider switch."])
+        #expect(notifications.posted.first?.target == .task(task.id))
     }
 
-    @Test func theSameQuestionAskedTwiceIsHeldAndSentOnce() {
-        let run = makeRun(), notifier = makeNotifier()
-        let question = OperatorServiceFixtures.question("same", at: clock.now)
-        notifier.questionAsked(question, in: run, otherWorkCanProceed: true)
-        notifier.questionAsked(question, in: run, otherWorkCanProceed: true)
-        #expect(notifier.held[run.id]?.count == 1)
-        notifier.questionAsked(OperatorServiceFixtures.question("other", at: clock.now), in: run, otherWorkCanProceed: true)
-        var finished = run
-        finished.state = .complete
-        notifier.runComplete(finished)
-        #expect(notifications.posted.map(\.body).contains("2 questions wait on you in “Sprint 42”."))
+    @Test func aBlockedTaskAndAProblemNotifyOnTheOverview() {
+        let notifier = makeNotifier()
+        change { $0.updateOperated(task.id) { $0.state = .blocked; $0.blockedReason = "Retries used up." } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.body) == ["Task PAY-1 is blocked: Retries used up."])
+        #expect(notifications.posted.first?.target == .overview(run.id))
+        change { $0.updateOperated(task.id) { $0.problem = "git-rebase-1"; $0.blockedReason = "Couldn’t rebase it." } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.last?.body == "Task PAY-1’s couldn’t rebase it.")
+        #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-blocked"], "the problem replaces the block")
+    }
+
+    @Test func aResolvedRequestIsWithdrawn() {
+        let notifier = makeNotifier()
+        ask()
+        notifier.requestsChanged(run: current)
+        change { $0.updateRun(id: run.id) { $0.questions[0].resolution = "en-GB." } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.count == 1)
+        #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-run-question"])
+    }
+
+    @Test func severalQuestionsAreOneNoteThatCountsThemAndSaysAgainAsTheyAreAnswered() {
+        let notifier = makeNotifier()
+        ask("a")
+        ask("b", text: "Which currency?")
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.body) == ["The Operator has 2 questions for you."])
+        change { $0.updateRun(id: run.id) { $0.questions[0].resolution = "en-GB." } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.last?.body == "The Operator asks: Which currency?")
+        #expect(notifications.withdrawn.isEmpty)
+    }
+
+    @Test func aTaskThatIsUnblockedIsWithdrawn() {
+        let notifier = makeNotifier()
+        change { $0.updateOperated(task.id) { $0.state = .blocked; $0.blockedReason = "Retries used up." } }
+        notifier.requestsChanged(run: current)
+        change { $0.updateOperated(task.id) { $0.state = .working; $0.blockedReason = nil } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-blocked"])
+    }
+
+    @Test func endingWithdrawsAll() {
+        let notifier = makeNotifier()
+        ask()
+        change { $0.updateOperated(task.id) { $0.state = .blocked; $0.blockedReason = "Retries used up." } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.count == 2)
+        change { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        notifier.requestsChanged(run: current)
+        #expect(Set(notifications.withdrawn) == Set(notifications.posted.map(\.id)))
+    }
+
+    @Test func aFinishedBroadcastPostsItsDebriefOnce() {
+        let notifier = makeNotifier()
+        change { state in
+            state.updateOperated(task.id) { $0.state = .accepted }
+            state.updateRun(id: run.id) { $0.state = .complete }
+        }
+        notifier.requestsChanged(run: current)
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
+        #expect(notifications.posted.first?.body == "The task is done. The debrief is ready.")
+        change { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.withdrawn == ["debrief-\(run.id.uuidString)"], "End takes the debrief away")
+    }
+
+    @Test func theDebriefCountsTheTasks() {
+        let notifier = makeNotifier()
+        change { state in
+            for n in 2...8 { state.tasks.append(OperatorServiceFixtures.task(in: run, project: project, key: "PAY-\(n)", state: .accepted)) }
+            state.updateRun(id: run.id) { $0.state = .complete }
+        }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.first?.body == "All 8 tasks are done. The debrief is ready.")
+    }
+
+    @Test func copyHasNoEmDash() {
+        let notifier = makeNotifier(prompts: [task.id: "run npm install"])
+        ask()
+        change { state in
+            state.updateRun(id: run.id) {
+                $0.questions.append(OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission",
+                                                     task: task.id, askedAt: Date(timeIntervalSince1970: 0)))
+            }
+            state.updateOperated(task.id) { $0.state = .blocked; $0.blockedReason = "Retries used up." }
+        }
+        notifier.requestsChanged(run: current)
+        change { $0.updateOperated(task.id) { $0.problem = "git-rebase-1" } }
+        notifier.requestsChanged(run: current)
+        change { $0.updateRun(id: run.id) { $0.state = .complete } }
+        notifier.requestsChanged(run: current)
+        #expect(!notifications.posted.isEmpty)
+        #expect(notifications.posted.allSatisfy { !$0.title.contains("—") && !$0.body.contains("—") })
     }
 
     @Test func aTargetSurvivesTheTripThroughANotificationsUserInfo() {

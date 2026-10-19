@@ -14,7 +14,6 @@ final class RunReconciler {
     private let live: LiveSessions
     private let starter: WorkerStarter
     private let waker: OperatorWaker
-    private let notifier: OperatorNotifier
     private let ports: OperatorPorts
     /// Whether a connected snapshot has come since the helper attached: until then, a tab not listed
     /// is not a tab gone.
@@ -24,20 +23,15 @@ final class RunReconciler {
     /// When the last tick counted runtime; nil until the first tick after AiTerm starts, which only
     /// sets it, so the time AiTerm was not running is not counted.
     private var lastCounted: Date?
-    /// Whether the open questions have been held again since AiTerm started: the notifier keeps what it
-    /// holds in memory only.
-    private var reheld = false
     /// When the first synced tick of this run of AiTerm came: a launch it knows no end of (it began before
     /// AiTerm started) is counted a minute from here at the soonest, so a slow iTerm2 has listed its window.
     private var firstSynced: Date?
 
-    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, waker: OperatorWaker, notifier: OperatorNotifier,
-         ports: OperatorPorts) {
+    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, waker: OperatorWaker, ports: OperatorPorts) {
         self.workspace = workspace
         self.live = live
         self.starter = starter
         self.waker = waker
-        self.notifier = notifier
         self.ports = ports
     }
 
@@ -49,7 +43,6 @@ final class RunReconciler {
         guard synced else { return [] }
         let sessions = live.sessions, now = ports.now()
         firstSynced = firstSynced ?? now
-        holdOpenQuestionsAgain()
         var changed: Set<UUID> = []
         for run in state.runs where run.state != .stopped && run.intent != .stopped {
             if reconcileOperator(run, sessions: sessions) { changed.insert(run.id) }
@@ -59,9 +52,6 @@ final class RunReconciler {
             }
         }
         changed.formUnion(applyLimits(now: now, sessions: sessions))
-        for run in state.runs where run.state != .stopped {
-            notifier.releaseHeld(in: run, otherWorkCanProceed: state.otherWorkCanProceed(in: run))
-        }
         return changed
     }
 
@@ -69,19 +59,6 @@ final class RunReconciler {
     /// whose last task ended meanwhile is then settled complete by `runChanged`, its Operator told and you notified.
     static func resumedState(of run: OperatorRun) -> OperatorRunState {
         run.planRevision > 0 ? .active : .planning
-    }
-
-    /// The first pass after AiTerm starts: each open question of the operator — a worker waiting on you
-    /// for an answer — is held again, since what the notifier held was lost with the last run. A worker's
-    /// prompt is not: it was notified at once, and the overview and its row still show it.
-    private func holdOpenQuestionsAgain() {
-        guard !reheld else { return }
-        reheld = true
-        for run in state.runs where run.state != .stopped && run.intent != .stopped {
-            for question in run.questions where question.resolution == nil && !question.id.hasPrefix("prompt-") {
-                notifier.rehold(question, in: run)
-            }
-        }
     }
 
     /// The operator's tab gone: offline. Back, and with no pause of yours: as it was, and woken.
@@ -126,13 +103,13 @@ final class RunReconciler {
     /// Spec §8's limits. Each tick adds the time since the last one to every working task of an active
     /// run that has a worker tab and neither waits on you nor is taken over — at most two intervals'
     /// worth, so a Mac asleep is not work — saved with the task. A task past its runtime, or failed with no retry left, is
-    /// blocked with the reason and you are asked. The runs it blocked a task in.
+    /// blocked with the reason, which the notifier then tells you. The runs it blocked a task in.
     private func applyLimits(now: Date, sessions: [SessionInfo]) -> Set<UUID> {
         let interval = ports.reconcileInterval.components
         let step = TimeInterval(interval.seconds) + TimeInterval(interval.attoseconds) / 1e18
         let elapsed = lastCounted.map { min(max(0, now.timeIntervalSince($0)), 2 * step) } ?? 0
         lastCounted = now
-        var blocked: [(task: UUID, reason: String)] = []
+        var blocked: [UUID] = []
         workspace.mutate { state in
             for task in state.tasks {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
@@ -145,14 +122,12 @@ final class RunReconciler {
                       let reason = OperatedTransitions.limitReason(for: current),
                       (try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)) != nil
                 else { continue }
-                blocked.append((task.id, reason))
+                blocked.append(task.id)
             }
         }
         var runs: Set<UUID> = []
-        for (id, reason) in blocked {
-            guard let task = state.task(id: id), let runId = task.operated?.runId, let run = state.run(id: runId) else { continue }
-            notifier.taskBlocked(task, reason: reason, in: run)
-            runs.insert(runId)
+        for id in blocked {
+            if let runId = state.task(id: id)?.operated?.runId { runs.insert(runId) }
         }
         return runs
     }

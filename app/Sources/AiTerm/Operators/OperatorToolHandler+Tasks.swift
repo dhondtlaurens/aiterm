@@ -129,7 +129,6 @@ extension OperatorToolHandler {
         // Its result holds each code parent's accepted commit (`upstreamRefusal` said so): the flag is done with.
         if outcome == "accepted" { mutate(in: run.id) { $0.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) } } }
         let marked = state.task(id: task.id) ?? task
-        if outcome == "blocked" { notifier.taskBlocked(marked, reason: call.optionalString("note") ?? "", in: run) }
         return Self.taskAnswer(marked, created: false)
     }
 

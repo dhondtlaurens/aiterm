@@ -31,6 +31,12 @@ final class LiveOperatorNotifications: NSObject, OperatorNotifications {
         content.userInfo = note.target.userInfo
         center.add(UNNotificationRequest(identifier: note.id, content: content, trigger: nil))
     }
+
+    func withdraw(ids: [String]) {
+        guard let center, !ids.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: ids)
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
 }
 
 extension LiveOperatorNotifications: UNUserNotificationCenterDelegate {

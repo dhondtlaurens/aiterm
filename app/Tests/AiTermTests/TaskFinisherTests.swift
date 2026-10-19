@@ -480,10 +480,7 @@ final class MergeClock: Sendable {
         #expect(questions.count == 1)
         #expect(questions.first?.text.hasPrefix("PLUTO-231 was merged on the host at 0123456") == true)
         #expect(world.task(task)?.operated?.flags.contains(.waitingOnYou) == true)
-        let id = try #require(questions.first?.id)
-        let told = world.notifications.posted.contains { $0.body.contains("merged on the host") }
-            || world.controller.notifier.held[run]?.contains { $0.id == id } == true
-        #expect(told, "you are notified, or the question waits for the stop to send it")
+        #expect(world.notifications.posted.contains { $0.body.contains("merged on the host") }, "you are notified at once")
         #expect(world.controller.finisher.watching.isEmpty)
         #expect(world.run(run)?.state == .active, "an open question keeps the operation from completing")
     }

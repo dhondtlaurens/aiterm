@@ -46,7 +46,6 @@ final class OperatorToolHandler {
     let live: LiveSessions
     let daemon: @MainActor () -> (any DaemonCommands)?
     let ports: OperatorPorts
-    let notifier: OperatorNotifier
     let waker: OperatorWaker
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
@@ -82,12 +81,11 @@ final class OperatorToolHandler {
                                         "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "report_find"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
-         notifier: OperatorNotifier, waker: OperatorWaker) {
+         waker: OperatorWaker) {
         self.workspace = workspace
         self.live = live
         self.daemon = daemon
         self.ports = ports
-        self.notifier = notifier
         self.waker = waker
     }
 
@@ -245,8 +243,6 @@ final class OperatorToolHandler {
             state.updateRun(id: run.id) { $0.questions.append(question) }
             if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
         }
-        let updated = state.run(id: run.id) ?? run
-        notifier.questionAsked(question, in: updated, otherWorkCanProceed: state.otherWorkCanProceed(in: updated))
         return Self.questionAnswer(question)
     }
 

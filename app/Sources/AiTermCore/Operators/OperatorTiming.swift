@@ -23,9 +23,6 @@ public enum OperatorTiming {
     public static let operatorRequestTimeout: TimeInterval = 30
     /// A launch attempt older than this with no tagged session may be launched again (spec §11).
     public static let launchAdoptAfter: TimeInterval = 60
-    /// App only: at Routine, a question that does not hold up every task waits this long, bundled
-    /// with the others, before it notifies you (spec §4.1).
-    public static let routineBundleAfter: TimeInterval = 30 * 60
     /// M3, app only: how often `finish_task` asks the host whether a `merge` task's MR is mergeable.
     public static let mergePoll: TimeInterval = 30
     /// M3, app only: how long it waits for that before blocking the task and asking you.

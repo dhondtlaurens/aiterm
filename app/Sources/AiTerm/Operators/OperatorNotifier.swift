@@ -1,7 +1,7 @@
 import Foundation
 import AiTermCore
 
-/// One notification: what it says, and what a click on it opens — an operation's overview, or a task's
+/// One notification: what it says, and what a click on it opens — a broadcast's overview, or a task's
 /// window for a prompt only you can answer (spec §10.3). Its `id` replaces an earlier one with the same id.
 struct OperatorNote: Equatable, Sendable {
     enum Target: Equatable, Sendable {
@@ -30,92 +30,62 @@ protocol OperatorNotifications: AnyObject {
     /// Asks macOS, once, whether AiTerm may post. Denied, the attention counts and the overview still show everything.
     func requestAuthorization()
     func post(_ note: OperatorNote)
+    /// Takes the notes with these ids away: out of the notification centre if shown, and unsent if not yet.
+    func withdraw(ids: [String])
     /// Where a click on a note goes.
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)? { get set }
 }
 
-/// Decides when you hear of what an operation needs (spec §4.1), by round 1's Routine rule until the
-/// plan's Task 8 notifies everything at once. A question always shows in the overview at once; the rule
-/// decides when it notifies, and the ones it holds are sent together. A worker's prompt, a blocked
-/// task, a waiting plan and a finished operation notify at once.
+/// Tells you the moment something needs you, and takes it back once it does not (spec §4.1): each open
+/// request of a broadcast (`OperatorRequests`) is posted when it appears and withdrawn when it is answered,
+/// unblocked or the broadcast ends, and a finished broadcast posts its debrief once. Called with the run
+/// whenever it or its tasks change: what it posts follows the state, never the events that led to it.
 @MainActor
 final class OperatorNotifier {
     private let notifications: any OperatorNotifications
-    private let now: @MainActor () -> Date
-    /// The questions each run's stop is holding back, oldest first.
-    private(set) var held: [UUID: [OperatorQuestion]] = [:]
-    /// The questions this run of AiTerm has sent (`runId/questionId`): holding one again after a restart
-    /// is for what was lost with the last run, not for what went out in this one.
-    private var sent: Set<String> = []
+    private let state: @MainActor () -> AppState
+    private let prompts: @MainActor () -> [UUID: String]
+    /// What is posted now, by run: each id this run of AiTerm has sent and not withdrawn, with the body it carries.
+    private var posted: [UUID: [String: String]] = [:]
 
-    init(notifications: any OperatorNotifications, now: @escaping @MainActor () -> Date) {
+    /// `state` is the workspace as it stands; `prompts` what each waiting worker's prompt asks, by task,
+    /// where it is known (`OperatorRequests.open`).
+    init(notifications: any OperatorNotifications, state: @escaping @MainActor () -> AppState,
+         prompts: @escaping @MainActor () -> [UUID: String] = { [:] }) {
         self.notifications = notifications
-        self.now = now
+        self.state = state
+        self.prompts = prompts
     }
 
-    func questionAsked(_ question: OperatorQuestion, in run: OperatorRun, otherWorkCanProceed: Bool) {
-        if questionNotifies(holdsUpEverything: !otherWorkCanProceed, otherWorkCanProceed: otherWorkCanProceed, waited: 0) {
-            post("question-\(run.id.uuidString)-\(question.id)", "The Operator asks you", question.text, to: .overview(run.id))
-            sent.insert("\(run.id.uuidString)/\(question.id)")
-        } else if held[run.id]?.contains(where: { $0.id == question.id }) != true {
-            // `ask_you` is idempotent by key, so a repeat is not a second question.
-            held[run.id, default: []].append(question)
+    static func debriefId(_ run: UUID) -> String { "debrief-\(run.uuidString)" }
+
+    /// Posts what the run now asks of you that it has not posted, and withdraws what it posted that no
+    /// longer stands. An ended run asks nothing, so everything of it is withdrawn. A note says again, in
+    /// place, when what it says has changed.
+    func requestsChanged(run: OperatorRun) {
+        let state = state()
+        let run = state.run(id: run.id) ?? run
+        var wanted: [OperatorNote] = []
+        // Questions share one id: they are one note, which counts them when more than one waits.
+        let requests = OperatorRequests.open(run: run, state: state, prompts: prompts())
+        for (id, group) in Dictionary(grouping: requests, by: \.id).sorted(by: { $0.key < $1.key }) {
+            guard let first = group.first else { continue }
+            // A prompt only you can answer opens its task's window; anything else, the broadcast's overview.
+            var target = OperatorNote.Target.overview(run.id)
+            if first.kind == .permission, let task = first.taskId { target = .task(task) }
+            let body = group.count == 1 ? first.text : "The Operator has \(group.count) questions for you."
+            wanted.append(OperatorNote(id: id, title: run.name, body: body, target: target))
         }
-    }
-
-    /// A question still open after AiTerm started again: what was held lived in memory only, so it is
-    /// held again, to be sent by `releaseHeld` when the stop says so. Not decided here and not notified.
-    func rehold(_ question: OperatorQuestion, in run: OperatorRun) {
-        guard held[run.id]?.contains(where: { $0.id == question.id }) != true,
-              !sent.contains("\(run.id.uuidString)/\(question.id)") else { return }
-        held[run.id, default: []].append(question)
-        held[run.id]?.sort { $0.askedAt < $1.askedAt }
-    }
-
-    /// Sends what the run's stop has held, once the stop says it is time — or the run has ended: asked
-    /// on every reconcile pass.
-    func releaseHeld(in run: OperatorRun, otherWorkCanProceed: Bool) {
-        guard let oldest = held[run.id]?.first else { return }
-        let ended = run.state == .complete || run.state == .stopped
-        guard ended || questionNotifies(holdsUpEverything: !otherWorkCanProceed, otherWorkCanProceed: otherWorkCanProceed,
-                                        waited: now().timeIntervalSince(oldest.askedAt)) else { return }
-        postHeld(in: run)
-    }
-
-    /// A worker waits on a prompt only you answer: its window opens from the note.
-    func workerPrompt(_ kind: PromptKind?, task: TaskItem, in run: OperatorRun) {
-        let agent = task.agent.harness.displayName
-        let body = kind == .permission ? "\(agent) asks for permission. Answer it in its window."
-                                       : "\(agent) shows a prompt AiTerm can’t read. Answer it in its window."
-        post("prompt-\(task.id.uuidString)", "\(task.title) waits on you", body, to: .task(task.id))
-    }
-
-    /// A blocked task notifies at once at every stop, and sends with it the questions the stop was holding.
-    func taskBlocked(_ task: TaskItem, reason: String, in run: OperatorRun) {
-        post("blocked-\(task.id.uuidString)", "“\(run.name)” is held up", "\(task.title): \(reason)", to: .overview(run.id))
-        postHeld(in: run)
-    }
-
-    /// A finished operation notifies at once, and sends with it the questions the stop was holding.
-    func runComplete(_ run: OperatorRun) {
-        post("done-\(run.id.uuidString)", "“\(run.name)” is done", "The Operator finished the operation.", to: .overview(run.id))
-        postHeld(in: run)
-    }
-
-    /// Whether a question notifies now rather than being held: when it holds up everything, when no
-    /// other work can go on, or once the oldest held one has waited `routineBundleAfter`.
-    private func questionNotifies(holdsUpEverything: Bool, otherWorkCanProceed: Bool, waited: TimeInterval) -> Bool {
-        holdsUpEverything || !otherWorkCanProceed || waited >= OperatorTiming.routineBundleAfter
-    }
-
-    private func postHeld(in run: OperatorRun) {
-        guard let questions = held.removeValue(forKey: run.id), let first = questions.first else { return }
-        for question in questions { sent.insert("\(run.id.uuidString)/\(question.id)") }
-        let body = questions.count == 1 ? first.text : "\(questions.count) questions wait on you in “\(run.name)”."
-        post("questions-\(run.id.uuidString)", "The Operator asks you", body, to: .overview(run.id))
-    }
-
-    private func post(_ id: String, _ title: String, _ body: String, to target: OperatorNote.Target) {
-        notifications.post(OperatorNote(id: id, title: title, body: body, target: target))
+        if run.state == .complete, run.intent != .stopped {
+            let count = state.tasks(inRun: run.id).count
+            wanted.append(OperatorNote(id: Self.debriefId(run.id), title: run.name,
+                                       body: count == 1 ? "The task is done. The debrief is ready." : "All \(count) tasks are done. The debrief is ready.",
+                                       target: .overview(run.id)))
+        }
+        let before = posted[run.id] ?? [:]
+        for note in wanted where before[note.id] != note.body { notifications.post(note) }
+        let gone = Set(before.keys).subtracting(wanted.map(\.id))
+        if !gone.isEmpty { notifications.withdraw(ids: gone.sorted()) }
+        posted[run.id] = Dictionary(uniqueKeysWithValues: wanted.map { ($0.id, $0.body) })
     }
 }

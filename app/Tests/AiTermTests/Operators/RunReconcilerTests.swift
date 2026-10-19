@@ -178,8 +178,11 @@ import Testing
         #expect(question.text == "Codex asks for permission" && question.task == task.id && question.resolution == nil)
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
         #expect(world.notifications.posted.last?.target == .task(task.id))
+        #expect(world.notifications.posted.last?.body == "Codex asks for permission in Task PLUTO-4.")
+        #expect(world.notifications.withdrawn.isEmpty)
         world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, agent: .codex, state: .working)])
         #expect(world.run(run.id)?.questions.last?.resolution == "Answered in its window.")
+        #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-permission"], "answered in its window, it is taken back")
         #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
     }
 
@@ -327,27 +330,6 @@ import Testing
         clock.advance(by: 50)
         world.controller.reconcileTick()
         #expect(world.task(task.id)?.operated?.runtimeUsed == 0)
-    }
-
-    /// The notifier keeps its held questions in memory only: the first pass after AiTerm starts holds
-    /// each open operator question again, oldest first, and none that was answered.
-    @Test func openQuestionsAreHeldAgainAfterARestart() throws {
-        let project = OperatorServiceFixtures.project()
-        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
-        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-15", state: .working, worktree: "/tmp/aiterm-wt")
-        var late = OperatorServiceFixtures.question("late", at: clock.now)
-        late.task = task.id
-        var answered = OperatorServiceFixtures.question("done", at: clock.now)
-        answered.resolution = "Yes."
-        let prompt = OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Codex asks for permission", task: task.id, askedAt: clock.now)
-        run.questions = [late, answered, OperatorServiceFixtures.question("early", at: clock.now.addingTimeInterval(-60)), prompt]
-        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
-        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id)])
-        world.controller.reconcileTick()
-        #expect(world.controller.notifier.held[run.id]?.map(\.id) == ["early", "late"])
-        world.controller.reconcileTick()
-        #expect(world.controller.notifier.held[run.id]?.count == 2, "held once, not again on every pass")
-        #expect(world.notifications.posted.isEmpty)
     }
 
     /// A prompt question left open on a task that has ended would keep its operation from completing:
@@ -506,20 +488,6 @@ import Testing
         world.controller.probePrompts()
         await world.controller.lastProbe?.value
         #expect(world.run(run.id)?.questions.last?.text == "Codex asks for permission")
-    }
-
-    /// A question this run of AiTerm already sent is not held again by the pass that follows a restart's rule.
-    @Test func aQuestionAlreadySentThisSessionIsNotHeldAgain() throws {
-        let project = OperatorServiceFixtures.project()
-        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
-        run.questions = [OperatorServiceFixtures.question("q1", at: clock.now)]
-        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
-        world.controller.notifier.questionAsked(run.questions[0], in: run, otherWorkCanProceed: false)
-        #expect(world.notifications.posted.count == 1)
-        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
-        world.controller.reconcileTick()
-        #expect(world.controller.notifier.held[run.id] == nil)
-        #expect(world.notifications.posted.count == 1)
     }
 
     /// `start()` ticks every `reconcileInterval` and `stop()` ends it: the interval is injected, and what a

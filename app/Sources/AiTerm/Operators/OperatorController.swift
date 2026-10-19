@@ -127,7 +127,7 @@ final class OperatorController {
         self.daemon = daemon
         self.taskFrame = taskFrame
         self.ports = ports
-        notifier = OperatorNotifier(notifications: ports.notifications, now: ports.now)
+        notifier = OperatorNotifier(notifications: ports.notifications, state: { [workspace] in workspace.state })
         waker = OperatorWaker(daemon: daemon,
                               session: { [live] run in Self.operatorTab(of: run, in: live.sessions) },
                               awake: { [workspace] run in
@@ -135,11 +135,11 @@ final class OperatorController {
                                   return state == .planning || state == .active || state == .complete
                               },
                               coalesce: ports.wakeCoalesce, sleep: ports.wakeSleep)
-        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, notifier: notifier, waker: waker)
+        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
-        reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, notifier: notifier, ports: ports)
+        reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, ports: ports)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             self?.observeRuns()
@@ -151,10 +151,9 @@ final class OperatorController {
             guard let operated = task.operated else { return }
             self?.waker.say("\(operated.key) is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)
         }
-        starter.onBlocked = { [weak self] task, reason in
-            guard let self, let run = task.operated.flatMap({ self.run(id: $0.runId) }) else { return }
-            notifier.taskBlocked(task, reason: reason, in: run)
-            runChanged(run.id)
+        starter.onBlocked = { [weak self] task, _ in
+            guard let self, let runId = task.operated?.runId else { return }
+            runChanged(runId)
         }
         finisher.changed = { [weak self] id in self?.publicationChanged(id) }
         finisher.mergedOnHost = { [weak self] id, why in self?.askAboutMergeOnHost(id, why) }
@@ -178,7 +177,14 @@ final class OperatorController {
         for run in now.0 where run.state != .paused && before.first(where: { $0.id == run.id })?.state == .paused {
             waker.operatorSessionChanged(run.id)
         }
+        // What needs you follows the state: posted and withdrawn whatever changed it.
+        for run in now.0 { notifier.requestsChanged(run: run) }
         changed()
+    }
+
+    /// Posts what the run now asks of you and withdraws what is answered or over (`OperatorNotifier`).
+    func notifyRequests(of id: UUID) {
+        if let run = run(id: id) { notifier.requestsChanged(run: run) }
     }
 
     func changed() { for hook in changeHooks { hook() } }
@@ -293,6 +299,7 @@ final class OperatorController {
     /// watched again once it runs — your Resume, or its operator back from offline.
     func runChanged(_ id: UUID) {
         settle(id)
+        notifyRequests(of: id)
         finisher.resumeWatching(inRun: id)
         startReadyTasks()
     }
@@ -303,7 +310,6 @@ final class OperatorController {
         guard let run = run(id: id), run.state == .active, RunScheduler.isComplete(run, in: workspace.state) else { return }
         mutateRun(id) { $0.state = .complete }
         waker.say("operation complete", to: id)
-        if let complete = self.run(id: id) { notifier.runComplete(complete) }
     }
 
     // -- starting ---------------------------------------------------------------------------
@@ -564,8 +570,6 @@ final class OperatorController {
             state.updateRun(id: run.id) { $0.questions.append(question) }
             state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
         }
-        let updated = self.run(id: run.id) ?? run
-        notifier.questionAsked(question, in: updated, otherWorkCanProceed: workspace.state.otherWorkCanProceed(in: updated))
     }
 
     func stop() {
@@ -632,7 +636,6 @@ final class OperatorController {
                 state.updateRun(id: run.id) { $0.questions.append(question) }
                 state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
             }
-            if let current = self.run(id: run.id) { notifier.workerPrompt(kind, task: task, in: current) }
         }
     }
 

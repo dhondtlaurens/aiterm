@@ -117,7 +117,7 @@ import Testing
         #expect(world.run(run.id)?.state == .operatorOffline, "offline, nothing settles")
         try await world.controller.resume(run: run.id)
         #expect(world.run(run.id)?.state == .complete)
-        #expect(world.notifications.posted.contains { $0.id == "done-\(run.id.uuidString)" && $0.target == .overview(run.id) })
+        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) })
         world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
         try await world.daemon.received("session.deliver")
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
@@ -459,7 +459,7 @@ import Testing
         try world.controller.stop(task: task.id)
         #expect(world.run(run.id)?.state == .complete)
         #expect(world.run(run.id)?.questions.first?.resolution != nil, "a question about a stopped task has nothing left to ask")
-        #expect(world.notifications.posted.contains { $0.id == "done-\(run.id.uuidString)" && $0.target == .overview(run.id) }, "you are told it is done")
+        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) }, "you are told it is done")
         // Its operator is woken; the waker may count the completion among several updates, so only that a line went is pinned.
         try await world.daemon.received("session.deliver")
     }
