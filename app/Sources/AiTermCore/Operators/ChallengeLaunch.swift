@@ -47,16 +47,28 @@ public enum ChallengeLaunch {
         """
     }
 
-    /// The Oracle's answer to `vetoPrompt`: true for yes, false for no, nil when its first line says neither,
-    /// which the caller counts as no.
-    public static func verdict(_ answer: String) -> Bool? {
-        guard let line = answer.split(whereSeparator: \.isNewline).first(where: { !$0.allSatisfy(\.isWhitespace) }) else { return nil }
-        let word = line.split(whereSeparator: { !$0.isLetter }).first.map { $0.uppercased() }
-        switch word {
-        case "YES": return true
-        case "NO": return false
+    /// The Oracle's yes or no on an addition, and the reason it gave after the word, if any.
+    public struct Verdict: Equatable, Sendable {
+        public var approved: Bool, reason: String?
+        public init(approved: Bool, reason: String?) { self.approved = approved; self.reason = reason }
+    }
+
+    /// The Oracle's answer to `vetoPrompt`: its first word YES or NO, then the rest of the answer as the
+    /// reason, on one line. Nil when the first word is neither, which the caller counts as no.
+    public static func verdict(_ answer: String) -> Verdict? {
+        let lines = answer.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let line = lines.first, let start = line.firstIndex(where: \.isLetter) else { return nil }
+        let wordEnd = line[start...].firstIndex(where: { !$0.isLetter }) ?? line.endIndex
+        let approved: Bool
+        switch line[start..<wordEnd].uppercased() {
+        case "YES": approved = true
+        case "NO": approved = false
         default: return nil
         }
+        // What follows the word, past the punctuation and markup around it (`**Yes.** In scope.`).
+        let rest = line[wordEnd...].drop { !$0.isLetter && !$0.isNumber }
+        let reason = ([String(rest)] + lines.dropFirst()).filter { !$0.isEmpty }.joined(separator: " ")
+        return Verdict(approved: approved, reason: reason.isEmpty ? nil : reason)
     }
 
     public static func invocation(_ opinion: OracleSetting, prompt: String, runFolder: String, projects: [String],

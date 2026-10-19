@@ -308,6 +308,10 @@ public struct OffBriefFind: Codable, Equatable, Sendable {
 /// but not yet read, read by the operator, unavailable — the act then proceeds unchallenged — or acted on.
 public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case running, ready, delivered, unchallenged, acted }
 
+/// What the Oracle gives a challenged call: a critique the Operator answers or acts on (spec §8), or a
+/// veto on a backlog addition past the threshold (spec §4.1), which only a yes lets act.
+public enum ChallengeKind: String, Codable, Sendable { case critique, veto }
+
 /// One challenged tool call, kept in its run (spec §4.4, §11): the call it challenged, what the
 /// second opinion said, and — once a call with its id acted — that call and its answer. A repeat of
 /// the acting call (its reply lost, AiTerm restarted) returns the recorded answer and acts no
@@ -315,9 +319,15 @@ public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case runni
 public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var tool: String
+    /// A critique, or a veto; a record saved before vetoes is a critique.
+    public var kind: ChallengeKind
     public var stage: ChallengeStage
-    /// The second opinion's critique, once it gave one.
+    /// The second opinion's critique, once it gave one; for a veto, the Oracle's reason.
     public var critique: String?
+    /// A veto's answer once the Oracle gave one: true only for its yes.
+    public var approved: Bool?
+    /// The challenged call's arguments as canonical JSON, as `actedArguments`: a veto's yes acts only for these.
+    public var askedArguments: String?
     /// Why the act proceeded unchallenged: the second opinion missing, failed or too slow.
     public var unchallengedReason: String?
     /// The acting call's arguments as canonical JSON, `challengeId` and `challengeReply` left out:
@@ -327,11 +337,33 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var result: String?
     public var askedAt: Date
 
-    public init(id: String, tool: String, stage: ChallengeStage = .running, critique: String? = nil,
-                unchallengedReason: String? = nil, actedArguments: String? = nil, result: String? = nil, askedAt: Date) {
-        self.id = id; self.tool = tool; self.stage = stage; self.critique = critique
+    public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
+                approved: Bool? = nil, askedArguments: String? = nil, unchallengedReason: String? = nil, actedArguments: String? = nil,
+                result: String? = nil, askedAt: Date) {
+        self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
+        self.askedArguments = askedArguments
         self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
         self.askedAt = askedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, tool, kind, stage, critique, approved, askedArguments, unchallengedReason, actedArguments, result, askedAt
+    }
+
+    /// Synthesised but for `kind`, which a record saved before vetoes lacks: it reads as a critique.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        tool = try c.decode(String.self, forKey: .tool)
+        kind = try c.decodeIfPresent(ChallengeKind.self, forKey: .kind) ?? .critique
+        stage = try c.decode(ChallengeStage.self, forKey: .stage)
+        critique = try c.decodeIfPresent(String.self, forKey: .critique)
+        approved = try c.decodeIfPresent(Bool.self, forKey: .approved)
+        askedArguments = try c.decodeIfPresent(String.self, forKey: .askedArguments)
+        unchallengedReason = try c.decodeIfPresent(String.self, forKey: .unchallengedReason)
+        actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)
+        result = try c.decodeIfPresent(String.self, forKey: .result)
+        askedAt = try c.decode(Date.self, forKey: .askedAt)
     }
 }
 

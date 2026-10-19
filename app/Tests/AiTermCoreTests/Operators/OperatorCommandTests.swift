@@ -171,6 +171,11 @@ import Foundation
         #expect(off.contains("The Oracle is off, so the backlog cannot grow past that."))
         #expect(!off.contains("needs the Oracle's yes"))
         #expect(off.contains("report off-brief finds with `report_find`"))
+        for brief in [on, off] {
+            #expect(brief.contains("An addition past the limit that is refused is noted for the debrief by AiTerm; you need not report it."))
+        }
+        #expect(on.contains("Such an addition may answer pending: call create_task again with its challengeId."))
+        #expect(!off.contains("may answer pending"))
     }
 
     /// Spec §15: the person's words win; otherwise defaults, the allowed models, and the weekly limit.

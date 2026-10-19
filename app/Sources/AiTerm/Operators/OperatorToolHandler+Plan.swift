@@ -8,9 +8,9 @@ extension OperatorToolHandler {
     /// list are read off the main actor, and the Oracle may be asked about an addition past the backlog's
     /// threshold. Meanwhile another call may have made this key or taken a branch, or you may have paused or
     /// ended the operation. Everything after the last read runs without another suspension, so what it
-    /// checked is what it changes, and two calls never pick one branch or make one key twice. `vetted` is
-    /// a call the Oracle said yes to, read again from the top.
-    func createTask(_ call: ToolCall, in run: OperatorRun, vetted: Bool = false) async throws -> JSONValue {
+    /// checked is what it changes, and two calls never pick one branch or make one key twice. An addition past
+    /// the backlog's threshold comes here only with the Oracle's yes (the challenge gate's veto, `vettedCalls`).
+    func createTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try call.string("key")
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         try acceptsPlanChanges(run)
@@ -27,12 +27,14 @@ extension OperatorToolHandler {
         if current.intent == .paused { throw ToolRefusal("The person paused this operation. Wait until they resume it.") }
         let draft = try self.draft(call, in: current, catalogue: catalogue)
         // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
-        switch vetted ? .free : backlogVerdict(current) {
+        switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {
         case .free: break
-        case .refused: throw ToolRefusal("Past the backlog limit with the Oracle off: report it with report_find.")
+        case .refused:
+            noteFind(call, in: current, why: "Past the backlog limit with the Oracle off.")
+            throw ToolRefusal("Past the backlog limit with the Oracle off. AiTerm noted it for the debrief.")
         case .needsOracle:
-            guard await oracleApproves(call, in: current) else { throw ToolRefusal("The Oracle judged this off-brief: report it with report_find.") }
-            return try await createTask(call, in: state.run(id: run.id) ?? current, vetted: true)
+            // Another addition took the last free place while git was read: this one needs the Oracle's check now.
+            throw ToolRefusal("The backlog reached its limit while AiTerm read this: call create_task again for the Oracle’s check.")
         }
         let ticket = draft.ticket, title = draft.title, brief = draft.brief
         let branch = OperatedBranch.name(ticket: ticket, title: title,
@@ -54,10 +56,27 @@ extension OperatorToolHandler {
 
     /// Where an addition stands against the backlog's budget: free while the first plan is open, then
     /// `BacklogBudget`'s word on the tasks added since. The first plan is revision 1, the first submitted.
-    private func backlogVerdict(_ run: OperatorRun) -> BacklogBudget.Verdict {
+    func backlogVerdict(_ run: OperatorRun) -> BacklogBudget.Verdict {
         guard let first = run.firstPlanSize else { return .free }
         let additions = state.tasks(inRun: run.id).filter { ($0.operated?.firstRevision ?? 1) > 1 }.count
         return BacklogBudget.verdict(firstPlanSize: first, additionsSoFar: additions, oracleIsOn: run.profile.oracle.isOn)
+    }
+
+    /// An addition past the backlog's limit, refused: AiTerm notes it for the debrief (spec §4.2), once per key,
+    /// as `report_find` would.
+    func noteFind(_ call: ToolCall, in run: OperatorRun, why: String) {
+        guard let key = call.optionalString("key"), state.run(id: run.id)?.finds.contains(where: { $0.key == key }) == false else { return }
+        let find = OffBriefFind(key: key, title: call.optionalString("title") ?? key, why: why)
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.finds.append(find) } }
+    }
+
+    /// What the veto's call would be refused for, checked before the Oracle is asked: the plan open to
+    /// changes, the agent, its model in the agent's list, the project, the end and the dependencies.
+    func vetoPrecheck(_ call: ToolCall, in run: OperatorRun) async throws {
+        try acceptsPlanChanges(run)
+        let agent = try self.agent(call), models = agentModels
+        let catalogue = await BackgroundWork.run { models(agent) }
+        _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue)
     }
 
     /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.

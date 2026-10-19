@@ -9,16 +9,24 @@ import AiTermCore
 /// that first returns it still does not act. Each challenge is a `ChallengeRecord` in its run, saved
 /// with the workspace, so a lost reply or a restart neither loses it nor makes it act twice.
 extension OperatorToolHandler {
-    /// With the Oracle on, a plan and a verdict on a task are critiqued (spec §8); with it off, nothing is. A
-    /// message to a worker never is, and a backlog addition past the threshold gets the Oracle's veto instead
-    /// (`oracleApproves`), not a critique.
-    static func isChallenged(_ call: ToolCall, oracleIsOn: Bool) -> Bool {
+    /// With the Oracle on, a plan and a verdict on a task are critiqued (spec §8), and a backlog addition past
+    /// the threshold (`backlog` is `.needsOracle`) gets its veto (spec §4.1); with it off, nothing is. A message
+    /// to a worker never is.
+    static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, backlog: BacklogBudget.Verdict = .free) -> Bool {
         guard oracleIsOn else { return false }
         switch call.tool {
         case "submit_plan": return true
         case "mark_task": return ["accepted", "blocked", "failed"].contains(call.optionalString("outcome") ?? "")
+        case "create_task": return backlog == .needsOracle
         default: return false
         }
+    }
+
+    /// Where a `create_task` stands against the backlog now: free for any other tool, or for a key already made.
+    private func backlog(of call: ToolCall, in run: OperatorRun) -> BacklogBudget.Verdict {
+        guard call.tool == "create_task", let key = call.optionalString("key"),
+              !state.tasks(inRun: run.id).contains(where: { $0.operated?.key == key }) else { return .free }
+        return backlogVerdict(run)
     }
 
     /// Nil: the call takes effect. Otherwise what the operator reads instead.
@@ -29,7 +37,7 @@ extension OperatorToolHandler {
         let named = call.optionalString("challengeId").flatMap { id in
             state.run(id: run.id)?.challenges.first { $0.id == id && $0.tool == call.tool }
         }
-        if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn) { return nil }
+        if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, backlog: backlog(of: call, in: run)) { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
                 throw ToolRefusal("No challenge \(id) for \(call.tool) here; call again without challengeId.")
@@ -37,15 +45,19 @@ extension OperatorToolHandler {
             guard !actingChallenges.contains(id) else {
                 throw ToolRefusal("Challenge \(id) is already acting on \(call.tool); call again for its result.")
             }
-            let reply = call.optionalString("challengeReply")
-            switch kept.stage {
-            case .acted:
+            if kept.stage == .acted {
                 // The acting call again — its reply lost, or AiTerm restarted since: what it answered, and nothing more.
                 guard kept.actedArguments == Self.invocation(call), let result = kept.result,
                       let answer = try? JSONDecoder().decode(JSONValue.self, from: Data(result.utf8)) else {
                     throw ToolRefusal("Challenge \(id) has already acted on \(call.tool). Call again without challengeId for another change.")
                 }
                 return answer
+            }
+            if kept.kind == .veto { return try vetoAnswer(call, kept, in: run) }
+            let reply = call.optionalString("challengeReply")
+            switch kept.stage {
+            case .acted:
+                return nil
             case .running where runningChallenges[id] != nil:
                 return Self.pendingAnswer(id)
             case .running:
@@ -69,13 +81,22 @@ extension OperatorToolHandler {
                 return nil
             }
         }
+        let kind: ChallengeKind = call.tool == "create_task" ? .veto : .critique
+        let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
+        let prompt: String
+        if kind == .veto {
+            // A call that would be refused anyway costs no Oracle run.
+            try await vetoPrecheck(call, in: run)
+            prompt = ChallengeLaunch.vetoPrompt(addition: Self.invocation(call), run: status)
+        } else {
+            prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments), status: status,
+                                            instructions: run.profile.instructions)
+        }
         let id = UUID().uuidString
-        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(ChallengeRecord(id: id, tool: call.tool, askedAt: ports.now())) } }
+        let asked = ChallengeRecord(id: id, tool: call.tool, kind: kind, askedArguments: Self.invocation(call), askedAt: ports.now())
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(asked) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
-        let prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments),
-                                            status: Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null),
-                                            instructions: run.profile.instructions)
         // The runner turns every thrown error, a cancellation included, into `.unchallenged`; a challenge
         // cancelled (AiTerm quitting) is not an answer, so it settles as nil, and its record stays `.running`.
         let challenge = Task { () -> SecondOpinionRunner.Verdict? in
@@ -90,6 +111,9 @@ extension OperatorToolHandler {
             guard let verdict, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
             updateChallenge(id, in: run.id) { kept in
                 switch verdict {
+                case .critique(let critique) where kind == .veto:
+                    let veto = Self.veto(critique)
+                    kept.stage = .ready; kept.approved = veto.approved; kept.critique = veto.reason
                 case .critique(let critique): kept.stage = .ready; kept.critique = critique
                 case .unchallenged(let reason): kept.stage = .unchallenged; kept.unchallengedReason = reason
                 }
@@ -97,7 +121,22 @@ extension OperatorToolHandler {
         }
         runningChallenges[id] = settled
         lastChallenge = settled
-        switch await Self.first(challenge, within: ports.challengeReplyBudget) {
+        let answered = await Self.first(challenge, within: ports.challengeReplyBudget)
+        if kind == .veto {
+            // Within the budget the answer is this call's, and the record goes: its id was never named to the operator.
+            guard case .some(.some(let verdict)) = answered else { return Self.vetoPendingAnswer(id) }
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.removeAll { $0.id == id } } }
+            switch verdict {
+            case .critique(let text):
+                let veto = Self.veto(text)
+                guard veto.approved else { try refuseVetoed(call, in: run, why: veto.reason) }
+                vettedCalls.insert(Self.invocation(call))
+                return nil
+            case .unchallenged:
+                try refuseUnanswered(call, in: run)
+            }
+        }
+        switch answered {
         case nil, .some(nil):
             // Out of budget, or cancelled with AiTerm quitting: its record stays running, and the next call
             // with the id reads it as lost with the restart.
@@ -113,21 +152,50 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The Oracle's veto on a backlog addition past the threshold (spec §4.1, §8): its runner asked a yes or
-    /// no, waited for within the reply budget. Only a plain yes passes; a no, an answer that is neither, a
-    /// runner that can't run or one too slow are all no. Nothing is recorded: the caller refuses or adds.
-    func oracleApproves(_ call: ToolCall, in run: OperatorRun) async -> Bool {
-        let runner = ports.secondOpinion, opinion = run.profile.oracle, folder = OperatorCommand.runFolder(run.id, home: ports.home)
-        let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
-        let prompt = ChallengeLaunch.vetoPrompt(addition: Self.invocation(call),
-                                                run: Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null))
-        let veto = Task { await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects) }
-        guard let verdict = await Self.first(veto, within: ports.challengeReplyBudget) else {
-            veto.cancel()
-            return false
+    /// A veto's call again with its id (spec §4.1). Unlike a critique, only the Oracle's yes acts, with no reply
+    /// needed and only for the call it was asked about; a no, a failure, a timeout, or a veto lost with AiTerm's
+    /// restart refuses, and AiTerm notes the addition for the debrief.
+    private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) throws -> JSONValue? {
+        let id = kept.id
+        switch kept.stage {
+        case .running where runningChallenges[id] != nil:
+            return Self.vetoPendingAnswer(id)
+        case .running:
+            updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
+            try refuseUnanswered(call, in: run)
+        case .unchallenged:
+            try refuseUnanswered(call, in: run)
+        case .ready, .delivered, .acted:
+            guard kept.approved == true else { try refuseVetoed(call, in: run, why: kept.critique) }
+            guard kept.askedArguments == Self.invocation(call) else {
+                throw ToolRefusal("Challenge \(id) is the Oracle's yes to another create_task. Call again without challengeId.")
+            }
+            updateChallenge(id, in: run.id) { $0.stage = .delivered }
+            actingChallenges.insert(id)
+            vettedCalls.insert(Self.invocation(call))
+            return nil
         }
-        guard case .critique(let answer) = verdict else { return false }
-        return ChallengeLaunch.verdict(answer) == true
+    }
+
+    /// The Oracle's answer to a veto as AiTerm keeps it: an answer that is neither yes nor no is a no.
+    private static func veto(_ answer: String) -> (approved: Bool, reason: String?) {
+        guard let verdict = ChallengeLaunch.verdict(answer) else { return (false, "The Oracle gave no clear yes.") }
+        return (verdict.approved, verdict.reason)
+    }
+
+    private func refuseVetoed(_ call: ToolCall, in run: OperatorRun, why: String?) throws -> Never {
+        noteFind(call, in: run, why: why ?? "The Oracle judged it off-brief.")
+        throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the debrief.")
+    }
+
+    private func refuseUnanswered(_ call: ToolCall, in run: OperatorRun) throws -> Never {
+        noteFind(call, in: run, why: "The Oracle didn’t answer in time.")
+        throw ToolRefusal("The Oracle didn’t answer in time. AiTerm noted it for the debrief.")
+    }
+
+    private static func vetoPendingAnswer(_ id: String) -> JSONValue {
+        ["challenged": true, "challengeId": .string(id), "pending": true,
+         "note": "Nothing was added yet. The Oracle is still judging this addition: call create_task again with this challengeId in a little while."]
     }
 
     /// The acting call's answer, kept with its challenge and saved before the reply goes: a reply lost

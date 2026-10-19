@@ -55,6 +55,8 @@ final class OperatorToolHandler {
     var runningChallenges: [String: Task<Void, Never>] = [:]
     /// The challenges whose acting call is performing now: a second call for one is refused, not performed too.
     var actingChallenges: Set<String> = []
+    /// The `create_task` invocations the Oracle said yes to, while the call performs: past the backlog's threshold they add.
+    var vettedCalls: Set<String> = []
     struct MessageKey: Hashable { let task: UUID; let text: String }
     var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
     var sendingMessages: Set<MessageKey> = []
@@ -116,6 +118,9 @@ final class OperatorToolHandler {
         do {
             if let recorded = try replayedMessage(call, in: run) { return .result(recorded) }
             if let instead = try await challengeGate(call, in: run) { return .result(instead) }
+            // The gate's yes to an addition holds for this call only.
+            let invocation = Self.invocation(call)
+            defer { vettedCalls.remove(invocation) }
             // The gate marks a challenge it lets act; whatever way this call ends, the mark goes with it.
             let acting = call.optionalString("challengeId").flatMap { actingChallenges.contains($0) ? $0 : nil }
             defer { if let acting { actingChallenges.remove(acting) } }

@@ -149,17 +149,18 @@ _DEPENDS_ON: dict[str, Any] = {
 }
 _CHALLENGE = {
     "challengeId": _text("The challengeId a challenged call returned: send it with your revised arguments, or with "
-                         "challengeReply. A reply that says pending has no critique yet: call again with its challengeId "
-                         "and the same arguments. The same challengeId again, once answered, returns the recorded result."),
+                         "challengeReply. A reply that says pending has no answer yet: call again with its challengeId "
+                         "and the same arguments. For create_task, the call again acts only on the Oracle's yes. The same "
+                         "challengeId again, once answered, returns the recorded result."),
     "challengeReply": _text("Your answer to each point of the second opinion's critique, when you keep the act as it was."),
 }
 # The tools the Oracle can challenge (spec §8): the first call returns a critique, and only the call
 # that answers it, with its challengeId, takes effect. An Oracle not back within the app's 20 s answers
 # {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the operator calls
 # again with that challengeId (integration decision 3). Whether a call is challenged follows the
-# broadcast's Oracle switch, and is the app's to decide. A backlog addition past the threshold gets the
-# Oracle's yes or no inside create_task, with no challengeId.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task")
+# broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold gets
+# the Oracle's yes or no the same way: it may answer pending, and only a yes acts.
+CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -185,7 +186,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the operation's projects. The same key "
           "in this operation returns the task already made. Once the first plan is submitted, additions past a quarter of its "
-          "size need the Oracle's yes, or are refused with the Oracle off: report a refused one with report_find.",
+          "size need the Oracle's yes, which may answer pending: call again with its challengeId. One the Oracle refuses, "
+          "or any past that limit with the Oracle off, is refused and noted for the debrief by AiTerm.",
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
            "project": _text("The project it belongs to, one of the operation's, by name or by id from run_status."),

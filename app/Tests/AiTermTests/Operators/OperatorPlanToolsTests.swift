@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -21,10 +22,12 @@ import Testing
     }
 
     func create(_ world: OperatorWorld, _ run: OperatorRun, _ key: String, project: String = "Shop", end: String = "commit",
-                dependsOn: JSONValue = []) async -> ToolAnswer {
-        await world.call(run.id, "create_task", ["key": .string(key), "title": .string("Fix \(key)"), "brief": .string("Fix \(key) and test it."),
-                                                 "project": .string(project), "ticket": .string(key), "agent": "codex", "model": "gpt-6-astra",
-                                                 "modelReason": "Codex reads the parser best.", "end": .string(end), "dependsOn": dependsOn])
+                dependsOn: JSONValue = [], challengeId: String? = nil) async -> ToolAnswer {
+        var arguments: [String: JSONValue] = ["key": .string(key), "title": .string("Fix \(key)"), "brief": .string("Fix \(key) and test it."),
+                                              "project": .string(project), "ticket": .string(key), "agent": "codex", "model": "gpt-6-astra",
+                                              "modelReason": "Codex reads the parser best.", "end": .string(end), "dependsOn": dependsOn]
+        if let challengeId { arguments["challengeId"] = .string(challengeId) }
+        return await world.call(run.id, "create_task", .object(arguments))
     }
 
     func operated(_ world: OperatorWorld, _ key: String) -> OperatedTask? {
@@ -107,35 +110,87 @@ import Testing
         return (world, run)
     }
 
+    func finds(_ world: OperatorWorld, _ run: OperatorRun) -> [OffBriefFind] { world.run(run.id)?.finds ?? [] }
+
+    /// A no within the reply budget refuses at once, and AiTerm notes the addition for the debrief with the Oracle's reason.
     @Test func anAdditionPastTheThresholdNeedsTheOraclesYes() async throws {
         let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("NO. A dark mode is not in the sprint."))
         #expect(await create(world, run, "FREE").value?["created"] == true, "a quarter of one, at least one, goes free")
-        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief: report it with report_find.")
+        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief. AiTerm noted it for the debrief.")
         #expect(world.state.tasks.count == 2 && operated(world, "PAST") == nil)
-        #expect(world.run(run.id)?.finds.isEmpty == true && world.run(run.id)?.decisions.isEmpty == true, "a veto appends nothing")
+        #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "A dark mode is not in the sprint.")])
+        #expect(world.run(run.id)?.challenges.isEmpty == true, "an answer within the budget keeps no record")
+        _ = await create(world, run, "PAST")
+        #expect(finds(world, run).count == 1, "noted once per key")
 
         let (yes, yesRun) = try makeBacklogWorld(oracle: true, runner: .answering("YES\nIt is part of PLUTO-231."))
         _ = await create(yes, yesRun, "FREE")
         #expect(await create(yes, yesRun, "PAST").value?["created"] == true)
-        #expect(operated(yes, "PAST")?.state == .planned)
+        #expect(operated(yes, "PAST")?.state == .planned && finds(yes, yesRun).isEmpty)
     }
 
-    @Test func anOracleTimeoutPastTheThresholdRefuses() async throws {
-        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("YES", after: .seconds(5)), budget: .milliseconds(20))
+    /// The veto is not held to the reply budget: it answers pending, and the call again with its id acts on a yes.
+    @Test func aPendingVetoThenAYesAppends() async throws {
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("YES", after: .milliseconds(300)), budget: .milliseconds(20))
         _ = await create(world, run, "FREE")
-        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief: report it with report_find.")
-        #expect(world.state.tasks.count == 2)
+        let first = await create(world, run, "PAST")
+        #expect(first.value?["pending"] == true && operated(world, "PAST") == nil)
+        let id = try #require(first.value?["challengeId"]?.stringValue)
+        await world.controller.tools.lastChallenge?.value
+        let acted = await create(world, run, "PAST", challengeId: id)
+        #expect(acted.value?["created"] == true && operated(world, "PAST")?.state == .planned)
+        #expect(await create(world, run, "PAST", challengeId: id) == acted, "the acting call again replays")
+        #expect(world.state.tasks.count == 3 && finds(world, run).isEmpty)
+    }
+
+    @Test func aPendingVetoThenANoRefuses() async throws {
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("NO\nNot in the brief.", after: .milliseconds(300)),
+                                                budget: .milliseconds(20))
+        _ = await create(world, run, "FREE")
+        let id = try #require(await create(world, run, "PAST").value?["challengeId"]?.stringValue)
+        #expect(await create(world, run, "PAST", challengeId: id).value?["pending"] == true, "still judging")
+        await world.controller.tools.lastChallenge?.value
+        #expect(await create(world, run, "PAST", challengeId: id).message == "The Oracle judged this off-brief. AiTerm noted it for the debrief.")
+        #expect(operated(world, "PAST") == nil && finds(world, run).map(\.why) == ["Not in the brief."])
+    }
+
+    /// The veto may take the Oracle's whole limit, `challengeTimeout`; past it, it is no answer, which is no.
+    @Test func anOracleTimeoutPastTheThresholdRefuses() async throws {
+        let asked = Mutex<Duration?>(nil)
+        let timingOut = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, timeout in
+            asked.withLock { $0 = timeout }
+            return ProcessOutput(status: 0, stdout: "", stderr: "", timedOut: true)
+        })
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: timingOut)
+        _ = await create(world, run, "FREE")
+        #expect(await create(world, run, "PAST").message == "The Oracle didn’t answer in time. AiTerm noted it for the debrief.")
+        #expect(asked.withLock { $0 } == .seconds(OperatorTiming.challengeTimeout))
+        #expect(world.state.tasks.count == 2 && finds(world, run).map(\.why) == ["The Oracle didn’t answer in time."])
         let (silent, silentRun) = try makeBacklogWorld(oracle: true, runner: .unavailable)
         _ = await create(silent, silentRun, "FREE")
-        #expect(await create(silent, silentRun, "PAST").message == "The Oracle judged this off-brief: report it with report_find.",
+        #expect(await create(silent, silentRun, "PAST").message == "The Oracle didn’t answer in time. AiTerm noted it for the debrief.",
                 "an Oracle that cannot run is no yes")
+    }
+
+    /// A veto still running when AiTerm quit never acts after the restart.
+    @Test func aVetoLostWithARestartRefuses() async throws {
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("YES", after: .seconds(30)), budget: .milliseconds(20))
+        defer { world.controller.tools.cancelChallenges() }
+        _ = await create(world, run, "FREE")
+        let id = try #require(await create(world, run, "PAST").value?["challengeId"]?.stringValue)
+        #expect(world.workspace.flush())
+        let restarted = try OperatorWorld(try world.workspace.file.load())
+        restarted.link.attached = false
+        #expect(await create(restarted, run, "PAST", challengeId: id).message == "The Oracle didn’t answer in time. AiTerm noted it for the debrief.")
+        #expect(restarted.state.tasks.count == 2 && finds(restarted, run).map(\.key) == ["PAST"])
     }
 
     @Test func withTheOracleOffAnAdditionPastTheThresholdIsRefused() async throws {
         let (world, run) = try makeBacklogWorld(oracle: false)
         #expect(await create(world, run, "FREE").value?["created"] == true)
-        #expect(await create(world, run, "PAST").message == "Past the backlog limit with the Oracle off: report it with report_find.")
+        #expect(await create(world, run, "PAST").message == "Past the backlog limit with the Oracle off. AiTerm noted it for the debrief.")
         #expect(world.state.tasks.count == 2)
+        #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "Past the backlog limit with the Oracle off.")])
         #expect(await create(world, run, "FREE").value?["created"] == false, "a repeat of a key is no addition")
     }
 

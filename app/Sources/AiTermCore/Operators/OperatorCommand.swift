@@ -196,7 +196,9 @@ public enum OperatorCommand {
     static func backlogRule(oracleIsOn: Bool) -> String {
         "You may add tasks to the backlog without asking. A quarter of the first plan's size, and at least one, goes in on your word. "
             + (oracleIsOn ? "Past that, each addition needs the Oracle's yes. "
+                            + "Such an addition may answer pending: call create_task again with its challengeId. "
                           : "The Oracle is off, so the backlog cannot grow past that. ")
+            + "An addition past the limit that is refused is noted for the debrief by AiTerm; you need not report it. "
             + "Add only what serves the brief. Anything outside the brief that you or an agent finds, such as a leak in another "
             + "module, is not worked on: report off-brief finds with `report_find`, and it goes into the debrief."
     }

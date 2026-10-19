@@ -51,9 +51,12 @@ import Testing
         #expect(prompt.contains("The addition: create_task with\n{\"key\":\"DARK\"}"))
         #expect(prompt.contains("Answer YES or NO alone on the first line") && prompt.contains("Fix PLUTO-231."))
         #expect(!prompt.contains("—"))
-        #expect(ChallengeLaunch.verdict("YES\nIt is part of PLUTO-231.") == true)
-        #expect(ChallengeLaunch.verdict("\n**Yes.** In scope.") == true)
-        #expect(ChallengeLaunch.verdict("NO. A dark mode is not in the sprint.") == false)
+        typealias V = ChallengeLaunch.Verdict
+        #expect(ChallengeLaunch.verdict("YES\nIt is part of PLUTO-231.") == V(approved: true, reason: "It is part of PLUTO-231."))
+        #expect(ChallengeLaunch.verdict("\n**Yes.** In scope.") == V(approved: true, reason: "In scope."))
+        #expect(ChallengeLaunch.verdict("NO. A dark mode is not in the sprint.\nThe brief is the login.")
+                == V(approved: false, reason: "A dark mode is not in the sprint. The brief is the login."))
+        #expect(ChallengeLaunch.verdict("No") == V(approved: false, reason: nil))
         #expect(ChallengeLaunch.verdict("Probably, but") == nil && ChallengeLaunch.verdict("  \n ") == nil)
         #expect(ChallengeLaunch.verdict("Not really") == nil, "only the word itself counts")
     }

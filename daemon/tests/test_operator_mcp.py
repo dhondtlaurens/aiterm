@@ -158,7 +158,7 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
 
 
 def test_only_the_challenged_tools_take_a_challenge_reply():
-    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task"}
+    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task"}
     for tool in TOOLS:
         properties = tool["inputSchema"]["properties"]
         assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)
@@ -196,6 +196,11 @@ def test_create_task_end_is_optional():
     create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
     assert "end" in create["properties"] and "end" not in create["required"]
     assert "draftMR" in create["properties"]["end"]["description"]
+
+
+def test_create_task_says_a_refused_addition_is_noted_for_the_debrief():
+    description = next(tool for tool in TOOLS if tool["name"] == "create_task")["description"]
+    assert "pending" in description and "noted for the debrief" in description and "report_find" not in description
 
 
 def test_no_tool_text_carries_an_em_dash():
