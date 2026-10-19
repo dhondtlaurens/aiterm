@@ -389,4 +389,77 @@ import Testing
         #expect(events.isEmpty)
         #expect(world.controller.acting.isEmpty)
     }
+
+    // MARK: - Gate C: Jira writes wait while the operation does not run, and a lost answer makes no second ticket
+
+    /// The label `jira_create` gives the ticket for `key` in `run`.
+    static func label(_ run: OperatorRun, _ key: String) -> String { "aiterm-\(run.id.uuidString.prefix(8).lowercased())-\(key)" }
+
+    @Test(arguments: [(OperatorRunState.active, OperatorRunState?.some(.paused)), (.paused, .paused), (.operatorOffline, nil),
+                      (.planning, .paused)])
+    func jiraWritesWaitWhileTheOperationDoesNotRun(_ state: OperatorRunState, _ intent: OperatorRunState?) async throws {
+        let jira = FakeJira()
+        var run = jiraRun(slice: true)
+        run.state = state
+        run.intent = intent
+        let world = try makeWorld(run, jira: jira)
+        #expect(await world.call(run.id, "jira_create", ticket()).message != nil)
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"]).message != nil)
+        #expect(await world.call(run.id, "jira_link", ["key": "PLUTO-1", "to": "WEB-2", "type": "Blocks"]).message != nil)
+        let find = await world.call(run.id, "report_find", ["key": "f", "title": "Flaky test", "why": "It fails on CI."])
+        #expect(find.value?["recorded"] == true && find.value?["ticket"] == nil, "the find is kept, not filed")
+        #expect(jira.writes.isEmpty)
+    }
+
+    /// Jira reads the ticket's status and its transitions before it moves it: a Pause meanwhile moves nothing.
+    @Test func aPauseWhileJiraIsReadMovesNothing() async throws {
+        let jira = FakeJira()
+        var run = jiraRun(slice: true)
+        run.state = .active
+        let world = try makeWorld(run, jira: jira)
+        jira.beforeTransition.withLock { $0 = { @MainActor in world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .paused } } } }
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"]).message == "The person paused this operation. Wait until they resume it.")
+        #expect(jira.writes.isEmpty)
+    }
+
+    @Test func aCreatedTicketIsSavedBeforeItIsAnswered() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        #expect(await world.call(run.id, "jira_create", ticket()).value?["key"] == "PLUTO-101")
+        #expect(try world.workspace.file.load().run(id: run.id)?.jiraCreated == ["t1": "PLUTO-101"])
+        #expect(jira.labels["PLUTO-101"] == [Self.label(run, "t1")])
+    }
+
+    @Test func aCreateWhoseAnswerWasLostAdoptsTheTicketItMade() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        jira.loseNextCreateReply()
+        #expect(await world.call(run.id, "jira_create", ticket()).message != nil)
+        #expect(try world.workspace.file.load().run(id: run.id)?.pendingWrites == ["jira_create/t1"], "kept as sent, on disk")
+        let again = await world.call(run.id, "jira_create", ticket())
+        #expect(again.value?["key"] == "PLUTO-101")
+        #expect(jira.writes.count == 1, "the ticket made before is adopted, not made twice")
+        #expect(jira.searches.last?.jql.contains("\"\(Self.label(run, "t1"))\"") == true)
+        #expect(world.run(run.id)?.jiraCreated == ["t1": "PLUTO-101"] && world.run(run.id)?.pendingWrites.isEmpty == true)
+    }
+
+    /// A retry of a create that never reached Jira looks for it first, and makes it once nothing is found; read
+    /// fresh after that search, so a Pause meanwhile makes nothing.
+    @Test func aRetryLooksFirstAndAPauseDuringTheLookMakesNothing() async throws {
+        let jira = FakeJira()
+        var run = jiraRun(slice: true)
+        run.state = .active
+        let world = try makeWorld(run, jira: jira)
+        jira.failNextCreateOnTheWay()
+        #expect(await world.call(run.id, "jira_create", ticket()).message != nil)
+        jira.searchHold.withLock { $0 = { @MainActor in world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .paused } } } }
+        #expect(await world.call(run.id, "jira_create", ticket()).message == "The person paused this operation. Wait until they resume it.")
+        #expect(jira.writes.isEmpty)
+        jira.searchHold.withLock { $0 = nil }
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = nil } }
+        #expect(await world.call(run.id, "jira_create", ticket()).value?["created"] == true)
+        #expect(jira.writes.count == 1)
+    }
 }

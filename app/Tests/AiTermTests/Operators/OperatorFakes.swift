@@ -192,17 +192,41 @@ final class FakeJira: OperatorJira {
     func refuseWrites(_ detail: String) { failing.withLock { $0 = .refused(status: 400, detail: detail) } }
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket] {
         seen.withLock { $0.append((jql, projects.map(\.key))) }
+        if let hold = searchHold.withLock({ $0 }) { await hold() }
+        // A search for a label finds the tickets made with it, as Jira would.
+        let marked = labels.filter { _, labels in labels.contains { jql.contains("\"\($0)\"") } }.keys.sorted()
+        if !marked.isEmpty {
+            return marked.map { JiraTicket(key: $0, summary: "", description: nil, issueType: "Task", status: "To Do", url: "https://acme.atlassian.net/browse/\($0)") }
+        }
         return tickets
     }
-    func createIssue(project: String, type: String, summary: String, description: String, parent: String?) async throws -> String {
+    /// The labels each ticket made was given, by its key.
+    private let labelled = Mutex<[String: [String]]>([:])
+    var labels: [String: [String]] { labelled.withLock { $0 } }
+    /// The next create reaches Jira, then its answer is lost; or fails on the way, before Jira has it.
+    private let lose = Mutex<(reply: Bool, before: Bool)>((false, false))
+    func loseNextCreateReply() { lose.withLock { $0.reply = true } }
+    func failNextCreateOnTheWay() { lose.withLock { $0.before = true } }
+    /// Awaited inside a move, after Jira's reads and before the move: a test changes the operation with it.
+    let beforeTransition = Mutex<(@Sendable () async -> Void)?>(nil)
+    /// Awaited inside a search, after it is recorded: a test holds a search in flight with it.
+    let searchHold = Mutex<(@Sendable () async -> Void)?>(nil)
+    func createIssue(project: String, type: String, summary: String, description: String, parent: String?, labels: [String]) async throws -> String {
+        let fault = lose.withLock { l in defer { l = (false, false) }; return l }
+        if fault.before { throw URLError(.timedOut) }
         try record(.create(project: project, type: type, summary: summary, description: description, parent: parent))
-        return "\(project)-\(100 + writes.count)"
+        let key = "\(project)-\(100 + writes.count)"
+        labelled.withLock { $0[key] = labels }
+        if fault.reply { throw URLError(.networkConnectionLost) }
+        return key
     }
     /// The status each ticket is in already, by key; a ticket not named is in none the Operator names.
     private let statuses = Mutex<[String: String]>([:])
     func put(_ key: String, in status: String) { statuses.withLock { $0[key] = status } }
-    func transition(key: String, to statusName: String) async throws -> Bool {
+    func transition(key: String, to statusName: String, beforeWrite: @Sendable () async throws -> Void) async throws -> Bool {
         if statuses.withLock({ $0[key] }) == statusName { return false }
+        if let hook = beforeTransition.withLock({ $0 }) { await hook() }
+        try await beforeWrite()
         try record(.move(key: key, status: statusName))
         return true
     }

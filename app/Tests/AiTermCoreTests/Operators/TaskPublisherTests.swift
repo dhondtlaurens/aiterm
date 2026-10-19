@@ -105,7 +105,8 @@ import Synchronization
         var s = try setUp(end: .draftMR)
         let host = FakeMergeHost(), records = Records()
         let outcome = try await advance(&s, host: host, records: records)
-        let expected = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main")
+        let expected = TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main",
+                                       repository: FakeMergeHost.repository)
         #expect(outcome == .published(expected))
         #expect(records.list == [TaskPublication(pushedSHA: s.sha), expected])
         #expect(host.log == ["protection feat/pluto-231", "existing feat/pluto-231", "create feat/pluto-231 → main draft"])
@@ -130,7 +131,8 @@ import Synchronization
         #expect(records.list == [TaskPublication(pushedSHA: s.sha)], "the push is on record")
         host.update { $0.createFails = false }
         let outcome = try await advance(&s, host: host)
-        #expect(outcome == .published(TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main")))
+        #expect(outcome == .published(TaskPublication(pushedSHA: s.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12, targetBranch: "main",
+                                                      repository: FakeMergeHost.repository)))
     }
 
     @Test func aLostReplyAfterOpeningFindsTheRequestInsteadOfOpeningASecond() async throws {
@@ -571,7 +573,7 @@ import Synchronization
         let childSHA = try git.run(["rev-parse", "HEAD"], in: s.path)
         try Repository(s.path, git: git).push(s.sha, as: "feat/pluto-230", defaultBranch: "main")
         let parent = s.task, parentSHA = s.sha, run = s.run
-        s.world.update(parent) { $0.publication = TaskPublication(pushedSHA: parentSHA, mergeRequestURL: "https://git.example.net/web/acme-web/-/merge_requests/11", mergeRequestNumber: 11, targetBranch: "main") }
+        s.world.update(parent) { $0.publication = TaskPublication(pushedSHA: parentSHA, mergeRequestURL: "https://git.example.net/web/acme-web/-/merge_requests/11", mergeRequestNumber: 11, targetBranch: "main", repository: FakeMergeHost.repository) }
         let child = s.world.addTask("PLUTO-231", run: run, state: .accepted, end: childEnd,
                                     dependsOn: [TaskDependency(task: parent, kind: .code)], branch: "feat/pluto-231", acceptedSHA: childSHA)
         return (Setup(world: s.world, task: child, run: s.run, sha: childSHA, origin: s.origin, path: s.path), parent)
@@ -850,5 +852,48 @@ import Synchronization
         guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
         #expect(why == "The request's branch is at \(moved.prefix(7)) on the host, not the accepted \(s.sha.prefix(7)).")
         #expect(!host.log.contains("ready 12"))
+    }
+
+    // MARK: - Gate C: the floor decides only on every thread, in the repository the request was opened in
+
+    @Test func threadsThatCannotAllBeReadBlockTheMerge() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.ready(head: s.sha)]; $0.reviewError = IncompleteRead("review threads") }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        clock.pass(OperatorTiming.mergePoll)
+        let blocked = try await advance(&s, host: host, restart: false, now: { clock.now })
+        #expect(blocked == .blocked(s.world.operated(s.task)!.publication!, "AiTerm couldn’t read every review thread on !12."))
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    @Test func aDraftWhoseThreadsCannotAllBeReadIsNotMarkedReady() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost()
+        _ = try await advance(&s, host: host, forReview: true)
+        host.update { $0.readiness = [.blocked("it is a draft")]; $0.reviewError = URLError(.timedOut) }
+        let outcome = try await advance(&s, host: host, restart: false)
+        guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "AiTerm couldn’t read every review thread on !12.")
+        #expect(!host.log.contains("ready 12"))
+    }
+
+    @Test func aRequestIsActedOnOnlyInTheRepositoryItWasOpenedIn() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        _ = try await advance(&s, host: host, now: { clock.now })
+        #expect(s.world.operated(s.task)?.publication?.repository == FakeMergeHost.repository, "kept when the request was opened")
+        // The project's origin now resolves to another repository, which has a !12 of its own.
+        let theirs = MergeRequest(iid: 12, title: "t", sourceBranch: "feat/pluto-231", targetBranch: "main", author: nil, state: "opened",
+                                  draft: false, url: FakeMergeHost.url)
+        let elsewhere = FakeMergeHost(.init(existing: theirs, readiness: [.ready(head: s.sha)], repository: "github.com/acme/elsewhere"))
+        clock.pass(OperatorTiming.mergePoll)
+        let moved = try await advance(&s, host: elsewhere, restart: false, now: { clock.now })
+        #expect(moved == .refused("The project’s origin changed since !12 was opened, so AiTerm won’t act on it."))
+        #expect(elsewhere.log.isEmpty, "the other repository is neither read nor written")
+        // A request opened before AiTerm kept its repository is not acted on either.
+        s.world.update(s.task) { $0.publication?.repository = nil }
+        let old = try await advance(&s, host: host, restart: false, now: { clock.now })
+        #expect(old == .refused("AiTerm didn’t keep which repository !12 was opened in, so it won’t act on it."))
     }
 }

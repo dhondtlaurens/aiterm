@@ -32,6 +32,12 @@ final class FakeMergeHost: MergeRequestPublishing {
         var reviewError: (any Error)?
         /// The username the token acts as.
         var me = "aiterm"
+        /// The repository the host is bound to: the project's origin as it resolves now.
+        var repository = FakeMergeHost.repository
+        /// Awaited after a Review slice call is logged, with its line: a test holds a call in flight with it.
+        var onCall: (@Sendable (String) async -> Void)?
+        /// The next reply reaches the host, then its answer is lost.
+        var loseReply = false
     }
 
     private let script: Mutex<Script>
@@ -43,6 +49,9 @@ final class FakeMergeHost: MergeRequestPublishing {
     func update(_ change: (inout Script) -> Void) { script.withLock { change(&$0) } }
 
     static let url = "https://git.example.net/web/acme-web/-/merge_requests/12"
+    static let repository = "git.example.net/web/acme-web"
+
+    var repository: String { script.withLock { $0.repository } }
 
     func protection(of branch: String) async throws -> BranchProtection {
         calls.withLock { $0.append("protection \(branch)") }
@@ -87,38 +96,43 @@ final class FakeMergeHost: MergeRequestPublishing {
     }
 
     // The Review slice's calls, logged as the others are.
-    private func reviewCall(_ line: String) throws {
+    private func reviewCall(_ line: String) async throws {
         calls.withLock { $0.append(line) }
+        if let hook = script.withLock({ $0.onCall }) { await hook(line) }
         if let error = script.withLock({ $0.reviewError }) { throw error }
     }
 
-    func markReady(_ number: Int) async throws {
-        try reviewCall("ready \(number)")
+    /// A write is logged only once `beforeWrite` let it go, as a host that was never sent it.
+    func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {
+        try await beforeWrite()
+        try await reviewCall("ready \(number)")
         script.withLock { $0.existing?.draft = false }
     }
 
-    func assignReviewers(_ number: Int, usernames: [String]) async throws {
-        try reviewCall("reviewers \(number) \(usernames.joined(separator: ","))")
+    func assignReviewers(_ number: Int, usernames: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
+        try await beforeWrite()
+        try await reviewCall("reviewers \(number) \(usernames.joined(separator: ","))")
     }
 
     func threads(of number: Int) async throws -> [ReviewThread] {
-        try reviewCall("threads \(number)")
+        try await reviewCall("threads \(number)")
         return script.withLock { $0.threads }
     }
 
     func reply(_ number: Int, thread: String, body: String) async throws {
-        try reviewCall("reply \(number) \(thread) \(body)")
+        try await reviewCall("reply \(number) \(thread) \(body)")
+        if script.withLock({ s in defer { s.loseReply = false }; return s.loseReply }) { throw URLError(.networkConnectionLost) }
     }
 
     func findUsers(_ query: String) async throws -> [HostUser] {
-        try reviewCall("users \(query)")
+        try await reviewCall("users \(query)")
         return script.withLock { $0.users }.filter {
             $0.username.localizedCaseInsensitiveContains(query) || ($0.name?.localizedCaseInsensitiveContains(query) ?? false)
         }
     }
 
     func approvals(of number: Int) async throws -> [String] {
-        try reviewCall("approvals \(number)")
+        try await reviewCall("approvals \(number)")
         return script.withLock { $0.approvals }
     }
 

@@ -72,6 +72,11 @@ final class ReviewWatcher {
         let threads: [ReviewThread], approvals: [String]?
         do {
             let host = try await ReviewHosts.host(of: project, git: ports.git, connect: ports.publisher)
+            // Another repository's request of the same number is not this one: origin changed since it was opened.
+            if let publication = task.operated?.publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) {
+                Log.network.error("Not reading the review of \(task.operated?.key ?? task.title, privacy: .public): \(why, privacy: .public)")
+                return
+            }
             threads = try await host.threads(of: number)
             // Approvals only where the host gives them: one that cannot leaves them as they were.
             approvals = try? await host.approvals(of: number)

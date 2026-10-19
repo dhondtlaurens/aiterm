@@ -5,6 +5,9 @@ import Foundation
 /// (spec §6) and its Review slice's tools (spec §5). Bound to one repository when it is made
 /// (`MergeRequestPublisher.publisher(for:gitLab:gitHub:session:)`).
 public protocol MergeRequestPublishing: Sendable {
+    /// The repository it is bound to, as its host and path (`github.com/octocat/hello`, `git.example.net/web/acme-web`):
+    /// kept on a publication when its request is opened, and compared before any later write to it.
+    var repository: String { get }
     /// Whether the host protects `branch`; throws when it cannot say. Asked before every push (spec §3).
     func protection(of branch: String) async throws -> BranchProtection
     /// The open request from `source`, if there is one.
@@ -16,10 +19,11 @@ public protocol MergeRequestPublishing: Sendable {
     func retarget(_ number: Int, to target: String) async throws
 
     // The Review slice (spec §5): involving people on the request. Each is safe to repeat.
-    /// Takes the request out of draft; one that is not a draft is left as it is.
-    func markReady(_ number: Int) async throws
-    /// Asks `usernames` to review it, besides anyone asked already.
-    func assignReviewers(_ number: Int, usernames: [String]) async throws
+    /// Takes the request out of draft; one that is not a draft is left as it is. `beforeWrite` runs after the reads
+    /// and right before the write, and its error stops the write.
+    func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws
+    /// Asks `usernames` to review it, besides anyone asked already; `beforeWrite` as for `markReady`.
+    func assignReviewers(_ number: Int, usernames: [String], beforeWrite: @Sendable () async throws -> Void) async throws
     /// Its review threads, oldest first: a plain comment or a system note is none.
     func threads(of number: Int) async throws -> [ReviewThread]
     /// A reply in the thread `thread`, as the token's user.
@@ -30,6 +34,13 @@ public protocol MergeRequestPublishing: Sendable {
     func approvals(of number: Int) async throws -> [String]
     /// The username the token acts as: whose notes are AiTerm's own.
     func currentUser() async throws -> String
+}
+
+extension MergeRequestPublishing {
+    public func markReady(_ number: Int) async throws { try await markReady(number, beforeWrite: {}) }
+    public func assignReviewers(_ number: Int, usernames: [String]) async throws {
+        try await assignReviewers(number, usernames: usernames, beforeWrite: {})
+    }
 }
 
 public enum MergeRequestPublisher {
@@ -50,6 +61,7 @@ public enum MergeRequestPublisher {
 
 struct GitHubPublisher: MergeRequestPublishing {
     let client: GitHubClient, repo: String
+    var repository: String { "github.com/" + repo }
     func protection(of branch: String) async throws -> BranchProtection { try await client.branchProtection(repo: repo, branch: branch) }
     func existingRequest(from source: String) async throws -> MergeRequest? { try await client.openPullRequest(repo: repo, source: source) }
     func createRequest(from source: String, into target: String, title: String, description: String, draft: Bool) async throws -> MergeRequest {
@@ -58,8 +70,11 @@ struct GitHubPublisher: MergeRequestPublishing {
     func readiness(of number: Int) async throws -> MergeReadiness { try await client.mergeReadiness(repo: repo, number: number) }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(repo: repo, number: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(repo: repo, number: number, to: target) }
-    func markReady(_ number: Int) async throws { try await client.markReady(repo: repo, number: number) }
-    func assignReviewers(_ number: Int, usernames: [String]) async throws {
+    func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {
+        try await client.markReady(repo: repo, number: number, beforeWrite: beforeWrite)
+    }
+    func assignReviewers(_ number: Int, usernames: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
+        try await beforeWrite()
         try await client.requestReviewers(repo: repo, number: number, logins: usernames)
     }
     func threads(of number: Int) async throws -> [ReviewThread] { try await client.threads(repo: repo, number: number) }
@@ -71,6 +86,7 @@ struct GitHubPublisher: MergeRequestPublishing {
 
 struct GitLabPublisher: MergeRequestPublishing {
     let client: GitLabClient, project: String
+    var repository: String { (client.config.hostURL.host?.lowercased() ?? "") + "/" + project }
     func protection(of branch: String) async throws -> BranchProtection { try await client.branchProtection(project: project, branch: branch) }
     func existingRequest(from source: String) async throws -> MergeRequest? { try await client.openMergeRequest(project: project, source: source) }
     func createRequest(from source: String, into target: String, title: String, description: String, draft: Bool) async throws -> MergeRequest {
@@ -79,9 +95,11 @@ struct GitLabPublisher: MergeRequestPublishing {
     func readiness(of number: Int) async throws -> MergeReadiness { try await client.mergeReadiness(project: project, iid: number) }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(project: project, iid: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(project: project, iid: number, to: target) }
-    func markReady(_ number: Int) async throws { try await client.markReady(project: project, iid: number) }
-    func assignReviewers(_ number: Int, usernames: [String]) async throws {
-        try await client.assignReviewers(project: project, iid: number, usernames: usernames)
+    func markReady(_ number: Int, beforeWrite: @Sendable () async throws -> Void) async throws {
+        try await client.markReady(project: project, iid: number, beforeWrite: beforeWrite)
+    }
+    func assignReviewers(_ number: Int, usernames: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
+        try await client.assignReviewers(project: project, iid: number, usernames: usernames, beforeWrite: beforeWrite)
     }
     func threads(of number: Int) async throws -> [ReviewThread] { try await client.threads(project: project, iid: number) }
     func reply(_ number: Int, thread: String, body: String) async throws {

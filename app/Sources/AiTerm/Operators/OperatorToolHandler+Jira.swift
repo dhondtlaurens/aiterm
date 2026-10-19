@@ -3,7 +3,8 @@ import AiTermCore
 
 /// The Jira slice (spec §5): `jira_create`, `jira_move` and `jira_link`, and the filing of off-brief finds. A
 /// write is refused unless the broadcast's frozen slice allows it, and is kept to the broadcast's Jira
-/// projects. Comments are not here: a comment messages people.
+/// projects. Each is read fresh right before it is sent, after any read that came first: none goes while the
+/// operation is paused, offline or ended. Comments are not here: a comment messages people.
 extension OperatorToolHandler {
     private static let sliceOff = "The Jira slice is off for this broadcast."
     private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
@@ -17,20 +18,60 @@ extension OperatorToolHandler {
         let projectKey = try inScope(project: project, of: run)
         let parent = try call.optionalString("parent").map { try inScope(ticket: $0, of: run) }
         try requireSlice(in: run, otherwise: "Create the Jira ticket “\(summary)” in \(projectKey)")
+        try jiraWritable(run.id)
         let jira = try connectedJira()
         // Another call with this key is creating now: this one would make the ticket twice.
         let flight = "\(run.id.uuidString)/create/\(callKey)"
         guard filingFinds.insert(flight).inserted else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
         defer { filingFinds.remove(flight) }
-        let key = try await jira.createIssue(project: projectKey, type: type, summary: summary, description: description, parent: parent)
-        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.jiraCreated[callKey] = key } }
+        // The ticket carries the call's label: a create whose answer was lost is found by it, not made again.
+        let label = Self.createLabel(run: run.id, key: callKey), pending = "jira_create/\(callKey)"
+        if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
+            let jql = "project = \"\(projectKey)\" AND labels = \"\(label)\""
+            if let made = try await jira.search(jql: jql, in: []).first {
+                settle(pending, in: run.id) { $0.jiraCreated[callKey] = made.key }
+                return ["key": .string(made.key), "created": false, "note": "The first call made it; its answer was lost."]
+            }
+        }
+        // Read fresh after the look, right before the write.
+        try jiraWritable(run.id)
+        try markPending(pending, in: run.id)
+        let key: String
+        do { key = try await jira.createIssue(project: projectKey, type: type, summary: summary, description: description, parent: parent, labels: [label]) }
+        catch {
+            if !Self.mayHaveLanded(error) { settle(pending, in: run.id) }
+            throw error
+        }
+        settle(pending, in: run.id) { $0.jiraCreated[callKey] = key }
         return ["key": .string(key), "created": true]
+    }
+
+    /// `aiterm-<the run's first 8>-<the call's key>`: Jira labels take no spaces, so anything but letters, digits,
+    /// `-`, `_` and `.` in the key is `_`.
+    static func createLabel(run: UUID, key: String) -> String {
+        let safe = String(key.map { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) ? $0 : "_" })
+        return "aiterm-\(run.uuidString.prefix(8).lowercased())-\(safe)"
+    }
+
+    /// Jira writes go while the operation plans (its tickets for planned work) or runs, read fresh: never while you
+    /// paused or ended it, its Operator is offline, or its slice is off.
+    func jiraWritable(_ runId: UUID) throws(ToolRefusal) {
+        guard let run = state.run(id: runId) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+        guard run.profile.slices.jira else { throw ToolRefusal(Self.sliceOff) }
+        if run.state == .planning, run.intent == nil { return }
+        try acceptsWork(run)
     }
 
     func jiraMove(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try inScope(ticket: try call.string("key"), of: run), status = try call.string("status")
         try requireSlice(in: run, otherwise: "Move \(key) to \(status)")
-        let moved = try await connectedJira().transition(key: key, to: status)
+        try jiraWritable(run.id)
+        let runId = run.id
+        // Jira's status and transitions are read first: the move is checked again after them.
+        let moved = try await connectedJira().transition(key: key, to: status, beforeWrite: { @MainActor [weak self] in
+            guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+            try self.jiraWritable(runId)
+        })
         return moved ? ["key": .string(key), "status": .string(status), "moved": true]
                      : ["key": .string(key), "status": .string(status), "moved": false, "note": .string("\(key) is already in \(status).")]
     }
@@ -39,7 +80,9 @@ extension OperatorToolHandler {
         let key = try inScope(ticket: try call.string("key"), of: run), other = try inScope(ticket: try call.string("to"), of: run)
         let type = try call.string("type")
         try requireSlice(in: run, otherwise: "Link \(key) to \(other) (\(type))")
-        try await connectedJira().link(key: key, to: other, type: type)
+        let jira = try connectedJira()
+        try jiraWritable(run.id)
+        try await jira.link(key: key, to: other, type: type)
         return ["key": .string(key), "to": .string(other), "type": .string(type), "linked": true]
     }
 
@@ -99,13 +142,16 @@ extension OperatorToolHandler {
         guard filingFinds.insert("\(runId.uuidString)/\(key)").inserted else { return .notAttempted }
         defer { filingFinds.remove("\(runId.uuidString)/\(key)") }
         do {
-            let ticket = try await jira.createIssue(project: project, type: "Task", summary: find.title, description: find.why, parent: nil)
+            try jiraWritable(runId)
+            let ticket = try await jira.createIssue(project: project, type: "Task", summary: find.title, description: find.why, parent: nil, labels: [])
             mutate(in: runId) { state in
                 state.updateRun(id: runId) { run in
                     if let index = run.finds.firstIndex(where: { $0.key == key }) { run.finds[index].ticket = ticket }
                 }
             }
             return .filed(ticket)
+        } catch let refusal as ToolRefusal {
+            return .notFiled(refusal.message)
         } catch {
             return .notFiled(error.localizedDescription)
         }

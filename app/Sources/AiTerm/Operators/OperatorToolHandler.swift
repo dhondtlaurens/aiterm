@@ -32,9 +32,11 @@ struct ToolCall {
 protocol OperatorJira: Sendable {
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket]
     /// The Jira slice's writes (spec §5).
-    func createIssue(project: String, type: String, summary: String, description: String, parent: String?) async throws -> String
-    /// False when the ticket was in that status already and nothing was made.
-    func transition(key: String, to statusName: String) async throws -> Bool
+    /// `labels` mark it as this call's, so a retry after a lost answer finds it.
+    func createIssue(project: String, type: String, summary: String, description: String, parent: String?, labels: [String]) async throws -> String
+    /// False when the ticket was in that status already and nothing was made. `beforeWrite` runs after Jira's reads and
+    /// right before the move, and its error stops it.
+    func transition(key: String, to statusName: String, beforeWrite: @Sendable () async throws -> Void) async throws -> Bool
     func link(key: String, to other: String, type: String) async throws
 }
 

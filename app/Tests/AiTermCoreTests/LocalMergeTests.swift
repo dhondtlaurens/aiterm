@@ -147,4 +147,15 @@ import Testing
         #expect(LocalMerge.Refusal.hookStopped(defaultBranch: "main", output: "lint failed: 3 problems").localizedDescription
                 == "A Git hook stopped the merge into main: lint failed: 3 problems.")
     }
+
+    /// Branch names are compared exactly: a checked-out `Main` is not the default branch `main`.
+    @Test func aBranchNamedLikeTheDefaultInAnotherCaseIsNotIt() async throws {
+        let c = try checkout()
+        try git.run(["branch", "-M", "main", "Main"], in: c.repo.path)
+        let before = try git.run(["rev-parse", "HEAD"], in: c.repo.path)
+        await #expect(throws: LocalMerge.Refusal.notOnDefaultBranch(c.repo.path, current: "Main", defaultBranch: "main")) {
+            try await LocalMerge.merge(sha: c.sha, into: "main", in: c.repo)
+        }
+        #expect(try git.run(["rev-parse", "HEAD"], in: c.repo.path) == before, "nothing merged")
+    }
 }

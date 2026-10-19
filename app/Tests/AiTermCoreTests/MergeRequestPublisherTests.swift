@@ -349,7 +349,7 @@ extension MergeRequestPublisherTests {
              {"id":"d2","notes":[{"resolvable":false,"body":"Nice work","author":{"username":"mia"},"system":false}]},
              {"id":"d3","notes":[{"resolvable":true,"resolved":true,"body":"Fixed","author":{"username":"mia"},"system":false}]}]
             """#
-        let stub = StubSession { _ in (200, Data(discussions.utf8)) }
+        let stub = StubSession { request in Self.page(request) == 1 ? (200, Data(discussions.utf8)) : (200, Data("[]".utf8)) }
         let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
         #expect(try await publisher.threads(of: 12) == [
             ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this"),
@@ -438,6 +438,7 @@ extension MergeRequestPublisherTests {
     @Test func gitHubFindsAssigneesAndTheLatestApprovals() async throws {
         let stub = StubSession { request in
             if request.url?.path.hasSuffix("/reviews") == true {
+                if Self.page(request) > 1 { return (200, Data("[]".utf8)) }
                 return (200, Data(#"""
                     [{"user":{"login":"jan"},"state":"CHANGES_REQUESTED"},{"user":{"login":"mia"},"state":"APPROVED"},
                      {"user":{"login":"jan"},"state":"APPROVED"},{"user":{"login":"mia"},"state":"COMMENTED"},
@@ -449,6 +450,114 @@ extension MergeRequestPublisherTests {
         let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
         #expect(try await publisher.findUsers("@jan") == [HostUser(username: "jan-p", name: nil), HostUser(username: "JANSSENS", name: nil)])
         #expect(try await publisher.approvals(of: 88) == ["jan", "mia"])
+    }
+
+    // MARK: - Gate C: what the merge floor and the watcher decide on is read whole, or not at all
+
+    /// The `page` a request asked for; 1 when it named none.
+    static func page(_ request: URLRequest) -> Int {
+        URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value.flatMap(Int.init) ?? 1
+    }
+
+    /// One page of GitHub's review threads: `nodes` as JSON, and whether another follows.
+    static func gitHubThreads(_ nodes: String, next: Bool) -> Data {
+        Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":\#(next),"endCursor":"c"},"nodes":[\#(nodes)]}}}}}"#.utf8)
+    }
+
+    @Test func gitHubThreadsPastTheCapAreNoAnswer() async throws {
+        let stub = StubSession { request in
+            let after = ((try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])?["variables"] as? [String: Any])?["after"] as? String
+            let next = (Int(after ?? "0") ?? 0) + 1
+            return (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":true,"endCursor":"\#(next)"},"nodes":[{"id":"PRRT_\#(next)","isResolved":true,"comments":{"nodes":[]}}]}}}}}"#.utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        await #expect(throws: IncompleteRead.self) { _ = try await publisher.threads(of: 88) }
+        #expect(stub.requests.count == GitHubClient.threadPagesRead, "every page up to the cap was read")
+    }
+
+    @Test func gitHubThreadsReadToTheLastPage() async throws {
+        let stub = StubSession { request in
+            let after = ((try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])?["variables"] as? [String: Any])?["after"] as? String
+            let index = Int(after ?? "0") ?? 0
+            let node = #"{"id":"PRRT_\#(index)","isResolved":\#(index != 14),"comments":{"nodes":[]}}"#
+            return (200, Data(#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":\#(index < 14),"endCursor":"\#(index + 1)"},"nodes":[\#(node)]}}}}}"#.utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        let threads = try await publisher.threads(of: 88)
+        #expect(threads.count == 15)
+        #expect(threads.last == ReviewThread(id: "PRRT_14", resolved: false, lastAuthor: nil, lastBody: ""), "the open thread on page 15 is seen")
+    }
+
+    /// A cursor that does not move on would read the same page forever: no answer.
+    @Test func aGitHubCursorThatRepeatsIsNoAnswer() async throws {
+        let stub = StubSession { _ in (200, Self.gitHubThreads(#"{"id":"PRRT_1","isResolved":true,"comments":{"nodes":[]}}"#, next: true)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        await #expect(throws: IncompleteRead.self) { _ = try await publisher.threads(of: 88) }
+        #expect(stub.requests.count == 2)
+    }
+
+    @Test func aGitHubThreadThatDoesNotReadIsNoAnswer() async throws {
+        let stub = StubSession { _ in
+            (200, Self.gitHubThreads(#"{"id":"PRRT_1","isResolved":true,"comments":{"nodes":[]}},{"id":"PRRT_2","isResolved":"maybe"}"#, next: false))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        await #expect(throws: (any Error).self) { _ = try await publisher.threads(of: 88) }
+    }
+
+    @Test func gitLabThreadsPastTheCapAreNoAnswer() async throws {
+        let full = "[" + Array(repeating: #"{"id":"d","notes":[{"resolvable":true,"resolved":true}]}"#, count: 100).joined(separator: ",") + "]"
+        let stub = StubSession { _ in (200, Data(full.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        await #expect(throws: IncompleteRead.self) { _ = try await publisher.threads(of: 12) }
+        #expect(stub.requests.count == GitLabClient.threadPagesRead)
+    }
+
+    @Test func aGitLabDiscussionThatDoesNotReadIsNoAnswer() async throws {
+        let stub = StubSession { request in
+            Self.page(request) == 1 ? (200, Data(#"[{"id":"d1","notes":[{"resolvable":true,"resolved":true}]},{"id":"d2","notes":"unreadable"}]"#.utf8))
+                                    : (200, Data("[]".utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        await #expect(throws: (any Error).self) { _ = try await publisher.threads(of: 12) }
+    }
+
+    @Test func gitHubApprovalsReadEveryPage() async throws {
+        let first = "[" + (Array(repeating: #"{"user":{"login":"mia"},"state":"COMMENTED"}"#, count: 99)
+                           + [#"{"user":{"login":"jan"},"state":"APPROVED"}"#]).joined(separator: ",") + "]"
+        let stub = StubSession { request in
+            switch Self.page(request) {
+            case 1: return (200, Data(first.utf8))
+            case 2: return (200, Data(#"[{"user":{"login":"jan"},"state":"CHANGES_REQUESTED"}]"#.utf8))
+            default: return (200, Data("[]".utf8))
+            }
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        #expect(try await publisher.approvals(of: 88) == [], "jan's later review on page 2 takes the approval back")
+        let endless = StubSession { _ in (200, Data(first.utf8)) }
+        let capped = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: endless.session)
+        await #expect(throws: IncompleteRead.self) { _ = try await capped.approvals(of: 88) }
+    }
+
+    /// Marking ready and assigning read the request first: what `beforeWrite` refuses after those reads is not written.
+    @Test func aReviewWriteStopsWhenItsLastCheckRefusesAfterTheReads() async throws {
+        struct Paused: Error {}
+        let draft = StubSession { _ in
+            (200, Data(GitHubPublishTests.pull(draft: true).replacingOccurrences(of: #""id":1,"#, with: #""id":1,"node_id":"PR_kw88","#).utf8))
+        }
+        let onGitHub = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: draft.session)
+        await #expect(throws: Paused.self) { try await onGitHub.markReady(88, beforeWrite: { throw Paused() }) }
+        #expect(draft.requests.map { $0.httpMethod ?? "" } == ["GET"])
+        let lab = StubSession { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("/users?") { return (200, Data(#"[{"id":5,"username":"jan"}]"#.utf8)) }
+            return (200, Data(GitLabPublishTests.created.replacingOccurrences(of: #""title":"#, with: #""reviewers":[{"id":3}],"title":"#).utf8))
+        }
+        let onGitLab = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: lab.session)
+        await #expect(throws: Paused.self) { try await onGitLab.assignReviewers(12, usernames: ["jan"], beforeWrite: { throw Paused() }) }
+        #expect(lab.requests.allSatisfy { $0.httpMethod == "GET" })
+        await #expect(throws: Paused.self) { try await onGitLab.markReady(12, beforeWrite: { throw Paused() }) }
+        #expect(lab.requests.allSatisfy { $0.httpMethod == "GET" })
+        #expect(onGitHub.repository == "github.com/octocat/hello" && onGitLab.repository == "git.example.net/web/acme-web")
     }
 }
 

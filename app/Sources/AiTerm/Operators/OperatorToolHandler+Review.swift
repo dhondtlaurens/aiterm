@@ -156,7 +156,7 @@ extension OperatorToolHandler {
         }
         answer["reviewers"] = .array((operated.peopleReview?.reviewers ?? []).map(JSONValue.string))
         do {
-            let host = try await reviewHost(of: task)
+            let host = try await reviewHost(of: task, request: operated.publication)
             let threads = try await host.threads(of: number)
             answer["threads"] = .array(threads.map { thread in
                 ["id": .string(thread.id), "resolved": .bool(thread.resolved), "lastAuthor": thread.lastAuthor.map(JSONValue.string) ?? .null,
@@ -192,9 +192,14 @@ extension OperatorToolHandler {
         let asked = Set((operated.peopleReview?.reviewers ?? []).map { $0.lowercased() })
         let wanted = Set(reviewers.map { $0.lowercased() })
         if wanted.isSubset(of: asked) { return Self.requestAnswer(operated, reviewers: operated.peopleReview?.reviewers ?? [], requested: false) }
-        let host = try await reviewHost(of: task)
-        try await host.markReady(number)
-        try await host.assignReviewers(number, usernames: reviewers)
+        let host = try await reviewHost(of: task, request: operated.publication)
+        // Read fresh before each write, and inside each host call after its reads: a Pause, an End or a takeover
+        // meanwhile writes nothing more.
+        let check = writeCheck(task, number: number, in: run.id)
+        try await check()
+        try await host.markReady(number, beforeWrite: check)
+        try await check()
+        try await host.assignReviewers(number, usernames: reviewers, beforeWrite: check)
         let all = (operated.peopleReview?.reviewers ?? []) + reviewers.filter { !asked.contains($0.lowercased()) }
         mutate(in: run.id) { state in
             state.updateOperated(task.id) { task in
@@ -206,7 +211,9 @@ extension OperatorToolHandler {
         return Self.requestAnswer(operated, reviewers: all, requested: true)
     }
 
-    /// A reply in one of the task's review threads, once per key.
+    /// A reply in one of the task's review threads, once per key. The key is saved as pending before the reply is
+    /// sent and as answered before the call is: a retry of a key still pending (its answer lost, AiTerm quit meanwhile)
+    /// may find the reply posted, so it posts nothing and clears the mark.
     func replyThread(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run), callKey = try call.string("key")
         if let thread = run.threadReplies[callKey] { return ["thread": .string(thread), "replied": false, "note": "Posted already with this key."] }
@@ -221,14 +228,93 @@ extension OperatorToolHandler {
         let flight = "\(run.id.uuidString)/reply/\(callKey)"
         guard filingFinds.insert(flight).inserted else { throw ToolRefusal("reply_thread with this key is still posting: call it again for its result.") }
         defer { filingFinds.remove(flight) }
-        let host = try await reviewHost(of: task)
+        let pending = "reply_thread/\(callKey)"
+        if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
+            settle(pending, in: run.id)
+            throw ToolRefusal("That reply may already be posted: read the thread before replying again.")
+        }
+        let host = try await reviewHost(of: task, request: operated.publication)
         // A GitHub thread's id names it across GitHub: only one on this task's own request is answered.
         guard try await host.threads(of: number).contains(where: { $0.id == thread }) else {
             throw ToolRefusal("That thread isn’t on this task’s merge request.")
         }
-        try await host.reply(number, thread: thread, body: body)
-        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.threadReplies[callKey] = thread } }
+        // Read fresh after the reads, right before the write.
+        try await writeCheck(task, number: number, in: run.id)()
+        try markPending(pending, in: run.id)
+        do { try await host.reply(number, thread: thread, body: body) }
+        catch {
+            if !Self.mayHaveLanded(error) { settle(pending, in: run.id) }
+            throw error
+        }
+        settle(pending, in: run.id) { $0.threadReplies[callKey] = thread }
         return ["thread": .string(thread), "replied": true]
+    }
+
+    // -- writes read fresh, and kept as pending while they may have landed ----------------------------
+
+    /// The check before each write to the task's request, read fresh: the operation takes work (no Pause, no End),
+    /// its Review slice is on, and the task is still the operator's under the same ownership (no takeover, none handed
+    /// back since) with the same request in the same repository.
+    func writeCheck(_ original: TaskItem, number: Int, in runId: UUID) -> @Sendable () async throws -> Void {
+        { @MainActor [weak self] in
+            guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+            guard let run = state.run(id: runId) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+            try acceptsWork(run)
+            guard run.profile.slices.review else { throw ToolRefusal(Self.sliceOff) }
+            guard let task = state.task(id: original.id), task.operated?.runId == runId else {
+                throw ToolRefusal("This task is no longer in this operation.")
+            }
+            let operated = try notTakenOver(task)
+            guard operated.ownership == original.operated?.ownership, operated.publication?.mergeRequestNumber == number,
+                  operated.publication?.repository == original.operated?.publication?.repository else {
+                throw ToolRefusal("This task changed while AiTerm was checking it; read run_status and try again.")
+            }
+        }
+    }
+
+    /// `write` saved as pending, on disk, before it is sent: if it cannot be saved, it is not sent.
+    func markPending(_ write: String, in runId: UUID) throws(ToolRefusal) {
+        mutate(in: runId) { $0.updateRun(id: runId) { if !$0.pendingWrites.contains(write) { $0.pendingWrites.append(write) } } }
+        guard workspace.flush() else {
+            settle(write, in: runId)
+            throw ToolRefusal("AiTerm couldn’t save that it was about to send this, so it sent nothing. Try again once the workspace saves.")
+        }
+    }
+
+    /// `write` no longer pending, with what it came to recorded, saved before the call is answered.
+    func settle(_ write: String, in runId: UUID, recording: (inout OperatorRun) -> Void = { _ in }) {
+        mutate(in: runId) { $0.updateRun(id: runId) { run in
+            run.pendingWrites.removeAll { $0 == write }
+            recording(&run)
+        } }
+        _ = workspace.flush()
+    }
+
+    /// Whether a write that failed may still have been carried out: its answer lost on the way back (a dropped
+    /// connection, a timeout, a server error, an answer that did not read). A refusal for what was asked made nothing.
+    static func mayHaveLanded(_ error: Error) -> Bool {
+        switch error {
+        case is ToolRefusal: return false
+        case let error as GitHubError:
+            switch error {
+            case .unauthorized, .forbidden, .repoNotFound, .refused: return false
+            case .badResponse(let status): return status >= 500
+            case .network, .decoding: return true
+            }
+        case let error as GitLabError:
+            switch error {
+            case .unauthorized, .projectNotFound, .noAPI, .noUser: return false
+            case .badResponse(let status): return status >= 500
+            case .network, .decoding: return true
+            }
+        case let error as JiraError:
+            switch error {
+            case .badResponse(let status): return status >= 500
+            case .network, .decoding: return true
+            default: return false
+            }
+        default: return true
+        }
     }
 
     /// The people on the task's code host who match `query`: a read, which needs no slice.
@@ -251,6 +337,14 @@ extension OperatorToolHandler {
     private func reviewHost(of task: TaskItem) async throws -> any MergeRequestPublishing {
         guard let project = state.project(id: task.projectId) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
         return try await ReviewHosts.host(of: project, git: ports.git, connect: ports.publisher)
+    }
+
+    /// The host of the task's request, refused unless the project's origin still resolves to the repository it was
+    /// opened in.
+    private func reviewHost(of task: TaskItem, request publication: TaskPublication?) async throws -> any MergeRequestPublishing {
+        let host = try await reviewHost(of: task)
+        if let publication, let why = PublicationGuard.otherRepository(publication, repository: host.repository) { throw ToolRefusal(why) }
+        return host
     }
 
     /// `!418` or `#418` for the task's request, or what it will be.

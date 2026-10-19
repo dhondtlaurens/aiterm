@@ -79,18 +79,24 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// The Merge slice with the Oracle on: the accepted commit the Oracle said yes for, that the conditions written in
     /// the Review and the Done hold. A merge goes ahead only while it is the commit accepted now.
     public var conditionsHeld: String?
+    /// The repository the request was opened in, as its host and path (`MergeRequestPublishing.repository`). A review
+    /// write or a merge goes ahead only while the project's origin still resolves to it: a request opened before
+    /// AiTerm kept it is not acted on.
+    public var repository: String?
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
-                mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil) {
+                mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
+                repository: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
+        self.repository = repository
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsHeld
+        case conditionsHeld, repository
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -109,6 +115,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         conditionsHeld = try c.decodeIfPresent(String.self, forKey: .conditionsHeld)
+        repository = try c.decodeIfPresent(String.self, forKey: .repository)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -125,6 +132,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(mergedHead, forKey: .mergedHead)
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encodeIfPresent(conditionsHeld, forKey: .conditionsHeld)
+        try c.encodeIfPresent(repository, forKey: .repository)
     }
 }
 
@@ -468,6 +476,10 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var jiraCreated: [String: String]
     /// The review threads `reply_thread` answered, by the key the Operator gave the call: the same key again posts nothing.
     public var threadReplies: [String: String]
+    /// The writes sent and not yet known to have landed, as `jira_create/<key>` and `reply_thread/<key>`: saved before
+    /// the request goes, cleared once its answer is recorded or it is known to have failed. A retry of one still here
+    /// may find the first one done.
+    public var pendingWrites: [String]
     /// The Oracle's challenges of this run's calls, the ones acted on kept with their answer.
     public var challenges: [ChallengeRecord]
     /// The Operator's Claude conversation, for `claude --resume`.
@@ -481,21 +493,21 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
                 leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], jiraCreated: [String: String] = [:],
-                threadReplies: [String: String] = [:], createdAt: Date) {
+                threadReplies: [String: String] = [:], pendingWrites: [String] = [], createdAt: Date) {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
-        self.threadReplies = threadReplies
+        self.threadReplies = threadReplies; self.pendingWrites = pendingWrites
         self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, leftForYou, challenges, operatorConversation, operatorWindowId
-        case operatorSessionId, jiraCreated, threadReplies, createdAt
+        case operatorSessionId, jiraCreated, threadReplies, pendingWrites, createdAt
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -525,6 +537,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         operatorSessionId = try c.decodeIfPresent(String.self, forKey: .operatorSessionId)
         jiraCreated = try c.decodeIfPresent([String: String].self, forKey: .jiraCreated) ?? [:]
         threadReplies = try c.decodeIfPresent([String: String].self, forKey: .threadReplies) ?? [:]
+        pendingWrites = try c.decodeIfPresent([String].self, forKey: .pendingWrites) ?? []
         createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 
@@ -556,6 +569,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
         try c.encode(jiraCreated, forKey: .jiraCreated)
         try c.encode(threadReplies, forKey: .threadReplies)
+        try c.encode(pendingWrites, forKey: .pendingWrites)
         try c.encode(createdAt, forKey: .createdAt)
     }
 }

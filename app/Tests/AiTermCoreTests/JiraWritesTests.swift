@@ -126,4 +126,26 @@ import Foundation
         }
         #expect(stub.requests.isEmpty)
     }
+
+    @Test func createSendsItsLabels() async throws {
+        let stub = StubSession { _ in (201, Data(#"{"key":"PAY-4"}"#.utf8)) }
+        _ = try await JiraClient(config: config, session: stub.session)
+            .createIssue(project: "PAY", type: "Task", summary: "s", description: "", labels: ["aiterm-1a2b3c4d-t1"])
+        let fields = try #require(try body(stub.lastRequest)["fields"] as? [String: Any])
+        #expect(fields["labels"] as? [String] == ["aiterm-1a2b3c4d-t1"])
+    }
+
+    /// A move reads the ticket and its transitions first: what `beforeWrite` refuses after those reads is not moved.
+    @Test func aMoveStopsWhenItsLastCheckRefuses() async throws {
+        struct Paused: Error {}
+        let moves = #"{"transitions":[{"id":"31","name":"Finish","to":{"name":"Done"}}]}"#
+        let stub = StubSession { request in
+            if request.url?.path.hasSuffix("/transitions") == true { return request.httpMethod == "GET" ? (200, Data(moves.utf8)) : (204, Data()) }
+            return (200, Data(#"{"fields":{"status":{"name":"To Do"}}}"#.utf8))
+        }
+        await #expect(throws: Paused.self) {
+            try await JiraClient(config: config, session: stub.session).transition(key: "PAY-231", to: "Done", beforeWrite: { throw Paused() })
+        }
+        #expect(stub.requests.map { $0.httpMethod ?? "" } == ["GET", "GET"], "read, then nothing posted")
+    }
 }

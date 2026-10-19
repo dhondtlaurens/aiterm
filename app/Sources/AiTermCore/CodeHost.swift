@@ -61,6 +61,15 @@ public struct ReviewThread: Equatable, Sendable {
     }
 }
 
+/// A list the host pages that AiTerm could not read to its end: a page past the cap, a page that failed, or an
+/// entry that did not decode. What is decided on it (the merge floor, the review watcher) decides on nothing.
+public struct IncompleteRead: Error, Equatable, LocalizedError {
+    /// What was listed, as "review threads" or "reviews".
+    public let what: String
+    public init(_ what: String) { self.what = what }
+    public var errorDescription: String? { "AiTerm couldn’t read every one of the \(what) on the host." }
+}
+
 /// Someone on a code host a request can be assigned to for review: the username the host knows them
 /// by, and their display name when the host gives one.
 public struct HostUser: Equatable, Sendable {

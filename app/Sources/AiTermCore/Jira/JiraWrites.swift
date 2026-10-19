@@ -5,10 +5,12 @@ import Foundation
 extension JiraClient {
     /// A ticket of `type` in `project`, its `description` in ADF, under `parent` when it is a sub-task or
     /// belongs to an epic; its key.
-    public func createIssue(project: String, type: String, summary: String, description: String, parent: String? = nil) async throws -> String {
+    public func createIssue(project: String, type: String, summary: String, description: String, parent: String? = nil,
+                            labels: [String] = []) async throws -> String {
         var fields: [String: Any] = ["project": ["key": project], "issuetype": ["name": type], "summary": summary]
         if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["description"] = ADFText.document(description) }
         if let parent { fields["parent"] = ["key": parent] }
+        if !labels.isEmpty { fields["labels"] = labels }
         var req = request(path: "/rest/api/3/issue"); req.httpMethod = "POST"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["fields": fields])
         return try await writeDecode(Created.self, req).key
@@ -18,7 +20,7 @@ extension JiraClient {
     /// Jira's transitions for it are read, and the one whose target status has that name (case aside) is made. A ticket
     /// with no such way from where it is stays as it was.
     @discardableResult
-    public func transition(key: String, to statusName: String) async throws -> Bool {
+    public func transition(key: String, to statusName: String, beforeWrite: @Sendable () async throws -> Void = {}) async throws -> Bool {
         let path = "/rest/api/3/issue/\(try Self.validKey(key))/transitions"
         let current = try await writeDecode(Current.self, request(path: "/rest/api/3/issue/\(key)", queryItems: [URLQueryItem(name: "fields", value: "status")]))
         if current.fields.status?.value?.name?.caseInsensitiveCompare(statusName) == .orderedSame { return false }
@@ -26,6 +28,7 @@ extension JiraClient {
         guard let chosen = offered.first(where: { $0.to?.value?.name?.caseInsensitiveCompare(statusName) == .orderedSame }) else {
             throw JiraError.noTransition(key: key, status: statusName, offered: offered.compactMap { $0.to?.value?.name })
         }
+        try await beforeWrite()
         var req = request(path: path); req.httpMethod = "POST"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["transition": ["id": chosen.id]])
         try await perform(req)

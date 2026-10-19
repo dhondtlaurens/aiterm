@@ -91,6 +91,8 @@ public struct GitLabClient: Sendable {
     /// How many discussions one page of `reviewThreads` asks for, and how many pages it reads at
     /// most: a thousand threads, past which a merge request is not being reviewed by hand.
     static let discussionsPerPage = 100, discussionPages = 10
+    /// How many pages `threads` reads before it gives up: past it the list is no answer.
+    static let threadPagesRead = 50
 
     /// The merge request's review threads: its discussions that can be resolved, and how many of
     /// them are. Read a page at a time until one comes back short — GitLab's paging headers are not
@@ -190,18 +192,20 @@ public struct GitLabClient: Sendable {
 
     /// Takes it out of draft, which on GitLab is dropping the title's draft prefix. One that is not a
     /// draft is not written to.
-    public func markReady(project: String, iid: Int) async throws {
+    public func markReady(project: String, iid: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         let path = Self.requestsPath(project) + "/\(iid)"
         let request = try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
         let ready = Self.readyTitle(request.title)
         guard ready != request.title || request.draft == true else { return }
+        try await beforeWrite()
         struct Ready: Encodable { var title: String }
         _ = try await send(MergeRequestPayload.self, method: "PUT", path: path, body: Ready(title: ready), notFound: .projectNotFound(project))
     }
 
     /// Adds `usernames` to its reviewers, each looked up by its exact username; the reviewers it has stay.
     /// Nothing is written when every one of them reviews it already.
-    public func assignReviewers(project: String, iid: Int, usernames: [String]) async throws {
+    public func assignReviewers(project: String, iid: Int, usernames: [String],
+                                beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         struct User: Decodable { var id: Int, username: String }
         var ids: [Int] = []
         for username in usernames {
@@ -215,24 +219,32 @@ public struct GitLabClient: Sendable {
         let current = (try await get(Reviewers.self, path: path, notFound: .projectNotFound(project)).reviewers ?? []).map(\.id)
         let all = current + ids.filter { !current.contains($0) }
         guard all.count > current.count else { return }
+        try await beforeWrite()
         struct Assign: Encodable { var reviewerIds: [Int] }
         _ = try await send(MergeRequestPayload.self, method: "PUT", path: path, body: Assign(reviewerIds: all), notFound: .projectNotFound(project))
     }
 
     /// Its review threads: each discussion that can be resolved, with its id, whether it is, and its last
-    /// note that is not GitLab's own. Paged as `reviewThreads` is.
+    /// note that is not GitLab's own. Read a page at a time until an **empty** one (a short page proves nothing, as
+    /// for protected branches): `threadPagesRead` pages without reaching it, or a discussion that does not decode, or
+    /// a thread without an id, throws `IncompleteRead`, so nothing is decided on part of them.
     public func threads(project: String, iid: Int) async throws -> [ReviewThread] {
         let path = Self.requestsPath(project) + "/\(iid)/discussions"
         var threads: [ReviewThread] = []
-        for page in 1...Self.discussionPages {
+        for page in 1...Self.threadPagesRead {
             let query = [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)),
                          URLQueryItem(name: "page", value: String(page))]
             let discussions = try await get([Lenient<DiscussionPayload>].self, path: path, query: query,
                                             notFound: .projectNotFound(project))
-            threads += discussions.compactMap { $0.value?.thread }
-            if discussions.count < Self.discussionsPerPage { break }
+            if discussions.isEmpty { return threads }
+            for entry in discussions {
+                guard let discussion = entry.value else { throw IncompleteRead("review threads") }
+                guard discussion.resolution != nil else { continue }
+                guard let thread = discussion.thread else { throw IncompleteRead("review threads") }
+                threads.append(thread)
+            }
         }
-        return threads
+        throw IncompleteRead("review threads")
     }
 
     /// A reply in the discussion `discussion`.

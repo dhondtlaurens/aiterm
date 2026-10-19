@@ -68,6 +68,20 @@ public enum PublicationGuard {
         return openThreads(threads, request: request)
     }
 
+    /// Why `request` is not merged nor marked ready when its threads could not all be read: no answer is not "none open".
+    public static func unreadThreads(_ request: String) -> String { "AiTerm couldn’t read every review thread on \(request)." }
+
+    /// Why nothing more is written to the publication's request through `repository` (the host the project's origin
+    /// resolves to now): the request was opened in another repository, or before AiTerm kept which. Nil when it is the same.
+    public static func otherRepository(_ publication: TaskPublication, repository: String) -> String? {
+        guard let number = publication.mergeRequestNumber else { return nil }
+        let request = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
+        guard let kept = publication.repository else {
+            return "AiTerm didn’t keep which repository \(request) was opened in, so it won’t act on it."
+        }
+        return kept == repository ? nil : "The project’s origin changed since \(request) was opened, so AiTerm won’t act on it."
+    }
+
     /// Why `threads` keep `request` from merging: any of them still open. Nil when every one is resolved.
     public static func openThreads(_ threads: [ReviewThread], request: String) -> String? {
         let open = threads.filter { !$0.resolved }.count

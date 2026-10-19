@@ -73,9 +73,19 @@ public struct TaskPublisher: Sendable {
         self.repository = repository; self.host = host; self.now = now
     }
 
+    /// A recheck that refused inside a host call, right before its write.
+    struct Refused: Error { let reason: String }
+
     public func advance(_ context: Context, restart: Bool,
                         recheck: @escaping @Sendable () async -> String?,
                         record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
+        do { return try await advancing(context, restart: restart, recheck: recheck, record: record) }
+        catch let refused as Refused { return .refused(refused.reason) }
+    }
+
+    private func advancing(_ context: Context, restart: Bool,
+                           recheck: @escaping @Sendable () async -> String?,
+                           record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
         let task = context.task, branch = task.branch, repository = self.repository
         guard let operated = task.operated else { return .refused(PublicationGuard.notOperated) }
         var publication = operated.publication ?? TaskPublication()
@@ -94,6 +104,8 @@ public struct TaskPublisher: Sendable {
             return .refused(refusal)
         }
         guard let acceptance = operated.acceptance else { return .refused(PublicationGuard.notOperated) }
+        // A request already opened is acted on only in the repository it was opened in: origin may name another now.
+        if let why = PublicationGuard.otherRepository(publication, repository: host.repository) { return .refused(why) }
         let sha = acceptance.resultSHA
         let parentMerged = context.parent?.operated?.publication?.merged == true
         // Nothing builds on a parent merged outside its accepted publication.
@@ -159,6 +171,7 @@ public struct TaskPublisher: Sendable {
             publication.mergeRequestNumber = request.iid
             publication.mergeRequestURL = request.url
             publication.targetBranch = request.targetBranch
+            publication.repository = host.repository
             publication.readySince = nil
             try await record(publication)
         }
@@ -190,11 +203,16 @@ public struct TaskPublisher: Sendable {
         // the floor applies to them as to any request.
         if answer == .blocked(MergeReadiness.draftReason), let live = try await host.existingRequest(from: branch), live.iid == number, live.draft {
             let head = try await BackgroundWork.run { try repository.originTip(of: branch) } ?? ""
-            if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: try await host.threads(of: number), request: request) {
+            guard let threads = try? await host.threads(of: number) else {
+                return try await blocked(publication, PublicationGuard.unreadThreads(request), record)
+            }
+            if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: threads, request: request) {
                 return try await blocked(publication, why, record)
             }
             if let why = await recheck() { return .refused(why) }
-            try await host.markReady(number)
+            try await host.markReady(number, beforeWrite: {
+                if let why = await recheck() { throw Refused(reason: why) }
+            })
             answer = try await host.readiness(of: number)
         }
         guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record) }
@@ -228,8 +246,12 @@ public struct TaskPublisher: Sendable {
             publication.readySince = nil
             return try await blocked(publication, "The request \(url) targets \(live.targetBranch) on the host now, not \(defaultBranch): AiTerm never merges it there. Retarget it to \(defaultBranch), then call finish_task again.", record)
         }
-        // The floor, read right before the merge: every thread on the request resolved.
-        if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: try await host.threads(of: number), request: request) {
+        // The floor, read right before the merge: every thread on the request resolved, all of them read.
+        guard let threads = try? await host.threads(of: number) else {
+            publication.readySince = nil
+            return try await blocked(publication, PublicationGuard.unreadThreads(request), record)
+        }
+        if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: threads, request: request) {
             publication.readySince = nil
             return try await blocked(publication, why, record)
         }

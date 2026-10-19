@@ -204,7 +204,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         }
         if taskState == .inReview {
             task.operated?.publication = TaskPublication(pushedSHA: fixture.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12,
-                                                         targetBranch: "main")
+                                                         targetBranch: "main", repository: FakeMergeHost.repository)
             task.operated?.peopleReview = PeopleReview()
         }
         let host = FakeMergeHost()
@@ -439,5 +439,88 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         await review?.value
         let kept = r.world.task(r.task.id)?.operated?.agentReview
         #expect(kept?.findings == nil && kept?.failure?.contains("took over A") == true)
+    }
+
+    // MARK: - Gate C: review writes are read fresh, the request is the one opened, and a lost answer is not posted twice
+
+    /// `change` made to `r` while a call waits on the host: a Pause, an End, a takeover, or one handed back since.
+    func make(_ change: String, in r: Reviewed) {
+        r.world.workspace.mutate { state in
+            switch change {
+            case "pause": state.updateRun(id: r.run.id) { $0.intent = .paused }
+            case "paused": state.updateRun(id: r.run.id) { $0.state = .paused; $0.intent = .paused }
+            case "end": state.updateRun(id: r.run.id) { $0.state = .stopped; $0.intent = .stopped }
+            case "takeover": state.updateOperated(r.task.id) { $0.takenOver = true; $0.ownership += 1 }
+            default: state.updateOperated(r.task.id) { $0.ownership += 2 }
+            }
+        }
+    }
+
+    nonisolated static let changes = ["pause", "paused", "end", "takeover", "handback"]
+
+    @Test(arguments: changes)
+    func noReviewerIsAskedOnceTheTaskOrRunChanged(_ change: String) async throws {
+        let gate = ReviewGate()
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update { $0.onCall = { line in if line == "ready 12" { await gate.wait() } } }
+        let call = Task { await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]) }
+        await gate.started()
+        make(change, in: r)
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(!r.host.log.contains { $0.hasPrefix("reviewers") }, "nobody was asked after the \(change)")
+    }
+
+    @Test(arguments: changes)
+    func noReplyIsPostedOnceTheTaskOrRunChanged(_ change: String) async throws {
+        let gate = ReviewGate()
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update {
+            $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")]
+            $0.onCall = { line in if line == "threads 12" { await gate.wait() } }
+        }
+        let call = Task { await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r1", "thread": "d1", "body": "Done."]) }
+        await gate.started()
+        make(change, in: r)
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(!r.host.log.contains { $0.hasPrefix("reply") }, "nothing was posted after the \(change)")
+        #expect(r.world.run(r.run.id)?.threadReplies.isEmpty == true)
+    }
+
+    @Test func aChangedOriginIsNeitherWrittenToNorWatched() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update {
+            $0.repository = "github.com/acme/elsewhere"
+            $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")]
+        }
+        let refused = "The project’s origin changed since !12 was opened, so AiTerm won’t act on it."
+        #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]).message == refused)
+        #expect(await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r1", "thread": "d1", "body": "Done."]).message == refused)
+        r.world.controller.reviewWatcher.poll()
+        await r.world.controller.reviewWatcher.lastPoll?.value
+        #expect(r.host.log.isEmpty, "another repository's !12 is neither read nor written")
+    }
+
+    @Test func aRequestOpenedBeforeAiTermKeptItsRepositoryIsNotWrittenTo() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.publication?.repository = nil } }
+        let answer = await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]])
+        #expect(answer.message == "AiTerm didn’t keep which repository !12 was opened in, so it won’t act on it.")
+        #expect(r.host.log.isEmpty)
+    }
+
+    @Test func aReplyThatMayHaveLandedIsNotPostedTwice() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")]; $0.loseReply = true }
+        let reply: JSONValue = ["task": "A", "key": "r1", "thread": "d1", "body": "Renamed."]
+        #expect(await r.world.call(r.run.id, "reply_thread", reply).message != nil)
+        #expect(try r.world.workspace.file.load().run(id: r.run.id)?.pendingWrites == ["reply_thread/r1"], "kept as sent, on disk")
+        #expect(await r.world.call(r.run.id, "reply_thread", reply).message == "That reply may already be posted: read the thread before replying again.")
+        #expect(r.host.log.filter { $0.hasPrefix("reply") }.count == 1, "the retry posted nothing")
+        #expect(r.world.run(r.run.id)?.pendingWrites.isEmpty == true)
+        // A deliberate reply, after reading the thread, is posted and saved before it is answered.
+        #expect(await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r2", "thread": "d1", "body": "Renamed."]).value?["replied"] == true)
+        #expect(try r.world.workspace.file.load().run(id: r.run.id)?.threadReplies == ["r2": "d1"])
     }
 }

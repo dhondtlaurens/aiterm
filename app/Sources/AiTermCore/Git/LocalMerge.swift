@@ -48,7 +48,8 @@ public enum LocalMerge {
         guard sha.count >= 40, sha.allSatisfy(\.isHexDigit) else { throw Refusal.invalidCommit(sha) }
         // `symbolic-ref --quiet` exits 1 on a detached HEAD.
         let current = try git.ask(["symbolic-ref", "--quiet", "--short", "HEAD"], in: path, none: [1])
-        guard let current, Repository.folded(Repository.shortBranch(current)) == Repository.folded(Repository.shortBranch(defaultBranch)) else {
+        // Exact ref names: on a case-insensitive disk a checked-out `Main` is another branch than `main`.
+        guard let current, Repository.shortBranch(current) == Repository.shortBranch(defaultBranch) else {
             throw Refusal.notOnDefaultBranch(path, current: current, defaultBranch: defaultBranch)
         }
         // Untracked files stay where they are; git refuses itself to overwrite one.

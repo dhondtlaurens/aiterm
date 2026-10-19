@@ -67,6 +67,8 @@ public struct GitHubClient: Sendable {
     /// How many review threads one page of `reviewThreads` asks for, and how many pages it reads
     /// at most.
     static let threadsPerPage = 100, threadPages = 10
+    /// How many pages `threads` and `approvals` read before they give up: past it the list is no answer.
+    static let threadPagesRead = 50
 
     /// One query, never a mutation: the threads of a pull request and whether each is resolved.
     static let threadsQuery = """
@@ -254,11 +256,12 @@ public struct GitHubClient: Sendable {
 
     /// Takes it out of draft. REST cannot, so this is GraphQL's `markPullRequestReadyForReview`, on the
     /// pull request's node id. One that is not a draft is not written to.
-    public func markReady(repo: String, number: Int) async throws {
+    public func markReady(repo: String, number: Int, beforeWrite: @Sendable () async throws -> Void = {}) async throws {
         struct Pull: Decodable { var nodeId: String?, draft: Bool? }
         let pull = try await get(Pull.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
         guard pull.draft == true else { return }
         guard let node = pull.nodeId else { throw GitHubError.decoding }
+        try await beforeWrite()
         struct Variables: Encodable { var id: String }
         struct Done: Decodable {}
         _ = try await graphQL(Done.self, query: Self.readyMutation, variables: Variables(id: node), repo: repo)
@@ -286,7 +289,9 @@ public struct GitHubClient: Sendable {
         }
         """
 
-    /// Its review threads, as `reviewThreads` pages them, each with its node id and its last comment.
+    /// Its review threads, each with its node id and its last comment, read to the last page: a page past
+    /// `threadPagesRead`, a cursor that does not move on or a thread that does not decode throws `IncompleteRead`, so
+    /// nothing is decided on part of them.
     public func threads(repo: String, number: Int) async throws -> [ReviewThread] {
         guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
         struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
@@ -298,18 +303,20 @@ public struct GitHubClient: Sendable {
         struct Repository: Decodable { var pullRequest: PullRequest? }
         struct Payload: Decodable { var repository: Repository? }
         var threads: [ReviewThread] = [], cursor: String?
-        for _ in 0..<Self.threadPages {
+        for _ in 0..<Self.threadPagesRead {
             let variables = ThreadsRequest.Variables(owner: owner, name: name, number: number, after: cursor)
             let page = try await graphQL(Payload.self, query: Self.threadDetailsQuery, variables: variables, repo: repo)
             guard let found = page.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
-            threads += found.nodes.compactMap { $0.value }.map { node in
+            for entry in found.nodes {
+                guard let node = entry.value else { throw IncompleteRead("review threads") }
                 let last = node.comments?.nodes?.last
-                return ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? "")
+                threads.append(ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? ""))
             }
-            guard found.pageInfo.hasNextPage, let next = found.pageInfo.endCursor else { break }
+            guard found.pageInfo.hasNextPage else { return threads }
+            guard let next = found.pageInfo.endCursor, next != cursor else { throw IncompleteRead("review threads") }
             cursor = next
         }
-        return threads
+        throw IncompleteRead("review threads")
     }
 
     static let replyMutation = """
@@ -336,11 +343,20 @@ public struct GitHubClient: Sendable {
             .map { HostUser(username: $0.login, name: nil) }
     }
 
-    /// Who approved it, by login: each reviewer's latest review that approves or asks for changes counts.
+    /// Who approved it, by login: each reviewer's latest review that approves or asks for changes counts. Every page
+    /// is read, a page of 100 at a time until an empty one; `threadPagesRead` pages without reaching it throws
+    /// `IncompleteRead`, as a later review may take an approval back.
     public func approvals(repo: String, number: Int) async throws -> [String] {
         struct Review: Decodable { struct User: Decodable { var login: String? }; var user: User?, state: String? }
-        let reviews = try await get([Review].self, path: "/repos/\(repo)/pulls/\(number)/reviews",
-                                    query: [URLQueryItem(name: "per_page", value: "100")], notFound: .repoNotFound(repo))
+        var reviews: [Review] = [], read = false
+        for page in 1...Self.threadPagesRead {
+            let batch = try await get([Review].self, path: "/repos/\(repo)/pulls/\(number)/reviews",
+                                      query: [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))],
+                                      notFound: .repoNotFound(repo))
+            if batch.isEmpty { read = true; break }
+            reviews += batch
+        }
+        guard read else { throw IncompleteRead("reviews") }
         var latest: [String: String] = [:], order: [String] = []
         for review in reviews {
             guard let login = review.user?.login, let state = review.state, state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "DISMISSED" else { continue }
