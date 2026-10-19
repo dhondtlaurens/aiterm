@@ -248,7 +248,7 @@ final class AppController {
         // The OPERATORS group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
         let operators = operatorController
-        rows.actingSource = { [weak operators] in operators?.acting ?? [] }
+        rows.actingSource = { [weak operators] in operators?.acting ?? .none }
         operators.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
         // A chosen broadcast without a window — closed, or its Operator offline — is the operator

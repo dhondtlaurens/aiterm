@@ -38,6 +38,9 @@ final class WorkerStarter {
     /// Said when a start blocks its task: you are asked (spec §8).
     var onBlocked: @MainActor (TaskItem, String) -> Void = { _, _ in }
     var onUncertain: @MainActor (TaskItem) -> Void = { _ in }
+    /// Told when a start or a reopen begins and ends: the task's line says `starting Claude` or
+    /// `reopening its window` meanwhile (the controller's `acting`).
+    var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
          taskFrame: @escaping @MainActor () -> Frame, ports: OperatorPorts) {
@@ -146,6 +149,9 @@ final class WorkerStarter {
     func launch(_ id: UUID, attempt: LaunchAttempt, before: OperatedTask? = nil) async {
         guard let task = state.task(id: id), let operated = task.operated, state.run(id: operated.runId) != nil,
               let project = state.project(id: task.projectId), let daemon = daemon() else { return }
+        let activity = OperatorActivity(run: operated.runId, task: id, act: .starting)
+        onActing(activity, true)
+        defer { onActing(activity, false) }
         let git = ports.git
         do {
             let start = try await startPoint(of: id, in: project)
@@ -243,8 +249,13 @@ final class WorkerStarter {
               task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.conversations.first(where: { $0.agent == task.agent }),
               let daemon = daemon() else { return nil }
         starting.insert(id)
+        let reopening = OperatorActivity(run: operated.runId, task: id, act: .reopeningItsWindow)
+        onActing(reopening, true)
         return Task {
-            defer { starting.remove(id) }
+            defer {
+                starting.remove(id)
+                onActing(reopening, false)
+            }
             do {
                 let command = AgentCommand.resumeWorker(agent: task.agent, conversation: conversation.id, model: task.model,
                                                         reasoning: task.reasoning)
@@ -336,6 +347,9 @@ final class WorkerStarter {
             release(task.id, claimedAs: attempt, to: before)
             return
         }
+        let activity = OperatorActivity(run: operated.runId, task: task.id, act: .starting)
+        onActing(activity, true)
+        defer { onActing(activity, false) }
         let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: Self.prompt(for: task, operated: operated),
                                                  ownership: operated.ownership, wake: false, worktree: task.worktreePath)
         if delivery == nil || delivery?.result == .refused {

@@ -42,6 +42,16 @@ protocol OperatorJira: Sendable {
 
 extension JiraClient: OperatorJira {}
 
+/// One of the Operator's acts while AiTerm carries it out (`OperatorAct`): about one task, or the
+/// broadcast's own (`task` nil). Each is its own, so two at once (a call and the Oracle it consults)
+/// end apart.
+struct OperatorActivity: Hashable, Sendable {
+    let id = UUID()
+    let run: UUID
+    let task: UUID?
+    let act: OperatorAct
+}
+
 /// Answers the operator's tools (spec §6), each forwarded by the daemon as an `operator.request` and
 /// answered with an `operator.reply`. The app is the only writer of runs and tasks, so every tool's
 /// effect is a workspace change made here; the operator's view of it is `run_status`, numbered by what
@@ -76,8 +86,9 @@ final class OperatorToolHandler {
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
     private(set) var lastReply: Task<Void, Never>?
-    /// Told when a call starts and stops acting on a task: the controller's `acting`.
-    var onActing: @MainActor (UUID, Bool) -> Void = { _, _ in }
+    /// Told when one of the Operator's acts starts and ends: the controller's `acting`, which the status
+    /// lines say (`OperatorLine`).
+    var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
     /// Said after an operator's own change to its run: what may start now starts.
     var onChange: @MainActor (UUID) -> Void = { _ in }
     /// Carries out a task's recorded end (G10): the controller's `TaskFinisher`.
@@ -85,8 +96,43 @@ final class OperatorToolHandler {
         TaskFinisher.Result(result: "refused", reason: "AiTerm isn’t ready to publish yet.")
     }
 
-    /// The tools that act on one task while they run: its row's operator mark breathes meanwhile.
-    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task", "request_review", "reply_thread"]
+    /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
+    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task", "review_task", "request_review", "reply_thread"]
+    /// The tools that are the broadcast's own acts while they run.
+    static let actsOnBroadcast: [String: OperatorAct] = ["create_task": .loadingTheConstruct, "update_task": .loadingTheConstruct,
+                                                         "submit_plan": .loadingTheConstruct, "jira_create": .filingATicket,
+                                                         "report_find": .filingATicket]
+
+    /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
+    /// under way, fixing their feedback; checking the work; opening the MR or merging, by the task's end.
+    static func act(for tool: String, on task: TaskItem) -> OperatorAct? {
+        let operated = task.operated
+        switch tool {
+        case "message_task": return operated?.state == .inReview ? .fixingReviewFeedback : .answering
+        case "mark_task": return .checkingTheWork
+        case "review_task": return .reviewingWith
+        case "request_review": return .assigning
+        case "reply_thread": return .fixingReviewFeedback
+        case "finish_task":
+            switch operated?.end ?? .commit {
+            case .commit: return .checkingTheWork
+            case .draftMR: return .openingTheMR
+            case .merge: return operated?.publication?.mergeRequestURL == nil ? .openingTheMR : .merging
+            case .mergeLocal: return .merging
+            }
+        default: return nil
+        }
+    }
+
+    /// The act a call carries out while it runs, if it is one of the Operator's.
+    func activity(for call: ToolCall, in run: UUID) -> OperatorActivity? {
+        if Self.actsOnTask.contains(call.tool) {
+            guard let task = call.optionalString("task").flatMap({ state.task(inRun: run, named: $0) }),
+                  let act = Self.act(for: call.tool, on: task) else { return nil }
+            return OperatorActivity(run: run, task: task.id, act: act)
+        }
+        return Self.actsOnBroadcast[call.tool].map { OperatorActivity(run: run, task: nil, act: $0) }
+    }
 
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
@@ -124,9 +170,9 @@ final class OperatorToolHandler {
         guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else { return .error("This operation is no longer in AiTerm.") }
         guard run.state != .stopped, run.intent != .stopped else { return .error("This operation has ended; its tools no longer act.") }
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
-        let actingOn = Self.actsOnTask.contains(call.tool) ? call.optionalString("task").flatMap { state.task(inRun: id, named: $0)?.id } : nil
-        if let actingOn { onActing(actingOn, true) }
-        defer { if let actingOn { onActing(actingOn, false) } }
+        let activity = activity(for: call, in: id)
+        if let activity { onActing(activity, true) }
+        defer { if let activity { onActing(activity, false) } }
         do {
             if let recorded = try replayedMessage(call, in: run) { return .result(recorded) }
             if let instead = try await challengeGate(call, in: run) { return .result(instead) }

@@ -127,11 +127,16 @@ extension OperatorToolHandler {
             let verdict = await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects)
             return Task.isCancelled ? nil : Self.capped(verdict)
         }
+        // The Oracle is consulted until it answers, however long that outlasts the call: the lines say so.
+        let consulting = OperatorActivity(run: run.id, task: call.optionalString("task").flatMap { state.task(inRun: run.id, named: $0)?.id },
+                                          act: .consultingTheOracle)
+        onActing(consulting, true)
         // Kept for the operator's next call, when it outlasts this one's reply.
         let settled = Task { [weak self] in
             let verdict = await withTaskCancellationHandler { await challenge.value } onCancel: { challenge.cancel() }
             guard let self else { return }
             runningChallenges[id] = nil
+            onActing(consulting, false)
             guard let verdict, state.run(id: run.id)?.challenges.first(where: { $0.id == id })?.stage == .running else { return }
             updateChallenge(id, in: run.id) { kept in
                 switch verdict {

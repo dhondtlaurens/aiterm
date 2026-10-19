@@ -160,7 +160,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)`; the operator's mark is `.paper` with `headphones` (`OperatorAvatar`) |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)`; the Operator header's mark is `.paper` with `headphones` (`OperatorHeaderRow`, until the plan's Task 14) |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -188,7 +188,7 @@ vendor needs both.
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
-`OperatorsHeader`, `OperatorHeaderRow`, `OperationRowView`, `OperationCaptionLine`, `OperatorAvatar`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
+`OperatorsHeader`, `OperatorHeaderRow`, `OperationRowView`, `OperationCaptionLine`, `OperatorBadge`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
@@ -239,15 +239,21 @@ task row's grid (`OperationRowView`): the agents at work, the name, `OperationCa
 progress as a quiet `Badge` and an attention `StatusCountChips`, both opening the overview, or the
 operation's state when that says more — and the operation's own `StatusMark`. A click or ↩ brings the
 operator's window forward; ⌘I opens the overview; its menu adds Rename… (`NameSheet`), Pause or
-Resume and End Operation…. Menus and buttons are Title Case, as everywhere. The
-operator's mark (`OperatorAvatar`) is a `.paper` `SymbolMark` with `headphones`, the same for every
-operator; it leads a driven task's avatars, and while the operator acts on that task wears a
-1.5 pt accent ring that breathes, standing still under Reduce Motion — its own one-off stroke width
-(`OperatorAvatar.activityRing`), since `Size.activityRing` went with the greenfield design that
-replaces this mark. A driven task's menu leads with Take Over or Hand Back, and Stop Task… (it
-asks first) while the task is open. A driven task's workflow is a `RowCaption` under its badges,
-decided by `SidebarModel.operatedCaption`; the rows are values in
-`AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `NewOperationSheet` and `OperationOverviewSheet`
+Resume and End Operation…. Menus and buttons are Title Case, as everywhere. The header's mark is a
+`.paper` `SymbolMark` with `headphones`. A driven task's avatars are its own agents, as any task's are;
+its third line is the Operator's status line, `OperatorBadge(line:)`, and its menu leads with Take Over
+or Hand Back, and Stop Task… (it asks first) while the task is open. Everything the Operator says on a
+status line is that badge: Claude's `VendorMark` at `Size.inlineMark`, the Oracle's beside it
+(overlapping by `Space.tight`, ringed in the surface's occluding colour) while the Oracle is consulted,
+then the words in `Typography.monoChip`, always one `Size.chip` line cut with an ellipsis, the whole in
+its tooltip. Quiet has no box and the surface's secondary ink; acting has no box and its words shimmer,
+a band of the surface's ink sweeping over its secondary ink every 1.6 s, standing still in the surface's
+ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
+`Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
+decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
+broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
+by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
+operation rows are values in `AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `NewOperationSheet` and `OperationOverviewSheet`
 (a board on its side, decided by `OperationOverview`) — use `SheetLayout`, `SheetSubtitle` and `SheetFooter` like
 every other. No new `Palette` member.
 

@@ -25,14 +25,14 @@ final class SidebarProjection {
     private(set) var operatorSections: [OperatorSection] = []
     /// Each live or ended run by id: what an operation's row and its overview read.
     private(set) var runs: [UUID: OperatorRun] = [:]
-    /// The tasks the operator is acting on now, as `actingSource` last said.
-    private(set) var acting: Set<UUID> = []
+    /// What the Operator is doing now, to each task and each broadcast, as `actingSource` last said.
+    private(set) var acting: OperatorActs = .none
     /// The operators folded to their header, by handle. Not saved: an operator's file holds who it is,
     /// not how the sidebar shows it, and the group opens unfolded at launch.
     private(set) var foldedOperators: Set<String> = []
-    /// The tasks the Operator acts on, read on every derivation. The app points it at its
+    /// What the Operator is doing, read on every derivation. The app points it at its
     /// `OperatorController`; a test or a snapshot at values of its own.
-    @ObservationIgnored var actingSource: @MainActor () -> Set<UUID> = { [] }
+    @ObservationIgnored var actingSource: @MainActor () -> OperatorActs = { .none }
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
     var hasProjects: Bool { !sections.isEmpty }
@@ -59,7 +59,7 @@ final class SidebarProjection {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
-        var runs: [OperatorRun], acting: Set<UUID>, folded: Set<String>
+        var runs: [OperatorRun], acting: OperatorActs, folded: Set<String>
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
@@ -81,11 +81,11 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
-        let operatorSections = SidebarModel.operatorSections(state: state, acting: next.acting,
+        let operatorSections = SidebarModel.operatorSections(state: state, acting: Set(next.acting.tasks.keys),
                                                              folded: next.folded)
         if operatorSections != self.operatorSections { self.operatorSections = operatorSections }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
-                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting)
+                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks)
         // Rebuilt only when their own list changed, since most derivations are for a status; and
         // written only when the lookup differs, which a reordered list leaves as it was.
         if next.tasks != previous?.tasks {

@@ -108,9 +108,20 @@ final class OperatorController {
     /// Whether `live.sessions` is iTerm2's whole list — a connected snapshot has come since the helper
     /// attached and iTerm2 has not gone — so a tab missing from it is a tab closed.
     @ObservationIgnored private(set) var tabsKnown = false
-    /// The tasks the operator is acting on right now — a `message_task` or `mark_task` in flight: their
-    /// rows' operator mark breathes (spec §10.4).
-    private(set) var acting: Set<UUID> = [] { didSet { if acting != oldValue { changed() } } }
+    /// The Operator's acts AiTerm is carrying out now, in the order each began: a tool call in flight, the
+    /// Oracle consulted, a worker starting or its window reopening. The status lines say them (`acting`).
+    private(set) var activities: [OperatorActivity] = [] { didSet { if activities != oldValue { changed() } } }
+    /// What the Operator is doing, as the status lines read it: each task's latest act, and each
+    /// broadcast's latest, its task named by its key.
+    var acting: OperatorActs {
+        var acts = OperatorActs()
+        for activity in activities {
+            if let task = activity.task { acts.tasks[task] = activity.act }
+            let key = activity.task.flatMap { workspace.state.task(id: $0)?.operated?.key }
+            acts.runs[activity.run] = OperatorActs.Broadcast(act: activity.act, task: key)
+        }
+        return acts
+    }
     @ObservationIgnored private var changeHooks: [@MainActor () -> Void] = []
     /// The runs and operated tasks as the hooks last heard of them.
     @ObservationIgnored private var lastHeard: ([OperatorRun], [TaskItem]) = ([], [])
@@ -151,7 +162,8 @@ final class OperatorController {
             self?.observeRuns()
             self?.heardWorkspace()
         }
-        tools.onActing = { [weak self] task, on in self?.setActing(task, on) }
+        tools.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
+        starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
@@ -196,9 +208,9 @@ final class OperatorController {
 
     func changed() { for hook in changeHooks { hook() } }
 
-    /// The tool handler's report of what the operator is acting on.
-    func setActing(_ task: UUID, _ on: Bool) {
-        if on { acting.insert(task) } else { acting.remove(task) }
+    /// The tool handler's and the starter's report of an act beginning or ending.
+    func setActing(_ activity: OperatorActivity, _ on: Bool) {
+        if on { activities.append(activity) } else { activities.removeAll { $0.id == activity.id } }
     }
 
     var runs: [OperatorRun] { workspace.state.runs }

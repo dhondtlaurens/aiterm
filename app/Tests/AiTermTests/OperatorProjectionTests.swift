@@ -48,14 +48,14 @@ struct OperatorProjectionTests {
         let project = OperatorUIFixtures.project("pluto-web"), run = OperatorUIFixtures.run()
         let task = OperatorUIFixtures.task("The homepage section", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
-        let acting = Box<Set<UUID>>([])
+        let acting = Box<OperatorActs>(.none)
         rows.actingSource = { acting.value }
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .driving)
-        acting.value = [task.id]
+        #expect(rows.sections[0].tasks[0].operatorLine?.look == .quiet)
+        acting.value = OperatorActs(tasks: [task.id: .answering])
         rows.refresh()
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .acting)
-        #expect(rows.acting == [task.id])
+        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("answering Claude", look: .acting))
+        #expect(rows.acting.tasks == [task.id: .answering])
     }
 
     // -- each input alone re-derives the rows ----------------------------------------
@@ -67,7 +67,7 @@ struct OperatorProjectionTests {
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
         #expect(rows.operatorSections[0].operations.map(\.id) == [run.id])
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .driving)
+        #expect(rows.sections[0].tasks[0].operatorLine != nil)
 
         // The tasks, the items and the sessions stay as they were: only the run's state moves.
         var stopped = run
@@ -77,7 +77,7 @@ struct OperatorProjectionTests {
         #expect(rows.derivations == before + 1, "a runs-only change is a change to the rows")
         #expect(rows.runs[run.id]?.state == .stopped)
         #expect(rows.operatorSections.isEmpty, "an ended broadcast leaves the group, and with none running so does its header")
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == nil, "and the task it drove loses the operator's mark")
+        #expect(rows.sections[0].tasks[0].operatorLine == nil, "and the task it drove loses the Operator's line")
     }
 
     @Test func aChangeOnlyToWhatTheOperatorActsOnDerivesTheDrivenRowAgain() throws {
@@ -86,18 +86,20 @@ struct OperatorProjectionTests {
         let task = OperatorUIFixtures.task("The homepage section", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .driving)
+        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("working"))
 
         // Through the operator controller's own hook, as the tool handler reports it.
         let before = rows.derivations
-        controller.operatorController.setActing(task.id, true)
+        let answering = OperatorActivity(run: run.id, task: task.id, act: .answering)
+        controller.operatorController.setActing(answering, true)
         #expect(rows.derivations == before + 1, "acting alone is a change to the rows")
-        #expect(rows.acting == [task.id])
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .acting)
+        #expect(rows.acting.tasks == [task.id: .answering])
+        #expect(rows.acting.broadcast(run.id)?.0 == .answering && rows.acting.broadcast(run.id)?.task == "pluto-232")
+        #expect(rows.sections[0].tasks[0].operatorLine?.look == .acting)
 
-        controller.operatorController.setActing(task.id, false)
-        #expect(rows.acting.isEmpty)
-        #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .driving)
+        controller.operatorController.setActing(answering, false)
+        #expect(rows.acting == .none)
+        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("working"))
     }
 
     @Test func runsWithTheSameIdDoNotTrapTheLookup() throws {

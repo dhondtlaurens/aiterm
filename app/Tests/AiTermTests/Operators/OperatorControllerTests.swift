@@ -114,7 +114,7 @@ import Testing
         world.workspace.mutate { $0.sidebarFrame = CGRect(x: 0, y: 0, width: 10, height: 10) }
         world.controller.mutateRun(run.id) { $0.name = "Renamed" }
         #expect(heard == 1)
-        world.controller.setActing(UUID(), true)
+        world.controller.setActing(OperatorActivity(run: run.id, task: nil, act: .loadingTheConstruct), true)
         #expect(heard == 2)
     }
 

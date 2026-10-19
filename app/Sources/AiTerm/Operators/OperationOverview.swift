@@ -101,18 +101,18 @@ struct OperationOverview: Equatable {
                                     title: operated.blockedReason ?? "\(agent) needs you", link: .openTask(task.id)))
                 continue
             }
-            let presence = SidebarModel.operatorPresence(task: task, run: run, acting: acting.contains(task.id))
             // Taken over only while the task is going and has not failed, as its row's caption says.
             let takenOver = operated.takenOver && operated.state.isOpen && operated.state != .failed
+            let answering = acting.contains(task.id) && !operated.takenOver && run.state != .stopped
             switch operated.state {
             case .working, .inReview, .failed, .blocked:
                 let detail = takenOver ? "taken over"
                     : operated.state == .inReview ? "in review"
                     : operated.state == .failed ? "failed" + (operated.blockedReason.map { " · " + $0 } ?? "")
-                    : presence == .acting ? "answering \(agent)"
+                    : answering ? "answering \(agent)"
                     : operated.flags.contains(.possiblyStalled) ? "possibly stalled" : ""
                 working.append(Item(id: task.id.uuidString, mark: .working, key: key, title: task.title, detail: detail,
-                                    avatars: AvatarGroup(marks: [task.agent.session], overflow: 0, operatorPresence: presence)))
+                                    avatars: AvatarGroup(marks: [task.agent.session], overflow: 0)))
             case .planned, .queued:
                 upNext.append(Item(id: task.id.uuidString, mark: .upNext, key: key, title: task.title,
                                    detail: takenOver ? "taken over" : Self.dependency(of: operated, tasks: byId) ?? ""))

@@ -71,8 +71,8 @@ struct OperationOverviewTests {
                                                                      title: "Codex asks to run npm install", link: .openTask(footerId))])
         #expect(overview.groups[1].items.map(\.title) == ["The homepage section", "nuxt 3.19.2 → 3.19.4"])
         #expect(overview.groups[1].items[0].detail == "answering Claude")
-        #expect(overview.groups[1].items[0].avatars == AvatarGroup(marks: [.claude], overflow: 0, operatorPresence: .acting))
-        #expect(overview.groups[1].items[1].avatars == AvatarGroup(marks: [.codex], overflow: 0, operatorPresence: .driving))
+        #expect(overview.groups[1].items[0].avatars == AvatarGroup(marks: [.claude], overflow: 0))
+        #expect(overview.groups[1].items[1].avatars == AvatarGroup(marks: [.codex], overflow: 0))
         #expect(overview.groups[2].items.map(\.detail) == ["4f2a91c"])
         #expect(overview.decisionsTitle == "Decided on its own · 1")
         #expect(overview.decisions.map(\.why) == ["Overrule it in the window if not."])
@@ -97,7 +97,6 @@ struct OperationOverviewTests {
         #expect(overview.groups[0].items == [OperationOverview.Item(id: "scope", mark: .waiting, key: .question,
                                                                      title: "Should the block be on every page?", link: .answerInWindow)])
         #expect(overview.groups[1].items[0].detail == "taken over")
-        #expect(overview.groups[1].items[0].avatars?.operatorPresence == nil, "you have it now")
         #expect(overview.groups[2].items.map(\.detail) == ["", "", ""])
         #expect(overview.footer == .paused)
         #expect(OperationOverview.make(run: OperatorUIFixtures.run(state: .operatorOffline), state: AppState()).footer == .paused)
@@ -114,7 +113,6 @@ struct OperationOverviewTests {
         let overview = OperationOverview.make(run: run, state: state(run, all))
         #expect(overview.groups.map(\.title) == ["Working", "Done"])
         #expect(overview.groups[0].items.map(\.detail) == ["failed", "", ""])
-        #expect(overview.groups[0].items[0].avatars?.operatorPresence == nil)
         #expect(SidebarModel.operationRow(run: run, tasks: all).attention == 0)
     }
 

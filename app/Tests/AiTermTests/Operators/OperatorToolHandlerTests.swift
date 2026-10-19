@@ -376,18 +376,46 @@ import Testing
         let task = workingTask(in: run)
         let world = try makeWorld(run, tasks: [task])
         var events: [String] = []
-        world.controller.tools.onActing = { id, on in events.append("\(id == task.id ? "T1" : "?") \(on)") }
+        world.controller.tools.onActing = { activity, on in
+            events.append("\(activity.task == task.id ? "T1" : "?") \(activity.act.rawValue) \(on)")
+        }
         _ = await world.call(run.id, "finish_task", ["task": "T1"])
-        #expect(events == ["T1 true", "T1 false"])
+        #expect(events == ["T1 checkingTheWork true", "T1 checkingTheWork false"])
         events = []
         _ = await world.call(run.id, "message_task", ["task": .string(task.id.uuidString), "text": "hi"])
-        #expect(events == ["T1 true", "T1 false"])
-        // A tool that does not act on a task, or names none, tells nothing; the row is not left breathing.
+        #expect(events == ["T1 answering true", "T1 answering false"])
+        // A tool that is none of the Operator's acts, or names no task of the run, tells nothing.
         events = []
         _ = await world.call(run.id, "run_status")
         _ = await world.call(run.id, "finish_task", ["task": "nope"])
         #expect(events.isEmpty)
-        #expect(world.controller.acting.isEmpty)
+        #expect(world.controller.acting == .none)
+    }
+
+    /// Each tool that is one of the Operator's acts maps to its act, by what the task is doing and how it ends.
+    @Test func eachActingToolIsItsAct() {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        func act(_ tool: String, _ state: OperatedState = .working, end: TaskEnd = .commit, request: Bool = false) -> OperatorAct? {
+            var task = workingTask(in: run)
+            task.operated?.state = state
+            task.operated?.end = end
+            if request { task.operated?.publication = TaskPublication(mergeRequestURL: "https://gitlab.example/a/-/merge_requests/1") }
+            return OperatorToolHandler.act(for: tool, on: task)
+        }
+        #expect(act("message_task") == .answering)
+        #expect(act("message_task", .inReview) == .fixingReviewFeedback)
+        #expect(act("reply_thread", .inReview) == .fixingReviewFeedback)
+        #expect(act("mark_task") == .checkingTheWork)
+        #expect(act("review_task") == .reviewingWith)
+        #expect(act("request_review") == .assigning)
+        #expect(act("finish_task") == .checkingTheWork)
+        #expect(act("finish_task", end: .draftMR) == .openingTheMR)
+        #expect(act("finish_task", end: .merge) == .openingTheMR)
+        #expect(act("finish_task", .inReview, end: .merge, request: true) == .merging)
+        #expect(act("finish_task", end: .mergeLocal) == .merging)
+        #expect(act("run_status") == nil && act("read_task") == nil)
+        #expect(OperatorToolHandler.actsOnBroadcast["submit_plan"] == .loadingTheConstruct)
+        #expect(OperatorToolHandler.actsOnBroadcast["jira_create"] == .filingATicket)
     }
 
     // MARK: - Gate C: Jira writes wait while the operation does not run, and a lost answer makes no second ticket

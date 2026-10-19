@@ -102,10 +102,10 @@ import Testing
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
         let sending = Task { await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "Go on."]) }
         try await daemon.received("session.deliver")
-        #expect(world.controller.acting == [task.id])
+        #expect(world.controller.acting.tasks == [task.id: .answering])
         daemon.release()
         _ = await sending.value
-        #expect(world.controller.acting.isEmpty)
+        #expect(world.controller.acting == .none)
     }
 
     @Test func markTaskAcceptsOnlyTheCommitItsBranchIsOnAndARepeatReturnsTheSame() async throws {

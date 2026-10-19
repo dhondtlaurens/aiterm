@@ -106,6 +106,20 @@ import Testing
         #expect(world.run(run.id)?.planRevision == 1)
     }
 
+    /// The broadcast's line says `consulting the Oracle` while the Oracle runs, however long it outlasts the
+    /// call that asked it, and the act ends when it answers.
+    @Test func theOracleIsConsultedUntilItAnswers() async throws {
+        let (world, run) = try await makeWorld(runner: .answering("Too broad.", after: .milliseconds(300)), budget: .milliseconds(20))
+        let first = await world.call(run.id, "submit_plan", ["revision": 1])
+        #expect(first.value?["pending"] == true)
+        #expect(world.controller.acting.broadcast(run.id)?.0 == .consultingTheOracle, "the call has ended; the Oracle has not")
+        let line = OperatorLine.broadcast(try #require(world.run(run.id)), tasks: world.workspace.state.tasks(inRun: run.id),
+                                          acting: world.controller.acting.broadcast(run.id), requests: [])
+        #expect(line.text == "consulting the Oracle" && line.look == .acting && line.oracle && line.oracleAgent == .claude)
+        await world.controller.tools.lastChallenge?.value
+        #expect(world.controller.acting == .none)
+    }
+
     /// With the Oracle on, the first plan and the verdicts on a task (spec §8); with it off, nothing. A message
     /// to a worker never is, and create_task's veto is the backlog's, not a critique.
     @Test func whichCallsTheOracleChallenges() {

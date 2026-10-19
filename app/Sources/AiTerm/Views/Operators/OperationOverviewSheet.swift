@@ -159,7 +159,7 @@ struct OperationOverviewHost: View {
 
     var body: some View {
         if let run = controller.rows.runs[runId], run.state != .stopped {
-            OperationOverviewSheet(overview: .make(run: run, state: controller.state, acting: controller.rows.acting),
+            OperationOverviewSheet(overview: .make(run: run, state: controller.state, acting: Set(controller.rows.acting.tasks.keys)),
                                    actions: controller.overviewActions(for: run, dismiss: { dismiss.afterThisEvent() }))
         } else {
             Color.clear.frame(width: Sheet.width, height: Size.control).onAppear { dismiss.afterThisEvent() }

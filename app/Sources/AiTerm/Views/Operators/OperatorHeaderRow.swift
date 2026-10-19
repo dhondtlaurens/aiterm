@@ -26,6 +26,8 @@ struct OperatorsHeader: View {
 /// column), its name, folded its broadcasts' counts, and a "+" for New Operation…, which is also its
 /// menu. Not on the arrow path, as it has no window. The plan's Task 14 replaces it.
 struct OperatorHeaderRow: View {
+    /// The Operator's mark until Task 14 draws its agent's: the operator on the line.
+    static let symbol = "headphones"
     let section: OperatorSection
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
@@ -36,7 +38,7 @@ struct OperatorHeaderRow: View {
             HStack(spacing: scale(Space.base)) {
                 HeaderChevron(collapsed: section.collapsed).frame(width: SidebarRowLayout.chevronWidth(scale))
                     .opacity(section.isEmpty ? 0 : 1)
-                SymbolMark(symbol: OperatorAvatar.symbol, size: scale(Size.chip), style: .paper)
+                SymbolMark(symbol: Self.symbol, size: scale(Size.chip), style: .paper)
                     .frame(width: scale(Size.avatar), height: scale(Size.avatar))
                 HeaderTitle(text: section.name)
                 Spacer(minLength: scale(Space.tight))

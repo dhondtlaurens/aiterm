@@ -68,9 +68,9 @@ struct OperatorScene {
          task(bump, "nuxt 3.19.2 → 3.19.4", agent: .codex, in: web, run: signupId, states[3], end: ends[3], sha: shas[3])]
     }
 
-    /// Puts `runs` and `tasks` in the workspace, the tabs of the tasks at work, and what the operator acts on.
-    func show(_ runs: [OperatorRun], _ tasks: [TaskItem], acting: Set<UUID> = []) {
-        controller.rows.actingSource = { acting }
+    /// Puts `runs` and `tasks` in the workspace, the tabs of the tasks at work, and what the operator does to each.
+    func show(_ runs: [OperatorRun], _ tasks: [TaskItem], acting: [UUID: OperatorAct] = [:]) {
+        controller.rows.actingSource = { OperatorActs(tasks: acting) }
         controller.workspace.mutate { state in state.runs = runs; state.tasks = tasks }
         controller.live.sessions = tasks.compactMap { task -> SessionInfo? in
             guard let operated = task.operated, operated.state == .working else { return nil }
@@ -85,7 +85,7 @@ struct OperatorScene {
     /// Codex asking about npm install — and Nuxt upgrade still planning.
     static func atWork(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
         let signup = scene.run(scene.signupId, "Newsletter signup", .active,
-                               questions: [OperatorQuestion(id: "npm", text: "Codex asks to run npm install", task: scene.footer,
+                               questions: [OperatorQuestion(id: "prompt-\(scene.footer.uuidString)-1", text: "Codex asks to run npm install", task: scene.footer,
                                                             askedAt: Snapshots.clock.now, resolution: nil)],
                                decisions: [OperatorDecision(key: "subtitle", text: "Gave the block an optional subtitle field: the design shows one, the ticket doesn’t mention it.",
                                                             task: scene.schema, at: Snapshots.clock.now, challenge: nil)])
@@ -93,7 +93,7 @@ struct OperatorScene {
         let upgrade = scene.task(scene.upgrade, "Upgrade Nuxt to 3.20", in: scene.web, run: scene.nuxtId, .planned)
         scene.show([signup, nuxt], scene.signupTasks([.accepted, .working, .working, .working], shas: ["4f2a91c", nil, nil, nil],
                                                      footerFlags: [.waitingOnYou]) + [upgrade],
-                   acting: [scene.homepage])
+                   acting: [scene.homepage: .answering])
         return scene
     }
 
@@ -182,8 +182,10 @@ enum OperatorSnapshots {
             scene.task(UUID(), "Tidy the footer", in: web, run: run, .working, takenOver: true),
         ]
         scene.show([scene.run(run, "Newsletter signup", .active, questions: [
-            OperatorQuestion(id: "npm", text: "Codex asks to run npm install", task: rows[4].id, askedAt: Snapshots.clock.now, resolution: nil),
-        ])], rows, acting: [scene.homepage])
+            // A worker's prompt, as `OperatorController.probePrompt` records one.
+            OperatorQuestion(id: "prompt-\(rows[4].id.uuidString)-1", text: "Codex asks to run npm install", task: rows[4].id,
+                             askedAt: Snapshots.clock.now, resolution: nil),
+        ])], rows, acting: [scene.homepage: .answering])
         let projection = scene.controller.rows
         return VStack(alignment: .leading, spacing: Space.hairline) {
             if let section = projection.sections.first(where: { $0.project.id == web.id }) {
@@ -197,25 +199,35 @@ enum OperatorSnapshots {
         .surface(.sidebar)
     }
 
-    /// The operator's mark alone and acting, leading Claude's and Codex's, and on a header's disc.
+    /// The operator badge in each look, on the sidebar and on the selection: quiet, acting (still, as
+    /// every snapshot draws it), the Oracle joining, needs you, and a detail cut to fit.
     private static func marks() -> some View {
-        HStack(spacing: Space.gap) {
-            OperatorAvatar(presence: .driving, size: Size.avatar)
-            OperatorAvatar(presence: .acting, size: Size.avatar)
-            AvatarGroupView(group: AvatarGroup(marks: [.claude], overflow: 0, operatorPresence: .acting))
-            AvatarGroupView(group: AvatarGroup(marks: [.codex], overflow: 0, operatorPresence: .driving))
-            SymbolMark(symbol: OperatorAvatar.symbol, size: Size.chip, style: .paper)
-            SymbolMark(symbol: OperatorAvatar.symbol, size: Size.control, style: .paper)
+        let lines = [
+            OperatorLine("queued · after PAY-232"),
+            OperatorLine("starting Claude", look: .acting),
+            OperatorLine("consulting the Oracle", look: .acting, oracle: true),
+            OperatorLine("waiting on you · retry policy?", look: .needsYou),
+            OperatorLine("blocked · the tests fail on main", look: .needsYou),
+            OperatorLine(OperatorLine.fit("waiting on you", "Should the signup block keep its subtitle on mobile?"), look: .needsYou),
+        ]
+        func column(_ surface: Surface, _ ground: Color) -> some View {
+            VStack(alignment: .leading, spacing: Space.base) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in OperatorBadge(line: line) }
+            }
+            .padding(Space.block)
+            .background(ground)
+            .surface(surface)
         }
-        .padding(Space.block)
-        .background(Palette.sidebar)
-        .surface(.sidebar)
+        return HStack(spacing: 0) {
+            column(.sidebar, Palette.sidebar)
+            column(.accent, Palette.selection)
+        }
     }
 
     private static func overview(_ scene: OperatorScene) -> some View {
         let state = scene.controller.state
         let run = scene.signup ?? scene.run(scene.signupId, "Newsletter signup", .active)
-        return OperationOverviewSheet(overview: .make(run: run, state: state, acting: scene.controller.rows.acting),
+        return OperationOverviewSheet(overview: .make(run: run, state: state, acting: Set(scene.controller.rows.acting.tasks.keys)),
                                       actions: OverviewActions())
     }
 }

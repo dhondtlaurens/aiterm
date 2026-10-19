@@ -31,14 +31,11 @@ public extension SessionInfo {
     }
 }
 
-/// A row's marks: up to `SidebarModel.avatarMax`, the last becoming `+n` — and, on a task an operator
-/// drives, the operator's mark first, which takes one of the two (`OperatorPresence`).
+/// A row's marks: up to `SidebarModel.avatarMax`, the last becoming `+n`. A task the Operator drives
+/// draws its own agents, as any task does: the Operator speaks on its line (`OperatorLine`).
 public struct AvatarGroup: Equatable, Sendable {
     public var marks: [SessionAgent]; public var overflow: Int
-    public var operatorPresence: OperatorPresence?
-    public init(marks: [SessionAgent], overflow: Int, operatorPresence: OperatorPresence? = nil) {
-        self.marks = marks; self.overflow = overflow; self.operatorPresence = operatorPresence
-    }
+    public init(marks: [SessionAgent], overflow: Int) { self.marks = marks; self.overflow = overflow }
 }
 /// A row's branch line (design canvas, "Branch awareness · 17 Sep"): the branch of the tab you are
 /// looking at, how many *other* branches the same window has open, and whether that branch is not
@@ -58,8 +55,9 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     public var id: UUID, title: String, jiraKey: String?, jiraUrl: String?, mr: MergeRequestRef?
     public var branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
     public var diff: BaseDiff? = nil
-    /// The workflow line of a task an operator drives (`SidebarModel.operatedCaption`); nil otherwise.
-    public var operated: OperatedCaption? = nil
+    /// The status line of a task the Operator drives (`OperatorLine.task`), its row's third line; nil for a
+    /// task you made yourself or took over.
+    public var operatorLine: OperatorLine? = nil
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
 /// merge-request target. The VS Code badge draws only the counts, `+12 −3`; the base it measures
@@ -340,7 +338,7 @@ public enum SidebarModel {
 
     public static func entries(state: AppState, sessions: [SessionInfo],
                                branchByCwd: [String: String], projectBranch: [UUID: String],
-                               diffByTask: [UUID: DiffStat] = [:], acting: Set<UUID> = []) -> [SidebarEntry] {
+                               diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:]) -> [SidebarEntry] {
         // Grouped once for every row, rather than filtered per task and per terminal — and the
         // rows by project once, rather than filtered again for every project.
         let tabs = Tabs(byTask: Dictionary(grouping: sessions, by: \.taskUUID), byWindow: Dictionary(grouping: sessions, by: \.windowId))
@@ -369,22 +367,25 @@ public enum SidebarModel {
     /// The workspace's tasks and terminals by project, each list in the workspace's order.
     private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]] }
 
-    /// The runs and tasks a driven task's row reads, built once per derivation — and left empty, at no
-    /// cost, while no task is driven. `acting` is the tasks the operator is acting on.
+    /// The runs, tasks and requests a driven task's row reads, built once per derivation, and left empty,
+    /// at no cost, while no task is driven. `acting` is what the Operator is doing to each task.
     private struct OperatedLookup {
-        var runs: [UUID: OperatorRun] = [:], tasks: [UUID: TaskItem] = [:], acting: Set<UUID> = []
-        init(state: AppState, acting: Set<UUID>) {
+        var runs: [UUID: OperatorRun] = [:], tasks: [UUID: TaskItem] = [:], acting: [UUID: OperatorAct] = [:]
+        var requests: [UUID: [BroadcastRequest]] = [:]
+        init(state: AppState, acting: [UUID: OperatorAct]) {
             guard state.tasks.contains(where: { $0.operated != nil }) else { return }
             runs = Dictionary(state.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             tasks = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             self.acting = acting
+            // What waits on you, as the notifications say it; no prompt's words are known here.
+            for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state, prompts: [:]) }
         }
     }
 
     /// The project-only view of `entries`, for the callers that never draw a divider.
     public static func sections(state: AppState, sessions: [SessionInfo],
                                 branchByCwd: [String: String], projectBranch: [UUID: String],
-                                diffByTask: [UUID: DiffStat] = [:], acting: Set<UUID> = []) -> [ProjectSection] {
+                                diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:]) -> [ProjectSection] {
         entries(state: state, sessions: sessions, branchByCwd: branchByCwd, projectBranch: projectBranch,
                 diffByTask: diffByTask, acting: acting)
             .compactMap { if case .project(let s) = $0 { return s } else { return nil } }
@@ -401,17 +402,14 @@ public enum SidebarModel {
             + projectTasks.filter { $0.kind == .review }
         let tasks = orderedTasks.map { task -> TaskRow in
             let own = tabs.byTask[task.id] ?? []
-            let run = task.operated.flatMap { operated.runs[$0.runId] }
-            let acting = operated.acting.contains(task.id)
-            let presence = operatorPresence(task: task, run: run, acting: acting)
-            // The operator's mark takes one of the column's two places.
-            var group = presence == nil ? avatars(for: own) : avatars(for: own, max: avatarMax - 1)
-            group.operatorPresence = presence
+            let line = task.operated.flatMap { operated.runs[$0.runId] }.flatMap { run in
+                OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
+                                  tasks: operated.tasks)
+            }
             return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                            branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
-                           avatars: group, status: aggregate(own.map(\.state)),
-                           diff: baseDiff(task: task, stat: diffByTask[task.id]),
-                           operated: operatedCaption(task: task, run: run, tasks: operated.tasks, acting: acting))
+                           avatars: avatars(for: own), status: aggregate(own.map(\.state)),
+                           diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line)
         }
         let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the

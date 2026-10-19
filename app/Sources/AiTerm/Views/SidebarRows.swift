@@ -319,10 +319,9 @@ struct RowCaption: View {
     }
 }
 
-/// One task or review: its agents — the operator's mark first while one drives it — title, badges and
-/// branch, and, when there is something to say, why its window could not come back or where the
-/// operator's workflow has it. A driven task's menu leads with Take Over or Hand Back, and Stop Task…
-/// while it is open.
+/// One task or review: its agents, title, badges and branch, and, when there is something to say, why
+/// its window could not come back, or, on a task the Operator drives, its status line as the operator
+/// badge. A driven task's menu leads with Take Over or Hand Back, and Stop Task… while it is open.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
@@ -384,12 +383,12 @@ struct TaskRowView: View {
                             BranchLabelView(label: row.branch).layoutPriority(1)
                         }
                     }
-                    // Why a removal stopped, or what the task is missing, comes first; else the line an
-                    // operator's workflow writes: `queued · builds on PLUTO-231`, `done · 4f2a91c`.
+                    // Why a removal stopped, or what the task is missing, comes first; else what the
+                    // Operator says of it: `queued · after PAY-232`, `answering Claude`, `done · 4f2a91c`.
                     if let note = caption.note {
                         RowCaption(note.text, warns: note.warns).lineLimit(1)
-                    } else if let operated = row.operated {
-                        RowCaption(operated.text, warns: operated.warns).lineLimit(1)
+                    } else if let line = row.operatorLine {
+                        OperatorBadge(line: line)
                     }
                 }
                 Spacer(minLength: scale(Space.tight))
@@ -402,7 +401,7 @@ struct TaskRowView: View {
         .environment(\.rowHovered, hoveredRow == row.id)
         #endif
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operated?.text ?? row.status.label)
+        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip ?? row.status.label)
         .accessibilityActions {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
