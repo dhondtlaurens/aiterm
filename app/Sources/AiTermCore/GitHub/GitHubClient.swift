@@ -7,6 +7,8 @@ public struct GitHubConfig: Equatable, Sendable {
 
 public enum GitHubError: Error, Equatable, LocalizedError {
     case unauthorized, forbidden, network(String), badResponse(Int), decoding, repoNotFound(String)
+    /// GraphQL answered with an error of its own, in GitHub's words.
+    case refused(String)
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +19,7 @@ public enum GitHubError: Error, Equatable, LocalizedError {
         case .badResponse(let status): return "GitHub returned an error (HTTP \(status)). Try again."
         case .decoding: return "Couldn’t read GitHub’s response. Try again."
         case .repoNotFound(let path): return "GitHub has no repository at \(path), or your token cannot see it."
+        case .refused(let message): return "GitHub refused it: \(message)"
         }
     }
 }
@@ -239,6 +242,127 @@ public struct GitHubClient: Sendable {
                            body: Retarget(base: target), notFound: .repoNotFound(repo))
     }
 
+    // MARK: The Review slice (spec §5): people on the pull request, only for an operator whose broadcast allows it.
+    // A fine-grained token needs write access to pull requests.
+
+    static let readyMutation = """
+        mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }
+        """
+
+    /// Takes it out of draft. REST cannot, so this is GraphQL's `markPullRequestReadyForReview`, on the
+    /// pull request's node id. One that is not a draft is not written to.
+    public func markReady(repo: String, number: Int) async throws {
+        struct Pull: Decodable { var nodeId: String?, draft: Bool? }
+        let pull = try await get(Pull.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
+        guard pull.draft == true else { return }
+        guard let node = pull.nodeId else { throw GitHubError.decoding }
+        struct Variables: Encodable { var id: String }
+        struct Done: Decodable {}
+        _ = try await graphQL(Done.self, query: Self.readyMutation, variables: Variables(id: node), repo: repo)
+    }
+
+    /// Asks `logins` to review it; GitHub keeps whoever it asked already, and asking again is no change.
+    public func requestReviewers(repo: String, number: Int, logins: [String]) async throws {
+        struct Request: Encodable { var reviewers: [String] }
+        struct Answer: Decodable { var number: Int? }
+        _ = try await send(Answer.self, method: "POST", path: "/repos/\(repo)/pulls/\(number)/requested_reviewers",
+                           body: Request(reviewers: logins), notFound: .repoNotFound(repo))
+    }
+
+    /// One query, never a mutation: each review thread with its id, whether it is resolved, and its last comment.
+    static let threadDetailsQuery = """
+        query($owner: String!, $name: String!, $number: Int!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            pullRequest(number: $number) {
+              reviewThreads(first: \(threadsPerPage), after: $after) {
+                pageInfo { hasNextPage endCursor }
+                nodes { id isResolved comments(last: 1) { nodes { body author { login } } } }
+              }
+            }
+          }
+        }
+        """
+
+    /// Its review threads, as `reviewThreads` pages them, each with its node id and its last comment.
+    public func threads(repo: String, number: Int) async throws -> [ReviewThread] {
+        guard let (owner, name) = Self.ownerAndName(repo) else { throw GitHubError.repoNotFound(repo) }
+        struct Comment: Decodable { struct Author: Decodable { var login: String? }; var body: String?, author: Author? }
+        struct Comments: Decodable { var nodes: [Comment]? }
+        struct Node: Decodable { var id: String, isResolved: Bool, comments: Comments? }
+        struct PageInfo: Decodable { var hasNextPage: Bool, endCursor: String? }
+        struct Threads: Decodable { var pageInfo: PageInfo, nodes: [Lenient<Node>] }
+        struct PullRequest: Decodable { var reviewThreads: Threads }
+        struct Repository: Decodable { var pullRequest: PullRequest? }
+        struct Payload: Decodable { var repository: Repository? }
+        var threads: [ReviewThread] = [], cursor: String?
+        for _ in 0..<Self.threadPages {
+            let variables = ThreadsRequest.Variables(owner: owner, name: name, number: number, after: cursor)
+            let page = try await graphQL(Payload.self, query: Self.threadDetailsQuery, variables: variables, repo: repo)
+            guard let found = page.repository?.pullRequest?.reviewThreads else { throw GitHubError.repoNotFound(repo) }
+            threads += found.nodes.compactMap { $0.value }.map { node in
+                let last = node.comments?.nodes?.last
+                return ReviewThread(id: node.id, resolved: node.isResolved, lastAuthor: last?.author?.login, lastBody: last?.body ?? "")
+            }
+            guard found.pageInfo.hasNextPage, let next = found.pageInfo.endCursor else { break }
+            cursor = next
+        }
+        return threads
+    }
+
+    static let replyMutation = """
+        mutation($thread: ID!, $body: String!) {
+          addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $thread, body: $body}) { comment { id } }
+        }
+        """
+
+    /// A reply in the review thread `thread`, by its node id.
+    public func reply(repo: String, thread: String, body: String) async throws {
+        struct Variables: Encodable { var thread: String, body: String }
+        struct Done: Decodable {}
+        _ = try await graphQL(Done.self, query: Self.replyMutation, variables: Variables(thread: thread, body: body), repo: repo)
+    }
+
+    /// The people who may be assigned in `repo` whose login matches `query`. GitHub lists assignees by login
+    /// only, so a name is not known.
+    public func findUsers(repo: String, query: String) async throws -> [HostUser] {
+        struct User: Decodable { var login: String }
+        let users = try await get([User].self, path: "/repos/\(repo)/assignees", query: [URLQueryItem(name: "per_page", value: "100")],
+                                  notFound: .repoNotFound(repo))
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+        return users.filter { text.isEmpty || $0.login.range(of: text, options: .caseInsensitive) != nil }
+            .map { HostUser(username: $0.login, name: nil) }
+    }
+
+    /// Who approved it, by login: each reviewer's latest review that approves or asks for changes counts.
+    public func approvals(repo: String, number: Int) async throws -> [String] {
+        struct Review: Decodable { struct User: Decodable { var login: String? }; var user: User?, state: String? }
+        let reviews = try await get([Review].self, path: "/repos/\(repo)/pulls/\(number)/reviews",
+                                    query: [URLQueryItem(name: "per_page", value: "100")], notFound: .repoNotFound(repo))
+        var latest: [String: String] = [:], order: [String] = []
+        for review in reviews {
+            guard let login = review.user?.login, let state = review.state, state == "APPROVED" || state == "CHANGES_REQUESTED" || state == "DISMISSED" else { continue }
+            if latest[login] == nil { order.append(login) }
+            latest[login] = state
+        }
+        return order.filter { latest[$0] == "APPROVED" }
+    }
+
+    /// One GraphQL request: its data, or the first error beside it as GitHub's refusal.
+    private func graphQL<Variables: Encodable, Payload: Decodable>(_ type: Payload.Type, query: String, variables: Variables,
+                                                                   repo: String) async throws -> Payload {
+        let answer = try await post(GraphQLAnswer<Payload>.self, path: "/graphql",
+                                    body: GraphQLRequest(query: query, variables: variables), notFound: .repoNotFound(repo))
+        if let problem = answer.errors?.first {
+            switch problem.type {
+            case "FORBIDDEN": throw GitHubError.forbidden
+            case "NOT_FOUND": throw GitHubError.repoNotFound(repo)
+            default: throw GitHubError.refused(problem.message ?? "an error")
+            }
+        }
+        guard let data = answer.data else { throw GitHubError.decoding }
+        return data
+    }
+
     /// The ruleset rule types that do not stop AiTerm pushing its own branch: they forbid force-pushes or
     /// deletion (AiTerm does neither) or constrain what is pushed — signatures, linear history, message,
     /// e-mail, branch-name, path, extension and size patterns — which GitHub enforces at push time and
@@ -410,6 +534,13 @@ private struct PullPayload: Decodable {
                             draft: draft ?? false, url: htmlUrl,
                             forkHead: fork ? (head.label ?? "ghost:\(head.ref)") : nil)
     }
+}
+
+/// One GraphQL request, and its answer: the data, or the errors beside it.
+private struct GraphQLRequest<Variables: Encodable>: Encodable { var query: String, variables: Variables }
+private struct GraphQLAnswer<Payload: Decodable>: Decodable {
+    struct Problem: Decodable { var type: String?, message: String? }
+    var data: Payload?, errors: [Problem]?
 }
 
 /// A GraphQL request for one page of a pull request's review threads.

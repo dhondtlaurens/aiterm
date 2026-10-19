@@ -23,6 +23,13 @@ final class FakeMergeHost: MergeRequestPublishing {
         var createFails = false
         /// The host opens it, then the answer is lost.
         var loseCreateReply = false
+        /// The request's review threads and approvals, as the Review slice reads them.
+        var threads: [ReviewThread] = []
+        var approvals: [String] = []
+        /// The people `findUsers` searches.
+        var users: [HostUser] = []
+        /// Thrown by every Review slice call while set.
+        var reviewError: (any Error)?
     }
 
     private let script: Mutex<Script>
@@ -75,5 +82,41 @@ final class FakeMergeHost: MergeRequestPublishing {
     func retarget(_ number: Int, to target: String) async throws {
         calls.withLock { $0.append("retarget \(number) → \(target)") }
         script.withLock { $0.existing?.targetBranch = target }
+    }
+
+    // The Review slice's calls, logged as the others are.
+    private func reviewCall(_ line: String) throws {
+        calls.withLock { $0.append(line) }
+        if let error = script.withLock({ $0.reviewError }) { throw error }
+    }
+
+    func markReady(_ number: Int) async throws {
+        try reviewCall("ready \(number)")
+        script.withLock { $0.existing?.draft = false }
+    }
+
+    func assignReviewers(_ number: Int, usernames: [String]) async throws {
+        try reviewCall("reviewers \(number) \(usernames.joined(separator: ","))")
+    }
+
+    func threads(of number: Int) async throws -> [ReviewThread] {
+        try reviewCall("threads \(number)")
+        return script.withLock { $0.threads }
+    }
+
+    func reply(_ number: Int, thread: String, body: String) async throws {
+        try reviewCall("reply \(number) \(thread) \(body)")
+    }
+
+    func findUsers(_ query: String) async throws -> [HostUser] {
+        try reviewCall("users \(query)")
+        return script.withLock { $0.users }.filter {
+            $0.username.localizedCaseInsensitiveContains(query) || ($0.name?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    func approvals(of number: Int) async throws -> [String] {
+        try reviewCall("approvals \(number)")
+        return script.withLock { $0.approvals }
     }
 }

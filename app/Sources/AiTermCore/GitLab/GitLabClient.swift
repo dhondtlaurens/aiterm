@@ -9,6 +9,8 @@ public enum GitLabError: Error, Equatable, LocalizedError {
     case unauthorized, network(String), badResponse(Int), decoding, projectNotFound(String)
     /// Nothing at the host answers GitLab's API — a mistyped host, or a web page in front of it.
     case noAPI(String)
+    /// No GitLab user has this username.
+    case noUser(String)
 
     public var errorDescription: String? {
         switch self {
@@ -19,6 +21,7 @@ public enum GitLabError: Error, Equatable, LocalizedError {
         // A valid token that cannot see a project is a different instruction from a bad token.
         case .projectNotFound(let path): return "GitLab has no project at \(path), or your token cannot see it."
         case .noAPI(let host): return "GitLab’s API was not found at \(host). Check the host URL in Settings › Integrations."
+        case .noUser(let username): return "GitLab has no user called \(username)."
         }
     }
 }
@@ -170,6 +173,95 @@ public struct GitLabClient: Sendable {
                            body: Retarget(targetBranch: target), notFound: .projectNotFound(project))
     }
 
+    // MARK: The Review slice (spec §5): people on the merge request, only for an operator whose broadcast allows it
+
+    /// The prefixes GitLab reads as a draft, in any case: `Draft:`, `[Draft]`, `(Draft)`, and the older `WIP:`.
+    static let draftPrefixes = ["draft:", "[draft]", "(draft)", "wip:", "[wip]"]
+
+    /// `title` with GitLab's draft prefixes taken off its front.
+    static func readyTitle(_ title: String) -> String {
+        var rest = Substring(title)
+        while true {
+            let trimmed = rest.drop { $0 == " " }
+            guard let prefix = draftPrefixes.first(where: { trimmed.lowercased().hasPrefix($0) }) else { return String(trimmed) }
+            rest = trimmed.dropFirst(prefix.count)
+        }
+    }
+
+    /// Takes it out of draft, which on GitLab is dropping the title's draft prefix. One that is not a
+    /// draft is not written to.
+    public func markReady(project: String, iid: Int) async throws {
+        let path = Self.requestsPath(project) + "/\(iid)"
+        let request = try await get(MergeRequestPayload.self, path: path, notFound: .projectNotFound(project))
+        let ready = Self.readyTitle(request.title)
+        guard ready != request.title || request.draft == true else { return }
+        struct Ready: Encodable { var title: String }
+        _ = try await send(MergeRequestPayload.self, method: "PUT", path: path, body: Ready(title: ready), notFound: .projectNotFound(project))
+    }
+
+    /// Adds `usernames` to its reviewers, each looked up by its exact username; the reviewers it has stay.
+    /// Nothing is written when every one of them reviews it already.
+    public func assignReviewers(project: String, iid: Int, usernames: [String]) async throws {
+        struct User: Decodable { var id: Int, username: String }
+        var ids: [Int] = []
+        for username in usernames {
+            let found = try await get([User].self, path: "/api/v4/users", query: [URLQueryItem(name: "username", value: username)],
+                                      notFound: .noAPI(Self.base(config.hostURL)))
+            guard let user = found.first(where: { $0.username.lowercased() == username.lowercased() }) else { throw GitLabError.noUser(username) }
+            ids.append(user.id)
+        }
+        struct Reviewers: Decodable { struct Reviewer: Decodable { var id: Int }; var reviewers: [Reviewer]? }
+        let path = Self.requestsPath(project) + "/\(iid)"
+        let current = (try await get(Reviewers.self, path: path, notFound: .projectNotFound(project)).reviewers ?? []).map(\.id)
+        let all = current + ids.filter { !current.contains($0) }
+        guard all.count > current.count else { return }
+        struct Assign: Encodable { var reviewerIds: [Int] }
+        _ = try await send(MergeRequestPayload.self, method: "PUT", path: path, body: Assign(reviewerIds: all), notFound: .projectNotFound(project))
+    }
+
+    /// Its review threads: each discussion that can be resolved, with its id, whether it is, and its last
+    /// note that is not GitLab's own. Paged as `reviewThreads` is.
+    public func threads(project: String, iid: Int) async throws -> [ReviewThread] {
+        let path = Self.requestsPath(project) + "/\(iid)/discussions"
+        var threads: [ReviewThread] = []
+        for page in 1...Self.discussionPages {
+            let query = [URLQueryItem(name: "per_page", value: String(Self.discussionsPerPage)),
+                         URLQueryItem(name: "page", value: String(page))]
+            let discussions = try await get([Lenient<DiscussionPayload>].self, path: path, query: query,
+                                            notFound: .projectNotFound(project))
+            threads += discussions.compactMap { $0.value?.thread }
+            if discussions.count < Self.discussionsPerPage { break }
+        }
+        return threads
+    }
+
+    /// A reply in the discussion `discussion`.
+    public func reply(project: String, iid: Int, discussion: String, body: String) async throws {
+        struct Note: Encodable { var body: String }
+        struct Posted: Decodable { var id: Int }
+        _ = try await send(Posted.self, method: "POST", path: Self.requestsPath(project) + "/\(iid)/discussions/\(Self.encodedProject(discussion))/notes",
+                           body: Note(body: body), notFound: .projectNotFound(project))
+    }
+
+    /// The project's members who match `query`, by username or name: who may review in it.
+    public func findUsers(project: String, query: String) async throws -> [HostUser] {
+        struct User: Decodable { var username: String, name: String? }
+        let items = [URLQueryItem(name: "search", value: query), URLQueryItem(name: "per_page", value: "20")]
+        return try await get([Lenient<User>].self, path: "/api/v4/projects/" + Self.encodedProject(project) + "/users", query: items,
+                             notFound: .projectNotFound(project))
+            .compactMap { $0.value.map { HostUser(username: $0.username, name: $0.name) } }
+    }
+
+    /// Who approved it, by username.
+    public func approvals(project: String, iid: Int) async throws -> [String] {
+        struct Approvals: Decodable {
+            struct Approval: Decodable { struct User: Decodable { var username: String }; var user: User? }
+            var approvedBy: [Approval]?
+        }
+        return (try await get(Approvals.self, path: Self.requestsPath(project) + "/\(iid)/approvals", notFound: .projectNotFound(project))
+            .approvedBy ?? []).compactMap { $0.user?.username }
+    }
+
     /// How many pages of 100 protected-branch rules a listing reads before it gives up.
     public static let protectedPages = 20
 
@@ -310,10 +402,19 @@ private struct MergeRequestPayload: Decodable {
     }
 }
 
-/// The fields of a discussion `reviewThreads` counts.
+/// The fields of a discussion `reviewThreads` counts and `threads` reads.
 private struct DiscussionPayload: Decodable {
-    struct Note: Decodable { var resolvable: Bool?, resolved: Bool? }
+    struct Author: Decodable { var username: String? }
+    struct Note: Decodable { var resolvable: Bool?, resolved: Bool?, body: String?, author: Author?, system: Bool? }
+    var id: String?
     var notes: [Note]?
+
+    /// The discussion as a thread, when it is one and has an id.
+    var thread: ReviewThread? {
+        guard let id, let resolved = resolution else { return nil }
+        let last = (notes ?? []).last { $0.system != true }
+        return ReviewThread(id: id, resolved: resolved, lastAuthor: last?.author?.username, lastBody: last?.body ?? "")
+    }
 
     /// Whether the discussion is resolved — every note in it that can be resolved, is — or nil
     /// when none can be: a plain comment, a system note. Those are not threads.

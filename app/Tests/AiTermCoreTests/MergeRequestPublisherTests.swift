@@ -292,6 +292,166 @@ import Testing
     }
 }
 
+/// The Review slice's calls (spec §5), each on the client's own requests, through the publisher a remote names.
+extension MergeRequestPublisherTests {
+    static let gitLabRequest = "https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests/12"
+
+    private func body(_ request: URLRequest?) throws -> [String: Any] {
+        let data = try #require(request?.httpBody)
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test func gitLabMarkReadyDropsTheDraftPrefix() async throws {
+        let stub = StubSession { _ in (200, Data(GitLabPublishTests.created.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        try await publisher.markReady(12)
+        let put = try #require(stub.requests.last)
+        #expect(put.httpMethod == "PUT")
+        #expect(put.url?.absoluteString == Self.gitLabRequest)
+        #expect(try body(put)["title"] as? String == "PLUTO-231 Add gift card")
+        #expect(GitLabClient.readyTitle("[Draft] (draft) WIP: Fix it") == "Fix it")
+    }
+
+    @Test func gitLabMarkReadyLeavesAReadyRequestAlone() async throws {
+        let ready = GitLabPublishTests.created.replacingOccurrences(of: "Draft: ", with: "").replacingOccurrences(of: "\"draft\":true", with: "\"draft\":false")
+        let stub = StubSession { _ in (200, Data(ready.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        try await publisher.markReady(12)
+        #expect(stub.requests.map(\.httpMethod) == ["GET"])
+    }
+
+    @Test func gitLabAssignsReviewersByTheirIdsBesideTheOnesAsked() async throws {
+        let stub = StubSession { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("/api/v4/users?") { return (200, Data(#"[{"id":5,"username":"jan","name":"Jan"}]"#.utf8)) }
+            if request.httpMethod == "GET" { return (200, Data(#"{"iid":12,"reviewers":[{"id":3,"username":"mia"}]}"#.utf8)) }
+            return (200, Data(GitLabPublishTests.created.utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        try await publisher.assignReviewers(12, usernames: ["jan"])
+        #expect(stub.requests.first?.url?.absoluteString == "https://git.example.net/api/v4/users?username=jan")
+        let put = try #require(stub.requests.last)
+        #expect(put.httpMethod == "PUT" && put.url?.absoluteString == Self.gitLabRequest)
+        #expect(try body(put)["reviewer_ids"] as? [Int] == [3, 5])
+    }
+
+    @Test func gitLabRefusesAReviewerItDoesNotHave() async throws {
+        let stub = StubSession { _ in (200, Data("[]".utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        await #expect(throws: GitLabError.noUser("nobody")) { try await publisher.assignReviewers(12, usernames: ["nobody"]) }
+        #expect(stub.requests.allSatisfy { $0.httpMethod == "GET" })
+    }
+
+    @Test func gitLabReadsEachThreadWithItsIdAndLastNote() async throws {
+        let discussions = #"""
+            [{"id":"d1","notes":[{"resolvable":true,"resolved":false,"body":"Rename this","author":{"username":"jan"},"system":false},
+                                  {"resolvable":true,"resolved":false,"body":"changed this line","author":{"username":"aiterm"},"system":true}]},
+             {"id":"d2","notes":[{"resolvable":false,"body":"Nice work","author":{"username":"mia"},"system":false}]},
+             {"id":"d3","notes":[{"resolvable":true,"resolved":true,"body":"Fixed","author":{"username":"mia"},"system":false}]}]
+            """#
+        let stub = StubSession { _ in (200, Data(discussions.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        #expect(try await publisher.threads(of: 12) == [
+            ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this"),
+            ReviewThread(id: "d3", resolved: true, lastAuthor: "mia", lastBody: "Fixed"),
+        ])
+        #expect(stub.lastRequest?.url?.absoluteString.hasPrefix(Self.gitLabRequest + "/discussions?") == true)
+    }
+
+    @Test func gitLabRepliesInTheDiscussion() async throws {
+        let stub = StubSession { _ in (201, Data(#"{"id":77,"body":"Done"}"#.utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        try await publisher.reply(12, thread: "6a9c1750b37d513a43987b574953fceb50b03ce7", body: "Done in 4f2a91c.")
+        let post = try #require(stub.lastRequest)
+        #expect(post.httpMethod == "POST")
+        #expect(post.url?.absoluteString == Self.gitLabRequest + "/discussions/6a9c1750b37d513a43987b574953fceb50b03ce7/notes")
+        #expect(try body(post)["body"] as? String == "Done in 4f2a91c.")
+    }
+
+    @Test func gitLabFindsTheProjectsUsersAndWhoApproved() async throws {
+        let stub = StubSession { request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("/approvals") { return (200, Data(#"{"approved_by":[{"user":{"username":"jan","name":"Jan"}}]}"#.utf8)) }
+            return (200, Data(#"[{"id":5,"username":"jan","name":"Jan Peeters"},{"bad":true}]"#.utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitLabRemote, gitLab: gitLab, gitHub: nil, session: stub.session)
+        #expect(try await publisher.findUsers("jan") == [HostUser(username: "jan", name: "Jan Peeters")])
+        #expect(stub.lastRequest?.url?.absoluteString.hasPrefix("https://git.example.net/api/v4/projects/web%2Facme-web/users?search=jan") == true)
+        #expect(try await publisher.approvals(of: 12) == ["jan"])
+    }
+
+    @Test func gitHubAssignsReviewers() async throws {
+        let stub = StubSession { _ in (201, Data(GitHubPublishTests.pull().utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        try await publisher.assignReviewers(88, usernames: ["jan", "mia"])
+        let post = try #require(stub.lastRequest)
+        #expect(post.httpMethod == "POST")
+        #expect(post.url?.absoluteString == "https://api.github.com/repos/octocat/hello/pulls/88/requested_reviewers")
+        #expect(try body(post)["reviewers"] as? [String] == ["jan", "mia"])
+    }
+
+    @Test func gitHubMarksReadyThroughGraphQL() async throws {
+        let stub = StubSession { request in
+            if request.url?.path == "/graphql" { return (200, Data(#"{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}"#.utf8)) }
+            return (200, Data(GitHubPublishTests.pull(draft: true).replacingOccurrences(of: #""id":1,"#, with: #""id":1,"node_id":"PR_kw88","#).utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        try await publisher.markReady(88)
+        let mutation = try #require(stub.lastRequest)
+        #expect(mutation.url?.absoluteString == "https://api.github.com/graphql")
+        let sent = try body(mutation)
+        #expect((sent["query"] as? String)?.contains("markPullRequestReadyForReview") == true)
+        #expect((sent["variables"] as? [String: Any])?["id"] as? String == "PR_kw88")
+    }
+
+    @Test func gitHubLeavesAReadyPullRequestAloneAndSaysWhatGraphQLRefused() async throws {
+        let ready = StubSession { _ in (200, Data(GitHubPublishTests.pull(draft: false).utf8)) }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: ready.session)
+        try await publisher.markReady(88)
+        #expect(ready.requests.map(\.httpMethod) == ["GET"])
+        let refusing = StubSession { _ in (200, Data(#"{"data":null,"errors":[{"type":"UNPROCESSABLE","message":"Thread is outdated"}]}"#.utf8)) }
+        let onGitHub = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: refusing.session)
+        await #expect(throws: GitHubError.refused("Thread is outdated")) { try await onGitHub.reply(88, thread: "PRRT_1", body: "Done") }
+    }
+
+    @Test func gitHubReadsThreadsAndRepliesByTheirNodeId() async throws {
+        let threads = #"""
+            {"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+              {"id":"PRRT_1","isResolved":false,"comments":{"nodes":[{"body":"Rename this","author":{"login":"jan"}}]}},
+              {"id":"PRRT_2","isResolved":true,"comments":{"nodes":[{"body":"Fixed","author":null}]}}]}}}}}
+            """#
+        let stub = StubSession { request in
+            let query = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])?["query"] as? String ?? ""
+            if query.contains("addPullRequestReviewThreadReply") { return (200, Data(#"{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"C_1"}}}}"#.utf8)) }
+            return (200, Data(threads.utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        #expect(try await publisher.threads(of: 88) == [
+            ReviewThread(id: "PRRT_1", resolved: false, lastAuthor: "jan", lastBody: "Rename this"),
+            ReviewThread(id: "PRRT_2", resolved: true, lastAuthor: nil, lastBody: "Fixed"),
+        ])
+        try await publisher.reply(88, thread: "PRRT_1", body: "Done in 4f2a91c.")
+        let variables = try #require(try body(stub.lastRequest)["variables"] as? [String: Any])
+        #expect(variables["thread"] as? String == "PRRT_1" && variables["body"] as? String == "Done in 4f2a91c.")
+    }
+
+    @Test func gitHubFindsAssigneesAndTheLatestApprovals() async throws {
+        let stub = StubSession { request in
+            if request.url?.path.hasSuffix("/reviews") == true {
+                return (200, Data(#"""
+                    [{"user":{"login":"jan"},"state":"CHANGES_REQUESTED"},{"user":{"login":"mia"},"state":"APPROVED"},
+                     {"user":{"login":"jan"},"state":"APPROVED"},{"user":{"login":"mia"},"state":"COMMENTED"},
+                     {"user":{"login":"lou"},"state":"APPROVED"},{"user":{"login":"lou"},"state":"DISMISSED"}]
+                    """#.utf8))
+            }
+            return (200, Data(#"[{"login":"jan-p"},{"login":"mia"},{"login":"JANSSENS"}]"#.utf8))
+        }
+        let publisher = try MergeRequestPublisher.publisher(for: gitHubRemote, gitLab: nil, gitHub: gitHub, session: stub.session)
+        #expect(try await publisher.findUsers("@jan") == [HostUser(username: "jan-p", name: nil), HostUser(username: "JANSSENS", name: nil)])
+        #expect(try await publisher.approvals(of: 88) == ["jan", "mia"])
+    }
+}
+
 private actor Gate {
     private var opened = false
     private var waiting: [CheckedContinuation<Void, Never>] = []

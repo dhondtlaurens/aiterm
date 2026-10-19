@@ -51,6 +51,23 @@ public struct ReviewThreads: Equatable, Sendable {
     }
 }
 
+/// One review thread on a request, as the Review slice reads it (spec §5): GitLab's resolvable
+/// discussion, GitHub's review thread. `id` is what a reply names; the last note is who spoke last
+/// in it and what they said.
+public struct ReviewThread: Equatable, Sendable {
+    public var id: String, resolved: Bool, lastAuthor: String?, lastBody: String
+    public init(id: String, resolved: Bool, lastAuthor: String?, lastBody: String) {
+        self.id = id; self.resolved = resolved; self.lastAuthor = lastAuthor; self.lastBody = lastBody
+    }
+}
+
+/// Someone on a code host a request can be assigned to for review: the username the host knows them
+/// by, and their display name when the host gives one.
+public struct HostUser: Equatable, Sendable {
+    public var username: String, name: String?
+    public init(username: String, name: String?) { self.username = username; self.name = name }
+}
+
 /// What a code host says of merging a request now, in its own words.
 public enum MergeReadiness: Equatable, Sendable {
     /// It would merge now, its pipelines green; `head` is the commit it would merge.

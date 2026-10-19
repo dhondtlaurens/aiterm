@@ -1,8 +1,9 @@
 import Foundation
 
-/// Opens, watches and merges a task's merge request (GitLab) or pull request (GitHub): the only
-/// writes AiTerm makes to a code host, and only for an operator's `finish_task` (spec §6). Bound to
-/// one repository when it is made (`MergeRequestPublisher.publisher(for:gitLab:gitHub:session:)`).
+/// Opens, watches and merges a task's merge request (GitLab) or pull request (GitHub), and involves
+/// people on it: the only writes AiTerm makes to a code host, and only for an operator's `finish_task`
+/// (spec §6) and its Review slice's tools (spec §5). Bound to one repository when it is made
+/// (`MergeRequestPublisher.publisher(for:gitLab:gitHub:session:)`).
 public protocol MergeRequestPublishing: Sendable {
     /// Whether the host protects `branch`; throws when it cannot say. Asked before every push (spec §3).
     func protection(of branch: String) async throws -> BranchProtection
@@ -13,6 +14,20 @@ public protocol MergeRequestPublishing: Sendable {
     /// `.merged` when it merged, `.blocked` when the host refused; throws only when it could not be asked.
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness
     func retarget(_ number: Int, to target: String) async throws
+
+    // The Review slice (spec §5): involving people on the request. Each is safe to repeat.
+    /// Takes the request out of draft; one that is not a draft is left as it is.
+    func markReady(_ number: Int) async throws
+    /// Asks `usernames` to review it, besides anyone asked already.
+    func assignReviewers(_ number: Int, usernames: [String]) async throws
+    /// Its review threads, oldest first: a plain comment or a system note is none.
+    func threads(of number: Int) async throws -> [ReviewThread]
+    /// A reply in the thread `thread`, as the token's user.
+    func reply(_ number: Int, thread: String, body: String) async throws
+    /// The people on the host who match `query`, by username or name, who may review here.
+    func findUsers(_ query: String) async throws -> [HostUser]
+    /// The usernames that approved it as it stands.
+    func approvals(of number: Int) async throws -> [String]
 }
 
 public enum MergeRequestPublisher {
@@ -41,6 +56,14 @@ struct GitHubPublisher: MergeRequestPublishing {
     func readiness(of number: Int) async throws -> MergeReadiness { try await client.mergeReadiness(repo: repo, number: number) }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(repo: repo, number: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(repo: repo, number: number, to: target) }
+    func markReady(_ number: Int) async throws { try await client.markReady(repo: repo, number: number) }
+    func assignReviewers(_ number: Int, usernames: [String]) async throws {
+        try await client.requestReviewers(repo: repo, number: number, logins: usernames)
+    }
+    func threads(of number: Int) async throws -> [ReviewThread] { try await client.threads(repo: repo, number: number) }
+    func reply(_ number: Int, thread: String, body: String) async throws { try await client.reply(repo: repo, thread: thread, body: body) }
+    func findUsers(_ query: String) async throws -> [HostUser] { try await client.findUsers(repo: repo, query: query) }
+    func approvals(of number: Int) async throws -> [String] { try await client.approvals(repo: repo, number: number) }
 }
 
 struct GitLabPublisher: MergeRequestPublishing {
@@ -53,4 +76,14 @@ struct GitLabPublisher: MergeRequestPublishing {
     func readiness(of number: Int) async throws -> MergeReadiness { try await client.mergeReadiness(project: project, iid: number) }
     func merge(_ number: Int, at sha: String) async throws -> MergeReadiness { try await client.merge(project: project, iid: number, sha: sha) }
     func retarget(_ number: Int, to target: String) async throws { try await client.retarget(project: project, iid: number, to: target) }
+    func markReady(_ number: Int) async throws { try await client.markReady(project: project, iid: number) }
+    func assignReviewers(_ number: Int, usernames: [String]) async throws {
+        try await client.assignReviewers(project: project, iid: number, usernames: usernames)
+    }
+    func threads(of number: Int) async throws -> [ReviewThread] { try await client.threads(project: project, iid: number) }
+    func reply(_ number: Int, thread: String, body: String) async throws {
+        try await client.reply(project: project, iid: number, discussion: thread, body: body)
+    }
+    func findUsers(_ query: String) async throws -> [HostUser] { try await client.findUsers(project: project, query: query) }
+    func approvals(of number: Int) async throws -> [String] { try await client.approvals(project: project, iid: number) }
 }
