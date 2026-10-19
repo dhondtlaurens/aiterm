@@ -11,12 +11,18 @@ public struct Request: Equatable, Sendable, Identifiable {
     public var taskId: UUID?
     /// The whole request, as a sentence: the notification's body and a tooltip's text.
     public var text: String
+    /// A question's key: each open question is its own request.
+    public var key: String?
 
-    /// `request-<runId>-<taskId|run>-<kind>`: what a notification is posted and withdrawn by.
-    public var id: String { "request-\(runId.uuidString)-\(taskId?.uuidString ?? "run")-\(kind.rawValue)" }
+    /// What a notification is posted and withdrawn by: `request-<runId>-<taskId|run>-<kind>`, and for a
+    /// question `request-<runId>-question-<questionKey>`.
+    public var id: String {
+        if kind == .question, let key { return "request-\(runId.uuidString)-question-\(key)" }
+        return "request-\(runId.uuidString)-\(taskId?.uuidString ?? "run")-\(kind.rawValue)"
+    }
 
-    public init(kind: Kind, runId: UUID, taskId: UUID?, text: String) {
-        self.kind = kind; self.runId = runId; self.taskId = taskId; self.text = text
+    public init(kind: Kind, runId: UUID, taskId: UUID?, text: String, key: String? = nil) {
+        self.kind = kind; self.runId = runId; self.taskId = taskId; self.text = text; self.key = key
     }
 }
 
@@ -50,7 +56,7 @@ public enum OperatorRequests {
         }
         for question in run.questions where question.resolution == nil && !question.id.hasPrefix("prompt-") {
             if let task = question.task, takenOver.contains(task) { continue }
-            requests.append(Request(kind: .question, runId: run.id, taskId: question.task, text: "The Operator asks: \(question.text)"))
+            requests.append(Request(kind: .question, runId: run.id, taskId: question.task, text: "The Operator asks: \(question.text)", key: question.id))
         }
         return requests
     }

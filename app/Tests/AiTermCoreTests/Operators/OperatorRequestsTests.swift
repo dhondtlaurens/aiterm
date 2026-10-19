@@ -51,7 +51,17 @@ import Foundation
         let requests = open(run, [])
         #expect(requests.map(\.kind) == [.question])
         #expect(requests.first?.text == "The Operator asks: Which locale is the default?")
-        #expect(requests.first?.id == "request-\(run.id.uuidString)-run-question")
+        #expect(requests.first?.id == "request-\(run.id.uuidString)-question-locale")
+    }
+
+    @Test func eachQuestionIsItsOwnRequestWithItsKeyInTheId() {
+        let task = codexTask("PAY-10")
+        var run = run
+        run.questions = [OperatorQuestion(id: "a", text: "First?", task: nil, askedAt: OperatorFixtures.epoch),
+                         OperatorQuestion(id: "b", text: "Second?", task: task.id, askedAt: OperatorFixtures.epoch)]
+        let requests = open(run, [task])
+        #expect(requests.map(\.id) == ["request-\(run.id.uuidString)-question-a", "request-\(run.id.uuidString)-question-b"])
+        #expect(requests.map(\.taskId) == [nil, task.id])
     }
 
     @Test func aBlockedTaskGivesItsReasonWithOneFullStop() {

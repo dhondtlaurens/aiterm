@@ -34,7 +34,7 @@ import Testing
         #expect(world.run(run.id)?.questions.map(\.text) == ["Which locale is the default?"])
         #expect(world.notifications.posted.map(\.body) == ["The Operator asks: Which locale is the default?"])
         let resolved = await world.call(run.id, "resolve_question", ["key": "locale", "summary": "nl-BE"])
-        #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-run-question"])
+        #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-question-locale"])
         #expect(resolved.value?["open"] == false)
         #expect(world.run(run.id)?.questions.first?.resolution == "nl-BE")
         #expect(await world.call(run.id, "resolve_question", ["key": "nope", "summary": "x"]).message == "No question nope in this operation.")

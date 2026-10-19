@@ -32,6 +32,8 @@ protocol OperatorNotifications: AnyObject {
     func post(_ note: OperatorNote)
     /// Takes the notes with these ids away: out of the notification centre if shown, and unsent if not yet.
     func withdraw(ids: [String])
+    /// The ids of the notes macOS still showed when AiTerm started: what an earlier run left behind.
+    var deliveredAtLaunch: [String] { get }
     /// Where a click on a note goes.
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)? { get set }
 }
@@ -47,6 +49,8 @@ final class OperatorNotifier {
     private let prompts: @MainActor () -> [UUID: String]
     /// What is posted now, by run: each id this run of AiTerm has sent and not withdrawn, with the body it carries.
     private var posted: [UUID: [String: String]] = [:]
+    /// What an earlier run of AiTerm left in the notification centre, read once, at the first call.
+    private var leftBehind: Set<String>?
 
     /// `state` is the workspace as it stands; `prompts` what each waiting worker's prompt asks, by task,
     /// where it is known (`OperatorRequests.open`).
@@ -59,33 +63,45 @@ final class OperatorNotifier {
 
     static func debriefId(_ run: UUID) -> String { "debrief-\(run.uuidString)" }
 
-    /// Posts what the run now asks of you that it has not posted, and withdraws what it posted that no
-    /// longer stands. An ended run asks nothing, so everything of it is withdrawn. A note says again, in
-    /// place, when what it says has changed.
-    func requestsChanged(run: OperatorRun) {
-        let state = state()
-        let run = state.run(id: run.id) ?? run
-        var wanted: [OperatorNote] = []
-        // Questions share one id: they are one note, which counts them when more than one waits.
-        let requests = OperatorRequests.open(run: run, state: state, prompts: prompts())
-        for (id, group) in Dictionary(grouping: requests, by: \.id).sorted(by: { $0.key < $1.key }) {
-            guard let first = group.first else { continue }
+    /// What the run asks of you now, as notes: each request on its own, and the debrief once it is complete.
+    private func wanted(for run: OperatorRun, in state: AppState) -> [OperatorNote] {
+        var notes: [OperatorNote] = OperatorRequests.open(run: run, state: state, prompts: prompts()).map { request in
             // A prompt only you can answer opens its task's window; anything else, the broadcast's overview.
             var target = OperatorNote.Target.overview(run.id)
-            if first.kind == .permission, let task = first.taskId { target = .task(task) }
-            let body = group.count == 1 ? first.text : "The Operator has \(group.count) questions for you."
-            wanted.append(OperatorNote(id: id, title: run.name, body: body, target: target))
+            if request.kind == .permission, let task = request.taskId { target = .task(task) }
+            return OperatorNote(id: request.id, title: run.name, body: request.text, target: target)
         }
         if run.state == .complete, run.intent != .stopped {
             let count = state.tasks(inRun: run.id).count
-            wanted.append(OperatorNote(id: Self.debriefId(run.id), title: run.name,
-                                       body: count == 1 ? "The task is done. The debrief is ready." : "All \(count) tasks are done. The debrief is ready.",
-                                       target: .overview(run.id)))
+            notes.append(OperatorNote(id: Self.debriefId(run.id), title: run.name,
+                                      body: count == 1 ? "The task is done. The debrief is ready." : "All \(count) tasks are done. The debrief is ready.",
+                                      target: .overview(run.id)))
         }
-        let before = posted[run.id] ?? [:]
+        return notes
+    }
+
+    /// Posts what the run now asks of you that it has not posted, and withdraws what it posted that no
+    /// longer stands. An ended run asks nothing, so everything of it is withdrawn. A note says again, in
+    /// place, when what it says has changed. The first call also takes back what an earlier run of AiTerm
+    /// left in the notification centre that no run asks any more, and does not post again what it left
+    /// that is still asked.
+    func requestsChanged(run: OperatorRun) {
+        let state = state()
+        let run = state.run(id: run.id) ?? run
+        if leftBehind == nil {
+            let delivered = Set(notifications.deliveredAtLaunch.filter { $0.hasPrefix("request-") || $0.hasPrefix("debrief-") })
+            leftBehind = delivered
+            let open = Set(state.runs.flatMap { wanted(for: $0, in: state).map(\.id) })
+            let stale = delivered.subtracting(open)
+            if !stale.isEmpty { notifications.withdraw(ids: stale.sorted()) }
+        }
+        let wanted = wanted(for: run, in: state)
+        // A run first seen: what the earlier run left for it, still asked, counts as posted.
+        var before = posted[run.id] ?? Dictionary(uniqueKeysWithValues: wanted.filter { leftBehind?.contains($0.id) == true }.map { ($0.id, $0.body) })
         for note in wanted where before[note.id] != note.body { notifications.post(note) }
         let gone = Set(before.keys).subtracting(wanted.map(\.id))
         if !gone.isEmpty { notifications.withdraw(ids: gone.sorted()) }
-        posted[run.id] = Dictionary(uniqueKeysWithValues: wanted.map { ($0.id, $0.body) })
+        before = Dictionary(uniqueKeysWithValues: wanted.map { ($0.id, $0.body) })
+        posted[run.id] = before
     }
 }

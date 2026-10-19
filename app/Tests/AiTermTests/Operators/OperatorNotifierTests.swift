@@ -45,7 +45,7 @@ import Testing
         let note = notifications.posted.first
         #expect(note?.title == "Payment broadcast")
         #expect(note?.body == "The Operator asks: Which locale is the default?")
-        #expect(note?.id == "request-\(run.id.uuidString)-run-question")
+        #expect(note?.id == "request-\(run.id.uuidString)-question-q1")
         #expect(note?.target == .overview(run.id))
     }
 
@@ -90,19 +90,34 @@ import Testing
         change { $0.updateRun(id: run.id) { $0.questions[0].resolution = "en-GB." } }
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.count == 1)
-        #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-run-question"])
+        #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-question-q1"])
     }
 
-    @Test func severalQuestionsAreOneNoteThatCountsThemAndSaysAgainAsTheyAreAnswered() {
+    @Test func eachOpenQuestionIsItsOwnNotificationAndResolvingOneWithdrawsOnlyIt() {
         let notifier = makeNotifier()
         ask("a")
         ask("b", text: "Which currency?")
         notifier.requestsChanged(run: current)
-        #expect(notifications.posted.map(\.body) == ["The Operator has 2 questions for you."])
+        #expect(notifications.posted.map(\.id) == ["request-\(run.id.uuidString)-question-a", "request-\(run.id.uuidString)-question-b"])
+        #expect(Set(notifications.posted.map(\.body)) == ["The Operator asks: Which locale is the default?", "The Operator asks: Which currency?"])
         change { $0.updateRun(id: run.id) { $0.questions[0].resolution = "en-GB." } }
         notifier.requestsChanged(run: current)
-        #expect(notifications.posted.last?.body == "The Operator asks: Which currency?")
-        #expect(notifications.withdrawn.isEmpty)
+        #expect(notifications.posted.count == 2)
+        #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-question-a"])
+    }
+
+    @Test func aNotificationAnEarlierRunLeftThatIsNoLongerAskedIsWithdrawnAndOneStillAskedIsNotPostedAgain() {
+        ask("open")
+        let stillOpen = "request-\(run.id.uuidString)-question-open"
+        let resolved = "request-\(run.id.uuidString)-question-gone"
+        let debrief = "debrief-\(UUID().uuidString)"
+        notifications.deliveredAtLaunch = [stillOpen, resolved, debrief, "unrelated-id"]
+        let notifier = makeNotifier()
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.isEmpty, "the one still asked is already showing")
+        #expect(Set(notifications.withdrawn) == [resolved, debrief], "only what no run asks, and only AiTerm's ids")
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.isEmpty && notifications.withdrawn.count == 2, "the listing is taken once")
     }
 
     @Test func aTaskThatIsUnblockedIsWithdrawn() {
