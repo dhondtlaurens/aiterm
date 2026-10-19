@@ -176,4 +176,184 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         try roundTrip(try #require(task.operated))
         try roundTrip(TaskPublication())
     }
+
+    // MARK: - Reviews, by an agent (base) and by people (the Review slice), spec §3.1 and §5
+
+    struct Reviewed {
+        let world: OperatorWorld, run: OperatorRun, task: TaskItem, host: FakeMergeHost, sha: String
+    }
+
+    /// A broadcast whose Review is `review`, with `slices` frozen, and one task `A` on the branch of a repository
+    /// with an origin; the Operator's tab idle. A task past working is accepted on the branch's commit, and one in
+    /// review has its draft request open as !12.
+    func reviewed(_ taskState: OperatedState, end: TaskEnd = .draftMR, slices: Slices = .none,
+                  review: String? = "Assign Jan, fix his feedback.", agent: AgentKind = .codex,
+                  adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> Reviewed {
+        let fixture = try GitFixture.withOrigin(branch: "feat/a")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        var profile = OperatorServiceFixtures.profile()
+        profile.slices = slices
+        var run = OperatorServiceFixtures.run(profile, projects: [project], state: .active, planRevision: 1)
+        run.review = review
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: taskState, agent: agent, worktree: fixture.path,
+                                                branch: "feat/a", end: end)
+        task.baseBranch = "main"
+        if taskState != .working {
+            task.operated?.acceptance = TaskAcceptance(resultSHA: fixture.sha, prerequisiteSHAs: [], checkOutput: "12 passed", note: nil,
+                                                       at: Date(timeIntervalSince1970: 0))
+        }
+        if taskState == .inReview {
+            task.operated?.publication = TaskPublication(pushedSHA: fixture.sha, mergeRequestURL: FakeMergeHost.url, mergeRequestNumber: 12,
+                                                         targetBranch: "main")
+            task.operated?.peopleReview = PeopleReview()
+        }
+        let host = FakeMergeHost()
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
+            ports.publisher = { _ in host }
+            adjust(&ports)
+        })
+        world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
+        return Reviewed(world: world, run: run, task: task, host: host, sha: fixture.sha)
+    }
+
+    /// The wake lines typed into the Operator's tab, once the waker has sent what it holds.
+    func wakes(_ world: OperatorWorld) async -> [String] {
+        await world.controller.waker.lastCoalesce?.value
+        await world.controller.waker.lastSend?.value
+        return world.daemon.requests("session.deliver").filter { $0.params["wake"] as? Bool == true }.compactMap { $0.params["text"] as? String }
+    }
+
+    @Test func peopleNeedTheReviewSlice() async throws {
+        let r = try reviewed(.inReview)
+        r.host.update { $0.users = [HostUser(username: "jan", name: "Jan Peeters")] }
+        let off = "The Review slice is off for this broadcast."
+        #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]).message == off)
+        #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]).message == off)
+        #expect(await r.world.call(r.run.id, "reply_thread", ["task": "A", "key": "r1", "thread": "d1", "body": "Done."]).message == off)
+        #expect(r.world.run(r.run.id)?.leftForYou == ["Assign jan to !12: the Review slice is off.",
+                                                       "Reply in a thread on !12: the Review slice is off."], "each said once")
+        // Finding someone only reads.
+        #expect(await r.world.call(r.run.id, "find_user", ["task": "A", "query": "jan"]).value == [["username": "jan", "name": "Jan Peeters"]])
+        #expect(r.host.log == ["users jan"], "nothing was written to the host")
+    }
+
+    @Test func theReviewSliceAsksReviewersAndRepliesOnce() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        let asked = await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]])
+        #expect(asked.value?["requested"] == true && asked.value?["reviewers"] == ["jan"])
+        #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["Jan"]]).value?["requested"] == false,
+                "the same reviewers again change nothing")
+        #expect(r.host.log == ["ready 12", "reviewers 12 jan"])
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers == ["jan"])
+        let reply: JSONValue = ["task": "A", "key": "r1", "thread": "d1", "body": "Renamed in the next commit."]
+        #expect(await r.world.call(r.run.id, "reply_thread", reply).value?["replied"] == true)
+        #expect(await r.world.call(r.run.id, "reply_thread", reply).value?["replied"] == false)
+        #expect(r.host.log.filter { $0.hasPrefix("reply") } == ["reply 12 d1 Renamed in the next commit."])
+        #expect(r.world.run(r.run.id)?.leftForYou == [])
+    }
+
+    @Test func anAgentReviewNeedsNoSlice() async throws {
+        let gate = ReviewGate()
+        let seen = TaskFinisherTests.Recorded<String>()
+        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, directory, _ in
+            for word in arguments + ["cwd:" + directory] { seen.append(word) }
+            await gate.wait()
+            let json = String(decoding: try JSONEncoder().encode(["result": "Line 3 leaks the token."]), as: UTF8.self)
+            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
+        })
+        let r = try reviewed(.working, review: "Do an adversarial review, fix what it finds.") { $0.agentReviewer = runner }
+        let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Do an adversarial review."])
+        // Required, so a review that never started cannot leave the gate waiting.
+        try #require(answer.value?["review"] == "started")
+        #expect(answer.value?["agent"] == "claude", "a Codex task is reviewed by Claude")
+        await gate.started()
+        let task = try #require(r.world.task(r.task.id))
+        #expect(SidebarModel.operatedCaption(task: task, run: r.world.run(r.run.id), tasks: [:], acting: false)?.text == "reviewing with Claude")
+        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Do an adversarial review."]).value?["review"] == "running",
+                "a review running is not started twice")
+        #expect(seen.all.contains("cwd:" + r.task.worktreePath), "it reads the task's worktree")
+        #expect(seen.all.contains("--allowedTools"))
+        await gate.release()
+        await r.world.controller.tools.lastReview?.value
+        #expect(r.world.task(r.task.id)?.operated?.agentReview?.findings == "Line 3 leaks the token.")
+        #expect(r.world.task(r.task.id)?.operated?.state == .working, "the review changes nothing of its state")
+        let read = await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"])
+        #expect(read.value?["agentReview"]?["findings"] == "Line 3 leaks the token.")
+        #expect(await wakes(r.world) == ["[AiTerm] Claude reviewed A: call run_status"])
+        #expect(r.world.run(r.run.id)?.leftForYou == [] && r.host.log.isEmpty, "nobody was notified")
+    }
+
+    @Test func anAgentReviewReadsAWorkingTaskOnly() async throws {
+        let r = try reviewed(.accepted)
+        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).message?.contains("before you accept it") == true)
+        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "grok"]).message != nil)
+    }
+
+    @Test func finishWithAReviewEntersInReview() async throws {
+        let r = try reviewed(.accepted, slices: Slices(review: true))
+        let first = await r.world.call(r.run.id, "finish_task", ["task": "A"])
+        #expect(first.value?["result"] == "inReview")
+        #expect(r.world.task(r.task.id)?.operated?.state == .inReview)
+        #expect(r.host.log.contains("create feat/a → main draft"))
+        #expect(r.world.run(r.run.id)?.state == .active, "a broadcast with a task in review is not complete")
+        // Its agent fixes the feedback: steered while in review.
+        #expect(await r.world.call(r.run.id, "message_task", ["task": "A", "text": "Rename it as Jan asked."]).value?["result"] == "delivered")
+        // The second finish_task ends the review: a draft end is then published, and the broadcast completes.
+        let second = await r.world.call(r.run.id, "finish_task", ["task": "A"])
+        #expect(second.value?["result"] == "published")
+        #expect(r.world.task(r.task.id)?.operated?.state == .published)
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.ended == true)
+        #expect(r.world.run(r.run.id)?.state == .complete)
+        #expect(r.host.log.filter { $0.hasPrefix("create") }.count == 1)
+    }
+
+    @Test(arguments: [(Slices(review: false), "Assign Jan."), (Slices(review: true), nil as String?)])
+    func finishWithoutAReviewEndsAsBefore(_ slices: Slices, _ review: String?) async throws {
+        let r = try reviewed(.accepted, slices: slices, review: review)
+        #expect(await r.world.call(r.run.id, "finish_task", ["task": "A"]).value?["result"] == "published")
+        #expect(r.world.task(r.task.id)?.operated?.state == .published)
+    }
+
+    @Test func aMergeEndInReviewOpensADraftAndMergesNothing() async throws {
+        let r = try reviewed(.accepted, end: .merge, slices: Slices(review: true))
+        #expect(await r.world.call(r.run.id, "finish_task", ["task": "A"]).value?["result"] == "inReview")
+        #expect(r.host.log.contains("create feat/a → main draft"))
+        #expect(!r.host.log.contains { $0.hasPrefix("readiness") || $0.hasPrefix("merge") })
+        // Ending the review goes on to the merge path, which asks the host.
+        let ended = await r.world.call(r.run.id, "finish_task", ["task": "A"])
+        #expect(ended.value?["result"] == "waitingToMerge")
+        #expect(r.host.log.contains { $0.hasPrefix("readiness") })
+    }
+
+    @Test func newFeedbackWakesTheOperator() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        let watcher = r.world.controller.reviewWatcher
+        func poll() async { watcher.poll(); await watcher.lastPoll?.value }
+        await poll()
+        #expect(await wakes(r.world) == [], "nothing new, no wake")
+        r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
+        await poll()
+        #expect(await wakes(r.world) == ["[AiTerm] review feedback on A: call run_status"])
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads == ["d1": false])
+        await poll()
+        #expect(await wakes(r.world).count == 1, "the same thread is no news")
+        r.host.update { $0.threads[0].resolved = true; $0.approvals = ["jan"] }
+        await poll()
+        #expect(await wakes(r.world).count == 2)
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.approvals == ["jan"])
+        // Paused, nothing is read.
+        r.world.workspace.mutate { $0.updateRun(id: r.run.id) { $0.state = .paused; $0.intent = .paused } }
+        let reads = r.host.log.count
+        await poll()
+        #expect(r.host.log.count == reads)
+    }
+
+    @Test func aTakenOverTaskIsNotWatched() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.takenOver = true } }
+        r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
+        r.world.controller.reviewWatcher.poll()
+        await r.world.controller.reviewWatcher.lastPoll?.value
+        #expect(r.host.log.isEmpty)
+    }
 }

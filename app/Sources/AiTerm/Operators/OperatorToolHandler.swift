@@ -66,6 +66,10 @@ final class OperatorToolHandler {
     var sendingMessages: Set<MessageKey> = []
     /// The finds being filed in Jira now, by run and key: a second call for one leaves it to the first.
     var filingFinds: Set<String> = []
+    /// The agent reviews running now, by task: one in a task's record but not here was lost with AiTerm's restart.
+    var runningReviews: [UUID: Task<Void, Never>] = [:]
+    /// The latest agent review, for a test to await. Set by `OperatorToolHandler+Review.swift`.
+    var lastReview: Task<Void, Never>?
     /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
@@ -80,13 +84,13 @@ final class OperatorToolHandler {
     }
 
     /// The tools that act on one task while they run: its row's operator mark breathes meanwhile.
-    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task"]
+    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task", "request_review", "reply_thread"]
 
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "mark_task", "resume_task",
                                         "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "report_find",
-                                        "jira_create", "jira_move", "jira_link"]
+                                        "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker) {
@@ -180,6 +184,10 @@ final class OperatorToolHandler {
         case "mark_task": return try await markTask(call, in: run)
         case "resume_task": return try resumeTask(call, in: run)
         case "retry_task": return try retryTask(call, in: run)
+        case "review_task": return try await reviewTask(call, in: run)
+        case "request_review": return try await requestReview(call, in: run)
+        case "reply_thread": return try await replyThread(call, in: run)
+        case "find_user": return try await findUser(call, in: run)
         case "finish_task":
             let task = try self.task(call, in: run)
             let result = await finish(task.id)

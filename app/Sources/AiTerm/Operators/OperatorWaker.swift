@@ -20,7 +20,9 @@ final class OperatorWaker {
     private let sleep: @MainActor (Duration) async throws -> Void
     /// What the operator last saw of each run, and what was last looked at, both without their revision.
     private var acknowledgedStatus: [UUID: RunStatus] = [:], lastSeen: [UUID: RunStatus] = [:]
-    private var updates: [UUID: Int] = [:], reasons: [UUID: String] = [:]
+    private var updates: [UUID: Int] = [:], reasons: [UUID: Reason] = [:]
+    /// A fixed reason, and what joins it to "call run_status": a comma, or a colon after news about one task.
+    struct Reason: Equatable { var text: String, colon: Bool }
     private var armed: [UUID: Task<Void, Never>] = [:], retrying: [UUID: Task<Void, Never>] = [:]
     private var sending: Set<UUID> = []
     /// The latest delivery, for a test to await.
@@ -70,9 +72,10 @@ final class OperatorWaker {
     }
 
     /// A fixed reason to wake it — `reconnected`, `operation complete` — which is the line when it is the only news.
-    func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil) {
+    /// `colon` joins it to the call with a colon: `[AiTerm] Codex reviewed PAY-2: call run_status`.
+    func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil, colon: Bool = false) {
         if let status, Self.content(status) == acknowledgedStatus[run] { return }
-        reasons[run] = reason
+        reasons[run] = Reason(text: reason, colon: colon)
         // The change that prompted it is often already counted: the reason stands for it.
         updates[run] = max(updates[run, default: 0], 1)
         arm(run)
@@ -94,8 +97,8 @@ final class OperatorWaker {
         retrying.removeValue(forKey: run)?.cancel()
     }
 
-    static func line(updates count: Int, reason: String?) -> String {
-        if let reason, count <= 1 { return "[AiTerm] \(reason), call run_status" }
+    static func line(updates count: Int, reason: Reason?) -> String {
+        if let reason, count <= 1 { return "[AiTerm] \(reason.text)\(reason.colon ? ":" : ",") call run_status" }
         return "[AiTerm] \(count) update\(count == 1 ? "" : "s"), call run_status"
     }
 

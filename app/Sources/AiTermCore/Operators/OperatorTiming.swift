@@ -19,6 +19,8 @@ public enum OperatorTiming {
     public static let stallAfter: TimeInterval = 20 * 60
     /// A second opinion that takes longer is abandoned, and the act proceeds unchallenged (§4.4).
     public static let challengeTimeout: TimeInterval = 180
+    /// App only: an agent review (`review_task`) that takes longer is stopped, and its review failed.
+    public static let agentReviewTimeout: TimeInterval = 900
     /// How long the daemon waits for the app's reply to a forwarded tool call.
     public static let operatorRequestTimeout: TimeInterval = 30
     /// A launch attempt older than this with no tagged session may be launched again (spec §11).

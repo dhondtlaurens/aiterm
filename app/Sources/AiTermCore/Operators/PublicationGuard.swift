@@ -49,7 +49,7 @@ public enum PublicationGuard {
     }
 
     /// An operation publishes while it is active or complete and you have neither paused nor ended it.
-    static func runRefusal(_ run: OperatorRun) -> String? {
+    public static func runRefusal(_ run: OperatorRun) -> String? {
         if run.intent == .stopped { return "The operation was stopped; it publishes nothing." }
         if run.intent == .paused { return "The operation is paused; nothing is published until it runs again." }
         switch run.state {

@@ -136,7 +136,7 @@ def test_memory_wins_over_a_file(tmp_path):
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
                   "submit_plan", "read_task", "message_task", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you",
-                  "resolve_question", "report_find", "log_decision"}
+                  "resolve_question", "report_find", "log_decision", "review_task", "request_review", "reply_thread", "find_user"}
 
 
 def test_the_tools_are_the_contracts():
@@ -173,7 +173,7 @@ def test_the_values_are_the_apps():
     assert properties["create_task"]["end"]["enum"] == ["commit", "draftMR", "merge"]
     assert properties["create_task"]["agent"]["enum"] == ["claude", "codex"]
     assert properties["create_task"]["dependsOn"]["items"]["properties"]["kind"]["enum"] == ["order", "code"]
-    assert properties["read_task"]["what"]["enum"] == ["lastMessage", "diff", "prompt"]
+    assert properties["read_task"]["what"]["enum"] == ["lastMessage", "diff", "prompt", "review"]
     assert properties["mark_task"]["outcome"]["enum"] == ["accepted", "noChange", "blocked", "failed"]
     assert properties["submit_plan"]["revision"]["type"] == "integer"
     assert properties["run_status"] == {}
@@ -191,6 +191,20 @@ def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool
     for name in ("jira_create", "jira_move", "jira_link"):
         assert "Jira slice" in tools[name]["description"]
     assert not [name for name in tools if "comment" in name]
+
+
+def test_the_review_tools_say_what_the_slice_governs():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    for name in ("request_review", "reply_thread"):
+        assert "Review slice" in tools[name]["description"]
+    for name in ("review_task", "find_user"):
+        assert "needs no slice" in tools[name]["description"]
+    required = {name: set(tool["inputSchema"].get("required", [])) for name, tool in tools.items()}
+    assert required["review_task"] == {"task", "instructions"}
+    assert tools["review_task"]["inputSchema"]["properties"]["agent"]["enum"] == ["claude", "codex"]
+    assert required["request_review"] == {"task", "reviewers"} and required["reply_thread"] == {"task", "key", "thread", "body"}
+    assert tools["request_review"]["inputSchema"]["properties"]["reviewers"]["items"] == {"type": "string"}
+    assert "inReview" in tools["finish_task"]["description"]
 
 
 def test_schema_has_report_find_and_no_propose_lesson():

@@ -142,7 +142,14 @@ final class TaskFinisher {
     }
 
     private func advance(_ id: UUID, restart: Bool) async -> Result {
-        guard let first = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+        guard var first = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+        // A task in review: this finish_task ends the review (spec §5). A draft end is then published; a merge end
+        // goes on to its merge.
+        if first.operated.state == .inReview {
+            if let ended = endReview(first) { return ended }
+            guard let fresh = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
+            first = fresh
+        }
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
         if operated.state == .published || operated.publication?.merged == true {
@@ -174,7 +181,9 @@ final class TaskFinisher {
         let publisher = TaskPublisher(repository: repository, host: host, now: now)
         do {
             let outcome = try await publisher.advance(
-                TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent), restart: restart,
+                TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent,
+                                      forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run)),
+                restart: restart,
                 recheck: { @MainActor [weak self] in
                     guard let self else { return PublicationGuard.gone }
                     return self.recheck(id, ownership: ownership, sha: accepted)
@@ -183,7 +192,7 @@ final class TaskFinisher {
                     guard let self else { throw NotSaved() }
                     try self.record(publication, for: id, ownership: ownership)
                 })
-            return apply(outcome, to: id)
+            return apply(outcome, to: id, forReview: TaskPublisher.Context.entersReview(current.operated, run: current.run))
         } catch is NotSaved {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
         } catch {
@@ -241,10 +250,45 @@ final class TaskFinisher {
         _ = store.flush()
     }
 
-    private func apply(_ outcome: TaskPublisher.Outcome, to id: UUID) -> Result {
+    /// What `finish_task` answers once a task went into review.
+    static let inReviewReason = "People review it now: AiTerm wakes you when a reviewer opens or resolves a thread or approves it. "
+        + "Have its agent fix the feedback, accept the new commit and call finish_task to push it. Call finish_task once more to end the review."
+
+    /// Ends a task's review: nil once a merge end is accepted again and may go on to its merge, otherwise the
+    /// answer. Refused while the operation does not run or you have the task.
+    private func endReview(_ context: Context) -> Result? {
+        let id = context.task.id, operated = context.operated
+        if let why = PublicationGuard.runRefusal(context.run) { return Result(operated.publication, result: "refused", reason: why) }
+        if operated.takenOver {
+            return Result(operated.publication, result: "refused", reason: "You've taken \(operated.key) over; its review ends only once you hand it back.")
+        }
+        let merges = operated.end == .merge
+        store.mutate { state in
+            state.updateOperated(id) { task in
+                var review = task.peopleReview ?? PeopleReview()
+                review.ended = true
+                task.peopleReview = review
+                task.state = merges ? .accepted : .published
+            }
+        }
+        _ = store.flush()
+        return merges ? nil : Result(operated.publication, result: "published", reason: nil)
+    }
+
+    private func apply(_ outcome: TaskPublisher.Outcome, to id: UUID, forReview: Bool = false) -> Result {
         switch outcome {
         case .refused(let reason):
             return Result(store.state.task(id: id)?.operated?.publication, result: "refused", reason: reason)
+        case .published(let publication) where forReview:
+            // Its request is open as a draft: people review it now, and nothing ends until the review does.
+            store.mutate { state in
+                state.updateOperated(id) { task in
+                    task.state = .inReview
+                    if task.peopleReview == nil { task.peopleReview = PeopleReview() }
+                }
+            }
+            _ = store.flush()
+            return Result(publication, result: "inReview", reason: Self.inReviewReason)
         case .published(let publication):
             // The end is carried out on the host already: the state follows whatever the save does.
             store.mutate { state in

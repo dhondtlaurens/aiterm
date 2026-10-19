@@ -183,7 +183,8 @@ public enum OperatorCommand {
         + "A draft notifies nobody. "
         + "The Done decides the end. A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task. "
         + "An empty Done ends at a draft merge request. "
-        + "When the Review asks for an agent review, run one and have the task's agent fix what it finds."
+        + "When the Review asks for an agent review, run one with review_task while the task works, before you accept it, "
+        + "and have the task's agent fix what it finds. It needs no slice: nobody is notified."
 
     /// One paragraph each for Jira, Review and Merge: what this broadcast's frozen slice lets the Operator do.
     static func slicesRule(_ slices: Slices) -> [String] {
@@ -193,7 +194,10 @@ public enum OperatorCommand {
             : "You may not create or update Jira tickets. Jira is read-only for you. A task without a ticket runs without one.",
          slices.review
             ? "You may involve people on a merge request: mark it ready, assign reviewers, send the task's agent to fix their "
-              + "feedback, and reply in review threads."
+              + "feedback, and reply in review threads. When the Review names people, finish_task puts the task in review: "
+              + "ask them with request_review (find_user finds their usernames), have the agent fix their feedback, accept "
+              + "the new commit and call finish_task to push it, answer threads with reply_thread, and call finish_task "
+              + "once more when the review is done."
             : "You may not involve people on a merge request. Reviews are agent reviews only. "
               + "If the Review names people, plan the work as far as the draft merge request and leave the rest for the person.",
          slices.merge

@@ -136,6 +136,54 @@ public struct LaunchAttempt: Codable, Equatable, Sendable {
     }
 }
 
+/// An agent's review of a task's branch (spec §3.1, §5's base): the reviewer, what it was asked, the branch's
+/// head it read, and once it answered, its findings, or why it gave none. Nobody is notified, so it needs
+/// no slice. Running while neither `findings` nor `failure` is set.
+public struct AgentReviewResult: Codable, Equatable, Sendable {
+    public var agent: AgentKind
+    public var instructions: String
+    /// The commit the review read: the branch's head when it started.
+    public var head: String?
+    public var startedAt: Date
+    public var findings: String?
+    public var failure: String?
+    /// When it answered, or failed.
+    public var at: Date?
+
+    public init(agent: AgentKind, instructions: String, head: String?, startedAt: Date, findings: String? = nil,
+                failure: String? = nil, at: Date? = nil) {
+        self.agent = agent; self.instructions = instructions; self.head = head; self.startedAt = startedAt
+        self.findings = findings; self.failure = failure; self.at = at
+    }
+
+    public var isRunning: Bool { findings == nil && failure == nil }
+}
+
+/// People's review of a task's request (spec §5, the Review slice): who was asked, and what AiTerm last
+/// read of the request, so only news wakes the Operator: each thread by its id with whether it was
+/// resolved, and who approved. `ended` is the Operator's second `finish_task`, which ended the review.
+public struct PeopleReview: Codable, Equatable, Sendable {
+    public var reviewers: [String]
+    public var threads: [String: Bool]
+    public var approvals: [String]
+    public var ended: Bool
+
+    public init(reviewers: [String] = [], threads: [String: Bool] = [:], approvals: [String] = [], ended: Bool = false) {
+        self.reviewers = reviewers; self.threads = threads; self.approvals = approvals; self.ended = ended
+    }
+
+    private enum CodingKeys: String, CodingKey { case reviewers, threads, approvals, ended }
+
+    /// Every field may be missing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reviewers = try c.decodeIfPresent([String].self, forKey: .reviewers) ?? []
+        threads = try c.decodeIfPresent([String: Bool].self, forKey: .threads) ?? [:]
+        approvals = try c.decodeIfPresent([String].self, forKey: .approvals) ?? []
+        ended = try c.decodeIfPresent(Bool.self, forKey: .ended) ?? false
+    }
+}
+
 /// A flag on top of a task's state (spec §8). Advisory, so one a newer build wrote is dropped on
 /// read rather than failing the task (`OperatedTask.init(from:)`).
 public enum OperatedFlag: String, Codable, CaseIterable, Sendable { case possiblyStalled, uncertain, upstreamReplaced, waitingOnYou }
@@ -180,13 +228,18 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var agentPinned: Bool
     /// The id of the AiTerm issue blocking it, while one does.
     public var problem: String?
+    /// The latest agent review of its branch (`review_task`).
+    public var agentReview: AgentReviewResult?
+    /// People's review of its request, once the Review slice involved them or it went into review.
+    public var peopleReview: PeopleReview?
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
                 acceptance: TaskAcceptance? = nil, publication: TaskPublication? = nil, takenOver: Bool = false,
                 ownership: Int = 0, launch: LaunchAttempt? = nil, retriesUsed: Int = 0, runtimeUsed: TimeInterval = 0,
                 blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
-                lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil) {
+                lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil,
+                agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil) {
         self.runId = runId; self.key = key; self.state = state; self.end = end; self.brief = brief
         self.dependsOn = dependsOn; self.stackedOn = stackedOn; self.revision = revision
         self.firstRevision = firstRevision ?? revision
@@ -195,6 +248,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.blockedReason = blockedReason; self.blockedFrom = blockedFrom; self.flags = flags
         self.lastFailure = lastFailure
         self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
+        self.agentReview = agentReview; self.peopleReview = peopleReview
     }
 
     /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
@@ -204,7 +258,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
-        case modelReason, agentPinned, problem
+        case modelReason, agentPinned, problem, agentReview, peopleReview
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -234,6 +288,9 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         modelReason = try c.decodeIfPresent(String.self, forKey: .modelReason)
         agentPinned = try c.decodeIfPresent(Bool.self, forKey: .agentPinned) ?? false
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
+        // A review an older or newer build wrote that does not read is dropped, not a failed task.
+        agentReview = (try? c.decodeIfPresent(AgentReviewResult.self, forKey: .agentReview)) ?? nil
+        peopleReview = (try? c.decodeIfPresent(PeopleReview.self, forKey: .peopleReview)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -263,6 +320,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(modelReason, forKey: .modelReason)
         try c.encode(agentPinned, forKey: .agentPinned)
         try c.encodeIfPresent(problem, forKey: .problem)
+        try c.encodeIfPresent(agentReview, forKey: .agentReview)
+        try c.encodeIfPresent(peopleReview, forKey: .peopleReview)
     }
 }
 
@@ -393,6 +452,8 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var finds: [OffBriefFind], leftForYou: [String]
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
     public var jiraCreated: [String: String]
+    /// The review threads `reply_thread` answered, by the key the Operator gave the call: the same key again posts nothing.
+    public var threadReplies: [String: String]
     /// The Oracle's challenges of this run's calls, the ones acted on kept with their answer.
     public var challenges: [ChallengeRecord]
     /// The Operator's Claude conversation, for `claude --resume`.
@@ -406,20 +467,21 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
                 leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], jiraCreated: [String: String] = [:],
-                createdAt: Date) {
+                threadReplies: [String: String] = [:], createdAt: Date) {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
+        self.threadReplies = threadReplies
         self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, leftForYou, challenges, operatorConversation, operatorWindowId
-        case operatorSessionId, jiraCreated, createdAt
+        case operatorSessionId, jiraCreated, threadReplies, createdAt
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -448,6 +510,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
         operatorSessionId = try c.decodeIfPresent(String.self, forKey: .operatorSessionId)
         jiraCreated = try c.decodeIfPresent([String: String].self, forKey: .jiraCreated) ?? [:]
+        threadReplies = try c.decodeIfPresent([String: String].self, forKey: .threadReplies) ?? [:]
         createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 
@@ -478,6 +541,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)
         try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
         try c.encode(jiraCreated, forKey: .jiraCreated)
+        try c.encode(threadReplies, forKey: .threadReplies)
         try c.encode(createdAt, forKey: .createdAt)
     }
 }

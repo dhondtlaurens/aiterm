@@ -48,8 +48,10 @@ extension OperatorToolHandler {
             // No helper is unknown, not "no prompt".
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             return ["prompt": try await daemon.prompt(sessionId: tab.sessionId).map { .string($0.rawValue) } ?? .null]
+        case "review":
+            return try await reviewReading(task, in: run)
         case let other:
-            throw ToolRefusal("read_task reads lastMessage, diff or prompt, not \(other).")
+            throw ToolRefusal("read_task reads lastMessage, diff, prompt or review, not \(other).")
         }
     }
 
@@ -66,8 +68,9 @@ extension OperatorToolHandler {
         let task = try self.task(call, in: run), text = try call.string("text")
         try acceptsWork(run)
         let operated = try notTakenOver(task)
-        // An ended task is left as it ended: more steering would move its branch past what was accepted.
-        guard [.working, .blocked].contains(operated.state) else {
+        // An ended task is left as it ended: more steering would move its branch past what was accepted. A task in
+        // review is steered to fix its reviewers' feedback, and accepted again after.
+        guard [.working, .blocked, .inReview].contains(operated.state) else {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): there is no worker to steer.")
         }
         let key = MessageKey(task: task.id, text: text), now = ports.now()
@@ -113,7 +116,7 @@ extension OperatorToolHandler {
                                             note: call.optionalString("note"), at: ports.now())
             // Accepted again on another commit: its dependents are revoked and flagged. Before M3, part C refuses
             // it once a code dependent has started (M1, spec §8).
-            if ports.milestone >= .m3, operated.state == .accepted || operated.state == .published {
+            if ports.milestone >= .m3, [.accepted, .published, .inReview].contains(operated.state) {
                 return try reaccept(task, as: acceptance)
             }
             action = .accept(acceptance, branchHead: tip)
@@ -136,7 +139,7 @@ extension OperatorToolHandler {
     private func isRepeat(of outcome: String, _ call: ToolCall, _ operated: OperatedTask, in task: TaskItem) async throws -> Bool {
         switch outcome {
         case "accepted":
-            guard operated.state == .accepted || operated.state == .published, let given = call.optionalString("sha") else { return false }
+            guard [.accepted, .published, .inReview].contains(operated.state), let given = call.optionalString("sha") else { return false }
             return operated.acceptance?.resultSHA == (try await commit(given, in: task))
         case "noChange": return operated.state == .noChange
         case "blocked", "failed": return operated.state.rawValue == outcome && operated.blockedReason == call.optionalString("note")
@@ -216,7 +219,7 @@ extension OperatorToolHandler {
     }
 
     // -- helpers ---------------------------------------------------------------------------------
-    private func recheck(_ original: TaskItem) throws(ToolRefusal) {
+    func recheck(_ original: TaskItem) throws(ToolRefusal) {
         guard let task = state.task(id: original.id), let operated = task.operated,
               let run = state.run(id: operated.runId), operated.runId == original.operated?.runId else {
             throw ToolRefusal("This task is no longer in this operation.")

@@ -20,7 +20,18 @@ import Foundation
 public struct TaskPublisher: Sendable {
     public struct Context: Sendable {
         public var task: TaskItem, run: OperatorRun, parent: TaskItem?
-        public init(task: TaskItem, run: OperatorRun, parent: TaskItem?) { self.task = task; self.run = run; self.parent = parent }
+        /// The task goes into review once its request is open (spec §5, the Review slice): the request is
+        /// opened as a draft whatever its end, and nothing merges. Its review ends with the next `finish_task`.
+        public var forReview: Bool
+        public init(task: TaskItem, run: OperatorRun, parent: TaskItem?, forReview: Bool = false) {
+            self.task = task; self.run = run; self.parent = parent; self.forReview = forReview
+        }
+
+        /// Whether the task goes into review before it ends: the broadcast's Review says how it is reviewed,
+        /// its Review slice lets people be involved, and this task's review has not ended.
+        public static func entersReview(_ operated: OperatedTask, run: OperatorRun) -> Bool {
+            OperatorCommand.said(run.review) != nil && run.profile.slices.review && operated.peopleReview?.ended != true
+        }
     }
 
     public enum Outcome: Equatable, Sendable {
@@ -133,7 +144,7 @@ public struct TaskPublisher: Sendable {
                 request = try await host.createRequest(from: branch, into: target,
                                                        title: Self.title(of: task),
                                                        description: Self.description(of: task, run: context.run, acceptance: acceptance),
-                                                       draft: operated.end == .draftMR)
+                                                       draft: operated.end == .draftMR || context.forReview)
             }
             number = request.iid
             publication.mergeRequestNumber = request.iid
@@ -142,7 +153,7 @@ public struct TaskPublisher: Sendable {
             publication.readySince = nil
             try await record(publication)
         }
-        guard operated.end == .merge else { return .published(publication) }
+        guard operated.end == .merge, !context.forReview else { return .published(publication) }
 
         // 3 · Merge: after a stacked parent's merge, onto the default branch, once the host can.
         if publication.waitingSince == nil {

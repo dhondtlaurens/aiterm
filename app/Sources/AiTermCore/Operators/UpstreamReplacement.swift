@@ -12,12 +12,12 @@ public enum UpstreamReplacement {
         case notAccepted(String), merged(String)
     }
 
-    /// `id`, accepted already (or published as a draft), accepted again as `acceptance`. Returns the
+    /// `id`, accepted already (or published as a draft, or in review), accepted again as `acceptance`. Returns the
     /// dependents it changed; the same commit again changes nothing. A task merged on its host, by
     /// AiTerm or before AiTerm's answer came, is never accepted again.
     public static func reaccept(_ id: UUID, as acceptance: TaskAcceptance, in state: inout AppState) throws(Refusal) -> [UUID] {
         guard let index = state.tasks.firstIndex(where: { $0.id == id }), var operated = state.tasks[index].operated else { return [] }
-        guard operated.state == .accepted || operated.state == .published else {
+        guard operated.state == .accepted || operated.state == .published || operated.state == .inReview else {
             throw .notAccepted("\(operated.key) isn't accepted; mark it accepted instead.")
         }
         guard operated.publication?.merged != true, operated.publication?.mergedSHA == nil else {

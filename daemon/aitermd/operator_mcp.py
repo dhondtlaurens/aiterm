@@ -222,8 +222,32 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
           "Submitting the same revision again returns the earlier result.",
           {"revision": {"type": "integer", "description": "The revision run_status shows open."}}, ("revision",)),
-    _tool("read_task", "Reads a task: its worker's last message, its diff, or the prompt open in its session.",
-          {"task": _TASK, "what": _choice("lastMessage, diff or prompt.", "lastMessage", "diff", "prompt")}, ("task", "what")),
+    _tool("read_task", "Reads a task: its worker's last message, its diff, the prompt open in its session, or its review: the "
+          "agent review's findings, and for a task whose request people review, its threads with their ids, who approved "
+          "and who was asked.",
+          {"task": _TASK, "what": _choice("lastMessage, diff, prompt or review.", "lastMessage", "diff", "prompt", "review")},
+          ("task", "what")),
+    _tool("review_task", "Starts an agent review of a working task's branch, before you accept it: another agent reads its "
+          "commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
+          "Nobody is notified, so it needs no slice. It answers started at once; AiTerm wakes you when the findings are in, "
+          "and read_task with what: review reads them. Have the task's agent fix them with message_task. A review running "
+          "already, or the same review of the same commit, is not started again.",
+          {"task": _TASK, "instructions": _text("What the review checks and how, from the broadcast's Review, such as "
+                                                "an adversarial review with /review-skill."),
+           "agent": _choice("Who reviews. Left out, the other of Claude and Codex from the task's own agent.", "claude", "codex")},
+          ("task", "instructions")),
+    _tool("request_review", "Marks a task's merge request ready and asks people to review it. Refused unless the broadcast's "
+          "Review slice is on; AiTerm then leaves it for the person. The same reviewers again change nothing.",
+          {"task": _TASK, "reviewers": {"type": "array", "items": {"type": "string"},
+                                        "description": "The usernames to ask, as find_user gives them."}},
+          ("task", "reviewers")),
+    _tool("reply_thread", "Replies in a review thread on a task's merge request, by the thread's id from read_task with what: "
+          "review. Refused unless the broadcast's Review slice is on. The same key posts once.",
+          {"task": _TASK, "key": _KEY, "thread": _text("The thread's id."), "body": _text("The reply, in plain text.")},
+          ("task", "key", "thread", "body")),
+    _tool("find_user", "Finds people on the code host of a task's project who may review there, by username or name. It only "
+          "reads, so it needs no slice.",
+          {"task": _TASK, "query": _text("A username or a name, or part of one.")}, ("task", "query")),
     _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
           "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried.",
           {"task": _TASK, "text": _text("The message.")}, ("task", "text")),
@@ -247,7 +271,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "AiTerm wakes you when it merged or is blocked; after about an hour of waiting it answers blocked. A failed "
           "pipeline or a conflict blocks it: have the worker fix it, accept the new commit, and call finish_task "
           "again. A task that ends in a commit has nothing to finish. "
-          "It answers result: published, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
+          "With the broadcast's Review written and its Review slice on, the request opens as a draft and the task "
+          "goes into review instead, answering inReview: AiTerm wakes you on people's feedback, and the next "
+          "finish_task after the last fix ends the review, a draft end published, a merge end going on to merge. "
+          "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
           "done. "
           "Each step is recorded and calling again resumes at the next step: it never pushes or opens a request "

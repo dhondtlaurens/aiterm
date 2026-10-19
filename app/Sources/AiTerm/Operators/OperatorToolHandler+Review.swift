@@ -1,0 +1,252 @@
+import Foundation
+import AiTermCore
+
+/// Reviews (spec §3.1, §5). An agent review is the base: `review_task` has another agent read a working task's
+/// branch headless and read-only, and nobody is notified. People are the Review slice: `request_review` marks the
+/// request ready and asks its reviewers, `reply_thread` answers in a thread, each refused unless the broadcast's
+/// frozen slice allows it, and the refusal leaves what was not done for the person once. `find_user` only reads.
+extension OperatorToolHandler {
+    private static let sliceOff = "The Review slice is off for this broadcast."
+
+    // -- the agent review (base) ---------------------------------------------------------------
+
+    /// Starts an agent review of a working task's branch and answers at once; AiTerm wakes the Operator with the
+    /// findings, which `read_task` with `what: review` reads. A review running already, or one of the same commit
+    /// with the same instructions done already, is not started again.
+    func reviewTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run), instructions = try call.string("instructions")
+        try acceptsWork(run)
+        let operated = try notTakenOver(task)
+        guard operated.state == .working else {
+            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): an agent review reads a task while it works, before you accept it.")
+        }
+        guard task.hasCheckout else { throw ToolRefusal("\(operated.key) hasn’t started: it has no worktree yet.") }
+        let agent = try reviewer(call, for: task)
+        if let review = operated.agentReview, review.isRunning, runningReviews[task.id] != nil { return Self.reviewAnswer(review, started: false) }
+        let git = ports.git, path = task.worktreePath, base = task.baseBranch
+        let read: (head: String, commits: String, diff: String)
+        do {
+            read = try await BackgroundWork.run {
+                (try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines),
+                 try git.run(["log", "--oneline", "\(base)..HEAD"], in: path), try git.run(["diff", "\(base)...HEAD"], in: path))
+            }
+        } catch {
+            throw ToolRefusal("AiTerm couldn’t read \(operated.key)’s branch against \(base.isEmpty ? "its base" : base).")
+        }
+        try recheck(task)
+        // Another call started one while the branch was read, or this exact review is done already.
+        if let review = state.task(id: task.id)?.operated?.agentReview {
+            if review.isRunning, runningReviews[task.id] != nil { return Self.reviewAnswer(review, started: false) }
+            if review.findings != nil, review.agent == agent, review.instructions == instructions, review.head == read.head {
+                return Self.reviewAnswer(review, started: false)
+            }
+        }
+        let home = ports.home, other: AgentKind = agent == .codex ? .claude : .codex
+        let project = state.project(id: task.projectId)?.path
+        let skills = await BackgroundWork.run { AgentReview.skills(in: instructions, agents: [agent, other], projectPath: project, home: home) }
+        try recheck(task)
+        if runningReviews[task.id] != nil, let review = state.task(id: task.id)?.operated?.agentReview {
+            return Self.reviewAnswer(review, started: false)
+        }
+        let prompt = AgentReview.prompt(title: task.title, brief: operated.brief, base: base, commits: read.commits,
+                                        diff: String(read.diff.prefix(Self.diffLimit)), truncated: read.diff.count > Self.diffLimit,
+                                        instructions: instructions, skills: skills)
+        let review = AgentReviewResult(agent: agent, instructions: instructions, head: read.head, startedAt: ports.now())
+        mutate(in: run.id) { $0.updateOperated(task.id) { $0.agentReview = review } }
+        startReview(review, of: task.id, key: operated.key, in: run.id, prompt: prompt, worktree: path)
+        return Self.reviewAnswer(review, started: true)
+    }
+
+    /// Who reviews: the agent the call names, Claude or Codex and installed, or by default the other of the two.
+    private func reviewer(_ call: ToolCall, for task: TaskItem) throws(ToolRefusal) -> AgentKind {
+        let installed = installedAgents
+        guard let named = call.optionalString("agent") else {
+            guard let agent = AgentReview.defaultReviewer(for: task.agent, installed: installed) else {
+                throw ToolRefusal("Neither Claude nor Codex is installed, so no agent can review it.")
+            }
+            return agent
+        }
+        guard let agent = AgentKind(rawValue: named.lowercased()), agent == .claude || agent == .codex else {
+            throw ToolRefusal("review_task’s agent is claude or codex.")
+        }
+        guard installed.contains(agent) else { throw ToolRefusal("\(SidebarModel.agentName(agent)) isn’t installed here.") }
+        return agent
+    }
+
+    /// The review runs on its own; its answer is kept on the task, unless another review replaced it meanwhile,
+    /// and the Operator is woken.
+    private func startReview(_ review: AgentReviewResult, of id: UUID, key: String, in runId: UUID, prompt: String, worktree: String) {
+        let runner = ports.agentReviewer, model = defaultModel(for: review.agent)
+        let folder = OperatorCommand.runFolder(runId, home: ports.home)
+        let running = Task { [weak self] in
+            let verdict = await runner.review(agent: review.agent, model: model.model, reasoning: model.reasoning, prompt: prompt,
+                                              worktree: worktree, folder: folder, timeout: .seconds(OperatorTiming.agentReviewTimeout))
+            guard let self, !Task.isCancelled else { return }
+            runningReviews[id] = nil
+            guard state.task(id: id)?.operated?.agentReview?.startedAt == review.startedAt else { return }
+            let name = SidebarModel.agentName(review.agent), at = ports.now()
+            workspace.mutate { state in
+                state.updateOperated(id) { task in
+                    switch verdict {
+                    case .findings(let findings): task.agentReview?.findings = findings
+                    case .failed(let why): task.agentReview?.failure = why
+                    }
+                    task.agentReview?.at = at
+                }
+            }
+            switch verdict {
+            case .findings: waker.say("\(name) reviewed \(key)", to: runId, colon: true)
+            case .failed: waker.say("\(name)’s review of \(key) failed", to: runId, colon: true)
+            }
+        }
+        runningReviews[id] = running
+        lastReview = running
+    }
+
+    /// At launch: a review in a task's record that no run of this AiTerm is running was lost with its restart.
+    func settleLostReviews() {
+        let lost = state.tasks.filter { $0.operated?.agentReview?.isRunning == true && runningReviews[$0.id] == nil }.map(\.id)
+        guard !lost.isEmpty else { return }
+        let at = ports.now()
+        workspace.mutate { state in
+            for id in lost {
+                state.updateOperated(id) {
+                    $0.agentReview?.failure = "AiTerm restarted before the review finished: call review_task again."
+                    $0.agentReview?.at = at
+                }
+            }
+        }
+    }
+
+    static func reviewAnswer(_ review: AgentReviewResult, started: Bool) -> JSONValue {
+        var answer: [String: JSONValue] = ["agent": .string(review.agent.rawValue), "head": review.head.map(JSONValue.string) ?? .null]
+        if review.isRunning {
+            answer["review"] = .string(started ? "started" : "running")
+            answer["note"] = "AiTerm wakes you when it has its findings: then read them with read_task, what: review."
+        } else if let findings = review.findings {
+            answer["review"] = "done"
+            answer["findings"] = .string(findings)
+        } else {
+            answer["review"] = "failed"
+            answer["reason"] = review.failure.map(JSONValue.string) ?? .null
+        }
+        return .object(answer)
+    }
+
+    /// `read_task` with `what: review`: the agent review's findings, and for a task with a request people
+    /// review, its threads, its approvals and who was asked, read from the host now.
+    func reviewReading(_ task: TaskItem, in run: OperatorRun) async throws -> JSONValue {
+        guard let operated = task.operated else { throw ToolRefusal("\(task.title) isn’t this operation’s.") }
+        var answer: [String: JSONValue] = ["agentReview": operated.agentReview.map { Self.reviewAnswer($0, started: false) } ?? .null]
+        guard let number = operated.publication?.mergeRequestNumber, operated.state == .inReview || operated.peopleReview != nil else {
+            return .object(answer)
+        }
+        answer["reviewers"] = .array((operated.peopleReview?.reviewers ?? []).map(JSONValue.string))
+        do {
+            let host = try await reviewHost(of: task)
+            let threads = try await host.threads(of: number)
+            answer["threads"] = .array(threads.map { thread in
+                ["id": .string(thread.id), "resolved": .bool(thread.resolved), "lastAuthor": thread.lastAuthor.map(JSONValue.string) ?? .null,
+                 "lastBody": .string(String(thread.lastBody.prefix(4000)))]
+            })
+            answer["approvals"] = (try? await host.approvals(of: number)).map { .array($0.map(JSONValue.string)) } ?? .null
+        } catch {
+            answer["threads"] = .null
+            answer["note"] = .string("AiTerm couldn’t read its threads: \((error as? ToolRefusal)?.message ?? error.localizedDescription)")
+        }
+        return .object(answer)
+    }
+
+    // -- people (the Review slice) -------------------------------------------------------------
+
+    /// Marks the task's request ready and asks `reviewers` to review it. The same reviewers again change nothing.
+    func requestReview(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run)
+        let reviewers = (call.arguments["reviewers"]?.arrayValue ?? []).compactMap { $0.stringValue }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "@")) }
+            .filter { !$0.isEmpty }
+        guard !reviewers.isEmpty else { throw ToolRefusal("request_review needs `reviewers`: the usernames to ask, from find_user.") }
+        let operated = try notTakenOver(task)
+        try requireReviewSlice(in: run, otherwise: "Assign \(Self.names(reviewers)) to \(Self.request(of: operated))")
+        try acceptsWork(run)
+        guard let number = operated.publication?.mergeRequestNumber else {
+            throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
+        }
+        guard [.inReview, .accepted, .published].contains(operated.state) else {
+            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): only a task with its request open is reviewed.")
+        }
+        let asked = Set((operated.peopleReview?.reviewers ?? []).map { $0.lowercased() })
+        let wanted = Set(reviewers.map { $0.lowercased() })
+        if wanted.isSubset(of: asked) { return Self.requestAnswer(operated, reviewers: operated.peopleReview?.reviewers ?? [], requested: false) }
+        let host = try await reviewHost(of: task)
+        try await host.markReady(number)
+        try await host.assignReviewers(number, usernames: reviewers)
+        let all = (operated.peopleReview?.reviewers ?? []) + reviewers.filter { !asked.contains($0.lowercased()) }
+        mutate(in: run.id) { state in
+            state.updateOperated(task.id) { task in
+                var review = task.peopleReview ?? PeopleReview()
+                review.reviewers = all
+                task.peopleReview = review
+            }
+        }
+        return Self.requestAnswer(operated, reviewers: all, requested: true)
+    }
+
+    /// A reply in one of the task's review threads, once per key.
+    func replyThread(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run), callKey = try call.string("key")
+        if let thread = run.threadReplies[callKey] { return ["thread": .string(thread), "replied": false, "note": "Posted already with this key."] }
+        let thread = try call.string("thread"), body = try call.string("body")
+        let operated = try notTakenOver(task)
+        try requireReviewSlice(in: run, otherwise: "Reply in a thread on \(Self.request(of: operated))")
+        try acceptsWork(run)
+        guard let number = operated.publication?.mergeRequestNumber else {
+            throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
+        }
+        // Another call with this key is posting now: this one would post it twice.
+        let flight = "\(run.id.uuidString)/reply/\(callKey)"
+        guard filingFinds.insert(flight).inserted else { throw ToolRefusal("reply_thread with this key is still posting: call it again for its result.") }
+        defer { filingFinds.remove(flight) }
+        let host = try await reviewHost(of: task)
+        try await host.reply(number, thread: thread, body: body)
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.threadReplies[callKey] = thread } }
+        return ["thread": .string(thread), "replied": true]
+    }
+
+    /// The people on the task's code host who match `query`: a read, which needs no slice.
+    func findUser(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let task = try self.task(call, in: run), query = try call.string("query")
+        let users = try await reviewHost(of: task).findUsers(query)
+        return .array(users.map { ["username": .string($0.username), "name": $0.name.map(JSONValue.string) ?? .null] })
+    }
+
+    /// Refuses what the Review slice does not allow, and leaves `left` (what was not done) for the person once.
+    private func requireReviewSlice(in run: OperatorRun, otherwise left: String) throws(ToolRefusal) {
+        guard !run.profile.slices.review else { return }
+        let sentence = "\(left): the Review slice is off."
+        mutate(in: run.id) { state in
+            state.updateRun(id: run.id) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
+        }
+        throw ToolRefusal(Self.sliceOff)
+    }
+
+    private func reviewHost(of task: TaskItem) async throws -> any MergeRequestPublishing {
+        guard let project = state.project(id: task.projectId) else { throw ToolRefusal("Its project is no longer in AiTerm.") }
+        return try await ReviewHosts.host(of: project, git: ports.git, connect: ports.publisher)
+    }
+
+    /// `!418` or `#418` for the task's request, or what it will be.
+    private static func request(of operated: OperatedTask) -> String {
+        guard let number = operated.publication?.mergeRequestNumber else { return "\(operated.key)’s merge request" }
+        return operated.publication?.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "\(operated.key)’s merge request"
+    }
+
+    private static func names(_ names: [String]) -> String {
+        names.count < 2 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
+
+    private static func requestAnswer(_ operated: OperatedTask, reviewers: [String], requested: Bool) -> JSONValue {
+        ["task": .string(operated.key), "mergeRequest": operated.publication?.mergeRequestURL.map(JSONValue.string) ?? .null,
+         "ready": true, "reviewers": .array(reviewers.map(JSONValue.string)), "requested": .bool(requested)]
+    }
+}

@@ -122,7 +122,8 @@ public enum OperatedTransitions {
         case .accept(let acceptance, let head):
             // From M3 a published task is accepted again on a new commit (spec §8, upstream
             // replacement): `finish_task` then pushes it to the same request. Before M3 nothing is published.
-            let accepted: Set<OperatedState> = context.milestone >= .m3 ? [.accepted, .published] : [.accepted]
+            // A task in review is accepted again once its agent fixed the feedback (spec §5, the Review slice).
+            let accepted: Set<OperatedState> = context.milestone >= .m3 ? [.accepted, .published, .inReview] : [.accepted]
             guard task.state == .working || accepted.contains(task.state) else { throw refuse() }
             let sha = acceptance.resultSHA.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !sha.isEmpty, !acceptance.checkOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

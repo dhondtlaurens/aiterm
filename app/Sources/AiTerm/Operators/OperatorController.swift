@@ -13,6 +13,8 @@ struct OperatorPorts {
     var jira: @Sendable () -> (any OperatorJira)? = { nil }
     /// The Oracle's runner.
     var secondOpinion: SecondOpinionRunner = .unavailable
+    /// The runner of `review_task`'s agent reviews: the Oracle's recipe in a task's worktree.
+    var agentReviewer: SecondOpinionRunner = .unavailable
     /// How long a challenged call waits for its critique before answering that it is still coming: well
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
     var challengeReplyBudget: Duration = .seconds(20)
@@ -49,7 +51,8 @@ struct OperatorPorts {
     var profile: (@Sendable () -> OperatorProfile)?
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
-        OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
+        OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live,
+                      agentReviewer: .live)
     }
 }
 
@@ -75,6 +78,8 @@ final class OperatorController {
     /// `finish_task` and the merge watch (G10).
     @ObservationIgnored let finisher: TaskFinisher
     @ObservationIgnored let reconciler: RunReconciler
+    /// The requests people review (spec §5, the Review slice), read on every reconcile tick.
+    @ObservationIgnored let reviewWatcher: ReviewWatcher
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
@@ -140,6 +145,7 @@ final class OperatorController {
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, ports: ports)
+        reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             self?.observeRuns()
@@ -512,6 +518,8 @@ final class OperatorController {
     /// connected snapshot after the helper attaches. What it changed is scheduled and settled, and
     /// whatever it freed or the helper's return allows to start starts — the way the tool paths do.
     func reconcileTick() {
+        // The code hosts are read whether or not iTerm2's tabs are known: a wake waits for the Operator's tab.
+        reviewWatcher.poll()
         guard reconciler.synced else { return }
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()
@@ -554,6 +562,7 @@ final class OperatorController {
             }
         }
         finisher.resumeWatching()
+        tools.settleLostReviews()
     }
 
     // -- publishing -------------------------------------------------------------------------

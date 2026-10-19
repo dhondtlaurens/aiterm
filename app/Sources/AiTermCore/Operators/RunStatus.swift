@@ -72,6 +72,26 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public init(key: String, kind: DependencyKind) { self.key = key; self.kind = kind }
     }
 
+    /// A task's agent review: by whom, and `running`, `done` (its findings read with `read_task`, `what: review`) or `failed`.
+    public struct AgentReviewLine: Encodable, Equatable, Sendable {
+        public var agent: AgentKind, state: String
+        public init(agent: AgentKind, state: String) { self.agent = agent; self.state = state }
+        public init(_ review: AgentReviewResult) {
+            self.init(agent: review.agent, state: review.isRunning ? "running" : review.findings != nil ? "done" : "failed")
+        }
+    }
+
+    /// People's review of a task's request, as AiTerm last read it: who was asked, its threads, who approved.
+    public struct PeopleReviewLine: Encodable, Equatable, Sendable {
+        public var reviewers: [String], unresolvedThreads: Int, resolvedThreads: Int, approvals: [String]
+        public init(_ review: PeopleReview) {
+            reviewers = review.reviewers
+            unresolvedThreads = review.threads.values.filter { !$0 }.count
+            resolvedThreads = review.threads.values.filter { $0 }.count
+            approvals = review.approvals
+        }
+    }
+
     public struct TaskLine: Encodable, Equatable, Sendable {
         public var id: UUID, key: String, title: String, project: String
         public var agent: AgentKind, model: String
@@ -83,16 +103,19 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var acceptedSHA: String?, blockedReason: String?
         public var flags: [OperatedFlag]
         public var takenOver: Bool, retriesUsed: Int
+        public var agentReview: AgentReviewLine?, peopleReview: PeopleReviewLine?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: SessionState? = nil, branch: String,
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
-                    takenOver: Bool = false, retriesUsed: Int = 0) {
+                    takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
+                    peopleReview: PeopleReviewLine? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.lastCommit = lastCommit; self.summary = summary; self.dependsOn = dependsOn
             self.acceptedSHA = acceptedSHA; self.blockedReason = blockedReason; self.flags = flags
             self.takenOver = takenOver; self.retriesUsed = retriesUsed
+            self.agentReview = agentReview; self.peopleReview = peopleReview
         }
     }
 
@@ -146,7 +169,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 live: facts.status, branch: item.branch, lastCommit: facts.lastCommit, summary: facts.summary,
                 dependsOn: o.dependsOn.map { Dependency(key: keys[$0.task] ?? $0.task.uuidString, kind: $0.kind) },
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
-                flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed))
+                flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
+                agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init)))
             if facts.waitingPrompt != nil || o.flags.contains(.waitingOnYou) { prompts.append(o.key) }
             else if o.state == .working, !o.takenOver, facts.status == .idle || facts.status == .done { ready.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }

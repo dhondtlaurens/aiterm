@@ -70,6 +70,7 @@ public extension SidebarModel {
             return OperatedCaption("queued")
         case .working:
             if operated.flags.contains(.possiblyStalled) { return OperatedCaption("working · possibly stalled", warns: true) }
+            if let review = operated.agentReview, review.isRunning { return OperatedCaption("reviewing with " + agentName(review.agent)) }
             return OperatedCaption(acting ? "working · the operator is answering \(agent)" : "working")
         case .inReview:
             return OperatedCaption("in review")
