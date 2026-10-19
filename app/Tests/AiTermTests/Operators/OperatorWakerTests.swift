@@ -69,7 +69,7 @@ import Testing
         await hand.release(1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] 2 updates — call run_status"])
+        #expect(lines == ["[AiTerm] 2 updates, call run_status"])
         let sent = try #require(daemon.requests("session.deliver").first)
         #expect(sent.params["sessionId"] as? String == "op")
         #expect(sent.params["wake"] as? Bool == true)
@@ -92,7 +92,7 @@ import Testing
         op.tab?.state = .idle
         waker.operatorSessionChanged(run.id)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] 1 update — call run_status"])
+        #expect(lines == ["[AiTerm] 1 update, call run_status"])
     }
 
     @Test func whatTheOperatorHasSeenWakesNothing() async throws {
@@ -116,7 +116,7 @@ import Testing
         waker.observe(status(questions: 2), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] 1 update — call run_status"])
+        #expect(lines == ["[AiTerm] 1 update, call run_status"])
     }
 
     @Test func anOwnChangeAfterNewsTheOperatorHasNotSeenStillWakesIt() async throws {
@@ -130,7 +130,7 @@ import Testing
         await hand.release(1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] 2 updates — call run_status"])
+        #expect(lines == ["[AiTerm] 2 updates, call run_status"])
     }
 
     @Test func anOperationThatMayNotBeWokenIsNot() async throws {
@@ -161,7 +161,7 @@ import Testing
         let waker = makeWaker()
         waker.say("reconnected", to: run.id)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] reconnected — call run_status"])
+        #expect(lines == ["[AiTerm] reconnected, call run_status"])
     }
 
     @Test func aRefusedWakeIsKeptAndTriedAgainLaterEvenIfTheTabNeverChanges() async throws {
@@ -174,7 +174,7 @@ import Testing
         await hand.release(2)
         try await daemon.received("session.deliver", count: 2)
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] 1 update — call run_status", "[AiTerm] 1 update — call run_status"])
+        #expect(lines == ["[AiTerm] 1 update, call run_status", "[AiTerm] 1 update, call run_status"])
         // It landed: no third wait is started.
         try await Task.sleep(for: .milliseconds(50))
         #expect(hand.requested == 2)

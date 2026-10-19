@@ -91,7 +91,7 @@ async def test_set_ownership_never_lowers_a_generation(claude):
 async def test_a_wake_line_waits_while_you_type_in_that_session(claude):
     _svc, it, sid, call, _policy = claude
     await it.user_types(sid)
-    reply = await call("session.deliver", {"sessionId": sid, "text": "[AiTerm] 1 update — call run_status", "ownership": 1,
+    reply = await call("session.deliver", {"sessionId": sid, "text": "[AiTerm] 1 update, call run_status", "ownership": 1,
                                            "wake": True})
     assert reply["result"] == {"result": "refused", "reason": "you are typing"}
     assert it.sent == []

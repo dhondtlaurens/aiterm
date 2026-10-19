@@ -16,18 +16,32 @@ public struct TaskLiveFacts: Equatable, Sendable {
 }
 
 /// What AiTerm knows beyond `state.json` that belongs to the whole operation rather than one task:
-/// each agent's weekly usage, in percent, for the agents whose window is still open. Gathered by the
-/// caller from the sidebar's usage readings; `RunStatus` only passes it on.
+/// each agent's weekly usage, in percent, for the agents whose window is still open, and what each
+/// installed agent may run. Gathered by the caller from the sidebar's usage readings and Settings ›
+/// Agents; `RunStatus` only passes it on.
 public struct RunLiveFacts: Equatable, Sendable {
     public var weeklyUsage: [AgentKind: Int]
+    /// The installed agents the Operator chooses from, each with its own models (spec §15).
+    public var agents: [AgentKind: RunStatus.AgentChoice]
 
-    public init(weeklyUsage: [AgentKind: Int] = [:]) { self.weeklyUsage = weeklyUsage }
+    public init(weeklyUsage: [AgentKind: Int] = [:], agents: [AgentKind: RunStatus.AgentChoice] = [:]) {
+        self.weeklyUsage = weeklyUsage; self.agents = agents
+    }
 }
 
 /// The `run_status()` answer (spec §6): a numbered snapshot of the operation and every task, and
 /// the **open obligations** — what waits on you or on the operator. It is the operator's memory
 /// after a restart or a compaction, so it says everything the operator acts on, and only that.
 public struct RunStatus: Encodable, Equatable, Sendable {
+    /// What an installed agent may run (spec §15): the model ids in its own list in Settings › Agents, and
+    /// the model and reasoning a task starts on when the Operator names none.
+    public struct AgentChoice: Encodable, Equatable, Sendable {
+        public var models: [String], defaultModel: String, defaultReasoning: String?
+        public init(models: [String], defaultModel: String, defaultReasoning: String? = nil) {
+            self.models = models; self.defaultModel = defaultModel; self.defaultReasoning = defaultReasoning
+        }
+    }
+
     public struct Run: Encodable, Equatable, Sendable {
         public var id: UUID, name: String, state: OperatorRunState, prompt: String, review: String?, done: String?
         /// The last submitted revision, and the open one `create_task` adds to.
@@ -42,12 +56,14 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var oracleIsOn: Bool
         /// Each agent's weekly usage in percent, by the agent's raw value; an agent with no open window is left out.
         public var usage: [String: Int]
+        /// Each installed agent's models and default, by the agent's raw value; an agent not installed is left out.
+        public var agents: [String: AgentChoice]
         public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
                     planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [],
-                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:]) {
+                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:]) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
-            self.finds = finds; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage
+            self.finds = finds; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
         }
     }
 
@@ -141,7 +157,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt, review: run.review, done: run.done,
                      planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
                      finds: run.finds, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
-                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })),
+                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
+                     agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })),
             tasks: lines,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {

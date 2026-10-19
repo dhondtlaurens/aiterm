@@ -119,7 +119,7 @@ import Testing
         world.controller.reconcileTick()
         #expect(world.task(task.id)?.operated?.flags.contains(.possiblyStalled) == true)
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] PLUTO-2 may be stalled — call run_status")
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] PLUTO-2 may be stalled, call run_status")
         worker.title = "editing"
         world.show([OperatorServiceFixtures.session("op", tag: run.id), worker])
         world.controller.reconcileTick()

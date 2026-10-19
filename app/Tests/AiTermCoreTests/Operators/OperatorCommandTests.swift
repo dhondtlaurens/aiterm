@@ -182,6 +182,17 @@ import Foundation
         #expect(brief.contains("that agent's default model in Settings > Agents"))
         #expect(brief.contains("only a model in that agent's own list there"))
         #expect(brief.contains("80 %"))
+        #expect(brief.contains("A task whose agent the person's words named stays on it."))
+        #expect(brief.contains("If the other agent is missing or also at 80 %, the task stays on its agent."))
+        #expect(brief.contains("run_status lists each installed agent's models and its default"))
+    }
+
+    /// Spec §5: Merge is its own slice, and a local merge waits until AiTerm carries it out.
+    @Test func theMergeSliceStandsApartFromReviewAndWaitsForALocalMerge() {
+        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: false, merge: true)), projects: [])
+        #expect(brief.contains("Merge doesn't depend on Review: Merge marks the request ready only to merge it."))
+        #expect(brief.contains("A local merge comes once AiTerm carries it out; until then, merge through the merge request."))
+        #expect(!brief.contains("—"))
     }
 
     /// The base: the worker commits, AiTerm pushes and opens the draft MR through finish_task, and Done decides the end.

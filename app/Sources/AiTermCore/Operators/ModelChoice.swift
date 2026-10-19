@@ -12,7 +12,7 @@ public enum ModelChoice {
     static let switchAt = 80
 
     /// The two agents the Operator chooses between. An agent outside them never switches.
-    static let pair: [AgentKind] = [.claude, .codex]
+    public static let pair: [AgentKind] = [.claude, .codex]
 
     /// `requested` nil takes the agent's default. Otherwise it must be an id in `catalogue`, and its
     /// reasoning is that model's default effort. The agent must be installed either way.

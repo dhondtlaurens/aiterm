@@ -2,7 +2,7 @@ import Foundation
 import AiTermCore
 
 /// Wakes an idle operator when `run_status` would show it something new (spec §7.3): one short fixed
-/// line typed into its own tab — `[AiTerm] 2 updates — call run_status` — through the daemon's delivery
+/// line typed into its own tab — `[AiTerm] 2 updates, call run_status` — through the daemon's delivery
 /// with `wake: true`, which holds it while you type there. A burst within `coalesce` is one line. A
 /// working operator is not typed at: the line waits for its tab to be idle. Wake lines are hints: the
 /// operator's next `run_status` shows everything, whether or not one landed.
@@ -95,16 +95,18 @@ final class OperatorWaker {
     }
 
     static func line(updates count: Int, reason: String?) -> String {
-        if let reason, count <= 1 { return "[AiTerm] \(reason) — call run_status" }
-        return "[AiTerm] \(count) update\(count == 1 ? "" : "s") — call run_status"
+        if let reason, count <= 1 { return "[AiTerm] \(reason), call run_status" }
+        return "[AiTerm] \(count) update\(count == 1 ? "" : "s"), call run_status"
     }
 
     /// A status as the operator reads its news: the revision counts calls, not changes, and the usage
-    /// readings drift with every report: the operator reads them when it asks, they wake it never.
+    /// readings drift with every report: the operator reads them when it asks, they wake it never. Nor do
+    /// the agents' model lists, which only `run_status` itself reads.
     private static func content(_ status: RunStatus) -> RunStatus {
         var status = status
         status.revision = 0
         status.run.usage = [:]
+        status.run.agents = [:]
         return status
     }
 

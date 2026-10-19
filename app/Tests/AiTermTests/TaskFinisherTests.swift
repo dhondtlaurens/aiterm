@@ -447,7 +447,7 @@ final class MergeClock: Sendable {
         #expect(await eventually(describing: "the watch to stop") { world.controller.finisher.watching.isEmpty })
         let stopped = { world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("merge watch stopped") } }
         #expect(await eventually(describing: "the operator told") { stopped().count == 1 })
-        #expect(stopped().first?.contains("PLUTO-231: the merge watch stopped — feat/pluto-231 moved past the accepted commit") == true)
+        #expect(stopped().first?.contains("PLUTO-231: the merge watch stopped, feat/pluto-231 moved past the accepted commit") == true)
         #expect(world.task(task)?.operated?.publication?.problem?.hasPrefix("feat/pluto-231 moved past") == true)
         world.controller.runChanged(run)
         world.controller.start()

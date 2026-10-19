@@ -136,7 +136,10 @@ _TASK = _text("The task: its key as you gave it to create_task, or its id from r
 _KEY = _text("Your idempotency key for this act: the same key again returns what the first call did.")
 _AGENT = _choice("The agent that works the task, among those installed.", "claude", "codex")
 _END = _choice("Where the task ends, from the operation's Done when: commit; draftMR, push and open a draft merge request; "
-               "or merge, push, open a merge request and merge it once the host says it can be.", "commit", "draftMR", "merge")
+               "or merge, push, open a merge request and merge it once the host says it can be. Left out, a task ends at a "
+               "draftMR, or at a commit when the Done says a commit.", "commit", "draftMR", "merge")
+_MODEL = _text("A model id from the agent's own list, as run_status shows it under agents. Left out, the agent's default. "
+               "A model not in that list is refused.")
 _DEPENDS_ON: dict[str, Any] = {
     "type": "array",
     "description": "What the task waits for. An order dependency waits until the other task is accepted or needs no change; "
@@ -150,12 +153,13 @@ _CHALLENGE = {
                          "and the same arguments. The same challengeId again, once answered, returns the recorded result."),
     "challengeReply": _text("Your answer to each point of the second opinion's critique, when you keep the act as it was."),
 }
-# The tools a second opinion can challenge (spec §4.4): the first call returns a critique, and only
-# the call that answers it, with its challengeId, takes effect. A second opinion not back within the
-# app's 20 s answers {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the
-# operator calls again with that challengeId (integration decision 3). Which calls are challenged
-# follows the operator's setting, and is the app's to decide.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task", "propose_lesson", "message_task")
+# The tools the Oracle can challenge (spec §8): the first call returns a critique, and only the call
+# that answers it, with its challengeId, takes effect. An Oracle not back within the app's 20 s answers
+# {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the operator calls
+# again with that challengeId (integration decision 3). Whether a call is challenged follows the
+# broadcast's Oracle switch, and is the app's to decide. A backlog addition past the threshold gets the
+# Oracle's yes or no inside create_task, with no challengeId.
+CHALLENGED_TOOLS = ("submit_plan", "mark_task")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -174,21 +178,26 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 # Every one that changes something is safe to repeat: the repeat returns the recorded result.
 TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The operation now, numbered by revision: every task with its state, live status, branch, last commit "
-          "and a one-line summary, and what is open -- questions waiting, prompts waiting on the user, tasks ready to accept, "
-          "tasks possibly stalled, anything uncertain. Call it first after any restart or compaction."),
+          "and a one-line summary, and what is open: questions waiting, prompts waiting on the user, tasks ready to accept, "
+          "tasks possibly stalled, anything uncertain. Under run it also shows the off-brief finds, each agent's weekly use, "
+          "and each installed agent's models with its default model. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the operation's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
-    _tool("create_task", "Adds an unstarted task to the open plan revision. The same key in this operation returns the task "
-          "already made.",
+    _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the operation's projects. The same key "
+          "in this operation returns the task already made. Once the first plan is submitted, additions past a quarter of its "
+          "size need the Oracle's yes, or are refused with the Oracle off: report a refused one with report_find.",
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
-           "project": _text("The project it belongs to, by name or by id from run_status."),
-           "ticket": _text("The Jira key it works, if any."), "agent": _AGENT,
-           "model": _text("The model, when not the agent's default."), "end": _END, "dependsOn": _DEPENDS_ON},
-          ("key", "title", "brief", "project", "agent", "end")),
+           "project": _text("The project it belongs to, one of the operation's, by name or by id from run_status."),
+           "ticket": _text("The Jira key it works, if any."), "agent": _AGENT, "model": _MODEL,
+           "modelReason": _text("Why this agent and model, in one line, as the task's card and the debrief show it."),
+           "agentPinned": {"type": "boolean", "description": "True when the person's words named this task's agent: it then "
+                                                             "starts on that agent whatever its weekly use."},
+           "end": _END, "dependsOn": _DEPENDS_ON},
+          ("key", "title", "brief", "project", "agent", "modelReason")),
     _tool("update_task", "Changes an unstarted task's brief, agent, model, end or dependencies. Steer a started task with "
           "message_task instead.",
-          {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _text("The new model."), "end": _END,
+          {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _MODEL, "end": _END,
            "dependsOn": _DEPENDS_ON}, ("task",)),
     _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
           "Submitting the same revision again returns the earlier result.",
@@ -235,12 +244,14 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"key": _KEY, "question": _text("The question, complete on its own."), "task": _TASK}, ("key", "question")),
     _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
-    _tool("propose_lesson", "Offers a lesson after the user corrected you: one sentence of behaviour, and the moment that "
-          "prompted it. Only the user keeps it. The same key is offered once.",
-          {"key": _KEY, "lesson": _text("The behaviour, in one sentence."), "because": _text("The correction that prompted it.")},
-          ("key", "lesson", "because")),
-    _tool("log_decision", "Writes a decision you took on your own to the operation's log. The same key is written once.",
-          {"key": _KEY, "text": _text("The decision, and why."), "task": _TASK}, ("key", "text")),
+    _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
+          "worked on, and the debrief lists it with why it matters. The same key is recorded once.",
+          {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
+          ("key", "title", "why")),
+    _tool("log_decision", "Writes a decision you took on your own to the operation's log, for the debrief. The same key is "
+          "written once.",
+          {"key": _KEY, "text": _text("The decision, and why."), "task": _TASK,
+           "objection": _text("The Oracle's objection, when you decided against it.")}, ("key", "text")),
 )
 TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
 

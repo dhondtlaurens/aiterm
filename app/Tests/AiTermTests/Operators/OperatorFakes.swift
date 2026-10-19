@@ -54,6 +54,15 @@ enum OperatorServiceFixtures {
         return session
     }
 
+    /// Each agent's model list in Settings › Agents, as the scratch ports give it.
+    static let models: [AgentKind: [AgentModel]] = [
+        .claude: [AgentModel(id: "claude-opus-5-5", label: "Opus", detail: nil, efforts: ["high"], defaultEffort: "high"),
+                  AgentModel(id: "claude-named", label: "Named", detail: nil, efforts: [], defaultEffort: nil),
+                  AgentModel(id: "claude-other", label: "Other", detail: nil, efforts: [], defaultEffort: nil)],
+        .codex: [AgentModel(id: "gpt-6-astra", label: "Astra", detail: nil, efforts: ["medium"], defaultEffort: "medium"),
+                 AgentModel(id: "gpt-6-mini", label: "Mini", detail: nil, efforts: [], defaultEffort: nil)],
+    ]
+
     static func question(_ key: String = "q1", at date: Date = Date(timeIntervalSince1970: 0)) -> OperatorQuestion {
         OperatorQuestion(id: key, text: "Which locale is the default?", task: nil, askedAt: date)
     }
@@ -87,6 +96,9 @@ extension OperatorPorts {
         // Nothing is published but through a test's own fake host, and no merge watch waits for real.
         ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
         ports.mergeSleep = { _ in throw CancellationError() }
+        // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
+        ports.installedAgents = { [.claude, .codex] }
+        ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }
         return ports
     }
 }

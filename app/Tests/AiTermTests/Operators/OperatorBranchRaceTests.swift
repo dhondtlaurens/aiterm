@@ -37,7 +37,8 @@ final class HeldBranchesGit: GitRunning {
     func create(_ world: OperatorWorld, _ run: OperatorRun, _ key: String, ticket: String = "PLUTO-231") -> Task<ToolAnswer, Never> {
         Task {
             await world.call(run.id, "create_task", ["key": .string(key), "title": "Gift card", "brief": "Build it.", "project": "Shop",
-                                                      "ticket": .string(ticket), "agent": "codex", "model": "gpt-6-astra"])
+                                                      "ticket": .string(ticket), "agent": "codex", "model": "gpt-6-astra",
+                                                      "modelReason": "Codex for the API."])
         }
     }
 

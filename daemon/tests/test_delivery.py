@@ -408,7 +408,7 @@ async def test_an_input_box_that_disappears_between_paste_and_enter_gets_no_ente
     assert rig.iterm.sent == [(rig.sid, pasted("hello"))]
 
 
-WAKE = "[AiTerm] 2 updates — call run_status"
+WAKE = "[AiTerm] 2 updates, call run_status"
 
 
 async def test_a_send_older_than_the_tasks_ownership_is_refused(rig):

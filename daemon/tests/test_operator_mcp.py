@@ -135,7 +135,7 @@ def test_memory_wins_over_a_file(tmp_path):
 
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "create_task", "update_task", "submit_plan", "read_task", "message_task",
-                  "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question", "propose_lesson",
+                  "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question", "report_find",
                   "log_decision"}
 
 
@@ -158,7 +158,7 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
 
 
 def test_only_the_challenged_tools_take_a_challenge_reply():
-    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "propose_lesson", "message_task"}
+    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task"}
     for tool in TOOLS:
         properties = tool["inputSchema"]["properties"]
         assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)
@@ -178,8 +178,28 @@ def test_the_values_are_the_apps():
     assert properties["submit_plan"]["revision"]["type"] == "integer"
     assert properties["run_status"] == {}
     required = {tool["name"]: set(tool["inputSchema"].get("required", [])) for tool in TOOLS}
-    assert required["create_task"] == {"key", "title", "brief", "project", "agent", "end"}
+    assert required["create_task"] == {"key", "title", "brief", "project", "agent", "modelReason"}
     assert required["mark_task"] == {"task", "outcome"} and required["ask_you"] == {"key", "question"}
+    assert properties["create_task"]["agentPinned"]["type"] == "boolean"
+    assert "objection" in properties["log_decision"] and required["log_decision"] == {"key", "text"}
+
+
+def test_schema_has_report_find_and_no_propose_lesson():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    assert "propose_lesson" not in tools
+    report = tools["report_find"]["inputSchema"]
+    assert set(report["properties"]) == {"key", "title", "why"} and set(report["required"]) == {"key", "title", "why"}
+    assert "debrief" in tools["report_find"]["description"]
+
+
+def test_create_task_end_is_optional():
+    create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
+    assert "end" in create["properties"] and "end" not in create["required"]
+    assert "draftMR" in create["properties"]["end"]["description"]
+
+
+def test_no_tool_text_carries_an_em_dash():
+    assert "\u2014" not in json.dumps(TOOLS, ensure_ascii=False)
 
 
 AUTH = {"authorization": f"Bearer {TOKEN}"}

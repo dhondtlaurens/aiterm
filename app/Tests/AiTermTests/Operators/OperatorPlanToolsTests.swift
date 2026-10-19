@@ -24,7 +24,7 @@ import Testing
                 dependsOn: JSONValue = []) async -> ToolAnswer {
         await world.call(run.id, "create_task", ["key": .string(key), "title": .string("Fix \(key)"), "brief": .string("Fix \(key) and test it."),
                                                  "project": .string(project), "ticket": .string(key), "agent": "codex", "model": "gpt-6-astra",
-                                                 "end": .string(end), "dependsOn": dependsOn])
+                                                 "modelReason": "Codex reads the parser best.", "end": .string(end), "dependsOn": dependsOn])
     }
 
     func operated(_ world: OperatorWorld, _ key: String) -> OperatedTask? {
@@ -41,12 +41,109 @@ import Testing
         #expect(task.agent == .codex && task.model == "gpt-6-astra" && task.firstPrompt == "Fix PLUTO-231 and test it.")
         #expect(task.jira?.key == "PLUTO-231")
         #expect(task.operated?.state == .planned && task.operated?.revision == 1 && task.operated?.end == .commit)
+        #expect(task.reasoning == "medium", "a named model takes its own default effort")
+        #expect(task.operated?.modelReason == "Codex reads the parser best." && task.operated?.agentPinned == false)
+    }
+
+    @Test func aPinnedAgentAndTheModelsReasonAreKeptOnTheTask() async throws {
+        let (world, run) = try makeWorld()
+        _ = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "claude",
+                                                     "model": "claude-named", "modelReason": "The prompt says Claude.", "agentPinned": true])
+        let operated = try #require(operated(world, "A"))
+        #expect(operated.agentPinned && operated.modelReason == "The prompt says Claude.")
+        #expect(await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "claude"])
+                .message == "create_task needs `modelReason`.")
+    }
+
+    /// Spec §15: only a model in the agent's own list in Settings › Agents; the refusal names that list.
+    @Test func anUnknownModelIsRefusedWithTheList() async throws {
+        let (world, run) = try makeWorld()
+        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "codex",
+                                                               "model": "gpt-4o", "modelReason": "From memory."])
+        #expect(refused.message == "gpt-4o isn’t in Codex’s model list in Settings › Agents. Its models are: gpt-6-astra, gpt-6-mini.")
+        #expect(world.state.tasks.isEmpty)
+        let switched = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "codex",
+                                                                "model": "gpt-6-mini", "modelReason": "A small change."])
+        #expect(switched.value?["created"] == true)
+        _ = await world.call(run.id, "update_task", ["task": "B", "model": "claude-named"])
+        #expect(world.state.tasks.first?.model == "gpt-6-mini", "update_task checks the list too")
+    }
+
+    @Test func endDefaultsToDraftMR() async throws {
+        let (world, run) = try makeWorld()
+        _ = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "codex",
+                                                     "modelReason": "The default."])
+        #expect(operated(world, "A")?.end == .draftMR)
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.done = "A commit per item, tests green." } }
+        _ = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "codex",
+                                                     "modelReason": "The default."])
+        #expect(operated(world, "B")?.end == .commit, "a Done that says a commit ends there")
+        for done in ["A draft MR per commit.", "Merged once each commit is green."] {
+            #expect(OperatorToolHandler.defaultEnd(for: OperatorRun(id: run.id, name: "n", profile: run.profile, prompt: "p", done: done,
+                                                                    createdAt: Date())) == .draftMR, "\(done)")
+        }
+    }
+
+    /// No project joins a broadcast: a task goes in one of the run's own.
+    @Test func aProjectOutsideTheRunIsRefused() async throws {
+        let (world, run) = try makeWorld()
+        #expect(await create(world, run, "C", project: "Docs").message == "Docs isn’t one of this operation’s projects: Shop, Web.")
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
+    }
+
+    /// A run whose first plan, one task, was submitted: one addition goes in on the Operator's word.
+    func makeBacklogWorld(oracle: Bool, runner: SecondOpinionRunner = .unavailable,
+                          budget: Duration = .seconds(60)) throws -> (OperatorWorld, OperatorRun) {
+        var run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project, other],
+                                              state: .active, planRevision: 1)
+        run.firstPlanSize = 1
+        let first = OperatorServiceFixtures.task(in: run, project: project, key: "FIRST", state: .queued)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run], tasks: [first])) { ports in
+            ports.milestone = .m1
+            ports.secondOpinion = runner
+            ports.challengeReplyBudget = budget
+        }
+        world.link.attached = false
+        return (world, run)
+    }
+
+    @Test func anAdditionPastTheThresholdNeedsTheOraclesYes() async throws {
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("NO. A dark mode is not in the sprint."))
+        #expect(await create(world, run, "FREE").value?["created"] == true, "a quarter of one, at least one, goes free")
+        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief: report it with report_find.")
+        #expect(world.state.tasks.count == 2 && operated(world, "PAST") == nil)
+        #expect(world.run(run.id)?.finds.isEmpty == true && world.run(run.id)?.decisions.isEmpty == true, "a veto appends nothing")
+
+        let (yes, yesRun) = try makeBacklogWorld(oracle: true, runner: .answering("YES\nIt is part of PLUTO-231."))
+        _ = await create(yes, yesRun, "FREE")
+        #expect(await create(yes, yesRun, "PAST").value?["created"] == true)
+        #expect(operated(yes, "PAST")?.state == .planned)
+    }
+
+    @Test func anOracleTimeoutPastTheThresholdRefuses() async throws {
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("YES", after: .seconds(5)), budget: .milliseconds(20))
+        _ = await create(world, run, "FREE")
+        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief: report it with report_find.")
+        #expect(world.state.tasks.count == 2)
+        let (silent, silentRun) = try makeBacklogWorld(oracle: true, runner: .unavailable)
+        _ = await create(silent, silentRun, "FREE")
+        #expect(await create(silent, silentRun, "PAST").message == "The Oracle judged this off-brief: report it with report_find.",
+                "an Oracle that cannot run is no yes")
+    }
+
+    @Test func withTheOracleOffAnAdditionPastTheThresholdIsRefused() async throws {
+        let (world, run) = try makeBacklogWorld(oracle: false)
+        #expect(await create(world, run, "FREE").value?["created"] == true)
+        #expect(await create(world, run, "PAST").message == "Past the backlog limit with the Oracle off: report it with report_find.")
+        #expect(world.state.tasks.count == 2)
+        #expect(await create(world, run, "FREE").value?["created"] == false, "a repeat of a key is no addition")
     }
 
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
         let (world, run) = try makeWorld()
-        #expect(await create(world, run, "A", project: "Elsewhere").message == "AiTerm has no project called Elsewhere. This operation’s projects are: Shop, Web.")
-        let grok = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "grok", "model": "m"])
+        #expect(await create(world, run, "A", project: "Elsewhere").message == "Elsewhere isn’t one of this operation’s projects: Shop, Web.")
+        let grok = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "grok",
+                                                            "modelReason": "m"])
         #expect(grok.message == "An operator’s task runs claude or codex.")
         #expect(world.state.tasks.isEmpty)
     }
@@ -147,7 +244,8 @@ import Testing
 
     @Test func aRefusedCreateTaskLeavesTheOperationsProjectsAsTheyWere() async throws {
         let (world, run) = try makeWorld()
-        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "grok", "model": "m"])
+        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "grok",
+                                                               "modelReason": "m"])
         #expect(refused.message == "An operator’s task runs claude or codex.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
         #expect(await create(world, run, "B", project: "Shop", end: "nonsense").message == "A task’s end is commit, draftMR or merge.")
@@ -155,12 +253,6 @@ import Testing
         #expect(world.state.tasks.isEmpty)
     }
 
-    /// Until the plan's project-joining task removes this: a workspace project outside the operation is taken in.
-    @Test func aWorkspaceProjectOutsideTheOperationIsTakenIn() async throws {
-        let (world, run) = try makeWorld()
-        #expect(await create(world, run, "C", project: "Docs").value?["created"] == true)
-        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
-    }
 }
 
 private extension Array {

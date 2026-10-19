@@ -9,14 +9,14 @@ import AiTermCore
 /// that first returns it still does not act. Each challenge is a `ChallengeRecord` in its run, saved
 /// with the workspace, so a lost reply or a restart neither loses it nor makes it act twice.
 extension OperatorToolHandler {
-    /// With the Oracle on, a plan, a verdict on a task, and a message that answers a worker's question
-    /// are challenged, as round 1's Healthy doubt did; with it off, nothing is.
-    static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, answersQuestion: Bool) -> Bool {
+    /// With the Oracle on, a plan and a verdict on a task are critiqued (spec §8); with it off, nothing is. A
+    /// message to a worker never is, and a backlog addition past the threshold gets the Oracle's veto instead
+    /// (`oracleApproves`), not a critique.
+    static func isChallenged(_ call: ToolCall, oracleIsOn: Bool) -> Bool {
         guard oracleIsOn else { return false }
         switch call.tool {
         case "submit_plan": return true
         case "mark_task": return ["accepted", "blocked", "failed"].contains(call.optionalString("outcome") ?? "")
-        case "message_task": return answersQuestion
         default: return false
         }
     }
@@ -24,12 +24,12 @@ extension OperatorToolHandler {
     /// Nil: the call takes effect. Otherwise what the operator reads instead.
     func challengeGate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue? {
         let opinion = run.profile.oracle
-        // A call naming a challenge of its tool is that challenge's, whatever the Oracle's switch or the worker's tab say now: the
-        // worker may have started working since, and the acting call repeated must still replay, not act again.
+        // A call naming a challenge of its tool is that challenge's, whatever the call's arguments say now: the acting call
+        // repeated must still replay, not act again.
         let named = call.optionalString("challengeId").flatMap { id in
             state.run(id: run.id)?.challenges.first { $0.id == id && $0.tool == call.tool }
         }
-        if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, answersQuestion: answersQuestion(call, in: run)) { return nil }
+        if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn) { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
                 throw ToolRefusal("No challenge \(id) for \(call.tool) here; call again without challengeId.")
@@ -59,7 +59,8 @@ extension OperatorToolHandler {
                 updateChallenge(id, in: run.id) { $0.stage = .delivered }
                 return Self.challengedAnswer(id, kept.critique ?? "")
             case .delivered:
-                record(call, in: run, challenge: kept.critique ?? "", reply: reply ?? "revised the call")
+                // Answered and kept as it was, the act goes against the critique: the Operator's decision, with the objection.
+                record(call, in: run, challenge: kept.critique ?? "", reply: reply ?? "revised the call", objection: reply.flatMap { _ in kept.critique })
                 actingChallenges.insert(id)
                 return nil
             case .unchallenged:
@@ -112,6 +113,23 @@ extension OperatorToolHandler {
         }
     }
 
+    /// The Oracle's veto on a backlog addition past the threshold (spec §4.1, §8): its runner asked a yes or
+    /// no, waited for within the reply budget. Only a plain yes passes; a no, an answer that is neither, a
+    /// runner that can't run or one too slow are all no. Nothing is recorded: the caller refuses or adds.
+    func oracleApproves(_ call: ToolCall, in run: OperatorRun) async -> Bool {
+        let runner = ports.secondOpinion, opinion = run.profile.oracle, folder = OperatorCommand.runFolder(run.id, home: ports.home)
+        let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
+        let prompt = ChallengeLaunch.vetoPrompt(addition: Self.invocation(call),
+                                                run: Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null))
+        let veto = Task { await runner.challenge(opinion, prompt: prompt, runFolder: folder, projects: projects) }
+        guard let verdict = await Self.first(veto, within: ports.challengeReplyBudget) else {
+            veto.cancel()
+            return false
+        }
+        guard case .critique(let answer) = verdict else { return false }
+        return ChallengeLaunch.verdict(answer) == true
+    }
+
     /// The acting call's answer, kept with its challenge and saved before the reply goes: a reply lost
     /// after this is answered again from the record (spec §11). Nothing for a call that carried no
     /// challenge of its tool, or whose challenge has not been read.
@@ -143,13 +161,6 @@ extension OperatorToolHandler {
         return json(.object(arguments))
     }
 
-    /// A message answers a worker's question when the worker's turn has ended — no prompt open is
-    /// `message_task`'s own check — rather than steering it mid-turn.
-    private func answersQuestion(_ call: ToolCall, in run: OperatorRun) -> Bool {
-        guard call.tool == "message_task", let task = try? task(call, in: run), let tab = workerTab(of: task) else { return false }
-        return tab.state != .working
-    }
-
     private func updateChallenge(_ id: String, in run: UUID, _ change: (inout ChallengeRecord) -> Void) {
         mutate(in: run) { state in
             state.updateRun(id: run) { run in
@@ -158,11 +169,12 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The critique and the reply, in the decisions log the overview shows.
-    private func record(_ call: ToolCall, in run: OperatorRun, challenge: String, reply: String) {
+    /// The critique and the reply, in the decisions log the overview shows; `objection` when the Operator
+    /// kept its act against the critique.
+    private func record(_ call: ToolCall, in run: OperatorRun, challenge: String, reply: String, objection: String? = nil) {
         let taskId = (try? task(call, in: run))?.id
         let decision = OperatorDecision(key: "challenge-\(UUID().uuidString)", text: "\(call.tool): \(reply)", task: taskId,
-                                        at: ports.now(), challenge: challenge)
+                                        at: ports.now(), challenge: challenge, objection: objection)
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
     }
 

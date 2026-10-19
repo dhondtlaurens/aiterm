@@ -183,6 +183,8 @@ public enum OperatorCommand {
             ? "You may merge when the conditions written in the Review and the Done hold, through the merge request or locally "
               + "into the local default branch. Whether the conditions hold is your call. AiTerm merges only the commit you accepted, "
               + "only with a green pipeline when there is one, and only with every thread on the merge request resolved. "
+              + "Merge doesn't depend on Review: Merge marks the request ready only to merge it. "
+              + "A local merge comes once AiTerm carries it out; until then, merge through the merge request. "
               + "A local merge stops at the merge; pushing the default branch stays with the person."
             : "You may not merge. A task ends at a commit or a draft merge request."]
     }
@@ -203,8 +205,11 @@ public enum OperatorCommand {
         + "for everything or for one task, use it. Otherwise choose per task, from the installed agents, Claude or Codex. "
         + "Start from that agent's default model in Settings > Agents, and step to another model only when the task needs it: "
         + "only a model in that agent's own list there, never one you type from memory. "
-        + "When an agent's weekly use reaches 80 %, start new tasks on the other agent, unless the person's words pin the agent. "
-        + "run_status shows each agent's weekly use."
+        + "Give your reason for each task's model in modelReason, in one line. "
+        + "When an agent's weekly use reaches 80 %, start new tasks on the other agent. "
+        + "A task whose agent the person's words named stays on it. Say so with agentPinned. "
+        + "If the other agent is missing or also at 80 %, the task stays on its agent. "
+        + "run_status shows each agent's weekly use. Under agents, run_status lists each installed agent's models and its default model."
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
         let askFirst = ["deleting a branch or worktree", "anything outside this broadcast's projects"]
@@ -235,7 +240,8 @@ public enum OperatorCommand {
             rules.append("Some of your calls are challenged by the Oracle, a second opinion. A challenged call may first return a critique, "
                          + "or `pending: true` while the critique is still being written; either way nothing has happened yet. "
                          + "Read the critique, then call the same tool again with the challengeId and either a challengeReply "
-                         + "(your answer to the critique) or revised arguments; only that second call takes effect.")
+                         + "(your answer to the critique) or revised arguments; only that second call takes effect. "
+                         + "Keeping the act with a challengeReply is your decision: the debrief lists it with the Oracle's objection.")
         }
         return rules
     }

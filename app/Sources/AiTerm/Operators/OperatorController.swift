@@ -34,6 +34,12 @@ struct OperatorPorts {
     var mergeSleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
     /// The clock a publication reads — its bounded wait, its two ready reads apart.
     var publishNow: @Sendable () -> Date = { Date() }
+    /// The agents the login shell found, which a task may run (spec §15). Nil is the app's own
+    /// `AgentIntegrations.availableAgents`, which `AppController` fills in.
+    var installedAgents: (@MainActor () -> Set<AgentKind>)?
+    /// An agent's model list in Settings › Agents (`ModelCatalogue.models(for:)`). Blocking: read through
+    /// `BackgroundWork`. Nil is the app's own catalogue, which `AppController` fills in.
+    var agentModels: (@Sendable (AgentKind) -> [AgentModel])?
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
@@ -526,7 +532,7 @@ final class OperatorController {
     /// is told once, with the reason recorded on the task.
     func mergeWatchStopped(_ id: UUID, _ why: String) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
-        waker.say("\(operated.key): the merge watch stopped — \(why); call finish_task again when it can go on", to: operated.runId)
+        waker.say("\(operated.key): the merge watch stopped, \(why); call finish_task again when it can go on", to: operated.runId)
     }
 
     /// The host merged the task's request with a head nobody accepted (spec §6): only you can say how the

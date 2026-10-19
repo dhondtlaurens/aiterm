@@ -194,7 +194,7 @@ import Testing
         #expect(world.run(run.id)?.state == .complete)
         #expect(world.notifications.posted.map(\.id) == ["done-\(run.id.uuidString)"])
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] operation complete — call run_status")
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] operation complete, call run_status")
         #expect(world.task(task.id)?.operated?.state == .noChange)
     }
 

@@ -4,18 +4,20 @@ import AiTermCore
 /// The plan (spec §6, §8): unstarted tasks added and changed in the open revision, and a revision
 /// submitted. A task gets its row at once and its worktree only when AiTerm starts it.
 extension OperatorToolHandler {
-    /// The tool's checks run twice, either side of the one suspension: the repository's branches are read
-    /// off the main actor, and while git answers another call may have made this key, taken a branch,
-    /// widened the operation's projects, or you may have paused or ended it. Everything after that read
-    /// runs without another suspension, so what it checked is what it changes, and two calls never pick
-    /// one branch or make one key twice.
-    func createTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+    /// The tool's checks run again after each suspension: the repository's branches and the agent's model
+    /// list are read off the main actor, and the Oracle may be asked about an addition past the backlog's
+    /// threshold. Meanwhile another call may have made this key or taken a branch, or you may have paused or
+    /// ended the operation. Everything after the last read runs without another suspension, so what it
+    /// checked is what it changes, and two calls never pick one branch or make one key twice. `vetted` is
+    /// a call the Oracle said yes to, read again from the top.
+    func createTask(_ call: ToolCall, in run: OperatorRun, vetted: Bool = false) async throws -> JSONValue {
         let key = try call.string("key")
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
-        let first = try draft(call, in: run)
-        // Every branch name the repository has, local and on origin (F7).
-        let git = ports.git, path = first.project.path
-        let repositoryBranches = await BackgroundWork.run { Repository(path, git: git).branches() }
+        try acceptsPlanChanges(run)
+        let agent = try self.agent(call), project = try self.project(call, in: run)
+        // Every branch name the repository has, local and on origin (F7), and the agent's own models.
+        let git = ports.git, path = project.path, models = agentModels
+        let (repositoryBranches, catalogue) = await BackgroundWork.run { (Repository(path, git: git).branches(), models(agent)) }
         // Another call may have made this key while git was read: this one is its repeat.
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The operation as it is now, not as the call began: a pause or an end since is the person's.
@@ -23,7 +25,15 @@ extension OperatorToolHandler {
             throw ToolRefusal("This operation has ended; its tools no longer act.")
         }
         if current.intent == .paused { throw ToolRefusal("The person paused this operation. Wait until they resume it.") }
-        let draft = try self.draft(call, in: current)
+        let draft = try self.draft(call, in: current, catalogue: catalogue)
+        // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
+        switch vetted ? .free : backlogVerdict(current) {
+        case .free: break
+        case .refused: throw ToolRefusal("Past the backlog limit with the Oracle off: report it with report_find.")
+        case .needsOracle:
+            guard await oracleApproves(call, in: current) else { throw ToolRefusal("The Oracle judged this off-brief: report it with report_find.") }
+            return try await createTask(call, in: state.run(id: run.id) ?? current, vetted: true)
+        }
         let ticket = draft.ticket, title = draft.title, brief = draft.brief
         let branch = OperatedBranch.name(ticket: ticket, title: title,
                                          taken: OperatedBranch.taken(in: state, project: draft.project.id, repositoryBranches: repositoryBranches))
@@ -32,12 +42,9 @@ extension OperatorToolHandler {
                             agent: draft.agent, model: draft.model.model, reasoning: draft.model.reasoning, firstPrompt: brief, appendTicket: false,
                             createdAt: ports.now(), windowId: nil)
         task.operated = OperatedTask(runId: current.id, key: key, state: .planned, end: draft.end, brief: brief, dependsOn: draft.dependencies,
-                                     stackedOn: draft.dependencies.first { $0.kind == .code }?.task, revision: current.openRevision)
-        // Only a call that passed every check widens the operation's projects.
-        mutate(in: run.id) { state in
-            if draft.joins { state.updateRun(id: current.id) { if !$0.projectIds.contains(draft.project.id) { $0.projectIds.append(draft.project.id) } } }
-            state.tasks.append(task)
-        }
+                                     stackedOn: draft.dependencies.first { $0.kind == .code }?.task, revision: current.openRevision,
+                                     modelReason: draft.modelReason, agentPinned: draft.agentPinned)
+        mutate(in: run.id) { $0.tasks.append(task) }
         return Self.taskAnswer(task, created: true)
     }
 
@@ -45,25 +52,50 @@ extension OperatorToolHandler {
         state.tasks(inRun: run.id).first { $0.operated?.key == key }
     }
 
+    /// Where an addition stands against the backlog's budget: free while the first plan is open, then
+    /// `BacklogBudget`'s word on the tasks added since. The first plan is revision 1, the first submitted.
+    private func backlogVerdict(_ run: OperatorRun) -> BacklogBudget.Verdict {
+        guard let first = run.firstPlanSize else { return .free }
+        let additions = state.tasks(inRun: run.id).filter { ($0.operated?.firstRevision ?? 1) > 1 }.count
+        return BacklogBudget.verdict(firstPlanSize: first, additionsSoFar: additions, oracleIsOn: run.profile.oracle.isOn)
+    }
+
     /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.
     private struct NewTask {
         var title: String, brief: String, ticket: String?
-        var project: Project, joins: Bool, agent: AgentKind, model: (model: String, reasoning: String?), end: TaskEnd
+        var project: Project, agent: AgentKind, model: (model: String, reasoning: String?), end: TaskEnd
+        var modelReason: String, agentPinned: Bool
         var dependencies: [TaskDependency]
     }
 
-    private func draft(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> NewTask {
+    private func draft(_ call: ToolCall, in run: OperatorRun, catalogue: [AgentModel]) throws(ToolRefusal) -> NewTask {
         try acceptsPlanChanges(run)
         let title = try call.string("title"), brief = try call.string("brief")
-        let (project, joins) = try self.project(call, in: run), agent = try self.agent(call), model = try self.model(call, for: agent)
-        let end = try self.end(call) ?? .commit
-        return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), project: project, joins: joins, agent: agent, model: model, end: end,
+        let project = try self.project(call, in: run), agent = try self.agent(call)
+        let model = try self.model(call, for: agent, catalogue: catalogue), modelReason = try call.string("modelReason")
+        let end = try self.end(call) ?? Self.defaultEnd(for: run)
+        return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), project: project, agent: agent, model: model, end: end,
+                       modelReason: modelReason, agentPinned: call.arguments["agentPinned"]?.boolValue ?? false,
                        dependencies: try dependencies(call, in: run, project: project))
     }
 
+    /// A task with no end named ends at a draft MR, or at a commit when the broadcast's Done says a commit
+    /// and names no merge request or merge.
+    static func defaultEnd(for run: OperatorRun) -> TaskEnd {
+        let done = OperatorCommand.said(run.done)?.lowercased() ?? ""
+        let saysRequest = done.contains(/\b(mrs?|prs?|merge|merged|merges|merge requests?|pull requests?)\b/)
+        return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
+    }
+
+    /// The agents' model lists, as the ports read them; none read is an empty list.
+    var agentModels: @Sendable (AgentKind) -> [AgentModel] { ports.agentModels ?? { _ in [] } }
+
+    /// The installed agents, as the ports say; every agent when nothing says.
+    var installedAgents: Set<AgentKind> { ports.installedAgents?() ?? Set(AgentKind.allCases) }
+
     /// Only an unstarted task changes here; a started one is steered with `message_task` (spec §6).
     /// A change joins the open revision, and a queued task waits for that revision again.
-    func updateTask(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+    func updateTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run)
         guard let operated = task.operated, operated.state == .planned || operated.state == .queued, operated.launch == nil else {
             throw ToolRefusal("\(task.operated?.key ?? task.title) has started: steer it with message_task, and log the steer with log_decision.")
@@ -72,10 +104,21 @@ extension OperatorToolHandler {
         let project = state.project(id: task.projectId)
         let brief = call.optionalString("brief")
         let agent = try call.optionalString("agent").map { _ in try self.agent(call) }
-        // A new agent with no model named takes that agent's default, not the old agent's model.
+        // A new agent with no model named takes that agent's default, not the old agent's model; a model named
+        // is checked against its agent's own list, read off the main actor.
         let model: (model: String, reasoning: String?)?
-        if let agent, agent != task.agent || call.optionalString("model") != nil { model = try self.model(call, for: agent) }
-        else { model = call.optionalString("model").map { ($0, nil) } }
+        if (agent != nil && agent != task.agent) || call.optionalString("model") != nil {
+            let target = agent ?? task.agent, models = agentModels
+            let catalogue = await BackgroundWork.run { models(target) }
+            model = try self.model(call, for: target, catalogue: catalogue)
+        } else {
+            model = nil
+        }
+        // The read may have let the task start, or you pause the operation: check both again.
+        guard let fresh = state.task(id: task.id)?.operated, fresh.state == .planned || fresh.state == .queued, fresh.launch == nil else {
+            throw ToolRefusal("\(task.operated?.key ?? task.title) has started: steer it with message_task, and log the steer with log_decision.")
+        }
+        try acceptsPlanChanges(state.run(id: run.id) ?? run)
         let end = try self.end(call)
         let dependencies = try call.arguments["dependsOn"].map { _ in try self.dependencies(call, in: run, project: project) }
         if let dependencies, dependencies.contains(where: { $0.task == task.id }) { throw ToolRefusal("A task can’t depend on itself.") }
@@ -135,20 +178,16 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The project a task goes in: one of the operation's, or — `joins` — another project of the workspace
-    /// that the operation takes in once the call has passed every check (spec §5.3). Nothing is changed here.
-    private func project(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> (project: Project, joins: Bool) {
+    /// The project a task goes in: one of the operation's. No project joins a broadcast.
+    private func project(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> Project {
         let ref = try call.string("project")
-        func named(_ project: Project) -> Bool {
-            project.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || project.name.caseInsensitiveCompare(ref) == .orderedSame
-        }
         let projects = run.projectIds.compactMap(state.project(id:))
-        if let project = projects.first(where: named) { return (project, false) }
-        let list = projects.map(\.name).joined(separator: ", ")
-        guard let project = state.projects.first(where: named) else {
-            throw ToolRefusal("AiTerm has no project called \(ref). This operation’s projects are: \(list).")
+        guard let project = projects.first(where: {
+            $0.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || $0.name.caseInsensitiveCompare(ref) == .orderedSame
+        }) else {
+            throw ToolRefusal("\(ref) isn’t one of this operation’s projects: \(projects.map(\.name).joined(separator: ", ")).")
         }
-        return (project, true)
+        return project
     }
 
     private func agent(_ call: ToolCall) throws(ToolRefusal) -> AgentKind {
@@ -159,12 +198,32 @@ extension OperatorToolHandler {
         }
     }
 
-    /// The model the call names, or the one Settings › Agents gives the agent.
-    private func model(_ call: ToolCall, for agent: AgentKind) throws(ToolRefusal) -> (model: String, reasoning: String?) {
-        if let model = call.optionalString("model") { return (model, nil) }
-        let fallback = AgentIntegrations.fixerModels(remembered: state.lastModelByAgent)(agent == .codex ? .codex : .claude)
-        guard !fallback.model.isEmpty else { throw ToolRefusal("Pass a model: AiTerm has no default model for \(agent.harness.displayName) yet.") }
-        return fallback
+    /// The model the call names, which must be in the agent's own list in Settings › Agents (spec §15), or
+    /// the default Settings › Agents gives the agent. The agent must be installed either way.
+    private func model(_ call: ToolCall, for agent: AgentKind, catalogue: [AgentModel]) throws(ToolRefusal) -> (model: String, reasoning: String?) {
+        let requested = call.optionalString("model"), fallback = defaultModel(for: agent)
+        if requested == nil, fallback.model.isEmpty, installedAgents.contains(agent) {
+            throw ToolRefusal("Pass a model: AiTerm has no default model for \(agent.harness.displayName) yet.")
+        }
+        do {
+            return try ModelChoice.resolve(agent: agent, requested: requested, installed: installedAgents, catalogue: catalogue,
+                                           defaultModel: fallback)
+        } catch {
+            switch error {
+            case .notInstalled(let agent):
+                throw ToolRefusal("\(agent.harness.displayName) isn’t installed on this Mac. Choose an installed agent from run_status.")
+            case .unknownModel(let model, let agent):
+                let ids = catalogue.map(\.id)
+                throw ToolRefusal("\(model) isn’t in \(agent.harness.displayName)’s model list in Settings › Agents. "
+                                  + (ids.isEmpty ? "AiTerm could read no list for it, so leave model out to take its default."
+                                                 : "Its models are: \(ids.joined(separator: ", "))."))
+            }
+        }
+    }
+
+    /// The model and reasoning Settings › Agents gives `agent`, else the model last picked for it.
+    func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
+        AgentIntegrations.fixerModels(remembered: state.lastModelByAgent)(agent == .codex ? .codex : .claude)
     }
 
     private func end(_ call: ToolCall) throws(ToolRefusal) -> TaskEnd? {

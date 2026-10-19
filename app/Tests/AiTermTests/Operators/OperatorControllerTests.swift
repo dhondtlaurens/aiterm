@@ -74,7 +74,7 @@ import Testing
         #expect(world.daemon.requests("operator.register").map { $0.params["runId"] as? String } == [active.id.uuidString])
         #expect(world.daemon.requests("operator.register").first?.params["token"] as? String == tokens[active.id])
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] reconnected — call run_status")
+        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] reconnected, call run_status")
     }
 
     @Test func anOperationWorksInTheProjectsItsBriefsTicketsBelongTo() {
@@ -148,7 +148,7 @@ import Testing
         #expect(world.daemon.requests("session.deliver").isEmpty, "a paused run's operator is not woken")
         world.controller.mutateRun(run.id) { $0.state = .active }
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] 2 updates — call run_status")  // the task, and the resuming itself
+        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] 2 updates, call run_status")  // the task, and the resuming itself
     }
 
     // -- a start that fails leaves nothing behind -----------------------------------------------

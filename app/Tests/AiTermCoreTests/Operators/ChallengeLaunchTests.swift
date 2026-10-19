@@ -44,4 +44,17 @@ import Testing
         #expect(prompt.contains("The Operator's instructions:\nCareful."))
         #expect(ChallengeLaunch.prompt(tool: "t", arguments: "{}", status: "{}", instructions: "").contains("The Operator's instructions:\n(none)"))
     }
+
+    /// The veto's prompt asks one yes/no about the brief; only a plain YES is a yes.
+    @Test func theVetoAsksYesOrNoAndOnlyAYesPasses() {
+        let prompt = ChallengeLaunch.vetoPrompt(addition: #"{"key":"DARK"}"#, run: #"{"run":{"prompt":"Fix PLUTO-231."}}"#)
+        #expect(prompt.contains("The addition: create_task with\n{\"key\":\"DARK\"}"))
+        #expect(prompt.contains("Answer YES or NO alone on the first line") && prompt.contains("Fix PLUTO-231."))
+        #expect(!prompt.contains("—"))
+        #expect(ChallengeLaunch.verdict("YES\nIt is part of PLUTO-231.") == true)
+        #expect(ChallengeLaunch.verdict("\n**Yes.** In scope.") == true)
+        #expect(ChallengeLaunch.verdict("NO. A dark mode is not in the sprint.") == false)
+        #expect(ChallengeLaunch.verdict("Probably, but") == nil && ChallengeLaunch.verdict("  \n ") == nil)
+        #expect(ChallengeLaunch.verdict("Not really") == nil, "only the word itself counts")
+    }
 }

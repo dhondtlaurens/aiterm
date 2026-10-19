@@ -49,11 +49,44 @@ import Testing
     }
 
     /// Lessons went with the personas: the tool is no longer AiTerm's.
-    @Test func proposeLessonIsNoToolAnyMore() async throws {
+    @Test func proposeLessonIsGone() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         let answer = await world.call(run.id, "propose_lesson", ["key": "l1", "lesson": "Ask before a migration.", "because": "You overruled me."])
         #expect(answer.message == "AiTerm has no tool called propose_lesson.")
+    }
+
+    /// An off-brief find goes to the debrief, once per key, and run_status shows it.
+    @Test func reportFindRecordsIt() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        let find = ["key": "leak", "title": "A token in the payments log", "why": "Anyone with log access can pay as the shop."] as JSONValue
+        let answer = await world.call(run.id, "report_find", find)
+        #expect(answer.value?["find"] == "leak" && answer.value?["recorded"] == true)
+        _ = await world.call(run.id, "report_find", ["key": "leak", "title": "Again", "why": "Again."])
+        #expect(world.run(run.id)?.finds == [OffBriefFind(key: "leak", title: "A token in the payments log",
+                                                          why: "Anyone with log access can pay as the shop.")])
+        #expect(await world.call(run.id, "run_status").value?["run"]?["finds"]?.arrayValue?.first?["key"] == "leak")
+        #expect(await world.call(run.id, "report_find", ["key": "x", "title": "t"]).message == "report_find needs `why`.")
+    }
+
+    /// The Operator decided against the Oracle: the decision keeps the objection.
+    @Test func aDecisionCarriesTheObjectionItOverruled() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "log_decision", ["key": "d1", "text": "Kept one task.", "objection": "It is two changes."])
+        #expect(world.run(run.id)?.decisions.first?.objection == "It is two changes.")
+    }
+
+    /// The model rule needs each installed agent's own list and its default (spec §15).
+    @Test func runStatusListsEachInstalledAgentsModels() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.installedAgents = { [.codex] } }
+        let agents = try #require(await world.call(run.id, "run_status").value?["run"]?["agents"])
+        #expect(agents["claude"] == nil, "an agent not installed is left out")
+        #expect(agents["codex"]?["models"] == ["gpt-6-astra", "gpt-6-mini"])
+        let fallback = AgentIntegrations.fixerModels(remembered: world.state.lastModelByAgent)(.codex)
+        #expect(agents["codex"]?["defaultModel"]?.stringValue == fallback.model)
     }
 
     @Test func jiraSearchIsKeptToTheOperationsLinkedJiraProjects() async throws {

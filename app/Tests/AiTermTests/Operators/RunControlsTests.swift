@@ -91,7 +91,7 @@ import Testing
         #expect(world.run(run.id)?.state == .active && world.run(run.id)?.intent == nil)
         #expect(world.daemon.requests("window.createTask").isEmpty)
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] resumed — call run_status")
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] resumed, call run_status")
     }
 
     @Test func aPauseThatCannotBeSavedIsTakenBackSoMemoryNeverClaimsWhatDiskDoesNot() throws {
@@ -187,7 +187,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
         try await daemon.received("session.deliver")
         let lines = daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
-        #expect(lines.count == 1 && lines[0].hasSuffix("— call run_status"), "one line, as a single click's: \(lines)")
+        #expect(lines.count == 1 && lines[0].hasSuffix(", call run_status"), "one line, as a single click's: \(lines)")
     }
 
     @Test func anOperatorWithItsWindowOpenIsNotOpenedAgain() async throws {

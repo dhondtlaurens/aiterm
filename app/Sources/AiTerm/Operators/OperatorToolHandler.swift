@@ -77,7 +77,7 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision"]
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "report_find"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          notifier: OperatorNotifier, waker: OperatorWaker) {
@@ -152,13 +152,14 @@ final class OperatorToolHandler {
     /// One tool, by its name.
     func perform(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         switch call.tool {
-        case "run_status": return try runStatus(run)
+        case "run_status": return try await runStatus(run)
         case "jira_search": return try await jiraSearch(call, in: run)
         case "ask_you": return try askYou(call, in: run)
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
+        case "report_find": return try reportFind(call, in: run)
         case "create_task": return try await createTask(call, in: run)
-        case "update_task": return try updateTask(call, in: run)
+        case "update_task": return try await updateTask(call, in: run)
         case "submit_plan": return try submitPlan(call, in: run)
         case "read_task": return try await readTask(call, in: run)
         case "message_task": return try await messageTask(call, in: run)
@@ -187,9 +188,14 @@ final class OperatorToolHandler {
 
     // -- reading -------------------------------------------------------------------------------
     /// The snapshot, numbered by the per-run counter here: the same content keeps its revision,
-    /// anything changed gets the next one.
-    private func runStatus(_ run: OperatorRun) throws -> JSONValue {
-        guard let content = currentStatus(of: run) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+    /// anything changed gets the next one. It carries what each installed agent may run, its model list read
+    /// off the main actor; the rest is read after that, as it is when the answer goes.
+    private func runStatus(_ run: OperatorRun) async throws -> JSONValue {
+        let agents = await agentChoices()
+        guard let current = state.run(id: run.id), var content = currentStatus(of: current) else {
+            throw ToolRefusal("This operation is no longer in AiTerm.")
+        }
+        content.run.agents = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         let previous = numbered[run.id]
         let revision = previous?.content == content ? previous?.revision ?? 1 : (previous?.revision ?? 0) + 1
         numbered[run.id] = (content, revision)
@@ -197,6 +203,16 @@ final class OperatorToolHandler {
         status.revision = revision
         waker.acknowledged(status, of: run.id)
         return try JSONValue(encoding: status)
+    }
+
+    /// Each installed agent the Operator chooses from (Claude, Codex): its own models and its default (spec §15).
+    private func agentChoices() async -> [AgentKind: RunStatus.AgentChoice] {
+        let agents = ModelChoice.pair.filter(installedAgents.contains), models = agentModels
+        let lists = await BackgroundWork.run { Dictionary(agents.map { ($0, models($0).map(\.id)) }, uniquingKeysWith: { first, _ in first }) }
+        return Dictionary(agents.map { agent in
+            let fallback = defaultModel(for: agent)
+            return (agent, RunStatus.AgentChoice(models: lists[agent] ?? [], defaultModel: fallback.model, defaultReasoning: fallback.reasoning))
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     private func jiraSearch(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
@@ -246,14 +262,26 @@ final class OperatorToolHandler {
         return Self.questionAnswer(question)
     }
 
+    /// `objection` is the Oracle's, when the Operator decided against it: the debrief lists the two together.
     private func logDecision(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("text")
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
         if !run.decisions.contains(where: { $0.key == key }) {
-            let decision = OperatorDecision(key: key, text: text, task: taskId, at: ports.now(), challenge: nil)
+            let decision = OperatorDecision(key: key, text: text, task: taskId, at: ports.now(), challenge: nil,
+                                            objection: call.optionalString("objection"))
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
         }
         return ["decision": .string(key), "logged": true]
+    }
+
+    /// An off-brief find (spec §4.1): never worked on, kept for the debrief, once per key.
+    private func reportFind(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+        let key = try call.string("key"), title = try call.string("title"), why = try call.string("why")
+        if !run.finds.contains(where: { $0.key == key }) {
+            let find = OffBriefFind(key: key, title: title, why: why)
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.finds.append(find) } }
+        }
+        return ["find": .string(key), "recorded": true]
     }
 
     private static func questionAnswer(_ question: OperatorQuestion) -> JSONValue {

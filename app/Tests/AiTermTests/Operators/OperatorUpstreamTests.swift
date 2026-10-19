@@ -136,8 +136,8 @@ import Testing
         try await family.world.daemon.received("session.deliver", count: 2)
         await family.world.controller.waker.lastSend?.value
         let lines = family.world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
-        #expect(lines == ["[AiTerm] 1 update — call run_status",
-                          "[AiTerm] PLUTO-231, PLUTO-232 needs a rebase: PLUTO-230 was accepted again — call run_status"],
+        #expect(lines == ["[AiTerm] 1 update, call run_status",
+                          "[AiTerm] PLUTO-231, PLUTO-232 needs a rebase: PLUTO-230 was accepted again, call run_status"],
                 "the news, then one line for both dependents")
     }
 

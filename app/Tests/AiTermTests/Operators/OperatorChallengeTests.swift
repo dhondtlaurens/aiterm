@@ -17,7 +17,8 @@ import Testing
             ports.secondOpinion = runner
             ports.challengeReplyBudget = budget
         }
-        _ = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "Do A.", "project": "Shop", "agent": "claude", "model": "m"])
+        _ = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "Do A.", "project": "Shop", "agent": "claude",
+                                                      "model": "claude-opus-5-5", "modelReason": "The default.", "end": "commit"])
         return (world, run)
     }
 
@@ -31,6 +32,7 @@ import Testing
         #expect(second.value?["submitted"] == true && world.run(run.id)?.planRevision == 1)
         let decision = try #require(world.run(run.id)?.decisions.last)
         #expect(decision.challenge == "A is two tasks." && decision.text == "submit_plan: A is one change.")
+        #expect(decision.task == nil)
         // The acting call again — its reply lost — answers what it answered, and acts no further.
         let decisions = world.run(run.id)?.decisions.count
         #expect(await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "A is one change."]) == second)
@@ -65,6 +67,22 @@ import Testing
         #expect(restarted.run(run.id)?.decisions.last?.challenge == "unchallenged: AiTerm restarted before the second opinion answered.")
     }
 
+    /// The Operator answered the critique and kept its act: a disagreement, logged with the Oracle's objection.
+    /// A call revised instead agreed, and carries none.
+    @Test func aDisagreementIsLoggedWithTheObjection() async throws {
+        let (world, run) = try await makeWorld(runner: .answering("A is two tasks."))
+        let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
+        _ = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "A is one change."])
+        let kept = try #require(world.run(run.id)?.decisions.last)
+        #expect(kept.objection == "A is two tasks." && kept.text == "submit_plan: A is one change.")
+
+        let (revised, revisedRun) = try await makeWorld(runner: .answering("A is two tasks."))
+        let second = try #require(await revised.call(revisedRun.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
+        _ = await revised.call(revisedRun.id, "submit_plan", ["revision": 1, "challengeId": .string(second)])
+        #expect(revised.run(revisedRun.id)?.decisions.last?.objection == nil)
+        #expect(revised.run(revisedRun.id)?.planRevision == 1)
+    }
+
     @Test func withTheOracleOffTheCallActsAtOnce() async throws {
         let (world, run) = try await makeWorld(oracle: false, runner: .answering("never asked"))
         #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["submitted"] == true)
@@ -88,18 +106,20 @@ import Testing
         #expect(world.run(run.id)?.planRevision == 1)
     }
 
-    /// With the Oracle on, what round 1's Healthy doubt challenged; with it off, nothing.
+    /// With the Oracle on, the first plan and the verdicts on a task (spec §8); with it off, nothing. A message
+    /// to a worker never is, and create_task's veto is the backlog's, not a critique.
     @Test func whichCallsTheOracleChallenges() {
         func call(_ tool: String, _ arguments: JSONValue = [:]) -> ToolCall { ToolCall(tool: tool, arguments: arguments) }
-        #expect(OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: true, answersQuestion: false))
-        #expect(OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "accepted"]), oracleIsOn: true, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "noChange"]), oracleIsOn: true, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: true, answersQuestion: false), "steering mid-turn is not")
-        #expect(OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: true, answersQuestion: true))
-        #expect(!OperatorToolHandler.isChallenged(call("create_task"), oracleIsOn: true, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("propose_lesson"), oracleIsOn: true, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: false, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: false, answersQuestion: true))
+        #expect(OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: true))
+        for outcome in ["accepted", "blocked", "failed"] {
+            #expect(OperatorToolHandler.isChallenged(call("mark_task", ["outcome": .string(outcome)]), oracleIsOn: true))
+        }
+        #expect(!OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "noChange"]), oracleIsOn: true))
+        #expect(!OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: true))
+        #expect(!OperatorToolHandler.isChallenged(call("create_task"), oracleIsOn: true))
+        #expect(!OperatorToolHandler.isChallenged(call("report_find"), oracleIsOn: true))
+        #expect(!OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: false))
+        #expect(!OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "accepted"]), oracleIsOn: false))
     }
 
     /// AiTerm quitting cancels a second opinion: that is not an answer, so the act is not recorded as
@@ -131,7 +151,7 @@ import Testing
                 .hasPrefix("Challenge \(id) has already acted") == true)
     }
 
-    /// An active run with one working task, a tab for its worker, and `message_task` under Healthy doubt.
+    /// An active run with one working task and a tab for its worker, the Oracle on.
     func makeWorkerWorld(daemon: RecordingDaemon = RecordingDaemon()) throws -> (OperatorWorld, OperatorRun, TaskItem) {
         let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude), projects: [project], state: .active)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "W-1", state: .working, worktree: "/tmp/aiterm-operators-none/w1")
@@ -144,52 +164,37 @@ import Testing
         return (world, run, task)
     }
 
-    func message(_ extra: [String: JSONValue] = [:]) -> JSONValue {
-        .object(["task": "W-1", "text": "Use nl-BE."].merging(extra) { $1 })
+    /// Even with the Oracle on and the worker's turn over, a message goes at once: steering is never challenged.
+    @Test func aMessageIsNeverChallenged() async throws {
+        let (world, run, _) = try makeWorkerWorld()
+        let sent = await world.call(run.id, "message_task", ["task": "W-1", "text": "Use nl-BE."])
+        #expect(sent.value?["result"] == "delivered" && world.daemon.requests("session.deliver").count == 1)
+        #expect(world.run(run.id)?.challenges.isEmpty == true)
     }
 
-    /// The acting call's reply is lost after it delivered and the worker went back to work: the tab no longer says
-    /// the message answers a question, yet the call repeated replays and delivers nothing more.
-    @Test func aMessageThatAnsweredAQuestionIsNotDeliveredAgainWhenRepeatedWhileTheWorkerWorks() async throws {
+    /// A verdict on a task is critiqued first; the call that answers it acts, logged with the critique.
+    @Test func aBlockedVerdictIsCritiquedThenActs() async throws {
         let (world, run, task) = try makeWorkerWorld()
-        let first = await world.call(run.id, "message_task", message())
-        #expect(first.value?["challenged"] == true && world.daemon.requests("session.deliver").isEmpty)
+        let first = await world.call(run.id, "mark_task", ["task": "W-1", "outcome": "blocked", "note": "Needs a key."])
+        #expect(first.value?["critique"] == "Ask first." && world.task(task.id)?.operated?.state == .working)
         let id = try #require(first.value?["challengeId"]?.stringValue)
-        let acting = message(["challengeId": .string(id), "challengeReply": "Agreed."])
-        let acted = await world.call(run.id, "message_task", acting)
-        #expect(acted.value?["result"] == "delivered" && world.daemon.requests("session.deliver").count == 1)
-        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .working)])
-        let decisions = world.run(run.id)?.decisions.count
-        #expect(await world.call(run.id, "message_task", acting) == acted)
-        #expect(world.daemon.requests("session.deliver").count == 1 && world.run(run.id)?.decisions.count == decisions)
+        let acted = await world.call(run.id, "mark_task", ["task": "W-1", "outcome": "blocked", "note": "Needs a key.",
+                                                            "challengeId": .string(id), "challengeReply": "The key is the person's."])
+        #expect(acted.value?["state"] == "blocked" && world.controller.tools.actingChallenges.isEmpty)
+        let decision = try #require(world.run(run.id)?.decisions.last)
+        #expect(decision.task == task.id && decision.objection == "Ask first.")
     }
 
-    /// The worker starts working between the critique and the acting call: the call still acts as the challenge's,
-    /// with the critique logged.
-    @Test func aWorkerThatStartsWorkingBeforeTheActingCallStillLogsTheCritique() async throws {
+    /// A second call for a challenge that is mid-act is refused, not performed too.
+    @Test func aSecondCallForAChallengeThatIsActingIsRefused() async throws {
         let (world, run, task) = try makeWorkerWorld()
-        let id = try #require(await world.call(run.id, "message_task", message()).value?["challengeId"]?.stringValue)
-        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .working)])
-        let acted = await world.call(run.id, "message_task", message(["challengeId": .string(id)]))
-        #expect(acted.value?["result"] == "delivered")
-        #expect(world.run(run.id)?.decisions.last?.challenge == "Ask first.")
-        #expect(world.run(run.id)?.challenges.map(\.stage) == [.acted])
-    }
-
-    /// A second call for a challenge that is mid-act is refused, not performed too: held at the daemon, no sleeps.
-    @Test func aSecondCallForAChallengeThatIsActingIsRefusedAndItsMarkIsClearedAfterwards() async throws {
-        let daemon = RecordingDaemon(holding: "session.deliver")
-        let (world, run, _) = try makeWorkerWorld(daemon: daemon)
-        let id = try #require(await world.call(run.id, "message_task", message()).value?["challengeId"]?.stringValue)
-        let acting = message(["challengeId": .string(id)])
-        let sending = Task { await world.call(run.id, "message_task", acting) }
-        try await daemon.received("session.deliver")
-        #expect(await world.call(run.id, "message_task", acting).message
-                == "Challenge \(id) is already acting on message_task; call again for its result.")
-        #expect(daemon.requests("session.deliver").count == 1)
-        daemon.release()
-        let acted = await sending.value
-        #expect(acted.value?["result"] == "delivered" && world.controller.tools.actingChallenges.isEmpty)
-        #expect(await world.call(run.id, "message_task", acting) == acted && daemon.requests("session.deliver").count == 1)
+        let blocked: JSONValue = ["task": "W-1", "outcome": "blocked", "note": "Needs a key."]
+        let id = try #require(await world.call(run.id, "mark_task", blocked).value?["challengeId"]?.stringValue)
+        world.controller.tools.actingChallenges.insert(id)
+        let acting = JSONValue.object((blocked.objectValue ?? [:]).merging(["challengeId": .string(id)]) { $1 })
+        #expect(await world.call(run.id, "mark_task", acting).message == "Challenge \(id) is already acting on mark_task; call again for its result.")
+        #expect(world.task(task.id)?.operated?.state == .working)
+        world.controller.tools.actingChallenges.remove(id)
+        #expect(await world.call(run.id, "mark_task", acting).value?["state"] == "blocked")
     }
 }

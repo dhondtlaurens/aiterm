@@ -187,6 +187,13 @@ final class AppController {
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
+        // The agents a task may run and their model lists are Settings › Agents', unless the caller named its own.
+        var operatorPorts = operatorPorts
+        if operatorPorts.installedAgents == nil { operatorPorts.installedAgents = { [weak agents] in agents?.availableAgents ?? [] } }
+        if operatorPorts.agentModels == nil {
+            let catalogue = agents.catalogue
+            operatorPorts.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
+        }
         // After the window lock, which hands the live sessions each event first: the operators read
         // the operator's tab from them.
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
