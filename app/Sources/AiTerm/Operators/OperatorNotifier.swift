@@ -47,10 +47,9 @@ final class OperatorNotifier {
     private let notifications: any OperatorNotifications
     private let state: @MainActor () -> AppState
     private let prompts: @MainActor () -> [UUID: String]
-    /// What is posted now, by run: each id this run of AiTerm has sent and not withdrawn, with the body it carries.
+    /// What is showing now, by run: each id this run of AiTerm has sent and not withdrawn, with the body it
+    /// carries, and from the launch's listing on each id an earlier run left that was still asked then.
     private var posted: [UUID: [String: String]] = [:]
-    /// What an earlier run of AiTerm left in the notification centre, once the listing has come: nil before.
-    private var leftBehind: Set<String>?
     /// The launch's reading of the centre, for a test to await.
     private(set) var lastListing: Task<Void, Never>?
 
@@ -68,13 +67,18 @@ final class OperatorNotifier {
     }
 
     /// The centre's listing has come, at launch: what an earlier run left that no run asks now is taken back,
-    /// and a run seen from now on does not post again what is still asked and showing. Calls before the
-    /// listing posted as they went, so they are not undone.
+    /// and what is still asked counts as showing for its run, so it is not posted again and the change that
+    /// resolves it, or ends the run, withdraws it. Calls before the listing posted as they went, so they are
+    /// not undone.
     private func takeDelivered(_ ids: [String]) {
         let delivered = Set(ids.filter { $0.hasPrefix("request-") || $0.hasPrefix("debrief-") })
-        leftBehind = delivered
         let state = state()
-        let open = Set(state.runs.flatMap { wanted(for: $0, in: state).map(\.id) })
+        var open: Set<String> = []
+        for run in state.runs {
+            let still = wanted(for: run, in: state).filter { delivered.contains($0.id) }
+            open.formUnion(still.map(\.id))
+            for note in still where posted[run.id]?[note.id] == nil { posted[run.id, default: [:]][note.id] = note.body }
+        }
         let stale = delivered.subtracting(open)
         if !stale.isEmpty { notifications.withdraw(ids: stale.sorted()) }
     }
@@ -106,8 +110,8 @@ final class OperatorNotifier {
         let state = state()
         let run = state.run(id: run.id) ?? run
         let wanted = wanted(for: run, in: state)
-        // A run first seen: what the earlier run left for it, still asked, counts as posted.
-        var before = posted[run.id] ?? Dictionary(uniqueKeysWithValues: wanted.filter { leftBehind?.contains($0.id) == true }.map { ($0.id, $0.body) })
+        // What the launch's listing found still asked is in `posted` already (`takeDelivered`).
+        var before = posted[run.id] ?? [:]
         for note in wanted where before[note.id] != note.body { notifications.post(note) }
         let gone = Set(before.keys).subtracting(wanted.map(\.id))
         if !gone.isEmpty { notifications.withdraw(ids: gone.sorted()) }

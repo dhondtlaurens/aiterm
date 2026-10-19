@@ -138,6 +138,30 @@ import Testing
         #expect(notifications.posted.count == 1, "nothing is posted twice")
     }
 
+    /// A note an earlier run left that is still asked when the listing lands, then resolved before the run's
+    /// first change: that change takes it back, and so does an end.
+    @Test func aLeftOverNoteStillAskedWhenTheListingLandsIsWithdrawnOnceResolved() async {
+        ask("open")
+        let ids = leftOver()
+        let notifier = makeNotifier()
+        await notifier.lastListing?.value
+        #expect(!notifications.withdrawn.contains(ids.open), "still asked")
+        change { $0.updateRun(id: run.id) { $0.questions[0].resolution = "en-GB." } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.withdrawn.contains(ids.open))
+        #expect(notifications.posted.isEmpty)
+    }
+
+    @Test func aLeftOverNoteStillAskedWhenTheListingLandsIsWithdrawnWhenTheRunEnds() async {
+        ask("open")
+        let ids = leftOver()
+        let notifier = makeNotifier()
+        await notifier.lastListing?.value
+        change { $0.updateRun(id: run.id) { $0.state = .stopped; $0.intent = .stopped } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.withdrawn.contains(ids.open))
+    }
+
     @Test func aTaskThatIsUnblockedIsWithdrawn() {
         let notifier = makeNotifier()
         change { $0.updateOperated(task.id) { $0.state = .blocked; $0.blockedReason = "Retries used up." } }
