@@ -617,6 +617,44 @@ import Testing
         #expect(world.run(run.id)?.state == .stopped)
     }
 
+    /// An End while a new broadcast's window is opening: the window that arrives late is closed, the token
+    /// registered is revoked again, and the broadcast stays ended, the "+" back.
+    @Test func anEndWhileABroadcastsWindowOpensClosesItAndKeepsItEnded() async throws {
+        let daemon = RecordingDaemon(holding: "window.createTask")
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
+        let starting = Task {
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+        }
+        try await daemon.received("window.createTask")
+        let id = try #require(world.state.runs.first?.id)
+        try await world.controller.end(run: id)
+        daemon.release()
+        #expect(try await starting.value == id)
+        #expect(world.run(id)?.state == .stopped && world.run(id)?.intent == .stopped)
+        #expect(world.run(id)?.operatorWindowId == nil, "the window closed is not the run's")
+        #expect(try world.workspace.file.load().run(id: id)?.state == .stopped)
+        #expect(daemon.requests("operator.revoke").count == 2, "End's, and the one after the window arrived")
+        #expect(daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["reopened"])
+        #expect(world.controller.activeRun == nil)
+    }
+
+    /// An End while a new broadcast's token is being registered: no window opens for it, and the token goes again.
+    @Test func anEndWhileABroadcastsTokenRegistersOpensNoWindow() async throws {
+        let daemon = RecordingDaemon(holding: "operator.register")
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
+        let starting = Task {
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+        }
+        try await daemon.received("operator.register")
+        let id = try #require(world.state.runs.first?.id)
+        try await world.controller.end(run: id)
+        daemon.release()
+        #expect(try await starting.value == id)
+        #expect(daemon.requests("window.createTask").isEmpty)
+        #expect(daemon.requests("operator.revoke").count == 2, "End's, and the one for the token registered since")
+        #expect(world.run(id)?.state == .stopped && world.controller.activeRun == nil)
+    }
+
     @Test func aClickOnAnEndedOperationNeverReopensIt() async throws {
         let (world, run, _) = try makeWorld()
         try await world.controller.end(run: run.id)

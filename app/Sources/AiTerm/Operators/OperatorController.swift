@@ -321,7 +321,8 @@ final class OperatorController {
     /// the token, `first-message.md` — the token registered with the helper, and the Operator's window opened
     /// in front with the broadcast as its first message, so it starts planning at once. The run is on disk
     /// before its window opens: a relaunch must know the window is its. Its name is `name`, or with none the
-    /// prompt's first line; `jiraProjectKeys` and `projectIds` are New Broadcast's picks.
+    /// prompt's first line; `jiraProjectKeys` and `projectIds` are New Broadcast's picks. Ended while it
+    /// starts, it stays ended: its id is returned with no window of its own and its token revoked again.
     @discardableResult
     func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String, review: String?,
                         done: String?) async throws -> UUID {
@@ -352,15 +353,30 @@ final class OperatorController {
         }
         workspace.mutate { $0.runs.append(run) }
         // Definite failures roll back; an uncertain window request keeps its tag and token for adoption.
+        // An End that lands during an await stays the end: the token registered since goes again, the window
+        // that arrives late is closed and never the run's, and nothing undoes the stop (`reopenOperatorWindow`
+        // guards its late results the same way). Another broadcast may have started meanwhile.
         var registered = false
         do {
             guard workspace.flush() else { throw ActionUnavailable("The broadcast couldn’t be saved, so it didn’t start.") }
             ports.notifications.requestAuthorization()
             try await daemon.registerOperator(runId: run.id.uuidString, token: prepared.token)
             registered = true
+            guard !hasEnded(run.id) else {
+                await revokeAfterEnd(run.id, window: nil, daemon: daemon)
+                return run.id
+            }
             let window = try await daemon.createTaskWindow(taskId: run.id.uuidString, cwd: prepared.folder.path, title: run.name,
                                                            agentCommand: prepared.command, frame: taskFrame(), background: false)
+            guard !hasEnded(run.id) else {
+                await revokeAfterEnd(run.id, window: window, daemon: daemon)
+                return run.id
+            }
             mutateRun(run.id) { $0.operatorWindowId = window }
+        } catch where hasEnded(run.id) {
+            // Ended while its token registered or its window opened: the end stands, and what came after it goes.
+            if registered { await revokeAfterEnd(run.id, window: nil, daemon: daemon) }
+            return run.id
         } catch let error as DaemonError where registered && [.timeout, .disconnected, .itermUnavailable].contains(error.code) {
             mutateRun(run.id) { $0.state = .operatorOffline }
             _ = workspace.flush()

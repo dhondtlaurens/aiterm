@@ -337,19 +337,19 @@ extension OperatorController {
         return .opened
     }
 
-    private func hasEnded(_ id: UUID) -> Bool {
+    func hasEnded(_ id: UUID) -> Bool {
         guard let run = run(id: id) else { return true }
         return run.state == .stopped || run.intent == .stopped
     }
 
-    /// What an end that came while the operator reopened could not undo itself: the token registered
-    /// after its revoke goes again, and the window opened after its close is closed.
-    private func revokeAfterEnd(_ id: UUID, window: String?, daemon: any DaemonCommands) async {
-        await Log.daemon.attempt("Revoking the token of operation \(id.uuidString) ended while its operator reopened") {
+    /// What an end that came while the operator opened or reopened could not undo itself: the token
+    /// registered after its revoke goes again, and the window opened after its close is closed.
+    func revokeAfterEnd(_ id: UUID, window: String?, daemon: any DaemonCommands) async {
+        await Log.daemon.attempt("Revoking the token of operation \(id.uuidString) ended while its operator opened") {
             try await daemon.revokeOperator(runId: id.uuidString)
         }
         if let window {
-            await Log.daemon.attempt("Closing the window of operation \(id.uuidString) ended while its operator reopened") {
+            await Log.daemon.attempt("Closing the window of operation \(id.uuidString) ended while its operator opened") {
                 try await daemon.closeWindowIfOpen(window)
             }
         }
