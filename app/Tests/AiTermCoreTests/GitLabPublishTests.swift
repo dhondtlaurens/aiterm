@@ -256,6 +256,21 @@ import Testing
         #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .blocked("it is a draft"))
     }
 
+    /// Many CIs skip the pipeline of a draft: skipped is no failure while it is one, so the draft is all that stops it and
+    /// it is marked ready. Not a draft, a skipped pipeline still blocks; a draft with conflicts says so.
+    @Test func aDraftsSkippedPipelineLeavesTheDraftAsItsOnlyBlocker() async throws {
+        func readiness(_ json: String) async throws -> MergeReadiness {
+            let (client, _) = makeClient { _ in (200, Data(json.utf8)) }
+            return try await client.mergeReadiness(project: "web/acme-web", iid: 12)
+        }
+        let draft = { (json: String) in json.replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#) }
+        #expect(try await readiness(draft(Self.status(detailed: "draft_status", pipeline: "skipped"))) == .blocked("it is a draft"))
+        #expect(try await readiness(Self.status(detailed: "mergeable", pipeline: "skipped")) == .blocked("the pipeline was skipped"))
+        let conflicted = draft(Self.status(detailed: "draft_status", pipeline: "skipped"))
+            .replacingOccurrences(of: #""has_conflicts":false"#, with: #""has_conflicts":true"#)
+        #expect(try await readiness(conflicted) == .blocked("it has conflicts"))
+    }
+
     /// A draft's pipeline is read first: what else stops it is said before the draft.
     @Test func aDraftsPipelineIsSaidBeforeTheDraft() async throws {
         let draft = Self.status(detailed: "draft_status", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)

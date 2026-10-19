@@ -175,6 +175,8 @@ public struct GitHubClient: Sendable {
             case "failure", "timed_out", "startup_failure": return .blocked("its check \(run.name) failed")
             case "cancelled": return .blocked("its check \(run.name) was cancelled")
             case "action_required": return .blocked("its check \(run.name) needs someone to act")
+            // Many CIs skip their checks while it is a draft: no failure then, so the draft is all that stops it.
+            case "skipped" where pull.draft == true: continue
             case "neutral", "skipped", "stale": return .blocked("its check \(run.name) did not pass (\(run.conclusion ?? ""))")
             default: running = true   // a conclusion AiTerm does not know is not green
             }
@@ -187,8 +189,8 @@ public struct GitHubClient: Sendable {
             }
         }
         if running { return .waiting("its checks are running") }
-        // A draft is said once its checks have: what else stops it comes first.
-        if pull.draft == true { return .blocked(MergeReadiness.draftReason) }
+        // A draft is said once its checks and its conflicts have: what else stops it comes first.
+        if pull.draft == true { return pull.mergeable == false ? .blocked("it has conflicts") : .blocked(MergeReadiness.draftReason) }
         switch pull.mergeableState ?? "unknown" {
         case "clean", "has_hooks": return pull.mergeable == true ? .ready(head: pull.head.sha) : .waiting("GitHub is checking it")
         case "dirty": return .blocked("it has conflicts")

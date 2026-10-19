@@ -835,4 +835,20 @@ import Synchronization
         #expect(why == "its pipeline failed")
         #expect(!host.log.contains("ready 12"))
     }
+
+    /// A draft whose branch on origin is not the accepted commit is not marked ready: it would not merge.
+    @Test func aDraftAtAnotherHeadIsNotMarkedReady() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost()
+        _ = try await advance(&s, host: host, forReview: true)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "someone else"], in: s.path)
+        try git.run(["push", "-q", "origin", "feat/pluto-231"], in: s.path)
+        let moved = try git.run(["rev-parse", "HEAD"], in: s.path)
+        try git.run(["update-ref", "refs/heads/feat/pluto-231", s.sha], in: s.path)
+        host.update { $0.readiness = [.blocked("it is a draft")] }
+        let outcome = try await advance(&s, host: host, restart: false)
+        guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "The request's branch is at \(moved.prefix(7)) on the host, not the accepted \(s.sha.prefix(7)).")
+        #expect(!host.log.contains("ready 12"))
+    }
 }

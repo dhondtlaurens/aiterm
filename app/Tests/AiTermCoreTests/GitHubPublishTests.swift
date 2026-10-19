@@ -155,6 +155,12 @@ import Testing
             // when nothing else does.
             (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed")),
             (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "in_progress", nil)]), Self.statuses([]), .waiting("its checks are running")),
+            // Many CIs skip their checks on a draft: skipped is no failure while it is one, so the draft is all that stops it
+            // and it is marked ready; its checks then run. A conflict a draft already shows still stops it.
+            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "skipped")]), Self.statuses([]), .blocked("it is a draft")),
+            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "skipped"), ("lint", "completed", "failure")]), Self.statuses([]),
+             .blocked("its check lint failed")),
+            (Self.pull(draft: true, mergeable: "false", mergeableState: "draft"), Self.green, Self.statuses([]), .blocked("it has conflicts")),
             (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit, head: Self.head, target: "main")),
             (Self.pull(state: "closed"), Self.green, Self.statuses([]), .blocked("the pull request is closed")),
         ]

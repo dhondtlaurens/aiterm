@@ -184,10 +184,13 @@ public struct TaskPublisher: Sendable {
         var answer = try await host.readiness(of: number)
         let request = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
         // A request still a draft, opened for its review or by someone, is marked ready only to merge it (spec §5): only
-        // when the draft is all the host says stops it (it names a pipeline, a check or a conflict first) and every
-        // thread on it is resolved, so marking it ready notifies nobody about a merge that would not happen.
+        // when the draft is all the host says stops it (it names a failed or running check or a conflict first; checks
+        // skipped while it is a draft are none), its branch on origin is the accepted commit and every thread on it is
+        // resolved, so marking it ready notifies nobody about a merge that would not happen. Its checks then run, and
+        // the floor applies to them as to any request.
         if answer == .blocked(MergeReadiness.draftReason), let live = try await host.existingRequest(from: branch), live.iid == number, live.draft {
-            if let why = PublicationGuard.openThreads(try await host.threads(of: number), request: request) {
+            let head = try await BackgroundWork.run { try repository.originTip(of: branch) } ?? ""
+            if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: try await host.threads(of: number), request: request) {
                 return try await blocked(publication, why, record)
             }
             if let why = await recheck() { return .refused(why) }

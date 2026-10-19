@@ -427,7 +427,7 @@ private struct DiscussionPayload: Decodable {
 /// The fields of a merge request that say whether it can merge now.
 private struct MergeStatusPayload: Decodable {
     struct Pipeline: Decodable { var status: String? }
-    var state: String?, detailedMergeStatus: String?, sha: String?, draft: Bool?
+    var state: String?, detailedMergeStatus: String?, sha: String?, draft: Bool?, hasConflicts: Bool?
     var targetBranch: String?
     var mergeCommitSha: String?, squashCommitSha: String?, headPipeline: Pipeline?
 
@@ -441,12 +441,14 @@ private struct MergeStatusPayload: Decodable {
             return .waiting("its pipeline is running")
         // A pipeline that stopped at a manual job or never ran has not passed, whatever the project requires.
         case "manual": return .blocked("the pipeline waits for a manual job")
+        // Many CIs skip the pipeline while it is a draft: no failure then, so the draft is all that stops it.
+        case "skipped" where draft == true: break
         case "skipped": return .blocked("the pipeline was skipped")
         case "", "success": break   // green, or no pipeline at all
         case let other: return .waiting("its pipeline is \(other.replacingOccurrences(of: "_", with: " "))")
         }
         // A draft is said once its pipeline has: what else stops it comes first.
-        if draft == true { return .blocked(MergeReadiness.draftReason) }
+        if draft == true { return hasConflicts == true ? .blocked("it has conflicts") : .blocked(MergeReadiness.draftReason) }
         guard let status = detailedMergeStatus else { return .waiting("GitLab is checking it") }
         switch status {
         case "mergeable": return sha.map { .ready(head: $0) } ?? .waiting("GitLab is checking it")
