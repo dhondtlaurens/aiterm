@@ -142,18 +142,12 @@ final class SheetCoordinator {
         }
     }
 
-    /// New Operation…, opened once Claude's model list is read off the main actor, as New Task's draft
-    /// is: the broadcast starts on Settings › Operator's profile, whose first load takes Claude's default
-    /// model from it. Not over another sheet.
-    func presentNewOperation(start: @escaping @MainActor (OperatorProfile, String, String?) async throws -> UUID) {
+    /// New Operation…: the broadcast starts on Settings › Operator's profile, which the operator
+    /// controller reads as it starts (`startBroadcast`). Not over another sheet.
+    func presentNewOperation(start: @escaping @MainActor (String, String?) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
-        let catalogue = agents.catalogue
-        preparingSheet = Task {
-            let models = await BackgroundWork.run { (try? catalogue.models(for: .claude)) ?? [] }
-            guard !Task.isCancelled, canChangeWorkspace, sheet == nil else { return }
-            sheet = .newOperation(NewOperationModel(profile: agents.operatorProfile(claudeModels: models), start: start))
-        }
+        sheet = .newOperation(NewOperationModel(start: start))
     }
 
     /// An operation's overview, built by its caller, put in the slot at once (New Operation is built here, `presentNewOperation`).

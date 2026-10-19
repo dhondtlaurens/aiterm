@@ -29,6 +29,33 @@ import Testing
         #expect(world.run(paused.id)?.state == .paused)
     }
 
+    /// Spec §13: a conversation that can't be resumed is said, and nothing opens; Start Fresh then opens a new
+    /// Operator session, its conversation let go, briefed with where the broadcast stands and its decisions.
+    @Test func startFreshWhenTheConversationCannotResume() async throws {
+        let project = OperatorServiceFixtures.project()
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        run.operatorConversation = "c-gone"
+        run.decisions = [OperatorDecision(key: "d1", text: "Ship the footer fix first.", task: nil, at: clock.now)]
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id, conversation: "c-gone")])
+        world.show([])
+        #expect(world.run(run.id)?.state == .operatorOffline)
+        let refusal = await #expect(throws: ActionUnavailable.self) { try await world.controller.resume(run: run.id) }
+        #expect(refusal?.message == "Its conversation can’t be resumed.")
+        #expect(world.daemon.requests("window.createTask").isEmpty && world.run(run.id)?.state == .operatorOffline)
+        try await world.controller.startFresh(run: run.id)
+        let command = try #require(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String)
+        #expect(command.contains(OperatorCommand.firstMessageFile) && !command.contains("c-gone"))
+        let folder = OperatorCommand.runFolder(run.id, home: world.ports.home)
+        let first = try String(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
+        #expect(first.hasPrefix("Your broadcast:\n\nImplement the sprint."))
+        #expect(first.contains("\"key\":\"PLUTO-1\""), "where it stands, as run_status shows it")
+        #expect(first.contains("Ship the footer fix first."), "the decisions so far")
+        #expect(!first.contains("—"))
+        #expect(world.run(run.id)?.operatorConversation == nil && world.run(run.id)?.state == .active)
+    }
+
     @Test func aLaunchThatShowedNoTabIsTriedAgainOnlyAfterAMinute() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-reconcile-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)

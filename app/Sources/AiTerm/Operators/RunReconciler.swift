@@ -65,9 +65,11 @@ final class RunReconciler {
         return changed
     }
 
-    /// Where a run picks up once its operator is back: active once a plan revision is under way.
-    static func resumedState(of run: OperatorRun) -> OperatorRunState {
-        run.planRevision > 0 ? .active : .planning
+    /// Where a run picks up once its operator is back: active once a plan revision is under way, and
+    /// complete again — its debrief — when its every task has ended (spec §9: the window closing ends nothing).
+    static func resumedState(of run: OperatorRun, in state: AppState) -> OperatorRunState {
+        guard run.planRevision > 0 else { return .planning }
+        return RunScheduler.isComplete(run, in: state) ? .complete : .active
     }
 
     /// The first pass after AiTerm starts: each open question of the operator — a worker waiting on you
@@ -89,7 +91,7 @@ final class RunReconciler {
         let next: OperatorRunState
         switch (run.state, alive) {
         case (.planning, false), (.active, false): next = .operatorOffline
-        case (.operatorOffline, true) where run.intent == nil: next = Self.resumedState(of: run)
+        case (.operatorOffline, true) where run.intent == nil: next = Self.resumedState(of: run, in: state)
         default: return false
         }
         workspace.mutate { $0.updateRun(id: run.id) { $0.state = next } }

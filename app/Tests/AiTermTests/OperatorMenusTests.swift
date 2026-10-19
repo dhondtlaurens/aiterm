@@ -17,15 +17,11 @@ struct OperatorMenusTests {
     }
 
     @Test func anOperationsMenuOffersWhatItsStateAllows() {
-        #expect(titles(OperatorMenus.operation(.active))
-                == ["Overview…", "Rename…", "—", "Pause", "Interrupt Agents", "—", "End Operation…"])
-        #expect(titles(OperatorMenus.operation(.planning))
-                == ["Overview…", "Rename…", "—", "Pause", "Interrupt Agents", "—", "End Operation…"])
-        #expect(titles(OperatorMenus.operation(.paused))
-                == ["Overview…", "Rename…", "—", "Resume", "Interrupt Agents", "—", "End Operation…"],
-                "paused, its agents finish their turn: Interrupt Agents stops them now")
-        #expect(titles(OperatorMenus.operation(.operatorOffline))
-                == ["Overview…", "Rename…", "—", "Resume", "Interrupt Agents", "—", "End Operation…"])
+        #expect(titles(OperatorMenus.operation(.active)) == ["Overview…", "Rename…", "—", "Pause", "—", "End Operation…"])
+        #expect(titles(OperatorMenus.operation(.planning)) == ["Overview…", "Rename…", "—", "Pause", "—", "End Operation…"])
+        #expect(titles(OperatorMenus.operation(.paused)) == ["Overview…", "Rename…", "—", "Resume", "—", "End Operation…"],
+                "no Interrupt Agents: an agent always finishes its turn")
+        #expect(titles(OperatorMenus.operation(.operatorOffline)) == ["Overview…", "Rename…", "—", "Resume", "—", "End Operation…"])
         #expect(titles(OperatorMenus.operation(.complete)) == ["Overview…", "Rename…", "—", "End Operation…"])
         #expect(OperatorMenus.operation(.active).filter(\.isDestructive) == [.endOperation])
     }

@@ -106,7 +106,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
     func anUnknownWindowFateKeepsTheRun(_ code: DaemonError.Code) async throws {
         let daemon = RecordingDaemon(failing: ["window.createTask": code])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
-        _ = try? await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Work", done: nil)
+        _ = try? await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Work", review: nil, done: nil)
         let run = try #require(world.state.runs.first)
         #expect(run.state == .operatorOffline)
         #expect(daemon.requests("operator.revoke").isEmpty)

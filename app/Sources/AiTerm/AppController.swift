@@ -194,6 +194,16 @@ final class AppController {
             let catalogue = agents.catalogue
             operatorPorts.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
         }
+        // A broadcast freezes Settings › Operator's profile as these preferences keep it.
+        if operatorPorts.profile == nil {
+            let catalogue = agents.catalogue
+            // UserDefaults is thread-safe, though not marked Sendable: the profile is read off the main actor.
+            nonisolated(unsafe) let defaults = preferences.defaults
+            operatorPorts.profile = {
+                OperatorProfileStore.load(defaults, claudeDefault: OperatorProfileStore.claudeDefault(
+                    models: (try? catalogue.models(for: .claude)) ?? [], defaults: defaults))
+            }
+        }
         // After the window lock, which hands the live sessions each event first: the operators read
         // the operator's tab from them.
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
@@ -249,10 +259,10 @@ final class AppController {
         rows.actingSource = { [weak operators] in operators?.acting ?? [] }
         operators.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
-        // A chosen operation without a window — closed, or its operator offline — is the operator
-        // controller's to bring back.
+        // A chosen broadcast without a window — closed, or its Operator offline — is the operator
+        // controller's to reopen.
         focus.onChoosingOperationWithoutWindow { [weak operators] id in
-            Task { await operators?.focusOperatorWindow(run: id) }
+            Task { await operators?.reopenOperator(run: id) }
         }
         // A driven task whose window you closed: its conversation resumed by the operator controller,
         // never a second worker beside a live one (integration decision 7). The row raises the window

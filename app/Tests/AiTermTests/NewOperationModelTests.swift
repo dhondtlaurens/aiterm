@@ -5,12 +5,11 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The New operation sheet as a model: the prompt, when it is done, where it opens, and Start Operation
-/// handing them to the operator controller with Settings › Operator's profile.
+/// handing them to the operator controller, which starts the broadcast on Settings › Operator's profile.
 @MainActor
 struct NewOperationModelTests {
-    private func model(start: @escaping @MainActor (OperatorProfile, String, String?) async throws -> UUID = { _, _, _ in UUID() })
-        -> NewOperationModel {
-        NewOperationModel(profile: OperatorUIFixtures.profile, start: start)
+    private func model(start: @escaping @MainActor (String, String?) async throws -> UUID = { _, _ in UUID() }) -> NewOperationModel {
+        NewOperationModel(start: start)
     }
 
     @Test func itSaysWhatHappensAndWhereItOpens() {
@@ -26,10 +25,10 @@ struct NewOperationModelTests {
         }
     }
 
-    @Test func itStartsOnlyWithAPromptAndOnTheProfileItOpenedWith() async {
-        var started: [(OperatorProfile, String, String?)] = []
+    @Test func itStartsOnlyWithAPrompt() async {
+        var started: [(String, String?)] = []
         let id = UUID()
-        let sheet = model { profile, prompt, done in started.append((profile, prompt, done)); return id }
+        let sheet = model { prompt, done in started.append((prompt, done)); return id }
         #expect(!sheet.canStart)
         #expect(await sheet.startOperation() == nil)
         sheet.prompt = "  PLUTO-231 newsletter signup block in Storyblok\n"
@@ -37,13 +36,13 @@ struct NewOperationModelTests {
         #expect(sheet.canStart)
         #expect(await sheet.startOperation() == id)
         #expect(started.count == 1)
-        #expect(started.first?.0 == OperatorUIFixtures.profile && started.first?.1 == "PLUTO-231 newsletter signup block in Storyblok")
-        #expect(started.first?.2 == nil, "an empty Done is none: the end is a commit")
+        #expect(started.first?.0 == "PLUTO-231 newsletter signup block in Storyblok")
+        #expect(started.first?.1 == nil, "an empty Done is none")
     }
 
     @Test func aStartThatFailsSaysWhyAndCanBeTriedAgain() async {
         struct Refused: LocalizedError { var errorDescription: String? { "AiTerm couldn’t open the operator’s window." } }
-        let sheet = model { _, _, _ in throw Refused() }
+        let sheet = model { _, _ in throw Refused() }
         sheet.prompt = "PLUTO-231"
         #expect(await sheet.startOperation() == nil)
         #expect(sheet.error == "AiTerm couldn’t open the operator’s window.")
@@ -57,7 +56,7 @@ struct NewOperationModelTests {
         let (entered, signal) = AsyncStream<Void>.makeStream()
         var enteredStarts = entered.makeAsyncIterator()
         let id = UUID()
-        let sheet = model { _, _, _ in
+        let sheet = model { _, _ in
             calls += 1
             signal.yield()
             await withCheckedContinuation { release = $0 }

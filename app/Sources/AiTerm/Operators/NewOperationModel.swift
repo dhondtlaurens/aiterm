@@ -3,20 +3,18 @@ import Observation
 import AiTermCore
 
 /// The New operation sheet's state: the prompt, the optional Done, and the start, which the operator
-/// controller runs on Settings › Operator's profile as it was when the sheet opened. The plan's Task 16
-/// replaces it with New Broadcast.
+/// controller runs as a broadcast (`startBroadcast`) on Settings › Operator's profile as it is then. The
+/// plan's Task 16 replaces it with New Broadcast.
 @MainActor
 @Observable
 final class NewOperationModel: Identifiable {
     let id = UUID()
-    /// What the broadcast freezes when it starts.
-    let profile: OperatorProfile
     var prompt = ""
     var done = ""
     private(set) var starting = false
     /// Why the last start failed, in the footer.
     private(set) var error: String? = nil
-    @ObservationIgnored private let start: @MainActor (OperatorProfile, String, String?) async throws -> UUID
+    @ObservationIgnored private let start: @MainActor (String, String?) async throws -> UUID
 
     static let title = "New operation"
     static let promptHelp = "What to work on, as you would tell a colleague. A Jira key brings in its ticket."
@@ -25,8 +23,7 @@ final class NewOperationModel: Identifiable {
     /// The band's sentence: a submitted plan starts at once, with nothing to approve.
     static let subtitle = "The Operator plans it first, then starts the tasks at once."
 
-    init(profile: OperatorProfile, start: @escaping @MainActor (OperatorProfile, String, String?) async throws -> UUID) {
-        self.profile = profile
+    init(start: @escaping @MainActor (String, String?) async throws -> UUID) {
         self.start = start
     }
 
@@ -43,7 +40,7 @@ final class NewOperationModel: Identifiable {
         defer { starting = false }
         error = nil
         let done = trimmed(done)
-        do { return try await start(profile, trimmed(prompt), done.isEmpty ? nil : done) }
+        do { return try await start(trimmed(prompt), done.isEmpty ? nil : done) }
         catch { self.error = error.localizedDescription; return nil }
     }
 }

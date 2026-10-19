@@ -99,6 +99,8 @@ extension OperatorPorts {
         // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
         ports.installedAgents = { [.claude, .codex] }
         ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }
+        // Settings › Operator's profile, never this Mac's.
+        ports.profile = { OperatorServiceFixtures.profile() }
         return ports
     }
 }
@@ -148,6 +150,13 @@ final class OperatorWorld {
     var state: AppState { workspace.state }
     func run(_ id: UUID) -> OperatorRun? { state.runs.first { $0.id == id } }
     func task(_ id: UUID) -> TaskItem? { state.task(id: id) }
+
+    /// A Claude conversation the Operator can resume: its file under the scratch home's `~/.claude/projects`.
+    func saveConversation(_ id: String) throws {
+        let folder = ports.home.appendingPathComponent(".claude/projects/-operator")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: folder.appendingPathComponent(id + ".jsonl"))
+    }
 
     /// iTerm2's tabs as a connected snapshot reports them.
     func show(_ sessions: [SessionInfo]) {

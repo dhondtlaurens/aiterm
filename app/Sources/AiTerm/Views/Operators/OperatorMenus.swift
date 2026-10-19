@@ -7,7 +7,7 @@ import AiTermCore
 /// them with `OperatorMenuButtons`.
 enum OperatorMenuItem: Hashable {
     case newOperation
-    case overview, rename, pause, resume, interruptAgents, endOperation
+    case overview, rename, pause, resume, endOperation
     case takeOver, handBack, stopTask
     case separator
 
@@ -18,7 +18,6 @@ enum OperatorMenuItem: Hashable {
         case .rename: "Rename…"
         case .pause: "Pause"
         case .resume: "Resume"
-        case .interruptAgents: "Interrupt Agents"
         case .endOperation: "End Operation…"
         case .takeOver: "Take Over"
         case .handBack: "Hand Back"
@@ -41,13 +40,13 @@ enum OperatorMenus {
     static let header: [OperatorMenuItem] = [.newOperation]
 
     /// An operation row's context menu: Overview… and Rename…; Pause while it can run, Resume while it
-    /// is paused or its operator is offline, and Interrupt Agents — each agent's own interrupt key, on
-    /// your click only (spec §9) — while any can be at work; neither once it is complete.
+    /// is paused or its operator is offline, neither once it is complete. Ending never interrupts an agent:
+    /// it finishes its turn (spec §9).
     static func operation(_ state: OperatorRunState) -> [OperatorMenuItem] {
         switch state {
-        case .paused, .operatorOffline: [.overview, .rename, .separator, .resume, .interruptAgents, .separator, .endOperation]
+        case .paused, .operatorOffline: [.overview, .rename, .separator, .resume, .separator, .endOperation]
         case .complete, .stopped: [.overview, .rename, .separator, .endOperation]
-        case .planning, .active: [.overview, .rename, .separator, .pause, .interruptAgents, .separator, .endOperation]
+        case .planning, .active: [.overview, .rename, .separator, .pause, .separator, .endOperation]
         }
     }
 

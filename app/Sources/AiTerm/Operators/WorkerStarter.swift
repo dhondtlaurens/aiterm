@@ -354,7 +354,7 @@ final class WorkerStarter {
         return state.run(id: operated.runId)?.state == .active
     }
 
-    /// Takes a claim back: the task as it was before `attempt`, so it queues again and its slot is free. Only
+    /// Takes a claim back: the task as it was before `attempt`, so it queues again. Only
     /// while it is still working on that attempt — a task stopped, blocked or changed since is left as it is.
     private func release(_ id: UUID, claimedAs attempt: LaunchAttempt, to before: OperatedTask?) {
         // A relaunch has no earlier record: its launch was claimed before, and stays.

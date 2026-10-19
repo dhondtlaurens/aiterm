@@ -43,6 +43,10 @@ struct OperatorPorts {
     /// Each agent's weekly use in percent, windows past their reset left out (`SidebarModel.weeklyUsage`): what
     /// a task's launch reads to start on the other agent. Nil is `live.usage`, which the controller fills in.
     var weeklyUsage: (@MainActor () -> [AgentKind: Int])?
+    /// Settings › Operator's profile, as a new broadcast freezes it (`OperatorProfileStore.load`). Blocking: read
+    /// through `BackgroundWork`. Nil is `UserDefaults.standard`'s, on Claude's default from `agentModels`, which
+    /// `AppController` replaces with the app's own defaults.
+    var profile: (@Sendable () -> OperatorProfile)?
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
@@ -96,8 +100,6 @@ final class OperatorController {
     @ObservationIgnored var closingEnded: Task<Void, Never>?
     /// The latest re-registration of the runs' tokens, for a test to await.
     @ObservationIgnored private(set) var registering: Task<Void, Never>?
-    /// The latest revocation of a complete operation's token after its operator's window closed, for a test to await.
-    @ObservationIgnored private(set) var revoking: Task<Void, Never>?
     /// Whether `live.sessions` is iTerm2's whole list — a connected snapshot has come since the helper
     /// attached and iTerm2 has not gone — so a tab missing from it is a tab closed.
     @ObservationIgnored private(set) var tabsKnown = false
@@ -114,6 +116,10 @@ final class OperatorController {
         if ports.weeklyUsage == nil {
             let now = ports.now
             ports.weeklyUsage = { [live] in SidebarModel.weeklyUsage(live.usage, now: now()) }
+        }
+        if ports.profile == nil {
+            let models = ports.agentModels
+            ports.profile = { OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: models?(.claude) ?? [])) }
         }
         self.workspace = workspace
         self.live = live
@@ -183,6 +189,8 @@ final class OperatorController {
     }
 
     var runs: [OperatorRun] { workspace.state.runs }
+    /// The one broadcast not ended (spec §3): there is at most one, and while there is, no other starts.
+    var activeRun: OperatorRun? { runs.first { $0.state != .stopped && $0.intent != .stopped } }
     func run(id: UUID) -> OperatorRun? { workspace.state.run(id: id) }
     func folder(of run: UUID) -> URL { OperatorCommand.runFolder(run, home: ports.home) }
     func operatorTab(of run: UUID) -> SessionInfo? { Self.operatorTab(of: run, in: live.sessions) }
@@ -258,7 +266,7 @@ final class OperatorController {
     /// tasks finishing at once, or one while a launch awaits its window — finds the other's claims taken, so
     /// no task is claimed twice. Nothing while no helper is attached: there is no window to ask for. Called
     /// from `runChanged(_:)` (a tool's change, a submitted plan, a block, a start ended, a resume, a hand
-    /// back), `reconcileTick()` and the end of an operation.
+    /// back) and `reconcileTick()`.
     func startReadyTasks() {
         guard daemon() != nil else { return }
         let claimed = starter.claimReady()
@@ -299,41 +307,48 @@ final class OperatorController {
     }
 
     // -- starting ---------------------------------------------------------------------------
-    /// Starts an operation: the run saved with `profile` frozen in it, its folder written — `brief.md`,
-    /// `mcp.json`, the token, `first-message.md` — the token registered with the helper, and the operator's window opened in
-    /// front with the brief as its first message. The run is on disk before its window opens: a
-    /// relaunch must know the window is its. Its projects are `projectIds`, or by default those the
-    /// brief's tickets belong to (`projects(for:in:)`).
+    /// What a second New Broadcast is told while one runs (spec §3).
+    static let oneBroadcast = "A broadcast is already running."
+
+    /// Starts a broadcast (spec §3.1): refused while another is not ended. The run is saved with Settings ›
+    /// Operator's profile frozen in it (`OperatorPorts.profile`), its folder written — `brief.md`, `mcp.json`,
+    /// the token, `first-message.md` — the token registered with the helper, and the Operator's window opened
+    /// in front with the broadcast as its first message, so it starts planning at once. The run is on disk
+    /// before its window opens: a relaunch must know the window is its. Its name is `name`, or with none the
+    /// prompt's first line; `jiraProjectKeys` and `projectIds` are New Broadcast's picks.
     @discardableResult
-    func startOperation(profile: OperatorProfile, prompt: String, review: String? = nil, done: String?,
-                        projectIds: [UUID]? = nil) async throws -> UUID {
-        guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting an operation.") }
-        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ActionUnavailable("Tell the operator what to work on.") }
-        let projectIds = projectIds ?? Self.projects(for: prompt, in: workspace.state)
+    func startBroadcast(name: String?, jiraProjectKeys: [String], projectIds: [UUID], prompt: String, review: String?,
+                        done: String?) async throws -> UUID {
+        guard activeRun == nil else { throw ActionUnavailable(Self.oneBroadcast) }
+        guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting a broadcast.") }
+        guard OperatorCommand.said(prompt) != nil else { throw ActionUnavailable("Tell the Operator what to work on.") }
         let projects = projectIds.compactMap(workspace.state.project(id:))
         guard !projects.isEmpty, projects.count == projectIds.count else {
-            throw ActionUnavailable("Choose the projects this operation may work in.")
+            throw ActionUnavailable("Choose the projects this broadcast may work in.")
         }
         guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        let jiraKeys = Self.jiraKeys(of: projectIds, in: workspace.state)
-        let run = OperatorRun(id: UUID(), name: Self.operationName(from: prompt), profile: profile, projectIds: projectIds,
-                              jiraProjectKeys: jiraKeys, prompt: prompt, review: OperatorCommand.said(review),
-                              done: OperatorCommand.said(done), createdAt: ports.now())
+        let readProfile = ports.profile
+        let profile = await BackgroundWork.run {
+            readProfile?() ?? OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: []))
+        }
+        let run = OperatorRun(id: UUID(), name: OperatorCommand.said(name) ?? Self.operationName(from: prompt), profile: profile,
+                              projectIds: projectIds, jiraProjectKeys: jiraProjectKeys, prompt: prompt,
+                              review: OperatorCommand.said(review), done: OperatorCommand.said(done), createdAt: ports.now())
         let home = ports.home, milestone = ports.milestone
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {
             try OperatorCommand.prepare(run: run, projects: projects, home: home, milestone: milestone)
         }
-        // The workspace may have been locked while the folder was written.
-        guard workspace.canChangeWorkspace else {
+        // The workspace may have been locked while the folder was written, or another start got there first.
+        guard workspace.canChangeWorkspace, activeRun == nil else {
             await discardToken(in: prepared.folder)
-            throw ActionUnavailable("Save or recover the workspace before starting an operation.")
+            throw ActionUnavailable(activeRun == nil ? "Save or recover the workspace before starting a broadcast." : Self.oneBroadcast)
         }
         workspace.mutate { $0.runs.append(run) }
         // Definite failures roll back; an uncertain window request keeps its tag and token for adoption.
         var registered = false
         do {
-            guard workspace.flush() else { throw ActionUnavailable("The operation couldn’t be saved, so it didn’t start.") }
+            guard workspace.flush() else { throw ActionUnavailable("The broadcast couldn’t be saved, so it didn’t start.") }
             ports.notifications.requestAuthorization()
             try await daemon.registerOperator(runId: run.id.uuidString, token: prepared.token)
             registered = true
@@ -349,7 +364,7 @@ final class OperatorController {
             waker.forget(run.id)
             await discardToken(in: prepared.folder)
             if registered {
-                await Log.daemon.attempt("Revoking the token of operation \(run.id.uuidString) that did not start") {
+                await Log.daemon.attempt("Revoking the token of broadcast \(run.id.uuidString) that did not start") {
                     try await daemon.revokeOperator(runId: run.id.uuidString)
                 }
             }
@@ -462,18 +477,12 @@ final class OperatorController {
         if held { startReadyTasks() }
     }
 
-    /// The operator's window closed (spec §9). A complete operation ends: your stop, persisted, and its
-    /// token revoked. Any other waits for a click on its row, which reopens it (`focusOperatorWindow`,
-    /// D16), or goes offline on the next reconcile (D14).
+    /// The Operator's window closed (spec §9): it ends nothing. A broadcast under way, or complete with its
+    /// debrief up, goes offline at once — the debrief stays until End — and a click on its row reopens the
+    /// window and resumes it (`reopenOperator`). A pause of yours stays a pause.
     private func operatorWindowClosed(_ id: UUID) {
-        guard let run = run(id: id), run.state == .complete, run.intent != .stopped else { return }
-        mutateRun(id) { $0.intent = .stopped }
-        _ = workspace.flush()
-        waker.forget(id)
-        guard let daemon = daemon() else { return }
-        revoking = Task {
-            await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") { try await daemon.revokeOperator(runId: id.uuidString) }
-        }
+        guard let run = run(id: id), run.intent == nil, [.planning, .active, .complete].contains(run.state) else { return }
+        mutateRun(id) { $0.state = .operatorOffline }
     }
 
     // -- reconciling ------------------------------------------------------------------------

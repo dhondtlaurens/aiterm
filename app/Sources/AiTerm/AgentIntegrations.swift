@@ -35,12 +35,6 @@ final class AgentIntegrations {
     /// What every Fix button is: the chosen agent when installed, else named as missing, or Off.
     var fixer: FixerResolution { fixerChoice.resolve(installed: availableAgents) }
 
-    /// Settings › Operator's profile, as a new broadcast freezes it: Claude's default from `claudeModels`
-    /// and Settings › Agents until a profile is saved.
-    func operatorProfile(claudeModels: [AgentModel]) -> OperatorProfile {
-        OperatorProfileStore.load(defaults, claudeDefault: OperatorProfileStore.claudeDefault(models: claudeModels, defaults: defaults))
-    }
-
     /// The model and reasoning a fixer runs with, for every surface's Fix: its card's default in
     /// Settings › Agents, else the model last picked for that agent (`remembered`, the workspace's),
     /// else empty — the agent's own default (`FixerLaunch.modelWords`). Read as each run starts,

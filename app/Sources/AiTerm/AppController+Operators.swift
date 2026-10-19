@@ -39,14 +39,17 @@ extension AppController {
 }
 
 extension AppController {
-    /// OPERATORS' "+", or the Operator header's: New Operation…, started on Settings › Operator's
-    /// profile. Started, the broadcast's row is selected; its window comes forward by the operator
-    /// controller's own start.
+    /// OPERATORS' "+", or the Operator header's: New Operation…, started as a broadcast on Settings ›
+    /// Operator's profile, in the projects its prompt's tickets belong to and their Jira projects (New
+    /// Broadcast, Task 16, picks both). Started, the broadcast's row is selected; its window comes forward by
+    /// the operator controller's own start.
     func presentNewOperation() {
         guard canChangeWorkspace else { return }
-        let controller = operatorController
-        sheets.presentNewOperation { [weak self] profile, prompt, done in
-            let id = try await controller.startOperation(profile: profile, prompt: prompt, done: done)
+        let controller = operatorController, workspace = workspace
+        sheets.presentNewOperation { [weak self] prompt, done in
+            let projects = OperatorController.projects(for: prompt, in: workspace.state)
+            let id = try await controller.startBroadcast(name: nil, jiraProjectKeys: OperatorController.jiraKeys(of: projects, in: workspace.state),
+                                                         projectIds: projects, prompt: prompt, review: nil, done: done)
             self?.focus.browse(.operation(id))
             return id
         }
@@ -94,7 +97,6 @@ extension AppController {
         case .rename: presentRename(run: run)
         case .pause: pause(run)
         case .resume: resume(run)
-        case .interruptAgents: interruptAgents(run)
         case .endOperation: Task { await confirmEnd(run) }
         default: break
         }
@@ -110,17 +112,11 @@ extension AppController {
         attempt("Couldn’t rename “\(run.name)”") { try controller.rename(run: run.id, to: name) }
     }
 
-    /// Interrupt Agents: each agent at work in the operation gets its own interrupt key — on your click
-    /// only, never the operator's (spec §9).
-    func interruptAgents(_ run: OperatorRun) {
-        let controller = operatorController
-        attempt("Couldn’t interrupt the agents of “\(run.name)”") { try await controller.interruptWorkers(run: run.id) }
-    }
-
-    /// End Operation…: asks first, then stops the operator for good; its tasks stay. Says whether it ended.
+    /// End Broadcast…: asks first, saying what happens to its tasks (`OperatorController.endPrompt`), then
+    /// ends it. Says whether it ended.
     @discardableResult
     func confirmEnd(_ run: OperatorRun) async -> Bool {
-        guard await prompter.ask(OperatorAlerts.endOperation(run)).confirmed else { return false }
+        guard await prompter.ask(operatorController.endPrompt(run: run)).confirmed else { return false }
         end(run)
         return true
     }
@@ -140,12 +136,10 @@ extension AppController {
         attempt("Couldn’t end “\(run.name)”") { try await controller.end(run: run.id) }
     }
 
-    /// The operation's chat — its operator's window — brought forward, or back. A refusal to reopen it is
-    /// the operator controller's own to report.
-    func focusOperatorWindow(_ run: OperatorRun) {
-        let controller = operatorController
-        focus.browse(.operation(run.id))
-        Task { await controller.focusOperatorWindow(run: run.id) }
+    /// The broadcast's chat — its Operator's window — brought forward as its row's click brings it: raised
+    /// when it is open, reopened when it is closed (`OperatorController.reopenOperator`, which reports a refusal).
+    func openOperatorWindow(_ run: OperatorRun) {
+        focus.select(.operation(run.id))
     }
 
     /// The overview's buttons, each closing the sheet when it sends you elsewhere. Give It More is the
@@ -158,9 +152,9 @@ extension AppController {
                 guard let self else { return }
                 if confirming { Task { if await self.confirmEnd(run) { dismiss() } } } else { self.end(run); dismiss() }
             },
-            giveItMore: { [weak self] in self?.focusOperatorWindow(run); dismiss() },
+            giveItMore: { [weak self] in self?.openOperatorWindow(run); dismiss() },
             openTask: { [weak self] id in dismiss(); self?.focus.select(.task(id)) },
-            answerInWindow: { [weak self] in self?.focusOperatorWindow(run); dismiss() })
+            answerInWindow: { [weak self] in self?.openOperatorWindow(run); dismiss() })
     }
 }
 

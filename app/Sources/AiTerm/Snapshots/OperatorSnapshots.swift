@@ -136,7 +136,7 @@ enum OperatorSnapshots {
             Snapshot("operator-task-rows.png") { taskRows() },
             Snapshot("operator-marks.png") { marks() },
             Snapshot("new-operation.png") {
-                let model = NewOperationModel(profile: OperatorScene.profile) { _, _, _ in UUID() }
+                let model = NewOperationModel { _, _ in UUID() }
                 model.prompt = "PLUTO-231 newsletter signup block in Storyblok\nPLUTO-232 show it on the homepage, needs 231\nthe footer link to /privacy is broken\nbump nuxt to the latest patch"
                 model.done = OperatorScene.done
                 return NewOperationSheet(model: model)

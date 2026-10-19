@@ -8,16 +8,19 @@ import Testing
 @MainActor @Suite struct OperatorControllerTests {
     let project = OperatorServiceFixtures.project()
 
-    @Test func startingAnOperationSavesItRegistersItsTokenAndOpensTheOperatorInFront() async throws {
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
+    @Test func startingABroadcastSavesItRegistersItsTokenAndOpensTheOperatorInFront() async throws {
         var profile = OperatorServiceFixtures.profile(oracle: true)
         profile.slices.jira = true
-        let id = try await world.controller.startOperation(profile: profile, prompt: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.",
-                                                           review: "  ", done: "a commit per ticket", projectIds: [project.id])
+        let saved = profile
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [])) { $0.profile = { saved } }
+        let id = try await world.controller.startBroadcast(name: "  ", jiraProjectKeys: ["PLUTO"], projectIds: [project.id],
+                                                           prompt: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.", review: "  ",
+                                                           done: "a commit per ticket")
         let run = try #require(world.run(id))
-        #expect(run.name == "Implement PLUTO-1 and PLUTO-2.")
+        #expect(run.name == "Implement PLUTO-1 and PLUTO-2.", "no name given: the prompt's first line")
         #expect(run.state == .planning && run.projectIds == [project.id] && run.done == "a commit per ticket")
-        #expect(run.profile == profile, "the profile is frozen in the run")
+        #expect(run.jiraProjectKeys == ["PLUTO"])
+        #expect(run.profile == profile, "Settings › Operator's profile, frozen in the run")
         #expect(run.review == nil, "a blank Review is none")
         #expect(run.planRevision == 0)
         let folder = OperatorCommand.runFolder(id, home: world.ports.home)
@@ -36,20 +39,37 @@ import Testing
         #expect(try world.workspace.file.load().runs.map(\.id) == [id])
     }
 
-    @Test func anOperationNeedsABriefAndProjectsOfThisWorkspace() async throws {
+    @Test func aBroadcastNeedsAPromptAndProjectsOfThisWorkspace() async throws {
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "  ", done: nil, projectIds: [project.id])
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "  ", review: nil, done: nil)
         }
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Go", done: nil, projectIds: [UUID()])
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [UUID()], prompt: "Go", review: nil, done: nil)
+        }
+        await #expect(throws: ActionUnavailable.self) {
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [], prompt: "Go", review: nil, done: nil)
         }
         world.link.attached = false
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Go", done: nil, projectIds: [project.id])
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
         }
         #expect(world.state.runs.isEmpty)
         #expect(world.daemon.requests.isEmpty)
+    }
+
+    /// The Jira projects of a broadcast's projects, by key: each once, in the order the projects list them.
+    @Test func theJiraKeysAreTheProjectsLinkedOnesEachOnce() {
+        let site = URL(string: "https://acme.atlassian.net")!
+        let shop = OperatorServiceFixtures.project(name: "Shop", jira: [JiraProjectRef(id: "1", key: "PLUTO", name: "Pluto", siteURL: site),
+                                                                       JiraProjectRef(id: "2", key: "SHOP", name: "Shop", siteURL: site)])
+        let blog = OperatorServiceFixtures.project(name: "Blog", jira: [JiraProjectRef(id: "3", key: "BLOG", name: "Blog", siteURL: site),
+                                                                       JiraProjectRef(id: "1", key: "PLUTO", name: "Pluto", siteURL: site)])
+        let none = OperatorServiceFixtures.project(name: "None")
+        let state = OperatorServiceFixtures.state(projects: [shop, blog, none], runs: [])
+        #expect(OperatorController.jiraKeys(of: [shop.id, blog.id], in: state) == ["PLUTO", "SHOP", "BLOG"])
+        #expect(OperatorController.jiraKeys(of: [blog.id, shop.id], in: state) == ["BLOG", "PLUTO", "SHOP"])
+        #expect(OperatorController.jiraKeys(of: [none.id, UUID()], in: state).isEmpty, "a project with none, and one not in the workspace")
     }
 
     @Test func theOperatorsTaggedTabGivesTheRunItsSessionWindowAndConversation() throws {
@@ -103,10 +123,10 @@ import Testing
         #expect(OperatorController.operationName(from: String(repeating: "a", count: 80)) == String(repeating: "a", count: 47) + "…")
     }
 
-    /// The operator's window closed (spec §9): the run forgets the window and session — a click on its
-    /// row reopens it — and a complete operation ends, its token revoked. A tab not yet seen, or tabs
-    /// not known while iTerm2 is away, close nothing.
-    @Test func closingTheOperatorsWindowForgetsItAndEndsACompleteOperation() async throws {
+    /// The operator's window closed (spec §9): the run forgets the window and session, and the broadcast goes
+    /// offline, a complete one included: nothing ends, and a click on its row reopens it. A tab not yet seen,
+    /// or tabs not known while iTerm2 is away, close nothing.
+    @Test func closingTheOperatorsWindowForgetsItAndTakesTheBroadcastOffline() async throws {
         let active = OperatorServiceFixtures.run(projects: [project], state: .active)
         let complete = OperatorServiceFixtures.run(projects: [project], state: .complete)
         var opening = OperatorServiceFixtures.run(projects: [project], state: .planning)
@@ -120,12 +140,10 @@ import Testing
         #expect(world.run(active.id)?.operatorWindowId == "w1", "iTerm2 away: its tabs are not known gone")
         world.show([])
         #expect(world.run(active.id)?.operatorWindowId == nil && world.run(active.id)?.operatorSessionId == nil)
-        #expect(world.run(active.id)?.intent == nil)
+        #expect(world.run(active.id)?.state == .operatorOffline && world.run(active.id)?.intent == nil)
         #expect(world.run(opening.id)?.operatorWindowId == "w-new", "a window whose tab was never seen may still be opening")
-        #expect(world.run(complete.id)?.state == .complete && world.run(complete.id)?.intent == .stopped)
-        await world.controller.revoking?.value
-        #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [complete.id.uuidString])
-        #expect(try world.workspace.file.load().run(id: complete.id)?.intent == .stopped)
+        #expect(world.run(complete.id)?.state == .operatorOffline && world.run(complete.id)?.intent == nil, "the debrief stays until End")
+        #expect(world.daemon.requests("operator.revoke").isEmpty)
     }
 
     /// A notification's click on an overview (spec §10.3) is for the sidebar to present: it reads
@@ -154,7 +172,7 @@ import Testing
     // -- a start that fails leaves nothing behind -----------------------------------------------
     private func startFailing(_ world: OperatorWorld) async {
         await #expect(throws: (any Error).self) {
-            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Go", done: nil, projectIds: [project.id])
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
         }
     }
 

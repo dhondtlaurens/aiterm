@@ -77,11 +77,13 @@ public enum OperatorCommand {
 
     /// Writes the run folder — `brief.md`, `mcp.json` and `token`, the two holding the token
     /// readable by you alone (0600, in a 0700 folder) — and returns the command to run in it.
-    /// A fresh launch also writes the operation's brief as `first-message.md`, the operator's first
-    /// message; `resuming` a conversation sends none.
+    /// A fresh launch also writes the broadcast as `first-message.md`, the operator's first message:
+    /// `firstMessage` when given (`freshStartMessage`), else `firstMessage(for:)`; `resuming` a
+    /// conversation sends none.
     public static func prepare(run: OperatorRun, projects: [Project], hookPort: Int = AiTermPaths.hookPort,
                                home: URL = FileManager.default.homeDirectoryForCurrentUser, token: String = makeToken(),
-                               resuming conversation: String? = nil, milestone: OperatorMilestone = .current) throws -> Prepared {
+                               resuming conversation: String? = nil, firstMessage message: String? = nil,
+                               milestone: OperatorMilestone = .current) throws -> Prepared {
         let folder = runFolder(run.id, home: home)
         let manager = FileManager.default
         try manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -92,7 +94,9 @@ public enum OperatorCommand {
         // Exactly the 64 hex digits: the daemon reads the file back after a restart.
         try writePrivate(Data(token.utf8), to: folder.appendingPathComponent(tokenFile))
         let first = conversation == nil && !run.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if first { try Data(firstMessage(for: run).utf8).write(to: folder.appendingPathComponent(firstMessageFile), options: .atomic) }
+        if first {
+            try Data((message ?? firstMessage(for: run)).utf8).write(to: folder.appendingPathComponent(firstMessageFile), options: .atomic)
+        }
         let words = launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: folder,
                                 projectPaths: projects.map(\.path), resuming: conversation)
         return Prepared(folder: folder, command: command(words: words, firstMessage: first), token: token)
@@ -106,6 +110,19 @@ public enum OperatorCommand {
         if let review = said(run.review) { text += "\n\nReview: " + review }
         if let done = said(run.done) { text += "\n\nDone: " + done }
         return text
+    }
+
+    /// A new Operator session for a broadcast under way (Start Fresh, or a reopening with no conversation
+    /// to resume): the broadcast as `firstMessage(for:)` says it, then where it stands as `run_status`
+    /// shows it (`status`, its JSON) and the decisions logged so far, so it picks the work up rather
+    /// than plans it again.
+    public static func freshStartMessage(for run: OperatorRun, status: String) -> String {
+        var text = firstMessage(for: run)
+        text += "\n\nThis is a new session of a broadcast already under way: its earlier conversation can’t be resumed. "
+            + "Where it stands, as run_status shows it now:\n\n" + status
+        let decisions = run.decisions.map { "- " + $0.text }
+        text += decisions.isEmpty ? "\n\nNo decisions are logged yet." : "\n\nYour decisions so far:\n" + decisions.joined(separator: "\n")
+        return text + "\n\nCall run_status, then carry on from there."
     }
 
     /// `text` trimmed, or nil when nothing is said: the one rule for what a person typed.

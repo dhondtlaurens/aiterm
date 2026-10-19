@@ -24,6 +24,100 @@ import Testing
         try FileManager.default.createDirectory(at: world.workspace.file.backupURL, withIntermediateDirectories: false)
     }
 
+    // -- one broadcast, and its end (spec §3, §9, §13) -------------------------------------------------
+    @Test func aSecondBroadcastIsRefused() async throws {
+        let (world, run, _) = try makeWorld()
+        #expect(world.controller.activeRun?.id == run.id)
+        let refusal = await #expect(throws: ActionUnavailable.self) {
+            try await world.controller.startBroadcast(name: nil, jiraProjectKeys: [], projectIds: [project.id], prompt: "Go", review: nil, done: nil)
+        }
+        #expect(refusal?.message == "A broadcast is already running.")
+        #expect(world.state.runs.map(\.id) == [run.id])
+        #expect(world.daemon.requests("operator.register").isEmpty && world.daemon.requests("window.createTask").isEmpty)
+        // Ended, the "+" returns: the next one starts.
+        try await world.controller.end(run: run.id)
+        #expect(world.controller.activeRun == nil)
+        let next = try await world.controller.startBroadcast(name: "Sprint 43", jiraProjectKeys: ["PLUTO"], projectIds: [project.id],
+                                                             prompt: "Go", review: nil, done: nil)
+        #expect(world.controller.activeRun?.id == next)
+        #expect(world.run(next)?.name == "Sprint 43" && world.run(next)?.jiraProjectKeys == ["PLUTO"])
+    }
+
+    @Test func endingDropsUnstartedTasksAndHandsRunningOnesToYou() async throws {
+        let (world, run, working) = try makeWorld()
+        var blocked = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .blocked, worktree: "/tmp/aiterm-wt2")
+        blocked.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 1))
+        let queued = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-3", state: .queued)
+        let planned = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-4", state: .planned)
+        var accepted = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-5", state: .accepted, worktree: "/tmp/aiterm-wt5")
+        accepted.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 1))
+        world.workspace.mutate { $0.tasks += [blocked, queued, planned, accepted] }
+        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: working.id, state: .working)])
+        try await world.controller.end(run: run.id)
+        #expect(world.run(run.id)?.state == .stopped && world.run(run.id)?.intent == .stopped)
+        #expect(world.task(queued.id) == nil && world.task(planned.id) == nil, "never started: no worktree, no window, dropped")
+        #expect(try world.workspace.file.load().tasks.map(\.id).sorted { $0.uuidString < $1.uuidString }
+                == [working.id, blocked.id, accepted.id].sorted { $0.uuidString < $1.uuidString })
+        for id in [working.id, blocked.id] {
+            let operated = try #require(world.task(id)?.operated)
+            #expect(operated.state == .stopped && operated.takenOver, "running: it finishes its turn and is yours")
+            #expect(operated.ownership == 1, "as after a takeover, nothing the Operator queued lands")
+        }
+        #expect(world.task(accepted.id)?.operated?.state == .accepted && world.task(accepted.id)?.operated?.takenOver == false)
+        #expect(world.daemon.requests("session.interrupt").isEmpty, "no agent is interrupted")
+        #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
+        #expect(world.daemon.requests("session.setOwnership").map { $0.params["sessionId"] as? String } == ["w1"])
+    }
+
+    @Test func endPromptCopy() throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let both = OperatorAlerts.endBroadcast(run, unstarted: 3, running: 2)
+        #expect(both.message == "End “Sprint 42”?")
+        #expect(both.detail == "3 tasks that haven’t started will be dropped. 2 running tasks finish their turn and become yours. Worktrees and MRs stay.")
+        #expect(both.buttons == ["End Broadcast", "Cancel"] && both.escapeButton == 1 && !both.defaultDeletes, "a blue default: nothing is deleted")
+        #expect(OperatorAlerts.endBroadcast(run, unstarted: 0, running: 1).detail == "1 running task finishes its turn and becomes yours. Worktrees and MRs stay.")
+        #expect(OperatorAlerts.endBroadcast(run, unstarted: 1, running: 0).detail == "1 task that hasn’t started will be dropped. Worktrees and MRs stay.")
+        #expect(OperatorAlerts.endBroadcast(run, unstarted: 0, running: 0).detail == "Worktrees and MRs stay.")
+        for prompt in [both, OperatorAlerts.endBroadcast(run, unstarted: 1, running: 1)] {
+            #expect(!prompt.detail.contains("—") && !prompt.message.contains("—"))
+        }
+        // Counted from the broadcast: the working task is running, a queued one has not started, an accepted one is neither.
+        let (world, live, _) = try makeWorld()
+        world.workspace.mutate { state in
+            state.tasks.append(OperatorServiceFixtures.task(in: live, project: project, key: "PLUTO-2", state: .queued))
+            state.tasks.append(OperatorServiceFixtures.task(in: live, project: project, key: "PLUTO-3", state: .accepted, worktree: "/tmp/aiterm-wt3"))
+        }
+        let counted = try #require(world.run(live.id))
+        #expect(world.controller.endPrompt(run: counted) == OperatorAlerts.endBroadcast(counted, unstarted: 1, running: 1))
+    }
+
+    /// Spec §9, §13: the window closing ends nothing. A complete broadcast keeps its debrief until End, and a
+    /// click brings its Operator back to it.
+    @Test func closingTheWindowOfACompleteRunKeepsTheDebrief() async throws {
+        let (world, run, task) = try makeWorld(runState: .complete, taskState: .accepted)
+        world.show([])
+        #expect(world.run(run.id)?.state == .operatorOffline && world.run(run.id)?.intent == nil)
+        #expect(world.controller.activeRun?.id == run.id, "not ended: the debrief stays until End")
+        #expect(world.task(task.id)?.operated?.state == .accepted)
+        #expect(world.daemon.requests("operator.revoke").isEmpty)
+        #expect(try world.workspace.file.load().run(id: run.id)?.intent == nil)
+        await world.controller.reopenOperator(run: run.id)
+        #expect(world.daemon.requests("window.createTask").count == 1)
+        #expect(world.run(run.id)?.state == .complete, "back to its debrief, not planning again")
+    }
+
+    /// AiTerm's own git problem on a driven task (a checkout or a rebase that failed, in the banner): the task
+    /// names the issue as its problem and is blocked with the issue's sentence.
+    @Test func anAiTermProblemBlocksItsTaskWithTheIssuesSentence() throws {
+        let (world, _, task) = try makeWorld()
+        world.controller.notices.report(OperationIssue(title: "The rebase conflicted.", subject: task.id))
+        let issue = try #require(world.controller.notices.issue)
+        #expect(throws: ActionUnavailable.self) { try world.controller.markProblem(task: task.id, issueId: "another") }
+        try world.controller.markProblem(task: task.id, issueId: issue.id)
+        let operated = try #require(world.task(task.id)?.operated)
+        #expect(operated.state == .blocked && operated.blockedReason == "The rebase conflicted." && operated.problem == issue.id)
+    }
+
     @Test func takingOverMovesTheOwnershipOnAndRefusesTheOperatorUntilItIsHandedBack() async throws {
         let (world, run, task) = try makeWorld()
         try await world.controller.takeOver(task: task.id)
@@ -110,6 +204,7 @@ import Testing
     @Test func resumingAnOperatorThatIsGoneReopensItsConversationInFront() async throws {
         let (world, run, _) = try makeWorld(runState: .operatorOffline)
         world.controller.mutateRun(run.id) { $0.operatorConversation = "c-9" }
+        try world.saveConversation("c-9")
         world.show([])
         try await world.controller.resume(run: run.id)
         let window = try #require(world.daemon.requests("window.createTask").first)
@@ -143,6 +238,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
         world.show([])
         world.controller.mutateRun(run.id) { $0.operatorConversation = "c-3" }
+        try world.saveConversation("c-3")
         try await world.controller.reopenOperatorWindow(run.id)
         let resumed = try #require(world.daemon.requests("window.createTask").last?.params["agentCommand"] as? String)
         #expect(resumed.contains("c-3") && !resumed.contains(OperatorCommand.firstMessageFile))
@@ -175,9 +271,9 @@ import Testing
             states.append(state)
         }
         defer { world.workspace.removeHook(hook) }
-        let first = Task { await world.controller.focusOperatorWindow(run: run.id) }
+        let first = Task { await world.controller.reopenOperator(run: run.id) }
         try await daemon.received("window.createTask")
-        await world.controller.focusOperatorWindow(run: run.id)
+        await world.controller.reopenOperator(run: run.id)
         #expect(world.run(run.id)?.state == .operatorOffline, "the second click changed nothing while the window is not there")
         #expect(daemon.requests("session.deliver").isEmpty)
         daemon.release()
@@ -201,7 +297,7 @@ import Testing
         try await world.controller.end(run: run.id)
         world.show([])
         await #expect(throws: ActionUnavailable.self) { try await world.controller.reopenOperatorWindow(run.id) }
-        await world.controller.focusOperatorWindow(run: run.id)
+        await world.controller.reopenOperator(run: run.id)
         #expect(world.daemon.requests("window.createTask").isEmpty)
     }
 
@@ -217,11 +313,13 @@ import Testing
         #expect(await world.call(run.id, "run_status").message == "This operation has ended; its tools no longer act.")
     }
 
-    @Test func endingOnlyStopsWhatIsOpenAndKeepsACompleteOperationComplete() async throws {
+    /// From the debrief: the broadcast is stopped, so the "+" returns, and what ended stays as it ended.
+    @Test func endingACompleteBroadcastStopsItAndLeavesItsEndedTasks() async throws {
         let (world, run, task) = try makeWorld(runState: .complete, taskState: .accepted)
         try await world.controller.end(run: run.id)
-        #expect(world.run(run.id)?.state == .complete && world.run(run.id)?.intent == .stopped)
-        #expect(world.task(task.id)?.operated?.state == .accepted)
+        #expect(world.run(run.id)?.state == .stopped && world.run(run.id)?.intent == .stopped)
+        #expect(world.task(task.id)?.operated?.state == .accepted && world.task(task.id)?.operated?.takenOver == false)
+        #expect(world.controller.activeRun == nil)
     }
 
     @Test func endingStopsTheOperationsRunningSecondOpinionsAndNoOthers() async throws {
@@ -316,17 +414,6 @@ import Testing
         #expect(world.run(run.id)?.intent == .stopped && world.daemon.requests("window.close").isEmpty)
     }
 
-    @Test func endingStartsAnotherOperationsQueuedTaskAtOnce() async throws {
-        let (world, run, _) = try makeWorld()
-        let other = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
-        let queued = OperatorServiceFixtures.task(in: other, project: project, key: "OTHER-1", state: .queued)
-        world.workspace.mutate { $0.runs.append(other); $0.tasks.append(queued) }
-        #expect(world.task(queued.id)?.operated?.launch == nil, "no slot while the first operation's worker holds it")
-        try await world.controller.end(run: run.id)
-        #expect(world.task(queued.id)?.operated?.launch?.number == 1, "claimed by the start pass at once")
-        await world.controller.lastStart?.value
-    }
-
     @Test func aFailedRevokeIsLoggedAndTheWindowIsStillClosed() async throws {
         let (world, run, _) = try makeWorld(daemon: RecordingDaemon(failing: ["operator.revoke": .internal]))
         try await world.controller.end(run: run.id)
@@ -334,39 +421,15 @@ import Testing
         #expect(world.daemon.requests("window.close").first?.params["windowId"] as? String == "w1")
     }
 
-    @Test func interruptingSendsEscToWorkingWorkersOnly() async throws {
-        let (world, run, task) = try makeWorld()
-        let idle = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .accepted, worktree: "/tmp/aiterm-wt2")
-        world.workspace.mutate { $0.tasks.append(idle) }
-        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working),
-                    OperatorServiceFixtures.session("w2", window: "w8", tag: idle.id, state: .idle)])
-        try await world.controller.interruptWorkers(run: run.id)
-        #expect(world.daemon.requests("session.interrupt").map { $0.params["sessionId"] as? String } == ["w1"])
-    }
-
-    @Test func interruptingTriesEveryWorkerPastAFailureAndLeavesATakenOverOneAlone() async throws {
-        let daemon = RecordingDaemon(failing: ["session.interrupt": .internal])
-        let (world, run, first) = try makeWorld(daemon: daemon)
-        let second = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt2")
-        var mine = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-3", state: .working, worktree: "/tmp/aiterm-wt3")
-        mine.operated?.takenOver = true
-        world.workspace.mutate { $0.tasks.append(second); $0.tasks.append(mine) }
-        world.show([OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: first.id, state: .working),
-                    OperatorServiceFixtures.session("w2", window: "w8", tag: second.id, state: .working),
-                    OperatorServiceFixtures.session("w3", window: "w7", tag: mine.id, state: .working)])
-        await #expect(throws: DaemonError.self) { try await world.controller.interruptWorkers(run: run.id) }
-        #expect(daemon.requests("session.interrupt").compactMap { $0.params["sessionId"] as? String }.sorted() == ["w1", "w2"])
-    }
-
-    @Test func stoppingOneTaskRenamingAndBringingTheChatForward() async throws {
+    @Test func stoppingOneTaskAndRenaming() async throws {
         let (world, run, task) = try makeWorld()
         try world.controller.stop(task: task.id)
         #expect(world.task(task.id)?.operated?.state == .stopped)
         try world.controller.rename(run: run.id, to: "  Sprint 43  ")
         #expect(world.run(run.id)?.name == "Sprint 43")
         #expect(throws: ActionUnavailable.self) { try world.controller.rename(run: run.id, to: "  ") }
-        await world.controller.focusOperatorWindow(run: run.id)
-        #expect(world.daemon.requests("window.activate").first?.params["windowId"] as? String == "w1")
+        await world.controller.reopenOperator(run: run.id)
+        #expect(world.daemon.requests("window.createTask").isEmpty, "its window is open: the row's click raises it, nothing reopens")
     }
 
     /// The same completion the tool paths reach: the last open task ended, the operation is complete, its
@@ -479,7 +542,7 @@ import Testing
         world.show([])
         world.controller.handle(.itermDisconnected)
         await #expect(throws: ActionUnavailable.self) { try await world.controller.reopenOperatorWindow(run.id) }
-        await world.controller.focusOperatorWindow(run: run.id)
+        await world.controller.reopenOperator(run: run.id)
         #expect(world.daemon.requests("window.createTask").isEmpty)
         #expect(world.controller.notices.issue?.title == "Couldn’t reopen the Operator’s window.")
         #expect(world.run(run.id)?.state == .operatorOffline)
@@ -536,23 +599,21 @@ import Testing
         #expect(world.run(run.id)?.state == .stopped)
     }
 
-    @Test func aClickOnAnEndedOperationBringsItsOperatorWindowForwardButNeverReopensIt() async throws {
+    @Test func aClickOnAnEndedOperationNeverReopensIt() async throws {
         let (world, run, _) = try makeWorld()
         try await world.controller.end(run: run.id)
-        await world.controller.focusOperatorWindow(run: run.id)
-        #expect(world.daemon.requests("window.activate").first?.params["windowId"] as? String == "w1")
         world.show([])
-        await world.controller.focusOperatorWindow(run: run.id)
+        await world.controller.reopenOperator(run: run.id)
         #expect(world.daemon.requests("window.createTask").isEmpty)
     }
 
     @Test func aClickOnAnOfflineOperationResumesItInFront() async throws {
         let (world, run, _) = try makeWorld(runState: .operatorOffline)
         world.show([])
-        await world.controller.focusOperatorWindow(run: run.id)
+        await world.controller.reopenOperator(run: run.id)
         #expect(world.daemon.requests("window.createTask").count == 1)
         #expect(world.run(run.id)?.state == .active)
-        #expect(world.daemon.requests("window.activate").last?.params["windowId"] as? String == "reopened")
+        #expect(world.daemon.requests("window.createTask").first?.params["background"] == nil, "in front")
         #expect(world.controller.notices.issue == nil)
     }
 

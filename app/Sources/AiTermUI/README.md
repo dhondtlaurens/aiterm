@@ -239,7 +239,7 @@ task row's grid (`OperationRowView`): the agents at work, the name, `OperationCa
 progress as a quiet `Badge` and an attention `StatusCountChips`, both opening the overview, or the
 operation's state when that says more — and the operation's own `StatusMark`. A click or ↩ brings the
 operator's window forward; ⌘I opens the overview; its menu adds Rename… (`NameSheet`), Pause or
-Resume, Interrupt Agents and End Operation…. Menus and buttons are Title Case, as everywhere. The
+Resume and End Operation…. Menus and buttons are Title Case, as everywhere. The
 operator's mark (`OperatorAvatar`) is a `.paper` `SymbolMark` with `headphones`, the same for every
 operator; it leads a driven task's avatars, and while the operator acts on that task wears a
 `Size.activityRing` accent ring that breathes, standing still under Reduce Motion — the one Metrics

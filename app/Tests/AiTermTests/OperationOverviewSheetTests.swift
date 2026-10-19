@@ -22,10 +22,10 @@ struct OperationOverviewSheetTests {
     }
 
     @Test func endingAsksFirstWithCancelOnEscape() {
-        let end = OperatorAlerts.endOperation(OperatorUIFixtures.run())
+        let end = OperatorAlerts.endBroadcast(OperatorUIFixtures.run(), unstarted: 0, running: 2)
         #expect(end.message == "End “Newsletter signup”?")
-        #expect(end.detail == "The operator stops for good and its window closes. Its tasks stay as they are, now just yours.")
-        #expect(end.buttons == ["End Operation", "Cancel"] && end.escapeButton == 1 && !end.defaultDeletes)
+        #expect(end.detail == "2 running tasks finish their turn and become yours. Worktrees and MRs stay.")
+        #expect(end.buttons == ["End Broadcast", "Cancel"] && end.escapeButton == 1 && !end.defaultDeletes)
     }
 
     @Test func cancellingEndLeavesTheOperationRunning() async throws {
@@ -35,7 +35,7 @@ struct OperationOverviewSheetTests {
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         #expect(await !controller.confirmEnd(run))
-        #expect(prompter.asked == [OperatorAlerts.endOperation(run)])
+        #expect(prompter.asked == [controller.operatorController.endPrompt(run: run)])
         #expect(controller.state.runs.first?.state == .active)
     }
 
