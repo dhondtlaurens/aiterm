@@ -16,7 +16,7 @@ struct NewOperationModelTests {
     @Test func itSaysWhatHappensAndWhereItOpens() {
         let sheet = model()
         #expect(NewOperationModel.title == "New operation")
-        #expect(NewOperationModel.subtitle == "The Operator plans it first; nothing starts before you see the plan.")
+        #expect(NewOperationModel.subtitle == "The Operator plans it first, then starts the tasks at once.")
         #expect(sheet.destination.text == "Opens in iTerm2 · The Operator’s window · tasks in the projects the brief needs")
         #expect(NewOperationModel.promptHelp == "What to work on, as you would tell a colleague. A Jira key brings in its ticket.")
         #expect(NewOperationModel.doneHelp == "What finished looks like. A draft MR or a merge happens only when this asks for it, as an end in the plan.")
