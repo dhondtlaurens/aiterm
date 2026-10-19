@@ -96,15 +96,17 @@ import Testing
 
     /// A run whose first plan, one task, was submitted: one addition goes in on the Operator's word.
     func makeBacklogWorld(oracle: Bool, runner: SecondOpinionRunner = .unavailable,
-                          budget: Duration = .seconds(60)) throws -> (OperatorWorld, OperatorRun) {
+                          budget: Duration = .seconds(60), jira: FakeJira? = nil) throws -> (OperatorWorld, OperatorRun) {
         var run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project, other],
                                               state: .active, planRevision: 1)
         run.firstPlanSize = 1
+        if jira != nil { run.profile.slices.jira = true; run.jiraProjectKeys = ["PLUTO"] }
         let first = OperatorServiceFixtures.task(in: run, project: project, key: "FIRST", state: .queued)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run], tasks: [first])) { ports in
             ports.milestone = .m1
             ports.secondOpinion = runner
             ports.challengeReplyBudget = budget
+            if let jira { ports.jira = { jira } }
         }
         world.link.attached = false
         return (world, run)
@@ -192,6 +194,23 @@ import Testing
         #expect(world.state.tasks.count == 2)
         #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "Past the backlog limit with the Oracle off.")])
         #expect(await create(world, run, "FREE").value?["created"] == false, "a repeat of a key is no addition")
+    }
+
+    /// With the Jira slice on, the find AiTerm notes itself is filed like one the Operator reported.
+    @Test func aRefusedAdditionIsFiledWithTheJiraSliceOn() async throws {
+        let jira = FakeJira()
+        let (world, run) = try makeBacklogWorld(oracle: false, jira: jira)
+        _ = await create(world, run, "FREE")
+        #expect(await create(world, run, "PAST").message
+                == "Past the backlog limit with the Oracle off. AiTerm noted it for the debrief and filed it as PLUTO-101.")
+        #expect(jira.writes == [.create(project: "PLUTO", type: "Task", summary: "Fix PAST", description: "Past the backlog limit with the Oracle off.", parent: nil)])
+        #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "Past the backlog limit with the Oracle off.", ticket: "PLUTO-101")])
+        _ = await create(world, run, "PAST")
+        #expect(jira.writes.count == 1, "once per key")
+        jira.failWrites()
+        #expect(await create(world, run, "LATER").message
+                == "Past the backlog limit with the Oracle off. AiTerm noted it for the debrief. It could not be filed: Jira returned an error (HTTP 500). Try again.")
+        #expect(finds(world, run).last?.ticket == nil)
     }
 
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {

@@ -27,6 +27,8 @@ public enum JiraError: Error, Equatable, LocalizedError {
     case unauthorized, network(String), badResponse(Int), decoding
     case projectSiteMismatch(linked: URL, configured: URL)
     case unconfinedQuery
+    /// `key` has no transition into `status` from where it is; `offered` are the statuses it can move to.
+    case noTransition(key: String, status: String, offered: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -37,6 +39,9 @@ public enum JiraError: Error, Equatable, LocalizedError {
         case .projectSiteMismatch(let linked, let configured):
             return "This project is linked to Jira at \(linked.absoluteString), but Settings is connected to \(configured.absoluteString). Remove it in Jira Projects… and link it again."
         case .unconfinedQuery: return "That JQL’s parentheses don’t pair up, so it can’t be kept to the operation’s projects."
+        case .noTransition(let key, let status, let offered):
+            return "\(key) can’t move to “\(status)” from where it is. "
+                + (offered.isEmpty ? "Jira offers no move from there." : "Jira offers: \(offered.joined(separator: ", ")).")
         }
     }
 }
@@ -295,7 +300,7 @@ public struct JiraClient: Sendable {
         scope.isEmpty ? jql : scope + " AND " + jql
     }
 
-    private func request(path: String, queryItems: [URLQueryItem] = []) -> URLRequest {
+    func request(path: String, queryItems: [URLQueryItem] = []) -> URLRequest {
         let base = config.siteURL.appendingPathComponent(path)
         return HTTPJSON.request(HTTPJSON.url(base.absoluteString, query: queryItems) ?? base, headers: [
             "Authorization": "Basic " + Data("\(config.email):\(config.token)".utf8).base64EncodedString(),
@@ -304,15 +309,17 @@ public struct JiraClient: Sendable {
     }
 
     /// Jira's own keys are camelCase, and an ADF description holds keys of its own, so no key strategy.
-    private func decode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
-        try await HTTPJSON.decode(type, request, session: session, decoder: JSONDecoder()) { failure in
-            switch failure {
-            case .transport(let error): return JiraError.network(error.localizedDescription)
-            case .undecodable: return .decoding
-            case .status(401), .status(403): return .unauthorized
-            case .status(let status): return .badResponse(status)
-            }
-        }.value
+    func decode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
+        try await HTTPJSON.decode(type, request, session: session, decoder: JSONDecoder(), mapping: Self.error(for:)).value
+    }
+
+    static func error(for failure: HTTPJSON.Failure) -> JiraError {
+        switch failure {
+        case .transport(let error): return .network(error.localizedDescription)
+        case .undecodable: return .decoding
+        case .status(401), .status(403): return .unauthorized
+        case .status(let status): return .badResponse(status)
+        }
     }
 }
 

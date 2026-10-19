@@ -30,8 +30,8 @@ extension OperatorToolHandler {
         switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {
         case .free: break
         case .refused:
-            noteFind(call, in: current, why: "Past the backlog limit with the Oracle off.")
-            throw ToolRefusal("Past the backlog limit with the Oracle off. AiTerm noted it for the debrief.")
+            let filing = await noteFind(call, in: current, why: "Past the backlog limit with the Oracle off.")
+            throw ToolRefusal("Past the backlog limit with the Oracle off. AiTerm noted it for the debrief" + Self.ending(filing))
         case .needsOracle:
             // Another addition took the last free place while git was read: this one needs the Oracle's check now.
             throw ToolRefusal("The backlog reached its limit while AiTerm read this: call create_task again for the Oracle’s check.")
@@ -63,11 +63,14 @@ extension OperatorToolHandler {
     }
 
     /// An addition past the backlog's limit, refused: AiTerm notes it for the debrief (spec §4.2), once per key,
-    /// as `report_find` would.
-    func noteFind(_ call: ToolCall, in run: OperatorRun, why: String) {
-        guard let key = call.optionalString("key"), state.run(id: run.id)?.finds.contains(where: { $0.key == key }) == false else { return }
-        let find = OffBriefFind(key: key, title: call.optionalString("title") ?? key, why: why)
-        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.finds.append(find) } }
+    /// as `report_find` would, and filed in Jira when the Jira slice is on.
+    func noteFind(_ call: ToolCall, in run: OperatorRun, why: String) async -> Filing {
+        guard let key = call.optionalString("key") else { return .notAttempted }
+        if state.run(id: run.id)?.finds.contains(where: { $0.key == key }) == false {
+            let find = OffBriefFind(key: key, title: call.optionalString("title") ?? key, why: why)
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.finds.append(find) } }
+        }
+        return await fileFind(key: key, in: run.id)
     }
 
     /// What the veto's call would be refused for, checked before the Oracle is asked: the plan open to

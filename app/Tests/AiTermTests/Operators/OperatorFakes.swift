@@ -173,13 +173,34 @@ final class OperatorWorld {
 
 /// Jira as `jira_search` sees it: the tickets it answers with, and every search it was asked for.
 final class FakeJira: OperatorJira {
+    /// A write the Operator's Jira slice made, as the client would have been asked.
+    enum Write: Equatable {
+        case create(project: String, type: String, summary: String, description: String, parent: String?)
+        case move(key: String, status: String)
+        case link(key: String, to: String, type: String)
+    }
     let tickets: [JiraTicket]
+    /// Every write answers Jira's 500 while this is set.
+    private let failing = Mutex(false)
     private let seen = Mutex<[(jql: String, projects: [String])]>([])
-    init(tickets: [JiraTicket]) { self.tickets = tickets }
+    private let made = Mutex<[Write]>([])
+    init(tickets: [JiraTicket] = []) { self.tickets = tickets }
     var searches: [(jql: String, projects: [String])] { seen.withLock { $0 } }
+    var writes: [Write] { made.withLock { $0 } }
+    func failWrites(_ value: Bool = true) { failing.withLock { $0 = value } }
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket] {
         seen.withLock { $0.append((jql, projects.map(\.key))) }
         return tickets
+    }
+    func createIssue(project: String, type: String, summary: String, description: String, parent: String?) async throws -> String {
+        try record(.create(project: project, type: type, summary: summary, description: description, parent: parent))
+        return "\(project)-\(100 + writes.count)"
+    }
+    func transition(key: String, to statusName: String) async throws { try record(.move(key: key, status: statusName)) }
+    func link(key: String, to other: String, type: String) async throws { try record(.link(key: key, to: other, type: type)) }
+    private func record(_ write: Write) throws {
+        if failing.withLock({ $0 }) { throw JiraError.badResponse(500) }
+        made.withLock { $0.append(write) }
     }
 }
 

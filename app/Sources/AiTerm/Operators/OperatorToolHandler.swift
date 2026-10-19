@@ -31,6 +31,10 @@ struct ToolCall {
 /// The Jira search behind `jira_search`: the app's client, or a test's.
 protocol OperatorJira: Sendable {
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket]
+    /// The Jira slice's writes (spec §5).
+    func createIssue(project: String, type: String, summary: String, description: String, parent: String?) async throws -> String
+    func transition(key: String, to statusName: String) async throws
+    func link(key: String, to other: String, type: String) async throws
 }
 
 extension JiraClient: OperatorJira {}
@@ -59,6 +63,8 @@ final class OperatorToolHandler {
     struct MessageKey: Hashable { let task: UUID; let text: String }
     var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
     var sendingMessages: Set<MessageKey> = []
+    /// The finds being filed in Jira now, by run and key: a second call for one leaves it to the first.
+    var filingFinds: Set<String> = []
     /// The latest challenge's run, for a test to await. Set by `OperatorToolHandler+Challenge.swift`.
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
@@ -78,7 +84,8 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "report_find"]
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "report_find",
+                                        "jira_create", "jira_move", "jira_link"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          waker: OperatorWaker) {
@@ -157,10 +164,13 @@ final class OperatorToolHandler {
         switch call.tool {
         case "run_status": return try await runStatus(run)
         case "jira_search": return try await jiraSearch(call, in: run)
+        case "jira_create": return try await jiraCreate(call, in: run)
+        case "jira_move": return try await jiraMove(call, in: run)
+        case "jira_link": return try await jiraLink(call, in: run)
         case "ask_you": return try askYou(call, in: run)
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
-        case "report_find": return try reportFind(call, in: run)
+        case "report_find": return try await reportFind(call, in: run)
         case "create_task": return try await createTask(call, in: run)
         case "update_task": return try await updateTask(call, in: run)
         case "submit_plan": return try submitPlan(call, in: run)
@@ -275,14 +285,21 @@ final class OperatorToolHandler {
         return ["decision": .string(key), "logged": true]
     }
 
-    /// An off-brief find (spec §4.1): never worked on, kept for the debrief, once per key.
-    private func reportFind(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+    /// An off-brief find (spec §4.1): never worked on, kept for the debrief, once per key, and filed in Jira when
+    /// the broadcast's Jira slice is on (`ticket` says which; `notFiled` says why not).
+    private func reportFind(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try call.string("key"), title = try call.string("title"), why = try call.string("why")
         if !run.finds.contains(where: { $0.key == key }) {
             let find = OffBriefFind(key: key, title: title, why: why)
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.finds.append(find) } }
         }
-        return ["find": .string(key), "recorded": true]
+        var answer: [String: JSONValue] = ["find": .string(key), "recorded": true]
+        switch await fileFind(key: key, in: run.id) {
+        case .filed(let ticket): answer["ticket"] = .string(ticket)
+        case .notFiled(let reason): answer["notFiled"] = .string(reason)
+        case .notAttempted: break
+        }
+        return .object(answer)
     }
 
     private static func questionAnswer(_ question: OperatorQuestion) -> JSONValue {

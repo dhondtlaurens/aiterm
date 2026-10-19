@@ -108,6 +108,137 @@ import Testing
         #expect(await world.call(run.id, "jira_search", ["jql": "x"]).message == "Jira isn’t connected in AiTerm’s Settings › Integrations.")
     }
 
+    // -- Jira writes (spec §5): the first slice -----------------------------------------------------
+
+    /// A run whose frozen Jira slice is `slice`, in the Jira projects PLUTO and WEB.
+    func jiraRun(slice: Bool) -> OperatorRun {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.profile.slices.jira = slice
+        run.jiraProjectKeys = ["PLUTO", "WEB"]
+        return run
+    }
+
+    /// A `jira_create` call for PLUTO, with `changes` over its arguments.
+    func ticket(_ changes: [String: JSONValue] = [:]) -> JSONValue {
+        .object(["project": "PLUTO", "type": "Task", "summary": "Handle SIGTERM", "description": "Drain the tasks."]
+            .merging(changes) { _, new in new })
+    }
+
+    @Test func jiraWritesNeedTheSlice() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: false)
+        let world = try makeWorld(run, jira: jira)
+        let off = "The Jira slice is off for this broadcast."
+        #expect(await world.call(run.id, "jira_create", ticket()).message == off)
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"]).message == off)
+        #expect(await world.call(run.id, "jira_link", ["key": "PLUTO-1", "to": "WEB-2", "type": "Blocks"]).message == off)
+        #expect(jira.writes.isEmpty)
+        #expect(world.run(run.id)?.leftForYou == ["Create the Jira ticket “Handle SIGTERM” in PLUTO: the Jira slice is off.",
+                                                  "Move PLUTO-231 to Done: the Jira slice is off.",
+                                                  "Link PLUTO-1 to WEB-2 (Blocks): the Jira slice is off."])
+        _ = await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"])
+        #expect(world.run(run.id)?.leftForYou.count == 3, "the same sentence is kept once")
+    }
+
+    @Test func jiraWritesWithTheSliceOnReachTheClient() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let made = await world.call(run.id, "jira_create", ticket(["parent": "pluto-7"]))
+        #expect(made.value?["key"] == "PLUTO-101")
+        #expect(await world.call(run.id, "jira_move", ["key": "pluto-231", "status": "Done"]).value?["moved"] == true)
+        #expect(await world.call(run.id, "jira_link", ["key": "PLUTO-1", "to": "WEB-2", "type": "Blocks"]).value?["linked"] == true)
+        #expect(jira.writes == [.create(project: "PLUTO", type: "Task", summary: "Handle SIGTERM", description: "Drain the tasks.", parent: "PLUTO-7"),
+                                .move(key: "PLUTO-231", status: "Done"), .link(key: "PLUTO-1", to: "WEB-2", type: "Blocks")])
+        #expect(world.run(run.id)?.leftForYou.isEmpty == true)
+        #expect(await world.call(run.id, "jira_create", ["project": "PLUTO", "type": "Task", "description": "d"]).message == "jira_create needs `summary`.")
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.profile.slices.jira = false } }
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-1", "status": "Done"]).message == "The Jira slice is off for this broadcast.",
+                "the slice is read as it is when the call acts")
+    }
+
+    @Test func jiraWritesStayInScope() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let outside = "isn’t in this broadcast’s Jira projects: PLUTO, WEB."
+        #expect(await world.call(run.id, "jira_move", ["key": "PAY-9", "status": "Done"]).message == "PAY-9 \(outside)")
+        #expect(await world.call(run.id, "jira_create", ticket(["project": "PAY"])).message == "PAY \(outside)")
+        #expect(await world.call(run.id, "jira_create", ticket(["parent": "PAY-1"])).message == "PAY-1 \(outside)")
+        #expect(await world.call(run.id, "jira_link", ["key": "PLUTO-1", "to": "PAY-2", "type": "Blocks"]).message == "PAY-2 \(outside)")
+        #expect(await world.call(run.id, "jira_link", ["key": "PAY-2", "to": "PLUTO-1", "type": "Blocks"]).message == "PAY-2 \(outside)")
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO", "status": "Done"]).message == "PLUTO isn’t a Jira ticket key like PLUTO-231.")
+        #expect(jira.writes.isEmpty)
+        #expect(world.run(run.id)?.leftForYou.isEmpty == true, "a write outside the scope is nobody's to do for this broadcast")
+        // Out of scope is refused whatever the slice says.
+        let off = jiraRun(slice: false)
+        let offWorld = try makeWorld(off, jira: jira)
+        #expect(await offWorld.call(off.id, "jira_move", ["key": "PAY-9", "status": "Done"]).message == "PAY-9 \(outside)")
+        #expect(offWorld.run(off.id)?.leftForYou.isEmpty == true)
+    }
+
+    @Test func jiraWritesWithoutJiraOrAFailureSayWhy() async throws {
+        let run = jiraRun(slice: true)
+        let none = try makeWorld(run)
+        #expect(await none.call(run.id, "jira_create", ticket()).message == "Jira isn’t connected in AiTerm’s Settings › Integrations.")
+        let jira = FakeJira()
+        jira.failWrites()
+        let world = try makeWorld(run, jira: jira)
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-1", "status": "Done"]).message == "Jira returned an error (HTTP 500). Try again.")
+    }
+
+    /// With the slice on, an off-brief find is a Task in the first Jira project, and the find keeps its key.
+    @Test func aFindIsFiledWithTheSliceOn() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        let find = ["key": "leak", "title": "A token in the payments log", "why": "Anyone with log access can pay as the shop."] as JSONValue
+        let answer = await world.call(run.id, "report_find", find)
+        #expect(answer.value?["recorded"] == true && answer.value?["ticket"] == "PLUTO-101")
+        #expect(jira.writes == [.create(project: "PLUTO", type: "Task", summary: "A token in the payments log",
+                                        description: "Anyone with log access can pay as the shop.", parent: nil)])
+        #expect(world.run(run.id)?.finds == [OffBriefFind(key: "leak", title: "A token in the payments log",
+                                                          why: "Anyone with log access can pay as the shop.", ticket: "PLUTO-101")])
+        #expect(await world.call(run.id, "report_find", find).value?["ticket"] == "PLUTO-101")
+        #expect(jira.writes.count == 1, "a repeat files nothing twice")
+        #expect(await world.call(run.id, "run_status").value?["run"]?["finds"]?.arrayValue?.first?["ticket"] == "PLUTO-101")
+    }
+
+    @Test func aFindIsNotFiledWithTheSliceOffOrFailsWithItsReason() async throws {
+        let find = ["key": "leak", "title": "A token", "why": "It leaks."] as JSONValue
+        let jira = FakeJira()
+        let off = jiraRun(slice: false)
+        let offWorld = try makeWorld(off, jira: jira)
+        let recorded = await offWorld.call(off.id, "report_find", find)
+        #expect(recorded.value?["recorded"] == true && recorded.value?["ticket"] == nil)
+        #expect(jira.writes.isEmpty && offWorld.run(off.id)?.leftForYou.isEmpty == true)
+
+        let run = jiraRun(slice: true)
+        let broken = FakeJira()
+        broken.failWrites()
+        let world = try makeWorld(run, jira: broken)
+        let answer = await world.call(run.id, "report_find", find)
+        #expect(answer.value?["recorded"] == true && answer.value?["ticket"] == nil)
+        #expect(answer.value?["notFiled"] == "Jira returned an error (HTTP 500). Try again.")
+        #expect(world.run(run.id)?.finds == [OffBriefFind(key: "leak", title: "A token", why: "It leaks.")], "the find is kept, with no ticket")
+        broken.failWrites(false)
+        #expect(await world.call(run.id, "report_find", find).value?["ticket"] == "PLUTO-101", "calling again files it")
+        #expect(world.run(run.id)?.finds.first?.ticket == "PLUTO-101")
+    }
+
+    /// No Jira project in the broadcast, or Jira not connected: the find is kept and the answer says so.
+    @Test func aFindWithNowhereToFileItIsKept() async throws {
+        let find = ["key": "leak", "title": "A token", "why": "It leaks."] as JSONValue
+        var run = jiraRun(slice: true)
+        run.jiraProjectKeys = []
+        let world = try makeWorld(run, jira: FakeJira())
+        #expect(await world.call(run.id, "report_find", find).value?["notFiled"] == "This broadcast has no Jira project to file it in.")
+        let unconnected = jiraRun(slice: true)
+        let bare = try makeWorld(unconnected)
+        #expect(await bare.call(unconnected.id, "report_find", find).value?["notFiled"] == "Jira isn’t connected in AiTerm’s Settings › Integrations.")
+        #expect(bare.run(unconnected.id)?.finds.map(\.ticket) == [nil])
+    }
+
     @Test func finishTaskComesInM3AndAnUnknownToolOrRunIsAnError() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)

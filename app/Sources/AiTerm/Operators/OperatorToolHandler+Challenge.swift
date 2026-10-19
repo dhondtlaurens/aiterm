@@ -53,7 +53,7 @@ extension OperatorToolHandler {
                 }
                 return answer
             }
-            if kept.kind == .veto { return try vetoAnswer(call, kept, in: run) }
+            if kept.kind == .veto { return try await vetoAnswer(call, kept, in: run) }
             let reply = call.optionalString("challengeReply")
             switch kept.stage {
             case .acted:
@@ -129,11 +129,11 @@ extension OperatorToolHandler {
             switch verdict {
             case .critique(let text):
                 let veto = Self.veto(text)
-                guard veto.approved else { try refuseVetoed(call, in: run, why: veto.reason) }
+                guard veto.approved else { try await refuseVetoed(call, in: run, why: veto.reason) }
                 vettedCalls.insert(Self.invocation(call))
                 return nil
             case .unchallenged:
-                try refuseUnanswered(call, in: run)
+                try await refuseUnanswered(call, in: run)
             }
         }
         switch answered {
@@ -155,18 +155,18 @@ extension OperatorToolHandler {
     /// A veto's call again with its id (spec §4.1). Unlike a critique, only the Oracle's yes acts, with no reply
     /// needed and only for the call it was asked about; a no, a failure, a timeout, or a veto lost with AiTerm's
     /// restart refuses, and AiTerm notes the addition for the debrief.
-    private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) throws -> JSONValue? {
+    private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) async throws -> JSONValue? {
         let id = kept.id
         switch kept.stage {
         case .running where runningChallenges[id] != nil:
             return Self.vetoPendingAnswer(id)
         case .running:
             updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
-            try refuseUnanswered(call, in: run)
+            try await refuseUnanswered(call, in: run)
         case .unchallenged:
-            try refuseUnanswered(call, in: run)
+            try await refuseUnanswered(call, in: run)
         case .ready, .delivered, .acted:
-            guard kept.approved == true else { try refuseVetoed(call, in: run, why: kept.critique) }
+            guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique) }
             guard kept.askedArguments == Self.invocation(call) else {
                 throw ToolRefusal("Challenge \(id) is the Oracle's yes to another create_task. Call again without challengeId.")
             }
@@ -183,14 +183,14 @@ extension OperatorToolHandler {
         return (verdict.approved, verdict.reason)
     }
 
-    private func refuseVetoed(_ call: ToolCall, in run: OperatorRun, why: String?) throws -> Never {
-        noteFind(call, in: run, why: why ?? "The Oracle judged it off-brief.")
-        throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the debrief.")
+    private func refuseVetoed(_ call: ToolCall, in run: OperatorRun, why: String?) async throws -> Never {
+        let filing = await noteFind(call, in: run, why: why ?? "The Oracle judged it off-brief.")
+        throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the debrief" + Self.ending(filing))
     }
 
-    private func refuseUnanswered(_ call: ToolCall, in run: OperatorRun) throws -> Never {
-        noteFind(call, in: run, why: "The Oracle didn’t answer in time.")
-        throw ToolRefusal("The Oracle didn’t answer in time. AiTerm noted it for the debrief.")
+    private func refuseUnanswered(_ call: ToolCall, in run: OperatorRun) async throws -> Never {
+        let filing = await noteFind(call, in: run, why: "The Oracle didn’t answer in time.")
+        throw ToolRefusal("The Oracle didn’t answer in time. AiTerm noted it for the debrief" + Self.ending(filing))
     }
 
     private static func vetoPendingAnswer(_ id: String) -> JSONValue {

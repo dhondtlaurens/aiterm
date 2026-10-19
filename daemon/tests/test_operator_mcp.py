@@ -134,9 +134,9 @@ def test_memory_wins_over_a_file(tmp_path):
     assert tokens.run_for(TOKEN) is None and tokens.run_for(OTHER) == "run-1"
 
 
-CONTRACT_TOOLS = {"run_status", "jira_search", "create_task", "update_task", "submit_plan", "read_task", "message_task",
-                  "mark_task", "resume_task", "retry_task", "finish_task", "ask_you", "resolve_question", "report_find",
-                  "log_decision"}
+CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
+                  "submit_plan", "read_task", "message_task", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you",
+                  "resolve_question", "report_find", "log_decision"}
 
 
 def test_the_tools_are_the_contracts():
@@ -182,6 +182,15 @@ def test_the_values_are_the_apps():
     assert required["mark_task"] == {"task", "outcome"} and required["ask_you"] == {"key", "question"}
     assert properties["create_task"]["agentPinned"]["type"] == "boolean"
     assert "objection" in properties["log_decision"] and required["log_decision"] == {"key", "text"}
+    assert required["jira_create"] == {"project", "type", "summary", "description"} and "parent" in properties["jira_create"]
+    assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
+
+
+def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    for name in ("jira_create", "jira_move", "jira_link"):
+        assert "Jira slice" in tools[name]["description"]
+    assert not [name for name in tools if "comment" in name]
 
 
 def test_schema_has_report_find_and_no_propose_lesson():

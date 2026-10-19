@@ -184,6 +184,24 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "and each installed agent's models with its default model. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the operation's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
+    _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
+          "is on, and outside its Jira projects; AiTerm then leaves it for the person. Not idempotent: look the ticket up "
+          "with jira_search before trying again after an error.",
+          {"project": _text("The Jira project's key, one of the broadcast's."),
+           "type": _text("The issue type, such as Task, Bug or Story."),
+           "summary": _text("The ticket's title."), "description": _text("What the ticket says, in plain text."),
+           "parent": _text("The key of the epic or parent ticket it belongs under, if any.")},
+          ("project", "type", "summary", "description")),
+    _tool("jira_move", "Moves a Jira ticket to the status of that name, by the transition that leads there. Refused unless the "
+          "broadcast's Jira slice is on, and outside its Jira projects. A status the ticket cannot reach from where it is "
+          "is refused with the statuses it can reach.",
+          {"key": _text("The ticket's key, such as PAY-231."), "status": _text("The status to move it to, such as In Review or Done.")},
+          ("key", "status")),
+    _tool("jira_link", "Links two Jira tickets, read from the first: the first blocks, relates to or duplicates the second. "
+          "Refused unless the broadcast's Jira slice is on, and when either is outside its Jira projects.",
+          {"key": _text("The ticket the link is read from."), "to": _text("The ticket it points to."),
+           "type": _text("The Jira link type's name, such as Blocks, Relates or Duplicate.")},
+          ("key", "to", "type")),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the operation's projects. The same key "
           "in this operation returns the task already made. Once the first plan is submitted, additions past a quarter of its "
           "size need the Oracle's yes, which may answer pending: call again with its challengeId. One the Oracle refuses, "
@@ -247,7 +265,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
-          "worked on, and the debrief lists it with why it matters. The same key is recorded once.",
+          "worked on, and the debrief lists it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "
+          "Task in the first of its Jira projects and answers the ticket's key, or why it could not. The same key is recorded once.",
           {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
           ("key", "title", "why")),
     _tool("log_decision", "Writes a decision you took on your own to the operation's log, for the debrief. The same key is "
