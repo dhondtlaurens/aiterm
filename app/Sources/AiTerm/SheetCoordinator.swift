@@ -142,20 +142,17 @@ final class SheetCoordinator {
         }
     }
 
-    /// The operator sheet — for a new operator (`editing` nil) or one to edit — opened once Claude's and
-    /// Codex's model lists are read off the main actor, as New Task's draft is. Not over another sheet.
-    func presentOperatorSheet(editing: OperatorPersona?, takenHandles: @escaping @MainActor () -> Set<String>,
-                              save: @escaping @MainActor (OperatorPersona) throws -> Void) {
+    /// New Operation…, opened once Claude's model list is read off the main actor, as New Task's draft
+    /// is: the broadcast starts on Settings › Operator's profile, whose first load takes Claude's default
+    /// model from it. Not over another sheet.
+    func presentNewOperation(start: @escaping @MainActor (OperatorProfile, String, String?) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
         let catalogue = agents.catalogue
         preparingSheet = Task {
-            let models = await BackgroundWork.run {
-                (claude: (try? catalogue.models(for: .claude)) ?? [], codex: (try? catalogue.models(for: .codex)) ?? [])
-            }
+            let models = await BackgroundWork.run { (try? catalogue.models(for: .claude)) ?? [] }
             guard !Task.isCancelled, canChangeWorkspace, sheet == nil else { return }
-            sheet = .operatorEditor(OperatorSheetModel(editing: editing, claudeModels: models.claude, codexModels: models.codex,
-                                                       takenHandles: takenHandles, save: save))
+            sheet = .newOperation(NewOperationModel(profile: agents.operatorProfile(claudeModels: models), start: start))
         }
     }
 

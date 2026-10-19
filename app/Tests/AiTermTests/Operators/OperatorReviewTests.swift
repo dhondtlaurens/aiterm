@@ -27,7 +27,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
 
     func fixture(_ daemon: RecordingDaemon = RecordingDaemon(), git: any GitRunning = GitRunner.hermetic(),
                  adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> (OperatorWorld, OperatorRun, TaskItem) {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "A", state: .working)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon,
                                       git: git, adjust: adjust)
@@ -50,7 +50,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(world.daemon.requests("session.deliver").count == 3)
     }
 
-    @Test(arguments: [OperatorRunState.paused, .stopped], ["message_task", "propose_lesson"])
+    @Test(arguments: [OperatorRunState.paused, .stopped], ["message_task", "submit_plan"])
     func aChallengeReloadsTheRun(_ changed: OperatorRunState, _ tool: String) async throws {
         let gate = ReviewGate()
         let runner = SecondOpinionRunner(locate: { _ in "/fake" }, run: { _, _, _, _, _ in
@@ -58,16 +58,15 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
             throw CancellationError()
         })
         let (world, run, _) = try fixture { $0.secondOpinion = runner; $0.challengeReplyBudget = .seconds(3600) }
-        world.workspace.mutate { $0.updateRun(id: run.id) { $0.persona.secondOpinion.level = .impostor } }
-        let arguments: JSONValue = tool == "message_task" ? ["task": "A", "text": "Continue"]
-            : ["key": "lesson", "lesson": "Check first", "because": "A correction"]
+        world.workspace.mutate { $0.updateRun(id: run.id) { $0.profile.oracle.isOn = true } }
+        let arguments: JSONValue = tool == "message_task" ? ["task": "A", "text": "Continue"] : ["revision": 1]
         let call = Task { await world.call(run.id, tool, arguments) }
         await gate.started()
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = changed; $0.intent = changed } }
         await gate.release()
         #expect(await call.value.message != nil)
         #expect(world.daemon.requests("session.deliver").isEmpty)
-        #expect(world.run(run.id)?.lessons.isEmpty == true)
+        #expect(world.run(run.id)?.planRevision == 0)
     }
 
     @Test(arguments: [0, 1, 2, 3], ["pause", "end", "takeover", "handback", "state"])
@@ -106,7 +105,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
     func anUnknownWindowFateKeepsTheRun(_ code: DaemonError.Code) async throws {
         let daemon = RecordingDaemon(failing: ["window.createTask": code])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []), daemon: daemon)
-        _ = try? await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Work", doneWhen: nil)
+        _ = try? await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Work", done: nil)
         let run = try #require(world.state.runs.first)
         #expect(run.state == .operatorOffline)
         #expect(daemon.requests("operator.revoke").isEmpty)

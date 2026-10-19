@@ -22,15 +22,11 @@ struct OperationOverviewSheetTests {
         #expect(OperationOverview.Link.answerInWindow.title == "Answer in Window")
     }
 
-    @Test func endingAndTrashingAskFirstWithCancelOnEscape() {
+    @Test func endingAsksFirstWithCancelOnEscape() {
         let end = OperatorAlerts.endOperation(OperatorUIFixtures.run())
         #expect(end.message == "End “Newsletter signup”?")
         #expect(end.detail == "The operator stops for good and its window closes. Its tasks stay as they are, now just yours.")
         #expect(end.buttons == ["End Operation", "Cancel"] && end.escapeButton == 1 && !end.defaultDeletes)
-        let trash = OperatorAlerts.moveToTrash(OperatorUIFixtures.senior)
-        #expect(trash.message == "Move “Senior engineer” to the Trash?")
-        #expect(trash.detail == "Its file goes to the Trash, so it can be put back. Operations already running keep their copy.")
-        #expect(trash.buttons == ["Move to Trash", "Cancel"] && trash.escapeButton == 1)
     }
 
     @Test func cancellingEndLeavesTheOperationRunning() async throws {
@@ -139,23 +135,5 @@ struct OperationOverviewSheetTests {
         controller.approvePlan(run, revision: 1)
         await eventually(describing: "the approval's banner") { controller.notices.issue != nil }
         #expect(controller.notices.issue?.title == "Couldn’t approve the plan of “Newsletter signup”.")
-    }
-
-    /// A kept lesson whose operator's file is gone throws; the lesson stays undecided and the banner says so.
-    @Test func aLessonThatCannotBeKeptStaysToDecideAndSaysWhy() async throws {
-        let controller = AppController(preferences: .scratch())
-        try controller.loadWorkspace()
-        let lesson = ProposedLesson(key: "fields", lesson: "Ask first.", because: "You said.", decided: nil)
-        let run = OperatorUIFixtures.run(state: .complete, lessons: [lesson])
-        controller.workspace.mutate { $0.runs = [run] }
-        let actions = controller.overviewActions(for: run, dismiss: {})
-        actions.decideLesson("fields", .kept, nil)
-        await eventually(describing: "the lesson's banner") { controller.notices.issue != nil }
-        #expect(controller.notices.issue?.title == "Couldn’t keep the lesson.")
-        #expect(controller.state.runs.first?.lessons.first?.decided == nil)
-        controller.notices.dismissIssue()
-        actions.decideLesson("fields", .dismissed, nil)
-        await eventually(describing: "the dismissal") { controller.state.runs.first?.lessons.first?.decided == .dismissed }
-        #expect(controller.notices.issue == nil)
     }
 }

@@ -15,16 +15,16 @@ struct OperatedWorld {
         state.append(project: project)
     }
 
-    static let persona = OperatorPersona(
-        name: "Senior engineer", handle: "senior", model: "claude-opus-5-5", effort: "high",
-        secondOpinion: SecondOpinion(level: .noSelfDoubt, agent: .codex, model: "gpt-6-astra", effort: "medium"),
-        autonomy: .routine, alwaysAsk: [], limits: OperatorLimits(), persona: "You keep changes small.", lessons: [])
+    /// The profile its broadcasts froze: the Oracle off, so nothing is challenged.
+    static let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
+                                         oracle: OracleSetting(isOn: false, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
+                                         instructions: "You keep changes small.")
 
     /// A new operation in `runState`, made `age` seconds after `createdAt`; its id.
     @discardableResult
     mutating func addRun(_ runState: OperatorRunState = .active, age: TimeInterval = 0) -> UUID {
-        let run = OperatorRun(id: UUID(), name: "Sprint 42", persona: Self.persona, projectIds: [project.id],
-                              brief: "Implement the sprint.", doneWhen: nil, state: runState,
+        let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: Self.profile, projectIds: [project.id],
+                              prompt: "Implement the sprint.", state: runState,
                               planRevision: 1, approvedRevision: 1, createdAt: createdAt.addingTimeInterval(age))
         state.runs.append(run)
         return run.id

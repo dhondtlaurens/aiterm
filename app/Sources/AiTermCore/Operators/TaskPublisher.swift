@@ -274,7 +274,7 @@ public struct TaskPublisher: Sendable {
 
     /// The request's description: the task's brief, who opened it, and the worker's check output.
     static func description(of task: TaskItem, run: OperatorRun, acceptance: TaskAcceptance) -> String {
-        var lines = [task.operated?.brief ?? task.title, "", "Opened by AiTerm for \(run.persona.name)'s operation “\(run.name)”."]
+        var lines = [task.operated?.brief ?? task.title, "", "Opened by AiTerm for the Operator's broadcast “\(run.name)”."]
         if let note = acceptance.note, !note.isEmpty { lines += ["", note] }
         if !acceptance.checkOutput.isEmpty {
             lines += ["", "Checks run by the agent:", "```", String(acceptance.checkOutput.suffix(4000)), "```"]

@@ -30,9 +30,8 @@ final class SidebarProjection {
     /// The operators folded to their header, by handle. Not saved: an operator's file holds who it is,
     /// not how the sidebar shows it, and the group opens unfolded at launch.
     private(set) var foldedOperators: Set<String> = []
-    /// The operator library and the tasks the operator acts on, read on every derivation. The app
-    /// points them at its `OperatorController`; a test or a snapshot at values of its own.
-    @ObservationIgnored var operatorSource: @MainActor () -> [OperatorPersona] = { [] }
+    /// The tasks the Operator acts on, read on every derivation. The app points it at its
+    /// `OperatorController`; a test or a snapshot at values of its own.
     @ObservationIgnored var actingSource: @MainActor () -> Set<UUID> = { [] }
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
@@ -60,7 +59,7 @@ final class SidebarProjection {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
-        var runs: [OperatorRun], operators: [OperatorPersona], acting: Set<UUID>, folded: Set<String>
+        var runs: [OperatorRun], acting: Set<UUID>, folded: Set<String>
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
@@ -72,7 +71,7 @@ final class SidebarProjection {
         let next = Inputs(items: state.items, tasks: state.tasks, terminals: state.terminals, sessions: live.rowSessions,
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
-                          runs: state.runs, operators: operatorSource(), acting: actingSource(), folded: foldedOperators)
+                          runs: state.runs, acting: actingSource(), folded: foldedOperators)
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
@@ -82,7 +81,7 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
-        let operatorSections = SidebarModel.operatorSections(operators: next.operators, state: state, acting: next.acting,
+        let operatorSections = SidebarModel.operatorSections(state: state, acting: next.acting,
                                                              folded: next.folded)
         if operatorSections != self.operatorSections { self.operatorSections = operatorSections }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,

@@ -6,9 +6,9 @@ import Foundation
     typealias F = OperatorFixtures
 
     /// A fresh gated run in planning, nothing submitted yet, two planned tasks in the open revision 1.
-    private func planning(_ autonomy: Autonomy = .routine) -> (AppState, a: UUID, b: UUID) {
+    private func planning() -> (AppState, a: UUID, b: UUID) {
         let a = F.task("A", .planned), b = F.task("B", .planned, dependsOn: [TaskDependency(task: a.id, kind: .order)])
-        let run = F.run(state: .planning, autonomy: autonomy, planRevision: 0, approvedRevision: nil)
+        let run = F.run(state: .planning, planRevision: 0, approvedRevision: nil)
         return (F.state(run, [a, b]), a.id, b.id)
     }
 
@@ -88,17 +88,6 @@ import Foundation
         #expect(s.task(id: open.id)?.operated?.state == .planned)
     }
 
-    @Test func anUngatedSubmissionReleasesAtOnce() throws {
-        var (s, a, b) = planning(.trusted)
-
-        let submitted = try PlanRevision.submit(1, run: F.runId, in: &s)
-
-        #expect(submitted.released == [a, b] && !submitted.awaitingApproval)
-        #expect(states(s) == [.queued, .queued] && s.runs[0].state == .active)
-        #expect(!PlanRevision.awaitsApproval(s.runs[0]))
-        #expect(throws: PlanRevision.Failure.notGated) { try PlanRevision.approve(1, run: F.runId, in: &s) }
-    }
-
     /// Submitting the same revision again returns the earlier result and changes nothing.
     @Test func aRepeatedSubmissionIsTheEarlierResult() throws {
         var (s, _, _) = planning()
@@ -121,12 +110,13 @@ import Foundation
         #expect(s == before)
     }
 
-    /// Spec §9: a new `submit_plan` reopens a complete run as active.
+    /// Spec §9: a new `submit_plan` reopens a complete run as active; its plan waits for you.
     @Test func aSubmissionReopensACompleteRun() throws {
-        var s = F.state(F.run(state: .complete, autonomy: .handsOff, planRevision: 1, approvedRevision: nil),
+        var s = F.state(F.run(state: .complete, planRevision: 1, approvedRevision: 1),
                         [F.task("D", .planned, revision: 2)])
         try PlanRevision.submit(2, run: F.runId, in: &s)
-        #expect(s.runs[0].state == .active && s.tasks[0].operated?.state == .queued)
+        #expect(s.runs[0].state == .active && s.tasks[0].operated?.state == .planned)
+        #expect(PlanRevision.awaitsApproval(s.runs[0]))
     }
 
     @Test(arguments: [OperatorRunState.paused, .operatorOffline, .stopped])
@@ -177,12 +167,5 @@ import Foundation
     @Test func aStartedTaskIsNotChangedByThePlan() {
         var s = F.state(F.run(), [F.task("W", .working)])
         #expect(throws: PlanRevision.Failure.started(key: "W")) { try PlanRevision.markChanged(task: s.tasks[0].id, in: &s) }
-    }
-
-    /// Ungated, a change is recorded in the open revision and the task stays queued.
-    @Test func anUngatedChangeKeepsTheTaskQueued() throws {
-        var s = F.state(F.run(autonomy: .handsOff, planRevision: 2), [F.task("Q", .queued)])
-        try PlanRevision.markChanged(task: s.tasks[0].id, in: &s)
-        #expect(s.tasks[0].operated?.state == .queued && s.tasks[0].operated?.revision == 3)
     }
 }

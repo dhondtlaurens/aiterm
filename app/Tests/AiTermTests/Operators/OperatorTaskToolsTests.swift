@@ -10,9 +10,9 @@ import Testing
     let git = GitRunner.hermetic()
 
     /// An active run with one working task whose worktree is a real checkout off `main`.
-    func makeWorld(autonomy: Autonomy = .handsOff, retries: Int = 2) throws -> (OperatorWorld, OperatorRun, TaskItem) {
+    func makeWorld() throws -> (OperatorWorld, OperatorRun, TaskItem) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-tools-"))
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: autonomy, retries: retries), projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working)
         task = try TaskCreator.checkOutWorker(task, project: project, start: "main", git: git).task
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date())
@@ -153,7 +153,7 @@ import Testing
     }
 
     @Test func aBlockedTaskNotifiesYouOnceAndARepeatOfTheSameReasonDoesNot() async throws {
-        let (world, run, task) = try makeWorld(autonomy: .routine)
+        let (world, run, task) = try makeWorld()
         let blocked: JSONValue = ["task": "PLUTO-1", "outcome": "blocked", "note": "Needs a decision."]
         _ = await world.call(run.id, "mark_task", blocked)
         #expect(world.notifications.posted.map(\.id) == ["blocked-\(task.id.uuidString)"])
@@ -162,7 +162,7 @@ import Testing
     }
 
     @Test func aFailedTaskRepeatedWithTheSameReasonChangesAndNotifiesNothing() async throws {
-        let (world, run, task) = try makeWorld(autonomy: .routine)
+        let (world, run, task) = try makeWorld()
         let failed: JSONValue = ["task": "PLUTO-1", "outcome": "failed", "note": "The build broke."]
         let first = await world.call(run.id, "mark_task", failed)
         let before = world.task(task.id)
@@ -199,7 +199,7 @@ import Testing
     }
 
     @Test func aFailedTaskIsRetriedWhileRetriesAreLeftAndABlockedOneResumes() async throws {
-        let (world, run, task) = try makeWorld(retries: 1)
+        let (world, run, task) = try makeWorld()
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "failed", "note": "The build broke."])
         #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).value?["state"] == "queued")
         // Queued again, AiTerm starts it again at once.
@@ -207,9 +207,9 @@ import Testing
         let afterRetry = try #require(world.task(task.id)?.operated)
         #expect(afterRetry.retriesUsed == 1 && [.queued, .working].contains(afterRetry.state))
         #expect(afterRetry.lastFailure == "The build broke.")
-        world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .failed } }
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .failed; $0.retriesUsed = OperatorTiming.retries } }
         #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).message
-                == "PLUTO-1 has used its 1 retry. Ask the person with ask_you how to go on.")
+                == "PLUTO-1 has used its 2 retries. Ask the person with ask_you how to go on.")
         world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .working } }
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "blocked", "note": "Needs a decision."])
         #expect(world.state.tasks.first?.operated?.state == .blocked)

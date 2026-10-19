@@ -67,7 +67,7 @@ final class RunReconciler {
 
     /// Where a run picks up once its operator is back: active once a plan revision is under way.
     static func resumedState(of run: OperatorRun) -> OperatorRunState {
-        let started = run.persona.autonomy.gatesPlans ? run.approvedRevision != nil : run.planRevision > 0
+        let started = run.gatesPlans ? run.approvedRevision != nil : run.planRevision > 0
         return started ? .active : .planning
     }
 
@@ -142,7 +142,7 @@ final class RunReconciler {
                     state.updateOperated(task.id) { $0.runtimeUsed += elapsed }
                 }
                 guard let current = state.task(id: task.id)?.operated,
-                      let reason = OperatedTransitions.limitReason(for: current, limits: run.persona.limits),
+                      let reason = OperatedTransitions.limitReason(for: current),
                       (try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)) != nil
                 else { continue }
                 blocked.append((task.id, reason))

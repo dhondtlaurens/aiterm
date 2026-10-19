@@ -34,9 +34,10 @@ protocol OperatorNotifications: AnyObject {
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)? { get set }
 }
 
-/// Decides when you hear of what an operation needs, by `InterruptPolicy` (spec §4.1). A question always
-/// shows in the overview at once; the stop decides when it notifies, and the ones it holds are sent
-/// together. A worker's prompt, a blocked task, a waiting plan and a finished operation notify at once.
+/// Decides when you hear of what an operation needs (spec §4.1), by round 1's Routine rule until the
+/// plan's Task 8 notifies everything at once. A question always shows in the overview at once; the rule
+/// decides when it notifies, and the ones it holds are sent together. A worker's prompt, a blocked
+/// task, a waiting plan and a finished operation notify at once.
 @MainActor
 final class OperatorNotifier {
     private let notifications: any OperatorNotifications
@@ -53,8 +54,8 @@ final class OperatorNotifier {
     }
 
     func questionAsked(_ question: OperatorQuestion, in run: OperatorRun, otherWorkCanProceed: Bool) {
-        if notifies(.question(holdsUpEverything: !otherWorkCanProceed), run, otherWorkCanProceed: otherWorkCanProceed, waited: 0) {
-            post("question-\(run.id.uuidString)-\(question.id)", "\(run.persona.name) asks you", question.text, to: .overview(run.id))
+        if questionNotifies(holdsUpEverything: !otherWorkCanProceed, otherWorkCanProceed: otherWorkCanProceed, waited: 0) {
+            post("question-\(run.id.uuidString)-\(question.id)", "The Operator asks you", question.text, to: .overview(run.id))
             sent.insert("\(run.id.uuidString)/\(question.id)")
         } else if held[run.id]?.contains(where: { $0.id == question.id }) != true {
             // `ask_you` is idempotent by key, so a repeat is not a second question.
@@ -76,14 +77,13 @@ final class OperatorNotifier {
     func releaseHeld(in run: OperatorRun, otherWorkCanProceed: Bool) {
         guard let oldest = held[run.id]?.first else { return }
         let ended = run.state == .complete || run.state == .stopped
-        guard ended || notifies(.question(holdsUpEverything: !otherWorkCanProceed), run, otherWorkCanProceed: otherWorkCanProceed,
-                                waited: now().timeIntervalSince(oldest.askedAt)) else { return }
+        guard ended || questionNotifies(holdsUpEverything: !otherWorkCanProceed, otherWorkCanProceed: otherWorkCanProceed,
+                                        waited: now().timeIntervalSince(oldest.askedAt)) else { return }
         postHeld(in: run)
     }
 
     /// A worker waits on a prompt only you answer: its window opens from the note.
     func workerPrompt(_ kind: PromptKind?, task: TaskItem, in run: OperatorRun) {
-        guard notifies(kind == .permission ? .permissionPrompt : .unknownPrompt, run, otherWorkCanProceed: true, waited: 0) else { return }
         let agent = task.agent.harness.displayName
         let body = kind == .permission ? "\(agent) asks for permission. Answer it in its window."
                                        : "\(agent) shows a prompt AiTerm can’t read. Answer it in its window."
@@ -91,36 +91,33 @@ final class OperatorNotifier {
     }
 
     func planWaiting(_ run: OperatorRun) {
-        guard notifies(.planWaiting, run, otherWorkCanProceed: false, waited: 0) else { return }
-        post("plan-\(run.id.uuidString)", "\(run.persona.name)’s plan waits for you", "Approve “\(run.name)” in its overview.",
+        post("plan-\(run.id.uuidString)", "The Operator’s plan waits for you", "Approve “\(run.name)” in its overview.",
              to: .overview(run.id))
     }
 
     /// A blocked task notifies at once at every stop, and sends with it the questions the stop was holding.
     func taskBlocked(_ task: TaskItem, reason: String, in run: OperatorRun) {
-        if notifies(.runBlocked, run, otherWorkCanProceed: false, waited: 0) {
-            post("blocked-\(task.id.uuidString)", "“\(run.name)” is held up", "\(task.title): \(reason)", to: .overview(run.id))
-        }
+        post("blocked-\(task.id.uuidString)", "“\(run.name)” is held up", "\(task.title): \(reason)", to: .overview(run.id))
         postHeld(in: run)
     }
 
     /// A finished operation notifies at once, and sends with it the questions the stop was holding.
     func runComplete(_ run: OperatorRun) {
-        if notifies(.runComplete, run, otherWorkCanProceed: false, waited: 0) {
-            post("done-\(run.id.uuidString)", "“\(run.name)” is done", "\(run.persona.name) finished the operation.", to: .overview(run.id))
-        }
+        post("done-\(run.id.uuidString)", "“\(run.name)” is done", "The Operator finished the operation.", to: .overview(run.id))
         postHeld(in: run)
     }
 
-    private func notifies(_ event: InterruptPolicy.Event, _ run: OperatorRun, otherWorkCanProceed: Bool, waited: TimeInterval) -> Bool {
-        InterruptPolicy.decide(event, autonomy: run.persona.autonomy, otherWorkCanProceed: otherWorkCanProceed, waited: waited) == .notifyNow
+    /// Whether a question notifies now rather than being held: when it holds up everything, when no
+    /// other work can go on, or once the oldest held one has waited `routineBundleAfter`.
+    private func questionNotifies(holdsUpEverything: Bool, otherWorkCanProceed: Bool, waited: TimeInterval) -> Bool {
+        holdsUpEverything || !otherWorkCanProceed || waited >= OperatorTiming.routineBundleAfter
     }
 
     private func postHeld(in run: OperatorRun) {
         guard let questions = held.removeValue(forKey: run.id), let first = questions.first else { return }
         for question in questions { sent.insert("\(run.id.uuidString)/\(question.id)") }
         let body = questions.count == 1 ? first.text : "\(questions.count) questions wait on you in “\(run.name)”."
-        post("questions-\(run.id.uuidString)", "\(run.persona.name) asks you", body, to: .overview(run.id))
+        post("questions-\(run.id.uuidString)", "The Operator asks you", body, to: .overview(run.id))
     }
 
     private func post(_ id: String, _ title: String, _ body: String, to target: OperatorNote.Target) {

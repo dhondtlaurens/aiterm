@@ -10,7 +10,7 @@ import Testing
 
     @Test func aQuietWorkerIsFlaggedOnceBesideABusyOneAndClearedByItsNextSign() async throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project],
+        let run = OperatorServiceFixtures.run(projects: [project],
                                               state: .active, planRevision: 1)
         var busy = OperatorServiceFixtures.task(in: run, project: project, key: "BUSY-1", state: .working, worktree: "/tmp/aiterm-wt-busy")
         var quiet = OperatorServiceFixtures.task(in: run, project: project, key: "QUIET-1", state: .working, worktree: "/tmp/aiterm-wt-quiet")

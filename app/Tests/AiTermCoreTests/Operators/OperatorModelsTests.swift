@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 @Suite struct OperatorModelsTests {
     private func roundTrip<T: Codable & Equatable>(_ value: T) throws -> T {
@@ -9,46 +10,62 @@ import Foundation
         return try decoder.decode(T.self, from: encoder.encode(value))
     }
 
-    private let persona = OperatorPersona(
-        name: "Senior engineer", handle: "senior", model: "claude-opus-5-5", effort: "high",
-        secondOpinion: SecondOpinion(level: .healthyDoubt, agent: .codex, model: "gpt-6-astra", effort: "medium"),
-        autonomy: .routine, alwaysAsk: ["database migrations"], persona: "You are careful.", lessons: ["Ask first."])
+    private let profile = OperatorProfile(
+        model: "claude-opus-5-5", reasoning: "high", slices: Slices(jira: true, review: false, merge: true),
+        oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
+        instructions: "Keep changes small.")
 
-    /// The raw values are what `state.json` and the operator file spell: renaming a case would
-    /// orphan every saved operation, so they are pinned.
+    /// The raw values are what `state.json` spells: renaming a case would orphan every saved
+    /// broadcast, so they are pinned.
     @Test func theSavedSpellingsArePinned() {
-        #expect(Autonomy.allCases.map(\.rawValue) == ["askFirst", "routine", "trusted", "handsOff"])
-        #expect(SecondOpinionLevel.allCases.map(\.rawValue) == ["noSelfDoubt", "healthyDoubt", "impostor"])
-        #expect(TaskEnd.allCases.map(\.rawValue) == ["commit", "draftMR", "merge"])
         #expect(OperatedState.allCases.map(\.rawValue)
-                == ["planned", "queued", "working", "blocked", "failed", "accepted", "noChange", "published", "stopped"])
+                == ["planned", "queued", "working", "inReview", "blocked", "failed", "accepted", "noChange", "published", "stopped"])
         #expect(OperatedFlag.allCases.map(\.rawValue) == ["possiblyStalled", "uncertain", "upstreamReplaced", "waitingOnYou"])
         #expect(ChallengeStage.allCases.map(\.rawValue) == ["running", "ready", "delivered", "unchallenged", "acted"])
     }
 
-    /// Spec §4.1: the plan gate is on at Ask first and Routine only.
-    @Test func onlyAskFirstAndRoutineGateThePlan() {
-        #expect(Autonomy.allCases.filter(\.gatesPlans) == [.askFirst, .routine])
+    @Test func taskEndsSpellTheirRawValues() {
+        #expect(TaskEnd.allCases.map(\.rawValue) == ["commit", "draftMR", "merge", "mergeLocal"])
     }
 
-    @Test func openStatesAreTheOnesStopCanEnd() {
-        #expect(OperatedState.allCases.filter(\.isOpen) == [.planned, .queued, .working, .blocked, .failed])
+    @Test func inReviewIsOpen() {
+        #expect(OperatedState.inReview.isOpen)
+        #expect(OperatedState.allCases.filter(\.isOpen) == [.planned, .queued, .working, .inReview, .blocked, .failed])
     }
 
-    @Test func limitsDefaultToTwoRetriesAndNinetyMinutes() {
-        #expect(OperatorLimits() == OperatorLimits(retries: 2, runtimeMinutes: 90))
-        #expect(persona.limits == OperatorLimits())
-        #expect(persona.id == "senior")
+    /// The round-1 limits, fixed now: two retries and ninety minutes a task.
+    @Test func theLimitsAreTwoRetriesAndNinetyMinutes() {
+        #expect(OperatorTiming.retries == 2)
+        #expect(OperatorTiming.runtimeMinutes == 90)
     }
 
-    @Test func aRunRoundTripsWithEveryFieldSet() throws {
+    /// A broadcast keeps the profile it started with: Settings › Operator changed since changes the next one.
+    @Test func theRunFreezesItsProfile() {
+        let defaults = ScratchDefaults.make()
+        let started = OperatorProfileStore.load(defaults, claudeDefault: (model: "claude-opus-5-5", reasoning: "high"))
+        let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: started, prompt: "Do the sprint", createdAt: Date(timeIntervalSince1970: 0))
+
+        var changed = started
+        changed.slices = Slices(jira: true, review: true, merge: true)
+        changed.oracle.isOn = false
+        OperatorProfileStore.save(changed, defaults)
+
+        #expect(OperatorProfileStore.load(defaults, claudeDefault: (model: "other", reasoning: nil)).slices == changed.slices)
+        #expect(run.profile.slices == .none)
+        #expect(run.profile.oracle == .standard)
+    }
+
+    @Test func aRunRoundTrips() throws {
         let task = UUID()
         let run = OperatorRun(
-            id: UUID(), name: "Sprint 42", persona: persona, projectIds: [UUID(), UUID()], brief: "Do the sprint",
-            doneWhen: "a draft MR per ticket", state: .paused, intent: .paused, planRevision: 3, approvedRevision: 2,
+            id: UUID(), name: "Sprint 42", profile: profile, projectIds: [UUID(), UUID()], jiraProjectKeys: ["PLUTO", "SHOP"],
+            prompt: "Do the sprint", review: "Jan approves each MR", done: "merged when green",
+            state: .paused, intent: .paused, planRevision: 3, firstPlanSize: 5,
             questions: [OperatorQuestion(id: "q1", text: "Which API?", task: task, askedAt: Date(timeIntervalSince1970: 10), resolution: "v2")],
-            decisions: [OperatorDecision(key: "d1", text: "Split it", task: nil, at: Date(timeIntervalSince1970: 20), challenge: "Why?")],
-            lessons: [ProposedLesson(key: "l1", lesson: "Ask about fields", because: "You corrected me", decided: .kept)],
+            decisions: [OperatorDecision(key: "d1", text: "Split it", task: nil, at: Date(timeIntervalSince1970: 20), challenge: "Why?",
+                                         objection: "One MR reads better.")],
+            finds: [OffBriefFind(key: "f1", title: "A token in the logs", why: "It leaks a secret.", ticket: "PLUTO-240")],
+            leftForYou: ["Marking !412 ready is yours."],
             operatorConversation: "c-1", operatorWindowId: "w1", operatorSessionId: "s1",
             challenges: [ChallengeRecord(id: "ch-1", tool: "submit_plan", stage: .acted, critique: "Split A.",
                                          actedArguments: #"{"revision":3}"#, result: #"{"submitted":true}"#,
@@ -56,17 +73,21 @@ import Foundation
             createdAt: Date(timeIntervalSince1970: 0))
         #expect(try roundTrip(run) == run)
         #expect(run.openRevision == 4)
+
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let keys = try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any]).keys
+        for key in ["profile", "jiraProjectKeys", "prompt", "review", "done", "firstPlanSize", "finds", "leftForYou"] {
+            #expect(keys.contains(key), "\(key) is not written")
+        }
+        for key in ["persona", "brief", "doneWhen", "lessons"] { #expect(!keys.contains(key), "\(key) is still written") }
     }
 
-    /// A run saved before challenges were kept reads with none; one made without a scope has none.
-    @Test func aRunSavedBeforeChallengesReadsWithNone() throws {
-        let run = OperatorRun(id: UUID(), name: "Old", persona: persona, brief: "b", doneWhen: nil, createdAt: Date(timeIntervalSince1970: 0))
-        #expect(run.projectIds.isEmpty && run.challenges.isEmpty)
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        var object = try #require(try JSONSerialization.jsonObject(with: encoder.encode(run)) as? [String: Any])
-        object["challenges"] = nil
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        #expect(try decoder.decode(OperatorRun.self, from: JSONSerialization.data(withJSONObject: object)) == run)
+    /// A run made without a scope, a review or a done has none; its lists are empty.
+    @Test func aRunMadeWithTheLeastHasNone() throws {
+        let run = OperatorRun(id: UUID(), name: "Old", profile: profile, prompt: "b", createdAt: Date(timeIntervalSince1970: 0))
+        #expect(run.projectIds.isEmpty && run.jiraProjectKeys.isEmpty && run.challenges.isEmpty && run.finds.isEmpty && run.leftForYou.isEmpty)
+        #expect(run.review == nil && run.done == nil && run.firstPlanSize == nil)
+        #expect(try roundTrip(run) == run)
     }
 
     /// A launch saved before AiTerm recorded its window reads as one still opening.
@@ -81,19 +102,28 @@ import Foundation
     @Test func anOperatedTaskRoundTripsWithEveryFieldSet() throws {
         let parent = UUID()
         let task = OperatedTask(
-            runId: UUID(), key: "PLUTO-231", state: .accepted, end: .merge, brief: "Add the gift card",
+            runId: UUID(), key: "PLUTO-231", state: .accepted, end: .mergeLocal, brief: "Add the gift card",
             dependsOn: [TaskDependency(task: parent, kind: .code)], stackedOn: parent, revision: 2, firstRevision: 1,
             acceptance: TaskAcceptance(resultSHA: "4f2a91c", prerequisiteSHAs: ["aa11"], checkOutput: "ok", note: "fine",
                                        at: Date(timeIntervalSince1970: 30)),
             publication: TaskPublication(pushedSHA: "4f2a91c", mergeRequestURL: "https://example.net/mr/1"),
             takenOver: true, ownership: 3, launch: LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 40)),
             retriesUsed: 1, runtimeUsed: 600, blockedReason: "waiting", blockedFrom: .working, flags: [.uncertain, .possiblyStalled],
-            lastFailure: "tests red")
+            lastFailure: "tests red", modelReason: "A schema change: the strongest model.", agentPinned: true, problem: "issue-7")
         #expect(try roundTrip(task) == task)
         #expect(task.started)
     }
 
-    /// `lastFailure` is new: a file without it loads as none, and none is not written.
+    /// A task made without the new fields has no model reason, no pin and no problem.
+    @Test func theNewTaskFieldsDefaultToNone() throws {
+        let json = """
+        {"runId":"1EB4C0DE-0000-0000-0000-000000000001","key":"K","state":"queued","end":"commit","brief":"b","revision":1}
+        """
+        let task = try JSONDecoder().decode(OperatedTask.self, from: Data(json.utf8))
+        #expect(task.modelReason == nil && !task.agentPinned && task.problem == nil)
+    }
+
+    /// `lastFailure` is read when present, and none is not written.
     @Test func lastFailureIsReadWhenPresentAndWrittenOnlyWhenPresent() throws {
         let json = """
         {"runId":"1EB4C0DE-0000-0000-0000-000000000001","key":"K","state":"queued","end":"commit","brief":"b","revision":1}

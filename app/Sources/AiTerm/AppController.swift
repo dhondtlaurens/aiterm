@@ -192,8 +192,6 @@ final class AppController {
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
                                                     taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
         self.operatorController = operatorController
-        // Settings › Agents' Agents at once: a raised cap starts what it now allows.
-        agents.agentsAtOnceChanged = { [weak operatorController] in operatorController?.startReadyTasks() }
         helper.onEvent { [weak operatorController] in operatorController?.handle($0) }
         helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
@@ -238,10 +236,9 @@ final class AppController {
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
         // A notification's click: an overview opens over the sidebar, a task's window comes forward.
         operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
-        // The OPERATORS group and the driven task rows read the operator library and what the operator
-        // is acting on, which the operator controller owns; a change to either derives the rows again.
+        // The OPERATORS group and the driven task rows read what the Operator is acting on, which the
+        // operator controller owns; a change to it derives the rows again.
         let operators = operatorController
-        rows.operatorSource = { [weak operators] in operators?.operators ?? [] }
         rows.actingSource = { [weak operators] in operators?.acting ?? [] }
         operators.onChange { [weak self] in self?.refreshRows() }
         refreshRows()

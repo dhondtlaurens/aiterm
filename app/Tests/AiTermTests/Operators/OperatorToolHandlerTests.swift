@@ -17,7 +17,7 @@ import Testing
     }
 
     @Test func runStatusIsNumberedByWhatChanged() async throws {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .askFirst), projects: [project])
+        let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         #expect(await world.call(run.id, "run_status").value?["revision"] == 1)
         #expect(await world.call(run.id, "run_status").value?["revision"] == 1)
@@ -26,7 +26,7 @@ import Testing
     }
 
     @Test func askingTwiceWithOneKeyKeepsOneQuestionNotifiesOnceAndResolvingClosesIt() async throws {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .askFirst), projects: [project])
+        let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         let first = await world.call(run.id, "ask_you", ["key": "locale", "question": "Which locale is the default?"])
         let again = await world.call(run.id, "ask_you", ["key": "locale", "question": "Which locale, again?"])
@@ -39,16 +39,21 @@ import Testing
         #expect(await world.call(run.id, "resolve_question", ["key": "nope", "summary": "x"]).message == "No question nope in this operation.")
     }
 
-    @Test func aDecisionAndALessonAreWrittenOncePerKey() async throws {
+    @Test func aDecisionIsWrittenOncePerKey() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
         for _ in 0..<2 {
             _ = await world.call(run.id, "log_decision", ["key": "d1", "text": "Kept the old endpoint."])
-            _ = await world.call(run.id, "propose_lesson", ["key": "l1", "lesson": "Ask before a migration.", "because": "You overruled me."])
         }
         #expect(world.run(run.id)?.decisions.map(\.text) == ["Kept the old endpoint."])
-        #expect(world.run(run.id)?.lessons.map(\.lesson) == ["Ask before a migration."])
-        #expect(world.run(run.id)?.lessons.first?.decided == nil)
+    }
+
+    /// Lessons went with the personas: the tool is no longer AiTerm's.
+    @Test func proposeLessonIsNoToolAnyMore() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        let answer = await world.call(run.id, "propose_lesson", ["key": "l1", "lesson": "Ask before a migration.", "because": "You overruled me."])
+        #expect(answer.message == "AiTerm has no tool called propose_lesson.")
     }
 
     @Test func jiraSearchIsKeptToTheOperationsLinkedJiraProjects() async throws {
@@ -98,7 +103,7 @@ import Testing
     }
 
     @Test func aQuestionAboutATaskMarksItWaitingOnYouUntilNoneOfItsQuestionsIsOpen() async throws {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .askFirst), projects: [project])
+        let run = OperatorServiceFixtures.run(projects: [project])
         let task = workingTask(in: run)
         let world = try makeWorld(run, tasks: [task])
         func waiting() -> Bool { world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true }

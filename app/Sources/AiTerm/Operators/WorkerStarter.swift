@@ -4,7 +4,7 @@ import AiTermCore
 /// Starts an operator's queued task (spec §6, §8, §11). Its launch intent — the attempt number — is
 /// saved before anything else, so a crash between here and the window is found by the reconciler,
 /// which adopts the tab the daemon tagged or, a minute on, launches again. Then the worktree, then
-/// the worker: its brief the first prompt, its autonomy the launch flags, its window behind your work.
+/// the worker: its brief the first prompt, the Operator's worker flags, its window behind your work.
 @MainActor
 final class WorkerStarter {
     private let workspace: WorkspaceStore
@@ -144,9 +144,9 @@ final class WorkerStarter {
     /// `before` is the task as it stood before `attempt` claimed it: what a claim that no longer holds
     /// goes back to. The reconciler's relaunch passes none: its claim was made before, and stays.
     func launch(_ id: UUID, attempt: LaunchAttempt, before: OperatedTask? = nil) async {
-        guard let task = state.task(id: id), let operated = task.operated, let run = state.run(id: operated.runId),
+        guard let task = state.task(id: id), let operated = task.operated, state.run(id: operated.runId) != nil,
               let project = state.project(id: task.projectId), let daemon = daemon() else { return }
-        let git = ports.git, autonomy = run.persona.autonomy
+        let git = ports.git
         do {
             let start = try await startPoint(of: id, in: project)
             let reserved = state.reservedWorktreeSlugs(projectId: project.id)
@@ -157,10 +157,10 @@ final class WorkerStarter {
                 state.tasks[i].baseBranch = made.task.baseBranch
             }
             let prompt = Self.prompt(for: task, operated: operated), worktree = made.task.worktreePath
-            // The operation's autonomy as the worker's launch flags (part C), its brief the first prompt.
+            // The Operator's worker flags, its brief the first prompt.
             let command = try await BackgroundWork.run {
                 try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
-                                       worktreePath: worktree, git: git, operated: autonomy)
+                                       worktreePath: worktree, git: git, operated: true)
             }
             // Awaits have passed: the task may have been stopped, taken over or blocked, or its run paused.
             guard claimHolds(id, attempt) else {
@@ -202,14 +202,14 @@ final class WorkerStarter {
     func reopen(_ id: UUID) -> Task<Void, Never>? {
         if let at = reopenedAt[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return nil }
         guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
-              task.hasCheckout, let operated = task.operated, let run = state.run(id: operated.runId), let conversation = task.conversations.first(where: { $0.agent == task.agent }),
+              task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.conversations.first(where: { $0.agent == task.agent }),
               let daemon = daemon() else { return nil }
         starting.insert(id)
         return Task {
             defer { starting.remove(id) }
             do {
                 let command = AgentCommand.resumeWorker(agent: task.agent, conversation: conversation.id, model: task.model,
-                                                        reasoning: task.reasoning, autonomy: run.persona.autonomy)
+                                                        reasoning: task.reasoning)
                 let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: task.worktreePath, title: task.branch,
                                                                agentCommand: command, frame: taskFrame(), background: true)
                 // Left on the row, so a click raises it.

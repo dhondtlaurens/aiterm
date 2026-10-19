@@ -7,7 +7,7 @@ extension OperatorController {
     // -- a task -----------------------------------------------------------------------------------
     /// Take over (spec §8): the task's ownership generation moves on — a send in flight ends partial,
     /// queued ones are dropped — and the operator's tools refuse it until you hand it back. The operator
-    /// hears of it, a moment its lessons may come from (spec §4.5). Taken over already, it only sets the
+    /// hears of it. Taken over already, it only sets the
     /// generation on the tabs again, which is what a retry after a failure is.
     func takeOver(task id: UUID) async throws {
         guard let operated = workspace.state.task(id: id)?.operated else { throw ActionUnavailable("That task is no operator’s.") }
@@ -223,7 +223,7 @@ extension OperatorController {
                 if run.state == .operatorOffline { try await resume(run: id) }
                 else { _ = try await reopenOperatorWindow(id) }
             } catch {
-                notices.report(OperationIssue(title: "Couldn’t reopen \(run.persona.name)’s window.", error: error))
+                notices.report(OperationIssue(title: "Couldn’t reopen the Operator’s window.", error: error))
                 return
             }
         }

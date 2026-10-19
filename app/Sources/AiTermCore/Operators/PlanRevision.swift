@@ -74,7 +74,7 @@ public enum PlanRevision {
     /// Whether a plan waits for your approval: a gated run with a submitted revision newer than
     /// the approved one.
     public static func awaitsApproval(_ run: OperatorRun) -> Bool {
-        run.persona.autonomy.gatesPlans && run.planRevision > (run.approvedRevision ?? 0)
+        run.gatesPlans && run.planRevision > (run.approvedRevision ?? 0)
     }
 
     /// The unstarted tasks submitted since the approved revision — what an approval releases — in
@@ -98,7 +98,7 @@ public enum PlanRevision {
                               milestone: OperatorMilestone = .current) throws(Failure) -> Submitted {
         guard let run = state.run(id: id) else { throw .unknownRun(id) }
         guard [.planning, .active, .complete].contains(run.state) else { throw .runIs(run.state) }
-        let gated = run.persona.autonomy.gatesPlans
+        let gated = run.gatesPlans
         if revision >= 1, revision <= run.planRevision {
             let waiting = gated && revision > (run.approvedRevision ?? 0)
             return Submitted(revision: revision, awaitingApproval: waiting, repeated: true)
@@ -121,7 +121,7 @@ public enum PlanRevision {
     @discardableResult
     public static func approve(_ revision: Int, run id: UUID, in state: inout AppState) throws(Failure) -> [UUID] {
         guard let run = state.run(id: id) else { throw .unknownRun(id) }
-        guard run.persona.autonomy.gatesPlans else { throw .notGated }
+        guard run.gatesPlans else { throw .notGated }
         guard run.state != .stopped else { throw .runIs(run.state) }
         guard run.planRevision > 0 else { throw .nothingSubmitted }
         guard revision == run.planRevision else { throw .stale(asked: revision, latest: run.planRevision) }
@@ -143,7 +143,7 @@ public enum PlanRevision {
         guard let run = state.run(id: task.runId) else { throw .unknownRun(task.runId) }
         guard !task.started, task.state == .planned || task.state == .queued else { throw .started(key: task.key) }
         state.tasks[index].operated?.revision = run.openRevision
-        if run.persona.autonomy.gatesPlans { state.tasks[index].operated?.state = .planned }
+        if run.gatesPlans { state.tasks[index].operated?.state = .planned }
     }
 
     /// Whether the run's plan can be carried out: every end supported by `milestone`, at most one

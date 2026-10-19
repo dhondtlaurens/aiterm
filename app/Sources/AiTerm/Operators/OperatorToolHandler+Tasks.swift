@@ -208,7 +208,7 @@ extension OperatorToolHandler {
         try acceptsWork(run)
         let operated = try notTakenOver(task)
         guard operated.state == .failed else { return Self.taskAnswer(task, created: false) }
-        let limit = run.persona.limits.retries
+        let limit = OperatorTiming.retries
         guard operated.retriesUsed < limit else {
             throw ToolRefusal("\(operated.key) has used its \(limit) retr\(limit == 1 ? "y" : "ies"). Ask the person with ask_you how to go on.")
         }

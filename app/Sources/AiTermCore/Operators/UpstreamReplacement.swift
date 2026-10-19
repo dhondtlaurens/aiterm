@@ -51,7 +51,7 @@ public enum UpstreamReplacement {
                         if let newSHA, operated.acceptance?.prerequisiteSHAs.contains(newSHA) == true { continue }
                         operated.acceptance = nil
                         operated.state = .working
-                    case .working, .blocked, .failed, .published:
+                    case .working, .inReview, .blocked, .failed, .published:
                         break
                     }
                     operated.flags.insert(.upstreamReplaced)

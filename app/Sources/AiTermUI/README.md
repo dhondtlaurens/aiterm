@@ -192,7 +192,7 @@ vendor needs both.
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
-`OperatorSheet`, `NewOperationSheet`, `OperationOverviewSheet`, `OperationOverviewHost`, `ArchiveSheet`, `ArchiveRow`.
+`NewOperationSheet`, `OperationOverviewSheet`, `OperationOverviewHost`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -231,10 +231,10 @@ close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing th
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
 
-**Operators.** An OPERATORS group leads the list, above PROJECTS, drawn with no operator at all:
-its "+" is New Operator…, the one way to one (`OperatorsHeader`). Each operator is a header on a
-project's anatomy (`OperatorHeaderRow`) — the chevron, its mark where a provider sits, its name, a
-"+" for New Operation… — off the arrow path, folded in memory only. Its operations sit under it on a
+**Operators.** An OPERATORS group leads the list, above PROJECTS, drawn with no broadcast at all:
+its "+" is New Operation…, the one way to the first (`OperatorsHeader`). While a broadcast runs, the
+one Operator is a header on a project's anatomy (`OperatorHeaderRow`) — the chevron, its mark where a
+provider sits, its name, a "+" for New Operation… — off the arrow path, folded in memory only. Its operations sit under it on a
 task row's grid (`OperationRowView`): the agents at work, the name, `OperationCaptionLine` — the
 progress as a quiet `Badge` and an attention `StatusCountChips`, both opening the overview, or the
 operation's state when that says more — and the operation's own `StatusMark`. A click or ↩ brings the
@@ -246,9 +246,8 @@ operator; it leads a driven task's avatars, and while the operator acts on that 
 value Operators added. A driven task's menu leads with Take Over or Hand Back, and Stop Task… (it
 asks first) while the task is open. A driven task's workflow is a `RowCaption` under its badges,
 decided by `SidebarModel.operatedCaption`; the rows are values in
-`AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `OperatorSheet` (each stepped setting a
-`SegmentedControl` over its `HelpText`), `NewOperationSheet` and `OperationOverviewSheet` (a board on
-its side, decided by `OperationOverview`) — use `SheetLayout`, `SheetSubtitle` and `SheetFooter` like
+`AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `NewOperationSheet` and `OperationOverviewSheet`
+(a board on its side, decided by `OperationOverview`) — use `SheetLayout`, `SheetSubtitle` and `SheetFooter` like
 every other. No new `Palette` member.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a

@@ -3,8 +3,8 @@ import AiTermCore
 
 /// What an operation's overview draws (spec §10.7): its board, a kanban on its side — Waiting on you,
 /// Working, Up next, Done, each task moving down as it progresses, empty groups left out — the plan on
-/// top while one waits for your approval, what it decided on its own, to overrule in its window, the
-/// lessons to keep, edit or dismiss, and which footer it has. A value, decided apart from
+/// top while one waits for your approval, what it decided on its own, to overrule in its window, and
+/// which footer it has. A value, decided apart from
 /// `OperationOverviewSheet`, so each moment is tested without drawing it.
 struct OperationOverview: Equatable {
     enum Mark: Equatable { case waiting, working, upNext, done }
@@ -71,9 +71,9 @@ struct OperationOverview: Equatable {
         var rows: [PlanRow]
     }
 
-    /// A decision or a lesson: what, and why.
+    /// A decision: what, and why.
     struct Note: Equatable, Identifiable {
-        /// Unique among the notes drawn together; `key` is the run's own, which a lesson's Keep sends back.
+        /// Unique among the notes drawn together; `key` is the run's own.
         var id: String
         var key: String
         var text: String
@@ -92,14 +92,12 @@ struct OperationOverview: Equatable {
     var groups: [Group]
     var decisionsTitle: String?
     var decisions: [Note]
-    var lessonsTitle: String?
-    var lessons: [Note]
     var footer: Footer
 
     static func make(run: OperatorRun, state: AppState, acting: Set<UUID> = []) -> OperationOverview {
         let tasks = state.tasks.filter { $0.operated?.runId == run.id && $0.operated?.state != .stopped }
         let byId = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let challenger = SidebarModel.agentName(run.persona.secondOpinion.agent)
+        let challenger = SidebarModel.agentName(run.profile.oracle.agent)
         let planWaits = SidebarModel.planWaitsForYou(run)
         // What Approve Plan would release, and whether each task is new or changed: C's to decide.
         let changes = planWaits ? Dictionary(PlanRevision.pending(in: state, run: run.id).map { ($0.task, $0.kind) },
@@ -136,8 +134,9 @@ struct OperationOverview: Equatable {
             // Taken over only while the task is going and has not failed, as its row's caption says.
             let takenOver = operated.takenOver && operated.state.isOpen && operated.state != .failed
             switch operated.state {
-            case .working, .failed, .blocked:
+            case .working, .inReview, .failed, .blocked:
                 let detail = takenOver ? "taken over"
+                    : operated.state == .inReview ? "in review"
                     : operated.state == .failed ? "failed" + (operated.blockedReason.map { " · " + $0 } ?? "")
                     : presence == .acting ? "answering \(agent)"
                     : operated.flags.contains(.possiblyStalled) ? "possibly stalled" : ""
@@ -176,7 +175,6 @@ struct OperationOverview: Equatable {
                  why: decision.challenge.map { "\(challenger) said: “\($0)” Overrule it in the window if not." }
                     ?? "Overrule it in the window if not.")
         }, \.id)
-        let lessons = Self.unique(run.lessons.filter { $0.decided == nil }.map { Note(id: $0.key, text: $0.lesson, why: $0.because) }, \.id)
         let footer: Footer = planWaits ? .planWaits
             : run.state == .complete ? .done
             : run.state == .paused || run.state == .operatorOffline ? .paused
@@ -184,10 +182,9 @@ struct OperationOverview: Equatable {
 
         return OperationOverview(
             title: run.name,
-            subtitle: "\(run.persona.name) · done when: \(run.doneWhen ?? "a commit per task")",
+            subtitle: "Operator · done when: \(run.done ?? "a commit per task")",
             plan: plan, groups: groups,
             decisionsTitle: decisions.isEmpty ? nil : "Decided on its own · \(decisions.count)", decisions: decisions,
-            lessonsTitle: lessons.isEmpty ? nil : lessons.count == 1 ? "A lesson to keep?" : "Lessons to keep?", lessons: lessons,
             footer: footer)
     }
 
@@ -225,7 +222,7 @@ struct OperationOverview: Equatable {
         case .noChange:
             return "no change"
         case .published:
-            return (operated.end == .merge ? "merged · " : operated.end == .draftMR ? "draft MR · " : "") + sha
+            return ([.merge, .mergeLocal].contains(operated.end) ? "merged · " : operated.end == .draftMR ? "draft MR · " : "") + sha
         default:
             let parent = operated.stackedOn.flatMap { tasks[$0]?.operated?.acceptance?.resultSHA }.map { String($0.prefix(7)) }
             return sha + (parent.map { " · builds on " + $0 } ?? "")
@@ -237,13 +234,14 @@ struct OperationOverview: Equatable {
         case .commit: "commit"
         case .draftMR: "draft MR"
         case .merge: "merge"
+        case .mergeLocal: "local merge"
         }
     }
 
     /// The plan box's line: nothing starts before you approve, and what the second opinion changed.
     private static func planHelp(_ run: OperatorRun, challenger: String) -> String {
         let lead = "Nothing starts until you approve."
-        guard run.persona.secondOpinion.level != .noSelfDoubt else { return lead }
+        guard run.profile.oracle.isOn else { return lead }
         let changes = run.decisions.filter { $0.challenge != nil && $0.task == nil }.count
         let outcome = changes == 0 ? "nothing changed." : changes == 1 ? "one change came of it." : "\(changes) changes came of it."
         return "\(lead) \(challenger) gave a second opinion; \(outcome)"

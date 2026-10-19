@@ -4,13 +4,15 @@ import Synchronization
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The persona, projects, runs, tasks and tabs the operator service tests start from, through Part C's
+/// The profile, projects, runs, tasks and tabs the operator service tests start from, through Part C's
 /// initialisers. Named apart from part E's `OperatorUIFixtures` and Core's `OperatorFixtures`.
 enum OperatorServiceFixtures {
-    static func persona(autonomy: Autonomy = .routine, level: SecondOpinionLevel = .noSelfDoubt, retries: Int = 2) -> OperatorPersona {
-        OperatorPersona(name: "Senior engineer", handle: "senior", model: "claude-opus-5-5", effort: "high",
-                        secondOpinion: SecondOpinion(level: level, agent: .codex, model: "gpt-6-astra", effort: "medium"),
-                        autonomy: autonomy, limits: OperatorLimits(retries: retries, runtimeMinutes: 90), persona: "You are careful.")
+    /// The profile a broadcast froze: Claude on Opus, every slice off, the Oracle off unless asked for.
+    static func profile(oracle: Bool = false, oracleAgent: AgentKind = .codex) -> OperatorProfile {
+        OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
+                        oracle: OracleSetting(isOn: oracle, agent: oracleAgent, model: oracleAgent == .codex ? "gpt-6-astra" : "claude-opus-5-5",
+                                              reasoning: "medium"),
+                        instructions: "You are careful.")
     }
 
     static func project(path: String = "/tmp/aiterm-operators-none", name: String = "Shop", jira: [JiraProjectRef] = []) -> Project {
@@ -18,10 +20,11 @@ enum OperatorServiceFixtures {
                 collapsed: false, jiraProjects: jira)
     }
 
-    static func run(_ persona: OperatorPersona = persona(), projects: [Project], state: OperatorRunState = .planning,
-                    planRevision: Int = 0, id: UUID = UUID()) -> OperatorRun {
-        OperatorRun(id: id, name: "Sprint 42", persona: persona, projectIds: projects.map(\.id), brief: "Implement the sprint.", doneWhen: nil,
-                    state: state, planRevision: planRevision, createdAt: Date(timeIntervalSince1970: 0))
+    /// `approvedRevision`: the plan revision you approved, every plan being gated until the plan's Task 2.
+    static func run(_ profile: OperatorProfile = profile(), projects: [Project], state: OperatorRunState = .planning,
+                    planRevision: Int = 0, approvedRevision: Int? = nil, id: UUID = UUID()) -> OperatorRun {
+        OperatorRun(id: id, name: "Sprint 42", profile: profile, projectIds: projects.map(\.id), prompt: "Implement the sprint.",
+                    state: state, planRevision: planRevision, approvedRevision: approvedRevision, createdAt: Date(timeIntervalSince1970: 0))
     }
 
     static func task(in run: OperatorRun, project: Project, key: String, state: OperatedState = .planned, agent: AgentKind = .claude,
@@ -75,15 +78,13 @@ final class StepClock {
 }
 
 extension OperatorPorts {
-    /// Ports that reach nothing real: a fresh temporary folder as the home — run folders, operator files
-    /// and the agents' conversations all under it — a Trash that deletes, notifications recorded,
+    /// Ports that reach nothing real: a fresh temporary folder as the home — run folders and the agents'
+    /// conversations under it — notifications recorded,
     /// hermetic git, wake lines with no wait, one agent at a time.
     @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operators-\(UUID().uuidString)")
-        let library = OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home),
-                                      trasher: { url in try FileManager.default.removeItem(at: url); return nil })
-        var ports = OperatorPorts(home: home, git: git, library: library, notifications: notifications, wakeCoalesce: .zero)
+        var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
         // One agent at a time, whatever the test host's defaults hold; a test of the cap sets its own.
         ports.agentsAtOnce = { 1 }
         // Nothing is published but through a test's own fake host, and no merge watch waits for real.

@@ -2,11 +2,10 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// An operator's "+": what to hand it (spec §10.6, proposal step 3). The operator, picked from the
-/// header used; the Brief in the prompt editor — a wall of tickets and loose to-dos alike; Done when,
-/// what finished looks like, which grants nothing itself (a draft MR or merge is an end in the plan you
-/// approve); the destination line; Start Operation on ⌘↩, which opens the operator's window with the
-/// brief as its first message.
+/// New Operation…: what to hand the Operator. The Brief in the prompt editor, a wall of tickets and
+/// loose to-dos alike; Done when, what finished looks like, which grants nothing itself (a draft MR or
+/// merge is an end in the plan you approve); the destination line; Start Operation on ⌘↩, which opens
+/// the Operator's window with the brief as its first message. The plan's Task 16 replaces it.
 struct NewOperationSheet: View {
     @Bindable var model: NewOperationModel
     @Environment(\.dismiss) private var dismiss
@@ -25,23 +24,19 @@ struct NewOperationSheet: View {
 
     var body: some View {
         SheetLayout(title: NewOperationModel.title, height: Sheet.height) {
-            SheetSubtitle(model.subtitle)
+            SheetSubtitle(NewOperationModel.subtitle)
         } content: {
             FrontToBackStack(spacing: Space.block) {
-                FormField("Operator") {
-                    Select(values: model.operators.map(\.handle), selection: $model.handle,
-                           label: { handle in model.operators.first { $0.handle == handle }?.name ?? handle })
-                }
                 FormField("Brief") {
-                    PromptEditor(text: $model.brief, agent: .claude, completions: completions,
+                    PromptEditor(text: $model.prompt, agent: .claude, completions: completions,
                                  onFocusChange: { if briefFocused != $0 { briefFocused = $0 } }, focusOnAppear: true)
                         .frame(height: Self.briefHeight)
                         .fieldBox(focused: briefFocused)
-                    HelpText(NewOperationModel.briefHelp)
+                    HelpText(NewOperationModel.promptHelp)
                 }
                 FormField("Done when") {
-                    Input(placeholder: NewOperationModel.doneWhenPlaceholder, text: $model.doneWhen)
-                    HelpText(NewOperationModel.doneWhenHelp)
+                    Input(placeholder: NewOperationModel.donePlaceholder, text: $model.done)
+                    HelpText(NewOperationModel.doneHelp)
                 }
                 DestinationLine(model.destination)
             }

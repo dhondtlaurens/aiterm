@@ -13,7 +13,6 @@ struct OverviewActions {
     var giveItMore: @MainActor () -> Void = {}
     var openTask: @MainActor (UUID) -> Void = { _ in }
     var answerInWindow: @MainActor () -> Void = {}
-    var decideLesson: @MainActor (String, LessonDecision, String?) -> Void = { _, _, _ in }
 }
 
 /// One of the overview footer's buttons, in the proposal's words.
@@ -63,7 +62,7 @@ struct OverviewFooterButtons: Equatable {
 /// An operation's overview (spec §10.7): the operator and when it is done in the band; the plan on top
 /// while one waits, in a `SettingsGroup` with each task's `+` or `~`; the board — Waiting on you with its count,
 /// Working, Up next, Done — each a `SidebarHeading` over `Size.menuRow` rows; what it decided on its
-/// own; the lessons to keep, edit or dismiss. Close is ⎋; the footer's other buttons are the moment's.
+/// own. Close is ⎋; the footer's other buttons are the moment's.
 struct OperationOverviewSheet: View {
     let overview: OperationOverview
     let actions: OverviewActions
@@ -71,13 +70,6 @@ struct OperationOverviewSheet: View {
     /// The key column, fitted to `PLUTO-1088` in `Typography.mono`, so the titles start on one line —
     /// one-off, as `NewTaskSheet.ticketKeyWidth` is.
     private static let keyColumn: CGFloat = 72
-    private var _editing = State<String?>(initialValue: nil)
-    /// The lesson being edited, by key.
-    private var editing: String? {
-        get { _editing.wrappedValue }
-        nonmutating set { _editing.wrappedValue = newValue }
-    }
-    private var _draft = State(initialValue: "")
 
     init(overview: OperationOverview, actions: OverviewActions) { self.overview = overview; self.actions = actions }
 
@@ -89,8 +81,7 @@ struct OperationOverviewSheet: View {
             VStack(alignment: .leading, spacing: Space.block) {
                 if let plan = overview.plan { planBox(plan) }
                 ForEach(overview.groups) { board($0) }
-                if let title = overview.decisionsTitle { notes(title, overview.decisions, lessons: false) }
-                if let title = overview.lessonsTitle { notes(title, overview.lessons, lessons: true) }
+                if let title = overview.decisionsTitle { notes(title, overview.decisions) }
             }
         } footer: {
             SheetFooter(secondary: "Close", primary: buttons.primary?.title, cancel: { dismiss.afterThisEvent() },
@@ -162,37 +153,15 @@ struct OperationOverviewSheet: View {
             .lineLimit(1).frame(width: Self.keyColumn, alignment: .leading)
     }
 
-    private func notes(_ title: String, _ notes: [OperationOverview.Note], lessons: Bool) -> some View {
+    private func notes(_ title: String, _ notes: [OperationOverview.Note]) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             SidebarHeading(title).frame(height: Size.menuRow)
             ForEach(notes) { note in
-                VStack(alignment: .leading, spacing: Space.tight) {
-                    VStack(alignment: .leading, spacing: Space.hairline) {
-                        Text(note.text).font(Typography.caption).foregroundStyle(Palette.text).textSelection(.enabled)
-                        Text(note.why).font(Typography.help).foregroundStyle(Palette.muted)
-                    }
-                    if lessons { lessonActions(note) }
+                VStack(alignment: .leading, spacing: Space.hairline) {
+                    Text(note.text).font(Typography.caption).foregroundStyle(Palette.text).textSelection(.enabled)
+                    Text(note.why).font(Typography.help).foregroundStyle(Palette.muted)
                 }
             }
-        }
-    }
-
-    /// Keep, Edit and Dismiss; Edit turns the lesson into a field with Keep and Cancel.
-    @ViewBuilder private func lessonActions(_ note: OperationOverview.Note) -> some View {
-        if editing == note.id {
-            Input(placeholder: note.text, text: _draft.projectedValue)
-            HStack(spacing: Space.gap) {
-                Button("Keep") { actions.decideLesson(note.key, .kept, _draft.wrappedValue); editing = nil }
-                Button("Cancel") { editing = nil }
-            }
-            .buttonStyle(.link).font(Typography.caption)
-        } else {
-            HStack(spacing: Space.gap) {
-                Button("Keep") { actions.decideLesson(note.key, .kept, nil) }
-                Button("Edit") { _draft.wrappedValue = note.text; editing = note.id }
-                Button("Dismiss") { actions.decideLesson(note.key, .dismissed, nil) }
-            }
-            .buttonStyle(.link).font(Typography.caption)
         }
     }
 

@@ -5,15 +5,15 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The operator items of the sidebar's menus, in the picked design's words and order: OPERATORS' "+",
-/// an operator's "+" and its menu, an operation's menu and a driven task's (spec §10, proposal step 1).
+/// the Operator's "+" and its menu, an operation's menu and a driven task's.
 struct OperatorMenusTests {
     private func titles(_ items: [OperatorMenuItem]) -> [String] { items.map { $0 == .separator ? "—" : $0.title } }
 
     @Test func theOperatorsMenusSayWhatTheDesignSays() {
-        #expect(titles(OperatorMenus.operatorsGroup) == ["New Operator…"])
+        #expect(titles(OperatorMenus.operatorsGroup) == ["New Operation…"])
         #expect(titles(OperatorMenus.headerPlus) == ["New Operation…"])
-        #expect(titles(OperatorMenus.header) == ["New Operation…", "—", "Edit Operator…", "Duplicate", "—", "Move to Trash…"])
-        #expect(OperatorMenus.header.filter(\.isDestructive) == [.moveToTrash])
+        #expect(titles(OperatorMenus.header) == ["New Operation…"], "no persona to edit, duplicate or trash")
+        #expect(OperatorMenus.header.filter(\.isDestructive).isEmpty)
     }
 
     @Test func anOperationsMenuOffersWhatItsStateAllows() {

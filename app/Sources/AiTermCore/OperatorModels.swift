@@ -1,82 +1,25 @@
 import Foundation
 
-// What `state.json` keeps of operators and their operations (spec §5.1). These types sit beside
+// What `state.json` keeps of the Operator's broadcasts and their tasks. These types sit beside
 // `Models.swift`, not in `Operators/`, because `AppState` and `TaskItem` hold them: the files
 // directly in Core are the bottom layer and name no folder's types (`CoreFoldersTests`), while
 // the engines in `Operators/` name these freely. Everything here is plain data; what may change
 // it, and when, is the engines' (`OperatedTransitions`, `PlanRevision`, `RunScheduler`).
 
-/// How much an operator does without you (spec §4.1): the plan gate, the workers' permission
-/// mode, which questions it asks, and when AiTerm notifies you of them.
-public enum Autonomy: String, Codable, CaseIterable, Sendable {
-    case askFirst, routine, trusted, handsOff
-
-    /// Whether you approve each plan revision before its tasks start: on at Ask first and Routine.
-    public var gatesPlans: Bool { self == .askFirst || self == .routine }
-}
-
-/// How hard another model challenges the operator before an act takes effect (spec §4.4).
-public enum SecondOpinionLevel: String, Codable, CaseIterable, Sendable { case noSelfDoubt, healthyDoubt, impostor }
-
-/// The one agent, model and effort that challenges an operator; `level` says how often.
-public struct SecondOpinion: Codable, Equatable, Sendable {
-    public var level: SecondOpinionLevel
-    public var agent: AgentKind
-    public var model: String
-    public var effort: String?
-    public init(level: SecondOpinionLevel, agent: AgentKind, model: String, effort: String?) {
-        self.level = level; self.agent = agent; self.model = model; self.effort = effort
-    }
-
-    /// A new operator's: Healthy doubt from another model family than the Claude lead (spec §4.4).
-    public static let standard = SecondOpinion(level: .healthyDoubt, agent: .codex, model: "gpt-6-astra", effort: "medium")
-}
-
-/// What one task of an operation may use before AiTerm blocks it and asks you (spec §8).
-public struct OperatorLimits: Codable, Equatable, Sendable {
-    /// Relaunches of a failed task.
-    public var retries: Int = 2
-    /// Per task, counted while it works — not while it waits on you.
-    public var runtimeMinutes: Int = 90
-    public init(retries: Int = 2, runtimeMinutes: Int = 90) { self.retries = retries; self.runtimeMinutes = runtimeMinutes }
-}
-
-/// An operator: who works, in every operation it runs (spec §4.0). Its file is
-/// `operators/<handle>.md` (`OperatorFile`); an operation keeps a snapshot of it from its start.
-public struct OperatorPersona: Codable, Equatable, Sendable, Identifiable {
-    /// The handle is the file's name, unique in the library, so it is the identity.
-    public var id: String { handle }
-    public var name: String, handle: String, model: String, effort: String?
-    public var secondOpinion: SecondOpinion, autonomy: Autonomy
-    /// Added to the fixed ask-first list (spec §4.2); nothing removes an entry of that list.
-    public var alwaysAsk: [String], limits: OperatorLimits
-    /// The "## Persona" body.
-    public var persona: String
-    /// The "## Lessons" bullets, one sentence each, in the order they were kept.
-    public var lessons: [String]
-
-    public init(name: String, handle: String, model: String, effort: String?, secondOpinion: SecondOpinion,
-                autonomy: Autonomy, alwaysAsk: [String] = [], limits: OperatorLimits = OperatorLimits(),
-                persona: String, lessons: [String] = []) {
-        self.name = name; self.handle = handle; self.model = model; self.effort = effort
-        self.secondOpinion = secondOpinion; self.autonomy = autonomy
-        self.alwaysAsk = alwaysAsk; self.limits = limits; self.persona = persona; self.lessons = lessons
-    }
-}
-
 /// Where an operation stands (spec §9). `paused` and `stopped` are only ever yours.
 public enum OperatorRunState: String, Codable, Sendable { case planning, active, paused, operatorOffline, complete, stopped }
 
-/// Where a task's work ends, from the plan (spec §4.0.1 and the 16 Oct change): a commit in its
-/// worktree, a draft MR, or a merge that AiTerm's `finish_task` carries out — never the agent.
-public enum TaskEnd: String, Codable, CaseIterable, Sendable { case commit, draftMR, merge }
+/// Where a task's work ends, from the plan (spec §5): a commit in its worktree, a draft MR, a merge
+/// through the request, or a local merge into the default branch with no request and no push. AiTerm's
+/// `finish_task` carries each out, never the agent.
+public enum TaskEnd: String, Codable, CaseIterable, Sendable { case commit, draftMR, merge, mergeLocal }
 
 /// A task's workflow state (spec §8), separate from its session's live status.
 public enum OperatedState: String, Codable, CaseIterable, Sendable {
-    case planned, queued, working, blocked, failed, accepted, noChange, published, stopped
+    case planned, queued, working, inReview, blocked, failed, accepted, noChange, published, stopped
 
-    /// Not yet ended: what Stop can still stop.
-    public var isOpen: Bool { [.planned, .queued, .working, .blocked, .failed].contains(self) }
+    /// Not yet ended: what Stop can still stop. `inReview` waits on a review of its request.
+    public var isOpen: Bool { [.planned, .queued, .working, .inReview, .blocked, .failed].contains(self) }
 }
 
 /// `order`: start after the parent ends well. `code`: also branch from the parent's accepted SHA.
@@ -231,13 +174,19 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// retried worker is told what failed; cleared when the task is accepted or ends with no change.
     public var lastFailure: String?
     public var flags: Set<OperatedFlag>
+    /// Why the Operator chose the task's model, in its words.
+    public var modelReason: String?
+    /// The prompt or the Instructions named the task's agent: it starts on that agent whatever its use.
+    public var agentPinned: Bool
+    /// The id of the AiTerm issue blocking it, while one does.
+    public var problem: String?
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
                 acceptance: TaskAcceptance? = nil, publication: TaskPublication? = nil, takenOver: Bool = false,
                 ownership: Int = 0, launch: LaunchAttempt? = nil, retriesUsed: Int = 0, runtimeUsed: TimeInterval = 0,
                 blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
-                lastFailure: String? = nil) {
+                lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil) {
         self.runId = runId; self.key = key; self.state = state; self.end = end; self.brief = brief
         self.dependsOn = dependsOn; self.stackedOn = stackedOn; self.revision = revision
         self.firstRevision = firstRevision ?? revision
@@ -245,6 +194,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.ownership = ownership; self.launch = launch; self.retriesUsed = retriesUsed; self.runtimeUsed = runtimeUsed
         self.blockedReason = blockedReason; self.blockedFrom = blockedFrom; self.flags = flags
         self.lastFailure = lastFailure
+        self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
     }
 
     /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
@@ -254,6 +204,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
+        case modelReason, agentPinned, problem
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -280,6 +231,9 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         blockedFrom = try c.decodeIfPresent(OperatedState.self, forKey: .blockedFrom)
         lastFailure = try c.decodeIfPresent(String.self, forKey: .lastFailure)
         flags = Set((try c.decodeIfPresent([String].self, forKey: .flags) ?? []).compactMap(OperatedFlag.init(rawValue:)))
+        modelReason = try c.decodeIfPresent(String.self, forKey: .modelReason)
+        agentPinned = try c.decodeIfPresent(Bool.self, forKey: .agentPinned) ?? false
+        problem = try c.decodeIfPresent(String.self, forKey: .problem)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -306,6 +260,9 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(lastFailure, forKey: .lastFailure)
         // Sorted, so the file does not change on a resave of the same flags.
         try c.encode(flags.map(\.rawValue).sorted(), forKey: .flags)
+        try c.encodeIfPresent(modelReason, forKey: .modelReason)
+        try c.encode(agentPinned, forKey: .agentPinned)
+        try c.encodeIfPresent(problem, forKey: .problem)
     }
 }
 
@@ -321,19 +278,31 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// One line of the decisions log; `challenge` is the second opinion's critique and the reply.
+/// One line of the decisions log; `challenge` is the Oracle's critique and the reply, and `objection`
+/// the Oracle's, when it disagreed and the Operator decided anyway.
 public struct OperatorDecision: Codable, Equatable, Sendable {
     public var key: String
     public var text: String
     public var task: UUID?
     public var at: Date
     public var challenge: String?
-    public init(key: String, text: String, task: UUID?, at: Date, challenge: String? = nil) {
-        self.key = key; self.text = text; self.task = task; self.at = at; self.challenge = challenge
+    public var objection: String?
+    public init(key: String, text: String, task: UUID?, at: Date, challenge: String? = nil, objection: String? = nil) {
+        self.key = key; self.text = text; self.task = task; self.at = at; self.challenge = challenge; self.objection = objection
     }
 }
 
-public enum LessonDecision: String, Codable, Sendable { case kept, dismissed }
+/// Something the Operator found that the brief did not ask for (spec §4.1): never worked on, listed in
+/// the debrief, and filed as `ticket` when the Jira slice is on.
+public struct OffBriefFind: Codable, Equatable, Sendable {
+    public var key: String
+    public var title: String
+    public var why: String
+    public var ticket: String?
+    public init(key: String, title: String, why: String, ticket: String? = nil) {
+        self.key = key; self.title = title; self.why = why; self.ticket = ticket
+    }
+}
 
 /// Where a challenged tool call stands (spec §4.4): its second opinion running, its critique ready
 /// but not yet read, read by the operator, unavailable — the act then proceeds unchallenged — or acted on.
@@ -366,82 +335,86 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// A lesson the operator offered (spec §4.5); only you keep it.
-public struct ProposedLesson: Codable, Equatable, Sendable {
-    public var key: String
-    public var lesson: String
-    public var because: String
-    public var decided: LessonDecision?
-    public init(key: String, lesson: String, because: String, decided: LessonDecision? = nil) {
-        self.key = key; self.lesson = lesson; self.because = because; self.decided = decided
-    }
-}
-
-/// An operation — "run" in code (spec §4.0.1, §5.1). The app is its only writer.
+/// A broadcast, "run" in code (spec §4, §5). The app is its only writer.
 public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     private var preservedFields = PreservedFields()
     public var id: UUID
     public var name: String
-    /// The operator as it was when the operation started: editing the operator changes the next one.
-    public var persona: OperatorPersona
-    /// The run's scope (spec §5.3): every task belongs to one of these projects.
+    /// Settings › Operator as it was when the broadcast started: a change there applies to the next one.
+    public var profile: OperatorProfile
+    /// The run's scope: every task belongs to one of these projects.
     public var projectIds: [UUID]
-    public var brief: String, doneWhen: String?
+    /// The Jira projects its tickets are in, by key.
+    public var jiraProjectKeys: [String]
+    /// What you asked for, how its work is reviewed, and what done looks like.
+    public var prompt: String, review: String?, done: String?
     public var state: OperatorRunState
     /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation.
     public var intent: OperatorRunState?
     /// The last submitted plan revision, 0 while none is. New and changed tasks go into the open
-    /// one, `openRevision`; `submit_plan` closes it (`PlanRevision`). In a gated run a plan waits
-    /// for you while `planRevision > (approvedRevision ?? 0)`.
+    /// one, `openRevision`; `submit_plan` closes it (`PlanRevision`). A plan waits for you while
+    /// `planRevision > (approvedRevision ?? 0)`.
     public var planRevision: Int
+    /// Round 1's plan approval, kept only until plans release at once (the plan's Task 2).
     public var approvedRevision: Int?
-    public var questions: [OperatorQuestion], decisions: [OperatorDecision], lessons: [ProposedLesson]
-    /// The operator's Claude conversation, for `claude --resume`.
-    public var operatorConversation: String?, operatorWindowId: String?, operatorSessionId: String?
-    /// The second opinion's challenges of this run's calls, the ones acted on kept with their answer.
+    /// How many tasks the first submitted plan had: what the backlog's growth is measured against.
+    public var firstPlanSize: Int?
+    public var questions: [OperatorQuestion], decisions: [OperatorDecision]
+    /// The off-brief finds, for the debrief; and what the slices kept the Operator from doing.
+    public var finds: [OffBriefFind], leftForYou: [String]
+    /// The Oracle's challenges of this run's calls, the ones acted on kept with their answer.
     public var challenges: [ChallengeRecord]
+    /// The Operator's Claude conversation, for `claude --resume`.
+    public var operatorConversation: String?, operatorWindowId: String?, operatorSessionId: String?
     public var createdAt: Date
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
-    public init(id: UUID, name: String, persona: OperatorPersona, projectIds: [UUID] = [], brief: String, doneWhen: String?,
-                state: OperatorRunState = .planning, intent: OperatorRunState? = nil, planRevision: Int = 0,
-                approvedRevision: Int? = nil, questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
-                lessons: [ProposedLesson] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
+    public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
+                prompt: String, review: String? = nil, done: String? = nil, state: OperatorRunState = .planning,
+                intent: OperatorRunState? = nil, planRevision: Int = 0, approvedRevision: Int? = nil, firstPlanSize: Int? = nil,
+                questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
+                leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], createdAt: Date) {
-        self.id = id; self.name = name; self.persona = persona; self.projectIds = projectIds
-        self.brief = brief; self.doneWhen = doneWhen; self.state = state; self.intent = intent
-        self.planRevision = planRevision; self.approvedRevision = approvedRevision
-        self.questions = questions; self.decisions = decisions; self.lessons = lessons
+        self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
+        self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
+        self.planRevision = planRevision; self.approvedRevision = approvedRevision; self.firstPlanSize = firstPlanSize
+        self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, persona, projectIds, brief, doneWhen, state, intent, planRevision, approvedRevision
-        case questions, decisions, lessons, operatorConversation, operatorWindowId, operatorSessionId, challenges, createdAt
+        case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision, approvedRevision
+        case firstPlanSize, questions, decisions, finds, leftForYou, challenges, operatorConversation, operatorWindowId
+        case operatorSessionId, createdAt
     }
 
-    /// Synthesised but for `challenges`, which a run saved before them reads as none.
+    /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
+    /// with its persona) fails, and `AppState` keeps it whole without showing it.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         preservedFields = try PreservedFields(decoder, known: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
-        persona = try c.decode(OperatorPersona.self, forKey: .persona)
-        projectIds = try c.decode([UUID].self, forKey: .projectIds)
-        brief = try c.decode(String.self, forKey: .brief)
-        doneWhen = try c.decodeIfPresent(String.self, forKey: .doneWhen)
+        profile = try c.decode(OperatorProfile.self, forKey: .profile)
+        projectIds = try c.decodeIfPresent([UUID].self, forKey: .projectIds) ?? []
+        jiraProjectKeys = try c.decodeIfPresent([String].self, forKey: .jiraProjectKeys) ?? []
+        prompt = try c.decode(String.self, forKey: .prompt)
+        review = try c.decodeIfPresent(String.self, forKey: .review)
+        done = try c.decodeIfPresent(String.self, forKey: .done)
         state = try c.decode(OperatorRunState.self, forKey: .state)
         intent = try c.decodeIfPresent(OperatorRunState.self, forKey: .intent)
         planRevision = try c.decode(Int.self, forKey: .planRevision)
         approvedRevision = try c.decodeIfPresent(Int.self, forKey: .approvedRevision)
-        questions = try c.decode([OperatorQuestion].self, forKey: .questions)
-        decisions = try c.decode([OperatorDecision].self, forKey: .decisions)
-        lessons = try c.decode([ProposedLesson].self, forKey: .lessons)
+        firstPlanSize = try c.decodeIfPresent(Int.self, forKey: .firstPlanSize)
+        questions = try c.decodeIfPresent([OperatorQuestion].self, forKey: .questions) ?? []
+        decisions = try c.decodeIfPresent([OperatorDecision].self, forKey: .decisions) ?? []
+        finds = try c.decodeIfPresent([OffBriefFind].self, forKey: .finds) ?? []
+        leftForYou = try c.decodeIfPresent([String].self, forKey: .leftForYou) ?? []
+        challenges = try c.decodeIfPresent([ChallengeRecord].self, forKey: .challenges) ?? []
         operatorConversation = try c.decodeIfPresent(String.self, forKey: .operatorConversation)
         operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
         operatorSessionId = try c.decodeIfPresent(String.self, forKey: .operatorSessionId)
-        challenges = try c.decodeIfPresent([ChallengeRecord].self, forKey: .challenges) ?? []
         createdAt = try c.decode(Date.self, forKey: .createdAt)
     }
 
@@ -453,21 +426,25 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(name, forKey: .name)
-        try c.encode(persona, forKey: .persona)
+        try c.encode(profile, forKey: .profile)
         try c.encode(projectIds, forKey: .projectIds)
-        try c.encode(brief, forKey: .brief)
-        try c.encodeIfPresent(doneWhen, forKey: .doneWhen)
+        try c.encode(jiraProjectKeys, forKey: .jiraProjectKeys)
+        try c.encode(prompt, forKey: .prompt)
+        try c.encodeIfPresent(review, forKey: .review)
+        try c.encodeIfPresent(done, forKey: .done)
         try c.encode(state, forKey: .state)
         try c.encodeIfPresent(intent, forKey: .intent)
         try c.encode(planRevision, forKey: .planRevision)
         try c.encodeIfPresent(approvedRevision, forKey: .approvedRevision)
+        try c.encodeIfPresent(firstPlanSize, forKey: .firstPlanSize)
         try c.encode(questions, forKey: .questions)
         try c.encode(decisions, forKey: .decisions)
-        try c.encode(lessons, forKey: .lessons)
+        try c.encode(finds, forKey: .finds)
+        try c.encode(leftForYou, forKey: .leftForYou)
+        try c.encode(challenges, forKey: .challenges)
         try c.encodeIfPresent(operatorConversation, forKey: .operatorConversation)
         try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)
         try c.encodeIfPresent(operatorSessionId, forKey: .operatorSessionId)
-        try c.encode(challenges, forKey: .challenges)
         try c.encode(createdAt, forKey: .createdAt)
     }
 }

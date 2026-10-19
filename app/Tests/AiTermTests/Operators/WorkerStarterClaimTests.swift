@@ -10,7 +10,7 @@ import Testing
     func makeWorld(agentsAtOnce: Int, _ daemon: RecordingDaemon = RecordingDaemon(),
                    clock: StepClock? = nil) throws -> (OperatorWorld, OperatorRun, Project) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-claim-"))
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon) { ports in
             ports.agentsAtOnce = { agentsAtOnce }
             if let clock { ports.now = { clock.now } }

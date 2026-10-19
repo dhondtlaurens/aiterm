@@ -4,8 +4,8 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The OPERATORS group is derived with the rest of the rows: from the operator library, the runs and
-/// what the operator is acting on, again whenever one of them changes, and folded by the sidebar alone.
+/// The OPERATORS group is derived with the rest of the rows: from the runs and what the Operator is
+/// acting on, again whenever one of them changes, and folded by the sidebar alone.
 @MainActor
 struct OperatorProjectionTests {
     /// A source's value a test moves between derivations, which a captured `var` cannot be.
@@ -20,33 +20,26 @@ struct OperatorProjectionTests {
         return controller
     }
 
-    @Test func theGroupFollowsTheOperatorsAndTheirOperations() throws {
+    @Test func theGroupFollowsTheBroadcasts() throws {
         let controller = try controller(), rows = controller.rows
-        let operators = Box([OperatorUIFixtures.senior])
-        rows.operatorSource = { operators.value }
         rows.refresh()
-        #expect(rows.operatorSections.map(\.id) == ["senior"])
-        #expect(rows.operatorSections[0].collapsed, "no operation yet")
+        #expect(rows.operatorSections.isEmpty, "no broadcast yet")
 
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
+        #expect(rows.operatorSections.map(\.id) == [OperatorSection.key])
         #expect(rows.operatorSections[0].operations.map(\.id) == [run.id], "a workspace change derives the group again")
         #expect(rows.runs[run.id] == run)
-
-        operators.value = []
-        rows.refresh()
-        #expect(rows.operatorSections.map(\.inLibrary) == [false], "moved to the Trash, its running operation keeps a header")
     }
 
     @Test func foldingAnOperatorIsTheSidebarsAndSavesNothing() throws {
         let controller = try controller(), rows = controller.rows
-        rows.operatorSource = { [OperatorUIFixtures.senior] }
         controller.workspace.mutate { $0.runs = [OperatorUIFixtures.run()] }
         let saved = controller.state
-        rows.toggleCollapsed(operator: "senior")
+        rows.toggleCollapsed(operator: OperatorSection.key)
         #expect(rows.operatorSections[0].collapsed)
         #expect(controller.state == saved)
-        rows.toggleCollapsed(operator: "senior")
+        rows.toggleCollapsed(operator: OperatorSection.key)
         #expect(!rows.operatorSections[0].collapsed)
     }
 
@@ -72,7 +65,6 @@ struct OperatorProjectionTests {
         let project = OperatorUIFixtures.project("pluto-web"), run = OperatorUIFixtures.run()
         let task = OperatorUIFixtures.task("The homepage section", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
-        rows.operatorSource = { [OperatorUIFixtures.senior] }
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
         #expect(rows.operatorSections[0].operations.map(\.id) == [run.id])
         #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .driving)
@@ -84,7 +76,7 @@ struct OperatorProjectionTests {
         controller.workspace.mutate { $0.runs = [stopped] }
         #expect(rows.derivations == before + 1, "a runs-only change is a change to the rows")
         #expect(rows.runs[run.id]?.state == .stopped)
-        #expect(rows.operatorSections[0].operations.isEmpty, "an ended operation leaves its operator's header")
+        #expect(rows.operatorSections.isEmpty, "an ended broadcast leaves the group, and with none running so does its header")
         #expect(rows.sections[0].tasks[0].avatars.operatorPresence == nil, "and the task it drove loses the operator's mark")
     }
 
@@ -106,18 +98,6 @@ struct OperatorProjectionTests {
         controller.operatorController.setActing(task.id, false)
         #expect(rows.acting.isEmpty)
         #expect(rows.sections[0].tasks[0].avatars.operatorPresence == .driving)
-    }
-
-    @Test func aChangeOnlyToTheOperatorLibraryDerivesTheSectionsAgain() throws {
-        let controller = try controller(), rows = controller.rows
-        #expect(rows.operatorSections.isEmpty)
-        let before = rows.derivations
-        try controller.operatorController.saveOperator(OperatorUIFixtures.senior)
-        #expect(rows.derivations == before + 1, "the library alone is a change to the rows")
-        #expect(rows.operatorSections.map(\.id) == [OperatorUIFixtures.senior.handle])
-
-        try controller.operatorController.trashOperator(handle: OperatorUIFixtures.senior.handle)
-        #expect(rows.operatorSections.isEmpty, "moved to the Trash with no operation running, its header goes")
     }
 
     @Test func runsWithTheSameIdDoNotTrapTheLookup() throws {

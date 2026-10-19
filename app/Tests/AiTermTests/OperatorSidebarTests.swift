@@ -5,8 +5,9 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The list with operators in it: OPERATORS first, always — its "+" is the only way to the first
-/// operator — then each operator's header, its operations when it is open, and PROJECTS after.
+/// The list with the Operator in it: OPERATORS first, always, as its "+" is the only way to the first
+/// broadcast; then the Operator's header while a broadcast runs, its broadcasts when it is open, and
+/// PROJECTS after.
 @MainActor
 struct OperatorSidebarTests {
     private func hosted(_ controller: AppController) -> (NSHostingView<SidebarView>, NSWindow) {
@@ -27,21 +28,12 @@ struct OperatorSidebarTests {
         // OPERATORS, PROJECTS, the empty block.
         #expect(list.numberOfRows == 3)
 
-        controller.rows.operatorSource = { [OperatorUIFixtures.senior] }
         controller.workspace.mutate { $0.runs = [OperatorUIFixtures.run()] }
-        // OPERATORS, Senior engineer, Newsletter signup, PROJECTS, the empty block.
+        // OPERATORS, Operator, Newsletter signup, PROJECTS, the empty block.
         settle(host, describing: "the operation's row") { list.numberOfRows == 5 }
 
-        controller.toggleCollapsed(operator: "senior")
+        controller.toggleCollapsed(operator: OperatorSection.key)
         settle(host, describing: "the operator folded") { list.numberOfRows == 4 }
-    }
-
-    @Test func movingAnOperatorToTheTrashAsksFirst() async throws {
-        let prompter = ScriptedPrompter(answering: "⎋")
-        let controller = AppController(preferences: .scratch(), prompter: prompter)
-        try controller.loadWorkspace()
-        #expect(await !controller.confirmTrash(OperatorUIFixtures.senior))
-        #expect(prompter.asked == [OperatorAlerts.moveToTrash(OperatorUIFixtures.senior)])
     }
 
     @Test func anOperationsCaptionSaysItsCountInWords() {

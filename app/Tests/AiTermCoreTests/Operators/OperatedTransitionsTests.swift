@@ -153,7 +153,7 @@ import Foundation
         let context = OperatedContext(runState: .active, retryLimit: 2, milestone: .m1, runtimeLimit: limit)
         var spent = F.operated("A", .working)
         spent.runtimeUsed = limit
-        let reason = try #require(OperatedTransitions.limitReason(for: spent, limits: OperatorLimits(retries: 2, runtimeMinutes: 90)))
+        let reason = try #require(OperatedTransitions.limitReason(for: spent))
         let blocked = try apply(.block(reason: reason), spent, by: .aiterm, context)
         #expect(blocked.runtimeUsed == limit, "what it used is still shown while it is blocked")
         let resumed = try apply(.resume, blocked, context)
@@ -231,14 +231,14 @@ import Foundation
     @Test func limitsSayWhyAiTermBlocks() {
         var failed = F.operated("A", .failed)
         failed.retriesUsed = 2
-        #expect(OperatedTransitions.limitReason(for: failed, limits: OperatorLimits(retries: 2)) != nil)
+        #expect(OperatedTransitions.limitReason(for: failed) != nil)
         failed.retriesUsed = 1
-        #expect(OperatedTransitions.limitReason(for: failed, limits: OperatorLimits(retries: 2)) == nil)
+        #expect(OperatedTransitions.limitReason(for: failed) == nil)
         var working = F.operated("A", .working)
         working.runtimeUsed = 90 * 60
-        #expect(OperatedTransitions.limitReason(for: working, limits: OperatorLimits(runtimeMinutes: 90)) != nil)
+        #expect(OperatedTransitions.limitReason(for: working) != nil)
         working.runtimeUsed = 89 * 60
-        #expect(OperatedTransitions.limitReason(for: working, limits: OperatorLimits(runtimeMinutes: 90)) == nil)
+        #expect(OperatedTransitions.limitReason(for: working) == nil)
     }
 
     // MARK: run state and takeover

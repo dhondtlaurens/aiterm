@@ -3,14 +3,13 @@ import Testing
 @testable import AiTerm
 
 /// Every operator image draws, and draws the same twice: the sidebar with none, at work and done, a
-/// driven task row in each workflow state, the marks, the operator sheet three ways, New operation,
+/// driven task row in each workflow state, the marks, New operation,
 /// and the overview at each of its moments.
 @MainActor
 struct OperatorSnapshotTests {
     static let files = [
         "operators-none.png", "operators-working.png", "operators-paused.png", "operators-done.png",
         "operator-task-rows.png", "operator-marks.png",
-        "operator-sheet-new.png", "operator-sheet-edit.png", "operator-sheet-no-self-doubt.png",
         "new-operation.png",
         "overview-plan.png", "overview-working.png", "overview-paused.png", "overview-done.png",
     ]

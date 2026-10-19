@@ -3,17 +3,15 @@ import AiTermCore
 
 /// What the operators reach beyond the app's own owners: the home — run folders
 /// (`OperatorCommand.runFolder`) and the agents' conversations (`~/.claude`, `~/.codex`) are under it —
-/// git, the operator files, the notification centre and the clock. The app's are `live`; a test's reach
+/// git, the notification centre and the clock. The app's are `live`; a test's reach
 /// nothing real (`OperatorPorts.scratch`). Each later service adds the port it needs, defaulted.
 struct OperatorPorts {
     var home: URL
     var git: any GitRunning
-    /// The operator files, `~/Library/Application Support/AiTerm/operators/`; Move to Trash goes through it.
-    var library: OperatorLibrary
     var notifications: any OperatorNotifications
     /// The Jira client `jira_search` runs through, while Settings has one.
     var jira: @Sendable () -> (any OperatorJira)? = { nil }
-    /// The second opinion's runner (spec §4.4).
+    /// The Oracle's runner.
     var secondOpinion: SecondOpinionRunner = .unavailable
     /// How long a challenged call waits for its critique before answering that it is still coming: well
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
@@ -22,8 +20,9 @@ struct OperatorPorts {
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
     var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// Settings › Agents' Agents at once (F1), read at every start pass.
-    var agentsAtOnce: @MainActor () -> Int = { OperatorSettings.agentsAtOnce() }
+    /// How many agents every operation together may have at work, read at every start pass: a fixed
+    /// cap now Settings › Agents' Agents at once is gone, until the cap goes (the plan's Task 2).
+    var agentsAtOnce: @MainActor () -> Int = { OperatorMilestone.agentsAtOnce }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
@@ -40,8 +39,7 @@ struct OperatorPorts {
     var publishNow: @Sendable () -> Date = { Date() }
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
-        OperatorPorts(home: home, git: git, library: OperatorLibrary(directory: OperatorLibrary.defaultDirectory(home: home)),
-                      notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
+        OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
     }
 }
 
@@ -100,9 +98,6 @@ final class OperatorController {
     /// The tasks the operator is acting on right now — a `message_task` or `mark_task` in flight: their
     /// rows' operator mark breathes (spec §10.4).
     private(set) var acting: Set<UUID> = [] { didSet { if acting != oldValue { changed() } } }
-    /// Every operator, as its file says, by name: the sidebar's OPERATORS group. Set only by `reloadOperators()`
-    /// (`OperatorController+Library.swift`); internal rather than `private(set)` because that is another file.
-    var operators: [OperatorPersona] = []
     @ObservationIgnored private var changeHooks: [@MainActor () -> Void] = []
     /// The runs and operated tasks as the hooks last heard of them.
     @ObservationIgnored private var lastHeard: ([OperatorRun], [TaskItem]) = ([], [])
@@ -151,7 +146,6 @@ final class OperatorController {
             guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
             return await self.finisher.finish(id)
         }
-        reloadOperators()
     }
 
     /// Adds `handler` to what hears that a run, an operated task or `acting` changed: the UI's
@@ -216,6 +210,15 @@ final class OperatorController {
         let prefixes = Set(brief.uppercased().matches(of: /\b([A-Z][A-Z0-9_]+)-[0-9]+\b/).map { String($0.output.1) })
         let linked = state.projects.filter { project in project.jiraProjects.contains { prefixes.contains($0.key.uppercased()) } }
         return (linked.isEmpty ? state.projects : linked).map(\.id)
+    }
+
+    /// The Jira projects linked to `projects`, by key, each once in the order the projects list them.
+    static func jiraKeys(of projects: [UUID], in state: AppState) -> [String] {
+        var keys: [String] = []
+        for project in projects.compactMap(state.project(id:)) {
+            for key in project.jiraProjects.map(\.key) where !keys.contains(key) { keys.append(key) }
+        }
+        return keys
     }
 
     /// The first line of the brief, as the run's row names it until the person renames it.
@@ -302,24 +305,28 @@ final class OperatorController {
     }
 
     // -- starting ---------------------------------------------------------------------------
-    /// Starts an operation: the run saved with a snapshot of `persona`, its folder written — `brief.md`,
+    /// Starts an operation: the run saved with `profile` frozen in it, its folder written — `brief.md`,
     /// `mcp.json`, the token, `first-message.md` — the token registered with the helper, and the operator's window opened in
     /// front with the brief as its first message. The run is on disk before its window opens: a
     /// relaunch must know the window is its. Its projects are `projectIds`, or by default those the
     /// brief's tickets belong to (`projects(for:in:)`).
     @discardableResult
-    func startOperation(operator persona: OperatorPersona, brief: String, doneWhen: String?, projectIds: [UUID]? = nil) async throws -> UUID {
+    func startOperation(profile: OperatorProfile, prompt: String, review: String? = nil, done: String?,
+                        projectIds: [UUID]? = nil) async throws -> UUID {
         guard workspace.canChangeWorkspace else { throw ActionUnavailable("Save or recover the workspace before starting an operation.") }
-        guard !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ActionUnavailable("Tell the operator what to work on.") }
-        let projectIds = projectIds ?? Self.projects(for: brief, in: workspace.state)
+        guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ActionUnavailable("Tell the operator what to work on.") }
+        let projectIds = projectIds ?? Self.projects(for: prompt, in: workspace.state)
         let projects = projectIds.compactMap(workspace.state.project(id:))
         guard !projects.isEmpty, projects.count == projectIds.count else {
             throw ActionUnavailable("Choose the projects this operation may work in.")
         }
         guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        let doneWhen = doneWhen.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
-        let run = OperatorRun(id: UUID(), name: Self.operationName(from: brief), persona: persona, projectIds: projectIds, brief: brief,
-                              doneWhen: doneWhen, createdAt: ports.now())
+        func said(_ text: String?) -> String? {
+            text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        let jiraKeys = Self.jiraKeys(of: projectIds, in: workspace.state)
+        let run = OperatorRun(id: UUID(), name: Self.operationName(from: prompt), profile: profile, projectIds: projectIds,
+                              jiraProjectKeys: jiraKeys, prompt: prompt, review: said(review), done: said(done), createdAt: ports.now())
         let home = ports.home, milestone = ports.milestone
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {

@@ -30,6 +30,10 @@ public enum OperatorTiming {
     public static let mergePoll: TimeInterval = 30
     /// M3, app only: how long it waits for that before blocking the task and asking you.
     public static let mergeWait: TimeInterval = 60 * 60
+    /// App only: relaunches of a failed task before AiTerm blocks it (spec §4.1's fixed caps).
+    public static let retries = 2
+    /// App only: minutes a task may work, not counting time waiting on you, before AiTerm blocks it.
+    public static let runtimeMinutes = 90
 }
 
 /// What this build of the operator supports (spec §13). A plan asking for more — a draft MR
@@ -43,11 +47,15 @@ public enum OperatorMilestone: Int, Comparable, CaseIterable, Sendable {
     public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 
     /// Whether a plan may end a task with `end`: a commit from M1; a draft MR or a merge, which
-    /// `finish_task` carries out, from M3.
-    public func supports(_ end: TaskEnd) -> Bool { self >= end.availableFrom }
+    /// `finish_task` carries out, from M3. A local merge is refused until `finish_task` carries it
+    /// out (the plan's Task 11).
+    public func supports(_ end: TaskEnd) -> Bool { end != .mergeLocal && self >= end.availableFrom }
 
-    /// Agents at once: one in M1, the cap you set in AiTerm from M2 (spec §13).
+    /// Agents at once: one in M1, the cap from M2 (spec §13). Kept until the cap goes (the plan's Task 2).
     public func maxParallel(setting: Int) -> Int { self == .m1 ? 1 : max(1, setting) }
+
+    /// The cap every operation together starts under, now Settings › Agents' Agents at once is gone.
+    public static let agentsAtOnce = 2
 }
 
 public extension TaskEnd {
@@ -60,6 +68,7 @@ public extension TaskEnd {
         case .commit: return "commit"
         case .draftMR: return "draft MR"
         case .merge: return "merge"
+        case .mergeLocal: return "local merge"
         }
     }
 }

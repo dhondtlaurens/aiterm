@@ -2,57 +2,48 @@ import Foundation
 import Observation
 import AiTermCore
 
-/// The New operation sheet's state: the operator — picked already, from the header whose "+" was
-/// used — the brief, the optional Done when, and the start, which the operator controller runs.
+/// The New operation sheet's state: the prompt, the optional Done, and the start, which the operator
+/// controller runs on Settings › Operator's profile as it was when the sheet opened. The plan's Task 16
+/// replaces it with New Broadcast.
 @MainActor
 @Observable
 final class NewOperationModel: Identifiable {
     let id = UUID()
-    let operators: [OperatorPersona]
-    var handle: String
-    var brief = ""
-    var doneWhen = ""
+    /// What the broadcast freezes when it starts.
+    let profile: OperatorProfile
+    var prompt = ""
+    var done = ""
     private(set) var starting = false
     /// Why the last start failed, in the footer.
     private(set) var error: String? = nil
-    @ObservationIgnored private let start: @MainActor (OperatorPersona, String, String?) async throws -> UUID
+    @ObservationIgnored private let start: @MainActor (OperatorProfile, String, String?) async throws -> UUID
 
     static let title = "New operation"
-    static let briefHelp = "What to work on, as you would tell a colleague. A Jira key brings in its ticket."
-    static let doneWhenHelp = "What finished looks like. A draft MR or a merge happens only when this brief or the operator’s persona asks for it, as an end in the plan you approve."
-    static let doneWhenPlaceholder = "a commit per item, tests green — I review and push"
+    static let promptHelp = "What to work on, as you would tell a colleague. A Jira key brings in its ticket."
+    static let doneHelp = "What finished looks like. A draft MR or a merge happens only when this asks for it, as an end in the plan you approve."
+    static let donePlaceholder = "a commit per item, tests green, I review and push"
+    /// The band's sentence: every plan is shown to you before it starts, until plans release at once (Task 2).
+    static let subtitle = "The Operator plans it first; nothing starts before you see the plan."
 
-    init(operators: [OperatorPersona], picked handle: String,
-         start: @escaping @MainActor (OperatorPersona, String, String?) async throws -> UUID) {
-        self.operators = operators
-        self.handle = handle
+    init(profile: OperatorProfile, start: @escaping @MainActor (OperatorProfile, String, String?) async throws -> UUID) {
+        self.profile = profile
         self.start = start
     }
 
-    var picked: OperatorPersona? { operators.first { $0.handle == handle } }
-
-    /// The band's sentence: a gated operator shows its plan first; an ungated one starts at once.
-    var subtitle: String {
-        guard let picked else { return "" }
-        return SidebarModel.gatesPlans(picked.autonomy)
-            ? "\(picked.name) plans it first; nothing starts before you see the plan."
-            : "\(picked.name) plans it, then starts it at once; you watch the plan run."
-    }
-
-    var destination: Destination { .operatorWindow(picked?.name ?? "The operator") }
+    var destination: Destination { .operatorWindow("The Operator") }
 
     private func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var canStart: Bool { picked != nil && !trimmed(brief).isEmpty && !starting }
+    var canStart: Bool { !trimmed(prompt).isEmpty && !starting }
 
-    /// Starts the operation — its operator's window opens with the brief as its first message — and
+    /// Starts the broadcast (its Operator's window opens with the prompt as its first message) and
     /// returns its id, or nil with the reason in `error`.
     func startOperation() async -> UUID? {
-        guard canStart, let picked else { return nil }
+        guard canStart else { return nil }
         starting = true
         defer { starting = false }
         error = nil
-        let done = trimmed(doneWhen)
-        do { return try await start(picked, trimmed(brief), done.isEmpty ? nil : done) }
+        let done = trimmed(done)
+        do { return try await start(profile, trimmed(prompt), done.isEmpty ? nil : done) }
         catch { self.error = error.localizedDescription; return nil }
     }
 }

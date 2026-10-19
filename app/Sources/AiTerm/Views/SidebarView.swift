@@ -417,7 +417,6 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
-                case .operatorEditor(let model): OperatorSheet(model: model)
                 case .newOperation(let model): NewOperationSheet(model: model)
                 case .operationOverview(let id): OperationOverviewHost(runId: id, controller: controller)
             }

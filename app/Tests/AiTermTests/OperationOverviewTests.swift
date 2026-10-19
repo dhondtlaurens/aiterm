@@ -6,7 +6,7 @@ import Testing
 
 /// The overview of the design's operation — "Newsletter signup": two tickets, one building on the
 /// other across pluto-cms and pluto-web, and two loose to-dos — at each of its moments: the plan
-/// waiting, at work, and done with a lesson to decide (proposal steps 5, 7 and 8).
+/// waiting, at work, and done (proposal steps 5, 7 and 8).
 @MainActor
 struct OperationOverviewTests {
     let cms = OperatorUIFixtures.project("pluto-cms"), web = OperatorUIFixtures.project("pluto-web")
@@ -50,7 +50,7 @@ struct OperationOverviewTests {
         let overview = OperationOverview.make(run: run, state: state(run, tasks(run.id, [.planned, .planned, .planned, .planned],
                                                                                 ends: [.commit, .commit, .commit, .merge])))
         #expect(overview.title == "Newsletter signup")
-        #expect(overview.subtitle == "Senior engineer · done when: a commit per item, tests green — I review and push")
+        #expect(overview.subtitle == "Operator · done when: a commit per item, tests green, I review and push")
         let plan = overview.plan
         #expect(plan?.revision == 1)
         #expect(plan?.help == "Nothing starts until you approve. Codex gave a second opinion; one change came of it.")
@@ -82,24 +82,17 @@ struct OperationOverviewTests {
         #expect(overview.groups[2].items.map(\.detail) == ["4f2a91c"])
         #expect(overview.decisionsTitle == "Decided on its own · 1")
         #expect(overview.decisions.map(\.why) == ["Overrule it in the window if not."])
-        #expect(overview.plan == nil && overview.lessonsTitle == nil)
+        #expect(overview.plan == nil)
         #expect(overview.footer == .working)
     }
 
-    @Test func doneItSaysWhatEachTaskEndedAtAndOffersTheLesson() {
-        let run = OperatorUIFixtures.run(state: .complete, lessons: [
-            ProposedLesson(key: "fields", lesson: "Ask before adding a field a ticket doesn’t mention.",
-                           because: "You removed the subtitle field I added to PLUTO-231.", decided: nil),
-            ProposedLesson(key: "old", lesson: "Run the tests first.", because: "You asked.", decided: .kept),
-        ])
+    @Test func doneItSaysWhatEachTaskEndedAt() {
+        let run = OperatorUIFixtures.run(state: .complete)
         let all = tasks(run.id, [.accepted, .accepted, .published, .noChange], shas: ["4f2a91c0", "9b3e07d0", "11c5d2e0", nil],
                         ends: [.commit, .commit, .merge, .commit])
         let overview = OperationOverview.make(run: run, state: state(run, all))
         #expect(overview.groups.map(\.title) == ["Done · 4 of 4"])
         #expect(overview.groups[0].items.map(\.detail) == ["4f2a91c", "9b3e07d · builds on 4f2a91c", "merged · 11c5d2e", "no change"])
-        #expect(overview.lessonsTitle == "A lesson to keep?")
-        #expect(overview.lessons == [OperationOverview.Note(id: "fields", text: "Ask before adding a field a ticket doesn’t mention.",
-                                                            why: "You removed the subtitle field I added to PLUTO-231.")])
         #expect(overview.footer == .done)
     }
 
@@ -152,14 +145,13 @@ struct OperationOverviewTests {
     }
 
     /// The sheet's `ForEach`s draw these items by id, so a question or a task that repeats, in the board,
-    /// the plan, the decisions or the lessons, is told apart by its place — and the first keeps its own id.
+    /// the plan or the decisions, is told apart by its place — and the first keeps its own id.
     @Test func everyRowsIdIsUniqueEvenWhenWhatItIsMadeFromRepeats() {
         let twice = [OperatorUIFixtures.question("First?", id: "scope"), OperatorUIFixtures.question("Again?", id: "scope"),
                      OperatorUIFixtures.question("About the task", id: "q", task: footerId),
                      OperatorUIFixtures.question("About it again", id: "q", task: footerId)]
         let decision = OperatorDecision(key: "same", text: "Did it.", task: nil, at: OperatorUIFixtures.epoch, challenge: nil)
-        let lesson = ProposedLesson(key: "fields", lesson: "Ask first.", because: "You said.", decided: nil)
-        let run = OperatorUIFixtures.run(questions: twice, decisions: [decision, decision], lessons: [lesson, lesson])
+        let run = OperatorUIFixtures.run(questions: twice, decisions: [decision, decision])
         var all = tasks(run.id, [.accepted, .working, .working, .queued])
         all.append(all[1]); all.append(all[3])
         let overview = OperationOverview.make(run: run, state: state(run, all))
@@ -168,7 +160,6 @@ struct OperationOverviewTests {
         for group in overview.groups { #expect(unique(group.items.map(\.id)), "\(group.title)") }
         #expect(overview.groups[0].items.map(\.id).first == "scope", "the first of a repeat keeps its id")
         #expect(unique(overview.decisions.map(\.id)) && overview.decisions.map(\.key) == ["same", "same"])
-        #expect(unique(overview.lessons.map(\.id)) && overview.lessons.map(\.key) == ["fields", "fields"])
 
         let planning = OperatorUIFixtures.run(state: .planning, planRevision: 1, approvedRevision: nil)
         var planned = tasks(planning.id, [.planned, .planned, .planned, .planned])

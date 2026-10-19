@@ -151,7 +151,7 @@ extension OperatorToolHandler {
         guard let project = state.projects.first(where: named) else {
             throw ToolRefusal("AiTerm has no project called \(ref). This operation’s projects are: \(list).")
         }
-        guard !run.persona.autonomy.gatesPlans else {
+        guard !run.gatesPlans else {
             throw ToolRefusal("\(project.name) isn’t one of this operation’s projects: \(list). Adding a project needs the person’s approval: ask_you first.")
         }
         return (project, true)

@@ -3,12 +3,11 @@ import AiTermUI
 import AiTermCore
 
 #if DEBUG
-/// The design's operation as the images draw it: "Senior engineer" running "Newsletter signup" over
-/// pluto-cms and pluto-web — PLUTO-231's schema, PLUTO-232's homepage section building on it, the
-/// /privacy footer link, the nuxt bump — beside a second operation, "Nuxt upgrade", whose plan waits,
-/// and "Incident investigator" with none. Each scene is a controller of its own, at the snapshot clock;
-/// the sidebar knows its operators only once `show` has put a workspace in, so a bare scene is the
-/// OPERATORS heading with none beneath it.
+/// The design's operation as the images draw it: the Operator running "Newsletter signup" over
+/// pluto-cms and pluto-web (PLUTO-231's schema, PLUTO-232's homepage section building on it, the
+/// /privacy footer link, the nuxt bump) beside a second operation, "Nuxt upgrade", whose plan waits.
+/// Each scene is a controller of its own, at the snapshot clock; the sidebar draws the Operator only
+/// once `show` has put a broadcast in, so a bare scene is the OPERATORS heading with none beneath it.
 @MainActor
 struct OperatorScene {
     let controller = Fixture.emptyController()
@@ -19,32 +18,21 @@ struct OperatorScene {
     let schema = UUID(), homepage = UUID(), footer = UUID(), bump = UUID(), upgrade = UUID()
     let signupId = UUID(), nuxtId = UUID()
 
-    static let senior = OperatorPersona(
-        name: "Senior engineer", handle: "senior", model: "claude-opus-5-5", effort: "high",
-        secondOpinion: SecondOpinion(level: .healthyDoubt, agent: .codex, model: "gpt-6-astra", effort: "medium"),
-        autonomy: .routine, alwaysAsk: [], limits: OperatorLimits(),
-        persona: "You are a senior frontend engineer on Nuxt and Storyblok projects. You keep changes small and reviewable, match the code around you, and write a test where the project has them. You would rather ask than guess at product decisions.",
-        lessons: [])
-    static let investigator: OperatorPersona = {
-        var persona = senior
-        persona.name = "Incident investigator"; persona.handle = "investigator"; persona.autonomy = .handsOff
-        return persona
-    }()
-    static let claudeModels = [AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "high"),
-                               AgentModel(id: "claude-sonnet-5", label: "Sonnet 5", detail: nil, efforts: ["low", "medium"], defaultEffort: "medium")]
-    static let codexModels = [AgentModel(id: "gpt-6-astra", label: "GPT-6-Astra", detail: nil, efforts: ["low", "medium", "high"], defaultEffort: "medium")]
-    static let doneWhen = "a commit per item, tests green — I review and push"
+    static let profile = OperatorProfile(
+        model: "claude-opus-5-5", reasoning: "high",
+        instructions: "You are a senior frontend engineer on Nuxt and Storyblok projects. You keep changes small and reviewable, match the code around you, and write a test where the project has them. You would rather ask than guess at product decisions.")
+    static let done = "a commit per item, tests green, I review and push"
 
     init() {
         controller.workspace.mutate { [cms, web] state in state.append(project: cms); state.append(project: web) }
     }
 
     func run(_ id: UUID, _ name: String, _ state: OperatorRunState, planRevision: Int = 1, approvedRevision: Int? = 1,
-             questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], lessons: [ProposedLesson] = []) -> OperatorRun {
-        OperatorRun(id: id, name: name, persona: Self.senior, projectIds: [cms.id, web.id],
-                    brief: "PLUTO-231 newsletter signup block in Storyblok",
-                    doneWhen: Self.doneWhen, state: state, intent: nil, planRevision: planRevision, approvedRevision: approvedRevision,
-                    questions: questions, decisions: decisions, lessons: lessons, operatorConversation: nil,
+             questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = []) -> OperatorRun {
+        OperatorRun(id: id, name: name, profile: Self.profile, projectIds: [cms.id, web.id],
+                    prompt: "PLUTO-231 newsletter signup block in Storyblok",
+                    done: Self.done, state: state, intent: nil, planRevision: planRevision, approvedRevision: approvedRevision,
+                    questions: questions, decisions: decisions, operatorConversation: nil,
                     operatorWindowId: "operator-\(name)", operatorSessionId: nil, createdAt: Snapshots.clock.now)
     }
 
@@ -82,7 +70,6 @@ struct OperatorScene {
 
     /// Puts `runs` and `tasks` in the workspace, the tabs of the tasks at work, and what the operator acts on.
     func show(_ runs: [OperatorRun], _ tasks: [TaskItem], acting: Set<UUID> = []) {
-        controller.rows.operatorSource = { [Self.senior, Self.investigator] }
         controller.rows.actingSource = { acting }
         controller.workspace.mutate { state in state.runs = runs; state.tasks = tasks }
         controller.live.sessions = tasks.compactMap { task -> SessionInfo? in
@@ -116,12 +103,9 @@ struct OperatorScene {
         return scene
     }
 
-    /// The design's step 8: every task done — one merged — and a lesson to keep.
+    /// The design's step 8: every task done, one merged.
     static func done(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
-        let run = scene.run(scene.signupId, "Newsletter signup", .complete, lessons: [
-            ProposedLesson(key: "fields", lesson: "Ask before adding a field a ticket doesn’t mention.",
-                           because: "You removed the subtitle field I added to PLUTO-231.", decided: nil),
-        ])
+        let run = scene.run(scene.signupId, "Newsletter signup", .complete)
         scene.show([run], scene.signupTasks([.accepted, .accepted, .published, .accepted],
                                             shas: ["4f2a91c", "9b3e07d", "11c5d2e", "a07f6b8"], ends: [.commit, .commit, .merge, .commit]))
         return scene
@@ -151,27 +135,10 @@ enum OperatorSnapshots {
             Snapshot("operators-done.png") { sidebar(OperatorScene.done()) },
             Snapshot("operator-task-rows.png") { taskRows() },
             Snapshot("operator-marks.png") { marks() },
-            Snapshot("operator-sheet-new.png") {
-                let model = sheetModel(editing: nil)
-                model.name = "Senior engineer"
-                model.personaText = OperatorScene.senior.persona
-                return OperatorSheet(model: model)
-            },
-            Snapshot("operator-sheet-edit.png") {
-                var senior = OperatorScene.senior
-                senior.lessons = ["Ask before adding a field a ticket doesn’t mention."]
-                return OperatorSheet(model: sheetModel(editing: senior))
-            },
-            Snapshot("operator-sheet-no-self-doubt.png") {
-                let model = sheetModel(editing: OperatorScene.senior)
-                model.level = .noSelfDoubt
-                model.autonomy = .handsOff
-                return OperatorSheet(model: model)
-            },
             Snapshot("new-operation.png") {
-                let model = NewOperationModel(operators: [OperatorScene.senior, OperatorScene.investigator], picked: "senior") { _, _, _ in UUID() }
-                model.brief = "PLUTO-231 newsletter signup block in Storyblok\nPLUTO-232 show it on the homepage — needs 231\nthe footer link to /privacy is broken\nbump nuxt to the latest patch"
-                model.doneWhen = OperatorScene.doneWhen
+                let model = NewOperationModel(profile: OperatorScene.profile) { _, _, _ in UUID() }
+                model.prompt = "PLUTO-231 newsletter signup block in Storyblok\nPLUTO-232 show it on the homepage, needs 231\nthe footer link to /privacy is broken\nbump nuxt to the latest patch"
+                model.done = OperatorScene.done
                 return NewOperationSheet(model: model)
             },
             Snapshot("overview-plan.png") { overview(OperatorScene.planWaiting()) },
@@ -179,11 +146,6 @@ enum OperatorSnapshots {
             Snapshot("overview-paused.png") { overview(OperatorScene.paused()) },
             Snapshot("overview-done.png") { overview(OperatorScene.done()) },
         ]
-    }
-
-    private static func sheetModel(editing: OperatorPersona?) -> OperatorSheetModel {
-        OperatorSheetModel(editing: editing, claudeModels: OperatorScene.claudeModels, codexModels: OperatorScene.codexModels,
-                           takenHandles: { [] }, save: { _ in })
     }
 
     /// The list's rows as the sidebar stacks them: OPERATORS, its sections, then PROJECTS and the projects.

@@ -208,12 +208,13 @@ public enum OperatedTransitions {
 
     /// A task over its limits, and why — what AiTerm blocks it with (spec §8): a failure with no
     /// retry left, or a working task past its runtime. Nil while it is within both.
-    public static func limitReason(for task: OperatedTask, limits: OperatorLimits) -> String? {
-        if task.state == .failed, task.retriesUsed >= limits.retries {
-            return "Failed with no retries left (\(limits.retries) allowed)."
+    public static func limitReason(for task: OperatedTask, retries: Int = OperatorTiming.retries,
+                                   runtimeMinutes: Int = OperatorTiming.runtimeMinutes) -> String? {
+        if task.state == .failed, task.retriesUsed >= retries {
+            return "Failed with no retries left (\(retries) allowed)."
         }
-        if task.state == .working, task.runtimeUsed >= TimeInterval(limits.runtimeMinutes * 60) {
-            return "Worked its \(limits.runtimeMinutes) minutes without finishing."
+        if task.state == .working, task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
+            return "Worked its \(runtimeMinutes) minutes without finishing."
         }
         return nil
     }

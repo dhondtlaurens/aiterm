@@ -4,17 +4,15 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// Second opinion (spec §4.4): a challenged call does not take effect on its first call; the operator
+/// The Oracle's challenge: a challenged call does not take effect on its first call; the Operator
 /// reads the critique and calls again, and only that call acts, logged with the critique.
 @MainActor @Suite struct OperatorChallengeTests {
     let project = OperatorServiceFixtures.project()
 
     /// `budget` is generous by default: a critique that is ready answers at once, and a whole-suite run
     /// can keep the main actor busy for seconds. The pending path names a short one.
-    func makeWorld(_ level: SecondOpinionLevel, runner: SecondOpinionRunner, budget: Duration = .seconds(60)) async throws -> (OperatorWorld, OperatorRun) {
-        var persona = OperatorServiceFixtures.persona(autonomy: .handsOff, level: level)
-        persona.secondOpinion.agent = .claude
-        let run = OperatorServiceFixtures.run(persona, projects: [project])
+    func makeWorld(oracle: Bool = true, runner: SecondOpinionRunner, budget: Duration = .seconds(60)) async throws -> (OperatorWorld, OperatorRun) {
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             ports.secondOpinion = runner
             ports.challengeReplyBudget = budget
@@ -23,8 +21,8 @@ import Testing
         return (world, run)
     }
 
-    @Test func healthyDoubtChallengesAPlanAndOnlyTheCallAfterTheCritiqueSubmitsIt() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering("A is two tasks."))
+    @Test func theOracleChallengesAPlanAndOnlyTheCallAfterTheCritiqueSubmitsIt() async throws {
+        let (world, run) = try await makeWorld(runner: .answering("A is two tasks."))
         let first = await world.call(run.id, "submit_plan", ["revision": 1])
         #expect(first.value?["challenged"] == true && first.value?["critique"] == "A is two tasks.")
         #expect(world.run(run.id)?.planRevision == 0)
@@ -39,14 +37,14 @@ import Testing
         #expect(world.run(run.id)?.decisions.count == decisions && world.run(run.id)?.planRevision == 1)
         #expect(await world.call(run.id, "submit_plan", ["revision": 2, "challengeId": .string(id)]).message?
                 .hasPrefix("Challenge \(id) has already acted") == true)
-        #expect(await world.call(run.id, "propose_lesson", ["key": "l", "lesson": "x", "because": "y", "challengeId": .string(id)])
+        #expect(await world.call(run.id, "mark_task", ["task": "A", "outcome": "accepted", "challengeId": .string(id)])
                 .message?.hasPrefix("No challenge") == true)
     }
 
     /// The challenge is on disk before the acting call's reply: after AiTerm restarts, the call repeated
     /// answers the same and changes nothing (spec §11).
     @Test func anActedChallengeIsReplayedAfterARestart() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering("A is two tasks."))
+        let (world, run) = try await makeWorld(runner: .answering("A is two tasks."))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
         let acted = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "One change."])
         let saved = try world.workspace.file.load()
@@ -58,7 +56,7 @@ import Testing
 
     /// A second opinion lost with AiTerm's restart never holds the act up: its next call proceeds, unchallenged.
     @Test func aChallengeStillRunningWhenAiTermQuitProceedsUnchallenged() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering("Late.", after: .seconds(2)), budget: .milliseconds(20))
+        let (world, run) = try await makeWorld(runner: .answering("Late.", after: .seconds(2)), budget: .milliseconds(20))
         defer { world.controller.tools.cancelChallenges() }
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
         #expect(world.workspace.flush())
@@ -67,19 +65,19 @@ import Testing
         #expect(restarted.run(run.id)?.decisions.last?.challenge == "unchallenged: AiTerm restarted before the second opinion answered.")
     }
 
-    @Test func noSelfDoubtActsAtOnce() async throws {
-        let (world, run) = try await makeWorld(.noSelfDoubt, runner: .answering("never asked"))
+    @Test func withTheOracleOffTheCallActsAtOnce() async throws {
+        let (world, run) = try await makeWorld(oracle: false, runner: .answering("never asked"))
         #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["submitted"] == true)
     }
 
     @Test func aSecondOpinionThatCannotRunLetsTheActProceedUnchallenged() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .unavailable)
+        let (world, run) = try await makeWorld(runner: .unavailable)
         #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["submitted"] == true)
         #expect(world.run(run.id)?.decisions.last?.challenge == "unchallenged: claude isn’t installed.")
     }
 
     @Test func aSlowCritiqueIsPendingThenReadThenActedOn() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering("Too broad.", after: .milliseconds(300)), budget: .milliseconds(20))
+        let (world, run) = try await makeWorld(runner: .answering("Too broad.", after: .milliseconds(300)), budget: .milliseconds(20))
         let first = await world.call(run.id, "submit_plan", ["revision": 1])
         #expect(first.value?["pending"] == true && first.value?["critique"] == .null)
         let id = try #require(first.value?["challengeId"]?.stringValue)
@@ -90,22 +88,24 @@ import Testing
         #expect(world.run(run.id)?.planRevision == 1)
     }
 
-    @Test func whichCallsEachStopChallenges() {
+    /// With the Oracle on, what round 1's Healthy doubt challenged; with it off, nothing.
+    @Test func whichCallsTheOracleChallenges() {
         func call(_ tool: String, _ arguments: JSONValue = [:]) -> ToolCall { ToolCall(tool: tool, arguments: arguments) }
-        #expect(OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "accepted"]), level: .healthyDoubt, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "noChange"]), level: .healthyDoubt, answersQuestion: false))
-        #expect(OperatorToolHandler.isChallenged(call("propose_lesson"), level: .healthyDoubt, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("message_task"), level: .healthyDoubt, answersQuestion: false))
-        #expect(OperatorToolHandler.isChallenged(call("message_task"), level: .healthyDoubt, answersQuestion: true))
-        #expect(OperatorToolHandler.isChallenged(call("message_task"), level: .impostor, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("create_task"), level: .impostor, answersQuestion: false))
-        #expect(!OperatorToolHandler.isChallenged(call("submit_plan"), level: .noSelfDoubt, answersQuestion: false))
+        #expect(OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: true, answersQuestion: false))
+        #expect(OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "accepted"]), oracleIsOn: true, answersQuestion: false))
+        #expect(!OperatorToolHandler.isChallenged(call("mark_task", ["outcome": "noChange"]), oracleIsOn: true, answersQuestion: false))
+        #expect(!OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: true, answersQuestion: false), "steering mid-turn is not")
+        #expect(OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: true, answersQuestion: true))
+        #expect(!OperatorToolHandler.isChallenged(call("create_task"), oracleIsOn: true, answersQuestion: false))
+        #expect(!OperatorToolHandler.isChallenged(call("propose_lesson"), oracleIsOn: true, answersQuestion: false))
+        #expect(!OperatorToolHandler.isChallenged(call("submit_plan"), oracleIsOn: false, answersQuestion: false))
+        #expect(!OperatorToolHandler.isChallenged(call("message_task"), oracleIsOn: false, answersQuestion: true))
     }
 
     /// AiTerm quitting cancels a second opinion: that is not an answer, so the act is not recorded as
     /// unchallenged then. Its record stays running, and the next call proceeds unchallenged with the restart's reason.
     @Test func aChallengeCancelledByQuittingIsNotRecordedAsUnchallenged() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering("Late.", after: .seconds(30)), budget: .milliseconds(20))
+        let (world, run) = try await makeWorld(runner: .answering("Late.", after: .seconds(30)), budget: .milliseconds(20))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
         world.controller.tools.cancelChallenges()
         await world.controller.tools.lastChallenge?.value
@@ -116,7 +116,7 @@ import Testing
     }
 
     @Test func aCritiqueIsCappedAtEightKilobytes() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering(String(repeating: "é", count: 20_000)))
+        let (world, run) = try await makeWorld(runner: .answering(String(repeating: "é", count: 20_000)))
         let first = await world.call(run.id, "submit_plan", ["revision": 1])
         let critique = try #require(first.value?["critique"]?.stringValue)
         #expect(critique.utf8.count <= OperatorToolHandler.critiqueLimit + 64 && critique.hasSuffix(OperatorToolHandler.truncationMarker))
@@ -124,7 +124,7 @@ import Testing
     }
 
     @Test func theSameChallengeIdWithOtherArgumentsIsRefused() async throws {
-        let (world, run) = try await makeWorld(.healthyDoubt, runner: .answering("Fine."))
+        let (world, run) = try await makeWorld(runner: .answering("Fine."))
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
         _ = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id)])
         #expect(await world.call(run.id, "submit_plan", ["revision": 1, "extra": true, "challengeId": .string(id)]).message?
@@ -133,9 +133,7 @@ import Testing
 
     /// An active run with one working task, a tab for its worker, and `message_task` under Healthy doubt.
     func makeWorkerWorld(daemon: RecordingDaemon = RecordingDaemon()) throws -> (OperatorWorld, OperatorRun, TaskItem) {
-        var persona = OperatorServiceFixtures.persona(autonomy: .handsOff, level: .healthyDoubt)
-        persona.secondOpinion.agent = .claude
-        let run = OperatorServiceFixtures.run(persona, projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude), projects: [project], state: .active)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "W-1", state: .working, worktree: "/tmp/aiterm-operators-none/w1")
         task.operated?.ownership = 3
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon) { ports in

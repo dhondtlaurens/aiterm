@@ -1,29 +1,28 @@
 import Foundation
 @testable import AiTermCore
 
-/// The operators, operations and tasks the Operators suites build on: one project, one run, and
+/// The profile, broadcasts and tasks the Operators suites build on: one project, one run, and
 /// tasks made by key, so a test reads as the plan it sets up.
 enum OperatorFixtures {
     static let epoch = Date(timeIntervalSince1970: 1_700_000_000)
     static let projectId = UUID(uuidString: "0A1B2C3D-4E5F-4071-8293-A4B5C6D7E8F9")!
     static let runId = UUID(uuidString: "1EB4C0DE-0000-0000-0000-0000000000AA")!
 
-    static func persona(autonomy: Autonomy = .routine, retries: Int = 2) -> OperatorPersona {
-        OperatorPersona(name: "Senior engineer", handle: "senior", model: "claude-opus-5-5", effort: "high",
-                        secondOpinion: SecondOpinion(level: .healthyDoubt, agent: .codex, model: "gpt-6-astra", effort: "medium"),
-                        autonomy: autonomy, alwaysAsk: ["database migrations"],
-                        limits: OperatorLimits(retries: retries, runtimeMinutes: 90),
-                        persona: "You are a senior frontend engineer.", lessons: ["Ask before adding a field a ticket doesn't mention."])
+    /// The profile a broadcast froze: Claude on Opus, every slice off, the Oracle as given.
+    static func profile(oracle: Bool = true, instructions: String = "Ask before adding a field a ticket doesn't mention.") -> OperatorProfile {
+        var oracleSetting = OracleSetting.standard
+        oracleSetting.isOn = oracle
+        return OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: oracleSetting, instructions: instructions)
     }
 
     static func project(id: UUID = projectId, path: String = "/tmp/shop") -> Project {
         Project(id: id, name: "Shop", path: path, provider: .git, remoteUrl: nil, addedAt: epoch, collapsed: false)
     }
 
-    static func run(id: UUID = runId, state: OperatorRunState = .active, autonomy: Autonomy = .routine,
-                    planRevision: Int = 1, approvedRevision: Int? = 1, retries: Int = 2) -> OperatorRun {
-        OperatorRun(id: id, name: "Sprint 42", persona: persona(autonomy: autonomy, retries: retries), projectIds: [projectId],
-                    brief: "Implement the sprint.", doneWhen: "a commit per item, tests green", state: state,
+    static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true,
+                    planRevision: Int = 1, approvedRevision: Int? = 1) -> OperatorRun {
+        OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle), projectIds: [projectId],
+                    prompt: "Implement the sprint.", done: "a commit per item, tests green", state: state,
                     planRevision: planRevision, approvedRevision: approvedRevision, createdAt: epoch)
     }
 

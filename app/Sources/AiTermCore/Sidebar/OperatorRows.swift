@@ -71,6 +71,8 @@ public extension SidebarModel {
         case .working:
             if operated.flags.contains(.possiblyStalled) { return OperatedCaption("working · possibly stalled", warns: true) }
             return OperatedCaption(acting ? "working · the operator is answering \(agent)" : "working")
+        case .inReview:
+            return OperatedCaption("in review")
         case .blocked:
             return OperatedCaption("blocked · " + (operated.blockedReason ?? "waiting on you"), warns: true)
         case .failed:
@@ -81,7 +83,7 @@ public extension SidebarModel {
             return OperatedCaption("done · no change")
         case .published:
             switch operated.end {
-            case .merge: return OperatedCaption("merged · " + sha)
+            case .merge, .mergeLocal: return OperatedCaption("merged · " + sha)
             case .draftMR: return OperatedCaption("draft MR · " + sha)
             case .commit: return OperatedCaption("done · " + sha)
             }
@@ -111,16 +113,17 @@ public struct OperationRow: Equatable, Identifiable, Sendable {
     public var status: TaskStatus
 }
 
-/// An operator's header and its operations, as the OPERATORS group draws them, on a project's
-/// pattern. `inLibrary` is false for an operator moved to the Trash whose operations still run on the
-/// snapshot they started with: its header stays while they do, offering nothing that needs its file.
+/// The Operator's header and its broadcasts, as the OPERATORS group draws them, on a project's
+/// pattern. There is one Operator, so one section, drawn while a broadcast runs (until the plan's
+/// Task 14 replaces the group with the OPERATOR heading and the broadcast row).
 public struct OperatorSection: Equatable, Identifiable, Sendable {
-    public var persona: OperatorPersona
-    public var inLibrary: Bool
+    /// The header's name, and the section's id for folding.
+    public static let name = "Operator", key = "operator"
     public var operations: [OperationRow]
     /// Folded by the person (`SidebarProjection.foldedOperators`).
     public var folded: Bool
-    public var id: String { persona.handle }
+    public var name: String { Self.name }
+    public var id: String { Self.key }
     /// No operation: nothing to disclose.
     public var isEmpty: Bool { operations.isEmpty }
     /// An operator with no operation always draws folded, as an empty project does.
@@ -128,32 +131,21 @@ public struct OperatorSection: Equatable, Identifiable, Sendable {
 }
 
 public extension SidebarModel {
-    /// Ask first and Routine wait for your approval of each plan; Trusted and Hands-off start it (§4.1).
-    static func gatesPlans(_ autonomy: Autonomy) -> Bool { autonomy.gatesPlans }
-
     /// Whether a submitted plan revision waits for your approval: a gated operator, and a revision
     /// past the last one you approved (`PlanRevision.awaitsApproval`; what it would release is
     /// `PlanRevision.pending`, which the overview reads).
     static func planWaitsForYou(_ run: OperatorRun) -> Bool { PlanRevision.awaitsApproval(run) }
 
-    /// The OPERATORS group: every operator in the library in `operators`' order, each with its
-    /// operations that have not ended, then any operator moved to the Trash whose operations still run.
-    static func operatorSections(operators: [OperatorPersona], state: AppState, acting: Set<UUID> = [],
-                                 folded: Set<String> = []) -> [OperatorSection] {
+    /// The OPERATORS group: the Operator with its broadcasts that have not ended, oldest first; none
+    /// while no broadcast runs.
+    static func operatorSections(state: AppState, acting: Set<UUID> = [], folded: Set<String> = []) -> [OperatorSection] {
         let live = state.runs.filter { $0.state != .stopped }
+        guard !live.isEmpty else { return [] }
         let byRun = state.tasks.reduce(into: [UUID: [TaskItem]]()) { grouped, task in
             if let run = task.operated?.runId { grouped[run, default: []].append(task) }
         }
-        func rows(_ handle: String) -> [OperationRow] {
-            live.filter { $0.persona.handle == handle }.map { operationRow(run: $0, tasks: byRun[$0.id] ?? [], acting: acting) }
-        }
-        let known = Set(operators.map(\.handle))
-        var trashed: [OperatorPersona] = []
-        for run in live where !known.contains(run.persona.handle) && !trashed.contains(where: { $0.handle == run.persona.handle }) {
-            trashed.append(run.persona)
-        }
-        return operators.map { OperatorSection(persona: $0, inLibrary: true, operations: rows($0.handle), folded: folded.contains($0.handle)) }
-            + trashed.map { OperatorSection(persona: $0, inLibrary: false, operations: rows($0.handle), folded: folded.contains($0.handle)) }
+        let rows = live.map { operationRow(run: $0, tasks: byRun[$0.id] ?? [], acting: acting) }
+        return [OperatorSection(operations: rows, folded: folded.contains(OperatorSection.key))]
     }
 
     /// One operation's row, from its run and the tasks it made.

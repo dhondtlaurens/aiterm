@@ -22,12 +22,10 @@ import Testing
         let world: OperatorWorld, run: OperatorRun, parent: TaskItem, child: TaskItem, first: String, childTip: String
     }
 
-    func makeFamily(childState: OperatedState = .working, level: SecondOpinionLevel = .noSelfDoubt, runState: OperatorRunState = .active,
+    func makeFamily(childState: OperatedState = .working, oracle: Bool = false, runState: OperatorRunState = .active,
                     runner: SecondOpinionRunner? = nil, milestone: OperatorMilestone = .m3) throws -> Family {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-upstream-"))
-        var persona = OperatorServiceFixtures.persona(autonomy: .handsOff, level: level)
-        persona.secondOpinion.agent = .claude
-        let run = OperatorServiceFixtures.run(persona, projects: [project], state: runState)
+        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.profile(oracle: oracle, oracleAgent: .claude), projects: [project], state: runState)
         var parent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-230", state: .working, end: .draftMR)
         parent = try TaskCreator.checkOutWorker(parent, project: project, start: "main", git: git).task
         let first = try commit("a.swift", in: parent.worktreePath)
@@ -155,7 +153,7 @@ import Testing
 
     /// The challenge gate wraps `mark_task`: a re-accept is challenged and acts only on the second call.
     @Test func aReacceptUnderHealthyDoubtActsOnlyOnTheCallAfterTheCritique() async throws {
-        let family = try makeFamily(childState: .accepted, level: .healthyDoubt, runner: .answering("Is the child rebased?"))
+        let family = try makeFamily(childState: .accepted, oracle: true, runner: .answering("Is the child rebased?"))
         let second = try commit("b.swift", in: family.parent.worktreePath)
         let first = await accept("PLUTO-230", second, in: family)
         #expect(first.value?["challenged"] == true && first.value?["critique"] == "Is the child rebased?")
@@ -178,7 +176,7 @@ import Testing
 
     @Test func aMergedTaskIsNotAcceptedAgain() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-upstream-"))
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-240", state: .working, end: .merge)
         task = try TaskCreator.checkOutWorker(task, project: project, start: "main", git: git).task
         let first = try commit("a.swift", in: task.worktreePath)

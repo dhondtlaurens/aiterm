@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import AiTermCore
 
-/// `state.json` gains `runs` and `TaskItem.operated` (spec §5.1). A workspace saved before either
-/// existed loads as it was and is written back unchanged; one with both survives a save and a load;
-/// and a run or an operated task only a newer build can read is kept whole, not dropped.
+/// `state.json` holds `runs` and `TaskItem.operated`. A workspace saved before either existed loads
+/// as it was and is written back unchanged; one with both survives a save and a load; and a run or an
+/// operated task this build cannot read (a newer build's, or round 1's) is kept whole, not shown.
 @Suite struct OperatorPersistenceTests {
     private func scratchStore() -> (StateStore, URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -15,10 +15,12 @@ import Foundation
         let (store, dir) = scratchStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let parent = OperatorFixtures.task("PLUTO-230", .accepted)
-        let child = OperatorFixtures.task("PLUTO-231", .queued, dependsOn: [TaskDependency(task: parent.id, kind: .code)])
+        let child = OperatorFixtures.task("PLUTO-231", .inReview, dependsOn: [TaskDependency(task: parent.id, kind: .code)])
         var state = OperatorFixtures.state(OperatorFixtures.run(), [parent, child])
         state.tasks[0].operated?.acceptance = OperatorFixtures.acceptance()
+        state.tasks[1].operated?.modelReason = "The schema needs care."
         state.runs[0].questions = [OperatorQuestion(id: "q", text: "Which?", task: child.id, askedAt: OperatorFixtures.epoch)]
+        state.runs[0].finds = [OffBriefFind(key: "leak", title: "A token in the logs", why: "It leaks a secret.", ticket: nil)]
 
         try store.save(state)
 
@@ -50,8 +52,48 @@ import Foundation
         #expect(!written.contains("\"operated\""))
     }
 
+    /// A round-1 run, with its persona and no profile: there is no migration, so it is not shown, and it
+    /// is kept in the file exactly as it was, beside the runs this build reads.
+    @Test func aRound1RunIsPreservedNotShown() throws {
+        let (store, dir) = scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let known = OperatorFixtures.run()
+        let round1: [String: Any] = [
+            "id": "1EB4C0DE-0000-0000-0000-0000000000BB", "name": "Old sprint", "brief": "Do the old sprint",
+            "doneWhen": "a commit per item", "projectIds": [OperatorFixtures.projectId.uuidString],
+            "persona": ["name": "Senior engineer", "handle": "senior", "model": "claude-opus-5-5", "effort": "high",
+                        "secondOpinion": ["level": "healthyDoubt", "agent": "codex", "model": "gpt-6-astra", "effort": "medium"],
+                        "autonomy": "routine", "alwaysAsk": [String](), "limits": ["retries": 2, "runtimeMinutes": 90],
+                        "persona": "You are careful.", "lessons": [String]()],
+            "state": "active", "planRevision": 1, "approvedRevision": 1, "questions": [Any](), "decisions": [Any](),
+            "lessons": [["key": "l1", "lesson": "Ask first.", "because": "You said so."]], "challenges": [Any](),
+            "createdAt": "2023-11-14T22:13:20Z",
+        ]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(OperatorFixtures.state(known, []))) as? [String: Any])
+        json["runs"] = try #require(json["runs"] as? [Any]) + [round1]
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json).write(to: store.url)
+
+        let loaded = try store.load()
+        #expect(loaded.runs == [known], "the round-1 run is not shown")
+
+        try store.save(loaded)
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: store.url)) as? [String: Any])
+        let runs = try #require(saved["runs"] as? [[String: Any]])
+        #expect(runs.count == 2)
+        let original = try JSONSerialization.data(withJSONObject: round1, options: [.sortedKeys])
+        let kept = try JSONSerialization.data(withJSONObject: runs[1], options: [.sortedKeys])
+        #expect(kept == original, "the round-1 run is written back byte for byte")
+
+        // And a second load and save writes the same file again.
+        let first = try Data(contentsOf: store.url)
+        try store.save(try store.load())
+        #expect(try Data(contentsOf: store.url) == first)
+    }
+
     /// `state.json` is shared by every build on the machine: a run whose state only a newer build
-    /// knows, and a task whose workflow state is one, still load — the task as one you made — and a
+    /// knows, and a task whose workflow state is one, still load (the task as one you made), and a
     /// save writes both back as they came.
     @Test func aRunAndAnOperatedTaskFromANewerBuildSurviveAResave() throws {
         let (store, dir) = scratchStore()
@@ -66,7 +108,7 @@ import Foundation
         json["runs"] = try #require(json["runs"] as? [Any]) + [newer]
         var tasks = try #require(json["tasks"] as? [[String: Any]])
         var operated = try #require(tasks[0]["operated"] as? [String: Any])
-        operated["state"] = "inReview"
+        operated["state"] = "deferred"
         tasks[0]["operated"] = operated
         json["tasks"] = tasks
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -81,7 +123,7 @@ import Foundation
         let runs = try #require(saved["runs"] as? [NSDictionary])
         #expect(runs.count == 2 && runs[1]["state"] as? String == "hibernating")
         let savedTask = try #require((saved["tasks"] as? [NSDictionary])?.first)
-        #expect((savedTask["operated"] as? NSDictionary)?["state"] as? String == "inReview")
+        #expect((savedTask["operated"] as? NSDictionary)?["state"] as? String == "deferred")
     }
 
     /// Assigning `operated` replaces what the file had: the unreadable value is not written back

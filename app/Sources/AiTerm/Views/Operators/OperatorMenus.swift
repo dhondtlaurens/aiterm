@@ -6,18 +6,14 @@ import AiTermCore
 /// items are values so each menu's contents and order are tested without opening it; a view draws
 /// them with `OperatorMenuButtons`.
 enum OperatorMenuItem: Hashable {
-    case newOperator, newOperation, editOperator, duplicate, moveToTrash
+    case newOperation
     case overview, rename, pause, resume, interruptAgents, endOperation
     case takeOver, handBack, stopTask
     case separator
 
     var title: String {
         switch self {
-        case .newOperator: "New Operator…"
         case .newOperation: "New Operation…"
-        case .editOperator: "Edit Operator…"
-        case .duplicate: "Duplicate"
-        case .moveToTrash: "Move to Trash…"
         case .overview: "Overview…"
         case .rename: "Rename…"
         case .pause: "Pause"
@@ -31,18 +27,18 @@ enum OperatorMenuItem: Hashable {
         }
     }
 
-    /// Drawn in the menu's destructive red: the three that end something. Each asks first.
-    var isDestructive: Bool { self == .moveToTrash || self == .endOperation || self == .stopTask }
+    /// Drawn in the menu's destructive red: the two that end something. Each asks first.
+    var isDestructive: Bool { self == .endOperation || self == .stopTask }
 }
 
 /// Which items each operator menu holds, in order.
 enum OperatorMenus {
     /// OPERATORS' "+".
-    static let operatorsGroup: [OperatorMenuItem] = [.newOperator]
-    /// An operator header's "+".
+    static let operatorsGroup: [OperatorMenuItem] = [.newOperation]
+    /// The Operator header's "+".
     static let headerPlus: [OperatorMenuItem] = [.newOperation]
-    /// An operator header's context menu.
-    static let header: [OperatorMenuItem] = [.newOperation, .separator, .editOperator, .duplicate, .separator, .moveToTrash]
+    /// The Operator header's context menu.
+    static let header: [OperatorMenuItem] = [.newOperation]
 
     /// An operation row's context menu: Overview… and Rename…; Pause while it can run, Resume while it
     /// is paused or its operator is offline, and Interrupt Agents — each agent's own interrupt key, on

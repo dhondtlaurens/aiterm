@@ -20,16 +20,15 @@ public struct TaskLiveFacts: Equatable, Sendable {
 /// after a restart or a compaction, so it says everything the operator acts on, and only that.
 public struct RunStatus: Encodable, Equatable, Sendable {
     public struct Run: Encodable, Equatable, Sendable {
-        public var id: UUID, name: String, state: OperatorRunState, brief: String, doneWhen: String?
+        public var id: UUID, name: String, state: OperatorRunState, prompt: String, review: String?, done: String?
         /// The last submitted revision, the open one `create_task` adds to, and the last approved.
         public var planRevision: Int, openRevision: Int, approvedRevision: Int?
         public var gated: Bool
-        public var autonomy: Autonomy
-        public init(id: UUID, name: String, state: OperatorRunState, brief: String, doneWhen: String? = nil,
-                    planRevision: Int, openRevision: Int, approvedRevision: Int? = nil, gated: Bool, autonomy: Autonomy) {
-            self.id = id; self.name = name; self.state = state; self.brief = brief; self.doneWhen = doneWhen
+        public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
+                    planRevision: Int, openRevision: Int, approvedRevision: Int? = nil, gated: Bool) {
+            self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
             self.planRevision = planRevision; self.openRevision = openRevision; self.approvedRevision = approvedRevision
-            self.gated = gated; self.autonomy = autonomy
+            self.gated = gated
         }
     }
 
@@ -119,12 +118,11 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) { uncertain.append(o.key) }
         }
-        let gated = run.persona.autonomy.gatesPlans
         return RunStatus(
             revision: revision,
-            run: Run(id: run.id, name: run.name, state: run.state, brief: run.brief, doneWhen: run.doneWhen,
+            run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt, review: run.review, done: run.done,
                      planRevision: run.planRevision, openRevision: run.openRevision,
-                     approvedRevision: run.approvedRevision, gated: gated, autonomy: run.persona.autonomy),
+                     approvedRevision: run.approvedRevision, gated: run.gatesPlans),
             tasks: lines,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {

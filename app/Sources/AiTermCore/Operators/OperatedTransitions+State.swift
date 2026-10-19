@@ -25,12 +25,12 @@ public extension OperatedTransitions {
         guard let run = state.run(id: task.runId) else { throw .unknownRun(task.runId) }
         let runTasks = state.tasks(inRun: run.id)
         let context = OperatedContext(
-            runState: run.state, retryLimit: run.persona.limits.retries,
+            runState: run.state, retryLimit: OperatorTiming.retries,
             codeDependentStarted: runTasks.contains { other in
                 guard let o = other.operated else { return false }
                 return o.started && o.dependsOn.contains(TaskDependency(task: id, kind: .code))
             },
-            milestone: milestone, runtimeLimit: TimeInterval(run.persona.limits.runtimeMinutes * 60))
+            milestone: milestone, runtimeLimit: TimeInterval(OperatorTiming.runtimeMinutes * 60))
 
         let next = try apply(action, to: task, by: actor, context: context)
         guard next != task else { return [] }

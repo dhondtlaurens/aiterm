@@ -12,7 +12,7 @@ import Foundation
         var c = F.task("C", .working), d = F.task("D", .working), e = F.task("E", .planned, revision: 2)
         c.operated?.flags = [.possiblyStalled, .uncertain]
         d.operated?.takenOver = true
-        var s = F.state(F.run(autonomy: .routine, planRevision: 2, approvedRevision: 1), [a, b, c, d, e])
+        var s = F.state(F.run(planRevision: 2, approvedRevision: 1), [a, b, c, d, e])
         s.tasks[0].operated?.acceptance = F.acceptance("4f2a91c0ffee")
         s.runs[0].questions = [
             OperatorQuestion(id: "q-open", text: "Which API version?", task: c.id, askedAt: F.epoch),
@@ -52,13 +52,18 @@ import Foundation
         #expect(o.planAwaitingApproval == 2)
     }
 
-    @Test func noPlanWaitsOnceTheLatestIsApprovedOrTheRunIsUngated() throws {
+    @Test func noPlanWaitsOnceTheLatestIsApproved() throws {
         var (s, live, _) = scene()
         s.runs[0].approvedRevision = 2
         #expect(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)?.obligations.planAwaitingApproval == nil)
-        s.runs[0].approvedRevision = 1
-        s.runs[0].persona.autonomy = .trusted
-        #expect(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)?.obligations.planAwaitingApproval == nil)
+    }
+
+    /// The broadcast's prompt, Review and Done, as the run froze them.
+    @Test func theRunSaysItsPromptReviewAndDone() throws {
+        var (s, live, _) = scene()
+        s.runs[0].review = "Jan approves each MR"
+        let run = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)).run
+        #expect(run.prompt == "Implement the sprint." && run.review == "Jan approves each MR" && run.done == "a commit per item, tests green")
     }
 
     @Test func theToolsJSONHasSortedKeysAndISODates() throws {

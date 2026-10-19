@@ -5,7 +5,8 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The plan (spec §6, §8): unstarted tasks added and changed in the open revision, a revision
-/// submitted once, queued at once when ungated and on your approval of that exact revision when gated.
+/// submitted once, and queued on your approval of that exact revision (every plan is gated until the
+/// plan's Task 2 releases them at once).
 @MainActor @Suite struct OperatorPlanToolsTests {
     let project = OperatorServiceFixtures.project(), other = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-other", name: "Web")
     let docs = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-docs", name: "Docs")
@@ -13,8 +14,8 @@ import Testing
     /// The plan tools need no helper, and without one nothing a released task starts (D10's
     /// `WorkerStarter.start` returns nil), so a queued task stays queued for the test to read. M1's
     /// rules by name unless a test asks for another milestone: F1 and G6 raised `OperatorMilestone.current`.
-    func makeWorld(_ autonomy: Autonomy, milestone: OperatorMilestone = .m1) throws -> (OperatorWorld, OperatorRun) {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: autonomy), projects: [project, other])
+    func makeWorld(milestone: OperatorMilestone = .m1) throws -> (OperatorWorld, OperatorRun) {
+        let run = OperatorServiceFixtures.run(projects: [project, other])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run])) { $0.milestone = milestone }
         world.link.attached = false
         return (world, run)
@@ -32,7 +33,7 @@ import Testing
     }
 
     @Test func createTaskAddsOnePlannedRowWithoutAWorktreePerKey() async throws {
-        let (world, run) = try makeWorld(.routine)
+        let (world, run) = try makeWorld()
         let first = await create(world, run, "PLUTO-231"), again = await create(world, run, "PLUTO-231")
         #expect(first.value?["created"] == true && again.value?["created"] == false)
         #expect(first.value?["task"] == again.value?["task"])
@@ -44,7 +45,7 @@ import Testing
     }
 
     @Test func aTaskOutsideTheOperationsProjectsOrAgentsIsRefusedWhenGated() async throws {
-        let (world, run) = try makeWorld(.routine)
+        let (world, run) = try makeWorld()
         #expect(await create(world, run, "A", project: "Elsewhere").message == "AiTerm has no project called Elsewhere. This operation’s projects are: Shop, Web.")
         #expect(await create(world, run, "A", project: "Docs").message
                 == "Docs isn’t one of this operation’s projects: Shop, Web. Adding a project needs the person’s approval: ask_you first.")
@@ -53,14 +54,8 @@ import Testing
         #expect(world.state.tasks.isEmpty)
     }
 
-    @Test func anUngatedOperationTakesInAnotherProjectOfTheWorkspace() async throws {
-        let (world, run) = try makeWorld(.trusted)
-        #expect(await create(world, run, "A", project: "Docs").value?["created"] == true)
-        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
-    }
-
     @Test func aTaskStacksOnAtMostOneCodeParentInItsOwnProject() async throws {
-        let (world, run) = try makeWorld(.routine)
+        let (world, run) = try makeWorld()
         _ = await create(world, run, "A")
         _ = await create(world, run, "B")
         _ = await create(world, run, "W", project: "Web")
@@ -75,13 +70,13 @@ import Testing
         #expect(stacked.dependsOn == [TaskDependency(task: a.id, kind: .code), TaskDependency(task: b.id, kind: .order)])
     }
 
-    @Test func anUngatedPlanIsQueuedOnSubmitAndSubmittingItAgainChangesNothing() async throws {
-        let (world, run) = try makeWorld(.handsOff)
+    @Test func submittingAPlanAgainChangesNothing() async throws {
+        let (world, run) = try makeWorld()
         _ = await create(world, run, "A")
         let submitted = await world.call(run.id, "submit_plan", ["revision": 1])
-        #expect(submitted.value?["waitingForApproval"] == false && submitted.value?["openRevision"] == 2 && submitted.value?["released"] == 1)
-        #expect(operated(world, "A")?.state == .queued)
-        #expect(world.run(run.id)?.state == .active && world.run(run.id)?.planRevision == 1)
+        #expect(submitted.value?["waitingForApproval"] == true && submitted.value?["openRevision"] == 2)
+        #expect(operated(world, "A")?.state == .planned)
+        #expect(world.run(run.id)?.planRevision == 1)
         let saved = world.state
         let again = await world.call(run.id, "submit_plan", ["revision": 1])
         #expect(again.value?["repeated"] == true && again.value?["revision"] == 1)
@@ -92,7 +87,7 @@ import Testing
     }
 
     @Test func aGatedPlanWaitsForYourApprovalOfThatExactRevision() async throws {
-        let (world, run) = try makeWorld(.routine)
+        let (world, run) = try makeWorld()
         _ = await create(world, run, "A")
         #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["waitingForApproval"] == true)
         #expect(operated(world, "A")?.state == .planned && world.run(run.id)?.state == .planning)
@@ -109,7 +104,7 @@ import Testing
 
     /// M3 carries out every end; a stacked task whose end its parent can't carry is refused with the reason.
     @Test func aPlanWhoseStackedEndItsParentCannotCarryIsRefusedWithTheReason() async throws {
-        let (world, run) = try makeWorld(.handsOff, milestone: .m3)
+        let (world, run) = try makeWorld(milestone: .m3)
         _ = await create(world, run, "A")
         _ = await create(world, run, "B", end: "draftMR", dependsOn: [["task": "A", "kind": "code"]])
         let why = try #require(PlanEndRules.refusal(for: world.state.tasks))
@@ -121,7 +116,7 @@ import Testing
     }
 
     @Test func updateTaskChangesOnlyAnUnstartedTask() async throws {
-        let (world, run) = try makeWorld(.routine)
+        let (world, run) = try makeWorld()
         _ = await create(world, run, "A")
         _ = await world.call(run.id, "update_task", ["task": "A", "brief": "Fix A, then document it."])
         #expect(operated(world, "A")?.brief == "Fix A, then document it.")
@@ -133,7 +128,7 @@ import Testing
     }
 
     @Test func switchingAnUnstartedTasksAgentTakesTheNewAgentsModelNotTheOldOnes() async throws {
-        let (world, run) = try makeWorld(.routine)
+        let (world, run) = try makeWorld()
         world.workspace.mutate { $0.lastModelByAgent[.claude] = "claude-remembered" }
         // What Settings › Agents (or the remembered model) gives claude: the fallback create_task uses too.
         let fallback = AgentIntegrations.fixerModels(remembered: world.state.lastModelByAgent)(.claude)
@@ -155,21 +150,19 @@ import Testing
     }
 
     @Test func aRefusedCreateTaskLeavesTheOperationsProjectsAsTheyWere() async throws {
-        let (world, run) = try makeWorld(.trusted)
-        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Docs", "agent": "grok", "model": "m"])
+        let (world, run) = try makeWorld()
+        let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "grok", "model": "m"])
         #expect(refused.message == "An operator’s task runs claude or codex.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
-        #expect(await create(world, run, "B", project: "Docs", end: "nonsense").message == "A task’s end is commit, draftMR or merge.")
+        #expect(await create(world, run, "B", project: "Shop", end: "nonsense").message == "A task’s end is commit, draftMR or merge.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id])
-        #expect(await create(world, run, "C", project: "Docs").value?["created"] == true)
-        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
-        // A second task in it does not list it twice.
-        _ = await create(world, run, "D", project: "Docs")
-        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
+        // A gated plan takes in no other project without your word.
+        #expect(await create(world, run, "C", project: "Docs").message?.hasPrefix("Docs isn’t one of this operation’s projects") == true)
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
     }
 
     @Test func approvingAnApprovedRevisionAgainWakesTheOperatorOnlyOnce() async throws {
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .routine), projects: [project, other])
+        let run = OperatorServiceFixtures.run(projects: [project, other])
         // The helper is attached here, so the one slot is taken by a worker already running: the approved
         // task stays queued and the only news is the approval, not a start.
         let running = OperatorServiceFixtures.task(in: run, project: project, key: "W", state: .working, worktree: project.path)

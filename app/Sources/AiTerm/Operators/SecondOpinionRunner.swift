@@ -19,7 +19,7 @@ struct SecondOpinionRunner: Sendable {
     /// No second opinion at all: every challenged act proceeds unchallenged. What a test's ports start with.
     static let unavailable = SecondOpinionRunner(locate: { _ in nil }, run: { _, _, _, _, _ in throw CancellationError() })
 
-    func challenge(_ opinion: SecondOpinion, prompt: String, runFolder: URL, projects: [String]) async -> Verdict {
+    func challenge(_ opinion: OracleSetting, prompt: String, runFolder: URL, projects: [String]) async -> Verdict {
         let answerFile = runFolder.appendingPathComponent("challenge-\(UUID().uuidString).txt").path
         defer { try? FileManager.default.removeItem(atPath: answerFile) }
         guard let invocation = ChallengeLaunch.invocation(opinion, prompt: prompt, runFolder: runFolder.path, projects: projects,

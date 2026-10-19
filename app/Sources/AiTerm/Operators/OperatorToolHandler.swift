@@ -77,7 +77,7 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "propose_lesson", "log_decision"]
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
          notifier: OperatorNotifier, waker: OperatorWaker) {
@@ -156,7 +156,6 @@ final class OperatorToolHandler {
         case "jira_search": return try await jiraSearch(call, in: run)
         case "ask_you": return try askYou(call, in: run)
         case "resolve_question": return try resolveQuestion(call, in: run)
-        case "propose_lesson": return try proposeLesson(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
         case "create_task": return try await createTask(call, in: run)
         case "update_task": return try updateTask(call, in: run)
@@ -244,15 +243,6 @@ final class OperatorToolHandler {
             }
         }
         return Self.questionAnswer(question)
-    }
-
-    private func proposeLesson(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
-        let key = try call.string("key"), lesson = try call.string("lesson"), because = try call.string("because")
-        if let proposed = run.lessons.first(where: { $0.key == key }) {
-            return ["lesson": .string(key), "proposed": true, "decided": proposed.decided.map { .string($0.rawValue) } ?? .null]
-        }
-        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.lessons.append(ProposedLesson(key: key, lesson: lesson, because: because, decided: nil)) } }
-        return ["lesson": .string(key), "proposed": true, "decided": .null]
     }
 
     private func logDecision(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {

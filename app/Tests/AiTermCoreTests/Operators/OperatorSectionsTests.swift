@@ -3,7 +3,7 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The OPERATORS group as values: a header per operator with its operations under it, and each
+/// The OPERATORS group as values: the Operator's header with its broadcasts under it, and each
 /// operation's row — the agents at work in it, its progress or its state, and what waits on you —
 /// the operation's state, never the operator session's, so an idle operator over a stuck operation
 /// cannot look calm (spec §10.1, §10.3).
@@ -25,31 +25,25 @@ import Testing
                                                                       takenOver: takenOver, flags: flags))
     }
 
-    @Test func eachOperatorIsAHeaderWithItsOperationsUnderIt() {
-        let investigator = OperatorUIFixtures.persona("Incident investigator", handle: "investigator")
+    @Test func theOperatorIsOneHeaderWithItsBroadcastsUnderIt() {
         let signup = OperatorUIFixtures.run(name: "Newsletter signup"), nuxt = OperatorUIFixtures.run(name: "Nuxt upgrade")
         let ended = OperatorUIFixtures.run(name: "Last week's", state: .stopped)
-        let sections = SidebarModel.operatorSections(operators: [OperatorUIFixtures.senior, investigator],
-                                                     state: state([signup, nuxt, ended]))
-        #expect(sections.map(\.id) == ["senior", "investigator"])
-        #expect(sections[0].operations.map(\.name) == ["Newsletter signup", "Nuxt upgrade"], "an ended operation leaves the group")
+        let sections = SidebarModel.operatorSections(state: state([signup, nuxt, ended]))
+        #expect(sections.map(\.id) == [OperatorSection.key])
+        #expect(sections[0].name == "Operator")
+        #expect(sections[0].operations.map(\.name) == ["Newsletter signup", "Nuxt upgrade"], "an ended broadcast leaves the group")
         #expect(!sections[0].collapsed)
-        #expect(sections[1].isEmpty && sections[1].collapsed, "no operation: drawn folded, as an empty project")
-        #expect(sections.allSatisfy { $0.inLibrary })
+    }
+
+    @Test func withNoBroadcastRunningThereIsNoSection() {
+        #expect(SidebarModel.operatorSections(state: state([])).isEmpty)
+        #expect(SidebarModel.operatorSections(state: state([OperatorUIFixtures.run(state: .stopped)])).isEmpty)
     }
 
     @Test func aFoldedOperatorDrawsCollapsed() {
-        let sections = SidebarModel.operatorSections(operators: [OperatorUIFixtures.senior], state: state([OperatorUIFixtures.run()]),
-                                                     folded: ["senior"])
+        let sections = SidebarModel.operatorSections(state: state([OperatorUIFixtures.run()]), folded: [OperatorSection.key])
         #expect(sections[0].collapsed)
         #expect(sections[0].operations.count == 1)
-    }
-
-    /// Its file went to the Trash, but its operation runs on the snapshot it started with.
-    @Test func anOperatorMovedToTheTrashKeepsItsHeaderWhileItsOperationsRun() {
-        let sections = SidebarModel.operatorSections(operators: [], state: state([OperatorUIFixtures.run()]))
-        #expect(sections.map(\.persona.name) == ["Senior engineer"])
-        #expect(sections.map(\.inLibrary) == [false])
     }
 
     /// The design's operation: one done, three at work, Codex asking about npm install, and a question
@@ -95,9 +89,8 @@ import Testing
         }
         let waiting = OperatorUIFixtures.run(planRevision: 2, approvedRevision: 1)
         #expect(row(waiting) == ("plan waits for you", true, false, .needsInput))
-        let trusted = OperatorUIFixtures.run(persona: OperatorUIFixtures.persona("T", handle: "t", autonomy: .trusted),
-                                             planRevision: 2, approvedRevision: 1)
-        #expect(row(trusted) == ("0 of 0 done", false, true, .idle), "an ungated plan never waits")
+        let approved = OperatorUIFixtures.run(planRevision: 2, approvedRevision: 2)
+        #expect(row(approved) == ("0 of 0 done", false, true, .idle), "an approved plan no longer waits")
         #expect(row(OperatorUIFixtures.run(state: .planning, planRevision: 0, approvedRevision: nil)) == ("planning", false, false, .working))
         let paused = OperatorUIFixtures.run(state: .paused)
         #expect(row(paused, [task("a", run: paused.id, .working), task("b", run: paused.id, .working)])

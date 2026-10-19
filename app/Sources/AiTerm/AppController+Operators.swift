@@ -39,40 +39,17 @@ extension AppController {
 }
 
 extension AppController {
-    /// OPERATORS' "+": a new operator, its file named from its name.
-    func presentNewOperator() {
-        presentOperatorSheet(editing: nil)
-    }
-
-    /// An operator header's Edit Operator…: the same sheet, titled with its name.
-    func presentEditOperator(_ persona: OperatorPersona) {
-        presentOperatorSheet(editing: persona)
-    }
-
-    /// The names taken are the library's own count — the files in its folder, an unreadable one too —
-    /// asked again when Create is pressed, so a new operator's file, named as `uniqueHandle` would name
-    /// it, never lands on one, and `createOperator` refuses it if one lands there in between. An edit
-    /// writes its own file.
-    private func presentOperatorSheet(editing persona: OperatorPersona?) {
-        let controller = operatorController
-        sheets.presentOperatorSheet(editing: persona, takenHandles: { controller.ports.library.takenHandles() }) {
-            if persona == nil { try controller.createOperator($0) } else { try controller.saveOperator($0) }
-        }
-    }
-}
-
-extension AppController {
-    /// An operator's "+" or New Operation…: the sheet, that operator picked. Started, the operation's
-    /// row is selected; its window comes forward by the operator controller's own start.
-    func presentNewOperation(operator persona: OperatorPersona) {
+    /// OPERATORS' "+", or the Operator header's: New Operation…, started on Settings › Operator's
+    /// profile. Started, the broadcast's row is selected; its window comes forward by the operator
+    /// controller's own start.
+    func presentNewOperation() {
         guard canChangeWorkspace else { return }
         let controller = operatorController
-        sheets.present(operatorSheet: .newOperation(NewOperationModel(operators: controller.operators, picked: persona.handle) {
-            [weak self] persona, brief, doneWhen in
-            let id = try await controller.startOperation(operator: persona, brief: brief, doneWhen: doneWhen)
+        sheets.presentNewOperation { [weak self] profile, prompt, done in
+            let id = try await controller.startOperation(profile: profile, prompt: prompt, done: done)
             self?.focus.browse(.operation(id))
             return id
-        }))
+        }
     }
 }
 
@@ -180,8 +157,7 @@ extension AppController {
     /// The overview's buttons, each closing the sheet when it sends you elsewhere. Give It More is the
     /// operator's chat: a finished operation's operator is still there to be given more to do.
     func overviewActions(for run: OperatorRun, dismiss: @escaping @MainActor () -> Void) -> OverviewActions {
-        let controller = operatorController
-        return OverviewActions(
+        OverviewActions(
             approvePlan: { [weak self] revision in self?.approvePlan(run, revision: revision) },
             pause: { [weak self] in self?.pause(run) },
             resume: { [weak self] in self?.resume(run) },
@@ -191,40 +167,13 @@ extension AppController {
             },
             giveItMore: { [weak self] in self?.focusOperatorWindow(run); dismiss() },
             openTask: { [weak self] id in dismiss(); self?.focus.select(.task(id)) },
-            answerInWindow: { [weak self] in self?.focusOperatorWindow(run); dismiss() },
-            decideLesson: { [weak self] key, decision, edited in
-                self?.attempt(decision == .kept ? "Couldn’t keep the lesson" : "Couldn’t dismiss the lesson") {
-                    try controller.decideLesson(run: run.id, key: key, decision, edited: edited)
-                }
-            })
+            answerInWindow: { [weak self] in self?.focusOperatorWindow(run); dismiss() })
     }
 }
 
 extension AppController {
     /// An operator header's chevron.
     func toggleCollapsed(operator handle: String) { rows.toggleCollapsed(operator: handle) }
-
-    /// An operator header's "+" and menu.
-    func perform(_ item: OperatorMenuItem, on persona: OperatorPersona) {
-        let controller = operatorController
-        switch item {
-        case .newOperation: presentNewOperation(operator: persona)
-        case .editOperator: presentEditOperator(persona)
-        case .duplicate: attempt("Couldn’t duplicate “\(persona.name)”") { try controller.duplicateOperator(handle: persona.handle) }
-        case .moveToTrash: Task { await confirmTrash(persona) }
-        default: break
-        }
-    }
-
-    /// Move to Trash…: asks first; the file goes to the Trash, and operations already running keep
-    /// their snapshot. Says whether it went.
-    @discardableResult
-    func confirmTrash(_ persona: OperatorPersona) async -> Bool {
-        guard await prompter.ask(OperatorAlerts.moveToTrash(persona)).confirmed else { return false }
-        let controller = operatorController
-        attempt("Couldn’t move “\(persona.name)” to the Trash") { try controller.trashOperator(handle: persona.handle) }
-        return true
-    }
 }
 
 extension AppController {

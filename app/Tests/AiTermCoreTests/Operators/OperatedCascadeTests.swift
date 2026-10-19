@@ -87,9 +87,10 @@ import Foundation
             try OperatedTransitions.apply(.fail(reason: "x"), toTask: a, in: &s, by: .operatorTool)
         }
         s.runs[0].state = .active
-        s.runs[0].persona.limits.retries = 0
         try OperatedTransitions.apply(.fail(reason: "x"), toTask: a, in: &s, by: .operatorTool)
-        #expect(throws: OperatedTransitionError.noRetriesLeft(limit: 0)) {
+        let index = try #require(s.tasks.firstIndex { $0.id == a })
+        s.tasks[index].operated?.retriesUsed = OperatorTiming.retries
+        #expect(throws: OperatedTransitionError.noRetriesLeft(limit: 2)) {
             try OperatedTransitions.apply(.retry, toTask: a, in: &s, by: .operatorTool)
         }
     }

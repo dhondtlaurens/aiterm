@@ -48,10 +48,6 @@ enum SettingsSnapshots {
             Snapshot("settings-fixer-none.png") { fixerGroup(.agent(.claude), installed: [.pi]) },
             // Codex chosen and since uninstalled: it stays chosen, not swapped for Claude, and says so.
             Snapshot("settings-fixer-missing.png") { fixerGroup(.agent(.codex), installed: [.claude]) },
-            // Agents at once, at its default of two.
-            Snapshot("settings-agents-at-once.png") {
-                AgentsAtOnceGroup(count: .constant(2)).frame(width: Sheet.width - 2 * Space.margin)
-            },
         ]
     }
 

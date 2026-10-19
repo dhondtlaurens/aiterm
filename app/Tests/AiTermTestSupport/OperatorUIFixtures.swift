@@ -1,37 +1,32 @@
 import Foundation
 import AiTermCore
 
-/// Operators, operations and the tasks they drive, for the sidebar's, the sheets' and the overview's
+/// The Operator's broadcasts and the tasks they drive, for the sidebar's, the sheets' and the overview's
 /// tests — built here, in one place, so a change to the operator types' initialisers is one edit.
-/// The example is the design's: "Newsletter signup", run by "Senior engineer" over pluto-cms and
-/// pluto-web.
+/// The example is the design's: "Newsletter signup" over pluto-cms and pluto-web.
 enum OperatorUIFixtures {
     static let epoch = Date(timeIntervalSince1970: 0)
 
-    static let senior = OperatorPersona(
-        name: "Senior engineer", handle: "senior", model: "claude-opus-5-5", effort: "high",
-        secondOpinion: SecondOpinion(level: .healthyDoubt, agent: .codex, model: "gpt-6-astra", effort: "medium"),
-        autonomy: .routine, alwaysAsk: [], limits: OperatorLimits(),
-        persona: "You are a senior frontend engineer on Nuxt and Storyblok projects.", lessons: [])
+    /// The profile the design's broadcast froze: Claude on Opus, every slice off, the standard Oracle.
+    static let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
+                                         instructions: "You are a senior frontend engineer on Nuxt and Storyblok projects.")
 
-    static func persona(_ name: String, handle: String, autonomy: Autonomy = .routine,
-                        level: SecondOpinionLevel = .healthyDoubt, lessons: [String] = []) -> OperatorPersona {
-        var persona = senior
-        persona.name = name; persona.handle = handle; persona.autonomy = autonomy
-        persona.secondOpinion.level = level; persona.lessons = lessons
-        return persona
+    /// `profile` with the Oracle on or off.
+    static func profile(oracle: Bool) -> OperatorProfile {
+        var profile = profile
+        profile.oracle.isOn = oracle
+        return profile
     }
 
-    static func run(id: UUID = UUID(), name: String = "Newsletter signup", persona: OperatorPersona = senior,
+    static func run(id: UUID = UUID(), name: String = "Newsletter signup", profile: OperatorProfile = profile,
                     state: OperatorRunState = .active, planRevision: Int = 1, approvedRevision: Int? = 1,
-                    doneWhen: String? = "a commit per item, tests green — I review and push",
+                    done: String? = "a commit per item, tests green, I review and push",
                     questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
-                    lessons: [ProposedLesson] = [], windowId: String? = "operator-window",
-                    projectIds: [UUID] = []) -> OperatorRun {
-        OperatorRun(id: id, name: name, persona: persona, projectIds: projectIds,
-                    brief: "PLUTO-231 newsletter signup block in Storyblok",
-                    doneWhen: doneWhen, state: state, intent: nil, planRevision: planRevision,
-                    approvedRevision: approvedRevision, questions: questions, decisions: decisions, lessons: lessons,
+                    windowId: String? = "operator-window", projectIds: [UUID] = []) -> OperatorRun {
+        OperatorRun(id: id, name: name, profile: profile, projectIds: projectIds,
+                    prompt: "PLUTO-231 newsletter signup block in Storyblok",
+                    done: done, state: state, intent: nil, planRevision: planRevision,
+                    approvedRevision: approvedRevision, questions: questions, decisions: decisions,
                     operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch)
     }
 

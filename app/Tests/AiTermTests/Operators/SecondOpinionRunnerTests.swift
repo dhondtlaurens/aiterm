@@ -7,7 +7,7 @@ import Synchronization
 /// The second opinion never blocks the act (spec §4.4): one that is missing, fails or runs out of time
 /// lets it proceed, unchallenged, with the reason.
 @Suite struct SecondOpinionRunnerTests {
-    let opinion = SecondOpinion(level: .healthyDoubt, agent: .claude, model: "m", effort: nil)
+    let opinion = OracleSetting(isOn: true, agent: .claude, model: "m", reasoning: nil)
     let folder = URL(fileURLWithPath: NSTemporaryDirectory())
 
     /// What the fake run was asked to run: the executable, the folder, then the arguments.

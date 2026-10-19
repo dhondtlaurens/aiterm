@@ -46,7 +46,7 @@ import Testing
     }
 
     /// A started one takes back the window its tag is in, but a closed one comes back only through the
-    /// operator controller (`reopenWorker`, on your click), with the operation's autonomy flags.
+    /// operator controller (`reopenWorker`, on your click), with the Operator's worker flags.
     @Test func anOperatorsStartedTaskTakesItsTaggedWindowButIsNeverRestoredHere() {
         let working = operated(task(window: nil), state: .working)
         #expect(state(tasks: [working]).windowPlan(sessions: [], settled: true, due: [working.id], waiting: [], lettingGo: []).isEmpty)

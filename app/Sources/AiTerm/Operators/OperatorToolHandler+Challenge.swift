@@ -2,32 +2,34 @@ import Foundation
 import Synchronization
 import AiTermCore
 
-/// Second opinion (spec §4.4), enforced by AiTerm rather than the persona: a challenged call does not
+/// The Oracle's challenge (spec §8), enforced by AiTerm rather than the Operator: a challenged call does not
 /// take effect on its first call. The critique comes back instead, and only a later call with its
 /// `challengeId` acts — with the act revised or `challengeReply` answering each point — and is logged
 /// with the critique. A critique not ready within the reply budget is said to be pending; the call
 /// that first returns it still does not act. Each challenge is a `ChallengeRecord` in its run, saved
 /// with the workspace, so a lost reply or a restart neither loses it nor makes it act twice.
 extension OperatorToolHandler {
-    static func isChallenged(_ call: ToolCall, level: SecondOpinionLevel, answersQuestion: Bool) -> Bool {
-        guard level != .noSelfDoubt else { return false }
+    /// With the Oracle on, a plan, a verdict on a task, and a message that answers a worker's question
+    /// are challenged, as round 1's Healthy doubt did; with it off, nothing is.
+    static func isChallenged(_ call: ToolCall, oracleIsOn: Bool, answersQuestion: Bool) -> Bool {
+        guard oracleIsOn else { return false }
         switch call.tool {
-        case "submit_plan", "propose_lesson": return true
+        case "submit_plan": return true
         case "mark_task": return ["accepted", "blocked", "failed"].contains(call.optionalString("outcome") ?? "")
-        case "message_task": return level == .impostor || answersQuestion
+        case "message_task": return answersQuestion
         default: return false
         }
     }
 
     /// Nil: the call takes effect. Otherwise what the operator reads instead.
     func challengeGate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue? {
-        let opinion = run.persona.secondOpinion
-        // A call naming a challenge of its tool is that challenge's, whatever the level or the worker's tab say now: the
+        let opinion = run.profile.oracle
+        // A call naming a challenge of its tool is that challenge's, whatever the Oracle's switch or the worker's tab say now: the
         // worker may have started working since, and the acting call repeated must still replay, not act again.
         let named = call.optionalString("challengeId").flatMap { id in
             state.run(id: run.id)?.challenges.first { $0.id == id && $0.tool == call.tool }
         }
-        if named == nil, !Self.isChallenged(call, level: opinion.level, answersQuestion: answersQuestion(call, in: run)) { return nil }
+        if named == nil, !Self.isChallenged(call, oracleIsOn: opinion.isOn, answersQuestion: answersQuestion(call, in: run)) { return nil }
         if let id = call.optionalString("challengeId") {
             guard let kept = named else {
                 throw ToolRefusal("No challenge \(id) for \(call.tool) here; call again without challengeId.")
@@ -72,7 +74,7 @@ extension OperatorToolHandler {
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
         let prompt = ChallengeLaunch.prompt(tool: call.tool, arguments: Self.json(call.arguments),
                                             status: Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null),
-                                            persona: run.persona.persona)
+                                            instructions: run.profile.instructions)
         // The runner turns every thrown error, a cancellation included, into `.unchallenged`; a challenge
         // cancelled (AiTerm quitting) is not an answer, so it settles as nil, and its record stays `.running`.
         let challenge = Task { () -> SecondOpinionRunner.Verdict? in

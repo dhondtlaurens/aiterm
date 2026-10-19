@@ -11,7 +11,7 @@ import Testing
 
     func makeWorld(_ daemon: RecordingDaemon = RecordingDaemon()) throws -> (OperatorWorld, OperatorRun, Project) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-start-"))
-        let run = OperatorServiceFixtures.run(OperatorServiceFixtures.persona(autonomy: .handsOff), projects: [project], state: .active)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon), run, project)
     }
 
@@ -39,7 +39,7 @@ import Testing
         #expect(window.params["taskId"] as? String == task.id.uuidString)
         #expect(window.params["cwd"] as? String == started.worktreePath)
         let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: "Do PLUTO-1.",
-                                              worktreePath: started.worktreePath, git: git, operated: .handsOff)
+                                              worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)
         #expect(started.windowId == "reopened")
         #expect(started.operated?.launch?.openedAt != nil, "its window is up: never launched again")
@@ -141,7 +141,7 @@ import Testing
         let window = try #require(world.daemon.requests("window.createTask").first)
         let prompt = "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-5."
         let expected = try AgentCommand.build(agent: .claude, model: "m", reasoning: nil, prompt: prompt,
-                                              worktreePath: started.worktreePath, git: git, operated: .handsOff)
+                                              worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)
     }
 

@@ -10,18 +10,22 @@ import Testing
 
     @Test func startingAnOperationSavesItRegistersItsTokenAndOpensTheOperatorInFront() async throws {
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
-        let id = try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.",
-                                                           doneWhen: "a commit per ticket", projectIds: [project.id])
+        var profile = OperatorServiceFixtures.profile(oracle: true)
+        profile.slices.jira = true
+        let id = try await world.controller.startOperation(profile: profile, prompt: "Implement PLUTO-1 and PLUTO-2.\nThen tidy.",
+                                                           review: "  ", done: "a commit per ticket", projectIds: [project.id])
         let run = try #require(world.run(id))
         #expect(run.name == "Implement PLUTO-1 and PLUTO-2.")
-        #expect(run.state == .planning && run.projectIds == [project.id] && run.doneWhen == "a commit per ticket")
+        #expect(run.state == .planning && run.projectIds == [project.id] && run.done == "a commit per ticket")
+        #expect(run.profile == profile, "the profile is frozen in the run")
+        #expect(run.review == nil, "a blank Review is none")
         #expect(run.planRevision == 0 && run.approvedRevision == nil)
         let folder = OperatorCommand.runFolder(id, home: world.ports.home)
         let register = try #require(world.daemon.requests("operator.register").first)
         #expect(register.params["runId"] as? String == id.uuidString)
         #expect(register.params["token"] as? String == OperatorCommand.existingToken(in: folder))
         let firstMessage = try String(contentsOf: folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
-        #expect(firstMessage == "Your operation:\n\nImplement PLUTO-1 and PLUTO-2.\nThen tidy.\n\nDone when: a commit per ticket")
+        #expect(firstMessage == "Your broadcast:\n\nImplement PLUTO-1 and PLUTO-2.\nThen tidy.\n\nDone: a commit per ticket")
         let window = try #require(world.daemon.requests("window.createTask").first)
         #expect(window.params["taskId"] as? String == id.uuidString)
         #expect(window.params["cwd"] as? String == folder.path)
@@ -35,14 +39,14 @@ import Testing
     @Test func anOperationNeedsABriefAndProjectsOfThisWorkspace() async throws {
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: []))
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "  ", doneWhen: nil, projectIds: [project.id])
+            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "  ", done: nil, projectIds: [project.id])
         }
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Go", doneWhen: nil, projectIds: [UUID()])
+            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Go", done: nil, projectIds: [UUID()])
         }
         world.link.attached = false
         await #expect(throws: ActionUnavailable.self) {
-            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Go", doneWhen: nil, projectIds: [project.id])
+            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Go", done: nil, projectIds: [project.id])
         }
         #expect(world.state.runs.isEmpty)
         #expect(world.daemon.requests.isEmpty)
@@ -150,7 +154,7 @@ import Testing
     // -- a start that fails leaves nothing behind -----------------------------------------------
     private func startFailing(_ world: OperatorWorld) async {
         await #expect(throws: (any Error).self) {
-            try await world.controller.startOperation(operator: OperatorServiceFixtures.persona(), brief: "Go", doneWhen: nil, projectIds: [project.id])
+            try await world.controller.startOperation(profile: OperatorServiceFixtures.profile(), prompt: "Go", done: nil, projectIds: [project.id])
         }
     }
 
