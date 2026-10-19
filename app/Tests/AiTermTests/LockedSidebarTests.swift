@@ -66,8 +66,10 @@ struct LockedSidebarTests {
     /// hosted alone, not in the sidebar's list — a click the row does not take falls to the table,
     /// whose own tracking loop would wait for events the test host never delivers — in a
     /// non-activating panel, because a window in the test host never becomes key and SwiftUI takes
-    /// the first click in an inactive window as activation only.
-    @Test(.serialized, arguments: [false, true]) func aClickOnTheHeaderCollapsesItOnlyWhileUnlocked(locked: Bool) throws {
+    /// the first click in an inactive window as activation only. Not while the screen is locked:
+    /// the login window keeps key focus then, and the panel never becomes key.
+    @Test(.serialized, .enabled(if: !LoginSession.isLocked, "a panel cannot become key while the screen is locked"),
+          arguments: [false, true]) func aClickOnTheHeaderCollapsesItOnlyWhileUnlocked(locked: Bool) throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())

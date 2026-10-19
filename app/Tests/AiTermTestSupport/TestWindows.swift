@@ -39,3 +39,12 @@ import AppKit
     panel.animationBehavior = .none
     return panel
 }
+
+/// Whether the login session's screen is locked. While it is, the login window owns key focus, and
+/// no window of the test process becomes key however it is asked — a test that needs a key window
+/// can only time out, so it runs `.enabled(if: !LoginSession.isLocked)` instead.
+public enum LoginSession {
+    public static var isLocked: Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+    }
+}
