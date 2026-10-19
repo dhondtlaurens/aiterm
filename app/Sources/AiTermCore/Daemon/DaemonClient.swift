@@ -567,9 +567,6 @@ public final class DaemonClient: Sendable {
     public func prompt(sessionId: String) async throws -> PromptKind? {
         try await request(.sessionPrompt, params: SessionParams(sessionId: sessionId), as: PromptResult.self).kind
     }
-    public func interrupt(sessionId: String) async throws {
-        _ = try await request(.sessionInterrupt, params: SessionParams(sessionId: sessionId), as: Empty.self)
-    }
     /// True when the daemon found Codex's update offer open and declined it with Esc; false for any
     /// other screen, a trust question included, which it leaves for the person.
     public func dismissStartup(sessionId: String) async throws -> Bool {

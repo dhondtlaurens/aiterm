@@ -20,7 +20,6 @@ public protocol DaemonCommands: Sendable {
     /// current generation, `wake` holds it while the person types there.
     func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery
     func prompt(sessionId: String) async throws -> PromptKind?
-    func interrupt(sessionId: String) async throws
     /// Declines Codex's update offer with Esc, and nothing else: true when it did.
     func dismissStartup(sessionId: String) async throws -> Bool
     func setOwnership(sessionId: String, ownership: Int) async throws

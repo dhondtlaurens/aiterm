@@ -149,7 +149,7 @@ def shows_update_offer(agent: AgentKind, screen: str) -> bool:
 # prompt that opens while it arrives receives a paste rather than shortcut keys (spec §7.1).
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
 SUBMIT = "\r"
-# Claude's and Codex's interrupt key, sent only on your click (session.interrupt).
+# Esc: what declines Codex's update offer (session.dismissStartup).
 ESC = "\x1b"
 # What a paste may not carry: every C0 control but tab and newline -- ESC above all, which could end
 # the paste early and type the rest as keys -- DEL, and the C1 controls, CSI among them.
@@ -377,14 +377,6 @@ class Deliverer:
         if (session := self.registry.get(session_id)) is None or (screen := await self.iterm.screen_text(session_id)) is None:
             raise KeyError(session_id)
         return open_prompt(session.agent, screen)
-
-    async def interrupt(self, session_id: str) -> None:
-        """Sends the agent's interrupt key, Esc (session.interrupt): only ever on your click, never
-        the operator's. It takes its turn, so it cannot land between a paste and its Enter."""
-        if self.registry.get(session_id) is None:
-            raise KeyError(session_id)
-        async with self._turn(session_id):
-            await self.iterm.send_text(session_id, ESC)
 
     async def dismiss_startup(self, session_id: str) -> bool:
         """Declines the CLI's update offer with Esc (session.dismissStartup): AiTerm always declines one

@@ -126,7 +126,7 @@ extension OperatorController {
         // The reopening took a while: it may have been ended meanwhile.
         guard let current = self.run(id: id), current.state != .stopped, current.intent != .stopped else { return }
         if current.state == .paused || current.state == .operatorOffline {
-            mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0, in: workspace.state) }
+            mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
         }
         waker.say("resumed", to: id)
         runChanged(id)

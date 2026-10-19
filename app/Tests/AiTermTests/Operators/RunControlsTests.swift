@@ -96,14 +96,32 @@ import Testing
     @Test func closingTheWindowOfACompleteRunKeepsTheDebrief() async throws {
         let (world, run, task) = try makeWorld(runState: .complete, taskState: .accepted)
         world.show([])
-        #expect(world.run(run.id)?.state == .operatorOffline && world.run(run.id)?.intent == nil)
+        #expect(world.run(run.id)?.state == .complete && world.run(run.id)?.intent == nil)
+        #expect(world.run(run.id)?.operatorWindowId == nil, "its window is gone")
         #expect(world.controller.activeRun?.id == run.id, "not ended: the debrief stays until End")
         #expect(world.task(task.id)?.operated?.state == .accepted)
         #expect(world.daemon.requests("operator.revoke").isEmpty)
         #expect(try world.workspace.file.load().run(id: run.id)?.intent == nil)
         await world.controller.reopenOperator(run: run.id)
         #expect(world.daemon.requests("window.createTask").count == 1)
-        #expect(world.run(run.id)?.state == .complete, "back to its debrief, not planning again")
+        #expect(world.run(run.id)?.state == .complete, "still its debrief, not planning again")
+    }
+
+    /// A broadcast whose last open task ends while its Operator is offline completes on resume, as every end
+    /// completes one: its Operator is told and you are notified.
+    @Test func aRunThatCompletesWhileOfflineSettlesWhenItResumes() async throws {
+        let (world, run, task) = try makeWorld()
+        world.show([])
+        #expect(world.run(run.id)?.state == .operatorOffline)
+        try world.controller.stop(task: task.id)
+        #expect(world.run(run.id)?.state == .operatorOffline, "offline, nothing settles")
+        try await world.controller.resume(run: run.id)
+        #expect(world.run(run.id)?.state == .complete)
+        #expect(world.notifications.posted.contains { $0.id == "done-\(run.id.uuidString)" && $0.target == .overview(run.id) })
+        world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
+        try await world.daemon.received("session.deliver")
+        let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
+        #expect(lines.contains { $0.contains("operation complete") || $0.contains("updates") }, "its Operator is told: \(lines)")
     }
 
     /// AiTerm's own git problem on a driven task (a checkout or a rebase that failed, in the banner): the task

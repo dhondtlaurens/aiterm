@@ -121,7 +121,6 @@ final class RecordingDaemon: DaemonCommands {
         return prompts[sessionId]
     }
 
-    func interrupt(sessionId: String) async throws { try await answer("session.interrupt", ["sessionId": sessionId]) }
 
     func dismissStartup(sessionId: String) async throws -> Bool {
         try await answer("session.dismissStartup", ["sessionId": sessionId])

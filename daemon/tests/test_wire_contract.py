@@ -181,7 +181,6 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
             "sessionId": pi, "text": "Run the tests.", "ownership": 1, "wake": False, "worktree": None})
         replies["session.prompt"] = await app.call("session.prompt", {"sessionId": pi})
         replies["session.dismissStartup"] = await app.call("session.dismissStartup", {"sessionId": pi})
-        replies["session.interrupt"] = await app.call("session.interrupt", {"sessionId": pi})
 
         # The operator asks for run_status over /operator; the app answers the request it is sent.
         replies["operator.register"] = await app.call("operator.register", {"runId": RUN_ID, "token": RUN_TOKEN})

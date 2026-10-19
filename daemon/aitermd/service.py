@@ -169,7 +169,6 @@ class Service:
         r("session.deliver", self._h_deliver)
         r("session.prompt", self._h_prompt)
         r("session.dismissStartup", self._h_dismiss_startup)
-        r("session.interrupt", self._h_interrupt)
         r("session.setOwnership", self._h_set_ownership)
         r("operator.register", self.operators.register)
         r("operator.revoke", self.operators.revoke)
@@ -237,12 +236,6 @@ class Service:
         session_id = param(p, "sessionId", str)
         require_iterm(self.iterm)
         return {"dismissed": await guard(self.deliverer.dismiss_startup(session_id))}
-
-    async def _h_interrupt(self, p: Any) -> dict[str, Any]:
-        session_id = param(p, "sessionId", str)
-        require_iterm(self.iterm)
-        await guard(self.deliverer.interrupt(session_id))
-        return {}
 
     async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
         self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))

@@ -36,8 +36,6 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     case sessionDeliver = "session.deliver"
     /// The prompt a session has open, if any: what an operator's `read_task(prompt)` reads.
     case sessionPrompt = "session.prompt"
-    /// The session's own interrupt key (Esc), only ever on the person's click.
-    case sessionInterrupt = "session.interrupt"
     /// The ownership generation a delivery must carry to land: a takeover moves it on.
     case sessionSetOwnership = "session.setOwnership"
     /// Declines a startup dialog with Esc — only Codex's update offer: the daemon sends it only when the

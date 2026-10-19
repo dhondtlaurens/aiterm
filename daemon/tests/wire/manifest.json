@@ -67,9 +67,6 @@
       "session.dismissStartup": [
         "reply.session.dismissStartup.json"
       ],
-      "session.interrupt": [
-        "reply.session.interrupt.json"
-      ],
       "session.prompt": [
         "reply.session.prompt.json"
       ],
@@ -122,7 +119,6 @@
     "operator.revoke",
     "session.deliver",
     "session.dismissStartup",
-    "session.interrupt",
     "session.prompt",
     "session.setOwnership",
     "sessions.list",

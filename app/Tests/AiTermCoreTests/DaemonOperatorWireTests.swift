@@ -73,14 +73,13 @@ final class DaemonOperatorWireTests {
 
     @Test func theSessionAndOperatorRequestsNameWhatTheyAreAbout() async throws {
         try connect { _ in [String: Any]() }
-        try await client.interrupt(sessionId: "s1")
         try await client.setOwnership(sessionId: "s1", ownership: 4)
         try await client.registerOperator(runId: "R", token: "tok")
         try await client.revokeOperator(runId: "R")
-        #expect((0..<4).map { method($0) } == ["session.interrupt", "session.setOwnership", "operator.register", "operator.revoke"])
-        #expect(params(1)["ownership"] as? Int == 4)
-        #expect(params(2)["token"] as? String == "tok")
-        #expect(params(3)["runId"] as? String == "R")
+        #expect((0..<3).map { method($0) } == ["session.setOwnership", "operator.register", "operator.revoke"])
+        #expect(params(0)["ownership"] as? Int == 4)
+        #expect(params(1)["token"] as? String == "tok")
+        #expect(params(2)["runId"] as? String == "R")
     }
 
     @Test func aStartupDialogIsDismissedOnlyWhenTheDaemonSaysItDeclinedOne() async throws {

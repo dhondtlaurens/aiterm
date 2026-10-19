@@ -84,7 +84,7 @@ import Testing
             switch method {
             // The liveness check: any answer is a helper that is there, so nothing in it is read.
             case .itermStatus, .windowActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
-                 .sessionInterrupt, .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
+                 .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
                 _ = try read(DaemonClient.Empty.self)
             case .sessionDeliver: #expect(try read(Delivery.self).result.rawValue == field("result") as? String)
             case .sessionPrompt: #expect(try read(DaemonClient.PromptResult.self).kind?.rawValue == field("kind") as? String)

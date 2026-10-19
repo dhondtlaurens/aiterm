@@ -477,11 +477,11 @@ final class OperatorController {
         if held { startReadyTasks() }
     }
 
-    /// The Operator's window closed (spec §9): it ends nothing. A broadcast under way, or complete with its
-    /// debrief up, goes offline at once — the debrief stays until End — and a click on its row reopens the
-    /// window and resumes it (`reopenOperator`). A pause of yours stays a pause.
+    /// The Operator's window closed (spec §9): it ends nothing. A broadcast under way goes offline at once,
+    /// and a click on its row reopens the window and resumes it (`reopenOperator`). A complete one stays
+    /// complete, its debrief up until End, and a click reopens its window as it is. A pause of yours stays a pause.
     private func operatorWindowClosed(_ id: UUID) {
-        guard let run = run(id: id), run.intent == nil, [.planning, .active, .complete].contains(run.state) else { return }
+        guard let run = run(id: id), run.intent == nil, run.state == .planning || run.state == .active else { return }
         mutateRun(id) { $0.state = .operatorOffline }
     }
 

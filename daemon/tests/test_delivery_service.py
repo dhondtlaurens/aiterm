@@ -1,5 +1,5 @@
 # daemon/tests/test_delivery_service.py
-"""session.deliver, session.prompt, session.dismissStartup, session.interrupt and session.setOwnership
+"""session.deliver, session.prompt, session.dismissStartup and session.setOwnership
 over the app's socket."""
 import asyncio
 import json
@@ -120,13 +120,6 @@ async def test_session_dismiss_startup_leaves_every_dialog_but_an_update_offer(c
     assert (await call("session.dismissStartup", {"sessionId": "s404"}))["error"]["code"] == "not_found"
 
 
-async def test_session_interrupt_sends_esc_and_nothing_else(claude):
-    _svc, it, sid, call, _policy = claude
-    assert (await call("session.interrupt", {"sessionId": sid}))["result"] == {}
-    assert it.sent == [(sid, "\x1b")]
-    assert (await call("session.interrupt", {"sessionId": "s404"}))["error"]["code"] == "not_found"
-
-
 @pytest.mark.parametrize("method,params", [
     ("session.deliver", {"text": "hello", "ownership": 1}),
     ("session.deliver", {"sessionId": "s1", "ownership": 1}),
@@ -137,7 +130,6 @@ async def test_session_interrupt_sends_esc_and_nothing_else(claude):
     ("session.deliver", {"sessionId": "s1", "text": "hello", "ownership": 1, "worktree": 7}),
     ("session.prompt", {}),
     ("session.dismissStartup", {}),
-    ("session.interrupt", None),
     ("session.setOwnership", {"sessionId": "s1"}),
 ])
 async def test_a_malformed_request_is_bad_params(claude, method, params):

@@ -358,13 +358,6 @@ async def test_the_prompt_is_read_from_the_screen(rig):
         await rig.deliverer.prompt("s404")
 
 
-async def test_interrupt_sends_esc_and_nothing_else(rig):
-    await rig.deliverer.interrupt(rig.sid)
-    assert rig.iterm.sent == [(rig.sid, "\x1b")]
-    with pytest.raises(KeyError):
-        await rig.deliverer.interrupt("s404")
-
-
 async def test_deliveries_to_one_session_take_turns(rig):
     first = asyncio.create_task(rig.deliverer.deliver(rig.sid, "one", 1))
     second = asyncio.create_task(rig.deliverer.deliver(rig.sid, "two", 1))
