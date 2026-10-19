@@ -323,6 +323,7 @@ final class AppController {
         windows.stop()
         operatorController.stop()
         operatorController.tools.cancelChallenges()
+        operatorController.tools.cancelReviews()
         helper.shutdown()
     }
 

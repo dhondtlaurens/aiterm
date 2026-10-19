@@ -30,6 +30,8 @@ final class FakeMergeHost: MergeRequestPublishing {
         var users: [HostUser] = []
         /// Thrown by every Review slice call while set.
         var reviewError: (any Error)?
+        /// The username the token acts as.
+        var me = "aiterm"
     }
 
     private let script: Mutex<Script>
@@ -119,4 +121,7 @@ final class FakeMergeHost: MergeRequestPublishing {
         try reviewCall("approvals \(number)")
         return script.withLock { $0.approvals }
     }
+
+    /// Not logged: a lookup of who the token is changes nothing on the host.
+    func currentUser() async throws -> String { script.withLock { $0.me } }
 }

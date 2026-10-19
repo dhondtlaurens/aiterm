@@ -71,13 +71,20 @@ public enum ChallengeLaunch {
         return Verdict(approved: approved, reason: reason.isEmpty ? nil : reason)
     }
 
+    /// The only tools a headless Claude reviewer or Oracle has, and the ones it is denied besides.
+    static let readTools = ["Read", "Grep", "Glob"]
+    static let writeTools = ["Bash", "Edit", "Write", "NotebookEdit"]
+
     public static func invocation(_ opinion: OracleSetting, prompt: String, runFolder: String, projects: [String],
                                   answerFile: String) -> FixerInvocation? {
         let effort = opinion.reasoning.flatMap { $0.isEmpty ? nil : $0 }
         switch opinion.agent {
         case .claude:
+            // `--tools` is the whole tool set, so no permission rule of the person's can add a write to it; the
+            // writing tools are denied besides.
             return FixerInvocation(executable: "claude", arguments: ["-p", prompt, "--permission-mode", "dontAsk",
-                "--allowedTools", "Read", "Grep", "Glob", "--disallowedTools"] + FixerLaunch.claudeNoWeb
+                "--tools", readTools.joined(separator: ","), "--allowedTools"] + readTools + ["--disallowedTools"] + writeTools
+                + FixerLaunch.claudeNoWeb
                 + ["--output-format", "json", "--strict-mcp-config", "--settings", FixerLaunch.claudeSettings] + FixerLaunch.claudeSettingSources
                 + (projects.isEmpty ? [] : ["--add-dir"] + projects) + FixerLaunch.modelWords(.claude, opinion.model, effort),
                 environment: [:], sessionID: nil, answerFile: nil)

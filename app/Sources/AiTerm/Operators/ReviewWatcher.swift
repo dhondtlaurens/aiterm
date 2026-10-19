@@ -19,7 +19,9 @@ enum ReviewHosts {
 
 /// Watches the requests people review (spec §5, the Review slice): every `OperatorTiming.reconcileInterval`,
 /// on the reconcile tick, each task in review has its threads read, and its approvals where the host gives
-/// them. A thread that is new and unresolved, one newly resolved or reopened, and a new approval are news:
+/// them. A thread that is new and unresolved, one newly resolved or reopened, a new last note on an unresolved
+/// thread by anyone but the token's own user (so the Operator's own `reply_thread` is no news), and a new
+/// approval are news:
 /// the Operator is woken once for the task, `[AiTerm] review feedback on PAY-2: call run_status`. What was read
 /// is kept on the task (`PeopleReview`), so a restart wakes it for what came meanwhile and for nothing else.
 /// A task taken over, or one whose operation is paused or ended, is not read.
@@ -29,6 +31,8 @@ final class ReviewWatcher {
     private let ports: OperatorPorts
     private let waker: OperatorWaker
     private var polling: Task<Void, Never>?
+    /// The username each project's host token acts as, once asked.
+    private var me: [UUID: String] = [:]
     /// The latest pass, for a test to await.
     private(set) var lastPoll: Task<Void, Never>?
 
@@ -71,6 +75,7 @@ final class ReviewWatcher {
             threads = try await host.threads(of: number)
             // Approvals only where the host gives them: one that cannot leaves them as they were.
             approvals = try? await host.approvals(of: number)
+            if me[project.id] == nil, let user = try? await host.currentUser() { me[project.id] = user }
         } catch {
             Log.network.error("Reading the review of \(task.operated?.key ?? task.title, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             return
@@ -81,15 +86,34 @@ final class ReviewWatcher {
         var next = seen
         next.threads = Dictionary(threads.map { ($0.id, $0.resolved) }, uniquingKeysWith: { first, _ in first })
         if let approvals { next.approvals = approvals }
+        // A note is told apart from AiTerm's own only once the token's user is known: until then the notes seen stay
+        // as they were, so a reviewer's reply is still news on a later pass.
+        let own = me[project.id]
+        if own != nil {
+            next.notes = Dictionary(threads.map { ($0.id, Self.signature($0)) }, uniquingKeysWith: { first, _ in first })
+        }
         guard next != seen else { return }
-        let news = Self.isNews(threads: threads, approvals: approvals ?? seen.approvals, seen: seen)
+        let news = Self.isNews(threads: threads, approvals: approvals ?? seen.approvals, seen: seen, me: own)
         workspace.mutate { $0.updateOperated(id) { $0.peopleReview = next } }
         if news { waker.say("review feedback on \(operated.key)", to: operated.runId, colon: true) }
     }
 
-    /// A thread that is new and unresolved, one whose resolution changed, or an approval not seen before.
-    static func isNews(threads: [ReviewThread], approvals: [String], seen: PeopleReview) -> Bool {
-        threads.contains { thread in seen.threads[thread.id].map { $0 != thread.resolved } ?? !thread.resolved }
-            || approvals.contains { !seen.approvals.contains($0) }
+    /// A thread that is new and unresolved, one whose resolution changed, a new last note on an unresolved thread
+    /// by someone other than `me` (nil: not known yet, so no note is news), or an approval not seen before. A thread
+    /// whose last note was never recorded (a review read by an older build) has it recorded, not told.
+    static func isNews(threads: [ReviewThread], approvals: [String], seen: PeopleReview, me: String?) -> Bool {
+        threads.contains { thread in
+            guard let resolved = seen.threads[thread.id] else { return !thread.resolved }
+            if resolved != thread.resolved { return true }
+            guard !thread.resolved, let me, let before = seen.notes[thread.id], before != signature(thread) else { return false }
+            return thread.lastAuthor?.lowercased() != me.lowercased()
+        } || approvals.contains { !seen.approvals.contains($0) }
+    }
+
+    /// A thread's last note as it is kept: its author and a hash of its text, stable across launches (FNV-1a).
+    static func signature(_ thread: ReviewThread) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in thread.lastBody.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        return (thread.lastAuthor ?? "") + ":" + String(hash, radix: 16)
     }
 }

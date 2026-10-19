@@ -14,10 +14,15 @@ import Testing
         #expect(words.contains("dontAsk") && words.contains("--strict-mcp-config"))
         let allowed = words.drop { $0 != "--allowedTools" }.dropFirst().prefix { !$0.hasPrefix("--") }
         #expect(Array(allowed) == ["Read", "Grep", "Glob"])
+        // The tool set is the read tools alone, whatever the person's permission rules allow; the writes are denied besides.
+        #expect(words.drop { $0 != "--tools" }.dropFirst().first == "Read,Grep,Glob")
+        let denied = words.drop { $0 != "--disallowedTools" }.dropFirst().prefix { !$0.hasPrefix("--") }
+        #expect(Array(denied) == ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"])
         let dirs = words.drop { $0 != "--add-dir" }.dropFirst().prefix { !$0.hasPrefix("--") }
         #expect(Array(dirs) == ["/shop", "/web"])
         #expect(Array(words.suffix(4)) == ["--model", "claude-opus-5-5", "--effort", "high"])
-        #expect(!words.contains { $0.hasPrefix("Edit") || $0.hasPrefix("Write") || $0.hasPrefix("Bash") })
+        let granted = words.prefix { $0 != "--disallowedTools" }
+        #expect(!granted.contains { $0.contains("Edit") || $0.contains("Write") || $0.contains("Bash") })
     }
 
     @Test func codexRunsInAReadOnlySandboxInTheRunFolder() throws {

@@ -20,9 +20,13 @@ import Testing
             #expect(words.last == "Review it.")
         default:
             #expect(invocation.executable == "claude")
+            // The tool set itself is the read tools: no permission rule of the person's can add a write to it.
+            let tools = try #require(words.firstIndex(of: "--tools"))
+            #expect(words[tools + 1] == "Read,Grep,Glob")
             let allowed = try #require(words.firstIndex(of: "--allowedTools"))
             #expect(Array(words[(allowed + 1)...].prefix(3)) == ["Read", "Grep", "Glob"])
-            #expect(!words.contains { $0.contains("Bash") || $0.contains("Edit") || $0.contains("Write") })
+            let denied = words.drop { $0 != "--disallowedTools" }.dropFirst().prefix { !$0.hasPrefix("--") }
+            #expect(Set(["Bash", "Edit", "Write", "NotebookEdit"]).isSubset(of: Set(denied)))
             #expect(words.contains("dontAsk"))
         }
     }

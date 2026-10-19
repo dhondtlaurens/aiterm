@@ -28,6 +28,8 @@ public protocol MergeRequestPublishing: Sendable {
     func findUsers(_ query: String) async throws -> [HostUser]
     /// The usernames that approved it as it stands.
     func approvals(of number: Int) async throws -> [String]
+    /// The username the token acts as: whose notes are AiTerm's own.
+    func currentUser() async throws -> String
 }
 
 public enum MergeRequestPublisher {
@@ -64,6 +66,7 @@ struct GitHubPublisher: MergeRequestPublishing {
     func reply(_ number: Int, thread: String, body: String) async throws { try await client.reply(repo: repo, thread: thread, body: body) }
     func findUsers(_ query: String) async throws -> [HostUser] { try await client.findUsers(repo: repo, query: query) }
     func approvals(of number: Int) async throws -> [String] { try await client.approvals(repo: repo, number: number) }
+    func currentUser() async throws -> String { try await client.testConnection() }
 }
 
 struct GitLabPublisher: MergeRequestPublishing {
@@ -86,4 +89,5 @@ struct GitLabPublisher: MergeRequestPublishing {
     }
     func findUsers(_ query: String) async throws -> [HostUser] { try await client.findUsers(project: project, query: query) }
     func approvals(of number: Int) async throws -> [String] { try await client.approvals(project: project, iid: number) }
+    func currentUser() async throws -> String { try await client.testConnection() }
 }
