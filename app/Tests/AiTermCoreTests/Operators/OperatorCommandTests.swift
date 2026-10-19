@@ -183,6 +183,25 @@ import Foundation
         #expect(brief.contains("80 %"))
     }
 
+    /// The base: commit, push the task's branch, open a draft MR; an empty Done ends there too.
+    @Test func theBriefStatesTheBaseAndDefaultsToADraftMR() {
+        var run = F.run()
+        run.done = nil
+        let brief = OperatorCommand.brief(run: run, projects: [])
+        #expect(brief.contains("the agent commits on the task's branch, pushes that branch and opens a draft merge request"))
+        #expect(brief.contains("Done: not said, so end each task at a draft MR"))
+        #expect(brief.contains("without one, a draft MR."))
+        #expect(!brief.contains("without one, a commit") && !brief.contains("end each task at a commit"))
+    }
+
+    /// The ask-first rule covers only what no slice allows: with Review on, replying in review threads is granted.
+    @Test func withReviewOnTheBriefDoesNotSendTheOperatorToAskBeforeReplyingInThreads() {
+        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: true, merge: false)), projects: [])
+        #expect(brief.contains("reply in review threads"))
+        #expect(brief.contains("anything that messages a person that no slice above allows (email, Teams, Jira comments)"))
+        #expect(!brief.contains("MR comments"))
+    }
+
     @Test func theBriefHasNoEmDash() {
         for oracle in [true, false] {
             for slices in [Slices.none, Slices(jira: true, review: true, merge: true)] {
@@ -211,7 +230,7 @@ import Foundation
         run.done = nil
         let brief = OperatorCommand.brief(run: run, projects: [])
         #expect(!brief.contains("## Instructions"))
-        #expect(brief.contains("Review: not said") && brief.contains("Done: not said, so end each task at a commit"))
+        #expect(brief.contains("Review: not said") && brief.contains("Done: not said, so end each task at a draft MR"))
     }
 
     /// One trimming rule for what a person typed: nothing said is nil.

@@ -141,7 +141,7 @@ public enum OperatorCommand {
         var out = ["# You are the Operator in AiTerm", "", "## The role", "", role, "",
                    "## This broadcast", "", "Broadcast: \(run.name)",
                    "Review: \(said(run.review) ?? "not said")",
-                   "Done: \(said(run.done) ?? "not said, so end each task at a commit")",
+                   "Done: \(said(run.done) ?? "not said, so end each task at a draft MR")",
                    "Projects:"] + projects.map { "- \($0.name): \($0.path)" } + [""]
         out += ["## What you may do", "", planRule, ""]
         out += slicesRule(run.profile.slices).flatMap { [$0, ""] } + [sliceBoundary, ""]
@@ -160,6 +160,8 @@ public enum OperatorCommand {
     /// A submitted plan starts at once; nothing waits for an approval.
     static let planRule = "Answer from the brief and the code; ask on scope or product choices. "
         + "A plan you submit starts at once; nothing waits for approval. "
+        + "On every task, the agent commits on the task's branch, pushes that branch and opens a draft merge request. "
+        + "A draft notifies nobody. "
         + "When the Review asks for an agent review, run one and have the task's agent fix what it finds."
 
     /// One paragraph each for Jira, Review and Merge: what this broadcast's frozen slice lets the Operator do.
@@ -200,7 +202,7 @@ public enum OperatorCommand {
         + "run_status shows each agent's weekly use."
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
-        let askFirst = ["deleting a branch or worktree", "anything that messages a person (email, Teams, Jira or MR comments)",
+        let askFirst = ["deleting a branch or worktree", "anything that messages a person that no slice above allows (email, Teams, Jira comments)",
                         "anything outside this broadcast's projects"]
         let ends = TaskEnd.allCases.filter(milestone.supports).map(\.displayName)
         var rules = [
@@ -214,7 +216,7 @@ public enum OperatorCommand {
             "Never claim work you did not see. Accept a task only with the SHA at its branch head and the worker's check "
                 + "output, read with read_task, never from memory.",
             "Each task ends in a commit, a draft MR or a merge, as the Done, the prompt or the Instructions ask; "
-                + "without one, a commit. This version of AiTerm carries out: \(ends.joined(separator: ", ")). "
+                + "without one, a draft MR. This version of AiTerm carries out: \(ends.joined(separator: ", ")). "
                 + "A merge happens only through finish_task, by AiTerm, when the plan says so, never by a worker.",
             "Forbidden, and no answer unlocks them: force-pushing, pushing directly to a default or protected branch, "
                 + "deploying. Never steer a worker toward one.",
