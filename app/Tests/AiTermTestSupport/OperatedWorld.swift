@@ -15,15 +15,18 @@ struct OperatedWorld {
         state.append(project: project)
     }
 
-    /// The profile its broadcasts froze: the Oracle off, so nothing is challenged.
-    static let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
+    /// The profile its broadcasts froze: the Oracle off, so nothing is challenged, and the Merge slice on, so a
+    /// merge end merges.
+    static let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high", slices: Slices(merge: true),
                                          oracle: OracleSetting(isOn: false, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
                                          instructions: "You keep changes small.")
 
-    /// A new operation in `runState`, made `age` seconds after `createdAt`; its id.
+    /// A new operation in `runState`, made `age` seconds after `createdAt`, its slices frozen as `slices`; its id.
     @discardableResult
-    mutating func addRun(_ runState: OperatorRunState = .active, age: TimeInterval = 0) -> UUID {
-        let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: Self.profile, projectIds: [project.id],
+    mutating func addRun(_ runState: OperatorRunState = .active, age: TimeInterval = 0, slices: Slices = Self.profile.slices) -> UUID {
+        var profile = Self.profile
+        profile.slices = slices
+        let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: profile, projectIds: [project.id],
                               prompt: "Implement the sprint.", state: runState,
                               planRevision: 1, createdAt: createdAt.addingTimeInterval(age))
         state.runs.append(run)

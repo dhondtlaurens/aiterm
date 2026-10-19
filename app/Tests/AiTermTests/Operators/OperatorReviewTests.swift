@@ -316,7 +316,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
     }
 
     @Test func aMergeEndInReviewOpensADraftAndMergesNothing() async throws {
-        let r = try reviewed(.accepted, end: .merge, slices: Slices(review: true))
+        let r = try reviewed(.accepted, end: .merge, slices: Slices(review: true, merge: true))
         #expect(await r.world.call(r.run.id, "finish_task", ["task": "A"]).value?["result"] == "inReview")
         #expect(r.host.log.contains("create feat/a → main draft"))
         #expect(!r.host.log.contains { $0.hasPrefix("readiness") || $0.hasPrefix("merge") })

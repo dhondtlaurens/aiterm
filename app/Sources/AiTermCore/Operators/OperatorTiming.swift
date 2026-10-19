@@ -45,15 +45,17 @@ public enum OperatorMilestone: Int, Comparable, CaseIterable, Sendable {
 
     public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
 
-    /// Whether a plan may end a task with `end`: a commit from M1; a draft MR or a merge, which
-    /// `finish_task` carries out, from M3. A local merge is refused until `finish_task` carries it
-    /// out (the plan's Task 11).
-    public func supports(_ end: TaskEnd) -> Bool { end != .mergeLocal && self >= end.availableFrom }
+    /// Whether a plan may end a task with `end`: a commit from M1; a draft MR, a merge or a local
+    /// merge, which `finish_task` carries out, from M3.
+    public func supports(_ end: TaskEnd) -> Bool { self >= end.availableFrom }
 }
 
 public extension TaskEnd {
     /// The first milestone whose `finish_task` can carry this end out.
     var availableFrom: OperatorMilestone { self == .commit ? .m1 : .m3 }
+
+    /// A merge through the request, or a local one: what the Merge slice governs.
+    var merges: Bool { self == .merge || self == .mergeLocal }
 
     /// The end as the plan, the overview and a refusal say it.
     var displayName: String {

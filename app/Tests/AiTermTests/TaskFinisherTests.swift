@@ -58,11 +58,11 @@ final class MergeClock: Sendable {
         let remotes: Recorded<RemoteInfo>, mergedOnHost: Recorded<UUID>, stopped: Recorded<String>
     }
 
-    func setUp(end: TaskEnd, git finisherGit: (any GitRunning)? = nil,
+    func setUp(end: TaskEnd, git finisherGit: (any GitRunning)? = nil, slices: Slices = OperatedWorld.profile.slices,
                connect: (@Sendable (RemoteInfo) throws -> any MergeRequestPublishing)? = nil) throws -> Setup {
         let fixture = try GitFixture.withOrigin(branch: "feat/pluto-231")
         var world = OperatedWorld(projectPath: fixture.path)
-        let run = world.addRun()
+        let run = world.addRun(slices: slices)
         let task = world.addTask("PLUTO-231", run: run, state: .accepted, end: end, branch: "feat/pluto-231", acceptedSHA: fixture.sha)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = WorkspaceStore(file: StateStore(url: dir.appendingPathComponent("state.json")), saveDelay: .milliseconds(10))
@@ -331,6 +331,51 @@ final class MergeClock: Sendable {
         let again = await s.finisher.finish(s.task)
         #expect(again == result, "a repeat answers what happened")
         #expect(!s.host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    // MARK: - The Merge slice and the local merge (spec §5)
+
+    /// With the Merge slice off a merge end is refused before anything is pushed, and left for you once.
+    @Test func aMergeWithTheSliceOffIsLeftForYou() async throws {
+        let s = try setUp(end: .merge, slices: .none)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == "refused" && result.reason == "The Merge slice is off for this broadcast.")
+        _ = await s.finisher.finish(s.task)
+        #expect(s.store.state.run(id: s.run)?.leftForYou == ["Merge PLUTO-231: the Merge slice is off."], "said once")
+        #expect(s.host.log.isEmpty && s.remotes.all.isEmpty, "no host asked")
+        #expect(try git.run(["for-each-ref", "refs/heads/feat/pluto-231"], in: s.origin).isEmpty, "nothing pushed")
+    }
+
+    /// A local merge goes into the project's own checkout's default branch, never pushed: pushing it is left for you.
+    @Test func aLocalMergeMergesIntoTheCheckoutAndLeavesThePushForYou() async throws {
+        let s = try setUp(end: .mergeLocal)
+        try git.run(["switch", "-q", "main"], in: s.path)
+        let origin = try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: s.origin)
+        let result = await s.finisher.finish(s.task)
+        let main = try git.run(["rev-parse", "main"], in: s.path)
+        #expect(result == TaskFinisher.Result(result: "published", reason: nil, mergeRequest: nil, pushedSHA: nil, merged: true, mergedSHA: main))
+        #expect(operated(s)?.state == .published)
+        #expect(try git.run(["rev-parse", "main^2"], in: s.path) == s.sha)
+        #expect(try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: s.origin) == origin, "nothing pushed")
+        #expect(s.remotes.all.isEmpty, "no host asked")
+        #expect(s.store.state.run(id: s.run)?.leftForYou == ["Push main in acme-web: merged locally."])
+        let saved = try StateStore(url: s.store.file.url).load()
+        #expect(saved.task(id: s.task)?.operated?.publication?.merged == true, "on disk")
+        #expect(await s.finisher.finish(s.task) == result, "a repeat is answered from the record")
+        #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1)
+    }
+
+    /// A checkout with uncommitted changes is refused, and nothing is left for you to push.
+    @Test func aLocalMergeIntoADirtyCheckoutIsRefused() async throws {
+        let s = try setUp(end: .mergeLocal)
+        try git.run(["switch", "-q", "main"], in: s.path)
+        try "x".write(toFile: s.path + "/notes.txt", atomically: true, encoding: .utf8)
+        try git.run(["add", "notes.txt"], in: s.path)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == "refused")
+        #expect(result.reason == LocalMerge.Refusal.uncommittedChanges(s.path).localizedDescription)
+        #expect(operated(s)?.state == .accepted)
+        #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
     }
 }
 

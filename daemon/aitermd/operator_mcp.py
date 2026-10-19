@@ -136,8 +136,10 @@ _TASK = _text("The task: its key as you gave it to create_task, or its id from r
 _KEY = _text("Your idempotency key for this act: the same key again returns what the first call did.")
 _AGENT = _choice("The agent that works the task, among those installed.", "claude", "codex")
 _END = _choice("Where the task ends, from the operation's Done when: commit; draftMR, push and open a draft merge request; "
-               "or merge, push, open a merge request and merge it once the host says it can be. Left out, a task ends at a "
-               "draftMR, or at a commit when the Done says a commit.", "commit", "draftMR", "merge")
+               "merge, push, open a merge request and merge it once the host says it can be; or mergeLocal, merge the "
+               "accepted commit into the project's own default branch, with nothing pushed. A merge needs the broadcast's "
+               "Merge slice. Left out, a task ends at a draftMR, or at a commit when the Done says a commit.",
+               "commit", "draftMR", "merge", "mergeLocal")
 _MODEL = _text("A model id from the agent's own list, as run_status shows it under agents. Left out, the agent's default. "
                "A model not in that list is refused.")
 _DEPENDS_ON: dict[str, Any] = {
@@ -150,7 +152,8 @@ _DEPENDS_ON: dict[str, Any] = {
 _CHALLENGE = {
     "challengeId": _text("The challengeId a challenged call returned: send it with your revised arguments, or with "
                          "challengeReply. A reply that says pending has no answer yet: call again with its challengeId "
-                         "and the same arguments. For create_task, the call again acts only on the Oracle's yes. The same "
+                         "and the same arguments. For create_task and finish_task, the call again acts only on the Oracle's "
+                         "yes. The same "
                          "challengeId again, once answered, returns the recorded result."),
     "challengeReply": _text("Your answer to each point of the second opinion's critique, when you keep the act as it was."),
 }
@@ -158,9 +161,9 @@ _CHALLENGE = {
 # that answers it, with its challengeId, takes effect. An Oracle not back within the app's 20 s answers
 # {"challenged": true, "challengeId": …, "critique": null, "pending": true}, and the operator calls
 # again with that challengeId (integration decision 3). Whether a call is challenged follows the
-# broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold gets
-# the Oracle's yes or no the same way: it may answer pending, and only a yes acts.
-CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task")
+# broadcast's Oracle switch, and is the app's to decide. A create_task past the backlog's threshold, and a
+# finish_task that would merge, get the Oracle's yes or no the same way: it may answer pending, and only a yes acts.
+CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -274,6 +277,15 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "With the broadcast's Review written and its Review slice on, the request opens as a draft and the task "
           "goes into review instead, answering inReview: AiTerm wakes you on people's feedback, and the next "
           "finish_task after the last fix ends the review, a draft end published, a merge end going on to merge. "
+          "A merge, through the request or local, is refused unless the broadcast's Merge slice is on; AiTerm then "
+          "leaves it for the person. Before it merges a request that is still a draft, AiTerm marks it ready, only to "
+          "merge it, and it merges only with every one of its review threads resolved. "
+          "mergeLocal: merges the accepted commit into the project's own checkout's default branch and never pushes; "
+          "that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, "
+          "as \"Push main in <project>: merged locally.\" "
+          "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the conditions written "
+          "in the Review and the Done hold; it may answer pending: call again with its challengeId. A no is recorded on "
+          "the task and refuses the merge. "
           "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
           "done. "

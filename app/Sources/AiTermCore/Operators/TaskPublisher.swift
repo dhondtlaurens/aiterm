@@ -6,9 +6,13 @@ import Foundation
 /// 1. push the accepted commit to the task's own branch;
 /// 2. find the open request from that branch, or open one — a draft for a draft-MR end, a plain
 ///    request for a merge end — into the default branch, or a stacked task's parent's branch;
-/// 3. a merge end only: wait for a stacked parent's merge, then retarget to the default branch; ask
-///    the host whether it can merge, and merge at the accepted commit once it has said so twice,
-///    `OperatorTiming.mergePoll` apart, and the request still targets the default branch.
+/// 3. a merge end only: wait for a stacked parent's merge, then retarget to the default branch; mark a
+///    draft request ready, only to merge it; ask the host whether it can merge, and merge at the
+///    accepted commit once it has said so twice, `OperatorTiming.mergePoll` apart, the request still
+///    targets the default branch and every review thread on it is resolved (`PublicationGuard.mergeFloor`).
+///
+/// A local merge end pushes nothing and asks no host: `mergeLocally` merges the accepted commit into the
+/// project's own checkout's default branch.
 ///
 /// Before the push the host is asked whether it protects the branch: protected, or no answer, and
 /// nothing is pushed. Each completed step is handed to `record`, which saves it before the next starts,
@@ -28,9 +32,11 @@ public struct TaskPublisher: Sendable {
         }
 
         /// Whether the task goes into review before it ends: the broadcast's Review says how it is reviewed,
-        /// its Review slice lets people be involved, and this task's review has not ended.
+        /// its Review slice lets people be involved, and this task's review has not ended. A local merge opens
+        /// no request for people to review.
         public static func entersReview(_ operated: OperatedTask, run: OperatorRun) -> Bool {
             OperatorCommand.said(run.review) != nil && run.profile.slices.review && operated.peopleReview?.ended != true
+                && operated.end != .mergeLocal
         }
     }
 
@@ -77,6 +83,9 @@ public struct TaskPublisher: Sendable {
         if operated.state == .published || publication.merged { return .published(publication) }
         if publication.mergedSHA != nil {
             return .blocked(publication, publication.problem ?? Self.mergedUnaccepted(operated.key, publication))
+        }
+        if operated.end == .mergeLocal {
+            return try await Self.mergeLocally(context, repository: repository, recheck: recheck, record: record)
         }
 
         let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
@@ -172,11 +181,18 @@ public struct TaskPublisher: Sendable {
                 try await record(publication)
             }
         }
-        let answer = try await host.readiness(of: number)
+        var answer = try await host.readiness(of: number)
+        // A request still a draft, opened for its review or by someone, is marked ready only to merge it (spec §5).
+        if case .blocked = answer, let live = try await host.existingRequest(from: branch), live.iid == number, live.draft {
+            if let why = await recheck() { return .refused(why) }
+            try await host.markReady(number)
+            answer = try await host.readiness(of: number)
+        }
+        let request = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
         guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record) }
-        guard head == sha else {
+        if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: [], request: request) {
             publication.readySince = nil
-            return try await blocked(publication, "The request's branch is at \(head.prefix(7)) on the host, not the accepted \(sha.prefix(7)).", record)
+            return try await blocked(publication, why, record)
         }
         // Never on the first ready: GitHub with no checks yet, GitLab with no pipeline yet, read ready.
         // A first read long ago — before a pause, a quit, hours unpolled — is a first read again.
@@ -204,8 +220,43 @@ public struct TaskPublisher: Sendable {
             publication.readySince = nil
             return try await blocked(publication, "The request \(url) targets \(live.targetBranch) on the host now, not \(defaultBranch): AiTerm never merges it there. Retarget it to \(defaultBranch), then call finish_task again.", record)
         }
+        // The floor, read right before the merge: every thread on the request resolved.
+        if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: try await host.threads(of: number), request: request) {
+            publication.readySince = nil
+            return try await blocked(publication, why, record)
+        }
+        // Read fresh right before the host merges: the Merge slice, the operation, the task.
         if let why = await recheck() { return .refused(why) }
         return try await settle(try await host.merge(number, at: sha), sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record, verifiedTarget: live.targetBranch)
+    }
+
+    /// A local merge end (spec §5): the accepted commit merged into the default branch of the project's own
+    /// checkout (`LocalMerge`), never pushed, and recorded as merged there. Its refusals are the guard's and the
+    /// checkout's: uncommitted changes, another branch checked out, a conflict.
+    public static func mergeLocally(_ context: Context, repository: Repository,
+                                    recheck: @escaping @Sendable () async -> String?,
+                                    record: @escaping @Sendable (TaskPublication) async throws -> Void) async throws -> Outcome {
+        let task = context.task, branch = task.branch
+        guard let operated = task.operated else { return .refused(PublicationGuard.notOperated) }
+        let publication = operated.publication ?? TaskPublication()
+        if operated.state == .published || publication.merged { return .published(publication) }
+        let (defaultBranch, tip) = try await BackgroundWork.run { (repository.defaultBranch(), try repository.tip(of: branch)) }
+        if let refusal = PublicationGuard.refusal(task: task, run: context.run, parent: context.parent,
+                                                  defaultBranch: defaultBranch, branchTip: tip) {
+            return .refused(refusal)
+        }
+        guard let sha = operated.acceptance?.resultSHA else { return .refused(PublicationGuard.notOperated) }
+        if let why = await recheck() { return .refused(why) }
+        let commit: String
+        do { commit = try await LocalMerge.merge(sha: sha, into: defaultBranch, in: repository) }
+        catch let refusal as LocalMerge.Refusal { return .refused(refusal.localizedDescription) }
+        var merged = publication
+        merged.targetBranch = defaultBranch
+        merged.merged = true
+        merged.mergedSHA = commit
+        merged.problem = nil
+        try await record(merged)
+        return .published(merged)
     }
 
     /// What a readiness read that is not ready, or a merge's answer, makes of the publication. Any

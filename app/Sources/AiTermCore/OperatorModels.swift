@@ -76,17 +76,21 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// Why the host will not merge it without someone acting — a failed pipeline, conflicts — or why
     /// the wait ended. Cleared by the operator's next `finish_task`.
     public var problem: String?
+    /// The Merge slice with the Oracle on: the accepted commit the Oracle said yes for, that the conditions written in
+    /// the Review and the Done hold. A merge goes ahead only while it is the commit accepted now.
+    public var conditionsHeld: String?
 
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
-                mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil) {
+                mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
-        self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem
+        self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
+        case conditionsHeld
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -104,6 +108,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
         mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
+        conditionsHeld = try c.decodeIfPresent(String.self, forKey: .conditionsHeld)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -119,6 +124,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(mergedSHA, forKey: .mergedSHA)
         try c.encodeIfPresent(mergedHead, forKey: .mergedHead)
         try c.encodeIfPresent(problem, forKey: .problem)
+        try c.encodeIfPresent(conditionsHeld, forKey: .conditionsHeld)
     }
 }
 

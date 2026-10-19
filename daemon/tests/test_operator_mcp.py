@@ -158,7 +158,7 @@ def test_every_tool_has_a_description_and_a_closed_object_schema(tool):
 
 
 def test_only_the_challenged_tools_take_a_challenge_reply():
-    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task"}
+    assert set(CHALLENGED_TOOLS) == {"submit_plan", "mark_task", "create_task", "finish_task"}
     for tool in TOOLS:
         properties = tool["inputSchema"]["properties"]
         assert ("challengeId" in properties and "challengeReply" in properties) == (tool["name"] in CHALLENGED_TOOLS)
@@ -170,7 +170,8 @@ def test_only_the_challenged_tools_take_a_challenge_reply():
 
 def test_the_values_are_the_apps():
     properties = {tool["name"]: tool["inputSchema"]["properties"] for tool in TOOLS}
-    assert properties["create_task"]["end"]["enum"] == ["commit", "draftMR", "merge"]
+    assert properties["create_task"]["end"]["enum"] == ["commit", "draftMR", "merge", "mergeLocal"]
+    assert properties["update_task"]["end"]["enum"] == ["commit", "draftMR", "merge", "mergeLocal"]
     assert properties["create_task"]["agent"]["enum"] == ["claude", "codex"]
     assert properties["create_task"]["dependsOn"]["items"]["properties"]["kind"]["enum"] == ["order", "code"]
     assert properties["read_task"]["what"]["enum"] == ["lastMessage", "diff", "prompt", "review"]

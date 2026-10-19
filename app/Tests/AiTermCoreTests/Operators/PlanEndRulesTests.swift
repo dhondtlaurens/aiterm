@@ -54,4 +54,18 @@ import Testing
         #expect(PlanEndRules.refusal(for: plan(parent: .draftMR, child: .merge))
                 == "PLUTO-231 ends in a merge but builds on PLUTO-230, which ends in a draft MR and never merges. Merge PLUTO-230 too, or end PLUTO-231 in a draft MR.")
     }
+
+    /// A local merge pushes nothing, so no request builds on it; and it merges its parent's commits with its own, so it
+    /// builds only on a parent that never waits on a review of its request.
+    @Test func aLocalMergeIsStackedOnlyWhereItsParentCanCarryIt() {
+        #expect(PlanEndRules.refusal(for: plan(parent: .mergeLocal, child: .mergeLocal)) == nil)
+        #expect(PlanEndRules.refusal(for: plan(parent: .commit, child: .mergeLocal)) == nil)
+        #expect(PlanEndRules.refusal(for: plan(parent: .mergeLocal, child: .commit)) == nil)
+        #expect(PlanEndRules.refusal(for: plan(parent: .mergeLocal, child: .draftMR))
+                == "PLUTO-231 ends in a draft MR but builds on PLUTO-230, which ends in a local merge: its request would target a branch that is never pushed. Give PLUTO-230 a draft MR or a merge, or end PLUTO-231 in a local merge too.")
+        #expect(PlanEndRules.refusal(for: plan(parent: .mergeLocal, child: .merge))
+                == "PLUTO-231 ends in a merge but builds on PLUTO-230, which ends in a local merge: its request would target a branch that is never pushed. Give PLUTO-230 a draft MR or a merge, or end PLUTO-231 in a local merge too.")
+        #expect(PlanEndRules.refusal(for: plan(parent: .draftMR, child: .mergeLocal))
+                == "PLUTO-231 ends in a local merge but builds on PLUTO-230, which ends in a draft MR and never merges. Merge PLUTO-230 too, or end PLUTO-231 in a draft MR.")
+    }
 }

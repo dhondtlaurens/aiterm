@@ -86,11 +86,11 @@ import Synchronization
 
     func advance(_ s: inout Setup, host: FakeMergeHost, restart: Bool = true, records: Records = Records(),
                  current: Current = Current(), parent: UUID? = nil, git pushGit: (any GitRunning)? = nil,
-                 now: @escaping @Sendable () -> Date = Date.init) async throws -> TaskPublisher.Outcome {
+                 now: @escaping @Sendable () -> Date = Date.init, forReview: Bool = false) async throws -> TaskPublisher.Outcome {
         let publisher = TaskPublisher(repository: Repository(s.path, git: pushGit ?? git), host: host, now: now)
         let task = s.world.state.tasks.first { $0.id == s.task }!
         let context = TaskPublisher.Context(task: task, run: s.world.state.runs.first { $0.id == s.run }!,
-                                            parent: parent.flatMap { id in s.world.state.tasks.first { $0.id == id } })
+                                            parent: parent.flatMap { id in s.world.state.tasks.first { $0.id == id } }, forReview: forReview)
         defer { if let last = records.last { s.world.update(s.task) { $0.publication = last } } }
         return try await publisher.advance(context, restart: restart,
                                            recheck: { current.ask() ? nil : PublicationGuard.changedMidway },
@@ -724,5 +724,90 @@ import Synchronization
         guard case .published(let publication) = outcome else { Issue.record("\(outcome)"); return }
         #expect(publication.merged && publication.targetBranch == "main")
         #expect(publication.mergedSHA == "merged" && publication.mergedHead == s.sha)
+    }
+    // MARK: - The Merge slice's floor and the local merge (spec §5)
+
+    func thread(_ id: String, resolved: Bool) -> ReviewThread { ReviewThread(id: id, resolved: resolved, lastAuthor: "jan", lastBody: "Why?") }
+
+    /// Every thread on the request must be resolved: an open one blocks the merge, read right before it.
+    @Test func anOpenThreadBlocksTheMerge() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        host.update { $0.readiness = [.ready(head: s.sha)]; $0.threads = [thread("d1", resolved: false), thread("d2", resolved: true)] }
+        _ = try await advance(&s, host: host, now: { clock.now })
+        clock.pass(OperatorTiming.mergePoll)
+        let blocked = try await advance(&s, host: host, restart: false, now: { clock.now })
+        #expect(blocked == .blocked(s.world.operated(s.task)!.publication!, "1 review thread is still open on !12."))
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+        // Resolved, the operator's next call merges.
+        host.update { $0.threads = [thread("d1", resolved: true), thread("d2", resolved: true)] }
+        _ = try await advance(&s, host: host, restart: true, now: { clock.now })
+        clock.pass(OperatorTiming.mergePoll)
+        let merged = try await advance(&s, host: host, restart: false, now: { clock.now })
+        guard case .published(let publication) = merged else { Issue.record("\(merged)"); return }
+        #expect(publication.merged)
+        #expect(host.log.suffix(2) == ["threads 12", "merge 12 at \(s.sha)"])
+    }
+
+    /// A request still a draft, from its review or someone's, is marked ready, only to merge it.
+    @Test func aDraftRequestIsMarkedReadyToMerge() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(), clock = Clock()
+        // Opened as a draft for its review, which has ended.
+        _ = try await advance(&s, host: host, now: { clock.now }, forReview: true)
+        #expect(host.log.last == "create feat/pluto-231 → main draft")
+        host.update { $0.readiness = [.blocked("it is a draft"), .ready(head: s.sha)] }
+        let first = try await advance(&s, host: host, restart: false, now: { clock.now })
+        guard case .waiting = first else { Issue.record("\(first)"); return }
+        #expect(host.log.contains("ready 12"))
+        clock.pass(OperatorTiming.mergePoll)
+        let merged = try await advance(&s, host: host, restart: false, now: { clock.now })
+        guard case .published = merged else { Issue.record("\(merged)"); return }
+        #expect(host.log.filter { $0 == "ready 12" }.count == 1)
+        #expect(host.log.firstIndex(of: "ready 12")! < host.log.firstIndex(of: "merge 12 at \(s.sha)")!)
+    }
+
+    /// A request that is blocked for another reason than a draft is not marked ready.
+    @Test func aBlockedRequestThatIsNoDraftIsLeftAsItIs() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost(.init(readiness: [.blocked("its pipeline failed")]))
+        let outcome = try await advance(&s, host: host)
+        guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "its pipeline failed")
+        #expect(!host.log.contains { $0.hasPrefix("ready") })
+    }
+
+    /// A local merge asks no host and pushes nothing: the accepted commit is merged into the project's own
+    /// checkout's default branch, and recorded as merged.
+    @Test func aLocalMergeMergesTheAcceptedCommitAndPushesNothing() async throws {
+        var s = try setUp(end: .mergeLocal)
+        try git.run(["switch", "-q", "main"], in: s.path)
+        let before = try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: s.origin)
+        let host = FakeMergeHost(), records = Records()
+        let outcome = try await advance(&s, host: host, records: records)
+        let main = try git.run(["rev-parse", "main"], in: s.path)
+        #expect(outcome == .published(TaskPublication(targetBranch: "main", merged: true, mergedSHA: main)))
+        #expect(records.list == [TaskPublication(targetBranch: "main", merged: true, mergedSHA: main)])
+        #expect(try git.run(["rev-parse", "main^2"], in: s.path) == s.sha)
+        #expect(host.log.isEmpty, "no host is asked")
+        #expect(try git.run(["for-each-ref", "--format=%(refname) %(objectname)"], in: s.origin) == before, "nothing pushed")
+        let again = try await advance(&s, host: host, records: records)
+        #expect(again == outcome, "a repeat answers what was done")
+    }
+
+    @Test func aLocalMergeStopsWhenTheTaskChangedHands() async throws {
+        var s = try setUp(end: .mergeLocal)
+        try git.run(["switch", "-q", "main"], in: s.path)
+        let main = try git.run(["rev-parse", "main"], in: s.path)
+        let outcome = try await advance(&s, host: FakeMergeHost(), current: Current(opensFor: 0))
+        #expect(outcome == .refused(PublicationGuard.changedMidway))
+        #expect(try git.run(["rev-parse", "main"], in: s.path) == main)
+    }
+
+    @Test func aLocalMergeOffTheDefaultBranchIsRefused() async throws {
+        var s = try setUp(end: .mergeLocal)
+        // The fixture's checkout is on the task's branch, not the default one.
+        let outcome = try await advance(&s, host: FakeMergeHost())
+        #expect(outcome == .refused(LocalMerge.Refusal.notOnDefaultBranch(s.path, current: "feat/pluto-231", defaultBranch: "main").localizedDescription))
     }
 }

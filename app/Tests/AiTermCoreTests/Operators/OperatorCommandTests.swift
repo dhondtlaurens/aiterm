@@ -127,7 +127,7 @@ import Foundation
         #expect(!brief.lowercased().contains("never merge"))
         #expect(brief.contains("This version of AiTerm carries out: commit."))
         #expect(OperatorCommand.brief(run: run, projects: [], milestone: .m3)
-                .contains("carries out: commit, draft MR, merge."))
+                .contains("carries out: commit, draft MR, merge, local merge."))
     }
 
     /// The role, the sections in their order, and what the Operator never does.
@@ -194,12 +194,36 @@ import Foundation
         #expect(brief.contains("run_status lists each installed agent's models and its default"))
     }
 
-    /// Spec §5: Merge is its own slice, and a local merge waits until AiTerm carries it out.
-    @Test func theMergeSliceStandsApartFromReviewAndWaitsForALocalMerge() {
-        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: false, merge: true)), projects: [])
+    /// Spec §5: Merge is its own slice, and AiTerm carries out a local merge, which stops at the merge.
+    @Test func theMergeSliceStandsApartFromReviewAndCarriesOutALocalMerge() {
+        let brief = OperatorCommand.brief(run: F.run(oracle: false, slices: Slices(jira: false, review: false, merge: true)), projects: [])
         #expect(brief.contains("Merge doesn't depend on Review: Merge marks the request ready only to merge it."))
-        #expect(brief.contains("A local merge comes once AiTerm carries it out; until then, merge through the merge request."))
+        #expect(!brief.contains("once AiTerm carries it out"))
+        #expect(brief.contains("A local merge (mergeLocal) merges the accepted commit into the project's own checkout, which must be on "
+                               + "its default branch with nothing uncommitted. It stops at the merge: pushing the default branch stays with the person."))
+        #expect(!brief.contains("the Oracle's yes that those conditions hold"))
         #expect(!brief.contains("—"))
+        let checked = OperatorCommand.brief(run: F.run(oracle: true, slices: Slices(jira: false, review: false, merge: true)), projects: [])
+        #expect(checked.contains("With the Oracle on, a finish_task that would merge first needs the Oracle's yes that those conditions hold. "
+                                 + "It may answer pending: call finish_task again with its challengeId. A no is recorded on the task."))
+        let off = OperatorCommand.brief(run: F.run(oracle: true, slices: .none), projects: [])
+        #expect(off.contains("You may not merge. A task ends at a commit or a draft merge request."))
+    }
+
+    /// A task enters review when the broadcast has a Review and the Review slice is on, as finish_task does it.
+    @Test func theReviewSliceSaysWhenATaskEntersReview() {
+        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: true, merge: false)), projects: [])
+        #expect(!brief.contains("When the Review names people"))
+        #expect(brief.contains("With the broadcast's Review written, finish_task puts the task in review"))
+    }
+
+    /// The run rule names every end this version carries out, the local merge with them.
+    @Test func theRunRuleListsTheEndsCarriedOut() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [], milestone: .m3)
+        #expect(brief.contains("Each task ends in a commit, a draft MR, a merge or a local merge, as the Done"))
+        #expect(brief.contains("This version of AiTerm carries out: commit, draft MR, merge, local merge."))
+        #expect(brief.contains("AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge. "
+                               + "A local merge pushes nothing: AiTerm merges the accepted commit into the project's own default branch."))
     }
 
     /// The base: the worker commits, AiTerm pushes and opens the draft MR through finish_task, and Done decides the end.

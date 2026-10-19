@@ -141,7 +141,24 @@ final class TaskFinisher {
         return result
     }
 
+    /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
     private func advance(_ id: UUID, restart: Bool) async -> Result {
+        let result = await publish(id, restart: restart)
+        if result.result == "refused", result.reason == PublicationGuard.mergeSliceOff, let operated = store.state.task(id: id)?.operated {
+            leaveForYou(PublicationGuard.mergeLeftForYou(operated), in: operated.runId)
+        }
+        return result
+    }
+
+    /// `sentence` in the run's Left for you, once.
+    private func leaveForYou(_ sentence: String, in run: UUID) {
+        store.mutate { state in
+            state.updateRun(id: run) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
+        }
+        _ = store.flush()
+    }
+
+    private func publish(_ id: UUID, restart: Bool) async -> Result {
         guard var first = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
         // A task in review: this finish_task ends the review (spec §5). A draft end is then published; a merge end
         // goes on to its merge.
@@ -165,6 +182,8 @@ final class TaskFinisher {
                                                       defaultBranch: defaultBranch, branchTip: tip) {
                 return Result(fresh.operated.publication, result: "refused", reason: refusal)
             }
+            // A local merge asks no host and pushes nothing.
+            if fresh.operated.end == .mergeLocal { return await mergeLocally(fresh, repository: repository) }
             guard let origin = try await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) else {
                 return Result(fresh.operated.publication, result: "refused", reason: PublishRefusal.noOrigin.localizedDescription)
             }
@@ -197,6 +216,33 @@ final class TaskFinisher {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
         } catch {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.failure(error, branch: branch))
+        }
+    }
+
+    /// A local merge end (spec §5): merged into the project's own checkout's default branch and recorded as published;
+    /// pushing that branch is left for you.
+    private func mergeLocally(_ current: Context, repository: Repository) async -> Result {
+        let id = current.task.id, ownership = current.operated.ownership, accepted = current.operated.acceptance?.resultSHA ?? ""
+        do {
+            let outcome = try await TaskPublisher.mergeLocally(
+                TaskPublisher.Context(task: current.task, run: current.run, parent: current.parent), repository: repository,
+                recheck: { @MainActor [weak self] in
+                    guard let self else { return PublicationGuard.gone }
+                    return self.recheck(id, ownership: ownership, sha: accepted)
+                },
+                record: { @MainActor [weak self] publication in
+                    guard let self else { throw NotSaved() }
+                    try self.record(publication, for: id, ownership: ownership)
+                })
+            let result = apply(outcome, to: id)
+            if result.result == "published", let into = result.merged ? store.state.task(id: id)?.operated?.publication?.targetBranch : nil {
+                leaveForYou("Push \(into) in \(current.project.name): merged locally.", in: current.run.id)
+            }
+            return result
+        } catch is NotSaved {
+            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
+        } catch {
+            return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: GitError.displayReason(of: error))
         }
     }
 

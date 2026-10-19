@@ -16,6 +16,8 @@ def test_finish_task_is_listed_once() -> None:
 def test_finish_task_takes_one_task() -> None:
     schema = finish_task()["inputSchema"]
     assert schema["required"] == ["task"]
+    # The Oracle's verdict on a merge's conditions may answer pending: the call again names it.
+    assert "challengeId" in schema["properties"]
     assert schema["properties"]["task"]["type"] == "string"
     assert schema.get("additionalProperties") is False
 
@@ -44,4 +46,11 @@ def test_finish_task_says_what_refuses_it_and_what_it_never_does() -> None:
     description = finish_task()["description"]
     for phrase in ("paused", "stopped", "offline", "taken over", "moved past", "accepted again", "cannot say", "default branch",
                    "never deploys", "force-pushes"):
+        assert phrase in description, phrase
+
+
+def test_finish_task_says_what_the_merge_slice_allows_and_what_a_local_merge_leaves() -> None:
+    description = finish_task()["description"]
+    for phrase in ("Merge slice", "mergeLocal", "never pushes", "uncommitted", "Push", "review threads", "resolved",
+                   "the Oracle's yes", "pending", "marks it ready"):
         assert phrase in description, phrase
