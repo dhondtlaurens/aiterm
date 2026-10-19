@@ -179,13 +179,13 @@ vendor needs both.
 ### Patterns — `app/Sources/AiTerm/Views/`
 
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
-`AgentSegmented`, `AgentSegmentLabel`, `FixProposalBlock`, `FixBusyLine`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
+`AgentSegmented`, `AgentSegmentLabel`, `Notice`, `FixProposalBlock`, `FixBusyLine`, `FixOfferLabel`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
 `NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
-`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `IssueBanner`, `SidebarToast`,
+`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
 `OperatorsHeader`, `OperatorHeaderRow`, `OperationRowView`, `OperationCaptionLine`, `OperatorAvatar`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
@@ -242,8 +242,9 @@ operator's window forward; ⌘I opens the overview; its menu adds Rename… (`Na
 Resume and End Operation…. Menus and buttons are Title Case, as everywhere. The
 operator's mark (`OperatorAvatar`) is a `.paper` `SymbolMark` with `headphones`, the same for every
 operator; it leads a driven task's avatars, and while the operator acts on that task wears a
-`Size.activityRing` accent ring that breathes, standing still under Reduce Motion — the one Metrics
-value Operators added. A driven task's menu leads with Take Over or Hand Back, and Stop Task… (it
+1.5 pt accent ring that breathes, standing still under Reduce Motion — its own one-off stroke width
+(`OperatorAvatar.activityRing`), since `Size.activityRing` went with the greenfield design that
+replaces this mark. A driven task's menu leads with Take Over or Hand Back, and Stop Task… (it
 asks first) while the task is open. A driven task's workflow is a `RowCaption` under its badges,
 decided by `SidebarModel.operatedCaption`; the rows are values in
 `AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `NewOperationSheet` and `OperationOverviewSheet`
@@ -273,23 +274,42 @@ out in the project's own folder and that folder has no uncommitted changes, **Re
 branch and origin's have diverged. A plain button with no key — ⌘↩ stays the create — that runs the
 fix and then the create it stopped (`CreationFailure.Recovery`).
 
-**Fix with AI.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
-Pull main's — offers **Fix with Claude** (or **Codex**), after the failure's own recovery: a plain
-button with the `sparkles` symbol and no key, greyed with its reason in the tooltip while the agent is
-missing. From then on the session's state (`FixSession.State`) is drawn where the failure's sentence
-was, by `FixFooterPresentation` in the footer and `BannerFixPresentation` in the banner, so each state is
-tested without rendering. `FixBusyLine` is the line while the agent looks — “Claude is looking at the
-conflict…”: a working `StatusMark` at `Size.statusMark`, `Space.snug` before the line in
-`Typography.caption` and `Palette.muted`. `FixProposalBlock` is its plan: the agent's `VendorMark` at
-`Size.vendorMark`, then what it found in `Typography.label` and `Palette.text`, why in
-`Typography.caption` and `Palette.muted`, and up to three numbered steps in `Typography.help`, the number
-hanging in a `Space.block` indent, `Space.tight` between the parts and `Space.hairline` between steps; its
-text is selectable. `compact`, the banner's size, sets the line and the why in `Typography.help`. In the
-footer Cancel and a primary **Apply** on ⌘↩ — the footer's only; the banner has no key — replace Back and
-Create while a proposal is up, and “Applying…” with Cancel off and the sheet held open while it is applied.
-In the banner (`IssueBanner`) the offer is a link beside the issue's own, then Apply and Cancel as links,
-then Cancel greyed while it is applied. A fix that fails shows the failure in the sentence's place with
-**Try Again**; one with nothing to propose shows the agent's reason and no Fix. No new tokens.
+**Notice.** Every “needs your attention or your answer” is one `Notice` (spec §6.1, proposal 19 Oct
+2026): an amber `exclamationmark.circle.fill` at `Size.inlineMark`, `Space.snug` before the title in
+`Typography.label` and `Palette.text` on one row; the description under it in `Typography.help` and
+`Palette.muted`; then the actions as links `Space.gap` apart; `Space.tight` between the rows and nothing
+indented. No amber text: the mark carries the tone. It is the sidebar's banner about a failed save
+or a failed operation (`IssueBanner`) and iTerm2 refusing the connection (`SidebarConnectionBanner`:
+the status its title, what to do its description), a failed create in `CreationFooter`, and the
+Backpack sheet's permission ask (Allow… its one link). In a sheet's footer the caller passes no
+actions and keeps its buttons, and a failure with one sentence (`GitError.sentence`) is the title
+alone. Not Notices: the grey line while AiTerm connects (`SidebarBannerText`), field help, row captions
+and toasts. `SidebarBanner` is only the banners' margins now: their text starts where `PROJECTS`
+does. The Operator's greenfield design added two Metrics members: `Size.inlineMark` (12), a mark that
+leads a line of text — the Notice's, Find a Fix's — and `Sheet.boardWidth` (820), the broadcast
+board's width, which no sheet draws yet.
+
+**Find a Fix.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
+Pull main's — offers **Find a Fix**, after the failure's own recovery and before Dismiss: led by the
+Operator's mark, its agent's `VendorMark` (Claude's) at `Size.inlineMark` (`FixOfferLabel`), a plain
+button with no key in the footer and a link in the banner. The fix runs as the Operator: Claude, at
+Settings › Operator's model and reasoning (`AgentIntegrations.fixModel`); with Help with problems off,
+or Claude Code missing, there is no button and the sentence keeps “Rebase it by hand.”. From then on
+the session's state (`FixSession.State`) follows the problem, decided by `FixFooterPresentation` in the
+footer and `BannerFixPresentation` in the banner, so each state is tested without rendering.
+`FixBusyLine` is the line while it looks — “Looking for a fix…”: a working `StatusMark` at
+`Size.statusMark`, `Space.snug` before the line in `Typography.caption` and `Palette.muted`.
+`FixProposalBlock` is its plan: the agent's `VendorMark` at `Size.vendorMark`, then what it found in
+`Typography.label` and `Palette.text`, why in `Typography.caption` and `Palette.muted`, and up to three
+numbered steps in `Typography.help`, the number hanging in a `Space.block` indent, `Space.tight` between
+the parts and `Space.hairline` between steps; its text is selectable. `compact`, the banner's size,
+sets the line and the why in `Typography.help`. In the footer the busy line and the proposal stand
+where the failure was; Cancel and a primary **Apply** on ⌘↩ — the footer's only; the banner has no
+key — replace Back and Create while a proposal is up, and “Applying…” with Cancel off and the sheet
+held open while it is applied. In the banner they are drawn in the issue's `Notice`, under its title
+and reason, with Apply and Cancel as its links, then Cancel greyed while it is applied. A fix that
+fails, or finds nothing, keeps the problem's title with what it said as the description, and offers
+**Try Again** (a failure) or nothing (no fix).
 
 `NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",
@@ -414,17 +434,15 @@ Sidebar badges, each keyboard group: the card's box and rule without its mark, s
 actions. A heading over one line of `HelpText`, a `Hairline`, then the rows, one heading gap
 (`Space.gap`) either side of the rule and between rows; rows split themselves with a `Hairline`.
 `SettingsGroup(title:help:accessory:rows:)` puts one control at the heading's trailing edge, as a
-card's actions sit — Fix with AI's switch.
+card's actions sit — Help with problems' switch; with no rows there is no rule.
 The terminal-background row is not one: it has no heading of its own, only a swatch, a title and
 a switch, in the same `groupChrome` box.
 
-`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Fix with AI” with a
-`SettingsSwitch` as its accessory, and below the rule a `FormField` “Agent” with a `Select` of the
-agents that can fix — Claude and Codex, by their short names — in the left of two columns, so it
-lines up with the cards' Default model. Off dims the select and keeps its agent. A chosen agent that
-is not installed stays chosen, never swapped for the other vendor, and one `HelpText` under the
-select says so; with neither installed the switch is off and disabled, and the group's help says to
-install one.
+`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Help with problems” with a
+`SettingsSwitch` as its accessory and no rows — no agent select, since the fix runs as the Operator
+(`HelpWithProblems`, kept under `operator.helpWithProblems`). With Claude Code missing the switch is off
+and disabled, and the group's help says to install it. Settings › Operator, where its model is set,
+comes with the Operator's settings.
 
 `InterfaceSettingsPane` draws its preferences outside cards: the terminal-background row, a
 "Sidebar size" group (a `SegmentedControl` of `InterfaceSize`, applied to the sidebar behind the

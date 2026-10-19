@@ -63,7 +63,7 @@ enum SheetSnapshots {
 
     /// New Review's footer through a Fix, as the picked design draws it (footer states 1–5 and 7–9;
     /// 6 is the toast): offered alone and beside Rebase, looking, the proposal, applying, no fix,
-    /// failed, and greyed with Claude Code missing. Drawn last, after the images before them.
+    /// failed, and with Help with problems off or Claude Code missing. Drawn last, after the images before them.
     private static var fixFooters: [Snapshot] {
         let conflict = WorktreeError.rebaseConflicted("feat-gift-card", detail: nil)
         return [
@@ -80,7 +80,7 @@ enum SheetSnapshots {
             Snapshot("review-fix-failed.png") {
                 fixFooter(.failed("pnpm typecheck failed (status 2) after the fix, so nothing was changed."), error: conflict)
             },
-            Snapshot("review-fix-unavailable.png") { fixFooter(nil, error: conflict, fixer: .missing(.claude)) },
+            Snapshot("review-fix-unavailable.png") { fixFooter(nil, error: conflict, fixer: .off) },
         ]
     }
 

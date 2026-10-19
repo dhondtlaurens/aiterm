@@ -3,6 +3,8 @@ import Foundation
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
+/// Settings › Agents' “Help with problems”: one switch. The fix runs as the Operator, so its agent is
+/// always Claude, at Settings › Operator's model and reasoning.
 struct FixerChoiceTests {
     @Test func onlyAgentsWithAnUnattendedModeAreFixers() {
         #expect(AgentKind.claude.fixer == .claude)
@@ -11,63 +13,27 @@ struct FixerChoiceTests {
         #expect(AgentKind.pi.fixer == nil)
     }
 
-    @Test func theButtonUsesTheShortName() {
-        #expect(FixerAgent.claude.shortName == "Claude")
-        #expect(FixerAgent.codex.shortName == "Codex")
+    /// The Operator's agent is Claude: without it the switch is off, whatever was saved, and with it
+    /// the fixer is Claude, never another vendor.
+    @Test func offWithoutClaude() {
+        let on = HelpWithProblems(isOn: true)
+        #expect(on.resolve(installed: [.claude, .codex]) == .ready(.claude))
+        #expect(on.resolve(installed: [.codex, .grok, .pi]) == .off, "Codex is no stand-in for the Operator")
+        #expect(on.resolve(installed: []) == .off)
+        #expect(HelpWithProblems(isOn: false).resolve(installed: [.claude]) == .off)
+        #expect(on.isAvailable(installed: [.claude]) && !on.isAvailable(installed: [.codex]))
     }
 
-    /// Spec §3 decision 7: a missing agent is named, never swapped for another vendor.
-    @Test func aMissingChoiceIsNamedNotReplaced() {
-        #expect(FixerChoice.agent(.claude).resolve(installed: [.codex]) == .missing(.claude))
-        #expect(FixerChoice.agent(.codex).resolve(installed: [.codex, .claude]) == .ready(.codex))
-        #expect(FixerChoice.off().resolve(installed: [.claude]) == .off)
-        #expect(FixerChoice.off(keeping: .codex).resolve(installed: [.codex]) == .off, "off whatever it keeps")
-    }
-
-    /// First launch: the first installed of Claude Code, Codex, switched on; none → Off. Saved, so
-    /// a later install does not change it.
-    @Test func theFirstLaunchPicksTheFirstInstalledAndKeepsIt() {
+    /// On until it is turned off, kept under its own key; the old Fix with AI keys are not read.
+    @Test func itIsOnUntilTurnedOffAndRoundTrips() {
         let defaults = ScratchDefaults.make()
-        #expect(FixerSettings.load(defaults: defaults, installed: [.grok, .codex]) == .agent(.codex))
-        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .agent(.codex), "kept once chosen")
-        #expect(FixerSettings.load(defaults: ScratchDefaults.make(), installed: [.pi]) == .off())
-    }
-
-    /// Off keeps its agent, so turning the switch back on asks the same one.
-    @Test func aSavedChoiceRoundTripsWithTheAgentItKeepsWhileOff() {
-        let defaults = ScratchDefaults.make()
-        FixerSettings.save(.off(keeping: .codex), defaults: defaults)
-        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off(keeping: .codex))
-        FixerSettings.save(.agent(.codex), defaults: defaults)
-        #expect(FixerSettings.load(defaults: defaults, installed: []) == .agent(.codex))
-    }
-
-    @Test func anUnknownSavedValueReadsAsOff() {
-        let defaults = ScratchDefaults.make()
-        defaults.set("gemini", forKey: "fixer")
-        #expect(FixerSettings.load(defaults: defaults, installed: [.claude]) == .off())
-    }
-
-    /// A version before the switch saved only `fixer`: an agent meant on, `off` meant Off.
-    @Test func aChoiceSavedBeforeTheSwitchReadsAsItMeant() {
-        let defaults = ScratchDefaults.make()
-        defaults.set("codex", forKey: "fixer")
-        #expect(FixerSettings.saved(defaults: defaults) == .agent(.codex))
         defaults.set("off", forKey: "fixer")
-        #expect(FixerSettings.saved(defaults: defaults) == .off())
-    }
-
-    /// `saved` answers only for a choice that was made — Off included — and never saves one, so the
-    /// app can tell a first launch from a person who picked.
-    @Test func savedReadsAChoiceWithoutMakingOne() {
-        let defaults = ScratchDefaults.make()
-        #expect(FixerSettings.saved(defaults: defaults) == nil)
-        #expect(FixerSettings.saved(defaults: defaults) == nil, "asking saved nothing")
-        FixerSettings.save(.off(), defaults: defaults)
-        #expect(FixerSettings.saved(defaults: defaults) == .off())
-        FixerSettings.save(.agent(.claude), defaults: defaults)
-        #expect(FixerSettings.saved(defaults: defaults) == .agent(.claude))
-        defaults.set("gemini", forKey: "fixer")
-        #expect(FixerSettings.saved(defaults: defaults) == .off(), "a value this version does not know reads as Off")
+        defaults.set(false, forKey: "fixerIsOn")
+        #expect(HelpWithProblems.load(defaults: defaults) == HelpWithProblems(isOn: true), "no migration of the old keys")
+        HelpWithProblems.save(HelpWithProblems(isOn: false), defaults: defaults)
+        #expect(defaults.object(forKey: "operator.helpWithProblems") as? Bool == false)
+        #expect(HelpWithProblems.load(defaults: defaults) == HelpWithProblems(isOn: false))
+        HelpWithProblems.save(HelpWithProblems(isOn: true), defaults: defaults)
+        #expect(HelpWithProblems.load(defaults: defaults) == HelpWithProblems(isOn: true))
     }
 }

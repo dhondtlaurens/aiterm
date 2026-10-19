@@ -26,25 +26,43 @@ final class AgentIntegrations {
     /// again does not read `~/.claude.json` or launch PI again.
     let catalogue: ModelCatalogue
 
-    /// Settings › Agents' “Fix with AI”, saved on every write. Before the first launch's probe
-    /// has said what is installed there is nothing to choose from, so it reads as the first fixer,
-    /// unsaved; `probe()` settles it.
-    var fixerChoice: FixerChoice {
-        didSet { if fixerChoice != oldValue { FixerSettings.save(fixerChoice, defaults: defaults) } }
+    /// Settings › Agents' “Help with problems”, saved on every write.
+    var helpWithProblems: HelpWithProblems {
+        didSet { if helpWithProblems != oldValue { HelpWithProblems.save(helpWithProblems, defaults: defaults) } }
     }
-    /// What every Fix button is: the chosen agent when installed, else named as missing, or Off.
-    var fixer: FixerResolution { fixerChoice.resolve(installed: availableAgents) }
+    /// What every Find a Fix is: Claude, the Operator's agent, while the switch is on and Claude Code is
+    /// installed; else Off.
+    var fixer: FixerResolution { helpWithProblems.resolve(installed: availableAgents) }
 
-    /// The model and reasoning a fixer runs with, for every surface's Fix: its card's default in
-    /// Settings › Agents, else the model last picked for that agent (`remembered`, the workspace's),
-    /// else empty — the agent's own default (`FixerLaunch.modelWords`). Read as each run starts,
-    /// off the main actor.
+    /// Settings › Operator's profile as these defaults keep it, read as each caller asks: a broadcast
+    /// freezes it as it starts, and every Fix runs at its model and reasoning. Off the main actor.
+    var operatorProfile: @Sendable () -> OperatorProfile {
+        // UserDefaults is thread-safe, though not marked Sendable.
+        nonisolated(unsafe) let defaults = defaults
+        let catalogue = catalogue
+        return {
+            OperatorProfileStore.load(defaults, claudeDefault: OperatorProfileStore.claudeDefault(
+                models: (try? catalogue.models(for: .claude)) ?? [], defaults: defaults))
+        }
+    }
+
+    /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
+    /// handed, since the fixer is always the Operator's own, Claude.
+    var fixModel: @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
+        let profile = operatorProfile
+        return { _ in let operating = profile(); return (operating.model, operating.reasoning) }
+    }
+
+    /// The model and reasoning an agent's card gives it: its default in Settings › Agents, else the
+    /// model last picked for that agent (`remembered`, the workspace's), else empty — the agent's own
+    /// default (`FixerLaunch.modelWords`). What the Operator's tasks launch with when it names none;
+    /// a Fix runs at the Operator's own (`fixModel`). Read as each run starts, off the main actor.
     nonisolated static func fixerModel(_ agent: FixerAgent, remembered: [AgentKind: String],
                                        defaults: UserDefaults = .standard) -> (model: String, reasoning: String?) {
         ModelSettings.load(for: agent.agent, defaults: defaults).map { ($0.model, $0.reasoning) } ?? (remembered[agent.agent] ?? "", nil)
     }
 
-    /// `fixerModel` over the models remembered when a surface offers its Fix, as a pipeline asks for it.
+    /// `fixerModel` over the models remembered as a launch asks for it.
     nonisolated static func fixerModels(remembered: [AgentKind: String]) -> @Sendable (FixerAgent) -> (model: String, reasoning: String?) {
         { fixerModel($0, remembered: remembered) }
     }
@@ -75,7 +93,7 @@ final class AgentIntegrations {
          },
          defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        fixerChoice = FixerSettings.saved(defaults: defaults) ?? .agent(FixerAgent.allCases[0])
+        helpWithProblems = HelpWithProblems.load(defaults: defaults)
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]
@@ -111,13 +129,7 @@ final class AgentIntegrations {
         let (installed, _) = await (agents, statusLine)
         guard !Task.isCancelled else { return }
         // Unknown when the login shell failed: every agent stays offered rather than none.
-        if let installed {
-            availableAgents = installed
-            // First launch: the first installed fixer, saved at once so a later install never moves it.
-            if FixerSettings.saved(defaults: defaults) == nil {
-                fixerChoice = FixerSettings.load(defaults: defaults, installed: installed)
-            }
-        }
+        if let installed { availableAgents = installed }
     }
 
     /// The status line's launch probe: first the upgrade of an old record of the user's own status

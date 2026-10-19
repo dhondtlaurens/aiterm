@@ -44,12 +44,12 @@ enum HarnessCardPresentation {
 
 struct HarnessSettingsPane: View {
     let model: HarnessSettingsModel
-    /// Where the fixer is chosen, and which agents are installed to choose from.
+    /// Help with problems' switch, and which agents are installed.
     let agents: AgentIntegrations
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
-            FixerSettingsGroup(choice: Binding(get: { agents.fixerChoice }, set: { agents.fixerChoice = $0 }),
+            FixerSettingsGroup(choice: Binding(get: { agents.helpWithProblems }, set: { agents.helpWithProblems = $0 }),
                                installed: agents.availableAgents)
             ForEach(HarnessCardPresentation.agents, id: \.self) { agent in
                 if let snapshot = model.snapshots[agent] {
@@ -57,7 +57,7 @@ struct HarnessSettingsPane: View {
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. The install and Fix with AI both take effect immediately; Cancel does not undo them.")
+            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. The install and Help with problems both take effect immediately; Cancel does not undo them.")
         }
     }
 
@@ -136,62 +136,36 @@ struct HarnessSettingsPane: View {
     }
 }
 
-/// “Fix with AI”: a switch for whether Fix buttons are offered, and a select of the agents that can
-/// fix — Claude and Codex — in the cards' Default model column. Off dims the select and keeps its
-/// agent; a chosen agent that is not installed stays chosen, and a line under the select says so.
+/// “Help with problems” (spec §8, §13): one switch for whether a problem AiTerm hits offers Find a
+/// Fix. No agent select: the fix runs as the Operator, Claude, at Settings › Operator's model and
+/// reasoning. With Claude Code missing the switch is off and disabled, and the help says why.
 struct FixerSettingsGroup: View {
-    @Binding var choice: FixerChoice
+    @Binding var choice: HelpWithProblems
     let installed: Set<AgentKind>
 
-    /// Whether neither Claude Code nor Codex is installed, so that the switch can only be off.
-    static func noFixerInstalled(_ installed: Set<AgentKind>) -> Bool {
-        !installed.contains { $0.fixer != nil }
-    }
+    static let title = "Help with problems"
 
-    /// The group's one line of help; with nothing that can fix installed it says what to do instead.
+    /// The group's one line of help; without Claude Code it says what to do instead.
     static func groupHelp(installed: Set<AgentKind>) -> String {
-        noFixerInstalled(installed)
-            ? "No agent that can run unattended is installed. Install Claude Code or Codex below to fix problems with it."
-            : "When AiTerm hits a git problem, a Fix button asks this agent. It proposes a fix, using the model on its card below, and changes nothing until you press Apply."
+        HelpWithProblems(isOn: true).isAvailable(installed: installed)
+            ? "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix, "
+                + "with the agent and model set in Settings › Operator. Nothing changes until you press Apply."
+            : "Needs Claude Code, the Operator’s agent. Install it on its card below."
     }
 
-    /// What the switch shows: off, and disabled, while nothing that can fix is installed.
-    static func switchIsOn(_ choice: FixerChoice, installed: Set<AgentKind>) -> Bool {
-        choice.isOn && !noFixerInstalled(installed)
-    }
-
-    /// The line under the select while the switch is on and its agent is not installed, naming the
-    /// installed one to choose instead.
-    static func missingHelp(_ choice: FixerChoice, installed: Set<AgentKind>) -> String? {
-        guard switchIsOn(choice, installed: installed), !installed.contains(choice.agent.agent) else { return nil }
-        let others = FixerAgent.allCases.filter { $0 != choice.agent && installed.contains($0.agent) }
-        let instead = others.first.map { ", or choose \($0.shortName)" } ?? ""
-        return "\(choice.agent.agent.displayName) isn’t installed. Install it below\(instead)."
+    /// What the switch shows: off, and disabled, while Claude Code is not installed.
+    static func switchIsOn(_ choice: HelpWithProblems, installed: Set<AgentKind>) -> Bool {
+        choice.isOn && choice.isAvailable(installed: installed)
     }
 
     var body: some View {
-        let isOn = Self.switchIsOn(choice, installed: installed)
-        SettingsGroup(title: "Fix with AI", help: Self.groupHelp(installed: installed)) {
-            SettingsSwitch(title: "Fix with AI", isOn: Binding(get: { isOn }, set: { choice.isOn = $0 }))
-                .disabled(Self.noFixerInstalled(installed))
+        SettingsGroup(title: Self.title, help: Self.groupHelp(installed: installed)) {
+            SettingsSwitch(title: Self.title,
+                           isOn: Binding(get: { Self.switchIsOn(choice, installed: installed) }, set: { choice.isOn = $0 }))
+                .disabled(!choice.isAvailable(installed: installed))
                 .accessibilityIdentifier("fixer-switch")
         } rows: {
-            // Two columns, as an agent card's Default model and Default reasoning, so this select
-            // lines up with the cards' below it; the help under them, as the card's is.
-            VStack(alignment: .leading, spacing: Space.base) {
-                HStack(alignment: .top, spacing: Space.gap) {
-                    FormField("Agent") {
-                        Select(values: FixerAgent.allCases, selection: $choice.agent, label: \.shortName)
-                            .disabled(!isOn)
-                            .accessibilityIdentifier("fixer-agent")
-                    }
-                    .frame(maxWidth: .infinity)
-                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
-                }
-                if let help = Self.missingHelp(choice, installed: installed) {
-                    HelpText(help)
-                }
-            }
+            EmptyView()
         }
     }
 }

@@ -252,6 +252,25 @@ extension OperatorController {
         runChanged(operated.runId)
     }
 
+    /// The banner's issue changed (spec §6, §13): one it showed is no driven task's problem any more —
+    /// dismissed, answered or replaced — and one it shows now about a driven task is that task's.
+    /// AiTerm raises no git problem about a driven task yet but through the banner, so every issue
+    /// that names one marks it; the Operator picks the task back up once you have dealt with it.
+    func bannerChanged(from old: OperationIssue?, to new: OperationIssue?) {
+        if let old, old.id != new?.id {
+            let marked = workspace.state.tasks.filter { $0.operated?.problem == old.id }
+            if !marked.isEmpty {
+                workspace.mutate { state in for task in marked { state.updateOperated(task.id) { $0.problem = nil } } }
+                for runId in Set(marked.compactMap { $0.operated?.runId }) { runChanged(runId) }
+            }
+        }
+        if let new, let subject = new.subject, let operated = workspace.state.task(id: subject)?.operated,
+           operated.problem != new.id {
+            do { try markProblem(task: subject, issueId: new.id) }
+            catch { Log.ui.notice("Couldn’t mark the problem on \(operated.key, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+        }
+    }
+
     // -- the Operator's window --------------------------------------------------------------------
     /// The broadcast's row chosen with the Operator's window closed (spec §3, §9): the window reopens and a
     /// broadcast that went offline resumes; a pause of yours stays paused. An ended broadcast is never

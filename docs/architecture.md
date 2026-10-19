@@ -70,7 +70,7 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `WorkspaceStore` | `workspace` | the projects, dividers, tasks and terminals, and the one way they change, `mutate`, which runs the change hooks once and saves, coalesced and off the main actor |
 | `WorkInFlight` (Core) | `work` | the work under way on each project, task and terminal: what one waits for before it starts, and what a project's removal waits for |
 | `Notices` | `notices` | the banner above the list and the completion toast, and which report wins the banner |
-| `FixSession` | `CreationModel.fixSession`, `Notices.fixSession` | one problem's Fix with AI — per failure, not one of the controller's: its state, the task running the pipeline and the clone it made, removed on every way out |
+| `FixSession` | `CreationModel.fixSession`, `Notices.fixSession` | one problem's Find a Fix — per failure, not one of the controller's: its state, the task running the pipeline and the clone it made, removed on every way out |
 | `SheetCoordinator` | `sheets` | the one sheet slot, every way into it, the preparation on its way to it, and the creation sheets' models |
 | `ProjectActions` | `projects` | every edit that is the workspace's alone — projects, dividers, names, Jira links — and the default branch's pull |
 | `TaskLauncher` | `launcher` | tasks and reviews created, and their windows opened |
@@ -102,11 +102,13 @@ shelf before git removes its worktree — stopping there if that save fails. A n
 before its window opens, a new project before its worktrees are offered, a restored row before it
 is chosen, and the workspace at quit.
 
-### Fix with AI
+### Find a Fix
 
 A failure an agent can fix — a diverged branch or a rebase's conflict, in New Review's footer and
-Pull main's banner — offers Fix with the agent chosen in Settings › Agents (Claude Code or Codex;
-Grok Build has no network-off on macOS, PI no unattended mode). `FixPipeline` runs it off the main
+Pull main's banner — offers Find a Fix while Settings › Agents' Help with problems is on. The fix
+runs as the Operator: always Claude Code, at Settings › Operator's model and reasoning
+(`AgentIntegrations.fixModel`), and no button without it. The pipeline can still drive Codex (Grok
+Build has no network-off on macOS, PI no unattended mode), which the Oracle's runs reuse. `FixPipeline` runs it off the main
 actor in four stages, each a closure the app's tests fake; `FixSession` owns one problem's run.
 
 **The clone.** The agent never runs in the real repository. `FixClone` is a `git clone --shared

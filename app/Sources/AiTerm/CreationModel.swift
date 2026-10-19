@@ -188,7 +188,7 @@ final class CreationModel<Kind: CreationKind> {
     let reservedSlugs: Set<String>
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
-    /// Settings › Agents' fixer, read as a failure is shown.
+    /// Settings › Agents' Help with problems, read as a failure is shown.
     private let fixer: @MainActor () -> FixerResolution
     /// What a Fix runs; nil makes no Fix — New Task's sheet has none.
     private let pipeline: FixPipeline?

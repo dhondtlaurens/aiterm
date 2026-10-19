@@ -105,9 +105,9 @@ import AiTermUI
         #expect(model.error?.fix?.reason?.contains("aiterm/backup") == false, "the next fix's problem is git's alone")
         let offered = "Rebasing “feat/x” onto origin’s hit a conflict, so it was left as it was. " + note
         #expect(FixFooterPresentation(error: model.error, state: second.state, fixer: .claude, lastProposal: nil).lead
-                == .failure(offered, help: offered))
+                == .failure(offered, description: nil, help: offered))
         let byHand = "Rebasing “feat/x” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand. " + note
-        #expect(FixFooterPresentation(error: model.error, state: nil, fixer: nil, lastProposal: nil).lead == .failure(byHand, help: byHand))
+        #expect(FixFooterPresentation(error: model.error, state: nil, fixer: nil, lastProposal: nil).lead == .failure(byHand, description: nil, help: byHand))
         #expect(kept == 0, "said in the failure, not a toast as well")
     }
 
@@ -211,12 +211,11 @@ import AiTermUI
         #expect(unfixable.fixSession == nil)
     }
 
-    /// The session takes the fixer Settings names when the failure is shown: Off and a missing
-    /// agent both make one that says so rather than none, so the footer can grey its button.
-    @Test(arguments: [FixerResolution.off, .missing(.codex)])
-    func aFixerThatCannotRunIsOfferedUnavailable(_ fixer: FixerResolution) async throws {
+    /// The session follows Help with problems when the failure is shown: Off — the switch, or Claude
+    /// Code missing — makes one that says so rather than none, so the footer puts “by hand” back.
+    @Test func aFixerThatCannotRunIsOfferedUnavailable() async throws {
         let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
-                                                       fixer: fixer)
+                                                       fixer: .off)
         model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
@@ -282,25 +281,25 @@ import AiTermUI
     /// States 1 and 2: offered beside Rebase, or alone with “Rebase it by hand.” gone.
     @Test func offeredFollowsTheRecoveryAndDropsByHand() {
         let alone = footer(conflict, .offered)
-        #expect(alone.lead == .failure(conflictSentence, help: conflictSentence))
-        #expect(alone.offer == .init(title: "Fix with Claude", isEnabled: true, retries: false,
+        #expect(alone.lead == .failure(conflictSentence, description: nil, help: conflictSentence))
+        #expect(alone.offer == .init(title: "Find a Fix", isEnabled: true, retries: false,
                                      help: "Claude reads the problem and proposes a fix; nothing changes until you press Apply."))
         #expect(!alone.showsRecovery)
         #expect(alone.buttons == .sheet)
 
         let beside = footer(diverged, .offered, fixer: .codex)
         #expect(beside.showsRecovery)
-        #expect(beside.offer?.title == "Fix with Codex")
-        #expect(beside.lead == .failure(diverged.reason, help: diverged.reason))
+        #expect(beside.offer?.title == "Find a Fix")
+        #expect(beside.lead == .failure(diverged.reason, description: nil, help: diverged.reason))
     }
 
     /// State 3: the agent's line in the failure's place, Cancel, and the create held.
     @Test func lookingHoldsTheCreateBehindCancel() {
         let looking = footer(conflict, .looking)
-        #expect(looking.lead == .busy("Claude is looking at the conflict…"))
+        #expect(looking.lead == .busy("Looking for a fix…"))
         #expect(looking.offer == nil && !looking.showsRecovery)
         #expect(looking.buttons == .looking)
-        #expect(footer(diverged, .looking, fixer: .codex).lead == .busy("Codex is looking at the branch…"))
+        #expect(footer(diverged, .looking, fixer: .codex).lead == .busy("Looking for a fix…"))
     }
 
     /// States 4 and 5: the plan where the failure was, Apply in the primary's place; while it is
@@ -320,43 +319,43 @@ import AiTermUI
         #expect(up.canClose && footer(conflict, .looking).canClose)
     }
 
-    /// State 7: the agent's reason, “Rebase it by hand.” back, the original buttons and no second offer.
+    /// State 7: the problem's sentence stays the title, the agent's reason and “Rebase it by hand.”
+    /// its description; the original buttons and no second offer.
     @Test func noFixPutsByHandBackAndOffersNothing() {
         let none = footer(conflict, .noFix("Claude found no fix it can stand behind: both rewrite it."))
-        #expect(none.lead == .failure("Claude found no fix it can stand behind: both rewrite it. Rebase it by hand.",
-                                      help: "Claude found no fix it can stand behind: both rewrite it. Rebase it by hand."))
+        #expect(none.lead == .failure(conflictSentence,
+                                      description: "Claude found no fix it can stand behind: both rewrite it. Rebase it by hand.",
+                                      help: conflict.detail ?? conflictSentence))
         #expect(none.offer == nil)
         #expect(none.buttons == .sheet)
         #expect(footer(diverged, .noFix("No.")).showsRecovery, "Rebase is one of the original buttons")
     }
 
-    /// State 8: the reason, and Try Again.
+    /// State 8: the problem's sentence, the reason as its description, and Try Again.
     @Test func aFailedFixOffersTryAgain() {
         let failed = footer(conflict, .failed("pnpm typecheck failed (status 2) after the fix, so nothing was changed."))
-        #expect(failed.lead == .failure("pnpm typecheck failed (status 2) after the fix, so nothing was changed.",
-                                        help: "pnpm typecheck failed (status 2) after the fix, so nothing was changed."))
+        #expect(failed.lead == .failure(conflictSentence,
+                                        description: "pnpm typecheck failed (status 2) after the fix, so nothing was changed.",
+                                        help: conflict.detail ?? conflictSentence))
         #expect(failed.offer == .init(title: "Try Again", isEnabled: true, retries: true,
                                       help: "Asks Claude for a new fix, told why this one failed."))
         #expect(failed.buttons == .sheet)
     }
 
-    /// State 9: greyed with its reason; with Fix turned off, no button at all — and either way the
+    /// State 9: with Help with problems off, or Claude Code missing, no button at all, and the
     /// sentence keeps “Rebase it by hand.”, as it does with no session.
-    @Test func anAgentThatCannotRunIsGreyedOrAbsent() {
-        let why = "Claude Code isn’t installed. Install it in Settings › Agents, or choose another agent there."
-        let missing = footer(conflict, .unavailable(why))
-        #expect(missing.offer == .init(title: "Fix with Claude", isEnabled: false, retries: false, help: why))
-        #expect(missing.lead == .failure(conflictSentence + " Rebase it by hand.", help: conflictSentence + " Rebase it by hand."))
+    @Test func anAgentThatCannotRunIsAbsent() {
         let off = footer(conflict, .unavailable(""), fixer: nil)
         #expect(off.offer == nil)
-        #expect(off.lead == missing.lead)
-        #expect(footer(conflict, nil, fixer: nil).lead == missing.lead, "no pipeline, no offer")
+        let byHand = conflictSentence + " Rebase it by hand."
+        #expect(off.lead == .failure(byHand, description: nil, help: conflict.detail ?? byHand))
+        #expect(footer(conflict, nil, fixer: nil).lead == off.lead, "no pipeline, no offer")
     }
 
     /// A git failure keeps git's whole output as the tooltip; nothing failed, nothing drawn.
     @Test func aPlainFailureIsAsBefore() {
         let git = CreationFailure(GitError(args: ["worktree", "add"], code: 128, stderr: "fatal: nope"), projectPath: "/tmp/p")
-        #expect(footer(git, nil).lead == .failure("Nope.", help: "git worktree add failed:\nfatal: nope"))
+        #expect(footer(git, nil).lead == .failure("Nope.", description: nil, help: "git worktree add failed:\nfatal: nope"))
         #expect(footer(nil, nil).lead == nil)
         #expect(footer(nil, nil).buttons == .sheet)
     }

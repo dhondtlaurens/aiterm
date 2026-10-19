@@ -168,6 +168,7 @@ final class OperatorController {
             guard let self else { return TaskFinisher.Result(result: "refused", reason: "AiTerm is closing.") }
             return await self.finisher.finish(id)
         }
+        notices.onIssueChanged { [weak self] old, new in self?.bannerChanged(from: old, to: new) }
     }
 
     /// Adds `handler` to what hears that a run, an operated task or `acting` changed: the UI's

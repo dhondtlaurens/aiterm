@@ -29,16 +29,16 @@ import Testing
         let alone = shown(conflict, .offered)
         #expect(alone.content == .text("Couldn’t rebase the default branch.",
                                        detail: "Rebasing “main” onto origin’s hit a conflict, so it was left as it was.", help: "CONFLICT x"))
-        #expect(alone.links.map(\.title) == ["Fix with Claude", "Dismiss"])
+        #expect(alone.links.map(\.title) == ["Find a Fix", "Dismiss"])
         let beside = shown(diverged, .offered, fixer: .codex)
-        #expect(beside.links.map(\.title) == ["Rebase", "Fix with Codex", "Dismiss"])
+        #expect(beside.links.map(\.title) == ["Rebase", "Find a Fix", "Dismiss"])
         #expect(beside.links[0] == .action(.rebaseDefault(project)))
     }
 
-    /// 2 · looking: the agent's line names the issue; Cancel puts the issue back.
-    @Test func lookingNamesTheIssue() {
+    /// 2 · looking: the busy line under the issue; Cancel puts the issue back.
+    @Test func lookingSaysSo() {
         let looking = shown(conflict, .looking)
-        #expect(looking.content == .busy("Claude is looking at “Couldn’t rebase the default branch”…"))
+        #expect(looking.content == .busy("Looking for a fix…"))
         #expect(looking.links == [.cancel(isEnabled: true)])
         #expect(!looking.canDismiss)
     }
@@ -79,16 +79,14 @@ import Testing
         #expect(failed.links.map(\.title) == ["Try Again", "Dismiss"])
     }
 
-    /// The agent missing greys the offer, saying why; Off offers nothing. Either way “Rebase it by
+    /// Off — Help with problems turned off, or Claude Code missing — offers nothing, and “Rebase it by
     /// hand.” is back, since no fix can help.
-    @Test func anAgentThatCannotRunGreysOrDropsTheOffer() {
-        let missing = shown(conflict, .unavailable("Claude Code isn’t installed."))
-        #expect(missing.links == [.fix(title: "Fix with Claude", isEnabled: false, help: "Claude Code isn’t installed."), .dismiss])
-        #expect(missing.content == .text("Couldn’t rebase the default branch.",
-                                         detail: "Rebasing “main” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand.",
-                                         help: "CONFLICT x"))
+    @Test func anOffFixerDropsTheOffer() {
         let off = shown(conflict, .unavailable(""), fixer: nil)
         #expect(off.links == [.dismiss])
+        #expect(off.content == .text("Couldn’t rebase the default branch.",
+                                     detail: "Rebasing “main” onto origin’s hit a conflict, so it was left as it was. Rebase it by hand.",
+                                     help: "CONFLICT x"))
         #expect(shown(conflict, nil, fixer: nil) == off, "no session reads as Off")
     }
 
@@ -160,11 +158,11 @@ import Testing
         await running?.value
     }
 
-    /// The banner's session takes the fixer Settings names: Off makes one that offers nothing.
-    @Test func theBannersSessionTakesTheFixerSettingsNames() async throws {
+    /// The banner's session follows Help with problems: Off makes one that offers nothing.
+    @Test func theBannersSessionFollowsHelpWithProblems() async throws {
         let fixture = try divergedFixture()
         defer { fixture.controller.shutdown(); fixture.cleanUp() }
-        fixture.controller.agents.fixerChoice = .off()
+        fixture.controller.agents.helpWithProblems.isOn = false
         await fixture.controller.pullDefault(project: fixture.project)?.value
         #expect(fixture.controller.notices.fixSession?.state == .unavailable(""))
     }

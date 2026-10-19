@@ -9,7 +9,7 @@ import AiTermCore
 ///
 /// In a task's avatar group it comes first while the operator drives the task, ringed in the surface's
 /// occluding colour as every mark there is. While the operator acts on the task it also wears a
-/// `Size.activityRing` accent ring just outside that one, which breathes — fading to `breathLow` and
+/// `activityRing` accent ring just outside that one, which breathes — fading to `breathLow` and
 /// back — and stands still at full strength under Reduce Motion and in the snapshots. A stroke: it
 /// does not scale.
 struct OperatorAvatar: View {
@@ -18,6 +18,10 @@ struct OperatorAvatar: View {
     private static let breathLow = 0.35
     /// One breath, in or out, in seconds — slower than `StatusMark`'s spin, so the two never read as one motion.
     private static let breathDuration = 0.8
+    /// The breathing accent ring's stroke width: a stroke, so it does not scale. Was `Size.activityRing`
+    /// until the greenfield design dropped the ring (the operator badge replaces this mark); kept here,
+    /// this mark's own number, while the mark is still drawn.
+    private static let activityRing: CGFloat = 1.5
     let presence: OperatorPresence?
     /// Points on screen: the avatar group passes its own scaled `Size.avatar`.
     let size: CGFloat
@@ -45,14 +49,14 @@ struct OperatorAvatar: View {
 
     /// How far the accent ring's centre line sits outside the disc: past the occluding ring's outer
     /// half, then half its own width, so the two rings touch and do not overlap.
-    private static var ringOutset: CGFloat { AvatarGroupView.ringWidth / 2 + Size.activityRing / 2 }
+    private static var ringOutset: CGFloat { AvatarGroupView.ringWidth / 2 + Self.activityRing / 2 }
 
     var body: some View {
         SymbolMark(symbol: Self.symbol, size: size, style: .paper)
             .overlay(Circle().stroke(surface.occludingBackground, lineWidth: AvatarGroupView.ringWidth))
             .overlay {
                 if presence == .acting {
-                    Circle().stroke(Palette.accent, lineWidth: Size.activityRing)
+                    Circle().stroke(Palette.accent, lineWidth: Self.activityRing)
                         .padding(-Self.ringOutset)
                         .opacity(faded ? Self.breathLow : 1)
                 }

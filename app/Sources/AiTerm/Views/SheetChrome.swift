@@ -185,14 +185,17 @@ struct SheetFooter<Status: View>: View {
 /// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
 /// slot: a plain button with no key, since it moves a branch — ⌘↩ stays the create.
 ///
-/// A failure shows its reason, never the head of git's output: that is the command line and git's
-/// narration, and three lines of it used to be all there was room for. The reason is git's failure
-/// lines as one sentence (`GitError.sentence`), or any other error's own, as the banner has it —
-/// short by construction, so it is never cut; git's whole output is the tooltip.
+/// A failure is a `Notice` with no actions — the footer's buttons are its actions — and shows its
+/// reason, never the head of git's output: that is the command line and git's narration, and three
+/// lines of it used to be all there was room for. The reason is git's failure lines as one sentence
+/// (`GitError.sentence`), or any other error's own, as the banner has it — short by construction, so
+/// it is never cut, and the Notice's title alone; git's whole output is the tooltip.
 ///
-/// A failure an agent can fix (`fix`, New Review's) offers “Fix with Claude” after the recovery;
-/// from then on the session's state is drawn where the failure was, and takes Cancel and the
-/// primary while the agent looks, proposes — Apply on ⌘↩ — and applies (`FixFooterPresentation`).
+/// A failure an agent can fix (`fix`, New Review's) offers Find a Fix after the recovery, led by the
+/// Operator's mark; from then on the session's state is drawn where the failure was, and takes
+/// Cancel and the primary while the agent looks, proposes — Apply on ⌘↩ — and applies
+/// (`FixFooterPresentation`). A fix that fails keeps the failure's sentence as the title, with why
+/// it failed as the description.
 struct CreationFooter: View {
     let step: Int
     let error: CreationFailure?
@@ -219,15 +222,14 @@ struct CreationFooter: View {
         let shown = FixFooterPresentation(error: error, state: state, fixer: fix?.fixer, lastProposal: applied)
         VStack(alignment: .leading, spacing: Space.gap) {
             switch shown.lead {
-            case .failure(let text, let help)?:
-                Text(text).font(Typography.caption).foregroundStyle(Palette.amber).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true).help(help)
+            case .failure(let text, let description, let help)?:
+                Notice(title: text, description: description, help: help)
             case .busy(let text)?: FixBusyLine(text: text)
             case .proposal(let agent, let proposal)?: FixProposalBlock(agent: agent, proposal: proposal)
             case nil: EmptyView()
             }
             if step == 3, availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
-                Text(note).font(Typography.caption).foregroundStyle(Palette.amber)
+                Notice(title: note)
             }
             SheetFooter(secondary: shown.buttons == .sheet ? (step == 1 ? "Cancel" : "Back") : "Cancel",
                         primary: primaryTitle(shown.buttons),
@@ -245,8 +247,10 @@ struct CreationFooter: View {
                     Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
                 }
                 if let offer = shown.offer {
-                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: { Label(offer.title, systemImage: "sparkles") }
-                        .help(offer.help).disabled(!offer.isEnabled || creating)
+                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: {
+                        if offer.retries { Text(offer.title) } else { FixOfferLabel() }
+                    }
+                    .help(offer.help).disabled(!offer.isEnabled || creating)
                 }
                 if shown.buttons == .applying {
                     Text("Applying…").font(Typography.caption).foregroundStyle(Palette.muted)

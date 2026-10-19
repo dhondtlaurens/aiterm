@@ -136,6 +136,26 @@ import Testing
         #expect(operated.state == .blocked && operated.blockedReason == "The rebase conflicted." && operated.problem == issue.id)
     }
 
+    /// The banner raising a problem about a driven task marks it there and then; dismissed, or answered,
+    /// the task's `problem` goes with the banner. An issue about no driven task marks nothing.
+    @Test func theBannersIssueAboutADrivenTaskIsItsProblemUntilItGoes() throws {
+        let (world, _, task) = try makeWorld()
+        world.controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", reason: "git refused.", subject: task.id))
+        let issue = try #require(world.controller.notices.issue)
+        #expect(world.task(task.id)?.operated?.problem == issue.id)
+        #expect(world.task(task.id)?.operated?.state == .blocked)
+        world.controller.notices.dismissIssue()
+        #expect(world.task(task.id)?.operated?.problem == nil)
+
+        world.controller.notices.report(OperationIssue(title: "Couldn’t remove the task.", subject: task.id))
+        #expect(world.task(task.id)?.operated?.problem != nil)
+        world.controller.notices.dropIssues(about: task.id)
+        #expect(world.task(task.id)?.operated?.problem == nil, "answered, it goes too")
+
+        world.controller.notices.report(OperationIssue(title: "Couldn’t pull the default branch."))
+        #expect(world.task(task.id)?.operated?.problem == nil, "an issue about no task names none")
+    }
+
     @Test func takingOverMovesTheOwnershipOnAndRefusesTheOperatorUntilItIsHandedBack() async throws {
         let (world, run, task) = try makeWorld()
         try await world.controller.takeOver(task: task.id)

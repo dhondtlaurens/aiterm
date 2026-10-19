@@ -195,15 +195,7 @@ final class AppController {
             operatorPorts.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
         }
         // A broadcast freezes Settings › Operator's profile as these preferences keep it.
-        if operatorPorts.profile == nil {
-            let catalogue = agents.catalogue
-            // UserDefaults is thread-safe, though not marked Sendable: the profile is read off the main actor.
-            nonisolated(unsafe) let defaults = preferences.defaults
-            operatorPorts.profile = {
-                OperatorProfileStore.load(defaults, claudeDefault: OperatorProfileStore.claudeDefault(
-                    models: (try? catalogue.models(for: .claude)) ?? [], defaults: defaults))
-            }
-        }
+        if operatorPorts.profile == nil { operatorPorts.profile = agents.operatorProfile }
         // After the window lock, which hands the live sessions each event first: the operators read
         // the operator's tab from them.
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
@@ -226,9 +218,9 @@ final class AppController {
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
-        fixPipeline = { [workspace] project in
+        fixPipeline = { [agents] project in
             .live(git: git, workflow: workflow, project: project,
-                  model: AgentIntegrations.fixerModels(remembered: workspace.state.lastModelByAgent),
+                  model: agents.fixModel,
                   locate: { HarnessCommandRunner.live.locate($0) })
         }
         // The rows are derived again whenever something they are made of may have changed, and the
@@ -471,7 +463,7 @@ final class AppController {
         }
     }
 
-    /// The banner's Fix for a refused Pull main or its rebase, with the agent Settings names: once
+    /// The banner's Find a Fix for a refused Pull main or its rebase, as Help with problems allows: once
     /// the fix has landed, the banner goes, what waited behind it comes up, and the pull runs
     /// again — saying where the branch as it was is kept, however it ends, or in a toast when the
     /// project's default branch is no longer the one fixed. None for a problem
@@ -479,7 +471,7 @@ final class AppController {
     private func makeFix(for request: FixRequest) -> FixSession? {
         guard case .pullDefault(let id) = request.retry, let project = state.project(id: id) else { return nil }
         let resolution = agents.fixer
-        let agent: FixerAgent? = switch resolution { case .ready(let agent), .missing(let agent): agent; case .off: nil }
+        let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
         return FixSession(request: request, fixer: resolution, pipeline: fixPipeline(project)) { [weak self] landing in
             guard let self else { return }
             // Only this fix's banner: nothing replaces it while it lands, and the landed session is the shown one.

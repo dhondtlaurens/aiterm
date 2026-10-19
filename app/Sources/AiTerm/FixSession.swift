@@ -32,9 +32,6 @@ final class FixSession {
         self.request = request; self.pipeline = pipeline; self.retry = retry
         switch fixer {
         case .ready(let agent): self.fixer = agent; state = .offered
-        case .missing(let agent):
-            self.fixer = agent
-            state = .unavailable("\(agent.agent.displayName) isn’t installed. Install it in Settings › Agents, or choose another agent there.")
         case .off: self.fixer = nil; state = .unavailable("")
         }
     }
@@ -43,7 +40,8 @@ final class FixSession {
         if let clone { Self.remove(clone) }
     }
 
-    var buttonTitle: String { "Fix with \(fixer?.shortName ?? "AI")" }
+    /// What the offer says: what you get, not who gives it (Help with problems, option A).
+    var buttonTitle: String { FixOffer.title }
     var isBusy: Bool { state == .looking || state == .applying }
     var clonePath: String? { clone?.path }
 

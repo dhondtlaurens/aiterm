@@ -267,7 +267,7 @@ final class SheetCoordinator {
                             recover: { try await launcher.recover($0, in: project) },
                             fixer: { [agents] in agents.fixer },
                             pipeline: .live(git: git, workflow: workflow, project: project,
-                                            model: AgentIntegrations.fixerModels(remembered: state.lastModelByAgent),
+                                            model: agents.fixModel,
                                             locate: { HarnessCommandRunner.live.locate($0) }),
                             fixLanded: { launcher.announceFix($0, by: $1) },
                             backupKept: { launcher.announceBackup($0) })

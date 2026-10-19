@@ -2,15 +2,25 @@ import SwiftUI
 import AiTermCore
 import AiTermUI
 
+/// Find a Fix's words (Help with problems, option A, 19 Oct 2026): what you get, not who gives it.
+/// The fix runs as the Operator, so the button is led by its agent's mark, at `Size.inlineMark`.
+enum FixOffer {
+    static let title = "Find a Fix"
+    /// The line while the Operator's agent looks, in the footer and the banner alike.
+    static let busy = "Looking for a fix…"
+}
+
 /// What New Review's footer draws around a Fix, decided from the failure and the session's state
 /// alone, so every state is tested without rendering (spec §9.1, footer states 1–9 of the picked
 /// design). `CreationFooter` draws it.
 struct FixFooterPresentation: Equatable {
     /// What stands where the failure's sentence was.
     enum Lead: Equatable {
-        /// The amber sentence, and its tooltip: git's whole output for a git failure.
-        case failure(String, help: String)
-        /// The agent at work: “Claude is looking at the conflict…”.
+        /// The problem, drawn as a `Notice` with no actions — the footer keeps its buttons: its
+        /// sentence the title, a fix's failure the description, and the tooltip git's whole output
+        /// for a git failure. A failure with one sentence is the title alone.
+        case failure(String, description: String?, help: String)
+        /// The agent at work: “Looking for a fix…”.
         case busy(String)
         /// The agent's plan, kept on screen while it is applied.
         case proposal(FixerAgent, FixProposal)
@@ -50,16 +60,18 @@ struct FixFooterPresentation: Equatable {
 
     init(error: CreationFailure?, state: FixSession.State?, fixer: FixerAgent?, lastProposal: FixProposal?) {
         let name = fixer?.shortName ?? "AI"
-        func failure(_ text: String, help: String? = nil) -> Lead { .failure(text, help: help ?? text) }
+        func failure(_ text: String, description: String? = nil, help: String? = nil) -> Lead {
+            .failure(text, description: description, help: help ?? text)
+        }
         let byHand = error?.reasonByHand
         switch state {
         case .offered?:
             lead = error.map { failure($0.shownReason, help: $0.detail) }
-            offer = Offer(title: "Fix with \(name)", isEnabled: true, retries: false,
+            offer = Offer(title: FixOffer.title, isEnabled: true, retries: false,
                           help: "\(name) reads the problem and proposes a fix; nothing changes until you press Apply.")
             buttons = .sheet
         case .looking?:
-            lead = .busy("\(name) is looking at \(error?.fix?.recreateRebase == false ? "the branch" : "the conflict")…")
+            lead = .busy(FixOffer.busy)
             offer = nil; buttons = .looking
         case .proposal(let proposal)?:
             lead = fixer.map { .proposal($0, proposal) }
@@ -67,18 +79,18 @@ struct FixFooterPresentation: Equatable {
         case .applying?, .done?:
             lead = fixer.flatMap { agent in lastProposal.map { .proposal(agent, $0) } }
             offer = nil; buttons = .applying
+        // A fix that found nothing, or failed, leaves the problem standing: its sentence stays the
+        // title, and what the fix said is the description.
         case .noFix(let reason)?:
-            lead = failure([reason, error?.byHand].compactMap { $0 }.joined(separator: " "))
+            let said = [reason, error?.byHand].compactMap { $0 }.joined(separator: " ")
+            lead = error.map { failure($0.shownReason, description: said, help: $0.detail) } ?? failure(said)
             offer = nil; buttons = .sheet
         case .failed(let reason)?:
-            lead = failure(reason)
+            lead = error.map { failure($0.shownReason, description: reason, help: $0.detail) } ?? failure(reason)
             offer = Offer(title: "Try Again", isEnabled: true, retries: true, help: "Asks \(name) for a new fix, told why this one failed.")
             buttons = .sheet
-        case .unavailable(let why)?:
-            lead = byHand.map { failure($0, help: error?.detail) }
-            offer = why.isEmpty ? nil : Offer(title: "Fix with \(name)", isEnabled: false, retries: false, help: why)
-            buttons = .sheet
-        case nil:
+        // Off, or Claude Code missing: no offer, and “Rebase it by hand.” back.
+        case .unavailable?, nil:
             lead = byHand.map { failure($0, help: error?.detail) }
             offer = nil; buttons = .sheet
         }
@@ -94,9 +106,9 @@ struct BannerFixPresentation: Equatable {
     enum Content: Equatable {
         /// The issue's title, then `detail` after it in muted ink; `help`, git's whole output, in the tooltip.
         case text(String, detail: String?, help: String?)
-        /// The agent at work: “Claude is looking at “Couldn’t rebase the default branch”…”.
+        /// The agent at work under the issue's title and reason: “Looking for a fix…”.
         case busy(String)
-        /// The agent's plan, waiting on Apply.
+        /// The agent's plan under the issue's title and reason, waiting on Apply.
         case proposal(FixerAgent, FixProposal)
     }
 
@@ -104,7 +116,7 @@ struct BannerFixPresentation: Equatable {
     enum Link: Equatable {
         /// One of the issue's own ways out: Rebase, Keep Branch…
         case action(OperationIssue.Action)
-        /// The offer — greyed, its tooltip saying why, while the agent cannot run.
+        /// The offer, Find a Fix, led by the Operator's mark.
         case fix(title: String, isEnabled: Bool, help: String)
         /// A new Look, told why the last fix failed.
         case tryAgain(help: String)
@@ -143,11 +155,10 @@ struct BannerFixPresentation: Equatable {
         switch state {
         case .offered?:
             content = text(issue.reason)
-            links = own + [.fix(title: "Fix with \(name)", isEnabled: true,
+            links = own + [.fix(title: FixOffer.title, isEnabled: true,
                                 help: "\(name) reads the problem and proposes a fix; nothing changes until you press Apply."), .dismiss]
         case .looking?:
-            let title = issue.title.trimmingCharacters(in: .punctuationCharacters)
-            content = .busy("\(name) is looking at “\(title)”…")
+            content = .busy(FixOffer.busy)
             links = [.cancel(isEnabled: true)]
         case .proposal(let proposal)?:
             content = fixer.map { .proposal($0, proposal) } ?? text(issue.reason)
@@ -163,10 +174,8 @@ struct BannerFixPresentation: Equatable {
         case .failed(let reason)?:
             content = text(reason)
             links = own + [.tryAgain(help: "Asks \(name) for a new fix, told why this one failed."), .dismiss]
-        case .unavailable(let why)?:
-            content = text(issue.reason, byHand)
-            links = own + (why.isEmpty ? [] : [.fix(title: "Fix with \(name)", isEnabled: false, help: why)]) + [.dismiss]
-        case nil:
+        // Off, or Claude Code missing: no offer, and “Rebase it by hand.” back.
+        case .unavailable?, nil:
             content = text(issue.reason, byHand)
             links = own + [.dismiss]
         }
@@ -206,7 +215,7 @@ struct FixProposalBlock: View {
     }
 }
 
-/// “Claude is looking at the conflict…”: a working `StatusMark` and the line. `compact` is the
+/// “Looking for a fix…”: a working `StatusMark` and the line. `compact` is the
 /// banner's size: the line in `help`, as the banner's text is.
 struct FixBusyLine: View {
     let text: String

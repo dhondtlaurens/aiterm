@@ -89,15 +89,18 @@ enum SidebarSnapshots {
                 .frame(width: Size.sidebarWidth + 20, height: 76)
                 .background(Palette.sidebar)
             },
-            // Every banner the sidebar can raise, one of each tone: their text shares one leading edge.
+            // Every banner the sidebar can raise: the three Notices, then the grey connecting line.
+            // Their text shares one leading edge.
             Snapshot("sidebar-banners.png") {
                 VStack(spacing: 0) {
-                    SidebarBanner(text: "Couldn’t save the workspace: the disk is full.", tone: .error,
-                                  actions: [.init(title: "Retry Saving") {}])
-                    SidebarBanner(text: "Branch feat/migrate-alert kept.", detail: "It has commits that aren’t on main.", tone: .error,
-                                  actions: ["Keep Branch", "Delete Branch…", "Dismiss"].map { .init(title: $0) {} }, vertical: Space.base)
-                    SidebarBanner(text: ItermConnection.refused("not allowed").banner?.text ?? "", tone: .warning, trailing: Space.block)
-                    SidebarBanner(text: "Waiting for iTerm2…", tone: .info, trailing: Space.block)
+                    SidebarBanner {
+                        Notice(title: "Couldn’t save the workspace: the disk is full.", description: nil) { Button("Retry Saving") {} }
+                    }
+                    IssueBanner(issue: OperationIssue.branchKept("feat/migrate-alert", of: UUID(), because: .notMerged(base: "main")),
+                                fix: nil, perform: { _ in }, cancelFix: {}, dismiss: {})
+                    SidebarConnectionBanner(banner: ItermConnection.refused("not allowed").banner!,
+                                            status: ItermConnection.refused("not allowed").status)
+                    SidebarConnectionBanner(banner: .info("Waiting for iTerm2…"), status: "Waiting for iTerm2…")
                 }
                 .frame(width: Size.sidebarWidth + 20)
                 .background(Palette.sidebar)

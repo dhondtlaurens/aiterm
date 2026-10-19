@@ -174,9 +174,20 @@ import Testing
 
     @Test func theSheetSaysWhatItDoes() {
         #expect(BackpackSheetPresentation.subtitle == "Keeps your agents working with the lid closed, online through your iPhone.")
-        #expect(BackpackSheetPresentation.thisMac == "This Mac")
         #expect(BackpackSheetPresentation.onTheIPhone == "On the iPhone")
         #expect(BackpackSheetPresentation.looking == "Looking for hotspots…")
+    }
+
+    /// The permission ask is a Notice (spec §6.1): what is missing as its title, the steps and where
+    /// else to find them as its description, Allow… its one link. Nothing missing, no Notice.
+    @Test func theMissingPermissionsAreANotice() {
+        func setup(_ sleep: Bool, _ location: Bool) -> BackpackSetup { BackpackSetup(sleepRule: sleep, location: location, network: nil) }
+        let lid = BackpackSheetPresentation.permissionNotice(setup(false, true))
+        #expect(lid?.title == "Backpack mode needs lid sleep")
+        #expect(lid?.description == "Allow AiTerm to keep the Mac awake with the lid closed. macOS asks for your password once. "
+                + "Also in Settings › Integrations › Mac.")
+        #expect(BackpackSheetPresentation.permissionNotice(setup(false, false))?.title == "Backpack mode needs lid sleep and network discovery")
+        #expect(BackpackSheetPresentation.permissionNotice(setup(true, true)) == nil)
     }
 
     @Test func theChecksFollowThePhase() {

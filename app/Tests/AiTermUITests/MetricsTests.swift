@@ -1,10 +1,12 @@
 import Testing
 @testable import AiTermUI
 
-/// The Metrics member Operators added, held at the width the picked design drew (16 Oct 2026): the
-/// breathing ring an operator's mark wears while it acts on a task.
+/// The Metrics members the Operator's greenfield design added (19 Oct 2026), held at the numbers the
+/// picked design drew: the 12 pt mark beside a line of text — the Notice's, the Find a Fix button's —
+/// and the board's sheet width.
 struct MetricsTests {
-    @Test func theActivityRingIsOneAndAHalfPoints() {
-        #expect(Size.activityRing == 1.5)
+    @Test func inlineMarkAndBoardWidth() {
+        #expect(Size.inlineMark == 12)
+        #expect(Sheet.boardWidth == 820)
     }
 }
