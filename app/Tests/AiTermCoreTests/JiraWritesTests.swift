@@ -37,10 +37,39 @@ import Foundation
         #expect(fields["description"] == nil && fields["parent"] == nil)
     }
 
-    @Test func aRefusedCreateIsJirasError() async throws {
-        let stub = StubSession { _ in (400, Data(#"{"errors":{"summary":"required"}}"#.utf8)) }
-        await #expect(throws: JiraError.badResponse(400)) {
-            _ = try await JiraClient(config: config, session: stub.session).createIssue(project: "PAY", type: "Task", summary: "", description: "")
+    /// A 4xx says what Jira did not like, in its words, and does not say to try again.
+    @Test func aRefusedCreateCarriesJirasWords() async throws {
+        let stub = StubSession { _ in (400, Data(#"{"errorMessages":["Bad project."],"errors":{"summary":"You must specify a summary.","issuetype":"Specify a valid issue type."}}"#.utf8)) }
+        let error = await #expect(throws: JiraError.self) {
+            _ = try await JiraClient(config: config, session: stub.session).createIssue(project: "PAY", type: "Nope", summary: "", description: "")
+        }
+        #expect(error == .refused(status: 400, detail: "Bad project.; issuetype: Specify a valid issue type.; summary: You must specify a summary."))
+        #expect(error?.errorDescription == "Jira refused it (HTTP 400): Bad project.; issuetype: Specify a valid issue type.; summary: You must specify a summary.")
+        #expect(error?.errorDescription?.contains("Try again") == false)
+    }
+
+    @Test func aMissingTicketIsRefusedWithItsMessageAndALongOneIsTrimmed() async throws {
+        let missing = StubSession { _ in (404, Data(#"{"errorMessages":["Issue does not exist or you do not have permission to see it."],"errors":{}}"#.utf8)) }
+        await #expect(throws: JiraError.refused(status: 404, detail: "Issue does not exist or you do not have permission to see it.")) {
+            try await JiraClient(config: config, session: missing.session).transition(key: "PAY-9", to: "Done")
+        }
+        let long = StubSession { _ in (400, Data(("{\"errorMessages\":[\"" + String(repeating: "x", count: 500) + "\"]}").utf8)) }
+        await #expect(throws: JiraError.refused(status: 400, detail: String(repeating: "x", count: 299) + "…")) {
+            try await JiraClient(config: config, session: long.session).link(key: "PAY-1", to: "PAY-2", type: "Nope")
+        }
+        let noBody = StubSession { _ in (400, Data("<html>".utf8)) }
+        await #expect(throws: JiraError.refused(status: 400, detail: "")) {
+            try await JiraClient(config: config, session: noBody.session).link(key: "PAY-1", to: "PAY-2", type: "Nope")
+        }
+        #expect(JiraError.refused(status: 400, detail: "").errorDescription == "Jira refused it (HTTP 400).")
+    }
+
+    @Test func aServerErrorOrRateLimitStillSaysToTryAgainAndSignInStaysSignIn() async throws {
+        for (status, expected) in [(500, JiraError.badResponse(500)), (429, .badResponse(429)), (401, .unauthorized), (403, .unauthorized)] {
+            let stub = StubSession { _ in (status, Data(#"{"errorMessages":["x"]}"#.utf8)) }
+            await #expect(throws: expected) {
+                try await JiraClient(config: config, session: stub.session).link(key: "PAY-1", to: "PAY-2", type: "Blocks")
+            }
         }
     }
 
@@ -92,7 +121,7 @@ import Foundation
 
     @Test func aKeyThatIsNoKeyNeverReachesTheNetwork() async throws {
         let stub = StubSession { _ in (200, Data()) }
-        await #expect(throws: JiraError.badResponse(400)) {
+        await #expect(throws: JiraError.refused(status: 400, detail: "PAY-1/../../x isn’t a Jira ticket key.")) {
             try await JiraClient(config: config, session: stub.session).transition(key: "PAY-1/../../x", to: "Done")
         }
         #expect(stub.requests.isEmpty)

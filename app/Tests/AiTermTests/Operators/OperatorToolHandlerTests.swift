@@ -210,6 +210,17 @@ import Testing
         #expect(jira.writes.isEmpty)
     }
 
+    /// Jira's own words reach the Operator, so it can correct the call; and the find keeps them as why it was not filed.
+    @Test func aJiraRefusalIsToldInJirasWords() async throws {
+        let jira = FakeJira()
+        jira.refuseWrites("issuetype: Specify a valid issue type.")
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        #expect(await world.call(run.id, "jira_create", ticket()).message == "Jira refused it (HTTP 400): issuetype: Specify a valid issue type.")
+        let find = await world.call(run.id, "report_find", ["key": "f", "title": "t", "why": "w"])
+        #expect(find.value?["notFiled"] == "Jira refused it (HTTP 400): issuetype: Specify a valid issue type.")
+    }
+
     @Test func jiraWritesWithoutJiraOrAFailureSayWhy() async throws {
         let run = jiraRun(slice: true)
         let none = try makeWorld(run)

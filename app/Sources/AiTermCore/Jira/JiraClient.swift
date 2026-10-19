@@ -29,6 +29,8 @@ public enum JiraError: Error, Equatable, LocalizedError {
     case unconfinedQuery
     /// `key` has no transition into `status` from where it is; `offered` are the statuses it can move to.
     case noTransition(key: String, status: String, offered: [String])
+    /// A write Jira refused for what it asked (a 4xx other than a sign-in or a rate limit), with Jira's own words.
+    case refused(status: Int, detail: String)
 
     public var errorDescription: String? {
         switch self {
@@ -39,6 +41,7 @@ public enum JiraError: Error, Equatable, LocalizedError {
         case .projectSiteMismatch(let linked, let configured):
             return "This project is linked to Jira at \(linked.absoluteString), but Settings is connected to \(configured.absoluteString). Remove it in Jira Projects… and link it again."
         case .unconfinedQuery: return "That JQL’s parentheses don’t pair up, so it can’t be kept to the operation’s projects."
+        case .refused(let status, let detail): return "Jira refused it (HTTP \(status))" + (detail.isEmpty ? "." : ": \(detail)")
         case .noTransition(let key, let status, let offered):
             return "\(key) can’t move to “\(status)” from where it is. "
                 + (offered.isEmpty ? "Jira offers no move from there." : "Jira offers: \(offered.joined(separator: ", ")).")

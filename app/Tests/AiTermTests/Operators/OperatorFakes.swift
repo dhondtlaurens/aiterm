@@ -181,13 +181,15 @@ final class FakeJira: OperatorJira {
     }
     let tickets: [JiraTicket]
     /// Every write answers Jira's 500 while this is set.
-    private let failing = Mutex(false)
+    private let failing = Mutex<JiraError?>(nil)
     private let seen = Mutex<[(jql: String, projects: [String])]>([])
     private let made = Mutex<[Write]>([])
     init(tickets: [JiraTicket] = []) { self.tickets = tickets }
     var searches: [(jql: String, projects: [String])] { seen.withLock { $0 } }
     var writes: [Write] { made.withLock { $0 } }
-    func failWrites(_ value: Bool = true) { failing.withLock { $0 = value } }
+    func failWrites(_ value: Bool = true) { failing.withLock { $0 = value ? .badResponse(500) : nil } }
+    /// Every write answers Jira's 400 with `detail`.
+    func refuseWrites(_ detail: String) { failing.withLock { $0 = .refused(status: 400, detail: detail) } }
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket] {
         seen.withLock { $0.append((jql, projects.map(\.key))) }
         return tickets
@@ -206,7 +208,7 @@ final class FakeJira: OperatorJira {
     }
     func link(key: String, to other: String, type: String) async throws { try record(.link(key: key, to: other, type: type)) }
     private func record(_ write: Write) throws {
-        if failing.withLock({ $0 }) { throw JiraError.badResponse(500) }
+        if let error = failing.withLock({ $0 }) { throw error }
         made.withLock { $0.append(write) }
     }
 }
