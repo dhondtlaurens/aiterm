@@ -183,23 +183,35 @@ import Foundation
         #expect(brief.contains("80 %"))
     }
 
-    /// The base: commit, push the task's branch, open a draft MR; an empty Done ends there too.
+    /// The base: the worker commits, AiTerm pushes and opens the draft MR through finish_task, and Done decides the end.
     @Test func theBriefStatesTheBaseAndDefaultsToADraftMR() {
         var run = F.run()
         run.done = nil
         let brief = OperatorCommand.brief(run: run, projects: [])
-        #expect(brief.contains("the agent commits on the task's branch, pushes that branch and opens a draft merge request"))
+        #expect(brief.contains("Each task's agent commits on the task's branch. Workers never push."))
+        #expect(brief.contains("accept it with mark_task accepted, then call finish_task: AiTerm pushes the branch and opens a draft merge request"))
+        #expect(brief.contains("A Done of \"a commit\" ends at the accepted commit, with no push and no merge request."))
+        #expect(brief.contains("An empty Done ends at a draft merge request."))
         #expect(brief.contains("Done: not said, so end each task at a draft MR"))
         #expect(brief.contains("without one, a draft MR."))
         #expect(!brief.contains("without one, a commit") && !brief.contains("end each task at a commit"))
+        // No worker, and no agent, is ever told to push.
+        #expect(!brief.contains("pushes that branch") && !brief.lowercased().contains("agent pushes"))
+        #expect(!brief.contains("the agent commits on the task's branch, pushes"))
     }
 
-    /// The ask-first rule covers only what no slice allows: with Review on, replying in review threads is granted.
-    @Test func withReviewOnTheBriefDoesNotSendTheOperatorToAskBeforeReplyingInThreads() {
-        let brief = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: true, merge: false)), projects: [])
-        #expect(brief.contains("reply in review threads"))
-        #expect(brief.contains("anything that messages a person that no slice above allows (email, Teams, Jira comments)"))
-        #expect(!brief.contains("MR comments"))
+    /// What no slice allows is never done and never asked for: nothing in the brief says to request permission for it.
+    @Test func theBriefNeverAsksTheOperatorToRequestPermissionForADisallowedAct() {
+        for slices in [Slices.none, Slices(jira: false, review: true, merge: false), Slices(jira: true, review: true, merge: true)] {
+            let brief = OperatorCommand.brief(run: F.run(slices: slices), projects: [])
+            #expect(brief.contains("is never done and never asked for. Leave it for the person."))
+            let askFirst = brief.split(separator: "\n").first { $0.contains("Ask first with ask_you") }.map(String.init) ?? ""
+            #expect(askFirst.contains("deleting a branch or worktree") && askFirst.contains("anything outside this broadcast's projects"))
+            #expect(!askFirst.contains("messages a person") && !askFirst.contains("email") && !askFirst.contains("Jira comments"))
+            #expect(!brief.contains("MR comments"))
+        }
+        let review = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: true, merge: false)), projects: [])
+        #expect(review.contains("reply in review threads"))
     }
 
     @Test func theBriefHasNoEmDash() {

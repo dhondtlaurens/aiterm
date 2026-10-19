@@ -160,8 +160,11 @@ public enum OperatorCommand {
     /// A submitted plan starts at once; nothing waits for an approval.
     static let planRule = "Answer from the brief and the code; ask on scope or product choices. "
         + "A plan you submit starts at once; nothing waits for approval. "
-        + "On every task, the agent commits on the task's branch, pushes that branch and opens a draft merge request. "
-        + "A draft notifies nobody. "
+        + "Each task's agent commits on the task's branch. Workers never push. "
+        + "When the result is in, check it and accept it with mark_task accepted, then call finish_task: "
+        + "AiTerm pushes the branch and opens a draft merge request, which notifies nobody. "
+        + "The Done decides the end. A Done of \"a commit\" ends at the accepted commit, with no push and no merge request. "
+        + "An empty Done ends at a draft merge request. "
         + "When the Review asks for an agent review, run one and have the task's agent fix what it finds."
 
     /// One paragraph each for Jira, Review and Merge: what this broadcast's frozen slice lets the Operator do.
@@ -202,8 +205,7 @@ public enum OperatorCommand {
         + "run_status shows each agent's weekly use."
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
-        let askFirst = ["deleting a branch or worktree", "anything that messages a person that no slice above allows (email, Teams, Jira comments)",
-                        "anything outside this broadcast's projects"]
+        let askFirst = ["deleting a branch or worktree", "anything outside this broadcast's projects"]
         let ends = TaskEnd.allCases.filter(milestone.supports).map(\.displayName)
         var rules = [
             "Call run_status first: when you start, after any restart or compaction, and whenever a line starting with "
@@ -221,6 +223,8 @@ public enum OperatorCommand {
             "Forbidden, and no answer unlocks them: force-pushing, pushing directly to a default or protected branch, "
                 + "deploying. Never steer a worker toward one.",
             "Ask first with ask_you, and wait for the answer, before steering a worker into: " + askFirst.joined(separator: "; ") + ".",
+            "Anything that messages a person (email, Teams, Jira comments) and that no slice allows is never done and never asked for. "
+                + "Leave it for the person.",
             "Every tool that changes something is safe to repeat with the same key; if a reply is lost, call it again.",
             "If a tool answers that AiTerm isn't open, wait and try again later; do nothing else meanwhile.",
             "When a worker waits on a permission prompt, tell the person in one line; never try to answer it.",
