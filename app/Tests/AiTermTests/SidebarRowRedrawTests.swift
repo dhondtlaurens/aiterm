@@ -57,7 +57,7 @@ import Testing
         let counter = RowBodyCounter()
         let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.rowBodyCounter, counter))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 700)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)

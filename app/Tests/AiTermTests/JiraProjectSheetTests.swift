@@ -44,7 +44,7 @@ import Testing
             .seeded(projects: seedProjects ? Self.projects : nil, open: listOpen)
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         settle(host)
@@ -74,7 +74,7 @@ import Testing
 
     @Test func testTypingNarrowsTheListSoReturnAddsTheMatchingProject() throws {
         let h = harness(listOpen: true, seedProjects: true)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let field = try #require(self.field(in: h.host))
 
         // "webx" matches one of the three projects; ⏎ takes the row the narrowed list highlights.
@@ -92,7 +92,7 @@ import Testing
     /// A project picked here joins the ones already linked, after them.
     @Test func testAPickIsAddedAfterTheLinkedProjects() throws {
         let h = harness(linked: [Self.projects[0]], listOpen: true, seedProjects: true)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let field = try #require(self.field(in: h.host))
 
         type("web", into: field)
@@ -106,7 +106,7 @@ import Testing
 
     @Test func testSavingWithoutAPickKeepsTheLinkedProjects() throws {
         let h = harness(linked: [Self.projects[1], Self.projects[0]], seedProjects: true)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
 
         pressCommandReturn(h)
 
@@ -117,7 +117,7 @@ import Testing
     /// not preselect one — a project chosen by alphabet is not one the reader picked.
     @Test func testAnEmptyListMeansNoJiraProject() throws {
         let h = harness(seedProjects: true)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         #expect(self.field(in: h.host) != nil)
 
         pressCommandReturn(h)
@@ -129,7 +129,7 @@ import Testing
     /// Save still hands it up. The list's own ⎋ had lost to Cancel's key equivalent.
     @Test func escapeClosesTheListBeforeTheSheet() throws {
         let h = harness(linked: [Self.projects[0], Self.projects[1]], listOpen: true, seedProjects: true)
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         #expect(listIsOpen(in: h.host))
 
         let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,

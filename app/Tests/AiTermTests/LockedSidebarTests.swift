@@ -29,7 +29,7 @@ struct LockedSidebarTests {
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         // Tall enough for the list to keep its rows beside SYSTEM and USAGE.
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -81,7 +81,7 @@ struct LockedSidebarTests {
         guard case .project(let section)? = entries.first else { Issue.record("expected a project section"); return }
         let host = NSHostingView(rootView: ProjectHeaderRow(section: section, controller: controller).frame(width: 300))
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
-        let panel = NSPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = testPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel])
         panel.isReleasedWhenClosed = false; panel.contentView = host; panel.makeKeyAndOrderFront(nil)
         defer { panel.orderOut(nil) }
         settle(host) { panel.isKeyWindow }

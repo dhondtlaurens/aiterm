@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import AiTermTestSupport
 @testable import AiTermUI
 
 // Helpers every AiTermUI suite shares: hosting a view in a window, letting it settle, reading what
@@ -10,8 +11,7 @@ import Testing
 /// `orderFront` is false, for a test that needs a window but not the keyboard. The caller orders an
 /// on-screen one out when done.
 @MainActor func window(hosting host: NSView, orderFront: Bool = true) -> NSWindow {
-    let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
+    let window = testWindow(contentRect: host.frame, styleMask: [.titled])
     window.contentView = host
     if orderFront { window.makeKeyAndOrderFront(nil) }
     return window

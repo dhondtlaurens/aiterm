@@ -3,6 +3,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 import Testing
+import AiTermTestSupport
 @testable import AiTerm
 
 @MainActor
@@ -67,7 +68,7 @@ import Testing
             .frame(width: 420, height: 150)
         let host = NSHostingView(rootView: editor)
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.contentView = host
         defer { window.orderOut(nil) }

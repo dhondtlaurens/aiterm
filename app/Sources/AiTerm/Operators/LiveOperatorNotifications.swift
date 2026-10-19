@@ -8,8 +8,6 @@ import UserNotifications
 final class LiveOperatorNotifications: NSObject, OperatorNotifications {
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)?
     private var asked = false
-    /// The ids macOS still showed at launch, read once when authorisation is asked.
-    private(set) var deliveredAtLaunch: [String] = []
 
     private var center: UNUserNotificationCenter? {
         Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
@@ -19,7 +17,6 @@ final class LiveOperatorNotifications: NSObject, OperatorNotifications {
         guard !asked, let center else { return }
         asked = true
         center.delegate = self
-        Task { deliveredAtLaunch = await Self.deliveredIds() }
         // The async form: its completion never runs inside this main-actor class, where a closure
         // the SDK does not mark @Sendable would trap when the centre calls it off the main queue.
         Task { _ = try? await center.requestAuthorization(options: [.alert, .sound]) }
@@ -33,6 +30,11 @@ final class LiveOperatorNotifications: NSObject, OperatorNotifications {
         content.body = note.body
         content.userInfo = note.target.userInfo
         center.add(UNNotificationRequest(identifier: note.id, content: content, trigger: nil))
+    }
+
+    func readDelivered() async -> [String] {
+        guard center != nil else { return [] }
+        return await Self.deliveredIds()
     }
 
     /// Read off the main actor: the centre calls its completion on its own queue.

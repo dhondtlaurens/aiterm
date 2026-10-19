@@ -64,7 +64,7 @@ import SwiftUI
     private func host(_ sheet: Sheet) -> (NSHostingView<Harness>, NSWindow) {
         let host = NSHostingView(rootView: Harness(sheet: sheet))
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 240)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         settle(host)

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AiTermUI
 import Testing
+import AiTermTestSupport
 import AiTermCore
 @testable import AiTerm
 
@@ -68,7 +69,7 @@ struct SettingsToggleLayoutTests {
         #expect(settings._matchItermBackground.wrappedValue)
         let host = NSHostingView(rootView: settings)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)

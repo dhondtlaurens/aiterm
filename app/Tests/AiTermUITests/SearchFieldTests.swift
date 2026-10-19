@@ -1,4 +1,5 @@
 import Testing
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 @testable import AiTermUI
@@ -12,8 +13,7 @@ import SwiftUI
         field.focusIfNeeded()   // no window yet: must not crash, must not claim focus
         #expect(field.currentEditor() == nil)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled])
         window.contentView?.addSubview(field)
         field.viewDidMoveToWindow()
         #expect(window.firstResponder === field.currentEditor() || window.firstResponder === field)
@@ -21,8 +21,7 @@ import SwiftUI
 
     @Test func testAFieldThatDoesNotWantFocusNeverTakesIt() {
         let field = FocusableTextField()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled])
         window.contentView?.addSubview(field)
         field.viewDidMoveToWindow()
         #expect(field.currentEditor() == nil)

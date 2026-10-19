@@ -32,8 +32,8 @@ protocol OperatorNotifications: AnyObject {
     func post(_ note: OperatorNote)
     /// Takes the notes with these ids away: out of the notification centre if shown, and unsent if not yet.
     func withdraw(ids: [String])
-    /// The ids of the notes macOS still showed when AiTerm started: what an earlier run left behind.
-    var deliveredAtLaunch: [String] { get }
+    /// The ids of the notes macOS shows now: read once at launch, for what an earlier run left behind.
+    func readDelivered() async -> [String]
     /// Where a click on a note goes.
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)? { get set }
 }
@@ -49,8 +49,10 @@ final class OperatorNotifier {
     private let prompts: @MainActor () -> [UUID: String]
     /// What is posted now, by run: each id this run of AiTerm has sent and not withdrawn, with the body it carries.
     private var posted: [UUID: [String: String]] = [:]
-    /// What an earlier run of AiTerm left in the notification centre, read once, at the first call.
+    /// What an earlier run of AiTerm left in the notification centre, once the listing has come: nil before.
     private var leftBehind: Set<String>?
+    /// The launch's reading of the centre, for a test to await.
+    private(set) var lastListing: Task<Void, Never>?
 
     /// `state` is the workspace as it stands; `prompts` what each waiting worker's prompt asks, by task,
     /// where it is known (`OperatorRequests.open`).
@@ -59,6 +61,22 @@ final class OperatorNotifier {
         self.notifications = notifications
         self.state = state
         self.prompts = prompts
+        lastListing = Task { [weak self] in
+            guard let self else { return }
+            takeDelivered(await notifications.readDelivered())
+        }
+    }
+
+    /// The centre's listing has come, at launch: what an earlier run left that no run asks now is taken back,
+    /// and a run seen from now on does not post again what is still asked and showing. Calls before the
+    /// listing posted as they went, so they are not undone.
+    private func takeDelivered(_ ids: [String]) {
+        let delivered = Set(ids.filter { $0.hasPrefix("request-") || $0.hasPrefix("debrief-") })
+        leftBehind = delivered
+        let state = state()
+        let open = Set(state.runs.flatMap { wanted(for: $0, in: state).map(\.id) })
+        let stale = delivered.subtracting(open)
+        if !stale.isEmpty { notifications.withdraw(ids: stale.sorted()) }
     }
 
     static func debriefId(_ run: UUID) -> String { "debrief-\(run.uuidString)" }
@@ -82,19 +100,11 @@ final class OperatorNotifier {
 
     /// Posts what the run now asks of you that it has not posted, and withdraws what it posted that no
     /// longer stands. An ended run asks nothing, so everything of it is withdrawn. A note says again, in
-    /// place, when what it says has changed. The first call also takes back what an earlier run of AiTerm
-    /// left in the notification centre that no run asks any more, and does not post again what it left
-    /// that is still asked.
+    /// place, when what it says has changed. What an earlier run of AiTerm left in the notification centre is
+    /// dealt with when the launch's listing arrives (`takeDelivered`).
     func requestsChanged(run: OperatorRun) {
         let state = state()
         let run = state.run(id: run.id) ?? run
-        if leftBehind == nil {
-            let delivered = Set(notifications.deliveredAtLaunch.filter { $0.hasPrefix("request-") || $0.hasPrefix("debrief-") })
-            leftBehind = delivered
-            let open = Set(state.runs.flatMap { wanted(for: $0, in: state).map(\.id) })
-            let stale = delivered.subtracting(open)
-            if !stale.isEmpty { notifications.withdraw(ids: stale.sorted()) }
-        }
         let wanted = wanted(for: run, in: state)
         // A run first seen: what the earlier run left for it, still asked, counts as posted.
         var before = posted[run.id] ?? Dictionary(uniqueKeysWithValues: wanted.filter { leftBehind?.contains($0.id) == true }.map { ($0.id, $0.body) })

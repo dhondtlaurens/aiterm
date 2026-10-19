@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AiTermUI
 import Testing
+import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -66,8 +67,7 @@ struct StatusMarkTests {
     private func hostInWindow(_ view: some View) -> (NSWindow, NSHostingView<some View>) {
         let host = NSHostingView(rootView: view.background(Color.black))
         host.appearance = NSAppearance(named: .darkAqua)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: size, height: size),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: size, height: size), styleMask: [.borderless])
         window.contentView = host
         window.orderFrontRegardless()
         return (window, host)
@@ -140,9 +140,9 @@ struct StatusMarkTests {
             .stroke(Palette.spinner, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
             .frame(width: size, height: size)
         let (shapeWindow, shapeHost) = hostInWindow(shape)
-        defer { shapeWindow.orderOut(nil) }
+        defer { shapeWindow.close() }
         let (window, host) = hostInWindow(StatusMark(status: .working, size: size))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         pump(0.1)
         let layer = try arc(in: host).arc
         let unturned = try drawnDirection(host)
@@ -156,10 +156,10 @@ struct StatusMarkTests {
     /// shared clock gives.
     @Test func marksStartedApartTurnInStep() throws {
         let (first, a) = hostInWindow(StatusMark(status: .working, size: size))
-        defer { first.orderOut(nil) }
+        defer { first.close() }
         pump(0.43)
         let (second, b) = hostInWindow(StatusMark(status: .working, size: size))
-        defer { second.orderOut(nil) }
+        defer { second.close() }
         pump(0.27)
 
         #expect(circularDistance(try angle(a), try angle(b)) < 0.5)
@@ -170,7 +170,7 @@ struct StatusMarkTests {
     /// (some thirty frames) its view is not updated at all, and the arc has still moved.
     @Test func aWorkingMarkTurnsWithoutAnUpdatePerFrame() throws {
         let (window, host) = hostInWindow(StatusMark(status: .working, size: size))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         pump(0.1)
         let before = StatusMark.arcUpdates
         let first = try angle(host)
@@ -188,7 +188,7 @@ struct StatusMarkTests {
             ForEach(0..<20, id: \.self) { _ in StatusMark(status: .idle, size: size) }
         }
         let (window, _) = hostInWindow(marks)
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         pump(0.1)
         let before = StatusMark.arcUpdates
         pump(0.55)
@@ -202,7 +202,7 @@ struct StatusMarkTests {
     @Test func aMarkThatWorksAgainTurnsAgain() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         pump(0.2)
         model.status = .done
         pump(0.2)
@@ -220,7 +220,7 @@ struct StatusMarkTests {
     @Test func aSurfaceChangeLeavesTheArcInPhase() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         pump(0.35)
         for surface in [Surface.hover, .accent, .sidebar] {
             model.surface = surface
@@ -234,7 +234,7 @@ struct StatusMarkTests {
     @Test func aRecycledMarkTurnsAgainOnTheClock() throws {
         let model = StatusModel()
         let (window, host) = hostInWindow(Mark(model: model, size: size))
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         pump(0.3)
         window.contentView = NSView()
         pump(0.3)

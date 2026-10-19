@@ -30,7 +30,7 @@ import Testing
                                  cancel: { calls.cancels += 1 }, submit: { calls.submits += 1 })
         let host = NSHostingView(rootView: footer)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 60)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()

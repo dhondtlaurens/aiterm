@@ -65,7 +65,7 @@ import SwiftUI
     private static func host(_ view: some View) -> NSHostingView<AnyView> {
         let host = NSHostingView(rootView: AnyView(view.frame(width: 120)))
         host.frame = NSRect(x: 0, y: 0, width: 120, height: Size.control)
-        _ = window(hosting: host, orderFront: false)
+        window(hosting: host, orderFront: false).close()
         settle(host)
         return host
     }

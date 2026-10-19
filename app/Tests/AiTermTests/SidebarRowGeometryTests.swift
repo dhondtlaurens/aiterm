@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AiTermUI
 import Testing
+import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -52,7 +53,7 @@ struct SidebarRowGeometryTests {
 
         let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id))
         host.frame = NSRect(x: 0, y: 0, width: size.scale(340), height: 800)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -125,7 +126,7 @@ struct SidebarContextMenuHighlightTests {
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host

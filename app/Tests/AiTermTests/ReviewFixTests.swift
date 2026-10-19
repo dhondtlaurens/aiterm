@@ -386,7 +386,7 @@ import AiTermUI
                                     advance: { calls.advances += 1 }, recover: {}, fix: session, applyFix: { calls.applies += 1 })
         let host = NSHostingView(rootView: footer)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 240)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()

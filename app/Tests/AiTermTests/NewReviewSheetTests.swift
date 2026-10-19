@@ -98,7 +98,7 @@ import AiTermCore
                              selectAgent: { _ in }, setModel: { _ in })
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 260)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -175,7 +175,7 @@ import AiTermCore
         let sheet = NewReviewSheet(model: model).seeded(step: step, mergeRequestsOpen: mrOpen, branchesOpen: branchOpen)
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()

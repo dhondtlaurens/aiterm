@@ -30,8 +30,7 @@ import Testing
         let original = NSApplication.shared.appearance
         defer { NSApplication.shared.appearance = original }
         NSApplication.shared.appearance = nil
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled])
         window.isReleasedWhenClosed = false
         defer { window.close() }
 

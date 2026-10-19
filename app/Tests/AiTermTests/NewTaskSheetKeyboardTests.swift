@@ -25,7 +25,7 @@ import AiTermCore
         let sheet = NewTaskSheet(model: model).seeded(step: 1, ticketsOpen: true)
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -56,7 +56,7 @@ import AiTermCore
         let state = FocusState()
         let host = NSHostingView(rootView: TicketFieldHarness(state: state))
         host.frame = NSRect(x: 0, y: 0, width: 500, height: 28)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -74,7 +74,7 @@ import AiTermCore
         let state = FocusState(focused: true)
         let host = NSHostingView(rootView: TicketFieldHarness(state: state))
         host.frame = NSRect(x: 0, y: 0, width: 500, height: 28)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -96,7 +96,7 @@ import AiTermCore
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
         let host = NSHostingView(rootView: NewTaskSheet(model: model).seeded(step: 1))
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -124,7 +124,7 @@ import AiTermCore
         let state = StepState()
         let host = NSHostingView(rootView: PromptStepHarness(state: state))
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: 300)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }

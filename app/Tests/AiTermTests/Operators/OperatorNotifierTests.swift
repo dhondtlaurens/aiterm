@@ -106,18 +106,36 @@ import Testing
         #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-question-a"])
     }
 
-    @Test func aNotificationAnEarlierRunLeftThatIsNoLongerAskedIsWithdrawnAndOneStillAskedIsNotPostedAgain() {
+    func leftOver() -> (open: String, resolved: String, debrief: String) {
+        let ids = ("request-\(run.id.uuidString)-question-open", "request-\(run.id.uuidString)-question-gone", "debrief-\(UUID().uuidString)")
+        notifications.delivered = [ids.0, ids.1, ids.2, "unrelated-id"]
+        return ids
+    }
+
+    @Test func aNotificationAnEarlierRunLeftThatIsNoLongerAskedIsWithdrawnAndOneStillAskedIsNotPostedAgain() async {
         ask("open")
-        let stillOpen = "request-\(run.id.uuidString)-question-open"
-        let resolved = "request-\(run.id.uuidString)-question-gone"
-        let debrief = "debrief-\(UUID().uuidString)"
-        notifications.deliveredAtLaunch = [stillOpen, resolved, debrief, "unrelated-id"]
+        let ids = leftOver()
         let notifier = makeNotifier()
+        await notifier.lastListing?.value
         notifier.requestsChanged(run: current)
         #expect(notifications.posted.isEmpty, "the one still asked is already showing")
-        #expect(Set(notifications.withdrawn) == [resolved, debrief], "only what no run asks, and only AiTerm's ids")
+        #expect(Set(notifications.withdrawn) == [ids.resolved, ids.debrief], "only what no run asks, and only AiTerm's ids")
         notifier.requestsChanged(run: current)
-        #expect(notifications.posted.isEmpty && notifications.withdrawn.count == 2, "the listing is taken once")
+        #expect(notifications.posted.isEmpty && notifications.withdrawn.count == 2)
+    }
+
+    /// The centre's listing is asynchronous: a change before it arrives posts as it goes and fixes nothing, and
+    /// the stale note is still taken back when the listing lands.
+    @Test func aListingThatArrivesAfterTheFirstChangeStillWithdrawsWhatIsStale() async {
+        ask("open")
+        let ids = leftOver()
+        let notifier = makeNotifier()
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.id) == [ids.open] && notifications.withdrawn.isEmpty)
+        await notifier.lastListing?.value
+        #expect(Set(notifications.withdrawn) == [ids.resolved, ids.debrief])
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.count == 1, "nothing is posted twice")
     }
 
     @Test func aTaskThatIsUnblockedIsWithdrawn() {

@@ -75,8 +75,9 @@ final class RecordingNotifications: OperatorNotifications {
     /// The ids taken back, in order.
     private(set) var withdrawn: [String] = []
     private(set) var authorizationRequests = 0
-    /// What an earlier run of AiTerm left showing, for a test to set before the first change.
-    var deliveredAtLaunch: [String] = []
+    /// What an earlier run of AiTerm left showing, as the launch's reading of the centre finds it.
+    var delivered: [String] = []
+    func readDelivered() async -> [String] { delivered }
     var onOpen: (@MainActor (OperatorNote.Target) -> Void)?
     func requestAuthorization() { authorizationRequests += 1 }
     func post(_ note: OperatorNote) { posted.append(note) }
