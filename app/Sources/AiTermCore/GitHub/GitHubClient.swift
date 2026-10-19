@@ -154,15 +154,14 @@ public struct GitHubClient: Sendable {
     }
 
     /// Whether GitHub would merge it now (a head with no check runs or statuses at all follows `mergeable_state`
-    /// alone, so a caller debounces a ready answer): merged or closed first, then a draft, then every check run and
-    /// commit status on its head — a merge end waits for green whatever branch protection requires; a
+    /// alone, so a caller debounces a ready answer): merged or closed first, then every check run and
+    /// commit status on its head, then a draft — a merge end waits for green whatever branch protection requires; a
     /// skipped, neutral or action-required check is not green and a pending one is not yet — then
     /// `mergeable` and `mergeable_state`. Only `clean` and `has_hooks` with `mergeable` true is ready.
     public func mergeReadiness(repo: String, number: Int) async throws -> MergeReadiness {
         let pull = try await get(PullStatusPayload.self, path: "/repos/\(repo)/pulls/\(number)", notFound: .repoNotFound(repo))
         if pull.merged == true { return .merged(commit: pull.mergeCommitSha ?? pull.head.sha, head: pull.head.sha, target: pull.base?.ref) }
         guard pull.state == "open" else { return .blocked("the pull request is closed") }
-        if pull.draft == true { return .blocked("it is a draft") }
         let commit = "/repos/\(repo)/commits/\(pull.head.sha)"
         guard let runs = try await listed(CheckRunsPayload.self, path: commit + "/check-runs", repo: repo),
               let statuses = try await listed(CombinedStatusPayload.self, path: commit + "/status", repo: repo) else {
@@ -188,12 +187,14 @@ public struct GitHubClient: Sendable {
             }
         }
         if running { return .waiting("its checks are running") }
+        // A draft is said once its checks have: what else stops it comes first.
+        if pull.draft == true { return .blocked(MergeReadiness.draftReason) }
         switch pull.mergeableState ?? "unknown" {
         case "clean", "has_hooks": return pull.mergeable == true ? .ready(head: pull.head.sha) : .waiting("GitHub is checking it")
         case "dirty": return .blocked("it has conflicts")
         case "behind": return .blocked("it is behind its base branch")
         case "blocked": return .waiting("it needs a review or a required check")
-        case "draft": return .blocked("it is a draft")
+        case "draft": return .blocked(MergeReadiness.draftReason)
         // GitHub says a check does not pass that every list read here shows green: not ready until it agrees.
         case "unstable": return .waiting("GitHub says its checks are not all passing")
         default: return .waiting("GitHub is checking it")

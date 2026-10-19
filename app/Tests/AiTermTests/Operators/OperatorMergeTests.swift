@@ -125,4 +125,37 @@ import Synchronization
         #expect(await reviewed.world.call(reviewed.run.id, "finish_task", ["task": "A"]).value?["result"] == "waitingToMerge")
         #expect(reviewed.prompts.list.count == 1)
     }
+
+    /// The task accepted again on another commit while the Oracle judged: its yes was for the old commit, so it
+    /// neither merges nor counts for the new one.
+    func reaccept(_ m: Merging) {
+        m.world.workspace.mutate { state in
+            state.updateOperated(m.task.id) { $0.acceptance?.resultSHA = "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed" }
+        }
+    }
+
+    static let acceptedAgain = "A was accepted again on another commit while the Oracle judged its merge: call finish_task again without challengeId."
+
+    @Test func aReacceptWhileTheOracleJudgesWithinTheReplyIsRefused() async throws {
+        let m = try merging(answer: "YES.", delay: .milliseconds(300))
+        let call = Task { await m.world.call(m.run.id, "finish_task", ["task": "A"]) }
+        #expect(await eventually(describing: "the Oracle asked") { m.prompts.list.count == 1 })
+        reaccept(m)
+        let answer = await call.value
+        #expect(answer.message == Self.acceptedAgain)
+        #expect(publication(m)?.conditionsHeld == nil)
+        #expect(m.host.log.isEmpty)
+    }
+
+    @Test func aReacceptWhileTheOracleIsPendingIsRefused() async throws {
+        let m = try merging(answer: "YES.", delay: .milliseconds(300), budget: .milliseconds(10))
+        let first = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        let id = try #require(first.value?["challengeId"]?.stringValue)
+        reaccept(m)
+        await m.world.controller.tools.lastChallenge?.value
+        let second = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
+        #expect(second.message == Self.acceptedAgain)
+        #expect(publication(m)?.conditionsHeld == nil)
+        #expect(m.host.log.isEmpty)
+    }
 }

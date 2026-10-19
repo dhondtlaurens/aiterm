@@ -104,4 +104,47 @@ import Testing
             try await LocalMerge.merge(sha: "feat/pluto-231", into: "main", in: c.repo)
         }
     }
+
+    /// Hermetic git whose merge gets as far as the merge state, then is killed at the deadline.
+    struct MergeTimesOut: GitRunning {
+        let inner: any GitRunning = GitRunner.hermetic()
+        func run(_ args: [String], in dir: String, timeout: TimeInterval, environment: [String: String]) throws -> String {
+            guard args.first == "merge", args.contains("--no-ff"), let sha = args.last else {
+                return try inner.run(args, in: dir, timeout: timeout, environment: environment)
+            }
+            _ = try? inner.run(["merge", "--no-ff", "--no-commit", sha], in: dir, timeout: timeout, environment: environment)
+            throw GitError(args: args, code: 15, stderr: "git merge timed out after 300 s", timedOut: true)
+        }
+    }
+
+    func mergeState(_ path: String) throws -> String? {
+        try git.ask(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], in: path, none: [1])
+    }
+
+    /// A merge killed at its deadline leaves no merge half done in your checkout.
+    @Test func aTimedOutMergeIsTakenBack() async throws {
+        let c = try checkout()
+        let repo = Repository(c.repo.path, git: MergeTimesOut())
+        await #expect(throws: GitError.self) { try await LocalMerge.merge(sha: c.sha, into: "main", in: repo) }
+        #expect(try mergeState(c.repo.path) == nil, "no MERGE_HEAD")
+        #expect(try git.run(["status", "--porcelain"], in: c.repo.path).isEmpty, "nothing staged")
+        #expect(try git.run(["rev-parse", "main"], in: c.repo.path) == c.main)
+    }
+
+    /// A hook that stops the merge is said as a hook, not a conflict, and the merge is taken back.
+    @Test(arguments: ["pre-merge-commit", "commit-msg"])
+    func aFailingHookIsNoConflictAndIsTakenBack(hook: String) async throws {
+        let c = try checkout()
+        let script = c.repo.path + "/.git/hooks/" + hook
+        try "#!/bin/sh\necho 'lint failed: 3 problems' >&2\necho 'see the log' >&2\nexit 1\n".write(toFile: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script)
+        await #expect(throws: LocalMerge.Refusal.hookStopped(defaultBranch: "main", output: "lint failed: 3 problems")) {
+            try await LocalMerge.merge(sha: c.sha, into: "main", in: c.repo)
+        }
+        #expect(try mergeState(c.repo.path) == nil, "no MERGE_HEAD, \(hook)")
+        #expect(try git.run(["status", "--porcelain"], in: c.repo.path).isEmpty, "nothing staged, \(hook)")
+        #expect(try git.run(["rev-parse", "main"], in: c.repo.path) == c.main)
+        #expect(LocalMerge.Refusal.hookStopped(defaultBranch: "main", output: "lint failed: 3 problems").localizedDescription
+                == "A Git hook stopped the merge into main: lint failed: 3 problems.")
+    }
 }

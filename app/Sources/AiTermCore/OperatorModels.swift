@@ -398,6 +398,8 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var approved: Bool?
     /// The challenged call's arguments as canonical JSON, as `actedArguments`: a veto's yes acts only for these.
     public var askedArguments: String?
+    /// A merge's veto (finish_task): the commit accepted when the Oracle was asked. Its yes holds for that commit only.
+    public var askedSHA: String?
     /// Why the act proceeded unchallenged: the second opinion missing, failed or too slow.
     public var unchallengedReason: String?
     /// The acting call's arguments as canonical JSON, `challengeId` and `challengeReply` left out:
@@ -408,16 +410,16 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
     public var askedAt: Date
 
     public init(id: String, tool: String, kind: ChallengeKind = .critique, stage: ChallengeStage = .running, critique: String? = nil,
-                approved: Bool? = nil, askedArguments: String? = nil, unchallengedReason: String? = nil, actedArguments: String? = nil,
-                result: String? = nil, askedAt: Date) {
+                approved: Bool? = nil, askedArguments: String? = nil, askedSHA: String? = nil, unchallengedReason: String? = nil,
+                actedArguments: String? = nil, result: String? = nil, askedAt: Date) {
         self.id = id; self.tool = tool; self.kind = kind; self.stage = stage; self.critique = critique; self.approved = approved
-        self.askedArguments = askedArguments
+        self.askedArguments = askedArguments; self.askedSHA = askedSHA
         self.unchallengedReason = unchallengedReason; self.actedArguments = actedArguments; self.result = result
         self.askedAt = askedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, tool, kind, stage, critique, approved, askedArguments, unchallengedReason, actedArguments, result, askedAt
+        case id, tool, kind, stage, critique, approved, askedArguments, askedSHA, unchallengedReason, actedArguments, result, askedAt
     }
 
     /// Synthesised but for `kind`, which a record saved before vetoes lacks: it reads as a critique.
@@ -430,6 +432,7 @@ public struct ChallengeRecord: Codable, Equatable, Sendable, Identifiable {
         critique = try c.decodeIfPresent(String.self, forKey: .critique)
         approved = try c.decodeIfPresent(Bool.self, forKey: .approved)
         askedArguments = try c.decodeIfPresent(String.self, forKey: .askedArguments)
+        askedSHA = try c.decodeIfPresent(String.self, forKey: .askedSHA)
         unchallengedReason = try c.decodeIfPresent(String.self, forKey: .unchallengedReason)
         actedArguments = try c.decodeIfPresent(String.self, forKey: .actedArguments)
         result = try c.decodeIfPresent(String.self, forKey: .result)

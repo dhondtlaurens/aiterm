@@ -82,6 +82,12 @@ public enum MergeReadiness: Equatable, Sendable {
     case merged(commit: String, head: String, target: String? = nil)
 }
 
+public extension MergeReadiness {
+    /// Why a draft is not ready, as both hosts say it: only once nothing else stops the request, so a draft blocked
+    /// for this alone would merge once it is marked ready.
+    static let draftReason = "it is a draft"
+}
+
 /// Whether a code host protects a branch. AiTerm never pushes to a protected branch (spec §3):
 /// `TaskPublisher` asks before every push, and pushes nothing unless the answer is `.unprotected`.
 public enum BranchProtection: Equatable, Sendable {

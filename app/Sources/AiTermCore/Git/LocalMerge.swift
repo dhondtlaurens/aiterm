@@ -14,6 +14,8 @@ public enum LocalMerge {
         case conflicted(sha: String, defaultBranch: String)
         /// Something other than a full commit id, which git could read as a ref or an option.
         case invalidCommit(String)
+        /// A hook (`pre-merge-commit`, `commit-msg`) stopped the merge, with the first line it printed: taken back.
+        case hookStopped(defaultBranch: String, output: String)
 
         public var errorDescription: String? {
             switch self {
@@ -25,13 +27,17 @@ public enum LocalMerge {
                 return "\(sha.prefix(7)) conflicts with \(defaultBranch) in the project’s checkout, so AiTerm merged nothing and left \(defaultBranch) as it was: have the task’s agent rebase onto \(defaultBranch), accept the new commit, then call finish_task again."
             case .invalidCommit(let sha):
                 return "\(sha) is not a full commit id."
+            case .hookStopped(let defaultBranch, let output):
+                let line = output.trimmingCharacters(in: .whitespaces)
+                return "A Git hook stopped the merge into \(defaultBranch): \(line)" + (line.last.map { ".!?".contains($0) } == true ? "" : ".")
             }
         }
     }
 
     /// `sha` merged into `defaultBranch` in `repo`'s own checkout, which must be on that branch with no tracked
     /// change uncommitted; the merge commit. A commit already in the branch (a repeat after a lost answer) is
-    /// merged again by nothing: the branch's tip is answered. A conflict is taken back with `merge --abort`.
+    /// merged again by nothing: the branch's tip is answered. A merge stopped by a conflict, a hook or the deadline
+    /// is taken back with `merge --abort`, and a hook is told apart from a conflict by the paths left unmerged.
     /// Never pushes.
     public static func merge(sha: String, into defaultBranch: String, in repo: Repository) async throws -> String {
         try await BackgroundWork.run { try mergeNow(sha: sha, into: defaultBranch, in: repo) }
@@ -53,14 +59,26 @@ public enum LocalMerge {
         do {
             // Hooks may run the project's checks, so the merge gets a checkout's deadline.
             try git.run(["merge", "--no-ff", "--no-edit", "--quiet", sha], in: path, timeout: GitRunner.checkoutTimeout)
-        } catch let error as GitError where !error.timedOut {
+        } catch let error as GitError {
+            // Whatever stopped it, a conflict, a hook or the deadline, no merge is left half done in your checkout.
             let merging = (try? git.ask(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], in: path, none: [1])) ?? nil
-            if merging != nil {
-                Log.git.attempt("Taking back the conflicted merge of \(sha.prefix(7)) in \(path)") { try git.run(["merge", "--abort"], in: path) }
-                throw Refusal.conflicted(sha: sha, defaultBranch: defaultBranch)
-            }
-            throw error
+            guard merging != nil else { throw error }
+            let conflicted = (try? git.run(["diff", "--name-only", "--diff-filter=U"], in: path)) ?? ""
+            Log.git.attempt("Taking back the stopped merge of \(sha.prefix(7)) in \(path)") { try git.run(["merge", "--abort"], in: path) }
+            if error.timedOut { throw error }
+            if !conflicted.isEmpty { throw Refusal.conflicted(sha: sha, defaultBranch: defaultBranch) }
+            throw Refusal.hookStopped(defaultBranch: defaultBranch, output: firstLine(of: error))
         }
         return try git.run(["rev-parse", "HEAD"], in: path)
+    }
+
+    /// The first line a stopped merge printed, its hook's words: stderr first, else stdout.
+    private static func firstLine(of error: GitError) -> String {
+        for text in [error.stderr, error.stdout] {
+            if let line = text.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) {
+                return line
+            }
+        }
+        return "it gave no reason"
     }
 }

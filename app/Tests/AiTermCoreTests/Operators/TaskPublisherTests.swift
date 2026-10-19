@@ -810,4 +810,29 @@ import Synchronization
         let outcome = try await advance(&s, host: FakeMergeHost())
         #expect(outcome == .refused(LocalMerge.Refusal.notOnDefaultBranch(s.path, current: "feat/pluto-231", defaultBranch: "main").localizedDescription))
     }
+
+    /// A draft is marked ready only when that is all that stops the merge: with a thread still open, or blocked for
+    /// another reason, it stays a draft and no reviewer is notified.
+    @Test func aDraftWithAnOpenThreadIsNotMarkedReady() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost()
+        _ = try await advance(&s, host: host, forReview: true)
+        host.update { $0.readiness = [.blocked("it is a draft")]; $0.threads = [thread("d1", resolved: false)] }
+        let outcome = try await advance(&s, host: host, restart: false)
+        guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "1 review thread is still open on !12.")
+        #expect(!host.log.contains("ready 12"), "the draft was not marked ready")
+        #expect(!host.log.contains { $0.hasPrefix("merge") })
+    }
+
+    @Test func aDraftBlockedForAnotherReasonIsNotMarkedReady() async throws {
+        var s = try setUp(end: .merge)
+        let host = FakeMergeHost()
+        _ = try await advance(&s, host: host, forReview: true)
+        host.update { $0.readiness = [.blocked("its pipeline failed")] }
+        let outcome = try await advance(&s, host: host, restart: false)
+        guard case .blocked(_, let why) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(why == "its pipeline failed")
+        #expect(!host.log.contains("ready 12"))
+    }
 }

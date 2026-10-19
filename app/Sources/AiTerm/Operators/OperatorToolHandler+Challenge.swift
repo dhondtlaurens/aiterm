@@ -114,7 +114,10 @@ extension OperatorToolHandler {
                                             instructions: run.profile.instructions)
         }
         let id = UUID().uuidString
-        let asked = ChallengeRecord(id: id, tool: call.tool, kind: kind, askedArguments: Self.invocation(call), askedAt: ports.now())
+        // A merge's yes holds for the commit accepted now, which the record keeps.
+        let askedSHA = merging?.operated?.acceptance?.resultSHA
+        let asked = ChallengeRecord(id: id, tool: call.tool, kind: kind, askedArguments: Self.invocation(call), askedSHA: askedSHA,
+                                    askedAt: ports.now())
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.challenges.append(asked) } }
         let runner = ports.secondOpinion, folder = OperatorCommand.runFolder(run.id, home: ports.home)
         let projects = run.projectIds.compactMap(state.project(id:)).map(\.path)
@@ -151,7 +154,7 @@ extension OperatorToolHandler {
             case .critique(let text):
                 let veto = Self.veto(text)
                 guard veto.approved else { try await refuseVetoed(call, in: run, why: veto.reason) }
-                try approve(call, in: run)
+                try approve(call, in: run, askedSHA: askedSHA)
                 return nil
             case .unchallenged:
                 try await refuseUnanswered(call, in: run)
@@ -191,13 +194,9 @@ extension OperatorToolHandler {
             guard kept.askedArguments == Self.invocation(call) else {
                 throw ToolRefusal("Challenge \(id) is the Oracle's yes to another \(call.tool). Call again without challengeId.")
             }
-            // A merge's yes holds for the commit accepted when it was asked.
-            if call.tool == "finish_task", let accepted = (try? task(call, in: run))?.operated?.acceptance, accepted.at > kept.askedAt {
-                throw ToolRefusal("The task was accepted again since the Oracle was asked. Call finish_task again without challengeId.")
-            }
+            try approve(call, in: run, askedSHA: kept.askedSHA)
             updateChallenge(id, in: run.id) { $0.stage = .delivered }
             actingChallenges.insert(id)
-            try approve(call, in: run)
             return nil
         }
     }
@@ -208,12 +207,16 @@ extension OperatorToolHandler {
         return (verdict.approved, verdict.reason)
     }
 
-    /// The Oracle's yes: an addition is let past the threshold for this call; a merge goes ahead for the commit accepted now,
-    /// recorded on the task so the merge's later polls hold to it.
-    private func approve(_ call: ToolCall, in run: OperatorRun) throws {
+    /// The Oracle's yes: an addition is let past the threshold for this call; a merge goes ahead for `askedSHA`, the commit
+    /// accepted when the Oracle was asked, recorded on the task so the merge's later polls hold to it. Refused, and nothing
+    /// recorded, when the task was accepted again on another commit meanwhile.
+    private func approve(_ call: ToolCall, in run: OperatorRun, askedSHA: String?) throws {
         guard call.tool == "finish_task" else { vettedCalls.insert(Self.invocation(call)); return }
         let task = try task(call, in: run)
-        guard let sha = task.operated?.acceptance?.resultSHA else { return }
+        guard let sha = askedSHA, let operated = task.operated, operated.acceptance?.resultSHA == sha else {
+            throw ToolRefusal("\(task.operated?.key ?? "The task") was accepted again on another commit while the Oracle judged its merge: "
+                              + "call finish_task again without challengeId.")
+        }
         mutate(in: run.id) { state in
             state.updateOperated(task.id) { operated in
                 var publication = operated.publication ?? TaskPublication()

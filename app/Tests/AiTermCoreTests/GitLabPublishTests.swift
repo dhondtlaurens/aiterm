@@ -256,6 +256,13 @@ import Testing
         #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .blocked("it is a draft"))
     }
 
+    /// A draft's pipeline is read first: what else stops it is said before the draft.
+    @Test func aDraftsPipelineIsSaidBeforeTheDraft() async throws {
+        let draft = Self.status(detailed: "draft_status", pipeline: "failed").replacingOccurrences(of: #""draft":false"#, with: #""draft":true"#)
+        let (client, _) = makeClient { _ in (200, Data(draft.utf8)) }
+        #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .blocked("its pipeline failed"))
+    }
+
     @Test func anUnknownPipelineStatusIsNotGreen() async throws {
         let (client, _) = makeClient { _ in (200, Data(Self.status(detailed: "mergeable", pipeline: "on_hold").utf8)) }
         #expect(try await client.mergeReadiness(project: "web/acme-web", iid: 12) == .waiting("its pipeline is on hold"))

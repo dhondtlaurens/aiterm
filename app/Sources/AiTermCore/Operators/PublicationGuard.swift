@@ -65,6 +65,11 @@ public enum PublicationGuard {
         guard head == acceptedSHA else {
             return "The request's branch is at \(head.prefix(7)) on the host, not the accepted \(acceptedSHA.prefix(7))."
         }
+        return openThreads(threads, request: request)
+    }
+
+    /// Why `threads` keep `request` from merging: any of them still open. Nil when every one is resolved.
+    public static func openThreads(_ threads: [ReviewThread], request: String) -> String? {
         let open = threads.filter { !$0.resolved }.count
         guard open == 0 else {
             return open == 1 ? "1 review thread is still open on \(request)." : "\(open) review threads are still open on \(request)."

@@ -151,6 +151,10 @@ import Testing
             (Self.pull(mergeableState: "blocked"), Self.green, Self.statuses([]), .waiting("it needs a review or a required check")),
             (Self.pull(mergeableState: "something_new"), Self.green, Self.statuses([]), .waiting("GitHub is checking it")),
             (Self.pull(draft: true, mergeableState: "draft"), Self.green, Self.statuses([]), .blocked("it is a draft")),
+            // A draft's checks are read first: what else stops it is said before the draft, which is marked ready only
+            // when nothing else does.
+            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "completed", "failure")]), Self.statuses([]), .blocked("its check test failed")),
+            (Self.pull(draft: true, mergeableState: "draft"), Self.runs([("test", "in_progress", nil)]), Self.statuses([]), .waiting("its checks are running")),
             (Self.pull(state: "closed", merged: true), Self.green, Self.statuses([]), .merged(commit: Self.mergeCommit, head: Self.head, target: "main")),
             (Self.pull(state: "closed"), Self.green, Self.statuses([]), .blocked("the pull request is closed")),
         ]

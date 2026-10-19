@@ -138,7 +138,7 @@ public struct GitLabClient: Sendable {
     }
 
     /// Whether GitLab would merge it now: its pipeline first — a merge end waits for green whatever
-    /// the project requires — then GitLab's `detailed_merge_status`.
+    /// the project requires — then whether it is a draft, then GitLab's `detailed_merge_status`.
     public func mergeReadiness(project: String, iid: Int) async throws -> MergeReadiness {
         try await get(MergeStatusPayload.self, path: Self.requestsPath(project) + "/\(iid)",
                       notFound: .projectNotFound(project)).readiness
@@ -434,7 +434,6 @@ private struct MergeStatusPayload: Decodable {
     var readiness: MergeReadiness {
         if state == "merged" { return .merged(commit: mergeCommitSha ?? squashCommitSha ?? sha ?? "", head: sha ?? "", target: targetBranch) }
         guard state == "opened" else { return .blocked("the merge request is \(state ?? "not open")") }
-        if draft == true { return .blocked("it is a draft") }
         switch headPipeline?.status ?? "" {
         case "failed": return .blocked("its pipeline failed")
         case "canceled": return .blocked("its pipeline was canceled")
@@ -446,6 +445,8 @@ private struct MergeStatusPayload: Decodable {
         case "", "success": break   // green, or no pipeline at all
         case let other: return .waiting("its pipeline is \(other.replacingOccurrences(of: "_", with: " "))")
         }
+        // A draft is said once its pipeline has: what else stops it comes first.
+        if draft == true { return .blocked(MergeReadiness.draftReason) }
         guard let status = detailedMergeStatus else { return .waiting("GitLab is checking it") }
         switch status {
         case "mergeable": return sha.map { .ready(head: $0) } ?? .waiting("GitLab is checking it")
@@ -454,7 +455,7 @@ private struct MergeStatusPayload: Decodable {
         case "not_approved": return .waiting("it needs an approval")
         case "conflict": return .blocked("it has conflicts")
         case "need_rebase": return .blocked("it needs a rebase")
-        case "draft_status": return .blocked("it is a draft")
+        case "draft_status": return .blocked(MergeReadiness.draftReason)
         case "discussions_not_resolved": return .blocked("it has unresolved threads")
         default: return .blocked("GitLab says " + status.replacingOccurrences(of: "_", with: " "))
         }

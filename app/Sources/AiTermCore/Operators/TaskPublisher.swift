@@ -182,13 +182,18 @@ public struct TaskPublisher: Sendable {
             }
         }
         var answer = try await host.readiness(of: number)
-        // A request still a draft, opened for its review or by someone, is marked ready only to merge it (spec §5).
-        if case .blocked = answer, let live = try await host.existingRequest(from: branch), live.iid == number, live.draft {
+        let request = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
+        // A request still a draft, opened for its review or by someone, is marked ready only to merge it (spec §5): only
+        // when the draft is all the host says stops it (it names a pipeline, a check or a conflict first) and every
+        // thread on it is resolved, so marking it ready notifies nobody about a merge that would not happen.
+        if answer == .blocked(MergeReadiness.draftReason), let live = try await host.existingRequest(from: branch), live.iid == number, live.draft {
+            if let why = PublicationGuard.openThreads(try await host.threads(of: number), request: request) {
+                return try await blocked(publication, why, record)
+            }
             if let why = await recheck() { return .refused(why) }
             try await host.markReady(number)
             answer = try await host.readiness(of: number)
         }
-        let request = publication.mergeRequestURL.map { CodeHost(webURL: $0).reference(number) } ?? "#\(number)"
         guard case .ready(let head) = answer else { return try await settle(answer, sha: sha, key: operated.key, branch: branch, expectedTarget: defaultBranch, publication, record) }
         if let why = PublicationGuard.mergeFloor(head: head, acceptedSHA: sha, threads: [], request: request) {
             publication.readySince = nil
