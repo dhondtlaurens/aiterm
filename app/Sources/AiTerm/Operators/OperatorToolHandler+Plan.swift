@@ -134,8 +134,13 @@ extension OperatorToolHandler {
             model = nil
         }
         // The read may have let the task start, or you pause the operation: check both again.
-        guard let fresh = state.task(id: task.id)?.operated, fresh.state == .planned || fresh.state == .queued, fresh.launch == nil else {
+        guard let current = state.task(id: task.id), let fresh = current.operated, fresh.state == .planned || fresh.state == .queued,
+              fresh.launch == nil else {
             throw ToolRefusal("\(task.operated?.key ?? task.title) has started: steer it with message_task, and log the steer with log_decision.")
+        }
+        // Another update may have switched the agent meanwhile: a model checked against the old agent's list is not saved on it.
+        if model != nil, current.agent != task.agent {
+            throw ToolRefusal("The task’s agent changed while this update was checked: call update_task again.")
         }
         try acceptsPlanChanges(state.run(id: run.id) ?? run)
         let end = try self.end(call)

@@ -297,6 +297,40 @@ import Testing
         #expect(world.state.tasks.first?.model == "claude-other")
     }
 
+    /// A model-only update checked against Claude's list while another update switches the task to Codex:
+    /// the first never saves its Claude model on the Codex task, and says to call again.
+    @Test func aModelCheckedForAnAgentTheTaskNoLongerHasIsRefused() async throws {
+        let gate = Mutex((armed: false, entered: false))
+        let release = DispatchSemaphore(value: 0)
+        let run = OperatorServiceFixtures.run(projects: [project, other])
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other, docs], runs: [run])) { ports in
+            ports.milestone = .m1
+            ports.agentModels = { agent in
+                let hold = gate.withLock { gate in
+                    guard gate.armed, agent == .claude, !gate.entered else { return false }
+                    gate.entered = true
+                    return true
+                }
+                if hold { release.wait() }
+                return OperatorServiceFixtures.models[agent] ?? []
+            }
+        }
+        world.link.attached = false
+        _ = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "claude",
+                                                     "model": "claude-named", "modelReason": "The prompt says Claude."])
+        try #require(world.state.tasks.first?.agent == .claude)
+        gate.withLock { $0.armed = true }
+        let first = Task { await world.call(run.id, "update_task", ["task": "A", "model": "claude-other"]) }
+        await eventually(describing: "the first update reading Claude's list") { gate.withLock { $0.entered } }
+        let switched = await world.call(run.id, "update_task", ["task": "A", "agent": "codex", "model": "gpt-6-mini"])
+        #expect(switched.value?["created"] == false, "\(switched)")
+        release.signal()
+        let refused = await first.value
+        #expect(refused.message == "The task’s agent changed while this update was checked: call update_task again.")
+        let task = try #require(world.state.tasks.first)
+        #expect(task.agent == .codex && task.model == "gpt-6-mini")
+    }
+
     @Test func aRefusedCreateTaskLeavesTheOperationsProjectsAsTheyWere() async throws {
         let (world, run) = try makeWorld()
         let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "grok",
