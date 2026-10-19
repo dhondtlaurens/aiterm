@@ -860,6 +860,188 @@
   #p-jira-projects .pair { display: inline-flex; align-items: center; gap: var(--space-snug); flex: none; }
   #p-jira-projects .ai-badge.quiet .more { margin-left: var(--space-tight); }
 
+
+  /* --- 19 Oct 2026 The Operator, greenfield (proposal) ---------------------------------- */
+  /* Scoped to .op. Every number is a Metrics member (named beside it) or a one-off flagged as new. */
+  .op .flow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-base); margin-top: var(--space-block); }
+  .op .flow .st { display: inline-flex; align-items: center; height: var(--size-control); padding-inline: var(--space-gap);
+                  border: 1px solid var(--border); border-radius: var(--radius-control); font-size: 12px; color: var(--text); }
+  .op .flow .st.you { border-color: rgba(255, 146, 48, 0.38); background: rgba(255, 146, 48, 0.16); }
+  .op .flow .ar { color: var(--muted); font: 11px/1 var(--mono); }
+  .op .slices { width: 100%; border-collapse: collapse; margin-top: var(--space-block); font-size: 13px; }
+  .op .slices th { text-align: left; font: 600 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+                   color: var(--muted); padding-block: var(--space-base); border-bottom: 1px solid var(--border); }
+  .op .slices td { padding: var(--space-inset) var(--space-gap) var(--space-inset) 0; border-bottom: 1px solid var(--border);
+                   vertical-align: top; color: var(--muted); }
+  .op .slices td:first-child { color: var(--text); font-weight: 600; white-space: nowrap; }
+  .op .dq { font-size: 13px; margin-top: var(--space-margin); color: var(--text); font-weight: 600; }
+  .op .dq + .why, .op .dq + p { color: var(--muted); margin-top: var(--space-tight); }
+  .op .newtok { color: var(--amber); font-family: var(--mono); font-size: 11px; }
+
+  /* Marks: VendorMark discs. Claude: Palette.claude disc, markPaper glyph. Codex: markPaper disc, markInk glyph. */
+  .op .vm { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+  .op .vm svg { width: 61%; height: 61%; }
+  .op .vm.claude { background: var(--claude); } .op .vm.claude svg { fill: #FFFFFF; }
+  .op .vm.codex { background: #FFFFFF; } .op .vm.codex svg { fill: #000000; }
+  .op .vm.s18 { width: 18px; height: 18px; } .op .vm.s16 { width: 16px; height: 16px; }
+  .op .vm.s12 { width: 12px; height: 12px; } .op .vm.s28 { width: 28px; height: 28px; }
+
+  /* The operator badge: Size.chip tall, Radius.chip, Space.tight inside, Typography.monoChip.
+     The mark is a VendorMark at 12 pt (new: OperatorBadge.markSize, one-off). The Oracle's mark
+     overlaps by Space.tight, ringed in the badge's ground, as AvatarGroupView rings. */
+  .op .ob { display: inline-flex; align-items: center; gap: var(--space-tight); height: var(--size-chip);
+            padding-inline: var(--space-tight); border-radius: var(--radius-chip); flex: none; max-width: 100%;
+            font: 500 10px/1 var(--mono); color: var(--muted); white-space: nowrap; box-sizing: border-box; }
+  .op .ob .tx { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .op .ob .marks { display: inline-flex; flex: none; }
+  .op .ob .marks .vm + .vm { margin-left: calc(-1 * var(--space-tight)); box-shadow: 0 0 0 1px var(--surface); }
+  .op .ob.quiet { padding-inline: 0; background: none; }
+  .op .ob.acting { background: var(--badge); color: var(--text); }
+  .op .ob.acting .marks .vm + .vm { box-shadow: 0 0 0 1px #2B2B2B; }
+  .op .ob.you { background: rgba(255, 146, 48, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 146, 48, 0.38); color: var(--text); }
+  .op .ob .bang { width: 12px; height: 12px; border-radius: 50%; background: var(--amber); color: #000000;
+                  font: 700 9px/12px var(--font); text-align: center; flex: none; }
+
+  /* The Notice: an amber exclamationmark.circle.fill at Size.chip and the title in Typography.label
+     on one row, Space.snug apart; the description in Typography.help and Palette.muted; the actions as
+     links Space.gap apart; Space.tight between rows; nothing indented. */
+  .op .ntc { display: flex; flex-direction: column; gap: var(--space-tight); font: 11px/1.4 var(--font); }
+  .op .ntc .t { display: flex; align-items: center; gap: var(--space-snug); font: 500 12px/1.3 var(--font); color: var(--text); }
+  .op .ntc .t .mk { width: 16px; height: 16px; border-radius: 50%; background: var(--amber); color: #000000; flex: none;
+                    font: 700 11px/16px var(--font); text-align: center; }
+  .op .ntc .d { color: var(--muted); }
+  .op .ntc .a { display: flex; flex-wrap: wrap; gap: var(--space-gap); }
+  .op .ntc .a span { color: var(--link); }
+  .op .ntc .a span.off { color: var(--muted); }
+  .op .ntc.compact .t { font-size: 11px; }
+  .op .ntc.compact .t .mk { width: 12px; height: 12px; font-size: 9px; line-height: 12px; }
+
+  /* Sidebar pieces on .mk-sidebar. */
+  .op .hdg { display: flex; align-items: center; height: var(--size-menu-row); padding-left: var(--space-base); padding-right: 3px;
+             font: 600 10px/1 var(--font); letter-spacing: 0.45px; text-transform: uppercase; color: var(--muted); }
+  .op .hdg .sp { flex: 1; }
+  .op .hdg .plus { width: var(--size-slot); height: var(--size-slot); display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .op .hdg .plus svg { width: 10px; height: 10px; }
+  .op .mk-row .cl .ai-badge.quiet { flex: none; }
+  .op .mk-row .cl .proj { display: inline-flex; align-items: center; gap: var(--space-tight); font: 500 10px/1 var(--mono); color: var(--muted); min-width: 0; }
+  .op .mk-row .cl .proj svg { width: 10px; height: 10px; flex: none; }
+  .op .mk-row .cl .more { display: inline-flex; align-items: center; height: var(--size-chip); padding-inline: var(--space-tight);
+                          background: var(--badge); border-radius: var(--radius-chip); font: 500 10px/1 var(--mono); color: var(--text); flex: none; }
+  .op .mk-row .ol { display: flex; align-items: center; height: var(--size-chip); min-width: 0; }
+  .op .mk-row .st.done { background: var(--accent); }
+  .op .mk-row.sel .ob.quiet { color: rgba(255, 255, 255, 0.75); }
+  .op .mk-row.sel .ob.acting { background: var(--badge-selected); color: #FFFFFF; }
+  .op .mk-row.sel .cl .proj { color: rgba(255, 255, 255, 0.75); }
+  .op .mk-row.sel .cl .more { background: var(--badge-selected); color: #FFFFFF; }
+  .op .statecol { display: flex; flex-direction: column; gap: var(--space-hairline); }
+  .op .statecol .lab { font: 10px/1.4 var(--mono); color: var(--muted); margin: var(--space-base) 0 var(--space-tight) var(--space-section); }
+
+  /* The board: SheetLayout at 820 pt wide (new: Sheet.boardWidth), Sheet.height tall. */
+  .op .board { width: 820px; height: 560px; box-sizing: border-box; display: flex; flex-direction: column;
+               background: var(--surface); box-shadow: 0 0 0 1px var(--border); border-radius: var(--radius-panel);
+               overflow: hidden; font: 13px/1.3 var(--font); color: var(--text); }
+  .op .board.auto { height: auto; }
+  .op .board .hd { padding: var(--space-section) var(--space-margin) var(--space-block); display: flex; flex-direction: column; gap: var(--space-base); }
+  .op .board .ttl { display: flex; align-items: baseline; gap: var(--space-gap); }
+  .op .board .ttl b { font: 600 15px/1.2 var(--font); }
+  .op .board .ttl .pr { margin-left: auto; font: 11px/1 var(--mono); color: var(--muted); }
+  .op .board .stl { display: flex; align-items: center; gap: var(--space-gap); min-width: 0; }
+  .op .board .asked { font: 11px/1.4 var(--font); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .op .board .asked b { color: var(--text); font-weight: 500; }
+  .op .board .rule { height: 1px; background: var(--border); flex: none; }
+  .op .cols { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-gap);
+              padding: var(--space-block) var(--space-margin); min-height: 0; }
+  .op .cols.three { grid-template-columns: repeat(3, 1fr); }
+  .op .col { display: flex; flex-direction: column; gap: var(--space-base); min-width: 0; }
+  .op .col .ch { display: flex; align-items: center; gap: var(--space-snug); height: var(--size-menu-row);
+                 font: 600 10px/1 var(--font); letter-spacing: 0.45px; text-transform: uppercase; color: var(--muted); }
+  .op .col .ch .n { font: 500 10px/1 var(--mono); letter-spacing: 0; }
+  .op .col .empty { font: 11px/1.4 var(--font); color: var(--muted); padding: var(--space-base) 0; }
+  /* A card: groupChrome (Palette.surface, the hairline, Radius.group), Space.inset inside, Space.tight between lines. */
+  .op .card2 { display: flex; flex-direction: column; gap: var(--space-tight); padding: var(--space-inset);
+               background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-group); min-width: 0; }
+  .op .card2:hover, .op .card2.hovered { background: var(--row-hover-solid); }
+  .op .card2.you { border-color: rgba(255, 146, 48, 0.38); }
+  .op .card2.new { outline: 1px dashed var(--amber); outline-offset: -1px; }
+  .op .card2 .tr { display: flex; align-items: flex-start; gap: var(--space-base); min-width: 0; }
+  .op .card2 .tr .tt { font: 13px/16px var(--font); color: var(--text); min-width: 0; display: -webkit-box;
+                       -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .op .card2 .bl { display: flex; align-items: center; gap: var(--space-gap); height: var(--size-chip); min-width: 0; }
+  .op .card2 .bl .ai-badge.quiet svg { width: 10px; height: 10px; }
+  .op .card2 .bl .br { font: 11px/1 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .op .card2 .ln { display: flex; min-width: 0; }
+  .op .card2 .ntc { margin-top: var(--space-tight); padding-top: var(--space-base); border-top: 1px solid var(--border); }
+  .op .board .ft { padding: var(--space-block) var(--space-margin); background: var(--surface-raised);
+                   display: flex; align-items: center; gap: var(--space-base); }
+  .op .board .ft .grow { flex: 1; }
+  .op .btn2 { display: inline-flex; align-items: center; gap: var(--space-base); height: var(--size-control); padding-inline: var(--space-gap);
+              background: var(--control-active); border-radius: var(--radius-control); font-size: 13px; color: var(--text); white-space: nowrap; }
+  .op .btn2.primary { background: var(--accent); color: #FFFFFF; }
+  .op .btn2 .kc { display: inline-flex; gap: 3px; }
+  .op .btn2 .kc span { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; box-sizing: border-box;
+                       background: rgba(255, 255, 255, 0.22); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: var(--radius-chip);
+                       font: 11px/1 var(--mono); color: #FFFFFF; }
+
+  /* The debrief's lists: SidebarHeading heads, Size.menuRow-high rows at least, Space.section between lists. */
+  .op .deb { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-section) var(--space-margin);
+             padding: var(--space-block) var(--space-margin); align-content: start; overflow: hidden; }
+  .op .deb .ls { display: flex; flex-direction: column; gap: var(--space-tight); min-width: 0; }
+  .op .deb .ls .ch { display: flex; align-items: center; height: var(--size-menu-row); font: 600 10px/1 var(--font);
+                     letter-spacing: 0.45px; text-transform: uppercase; color: var(--muted); gap: var(--space-snug); }
+  .op .deb .ls .ch .n { font: 500 10px/1 var(--mono); letter-spacing: 0; }
+  .op .deb .r { display: flex; align-items: center; gap: var(--space-base); min-height: var(--size-menu-row); font: 12px/1.35 var(--font); min-width: 0; }
+  .op .deb .r .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .op .deb .r .res { font: 11px/1 var(--mono); color: var(--muted); flex: none; }
+  .op .deb .r .k { font: 500 10px/1 var(--mono); color: var(--muted); flex: none; }
+  .op .deb .p { font: 12px/1.4 var(--font); color: var(--text); }
+  .op .deb .p .w { display: block; color: var(--muted); font-size: 11px; }
+  .op .deb .p .lk { color: var(--link); font-size: 11px; }
+  .op .deb .ls + .ls { }
+
+  /* New Broadcast and Settings: .mk-sheet at Sheet.width. */
+  .op .stepbar { display: flex; align-items: center; gap: var(--space-base); }
+  .op .stepbar .s { display: inline-flex; align-items: center; gap: var(--space-snug); font: 12px/1 var(--font); color: var(--muted); flex: none; }
+  .op .stepbar .s i { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                      font: 600 10px/1 var(--font); font-style: normal; box-sizing: border-box; border: 1px solid var(--border); color: var(--muted); }
+  .op .stepbar .s.done i { background: var(--control-active); border-color: transparent; color: var(--text); }
+  .op .stepbar .s.on { color: var(--text); }
+  .op .stepbar .s.on i { background: var(--accent); border-color: transparent; color: #FFFFFF; }
+  .op .stepbar .hl { flex: 1; height: 1px; background: var(--border); }
+  .op .editor { box-sizing: border-box; padding: var(--space-base) var(--space-inset); background: var(--surface);
+                border: 1px solid var(--border); border-radius: var(--radius-control); font: 13px/1.45 var(--mono); color: var(--text); }
+  .op .editor .ph { color: var(--placeholder); }
+  .op .editor .sk { color: var(--link); }
+  .op .editor.focused { box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.35); }
+  .op .lanes { display: flex; flex-wrap: wrap; gap: var(--space-tight); align-items: center; }
+  .op .lane { display: inline-flex; align-items: center; gap: var(--space-tight); height: 20px; padding-inline: var(--space-snug);
+              border-radius: var(--radius-chip); font: 12px/1 var(--font); color: var(--text); background: var(--badge); }
+  .op .lane svg { width: 11px; height: 11px; }
+  .op .lane .x { color: var(--muted); font-size: 11px; }
+  .op .dest { font: 11px/1.4 var(--font); color: var(--muted); }
+  .op .lnk { color: var(--link); }
+  .op .sheetft { display: flex; align-items: center; gap: var(--space-base); }
+  .op .sheetft .grow { flex: 1; }
+
+  /* Settings › Operator: the autonomy list. A row: title in Typography.bodyEmphasis over HelpText,
+     a SettingsSwitch trailing; rows split by a Hairline, Space.gap apart. */
+  .op .auto .rw { display: flex; align-items: flex-start; gap: var(--space-gap); }
+  .op .auto .rw .tl { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-tight); }
+  .op .auto .rw .tl b { font: 500 13px/1.3 var(--font); color: var(--text); }
+  .op .auto .rw .tl span { font: 11px/1.4 var(--font); color: var(--muted); }
+  .op .auto .rw .always { font: 11px/1 var(--font); color: var(--muted); padding-top: 2px; }
+  .op .never { display: flex; flex-direction: column; gap: var(--space-tight); }
+  .op .never div { display: flex; align-items: center; gap: var(--space-snug); font: 11px/1.4 var(--font); color: var(--muted); }
+  .op .never svg { width: 11px; height: 11px; flex: none; }
+  .op .mk-group { display: flex; flex-direction: column; gap: var(--space-gap); padding: var(--space-block);
+                  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-group); }
+  .op .mk-group .gh b { font: 600 12px/1.2 var(--font); color: var(--text); display: block; }
+  .op .mk-group .gh span { font: 11px/1.4 var(--font); color: var(--muted); display: block; margin-top: var(--space-tight); }
+  .op .mk-group .hl2 { height: 1px; background: var(--border); }
+  .op .settabs { display: flex; justify-content: center; }
+  .op .ai-seg.accent > span { font-size: 13px; }
+  .op .mk-sheet.tall { height: auto; }
+  .op .mk-sheet .bd { overflow: hidden; }
+  .op .callout { font: 500 10px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); }
 </style>
 </head>
 <body>
@@ -2333,7 +2515,416 @@
         tab describes what might.</p>
       <p class="why">Once a proposal is picked and implemented, it is deleted from here and the other
         two tabs are synced to the Swift. The tab itself stays, even when it has nothing on it.</p>
-      <p class="no-proposals">No open proposals.</p>
+    </div>
+
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <symbol id="op-claude" viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></symbol>
+        <symbol id="op-openai" viewBox="0 0 24 24"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></symbol>
+        <symbol id="op-jira" viewBox="0 0 24 24"><path fill="#2684FF" d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></symbol>
+        <symbol id="op-gitlab" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/><path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></symbol>
+        <symbol id="op-plus" viewBox="0 0 10 10"><path d="M5 1v8M1 5h8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+        <symbol id="op-mr" viewBox="0 0 10 10"><circle cx="2.5" cy="2" r="1.3" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="2.5" cy="8" r="1.3" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="7.5" cy="8" r="1.3" fill="none" stroke="currentColor" stroke-width="1"/><path d="M2.5 3.3v3.4M7.5 6.7V4.5c0-1-.6-1.6-1.6-1.6H4.6" fill="none" stroke="currentColor" stroke-width="1"/></symbol>
+        <symbol id="op-never" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="#FF4245" stroke-width="1.4"/><path d="M2.6 9.4 9.4 2.6" stroke="#FF4245" stroke-width="1.4"/></symbol>
+        <symbol id="op-spin" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4.25" fill="none" stroke="rgba(143,143,143,0.28)" stroke-width="1.5"/><path class="arc" d="M5 .75a4.25 4.25 0 0 1 4.25 4.25" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round"/></symbol>
+      </defs>
+    </svg>
+
+    <!-- ============================== 0 · how it works ============================== -->
+    <div class="section op" id="p-op-how">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · how it works · 19 Oct 2026</p>
+      <h2>The Operator, for work you trust it with in large chunks</h2>
+      <p class="why">One fresh end-state design, replacing every earlier Operator proposal (round 2, v108 to
+        v112). Spec: <code>docs/superpowers/specs/2026-10-19-operator-greenfield-design.md</code>. Planning
+        and starting are one step: there is no plan to approve, no autonomy ladder and no tabs. The Operator
+        plans, starts the tasks, steers its agents and answers them from the brief and the code. You see the
+        plan as a board, and anything amber on it is yours.</p>
+      <div class="flow">
+        <span class="st">+ on OPERATOR</span><span class="ar">→</span>
+        <span class="st">New Broadcast · 4 steps</span><span class="ar">→</span>
+        <span class="st">loading the construct</span><span class="ar">→</span>
+        <span class="st">the board fills and moves</span><span class="ar">→</span>
+        <span class="st you">amber: yours to resolve</span><span class="ar">→</span>
+        <span class="st">the debrief</span><span class="ar">→</span>
+        <span class="st">End Broadcast</span>
+      </div>
+      <p class="dq">Autonomy is the base plus three slices, each one switch</p>
+      <div class="table-scroll"><table class="slices">
+        <tr><th>Part</th><th>What the Operator may do</th><th>With it off</th></tr>
+        <tr><td>Base, always on</td><td>Plan, start tasks, steer agents and answer them from the brief and the code. Add backlog tasks, the Oracle checking them. Commit, push the task's branch, open a <b>draft</b> MR. Run an <b>agent review</b> when the broadcast's Review asks for one.</td><td>Not a switch.</td></tr>
+        <tr><td>Jira</td><td>Create and update tickets in the broadcast's Jira projects: planned work, status moves, links, filing the debrief's finds.</td><td>Jira is read-only.</td></tr>
+        <tr><td>Review</td><td>Involve people on the MR: mark it ready, assign reviewers, send the agent to fix their feedback, reply in threads.</td><td>Reviews are agent reviews. The rest goes to the debrief's Left for you.</td></tr>
+        <tr><td>Merge</td><td>Merge when the conditions written in Review and Done hold: through the MR, or locally with no MR and no push.</td><td>Done ends at a commit or a draft MR.</td></tr>
+      </table></div>
+      <p class="why" style="margin-top: var(--space-block)"><b style="color: var(--text)">Never, whatever is on:</b> write code itself, deploy, force-push, push to a default or protected branch, or answer an agent's permission prompt. Anything above the slices is never asked; it doesn't happen, and the debrief says what was left for you.</p>
+      <p class="dq">What's on this tab, and what's yours to pick</p>
+      <ol class="diagnosis">
+        <li><span><b>Settled by the design panel</b> (two Claude reviewers and one Codex reviewer, two rounds, by majority): every section below, drawn once at real size. Each says which new <code>Metrics</code> value or pattern it adds.</span></li>
+        <li><span><b>Yours to pick:</b> the problem button's name, <b>Call the Operator</b> or <b>Find a Fix</b> (Help with problems, below). Anything else you'd change, say so: nothing here is built yet.</span></li>
+      </ol>
+    </div>
+
+    <!-- ============================== 1 · sidebar ============================== -->
+    <div class="section op" id="p-op-sidebar">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · sidebar · 19 Oct 2026</p>
+      <h2>The OPERATOR heading and the broadcast row</h2>
+      <p class="why">OPERATOR is a <code>SidebarHeading</code> above PROJECTS. With no broadcast it's the heading and its "+" (an <code>AddMenu</code> with one item, New Broadcast…, as the other headings' "+" are menus) and nothing else. While a broadcast exists the "+" is absent and the broadcast row sits under the heading, on a task row's grid (<code>SelectableRow</code>, <code>RowPill</code>): the Operator's agent as its avatar, the title, then <code>2 of 7 done</code>, the first project and <code>+n</code>, then its status line as the operator badge, and its <code>StatusMark</code> trailing.</p>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-sidebar">
+          <div class="hdg">Operator<span class="sp"></span><span class="plus"><svg><use href="#op-plus"/></svg></span></div>
+          <div class="hdg" style="margin-top: var(--space-base)">Projects<span class="sp"></span><span class="plus"><svg><use href="#op-plus"/></svg></span></div>
+          <div class="mk-head"><span class="chev"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="prov"><svg width="14" height="14"><use href="#op-gitlab"/></svg></span><span class="nm">webshop</span><span class="sp"></span><span class="plus"><svg width="10" height="10"><use href="#op-plus"/></svg></span></div>
+          <div class="mk-row"><span class="av"><span class="mark vm claude s18" style="width:18px;height:18px"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Fix the footer links</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>WEB-88</span><span class="br">fix/web-88-footer</span></span></span><span class="slot"><span class="st idle"></span></span></div>
+        </div></div><figcaption>No broadcast: the heading and its "+", nothing else</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-sidebar">
+          <div class="hdg">Operator</div>
+          <div class="mk-row sel"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">2 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">answering Claude · PAY-231</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>
+          <div class="hdg" style="margin-top: var(--space-base)">Projects<span class="sp"></span><span class="plus"><svg><use href="#op-plus"/></svg></span></div>
+          <div class="mk-head"><span class="chev"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><span class="prov"><svg width="14" height="14"><use href="#op-gitlab"/></svg></span><span class="nm">webshop</span><span class="sp"></span><span class="plus"><svg width="10" height="10"><use href="#op-plus"/></svg></span></div>
+          <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Cart drawer</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-231</span><span class="br">feat/pay-231-cart-drawer</span></span><span class="ol"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">answering Claude</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>
+          <div class="mk-row"><span class="av"><span class="mark vm codex s18"><svg><use href="#op-openai"/></svg></span></span><span class="ln"><span class="tt">Payment provider switch</span><span class="cl"><span class="q"><svg><use href="#op-jira"/></svg>PAY-232</span><span class="br">feat/pay-232-provider</span></span><span class="ol"><span class="ob you"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">waiting on you · Codex asks to run npm install</span></span></span></span><span class="slot"><span class="st needs"></span></span></div>
+        </div></div><figcaption>A broadcast runs: the "+" is gone; driven tasks carry the badge as their third line</figcaption></figure>
+      </div>
+
+      <p class="dq">The broadcast row in each state</p>
+      <p class="why">The status line is the broadcast's, never the Operator session's. The <code>StatusMark</code> follows it: spinning while something works, amber when something needs you, the idle ring while paused, the accent dot once the debrief is ready.</p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol">
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">loading the construct</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">0 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span><span class="vm codex s12"><svg><use href="#op-openai"/></svg></span></span><span class="tx">consulting the Oracle</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">2 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">working · 3 tasks</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">2 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob you"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">waiting on you · retry policy?</span></span></span></span><span class="slot"><span class="st needs"></span></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">2 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob you"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">2 need you</span></span></span></span><span class="slot"><span class="st needs"></span></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">2 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">paused</span></span></span></span><span class="slot"><span class="st idle"></span></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">2 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">paused · the Operator's window is closed</span></span></span></span><span class="slot"><span class="st idle"></span></span></div>
+        <div class="mk-row"><span class="av"><span class="mark vm claude s18"><svg><use href="#op-claude"/></svg></span></span><span class="ln"><span class="tt">Checkout redesign</span><span class="cl"><span class="q">7 of 7 done</span><span class="proj"><svg><use href="#op-gitlab"/></svg>webshop</span><span class="more">+1</span></span><span class="ol"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">done · debrief ready</span></span></span></span><span class="slot"><span class="st done"></span></span></div>
+      </div></div><figcaption>planning · the Oracle checking · watching · one request · several · paused · window closed · done</figcaption></figure>
+
+      <figure class="fig"><div class="mk-menu"><div class="it on">New Broadcast…</div></div><figcaption>The heading's "+"</figcaption>
+        <div class="mk-menu" style="margin-top: var(--space-section)"><div class="it">Rename…</div><div class="sep"></div><div class="it">Pause Broadcast</div><div class="sep"></div><div class="it">End Broadcast…</div></div><figcaption>The row's menu (Resume Broadcast while paused). No Overview…, no ⌘I, no Interrupt Agents.</figcaption>
+        <div class="mk-bar" style="margin-top: var(--space-section)"><b>AiTerm</b><span class="open">File</span><span>Edit</span><span>View</span></div>
+        <div class="mk-menu"><div class="it">New Task…<span class="sc">⌘N</span></div><div class="it">New Review…</div><div class="it">New Terminal…</div><div class="it new">New Broadcast…</div></div><figcaption>File menu: enabled only while no broadcast exists</figcaption>
+      </figure></div>
+    </div>
+
+    <!-- ============================== 2 · the operator badge ============================== -->
+    <div class="section op" id="p-op-badge">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · status line · 19 Oct 2026</p>
+      <h2>The operator badge: everything the Operator says on a status line</h2>
+      <p class="why">One pattern, <code>OperatorBadge</code>: the Operator's agent mark (Claude's), the Oracle's (Codex's) joining it while the Oracle is consulted, then the words in AiTerm's caption grammar, <code>state</code> or <code>state · detail</code>, lowercase, no full stop. It is <code>Size.chip</code> tall in <code>Typography.monoChip</code>, the third line of a driven task's row and of the broadcast row, and a card's last line on the board. A driven task's avatars stay its own agents: the Operator no longer joins them, and <code>OperatorAvatar</code>'s breathing ring goes.</p>
+      <div class="figs">
+        <figure class="fig"><div class="stage on-sidebar" style="flex-direction: column; align-items: flex-start; gap: var(--space-block); width: 360px; box-sizing: border-box">
+          <span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">queued · after PAY-232</span></span>
+          <span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">starting Claude</span></span>
+          <span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span><span class="vm codex s12"><svg><use href="#op-openai"/></svg></span></span><span class="tx">consulting the Oracle</span></span>
+          <span class="ob you"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">waiting on you · retry policy?</span></span>
+          <span class="ob you"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">blocked · the tests fail on main</span></span>
+        </div><figcaption>quiet · acting · the Oracle joining · needs you</figcaption></figure>
+        <div style="flex: 1; min-width: 260px">
+          <div class="rules" style="grid-template-columns: 1fr; margin-top: 0">
+            <div class="yes"><span class="h">Quiet, the default</span>No box, the words in <code>Palette.muted</code>: the Operator is watching (<code>queued · after PAY-232</code>, <code>working</code>, <code>in review · waiting on Jan</code>, <code>done · 4f2a91c</code>, <code>paused</code>).</div>
+            <div class="yes"><span class="h">Acting</span>Boxed in <code>Palette.badge</code> (the boxed <code>Badge</code>'s wash), the words in <code>Palette.text</code>, while AiTerm handles one of the Operator's acts for this task. No shimmer, no dots: the box is the highlight.</div>
+            <div class="no"><span class="h">Needs you</span><code>Palette.statusChipAttentionFill</code> and <code>Stroke</code>, the existing attention chip's pair, the words still <code>Palette.text</code>, never amber. The row's <code>StatusMark</code> turns amber too.</div>
+            <div><span class="h" style="color: var(--muted)">New</span>The marks sit at 12 pt inside the badge: <span class="newtok">OperatorBadge.markSize = 12</span>, a one-off private constant, since <code>Badge</code>'s 10 pt icon is too small for a vendor disc. No new <code>Palette</code> member.</div>
+          </div>
+        </div>
+      </div>
+      <p class="dq">The words, a closed list</p>
+      <div class="table-scroll"><table class="patterns">
+        <tr><th>Moment</th><th>Status line</th><th>Look</th></tr>
+        <tr><td>planning</td><td class="to"><code>loading the construct</code></td><td>acting</td></tr>
+        <tr><td>the Oracle checks</td><td class="to"><code>consulting the Oracle</code></td><td>acting · both marks</td></tr>
+        <tr><td>waiting its turn</td><td class="to"><code>queued</code>, <code>queued · after PAY-232</code></td><td>quiet</td></tr>
+        <tr><td>the Operator acts</td><td class="to"><code>starting Claude</code>, <code>answering Claude</code>, <code>checking the work</code>, <code>reviewing with Codex</code>, <code>opening the MR</code>, <code>assigning Jan</code>, <code>fixing review feedback</code>, <code>merging</code>, <code>filing a ticket</code></td><td>acting</td></tr>
+        <tr><td>the agent works</td><td class="to"><code>working</code></td><td>quiet</td></tr>
+        <tr><td>a review runs</td><td class="to"><code>in review · waiting on Jan</code>, <code>in review · Codex</code></td><td>quiet</td></tr>
+        <tr><td>needs you</td><td class="to"><code>waiting on you · Codex asks to run npm install</code>, <code>waiting on you · retry policy?</code>, <code>blocked · the tests fail on main</code></td><td>needs you</td></tr>
+        <tr><td>ended</td><td class="to"><code>done · 4f2a91c</code>, <code>draft MR · !412</code>, <code>merged · 9b3e07d</code>, <code>merged locally · 9b3e07d</code></td><td>quiet, then the badge leaves when the broadcast ends</td></tr>
+        <tr><td>broadcast row only</td><td class="to"><code>answering Claude · PAY-231</code>, <code>working · 3 tasks</code>, <code>2 need you</code>, <code>paused</code>, <code>paused · the Operator's window is closed</code>, <code>done · debrief ready</code></td><td>as above</td></tr>
+        <tr><td>taken over</td><td class="to">no badge: the row is yours, its caption as any task's</td><td>none</td></tr>
+      </table></div>
+      <p class="why" style="margin-top: var(--space-base)">Matrix words only in <code>loading the construct</code> and <code>consulting the Oracle</code>. No em dashes anywhere a person or an agent reads.</p>
+    </div>
+
+    <!-- ============================== 3 · opening ============================== -->
+    <div class="section op" id="p-op-opening">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · opening · 19 Oct 2026</p>
+      <h2>Opening a broadcast, and what each click brings forward</h2>
+      <div class="table-scroll"><table class="patterns">
+        <tr><th>You</th><th>What happens</th><th>As on</th></tr>
+        <tr><td>↑ ↓ onto the broadcast row</td><td class="to">The Operator's window comes forward; the keyboard stays in the sidebar.</td><td>a task row's peek</td></tr>
+        <tr><td>click · ↩ on the row</td><td class="to">The overview sheet opens. With the Operator's window closed, the same click reopens it behind the sheet, resuming its conversation, and the broadcast resumes.</td><td>no ⌘I, no Overview…</td></tr>
+        <tr><td>click an amber card</td><td class="to">The sheet closes and the window where it's resolved comes forward: the task's window for an agent's permission prompt, the Operator's for a question or a blocked task.</td><td>the Notice's action</td></tr>
+        <tr><td>click any other card</td><td class="to">The sheet closes and that task's window comes forward. A Todo card that hasn't started has nothing to open, and isn't a button.</td><td>a task row's click</td></tr>
+        <tr><td>a notification</td><td class="to">Something turned amber: the window where it's resolved. The debrief is ready: the overview.</td><td></td></tr>
+        <tr><td>⎋ in the overview</td><td class="to">Closes it. Nothing in it needs confirming.</td><td><code>SheetFooter</code></td></tr>
+      </table></div>
+    </div>
+
+    <!-- ============================== 4 · the board ============================== -->
+    <div class="section op" id="p-op-board">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · overview · 19 Oct 2026</p>
+      <h2>The overview is a board, and the board is the plan</h2>
+      <p class="why">One sheet, no tabs, columns as Laurens picked: Todo · In progress · Review · Done. The Operator's planning fills Todo; its order and dependencies are the cards' status lines; cards move right as work goes on. A review lives on its task's card, which moves into Review. Review is a column only when the broadcast has a review. A card that needs you carries the request's <code>Notice</code> right there. The header holds the title, the progress, the broadcast's status line and one <b>Asked</b> line restating the prompt, Review and Done (the whole text in its tooltip).</p>
+      <p class="why"><span class="newtok">New: Sheet.boardWidth = 820</span>, the one sheet wider than <code>Sheet.width</code>: four columns of task cards don't fit in 560. Height is <code>Sheet.height</code>; each column scrolls on its own. Cards are <code>groupChrome</code> boxes, <code>Space.inset</code> inside, <code>Space.base</code> apart. Column heads are <code>SidebarHeading</code>s with their count.</p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="board">
+        <div class="hd">
+          <div class="ttl"><b>Checkout redesign</b><span class="pr">2 of 7 done · webshop, payments-api</span></div>
+          <div class="stl"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">answering Claude · PAY-231</span></span></div>
+          <div class="asked"><b>Asked</b> implement PAY-230 to PAY-236, the new checkout · <b>Review</b> assign Jan, fix his feedback · <b>Done</b> merged after Jan's approval</div>
+        </div>
+        <div class="rule"></div>
+        <div class="cols">
+          <div class="col"><div class="ch">Todo <span class="n">3</span></div>
+            <div class="card2"><div class="tr"><span class="tt">Address autocomplete</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-233</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">queued · after PAY-232</span></span></div></div>
+            <div class="card2"><div class="tr"><span class="tt">Order summary copy</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-234</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">queued · after PAY-231</span></span></div></div>
+            <div class="card2"><div class="tr"><span class="tt">Retry failed payments</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-240</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">added by the Operator</span></span></div></div>
+          </div>
+          <div class="col"><div class="ch">In progress <span class="n">2</span></div>
+            <div class="card2 you"><div class="tr"><span class="vm codex s18"><svg><use href="#op-openai"/></svg></span><span class="tt">Payment provider switch</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-232</span><span class="br">payments-api</span></div>
+              <div class="ntc compact"><div class="t"><span class="mk">!</span>Codex asks to run npm install</div><div class="d">To add the Adyen SDK. Only you answer an agent's permission prompt.</div><div class="a"><span>Open Codex's Window</span></div></div></div>
+            <div class="card2"><div class="tr"><span class="vm claude s18"><svg><use href="#op-claude"/></svg></span><span class="tt">Cart drawer</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-231</span><span class="br">webshop</span></div><div class="ln"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">answering Claude</span></span></div></div>
+          </div>
+          <div class="col"><div class="ch">Review <span class="n">1</span></div>
+            <div class="card2"><div class="tr"><span class="vm claude s18"><svg><use href="#op-claude"/></svg></span><span class="tt">Shipping step</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-235</span><span class="ai-badge quiet"><svg><use href="#op-mr"/></svg>!418</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">in review · waiting on Jan</span></span></div></div>
+          </div>
+          <div class="col"><div class="ch">Done <span class="n">2</span></div>
+            <div class="card2"><div class="tr"><span class="vm claude s18"><svg><use href="#op-claude"/></svg></span><span class="tt">Checkout layout</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-230</span><span class="ai-badge quiet"><svg><use href="#op-mr"/></svg>!412</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">merged · 9b3e07d</span></span></div></div>
+            <div class="card2"><div class="tr"><span class="vm codex s18"><svg><use href="#op-openai"/></svg></span><span class="tt">Price formatting</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-236</span><span class="ai-badge quiet"><svg><use href="#op-mr"/></svg>!415</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">merged · 4f2a91c</span></span></div></div>
+          </div>
+        </div>
+        <div class="ft"><span class="btn2">Pause Broadcast</span><span class="btn2">End Broadcast…</span><span class="grow"></span><span class="btn2">Close</span></div>
+      </div></div><figcaption>The overview while it runs: one request on the board, the Operator answering another agent</figcaption></figure></div>
+
+      <p class="dq">Planning, the same sheet</p>
+      <p class="why">There is no planning screen. Start Broadcast opens the Operator's window and the overview fills as it plans: cards appear in Todo, then start. Empty columns say so in one muted line.</p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="board auto">
+        <div class="hd">
+          <div class="ttl"><b>Checkout redesign</b><span class="pr">0 of 2 done · webshop, payments-api</span></div>
+          <div class="stl"><span class="ob acting"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">loading the construct</span></span></div>
+          <div class="asked"><b>Asked</b> implement PAY-230 to PAY-236, the new checkout · <b>Review</b> assign Jan, fix his feedback · <b>Done</b> merged after Jan's approval</div>
+        </div>
+        <div class="rule"></div>
+        <div class="cols">
+          <div class="col"><div class="ch">Todo <span class="n">2</span></div>
+            <div class="card2"><div class="tr"><span class="tt">Checkout layout</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-230</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">queued</span></span></div></div>
+            <div class="card2"><div class="tr"><span class="tt">Cart drawer</span></div><div class="bl"><span class="ai-badge quiet"><svg><use href="#op-jira"/></svg>PAY-231</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">queued · after PAY-230</span></span></div></div>
+          </div>
+          <div class="col"><div class="ch">In progress <span class="n">0</span></div><div class="empty">Nothing started yet.</div></div>
+          <div class="col"><div class="ch">Review <span class="n">0</span></div><div class="empty">Nothing in review.</div></div>
+          <div class="col"><div class="ch">Done <span class="n">0</span></div><div class="empty">Nothing done yet.</div></div>
+        </div>
+        <div class="ft"><span class="btn2">Pause Broadcast</span><span class="btn2">End Broadcast…</span><span class="grow"></span><span class="btn2">Close</span></div>
+      </div></div><figcaption>Seconds after Start Broadcast</figcaption></figure></div>
+
+      <p class="dq">Paused, and a broadcast with no review</p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="board auto">
+        <div class="hd">
+          <div class="ttl"><b>Personal site cleanup</b><span class="pr">1 of 3 done · personal-site</span></div>
+          <div class="stl"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">paused</span></span></div>
+          <div class="asked"><b>Asked</b> tidy the blog's build and drop the old analytics · <b>Done</b> merged locally when everything's resolved</div>
+        </div>
+        <div class="rule"></div>
+        <div class="cols three">
+          <div class="col"><div class="ch">Todo <span class="n">1</span></div>
+            <div class="card2"><div class="tr"><span class="tt">Drop the old analytics</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">queued</span></span></div></div></div>
+          <div class="col"><div class="ch">In progress <span class="n">1</span></div>
+            <div class="card2"><div class="tr"><span class="vm claude s18"><svg><use href="#op-claude"/></svg></span><span class="tt">Upgrade the static site builder</span></div><div class="bl"><span class="br">chore/upgrade-builder</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">working</span></span></div></div></div>
+          <div class="col"><div class="ch">Done <span class="n">1</span></div>
+            <div class="card2"><div class="tr"><span class="vm claude s18"><svg><use href="#op-claude"/></svg></span><span class="tt">Fix the RSS feed's dates</span></div><div class="bl"><span class="br">fix/rss-dates</span></div><div class="ln"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">merged locally · 1c84e20</span></span></div></div></div>
+        </div>
+        <div class="ft"><span class="btn2">Resume Broadcast</span><span class="btn2">End Broadcast…</span><span class="grow"></span><span class="btn2">Close</span></div>
+      </div></div><figcaption>Paused: nothing new starts, the Operator sends nothing, agents finish their turn. No Review column without a review.</figcaption></figure></div>
+
+      <p class="dq">Ending early</p>
+      <div class="figs"><figure class="fig"><div class="mk-alert"><b>End “Checkout redesign”?</b><span class="dt">3 tasks that haven't started are dropped. 2 running tasks become yours, their worktrees and MRs untouched.</span><div class="bt"><span class="def red">End Broadcast</span><span>Cancel</span></div></div><figcaption>End Broadcast… before the debrief (an AlertPrompt; ⎋ cancels)</figcaption></figure></div>
+    </div>
+
+    <!-- ============================== 5 · debrief ============================== -->
+    <div class="section op" id="p-op-debrief">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · debrief · 19 Oct 2026</p>
+      <h2>When every task is done, the overview becomes the debrief</h2>
+      <p class="why">The same sheet: the board's place is taken by four lists, two by two, each a <code>SidebarHeading</code> and its count. <b>Delivered</b>: each task's result. <b>Decided on its own</b>: the choices the brief didn't spell out, a disagreement with the Oracle included. <b>Found along the way</b>: what the Oracle judged off-brief, filed as tickets when the Jira slice is on. <b>Left for you</b>: what the slices kept it from doing. A list with nothing in it is left out. The footer's End Broadcast asks nothing, since nothing is left to stop.</p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="board">
+        <div class="hd">
+          <div class="ttl"><b>Checkout redesign</b><span class="pr">7 of 7 done · webshop, payments-api</span></div>
+          <div class="stl"><span class="ob quiet"><span class="marks"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span></span><span class="tx">done · debrief ready</span></span></div>
+          <div class="asked"><b>Asked</b> implement PAY-230 to PAY-236, the new checkout · <b>Review</b> assign Jan, fix his feedback · <b>Done</b> merged after Jan's approval</div>
+        </div>
+        <div class="rule"></div>
+        <div class="deb">
+          <div class="ls"><div class="ch">Delivered <span class="n">7</span></div>
+            <div class="r"><span class="vm claude s16"><svg><use href="#op-claude"/></svg></span><span class="t">Checkout layout</span><span class="k">PAY-230</span><span class="res">merged · 9b3e07d</span></div>
+            <div class="r"><span class="vm claude s16"><svg><use href="#op-claude"/></svg></span><span class="t">Cart drawer</span><span class="k">PAY-231</span><span class="res">merged · 51ac0f2</span></div>
+            <div class="r"><span class="vm codex s16"><svg><use href="#op-openai"/></svg></span><span class="t">Payment provider switch</span><span class="k">PAY-232</span><span class="res">merged · e07d9b3</span></div>
+            <div class="r"><span class="vm claude s16"><svg><use href="#op-claude"/></svg></span><span class="t">Shipping step</span><span class="k">PAY-235</span><span class="res">draft MR · !418</span></div>
+            <div class="r"><span class="vm claude s16"><svg><use href="#op-claude"/></svg></span><span class="t">Retry failed payments</span><span class="k">PAY-240</span><span class="res">merged · 8d21c4a</span></div>
+            <div class="r" style="color: var(--muted)">and 2 more</div>
+          </div>
+          <div class="ls"><div class="ch">Decided on its own <span class="n">3</span></div>
+            <div class="p">Added Retry failed payments (PAY-240)<span class="w">The provider switch left failed payments with no retry. In the brief's scope; the Oracle agreed.</span></div>
+            <div class="p">Kept the old button behind a flag<span class="w">PAY-231's ticket didn't say. The Oracle objected; the flag can go in one line.</span></div>
+            <div class="p">Answered “which currency format?” with the shop's locale<span class="w">From the code: every price already uses it.</span></div>
+          </div>
+          <div class="ls"><div class="ch">Found along the way <span class="n">2</span></div>
+            <div class="p">An API key in payments-api's test fixtures <span class="k" style="font: 500 10px/1 var(--mono); color: var(--muted)">PAY-251</span><span class="w">A live-looking Adyen key in a committed fixture. Off-brief, filed as a ticket.</span></div>
+            <div class="p">Flaky cart test on main <span class="k" style="font: 500 10px/1 var(--mono); color: var(--muted)">PAY-252</span><span class="w">Fails one run in five, unrelated to this work.</span></div>
+          </div>
+          <div class="ls"><div class="ch">Left for you <span class="n">1</span></div>
+            <div class="p">Jan hasn't approved !418 yet<span class="w">Shipping step waits for his review; it merges only after his approval, so the Operator stopped at the MR.</span><span class="lk">Open !418</span></div>
+          </div>
+        </div>
+        <div class="ft"><span class="grow"></span><span class="btn2">Close</span><span class="btn2 primary">End Broadcast <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+      </div></div><figcaption>The debrief. With the Jira slice off, Found along the way has no keys and Left for you says “File them in Jira”.</figcaption></figure></div>
+    </div>
+
+    <!-- ============================== 6 · Notice ============================== -->
+    <div class="section op" id="p-op-notice">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · Notice · 19 Oct 2026</p>
+      <h2>One Notice for every “needs your attention or answer”</h2>
+      <p class="why">A new pattern, <code>Notice</code>: an amber <code>exclamationmark.circle.fill</code> at <code>Size.chip</code> and the title in <code>Typography.label</code> on one row, <code>Space.snug</code> apart; the description in <code>Typography.help</code> and <code>Palette.muted</code>; then the actions as links <code>Space.gap</code> apart; <code>Space.tight</code> between the rows; <b>nothing indented</b>. No amber text: the mark carries the tone, and the words say whether it's a question or a failure. In a sheet's footer the actions stay the footer's buttons. <code>compact</code> (a board card) draws the mark at 12 pt and the title in <code>Typography.help</code>. It replaces <code>SidebarBanner</code>'s amber line, <code>IssueBanner</code>'s title-and-reason, a <code>CreationFooter</code> failure's amber sentence, and Backpack's permission ask. Not Notices: field help, row captions, toasts.</p>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-pane"><div class="mk-banner" style="padding-right: var(--space-inset)">
+          <div class="ntc"><div class="t"><span class="mk">!</span>main has diverged from origin</div><div class="d">webshop's main has 2 commits origin doesn't, and origin has 5 it doesn't. Pull main stopped.</div><div class="a"><span>Rebase</span><span>Call the Operator</span><span>Dismiss</span></div></div>
+        </div><div class="mk-banner-rule"></div><div class="mk-sidebar"><div class="hdg">Projects</div></div></div></div><figcaption>The sidebar's banner, with the problem button</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-pane"><div class="mk-banner" style="padding-right: var(--space-inset)">
+          <div class="ntc"><div class="t"><span class="mk">!</span>Backpack Mode needs Lid sleep</div><div class="d">Allow AiTerm to keep the Mac awake with the lid closed.</div><div class="a"><span>Allow…</span><span>Not Now</span></div></div>
+        </div><div class="mk-banner-rule"></div><div class="mk-sidebar"><div class="hdg">Projects</div></div></div></div><figcaption>A permission ask</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-cfoot" style="width: 560px">
+          <div class="ntc"><div class="t"><span class="mk">!</span>Couldn't create the worktree</div><div class="d">The branch feat/pay-231-cart-drawer is checked out in webshop's own folder.</div></div>
+          <div class="sheetft"><span class="btn2">Switch to main</span><span class="btn2">Call the Operator</span><span class="grow"></span><span class="btn2">Back</span><span class="btn2 primary">Create Task <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+        </div></div><figcaption>A failed create in a sheet's footer: the actions stay footer buttons</figcaption></figure>
+      </div>
+    </div>
+
+    <!-- ============================== 7 · New Broadcast ============================== -->
+    <div class="section op" id="p-op-new">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · New Broadcast · 19 Oct 2026</p>
+      <h2>New Broadcast: Broadcast · Prompt · Review · Done</h2>
+      <p class="why">A <code>CreationSheet</code> with a <code>StepBar</code>, as New Task. Continue (⌘↩) moves on, Back goes back, a step's name on the bar jumps to it; Review and Done are optional and may be left empty. Start Broadcast (⌘↩) is on Done. Prompt, Review and Done are the same <code>PromptEditor</code> at <code>PromptStep.editorHeight</code>, whose <code>/</code> lists both agents' skills; a skill in any of them is an instruction for the agents and grants nothing. The <code>DestinationLine</code> names the Operator's window.</p>
+      <div class="figs">
+        <figure class="fig"><div class="scroll"><div class="mk-sheet">
+          <div class="hd"><span class="ttl">New broadcast</span><div class="stepbar"><span class="s on"><i>1</i>Broadcast</span><span class="hl"></span><span class="s"><i>2</i>Prompt</span><span class="hl"></span><span class="s"><i>3</i>Review</span><span class="hl"></span><span class="s"><i>4</i>Done</span></div></div>
+          <div class="rule"></div>
+          <div class="bd">
+            <div class="mk-ff"><span class="lbl">Name</span><div class="mk-field focused"><span class="ph">Named by the Operator from the prompt</span></div><span class="mk-help">Optional.</span></div>
+            <div class="mk-ff"><span class="lbl">Jira projects</span><div class="mk-field" style="height: auto; min-height: 28px; padding-block: 3px"><span class="lanes"><span class="lane"><svg><use href="#op-jira"/></svg>PAY · Payments<span class="x">✕</span></span><span class="ph" style="flex: none">Add a Jira project</span></span></div><span class="mk-help">Where it reads tickets, and files them with the Jira slice on.</span></div>
+            <div class="mk-ff"><span class="lbl">Projects</span><div class="mk-field" style="height: auto; min-height: 28px; padding-block: 3px"><span class="lanes"><span class="lane"><svg><use href="#op-gitlab"/></svg>webshop<span class="x">✕</span></span><span class="lane"><svg><use href="#op-gitlab"/></svg>payments-api<span class="x">✕</span></span><span class="ph" style="flex: none">Add a project</span></span></div><span class="mk-help">The repositories it may work in. Picking a Jira project adds its linked projects.</span></div>
+            <div style="flex: 1"></div>
+            <span class="dest">Opens in iTerm2 · the Operator's window · tasks in webshop and payments-api</span>
+          </div>
+          <div class="ft"><span class="btn">Cancel</span><span class="btn2 primary">Continue <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+        </div></div><figcaption>1 · Broadcast</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-sheet">
+          <div class="hd"><span class="ttl">New broadcast</span><div class="stepbar"><span class="s done"><i>1</i>Broadcast</span><span class="hl"></span><span class="s on"><i>2</i>Prompt</span><span class="hl"></span><span class="s"><i>3</i>Review</span><span class="hl"></span><span class="s"><i>4</i>Done</span></div></div>
+          <div class="rule"></div>
+          <div class="bd">
+            <div class="mk-ff"><span class="lbl">Prompt</span><div class="editor focused" style="height: 150px">Implement PAY-230 to PAY-236, the new checkout. PAY-232 needs the Adyen SDK; keep the old provider behind a flag until it ships. Start each task with <span class="sk">/superpowers:brainstorming</span>.</div><span class="mk-help">What to work on, as you'd tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files.</span></div>
+            <div style="flex: 1"></div>
+            <span class="dest">Opens in iTerm2 · the Operator's window · tasks in webshop and payments-api</span>
+          </div>
+          <div class="ft"><span class="btn">Back</span><span class="btn2 primary">Continue <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+        </div></div><figcaption>2 · Prompt</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-sheet">
+          <div class="hd"><span class="ttl">New broadcast</span><div class="stepbar"><span class="s done"><i>1</i>Broadcast</span><span class="hl"></span><span class="s done"><i>2</i>Prompt</span><span class="hl"></span><span class="s on"><i>3</i>Review</span><span class="hl"></span><span class="s"><i>4</i>Done</span></div></div>
+          <div class="rule"></div>
+          <div class="bd">
+            <div class="mk-ff"><span class="lbl">Review</span><div class="editor focused" style="height: 150px">Assign Jan. Have the agent fix his feedback and reply in the threads.</div><span class="mk-help">Who reviews each task and how. Optional. An agent review (“an adversarial review with /code-review”) needs nothing; involving people needs Review in <span class="lnk">Settings › Operator</span>.</span></div>
+            <div style="flex: 1"></div>
+            <span class="dest">Opens in iTerm2 · the Operator's window · tasks in webshop and payments-api</span>
+          </div>
+          <div class="ft"><span class="btn">Back</span><span class="btn2 primary">Continue <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+        </div></div><figcaption>3 · Review, people named, the Review slice on</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-sheet short">
+          <div class="hd"><span class="ttl">New broadcast</span><div class="stepbar"><span class="s done"><i>1</i>Broadcast</span><span class="hl"></span><span class="s done"><i>2</i>Prompt</span><span class="hl"></span><span class="s on"><i>3</i>Review</span><span class="hl"></span><span class="s"><i>4</i>Done</span></div></div>
+          <div class="rule"></div>
+          <div class="bd">
+            <div class="mk-ff"><span class="lbl">Review</span><div class="editor" style="height: 150px">Assign Jan. Have the agent fix his feedback.</div>
+              <div class="ntc"><div class="t"><span class="mk">!</span>Review is off in Settings › Operator</div><div class="d">The Operator won't involve Jan. Each task stops at its draft MR, and the debrief lists what's left for you.</div><div class="a"><span>Open Settings › Operator</span></div></div></div>
+          </div>
+        </div></div><figcaption>3 · Review, people named, the Review slice off: a Notice, not a greyed step</figcaption></figure>
+
+        <figure class="fig"><div class="scroll"><div class="mk-sheet">
+          <div class="hd"><span class="ttl">New broadcast</span><div class="stepbar"><span class="s done"><i>1</i>Broadcast</span><span class="hl"></span><span class="s done"><i>2</i>Prompt</span><span class="hl"></span><span class="s done"><i>3</i>Review</span><span class="hl"></span><span class="s on"><i>4</i>Done</span></div></div>
+          <div class="rule"></div>
+          <div class="bd">
+            <div class="mk-ff"><span class="lbl">Done</span><div class="editor focused" style="height: 150px">Merged after Jan's approval, pipeline green.</div><span class="mk-help">Where each task ends: a commit, a draft MR, or merged and when. Optional: left empty, each task ends at a draft MR. Merging needs Merge in <span class="lnk">Settings › Operator</span>.</span></div>
+            <div style="flex: 1"></div>
+            <span class="dest">Opens in iTerm2 · the Operator's window · tasks in webshop and payments-api</span>
+          </div>
+          <div class="ft"><span class="btn">Back</span><span class="btn2 primary">Start Broadcast <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+        </div></div><figcaption>4 · Done</figcaption></figure>
+      </div>
+    </div>
+
+    <!-- ============================== 8 · Settings › Operator ============================== -->
+    <div class="section op" id="p-op-settings">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · Settings › Operator · 19 Oct 2026</p>
+      <h2>Settings › Operator: its agent, its autonomy, the Oracle, its instructions</h2>
+      <p class="why">A tab after Agents: Agents · Operator · Integrations · Interface on ⌘1 to ⌘4. Four <code>SettingsGroup</code>s. <b>Autonomy</b> lists the base, then each slice: its name in <code>Typography.bodyEmphasis</code> over a <code>HelpText</code>, a <code>SettingsSwitch</code> trailing, rows split by a <code>Hairline</code>; under them the fixed Never list, each line led by a red <code>nosign</code> in <code>Palette.destructive</code>. <b>Oracle</b> is one switch in the group's heading (no Off · Key decisions · Everything); off dims its agent and keeps it. A broadcast freezes these when it starts. Drawn full height; the sheet scrolls at <code>Sheet.settingsHeight</code>.</p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sheet tall">
+        <div class="hd"><span class="ttl">Settings</span><div class="settabs"><span class="ai-seg accent"><span>Agents</span><span class="on">Operator</span><span>Integrations</span><span>Interface</span></span></div></div>
+        <div class="rule"></div>
+        <div class="bd">
+          <div class="mk-group"><div class="gh"><b>Agent</b><span>It plans the work and steers the agents in your tasks. It reads code but never writes it.</span></div><div class="hl2"></div>
+            <span class="ai-seg"><span class="on"><span class="vm claude s16"><svg><use href="#op-claude"/></svg></span>Claude Code</span><span class="disabled"><span class="vm codex s16"><svg><use href="#op-openai"/></svg></span>Codex</span></span>
+            <span class="mk-help" style="margin-top: calc(-1 * var(--space-tight))">Codex can't lead the Operator yet.</span>
+            <div class="mk-cols"><div class="mk-ff"><span class="lbl">Model</span><span class="ai-select">Opus 5.5<span class="chev"><svg width="8" height="10" viewBox="0 0 8 10"><path d="M1.5 3.5 4 1l2.5 2.5M1.5 6.5 4 9l2.5-2.5" fill="none" stroke="#FFF" stroke-width="1.3"/></svg></span></span></div><div class="mk-ff"><span class="lbl">Reasoning</span><span class="ai-select">High<span class="chev"><svg width="8" height="10" viewBox="0 0 8 10"><path d="M1.5 3.5 4 1l2.5 2.5M1.5 6.5 4 9l2.5-2.5" fill="none" stroke="#FFF" stroke-width="1.3"/></svg></span></span></div></div>
+          </div>
+
+          <div class="mk-group auto"><div class="gh"><b>Autonomy</b><span>What it does without asking you. Each switch is one slice of trust on top of the base.</span></div><div class="hl2"></div>
+            <div class="rw"><div class="tl"><b>Base</b><span>Plans, starts tasks, steers its agents and answers them from the brief and the code. Adds backlog tasks, the Oracle checking them. Commits, pushes the task's branch, opens a draft MR, runs agent reviews.</span></div><span class="always">Always on</span></div><div class="hl2"></div>
+            <div class="rw"><div class="tl"><b>Jira</b><span>Creates and updates tickets in the broadcast's Jira projects: tickets for planned work, status moves, links, and the debrief's finds.</span></div><span class="mk-sw"></span></div><div class="hl2"></div>
+            <div class="rw"><div class="tl"><b>Review</b><span>Involves people on the MR: marks it ready, assigns reviewers, has the agent fix their feedback and replies in the threads.</span></div><span class="mk-sw"></span></div><div class="hl2"></div>
+            <div class="rw"><div class="tl"><b>Merge</b><span>Merges when what you wrote in Review and Done holds: through the MR, or locally without pushing. Only a commit it checked, with the pipeline green and every thread resolved.</span></div><span class="mk-sw off"></span></div><div class="hl2"></div>
+            <div class="never"><div><svg><use href="#op-never"/></svg>Never writes code itself. Its agents do.</div><div><svg><use href="#op-never"/></svg>Never deploys, force-pushes, or pushes to a default or protected branch.</div><div><svg><use href="#op-never"/></svg>Never answers an agent's permission prompt. That's always yours.</div></div>
+          </div>
+
+          <div class="mk-group"><div class="head" style="display: flex; gap: var(--space-gap)"><div class="gh" style="flex: 1"><b>Oracle</b><span>A second agent that checks the Operator's plan, its backlog additions and its verdicts. Each check adds tens of seconds.</span></div><span class="mk-sw"></span></div><div class="hl2"></div>
+            <div class="mk-cols"><div class="mk-ff"><span class="lbl">Agent</span><span class="ai-select">Codex<span class="chev"><svg width="8" height="10" viewBox="0 0 8 10"><path d="M1.5 3.5 4 1l2.5 2.5M1.5 6.5 4 9l2.5-2.5" fill="none" stroke="#FFF" stroke-width="1.3"/></svg></span></span></div><div class="mk-ff"><span class="lbl">Model</span><span class="ai-select">gpt-6-astra · medium<span class="chev"><svg width="8" height="10" viewBox="0 0 8 10"><path d="M1.5 3.5 4 1l2.5 2.5M1.5 6.5 4 9l2.5-2.5" fill="none" stroke="#FFF" stroke-width="1.3"/></svg></span></span></div></div>
+          </div>
+
+          <div class="mk-group"><div class="gh"><b>Instructions</b><span>House rules for every broadcast. Type / for the agents' skills.</span></div><div class="hl2"></div>
+            <div class="editor" style="height: 96px">Draft MRs only on Fridays. Every task starts with <span class="sk">/superpowers:brainstorming</span>.</div>
+          </div>
+        </div>
+        <div class="ft"><span class="btn">Cancel</span><span class="btn2 primary">Save <span class="kc"><span>⌘</span><span>↩</span></span></span></div>
+      </div></div><figcaption>Settings › Operator, the Merge slice off</figcaption></figure></div>
+    </div>
+
+    <!-- ============================== 9 · Help with problems ============================== -->
+    <div class="section op" id="p-op-help">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · Help with problems · 19 Oct 2026</p>
+      <h2>Settings › Agents › Help with problems, and the button's name</h2>
+      <p class="why">Fix with AI becomes <b>Help with problems</b>: a <code>SettingsGroup</code> at the top of Settings › Agents with its <code>SettingsSwitch</code>, and no agent select, since the fix runs as the Operator: today's quick headless run (<code>FixSession</code>, <code>FixerLaunch</code>) with the Operator's agent, model and reasoning. It proposes a fix and changes nothing until you press Apply; it needs no broadcast and never reaches the running one. With Claude not installed, the switch is off and disabled and the help says to install it. The button sits in a problem's Notice, after the problem's own recovery, with the Operator's mark in place of <code>sparkles</code>. <b>Its name is yours to pick.</b></p>
+      <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-group" style="width: 512px; box-sizing: border-box"><div class="head" style="display: flex; gap: var(--space-gap)"><div class="gh" style="flex: 1"><b>Help with problems</b><span>When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix. Nothing changes until you press Apply.</span></div><span class="mk-sw"></span></div></div></div><figcaption>Settings › Agents, its first group</figcaption></figure></div>
+      <div class="options">
+        <div class="option pick"><header><span class="letter">A</span><h3>Call the Operator</h3><span class="rec">Recommended</span></header>
+          <p>Says who you're asking, in the feature's own voice, and reads as a request rather than a promise. The busy line follows: “The Operator is looking at the conflict…”.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-pane"><div class="mk-banner" style="padding-right: var(--space-inset)"><div class="ntc"><div class="t"><span class="mk">!</span>The rebase onto main conflicted</div><div class="d">3 files conflict in webshop. The rebase was aborted; nothing changed.</div><div class="a"><span>Show Files</span><span style="display: inline-flex; align-items: center; gap: var(--space-tight)"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span>Call the Operator</span><span>Dismiss</span></div></div></div></div></div><figcaption>In the banner</figcaption></figure>
+          <figure class="fig"><div class="scroll"><div class="mk-cfoot" style="width: 560px"><div class="ntc"><div class="t"><span class="mk">!</span>origin's branch and yours have diverged</div><div class="d">feat/pay-231-cart-drawer has 1 commit origin doesn't, and origin has 2 it doesn't.</div></div><div class="sheetft"><span class="btn2">Rebase</span><span class="btn2"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span>Call the Operator</span><span class="grow"></span><span class="btn2">Back</span><span class="btn2 primary">Create Review <span class="kc"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>In New Review's footer</figcaption></figure></div>
+        </div>
+        <div class="option"><header><span class="letter">B</span><h3>Find a Fix</h3></header>
+          <p>Says what you get, without naming who. Plainer, and still true once the Operator's name means less to a new person. The busy line: “Looking for a fix…”.</p>
+          <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-pane"><div class="mk-banner" style="padding-right: var(--space-inset)"><div class="ntc"><div class="t"><span class="mk">!</span>The rebase onto main conflicted</div><div class="d">3 files conflict in webshop. The rebase was aborted; nothing changed.</div><div class="a"><span>Show Files</span><span style="display: inline-flex; align-items: center; gap: var(--space-tight)"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span>Find a Fix</span><span>Dismiss</span></div></div></div></div></div><figcaption>In the banner</figcaption></figure>
+          <figure class="fig"><div class="scroll"><div class="mk-cfoot" style="width: 560px"><div class="ntc"><div class="t"><span class="mk">!</span>origin's branch and yours have diverged</div><div class="d">feat/pay-231-cart-drawer has 1 commit origin doesn't, and origin has 2 it doesn't.</div></div><div class="sheetft"><span class="btn2">Rebase</span><span class="btn2"><span class="vm claude s12"><svg><use href="#op-claude"/></svg></span>Find a Fix</span><span class="grow"></span><span class="btn2">Back</span><span class="btn2 primary">Create Review <span class="kc"><span>⌘</span><span>↩</span></span></span></div></div></div><figcaption>In New Review's footer</figcaption></figure></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================== 10 · removed and new ============================== -->
+    <div class="section op" id="p-op-ledger">
+      <p class="eyebrow proposal-flag">Proposal · The Operator · what goes and what's new · 19 Oct 2026</p>
+      <h2>The ledger</h2>
+      <div class="rules">
+        <div class="no"><span class="h">Goes</span>Personas, the operator library and <code>OperatorSheet</code>; the OPERATORS section, <code>OperatorsHeader</code> and <code>OperatorHeaderRow</code>; <code>OperatorAvatar</code>, its <code>headphones</code> and <code>Size.activityRing</code>; <code>OperationCaptionLine</code>; lessons; the plan gate and Approve Plan; the five autonomy stops; the challenge stops (No self-doubt, Healthy doubt, Impostor); Agents at once; Interrupt Agents; Overview… and ⌘I; Fix with AI's agent select (<code>FixerSettingsGroup</code>); the overview's kanban on its side.</div>
+        <div class="yes"><span class="h">New</span><code>OperatorBadge</code> (with <span class="newtok">OperatorBadge.markSize</span>), <code>Notice</code>, the board (<code>BroadcastBoardSheet</code>, with <span class="newtok">Sheet.boardWidth</span>), the debrief, <code>NewBroadcastSheet</code>, Settings › Operator, Help with problems. No new <code>Palette</code> member: the needs-you badge reuses the attention chip's pair.</div>
+      </div>
     </div>
 
   </section>
