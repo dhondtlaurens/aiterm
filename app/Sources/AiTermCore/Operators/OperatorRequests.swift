@@ -3,7 +3,7 @@ import Foundation
 /// Something that needs you in a broadcast (spec §4.1): one thing, said once, as the notification, the
 /// row and the banner say it. A request lasts exactly as long as what asks stands: answered, unblocked or
 /// ended, it is gone.
-public struct Request: Equatable, Sendable, Identifiable {
+public struct BroadcastRequest: Equatable, Sendable, Identifiable {
     public enum Kind: String, Sendable { case permission, question, blocked, problem }
     public var kind: Kind
     public var runId: UUID
@@ -31,11 +31,11 @@ public enum OperatorRequests {
     /// a blocked task and a task whose `problem` is set. `prompts` is what each waiting worker's prompt asks,
     /// by task, as a verb phrase ("run npm install"), where it is known; a prompt without one is said by
     /// what its question recorded. A task you took over contributes none, and an ended run has none.
-    public static func open(run: OperatorRun, state: AppState, prompts: [UUID: String]) -> [Request] {
+    public static func open(run: OperatorRun, state: AppState, prompts: [UUID: String]) -> [BroadcastRequest] {
         guard run.state != .stopped, run.intent != .stopped else { return [] }
         let tasks = state.tasks(inRun: run.id)
         let takenOver = Set(tasks.filter { $0.operated?.takenOver == true }.map(\.id))
-        var requests: [Request] = []
+        var requests: [BroadcastRequest] = []
 
         for task in tasks where !takenOver.contains(task.id) {
             guard let operated = task.operated else { continue }
@@ -43,20 +43,20 @@ public enum OperatorRequests {
             let recorded = run.questions.first { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
             if recorded != nil || prompts[task.id] != nil {
                 let said = prompts[task.id].map { "\(agent) asks to \($0)" } ?? recorded?.text ?? "\(agent) waits for input"
-                requests.append(Request(kind: .permission, runId: run.id, taskId: task.id, text: sentence("\(said) in \(task.title)")))
+                requests.append(BroadcastRequest(kind: .permission, runId: run.id, taskId: task.id, text: sentence("\(said) in \(task.title)")))
             }
             if operated.problem != nil {
                 // The banner's sentence is the reason a blocked task keeps; one that kept its state has only the issue.
                 let said = operated.blockedReason.map(lowercasingFirst) ?? "problem is shown in the banner"
-                requests.append(Request(kind: .problem, runId: run.id, taskId: task.id, text: sentence("\(task.title)’s \(said)")))
+                requests.append(BroadcastRequest(kind: .problem, runId: run.id, taskId: task.id, text: sentence("\(task.title)’s \(said)")))
             } else if operated.state == .blocked {
                 let reason = operated.blockedReason ?? "it needs you"
-                requests.append(Request(kind: .blocked, runId: run.id, taskId: task.id, text: sentence("\(task.title) is blocked: \(reason)")))
+                requests.append(BroadcastRequest(kind: .blocked, runId: run.id, taskId: task.id, text: sentence("\(task.title) is blocked: \(reason)")))
             }
         }
         for question in run.questions where question.resolution == nil && !question.id.hasPrefix("prompt-") {
             if let task = question.task, takenOver.contains(task) { continue }
-            requests.append(Request(kind: .question, runId: run.id, taskId: question.task, text: "The Operator asks: \(question.text)", key: question.id))
+            requests.append(BroadcastRequest(kind: .question, runId: run.id, taskId: question.task, text: "The Operator asks: \(question.text)", key: question.id))
         }
         return requests
     }

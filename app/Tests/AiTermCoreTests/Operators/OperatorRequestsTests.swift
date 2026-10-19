@@ -14,7 +14,7 @@ import Foundation
         return task
     }
 
-    func open(_ run: OperatorRun, _ tasks: [TaskItem], prompts: [UUID: String] = [:]) -> [Request] {
+    func open(_ run: OperatorRun, _ tasks: [TaskItem], prompts: [UUID: String] = [:]) -> [BroadcastRequest] {
         OperatorRequests.open(run: run, state: OperatorFixtures.state(run, tasks), prompts: prompts)
     }
 
