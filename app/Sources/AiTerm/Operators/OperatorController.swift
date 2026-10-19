@@ -301,12 +301,10 @@ final class OperatorController {
             throw ActionUnavailable("Choose the projects this operation may work in.")
         }
         guard let daemon = daemon() else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
-        func said(_ text: String?) -> String? {
-            text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
-        }
         let jiraKeys = Self.jiraKeys(of: projectIds, in: workspace.state)
         let run = OperatorRun(id: UUID(), name: Self.operationName(from: prompt), profile: profile, projectIds: projectIds,
-                              jiraProjectKeys: jiraKeys, prompt: prompt, review: said(review), done: said(done), createdAt: ports.now())
+                              jiraProjectKeys: jiraKeys, prompt: prompt, review: OperatorCommand.said(review),
+                              done: OperatorCommand.said(done), createdAt: ports.now())
         let home = ports.home, milestone = ports.milestone
         // A fresh start: `prepare` makes the token and writes the first message the command reads.
         let prepared = try await BackgroundWork.run {

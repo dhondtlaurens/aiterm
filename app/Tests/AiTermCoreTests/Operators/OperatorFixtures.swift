@@ -9,19 +9,20 @@ enum OperatorFixtures {
     static let runId = UUID(uuidString: "1EB4C0DE-0000-0000-0000-0000000000AA")!
 
     /// The profile a broadcast froze: Claude on Opus, every slice off, the Oracle as given.
-    static func profile(oracle: Bool = true, instructions: String = "Ask before adding a field a ticket doesn't mention.") -> OperatorProfile {
+    static func profile(oracle: Bool = true, slices: Slices = .none,
+                        instructions: String = "Ask before adding a field a ticket doesn't mention.") -> OperatorProfile {
         var oracleSetting = OracleSetting.standard
         oracleSetting.isOn = oracle
-        return OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: oracleSetting, instructions: instructions)
+        return OperatorProfile(model: "claude-opus-5-5", reasoning: "high", slices: slices, oracle: oracleSetting, instructions: instructions)
     }
 
     static func project(id: UUID = projectId, path: String = "/tmp/shop") -> Project {
         Project(id: id, name: "Shop", path: path, provider: .git, remoteUrl: nil, addedAt: epoch, collapsed: false)
     }
 
-    static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true,
+    static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true, slices: Slices = .none,
                     planRevision: Int = 1) -> OperatorRun {
-        OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle), projectIds: [projectId],
+        OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle, slices: slices), projectIds: [projectId],
                     prompt: "Implement the sprint.", done: "a commit per item, tests green", state: state,
                     planRevision: planRevision, createdAt: epoch)
     }

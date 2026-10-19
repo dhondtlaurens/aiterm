@@ -35,7 +35,7 @@ public enum AgentCommand {
     public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)"]
 
     /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
-    /// broadcast, round 1's Routine (spec §12's worker launch profile):
+    /// broadcast, whatever the slices (spec §12's worker launch profile):
     ///
     /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never

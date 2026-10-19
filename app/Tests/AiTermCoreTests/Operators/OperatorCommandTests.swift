@@ -105,12 +105,12 @@ import Foundation
         #expect(OperatorCommand.existingToken(in: resumed.folder) == token)
     }
 
-    @Test func theBriefCarriesTheInstructionsTheBroadcastAndTheRunRules() {
+    @Test func theBriefCarriesTheBroadcastAndTheRunRules() {
         var run = F.run()
         run.review = "Jan approves each MR"
         let brief = OperatorCommand.brief(run: run, projects: [F.project()], milestone: .m1)
         #expect(brief.hasPrefix("# You are the Operator in AiTerm"))
-        #expect(brief.contains("## Instructions\n\nAsk before adding a field a ticket doesn't mention."))
+        #expect(brief.contains("Broadcast: Sprint 42"))
         #expect(brief.contains("Review: Jan approves each MR"))
         #expect(brief.contains("Done: a commit per item, tests green"))
         #expect(brief.contains("- Shop: /tmp/shop"))
@@ -128,6 +128,82 @@ import Foundation
                 .contains("carries out: commit, draft MR, merge."))
     }
 
+    /// The role, the sections in their order, and what the Operator never does.
+    @Test func theBriefStatesTheRoleAndKeepsItsSectionsInOrder() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [F.project()])
+        #expect(brief.contains("You plan the work, start the tasks, steer the agents working in them, and answer them from the brief and the code."))
+        #expect(brief.contains("You never write code."))
+        let headings = ["## The role", "## This broadcast", "## What you may do", "## The backlog", "## Agent and model",
+                        "## Instructions", "## Run rules"]
+        let at = headings.map { brief.range(of: $0 + "\n")?.lowerBound }
+        #expect(!at.contains { $0 == nil }, "every section is there")
+        #expect(at.compactMap { $0 } == at.compactMap { $0 }.sorted(), "in this order")
+    }
+
+    @Test func theBriefStatesEachSlice() {
+        let someOn = OperatorCommand.brief(run: F.run(slices: Slices(jira: true, review: false, merge: false)), projects: [])
+        #expect(someOn.contains("You may create and update Jira tickets"))
+        #expect(someOn.contains("You may not involve people on a merge request"))
+        #expect(someOn.contains("You may not merge"))
+        #expect(!someOn.contains("You may not create or update Jira tickets"))
+
+        let flipped = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: true, merge: true)), projects: [])
+        #expect(flipped.contains("You may not create or update Jira tickets"))
+        #expect(flipped.contains("You may involve people on a merge request"))
+        #expect(flipped.contains("You may merge"))
+        #expect(!flipped.contains("You may not involve people") && !flipped.contains("You may not merge"))
+    }
+
+    /// A broadcast's slices are frozen, and what they do not allow is neither done nor asked for.
+    @Test func whatASliceDoesNotAllowIsNeitherDoneNorAskedFor() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        #expect(brief.contains("Do not do what a slice does not allow, and do not ask to"))
+    }
+
+    @Test func theBriefStatesTheBacklogRuleAndReportFind() {
+        let on = OperatorCommand.brief(run: F.run(oracle: true), projects: [])
+        #expect(on.contains("You may add tasks to the backlog without asking."))
+        #expect(on.contains("quarter of the first plan's size, and at least one"))
+        #expect(on.contains("needs the Oracle's yes"))
+        #expect(on.contains("report off-brief finds with `report_find`"))
+        let off = OperatorCommand.brief(run: F.run(oracle: false), projects: [])
+        #expect(off.contains("The Oracle is off, so the backlog cannot grow past that."))
+        #expect(!off.contains("needs the Oracle's yes"))
+        #expect(off.contains("report off-brief finds with `report_find`"))
+    }
+
+    /// Spec §15: the person's words win; otherwise defaults, the allowed models, and the weekly limit.
+    @Test func theBriefStatesHowToChooseAgentAndModel() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        #expect(brief.contains("Your words win."))
+        #expect(brief.contains("the person's words in the prompt or the Instructions"))
+        #expect(brief.contains("Claude or Codex"))
+        #expect(brief.contains("that agent's default model in Settings > Agents"))
+        #expect(brief.contains("only a model in that agent's own list there"))
+        #expect(brief.contains("80 %"))
+    }
+
+    @Test func theBriefHasNoEmDash() {
+        for oracle in [true, false] {
+            for slices in [Slices.none, Slices(jira: true, review: true, merge: true)] {
+                for milestone in OperatorMilestone.allCases {
+                    let brief = OperatorCommand.brief(run: F.run(oracle: oracle, slices: slices), projects: [F.project()], milestone: milestone)
+                    #expect(!brief.contains("\u{2014}"), "oracle \(oracle), \(slices), \(milestone)")
+                }
+            }
+        }
+        #expect(!OperatorCommand.firstMessage(for: F.run()).contains("\u{2014}"))
+    }
+
+    @Test func theBriefTellsTheOperatorNotToWriteEmDashes() {
+        #expect(OperatorCommand.brief(run: F.run(), projects: []).contains("Write no em dashes"))
+    }
+
+    @Test func theBriefCarriesTheInstructions() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        #expect(brief.contains("## Instructions\n\nAsk before adding a field a ticket doesn't mention."))
+    }
+
     /// No Instructions, no section for them; nothing said of Review or Done says so.
     @Test func aBroadcastWithoutInstructionsReviewOrDoneSaysSo() {
         var run = F.run()
@@ -136,6 +212,23 @@ import Foundation
         let brief = OperatorCommand.brief(run: run, projects: [])
         #expect(!brief.contains("## Instructions"))
         #expect(brief.contains("Review: not said") && brief.contains("Done: not said, so end each task at a commit"))
+    }
+
+    /// One trimming rule for what a person typed: nothing said is nil.
+    @Test func saidTrimsAndDropsEmptyText() {
+        #expect(OperatorCommand.said("  fix it \n") == "fix it")
+        #expect(OperatorCommand.said("  \n") == nil)
+        #expect(OperatorCommand.said(nil) == nil)
+    }
+
+    @Test func theLaunchKeepsTheReadOnlyTools() throws {
+        let home = home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let prepared = try OperatorCommand.prepare(run: F.run(slices: Slices(jira: true, review: true, merge: true)), projects: [F.project()],
+                                                   home: home, token: token)
+        #expect(prepared.command.contains("--tools Read,Grep,Glob"))
+        #expect(prepared.command.contains("--strict-mcp-config"))
+        #expect(prepared.command.contains("--allowedTools 'mcp__aiterm__*'"))
     }
 
     /// The tool descriptions mention the two-step challenge only in the `challengeId` property, so

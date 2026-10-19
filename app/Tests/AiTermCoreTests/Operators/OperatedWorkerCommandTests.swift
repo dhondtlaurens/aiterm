@@ -15,6 +15,25 @@ import Foundation
                 + "'Bash(gh pr merge:*)' 'Bash(glab mr merge:*)' --permission-mode auto 'fix it'")
     }
 
+    /// Every broadcast launches its workers the same way: the words take no setting but the agent, its model and its
+    /// reasoning, and a launch, a reopen and a preview all carry them.
+    @Test func oneProfileForEveryBroadcast() throws {
+        let claude = AgentCommand.workerWords(agent: .claude, model: "opus", reasoning: "high")
+        #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools", "AskUserQuestion",
+                           "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "--permission-mode", "auto"])
+        let codex = AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
+        #expect(codex == ["codex", "-s", "workspace-write", "-a", "on-request", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
+        #expect(AgentCommand.operatedClaudeDenials == ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)"])
+        for agent in AgentCommand.operatedAgents {
+            let words = AgentCommand.workerWords(agent: agent, model: "m", reasoning: nil)
+            #expect(AgentCommand.resumeWorker(agent: agent, conversation: "c", model: "m", reasoning: nil)
+                    .hasSuffix(words.dropFirst().map(AgentCommand.shellWord).joined(separator: " ")))
+            #expect(try AgentCommand.build(agent: agent, model: "m", reasoning: nil, prompt: nil, worktreePath: wt,
+                                           git: .hermetic(), operated: true)
+                    == words.map(AgentCommand.shellWord).joined(separator: " "))
+        }
+    }
+
     @Test func claudesPermissionModeIsAutoAndLast() {
         let words = AgentCommand.workerWords(agent: .claude, model: "opus", reasoning: nil)
         #expect(Array(words.suffix(2)) == ["--permission-mode", "auto"], "a variadic option is never last before the prompt")
