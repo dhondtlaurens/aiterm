@@ -42,8 +42,8 @@ struct OperationOverviewTests {
         return state
     }
 
-    @Test func whileAPlanWaitsItIsAllTheOverviewShows() {
-        let run = OperatorUIFixtures.run(state: .planning, planRevision: 1, approvedRevision: nil, decisions: [
+    @Test func aPlanJustDrawnUpIsAllUpNext() {
+        let run = OperatorUIFixtures.run(state: .planning, planRevision: 1, decisions: [
             OperatorDecision(key: "plan-1", text: "2 now branches from 1’s commit.", task: nil, at: OperatorUIFixtures.epoch,
                              challenge: "2 should build on 1’s schema change, not only wait for it."),
         ])
@@ -51,16 +51,10 @@ struct OperationOverviewTests {
                                                                                 ends: [.commit, .commit, .commit, .merge])))
         #expect(overview.title == "Newsletter signup")
         #expect(overview.subtitle == "Operator · done when: a commit per item, tests green, I review and push")
-        let plan = overview.plan
-        #expect(plan?.revision == 1)
-        #expect(plan?.help == "Nothing starts until you approve. Codex gave a second opinion; one change came of it.")
-        #expect(plan?.rows.map(\.key) == [.ticket("PLUTO-231"), .ticket("PLUTO-232"), .todo, .todo])
-        #expect(plan?.rows.map(\.sign) == ["+", "+", "+", "+"], "a first plan only adds")
-        #expect(plan?.rows.map(\.detail) == ["pluto-cms · Claude · commit", "pluto-web · Claude · builds on PLUTO-231 · commit",
-                                             "pluto-web · Codex · commit", "pluto-web · Codex · merge"])
-        #expect(overview.groups.isEmpty, "what waits for approval is in the plan, not on the board")
-        #expect(OperationOverview.PlanRow(id: "t", change: .changed, key: .todo, title: "t", detail: "d").sign == "~")
-        #expect(overview.footer == .planWaits)
+        #expect(overview.groups.map(\.title) == ["Up next"], "there is no plan box: every task is on the board")
+        #expect(overview.groups[0].items.map(\.key) == [.ticket("PLUTO-231"), .ticket("PLUTO-232"), .todo, .todo])
+        #expect(overview.groups[0].items.map(\.detail) == ["", "builds on PLUTO-231", "", ""])
+        #expect(overview.footer == .working)
     }
 
     @Test func atWorkTheBoardRunsDownFromWhatWaitsOnYou() {
@@ -82,7 +76,6 @@ struct OperationOverviewTests {
         #expect(overview.groups[2].items.map(\.detail) == ["4f2a91c"])
         #expect(overview.decisionsTitle == "Decided on its own · 1")
         #expect(overview.decisions.map(\.why) == ["Overrule it in the window if not."])
-        #expect(overview.plan == nil)
         #expect(overview.footer == .working)
     }
 
@@ -161,10 +154,10 @@ struct OperationOverviewTests {
         #expect(overview.groups[0].items.map(\.id).first == "scope", "the first of a repeat keeps its id")
         #expect(unique(overview.decisions.map(\.id)) && overview.decisions.map(\.key) == ["same", "same"])
 
-        let planning = OperatorUIFixtures.run(state: .planning, planRevision: 1, approvedRevision: nil)
+        let planning = OperatorUIFixtures.run(state: .planning, planRevision: 1)
         var planned = tasks(planning.id, [.planned, .planned, .planned, .planned])
         planned.append(planned[0])
-        let plan = OperationOverview.make(run: planning, state: state(planning, planned)).plan
-        #expect(plan.map { unique($0.rows.map(\.id)) } == true && plan?.rows.count == 5)
+        let upNext = OperationOverview.make(run: planning, state: state(planning, planned)).groups
+        #expect(upNext.count == 1 && unique(upNext[0].items.map(\.id)) && upNext[0].items.count == 5)
     }
 }

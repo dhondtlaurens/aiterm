@@ -227,7 +227,7 @@ final class TaskFinisher {
         guard store.flush() else { throw NotSaved() }
     }
 
-    /// The task's operation does not run now — paused, ended, its operator offline, its plan not approved:
+    /// The task's operation does not run now — paused, ended, its operator offline, its plan not submitted:
     /// a watch refused for that is suspended, not stopped, and picked up when the operation runs again.
     private func isSuspended(_ id: UUID) -> Bool {
         guard let operated = store.state.task(id: id)?.operated, let run = store.state.run(id: operated.runId) else { return false }

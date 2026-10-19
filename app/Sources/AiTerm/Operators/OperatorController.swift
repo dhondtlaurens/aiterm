@@ -20,9 +20,6 @@ struct OperatorPorts {
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
     var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    /// How many agents every operation together may have at work, read at every start pass: a fixed
-    /// cap now Settings › Agents' Agents at once is gone, until the cap goes (the plan's Task 2).
-    var agentsAtOnce: @MainActor () -> Int = { OperatorMilestone.agentsAtOnce }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
@@ -183,12 +180,16 @@ final class OperatorController {
 
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.
     func status(of run: OperatorRun) -> RunStatus? {
-        Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0)
+        Self.status(of: run.id, state: workspace.state, sessions: live.sessions, revision: 0,
+                    usage: SidebarModel.weeklyUsage(live.usage, now: ports.now()))
     }
 
     /// `run_status`'s snapshot: the run from the workspace, each task's live facts from its worker's tab.
-    static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int) -> RunStatus? {
-        RunStatus.build(state: state, run: run, revision: revision, live: liveFacts(of: run, state: state, sessions: sessions))
+    /// `usage` is each agent's weekly percent (`SidebarModel.weeklyUsage`).
+    static func status(of run: UUID, state: AppState, sessions: [SessionInfo], revision: Int,
+                       usage: [AgentKind: Int] = [:]) -> RunStatus? {
+        RunStatus.build(state: state, run: run, revision: revision, live: liveFacts(of: run, state: state, sessions: sessions),
+                        runLive: RunLiveFacts(weeklyUsage: usage))
     }
 
     /// What the tabs say of each of the run's tasks: its worker's live status, and the prompt it waits on
@@ -236,38 +237,17 @@ final class OperatorController {
         }
     }
 
-    /// Approve plan (spec §8): you approve one exact revision — the latest submitted — and its planned
-    /// tasks are released (`PlanRevision.approve`). A click on a revision since replaced is stale: it
-    /// fails with the reason and releases nothing.
-    func approvePlan(run id: UUID, revision: Int) throws {
-        guard self.run(id: id) != nil else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
-        let before = self.run(id: id)?.approvedRevision
-        do {
-            try workspace.mutate { state in
-                try PlanRevision.approve(revision, run: id, in: &state)
-                state.updateRun(id: id) { if $0.state == .planning || $0.state == .complete { $0.state = .active } }
-            }
-        } catch let failure as PlanRevision.Failure {
-            throw ActionUnavailable(failure.description)
-        }
-        // Approving the approved revision again changes nothing, so it wakes nothing.
-        if self.run(id: id)?.approvedRevision != before { waker.say("plan approved", to: id) }
-        runChanged(id)
-    }
-
     // -- starting workers -------------------------------------------------------------------
-    /// The one start pass (spec §8, §11): what may start now — dependencies satisfied, a slot free across
-    /// every operation under Settings › Agents' Agents at once, operations taking turns oldest first — is
-    /// claimed in one change, saved so the launch intents are on disk before any window is asked for, then
-    /// launched. A pass that overlaps another — two tasks finishing at once, or one while a launch awaits its
-    /// window — counts the other's claims, so the cap holds and no task is claimed twice. Nothing while no
-    /// helper is attached: there is no window to ask for. Called from `runChanged(_:)` (a tool's change, an
-    /// approval, a block, a start ended, a resume, a hand back), `reconcileTick()`, the end of an operation
-    /// and a change of Agents at once.
+    /// The one start pass (spec §8, §11): what may start now — every task whose dependencies are satisfied,
+    /// in every active operation, oldest first, with no cap — is claimed in one change, saved so the launch
+    /// intents are on disk before any window is asked for, then launched. A pass that overlaps another — two
+    /// tasks finishing at once, or one while a launch awaits its window — finds the other's claims taken, so
+    /// no task is claimed twice. Nothing while no helper is attached: there is no window to ask for. Called
+    /// from `runChanged(_:)` (a tool's change, a submitted plan, a block, a start ended, a resume, a hand
+    /// back), `reconcileTick()` and the end of an operation.
     func startReadyTasks() {
         guard daemon() != nil else { return }
-        let cap = ports.milestone.maxParallel(setting: ports.agentsAtOnce())
-        let claimed = starter.claimReady(maxParallel: cap)
+        let claimed = starter.claimReady()
         guard !claimed.isEmpty else { return }
         // Not on disk, a crash would leave nothing saying a worker may be running: the claims are taken back.
         guard workspace.flush() else {

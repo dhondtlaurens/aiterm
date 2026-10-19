@@ -124,11 +124,11 @@ Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · Start Operation · Approve Plan · End Operation | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
+| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · Start Operation · End Operation | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
 
-The overview's ⌘↩ is the moment's: Approve Plan while a plan waits, End Operation once it is done, nothing while it works — Pause and End Operation… are plain buttons. ⎋ is Close.
+The overview's ⌘↩ is the moment's: End Operation once it is done, nothing while it works — Pause and End Operation… are plain buttons. ⎋ is Close.
 
 ## Settings
 

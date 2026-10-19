@@ -19,7 +19,7 @@ import Testing
         #expect(run.state == .planning && run.projectIds == [project.id] && run.done == "a commit per ticket")
         #expect(run.profile == profile, "the profile is frozen in the run")
         #expect(run.review == nil, "a blank Review is none")
-        #expect(run.planRevision == 0 && run.approvedRevision == nil)
+        #expect(run.planRevision == 0)
         let folder = OperatorCommand.runFolder(id, home: world.ports.home)
         let register = try #require(world.daemon.requests("operator.register").first)
         #expect(register.params["runId"] as? String == id.uuidString)

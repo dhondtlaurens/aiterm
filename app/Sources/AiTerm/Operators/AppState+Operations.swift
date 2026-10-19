@@ -15,10 +15,10 @@ extension AppState {
         tasks[i].operated = operated
     }
 
-    /// Whether anything in the run can move without you: a worker at work that is not waiting on you,
-    /// or a task the scheduler could start now.
+    /// Whether anything in the run can move without you: a worker at work that is not waiting on you
+    /// (the task that asked is waiting on you, so it is not one), or a task the scheduler could start now.
     func otherWorkCanProceed(in run: OperatorRun) -> Bool {
         let working = tasks(inRun: run.id).contains { $0.operated?.state == .working && $0.operated?.flags.contains(.waitingOnYou) == false }
-        return working || (run.state == .active && !RunScheduler.startable(in: self, run: run.id, maxParallel: 1).isEmpty)
+        return working || (run.state == .active && !RunScheduler.startable(in: self, run: run.id).isEmpty)
     }
 }

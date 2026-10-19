@@ -15,7 +15,7 @@ import Testing
 
     @Test func anOperatorsTabGoneTakesItsOperationOfflineAndItsReturnBringsItBackButNeverUnpauses() throws {
         let project = OperatorServiceFixtures.project()
-        let active = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let active = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var paused = OperatorServiceFixtures.run(projects: [project], state: .paused)
         paused.intent = .paused
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [active, paused]))
@@ -31,7 +31,7 @@ import Testing
 
     @Test func aLaunchThatShowedNoTabIsTriedAgainOnlyAfterAMinute() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-reconcile-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working)
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -51,7 +51,7 @@ import Testing
     /// tick: it comes back on your click (`reopenWorker`, D16), never as a second worker.
     @Test func aWorkerWhoseWindowYouClosedIsLeftForYourClick() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-closed-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: project.path)
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -74,7 +74,7 @@ import Testing
     /// not time waiting on you, nor the time AiTerm was not running — and what is counted is saved.
     @Test func aWorkerPastItsRuntimeIsBlockedCountingOnlyItsTimeAtWork() async throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-5", state: .working, worktree: "/tmp/aiterm-wt")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         task.operated?.runtimeUsed = 89 * 60
@@ -107,7 +107,7 @@ import Testing
 
     @Test func aWorkerWorkingWithNoChangeForTwentyMinutesIsPossiblyStalledUntilItChanges() async throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .working, worktree: "/tmp/aiterm-wt")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -185,7 +185,7 @@ import Testing
     /// launched again once it is closed.
     @Test func aLiveTabTaggedWithTheTaskIsAdoptedAndNeverLaunchedAgain() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-adopt-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-8", state: .working)
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -208,7 +208,7 @@ import Testing
     /// there is adopted while the task is blocked, and resuming it never launches a second worker.
     @Test func aBlockedTasksLiveWorkerIsAdoptedSoResumingItNeverLaunchesASecond() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-busy-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-9", state: .blocked, worktree: project.path)
         task.operated?.blockedFrom = .working
         task.operated?.blockedReason = "AiTerm couldn’t start it: its worker is still busy; stop it or wait."
@@ -233,7 +233,7 @@ import Testing
     /// at the last moment and adopts it instead of opening a second.
     @Test func aRelaunchFindsAnOrphanWindowByItsTagBeforeOpeningAnother() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-orphan-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-10", state: .working)
         let attempt = LaunchAttempt(number: 2, requestedAt: clock.now)
         task.operated?.launch = attempt
@@ -249,7 +249,7 @@ import Testing
     /// triggers the scheduler as the tool paths do.
     @Test func aResumedRunAndAReattachedHelperStartWhatWasWaiting() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-resume-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .operatorOffline, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .operatorOffline, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-11", state: .queued)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
@@ -276,7 +276,7 @@ import Testing
     /// A task that failed with no retry left is blocked and you are asked, as a task past its runtime is.
     @Test func aFailedTaskWithNoRetriesLeftIsBlockedAndYouAreAsked() throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-13", state: .failed, worktree: "/tmp/aiterm-wt")
         task.operated?.retriesUsed = OperatorTiming.retries
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -290,7 +290,7 @@ import Testing
     /// A paused run's workers are not working time.
     @Test func aPausedRunsWorkersCountNoRuntime() throws {
         let project = OperatorServiceFixtures.project()
-        var run = OperatorServiceFixtures.run(projects: [project], state: .paused, planRevision: 1, approvedRevision: 1)
+        var run = OperatorServiceFixtures.run(projects: [project], state: .paused, planRevision: 1)
         run.intent = .paused
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-14", state: .working, worktree: "/tmp/aiterm-wt")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
@@ -306,7 +306,7 @@ import Testing
     /// each open operator question again, oldest first, and none that was answered.
     @Test func openQuestionsAreHeldAgainAfterARestart() throws {
         let project = OperatorServiceFixtures.project()
-        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-15", state: .working, worktree: "/tmp/aiterm-wt")
         var late = OperatorServiceFixtures.question("late", at: clock.now)
         late.task = task.id
@@ -343,7 +343,7 @@ import Testing
     /// time it used, the next pass would block it again. A block for another reason keeps its runtime.
     @Test func aTaskBlockedForItsRuntimeIsResumedWithAFreshAllowanceAndOneBlockedForAnotherReasonKeepsItsTime() throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-20", state: .working, worktree: "/tmp/aiterm-wt")
         spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         spent.operated?.runtimeUsed = 90 * 60
@@ -372,7 +372,7 @@ import Testing
     /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none.
     @Test func aWorkingTaskWithNoWorkerTabCountsNoRuntime() throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-22", state: .working, worktree: "/tmp/aiterm-wt")
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -388,7 +388,7 @@ import Testing
     @Test func aWindowRequestThatTimedOutIsGivenAMinuteFromWhenItEndedBeforeAnotherLaunch() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-timeout-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .queued)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon)
         let op = OperatorServiceFixtures.session("op", tag: run.id)
@@ -415,7 +415,7 @@ import Testing
     /// that saw the tabs, so a window iTerm2 was slow to list is found first.
     @Test func aLaunchFromBeforeAiTermStartedWaitsAMinuteFromTheFirstPass() async throws {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-restart-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working)
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now.addingTimeInterval(-3600))
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]))
@@ -433,7 +433,7 @@ import Testing
     @Test func twoTicksWhileARelaunchIsHeldMakeOneWindowRequest() async throws {
         let daemon = RecordingDaemon(holding: "window.createTask")
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-overlap-"))
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-25", state: .working)
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon)
@@ -455,7 +455,7 @@ import Testing
     /// Spec §7.3: iTerm2 coming back with the helper still there is reconciled on its snapshot, not a minute later.
     @Test func anItermReconnectIsReconciledAtOnce() throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         world.controller.handle(.itermDisconnected)
@@ -484,7 +484,7 @@ import Testing
     /// A question this run of AiTerm already sent is not held again by the pass that follows a restart's rule.
     @Test func aQuestionAlreadySentThisSessionIsNotHeldAgain() throws {
         let project = OperatorServiceFixtures.project()
-        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        var run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         run.questions = [OperatorServiceFixtures.question("q1", at: clock.now)]
         let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
         world.controller.notifier.questionAsked(run.questions[0], in: run, otherWorkCanProceed: false)
@@ -499,7 +499,7 @@ import Testing
     /// tick does is waited for, never counted after a sleep.
     @Test func theLoopTicksEveryIntervalUntilItIsStopped() async throws {
         let project = OperatorServiceFixtures.project()
-        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let op = OperatorServiceFixtures.session("op", tag: run.id)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { ports in
             ports.now = { [clock] in clock.now }

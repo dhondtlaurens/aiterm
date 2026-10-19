@@ -125,12 +125,6 @@ extension AppController {
         return true
     }
 
-    /// Approves exactly `revision`, the one the overview showed: a later one releases nothing.
-    func approvePlan(_ run: OperatorRun, revision: Int) {
-        let controller = operatorController
-        attempt("Couldn’t approve the plan of “\(run.name)”") { try controller.approvePlan(run: run.id, revision: revision) }
-    }
-
     func pause(_ run: OperatorRun) {
         let controller = operatorController
         attempt("Couldn’t pause “\(run.name)”") { try controller.pause(run: run.id) }
@@ -158,7 +152,6 @@ extension AppController {
     /// operator's chat: a finished operation's operator is still there to be given more to do.
     func overviewActions(for run: OperatorRun, dismiss: @escaping @MainActor () -> Void) -> OverviewActions {
         OverviewActions(
-            approvePlan: { [weak self] revision in self?.approvePlan(run, revision: revision) },
             pause: { [weak self] in self?.pause(run) },
             resume: { [weak self] in self?.resume(run) },
             end: { [weak self] confirming in

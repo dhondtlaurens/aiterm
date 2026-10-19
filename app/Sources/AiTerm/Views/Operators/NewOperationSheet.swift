@@ -4,7 +4,7 @@ import AiTermCore
 
 /// New Operation…: what to hand the Operator. The Brief in the prompt editor, a wall of tickets and
 /// loose to-dos alike; Done when, what finished looks like, which grants nothing itself (a draft MR or
-/// merge is an end in the plan you approve); the destination line; Start Operation on ⌘↩, which opens
+/// merge is an end in the plan); the destination line; Start Operation on ⌘↩, which opens
 /// the Operator's window with the brief as its first message. The plan's Task 16 replaces it.
 struct NewOperationSheet: View {
     @Bindable var model: NewOperationModel

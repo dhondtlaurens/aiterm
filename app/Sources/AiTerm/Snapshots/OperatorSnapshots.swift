@@ -5,7 +5,7 @@ import AiTermCore
 #if DEBUG
 /// The design's operation as the images draw it: the Operator running "Newsletter signup" over
 /// pluto-cms and pluto-web (PLUTO-231's schema, PLUTO-232's homepage section building on it, the
-/// /privacy footer link, the nuxt bump) beside a second operation, "Nuxt upgrade", whose plan waits.
+/// /privacy footer link, the nuxt bump) beside a second operation, "Nuxt upgrade", still planning.
 /// Each scene is a controller of its own, at the snapshot clock; the sidebar draws the Operator only
 /// once `show` has put a broadcast in, so a bare scene is the OPERATORS heading with none beneath it.
 @MainActor
@@ -27,11 +27,11 @@ struct OperatorScene {
         controller.workspace.mutate { [cms, web] state in state.append(project: cms); state.append(project: web) }
     }
 
-    func run(_ id: UUID, _ name: String, _ state: OperatorRunState, planRevision: Int = 1, approvedRevision: Int? = 1,
+    func run(_ id: UUID, _ name: String, _ state: OperatorRunState, planRevision: Int = 1,
              questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = []) -> OperatorRun {
         OperatorRun(id: id, name: name, profile: Self.profile, projectIds: [cms.id, web.id],
                     prompt: "PLUTO-231 newsletter signup block in Storyblok",
-                    done: Self.done, state: state, intent: nil, planRevision: planRevision, approvedRevision: approvedRevision,
+                    done: Self.done, state: state, intent: nil, planRevision: planRevision,
                     questions: questions, decisions: decisions, operatorConversation: nil,
                     operatorWindowId: "operator-\(name)", operatorSessionId: nil, createdAt: Snapshots.clock.now)
     }
@@ -82,14 +82,14 @@ struct OperatorScene {
     }
 
     /// The design's step 6: Newsletter signup at work — one done, the homepage answered by the operator,
-    /// Codex asking about npm install — and Nuxt upgrade's plan waiting.
+    /// Codex asking about npm install — and Nuxt upgrade still planning.
     static func atWork(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
         let signup = scene.run(scene.signupId, "Newsletter signup", .active,
                                questions: [OperatorQuestion(id: "npm", text: "Codex asks to run npm install", task: scene.footer,
                                                             askedAt: Snapshots.clock.now, resolution: nil)],
                                decisions: [OperatorDecision(key: "subtitle", text: "Gave the block an optional subtitle field: the design shows one, the ticket doesn’t mention it.",
                                                             task: scene.schema, at: Snapshots.clock.now, challenge: nil)])
-        let nuxt = scene.run(scene.nuxtId, "Nuxt upgrade", .planning, planRevision: 1, approvedRevision: nil)
+        let nuxt = scene.run(scene.nuxtId, "Nuxt upgrade", .planning, planRevision: 0)
         let upgrade = scene.task(scene.upgrade, "Upgrade Nuxt to 3.20", in: scene.web, run: scene.nuxtId, .planned)
         scene.show([signup, nuxt], scene.signupTasks([.accepted, .working, .working, .working], shas: ["4f2a91c", nil, nil, nil],
                                                      footerFlags: [.waitingOnYou]) + [upgrade],
@@ -111,9 +111,9 @@ struct OperatorScene {
         return scene
     }
 
-    /// The design's step 5: the plan waits, and the second opinion changed one thing.
+    /// The design's step 5: the plan is drawn up and not yet submitted, and the second opinion changed one thing.
     static func planWaiting(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
-        let run = scene.run(scene.signupId, "Newsletter signup", .planning, planRevision: 1, approvedRevision: nil, decisions: [
+        let run = scene.run(scene.signupId, "Newsletter signup", .planning, planRevision: 0, decisions: [
             OperatorDecision(key: "plan-1", text: "2 now branches from 1’s commit.", task: nil, at: Snapshots.clock.now,
                              challenge: "2 should build on 1’s schema change, not only wait for it."),
         ])

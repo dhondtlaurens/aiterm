@@ -10,7 +10,7 @@ public extension OperatedTransitions {
     ///
     /// - a task that **fails** or is **stopped** blocks every queued task that depends on it,
     ///   directly or through another, with `upstreamReason` — a planned one stays planned, as it
-    ///   is not approved to start anyway;
+    ///   is not released to start yet;
     /// - a **retried** task puts the tasks its failure blocked, none of which ever ran, back in
     ///   the queue.
     ///

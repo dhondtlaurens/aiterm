@@ -14,7 +14,6 @@ struct OperationOverviewSheetTests {
             let buttons = OverviewFooterButtons(footer)
             return (buttons.leading.map(\.title), buttons.primary?.title)
         }
-        #expect(titles(.planWaits) == (["End Operation…"], "Approve Plan"))
         #expect(titles(.working) == (["Pause", "End Operation…"], nil))
         #expect(titles(.paused) == (["Resume", "End Operation…"], nil))
         #expect(titles(.done) == (["Give It More"], "End Operation"))
@@ -98,26 +97,12 @@ struct OperationOverviewSheetTests {
         #expect(host.fittingSize.width == Sheet.width)
     }
 
-    /// Approve Plan carries the revision the sheet showed — never "the latest": a plan revised while the
-    /// sheet is open needs its own approval (Review Focus: a stale approval releases nothing).
-    @Test func approvePlanSendsTheRevisionTheSheetShowed() {
-        var sent: [Int] = [], moments: [String] = []
-        let actions = OverviewActions(approvePlan: { sent.append($0) }, pause: { moments.append("pause") },
+    @Test func eachButtonDoesItsOneThing() {
+        var moments: [String] = []
+        let actions = OverviewActions(pause: { moments.append("pause") },
                                       resume: { moments.append("resume") }, end: { moments.append($0 ? "end…" : "end") },
                                       giveItMore: { moments.append("more") })
-        let run = OperatorUIFixtures.run(state: .planning, planRevision: 3, approvedRevision: 1)
-        var state = AppState()
-        let task = OperatorUIFixtures.task("Schema", jira: "PLUTO-1", project: UUID(),
-                                           operated: OperatorUIFixtures.operated(run: run.id, key: "k", state: .planned))
-        state.tasks = [task]; state.runs = [run]
-        let shown = OperationOverview.make(run: run, state: state)
-        #expect(shown.plan?.revision == 3)
-        // The operator submits revision 4 after the sheet drew; the click still sends 3.
-        var revised = run; revised.planRevision = 4
-        state.runs = [revised]
-        OverviewButton.approvePlan.perform(shown, actions)
-        #expect(sent == [3])
-        #expect(OperationOverview.make(run: revised, state: state).plan?.revision == 4)
+        let shown = OperationOverview.make(run: OperatorUIFixtures.run(), state: AppState())
         for button: OverviewButton in [.pause, .resume, .endConfirm, .end, .giveItMore] { button.perform(shown, actions) }
         #expect(moments == ["pause", "resume", "end…", "end", "more"])
     }
@@ -132,8 +117,8 @@ struct OperationOverviewSheetTests {
         #expect(controller.notices.issue?.title == "Couldn’t rename “Newsletter signup”.")
         #expect(controller.notices.issue?.reason == "This operation is no longer in AiTerm.")
         controller.notices.dismissIssue()
-        controller.approvePlan(run, revision: 1)
-        await eventually(describing: "the approval's banner") { controller.notices.issue != nil }
-        #expect(controller.notices.issue?.title == "Couldn’t approve the plan of “Newsletter signup”.")
+        controller.pause(run)
+        await eventually(describing: "the pause's banner") { controller.notices.issue != nil }
+        #expect(controller.notices.issue?.title == "Couldn’t pause “Newsletter signup”.")
     }
 }

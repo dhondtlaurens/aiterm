@@ -40,7 +40,7 @@ struct OperatorSidebarTests {
         var row = SidebarModel.operationRow(run: OperatorUIFixtures.run(), tasks: [])
         row.attention = 2
         #expect(OperationCaptionLine.spoken(row) == "0 of 0 done, 2 waiting on you")
-        row.showsProgress = false; row.caption = "plan waits for you"
-        #expect(OperationCaptionLine.spoken(row) == "plan waits for you")
+        row.showsProgress = false; row.caption = "operator offline"
+        #expect(OperationCaptionLine.spoken(row) == "operator offline")
     }
 }

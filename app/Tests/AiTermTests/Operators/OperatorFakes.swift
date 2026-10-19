@@ -20,11 +20,10 @@ enum OperatorServiceFixtures {
                 collapsed: false, jiraProjects: jira)
     }
 
-    /// `approvedRevision`: the plan revision you approved, every plan being gated until the plan's Task 2.
     static func run(_ profile: OperatorProfile = profile(), projects: [Project], state: OperatorRunState = .planning,
-                    planRevision: Int = 0, approvedRevision: Int? = nil, id: UUID = UUID()) -> OperatorRun {
+                    planRevision: Int = 0, id: UUID = UUID()) -> OperatorRun {
         OperatorRun(id: id, name: "Sprint 42", profile: profile, projectIds: projects.map(\.id), prompt: "Implement the sprint.",
-                    state: state, planRevision: planRevision, approvedRevision: approvedRevision, createdAt: Date(timeIntervalSince1970: 0))
+                    state: state, planRevision: planRevision, createdAt: Date(timeIntervalSince1970: 0))
     }
 
     static func task(in run: OperatorRun, project: Project, key: String, state: OperatedState = .planned, agent: AgentKind = .claude,
@@ -80,13 +79,11 @@ final class StepClock {
 extension OperatorPorts {
     /// Ports that reach nothing real: a fresh temporary folder as the home — run folders and the agents'
     /// conversations under it — notifications recorded,
-    /// hermetic git, wake lines with no wait, one agent at a time.
+    /// hermetic git, wake lines with no wait.
     @MainActor static func scratch(notifications: RecordingNotifications = RecordingNotifications(),
                                    git: any GitRunning = GitRunner.hermetic()) -> OperatorPorts {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-operators-\(UUID().uuidString)")
         var ports = OperatorPorts(home: home, git: git, notifications: notifications, wakeCoalesce: .zero)
-        // One agent at a time, whatever the test host's defaults hold; a test of the cap sets its own.
-        ports.agentsAtOnce = { 1 }
         // Nothing is published but through a test's own fake host, and no merge watch waits for real.
         ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
         ports.mergeSleep = { _ in throw CancellationError() }

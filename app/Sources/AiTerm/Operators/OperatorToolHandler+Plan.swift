@@ -99,9 +99,9 @@ extension OperatorToolHandler {
 
     /// Closes the open revision through `PlanRevision.submit` — the plan-validation step, where the
     /// milestone check refuses an end this milestone does not carry out (M1: anything but a commit, spec
-    /// §13) with the reason. Ungated, its tasks are released at once and the operation is active; gated,
-    /// they wait for Approve plan. A revision already submitted changes nothing and says so: it carries no
-    /// `released` count, which would read as "nothing was released".
+    /// §13) with the reason. Its tasks are released at once and the operation is active. A revision already
+    /// submitted changes nothing and says so: it carries no `released` count, which would read as "nothing
+    /// was released".
     func submitPlan(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         guard let revision = call.arguments["revision"]?.intValue else {
             throw ToolRefusal("submit_plan needs `revision`, the open revision run_status shows.")
@@ -114,12 +114,10 @@ extension OperatorToolHandler {
             throw ToolRefusal(failure.description)
         }
         let current = state.run(id: run.id) ?? run
-        if submitted.awaitingApproval, !submitted.repeated { notifier.planWaiting(current) }
         var answer: JSONValue = ["revision": .int(submitted.revision), "openRevision": .int(current.openRevision), "submitted": true,
-                                 "waitingForApproval": .bool(submitted.awaitingApproval), "repeated": .bool(submitted.repeated)]
+                                 "repeated": .bool(submitted.repeated)]
         if submitted.repeated {
-            let waiting = submitted.awaitingApproval ? " It is waiting for the person’s approval." : ""
-            answer = answer.adding("note", .string("Revision \(submitted.revision) was already submitted; nothing changed.\(waiting)"))
+            answer = answer.adding("note", .string("Revision \(submitted.revision) was already submitted; nothing changed."))
         } else {
             answer = answer.adding("released", .int(submitted.released.count))
         }
@@ -138,8 +136,7 @@ extension OperatorToolHandler {
     }
 
     /// The project a task goes in: one of the operation's, or — `joins` — another project of the workspace
-    /// that an ungated operation takes in once the call has passed every check; a gated one refuses it,
-    /// since adding a project is a plan change you approve (spec §5.3). Nothing is changed here.
+    /// that the operation takes in once the call has passed every check (spec §5.3). Nothing is changed here.
     private func project(_ call: ToolCall, in run: OperatorRun) throws(ToolRefusal) -> (project: Project, joins: Bool) {
         let ref = try call.string("project")
         func named(_ project: Project) -> Bool {
@@ -150,9 +147,6 @@ extension OperatorToolHandler {
         let list = projects.map(\.name).joined(separator: ", ")
         guard let project = state.projects.first(where: named) else {
             throw ToolRefusal("AiTerm has no project called \(ref). This operation’s projects are: \(list).")
-        }
-        guard !run.gatesPlans else {
-            throw ToolRefusal("\(project.name) isn’t one of this operation’s projects: \(list). Adding a project needs the person’s approval: ask_you first.")
         }
         return (project, true)
     }

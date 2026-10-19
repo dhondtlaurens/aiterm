@@ -25,7 +25,7 @@ struct OperatedWorld {
     mutating func addRun(_ runState: OperatorRunState = .active, age: TimeInterval = 0) -> UUID {
         let run = OperatorRun(id: UUID(), name: "Sprint 42", profile: Self.profile, projectIds: [project.id],
                               prompt: "Implement the sprint.", state: runState,
-                              planRevision: 1, approvedRevision: 1, createdAt: createdAt.addingTimeInterval(age))
+                              planRevision: 1, createdAt: createdAt.addingTimeInterval(age))
         state.runs.append(run)
         return run.id
     }

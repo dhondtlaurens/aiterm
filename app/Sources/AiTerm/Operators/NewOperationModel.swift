@@ -20,7 +20,7 @@ final class NewOperationModel: Identifiable {
 
     static let title = "New operation"
     static let promptHelp = "What to work on, as you would tell a colleague. A Jira key brings in its ticket."
-    static let doneHelp = "What finished looks like. A draft MR or a merge happens only when this asks for it, as an end in the plan you approve."
+    static let doneHelp = "What finished looks like. A draft MR or a merge happens only when this asks for it, as an end in the plan."
     static let donePlaceholder = "a commit per item, tests green, I review and push"
     /// The band's sentence: every plan is shown to you before it starts, until plans release at once (Task 2).
     static let subtitle = "The Operator plans it first; nothing starts before you see the plan."

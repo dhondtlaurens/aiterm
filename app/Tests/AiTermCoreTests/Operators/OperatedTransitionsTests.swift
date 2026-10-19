@@ -18,23 +18,22 @@ import Foundation
 
     // MARK: planned → queued
 
-    @Test func approvingARevisionQueuesItsPlannedTasks() throws {
+    @Test func releasingARevisionQueuesItsPlannedTasks() throws {
         let task = F.operated("A", .planned, revision: 2)
-        #expect(try apply(.approve(revision: 2), task, by: .you).state == .queued)
-        #expect(try apply(.approve(revision: 3), task, by: .you).state == .queued)
         #expect(try apply(.release(revision: 2), task, by: .aiterm).state == .queued)
+        #expect(try apply(.release(revision: 3), task, by: .aiterm).state == .queued)
     }
 
     @Test func anOlderRevisionDoesNotReleaseATaskChangedSince() {
-        #expect(throws: OperatedTransitionError.notInRevision(approved: 1, taskRevision: 2)) {
-            try apply(.approve(revision: 1), F.operated("A", .planned, revision: 2), by: .you)
+        #expect(throws: OperatedTransitionError.notInRevision(released: 1, taskRevision: 2)) {
+            try apply(.release(revision: 1), F.operated("A", .planned, revision: 2), by: .aiterm)
         }
     }
 
-    @Test func onlyYouApproveAndOnlyAiTermReleasesOrStarts() {
+    @Test func onlyAiTermReleasesOrStarts() {
         let planned = F.operated("A", .planned)
-        #expect(throws: OperatedTransitionError.wrongActor(action: "be approved", actor: .operatorTool)) {
-            try apply(.approve(revision: 1), planned)
+        #expect(throws: OperatedTransitionError.wrongActor(action: "be released", actor: .operatorTool)) {
+            try apply(.release(revision: 1), planned)
         }
         #expect(throws: OperatedTransitionError.wrongActor(action: "be released", actor: .you)) {
             try apply(.release(revision: 1), planned, by: .you)

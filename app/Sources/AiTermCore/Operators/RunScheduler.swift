@@ -4,50 +4,36 @@ import Foundation
 /// the operator. Stateless and pure: the caller starts what this returns, saving each launch intent
 /// first (`OperatedAction.start`), and asks again when anything changes.
 ///
-/// The slots are AiTerm's, not an operator's (`OperatorMilestone.maxParallel`): the cap counts
-/// every operation's working tasks — one taken over still holds its slot, as its agent still runs;
-/// a blocked one holds none. The cap limits starts only: `resume_task` may take a blocked task
-/// back over it. Operations take turns for free slots, oldest first, one task each per turn.
+/// There is no cap: every ready task of every active operation starts, operations oldest first,
+/// each in its plan order. A blocked task is resumed by `resume_task`, not by this.
 public enum RunScheduler {
     /// Every task that may start now, across all operations, in the order to start them.
     ///
     /// A task may start when its run is active, it is queued and not taken over, each `order`
     /// parent is accepted, published or ended with no change, and each `code` parent is accepted
     /// or published — a `code` child branches from that accepted SHA (`baseCommit`).
-    public static func startable(in state: AppState, maxParallel: Int) -> [UUID] {
-        var free = maxParallel - state.tasks.filter { $0.operated?.state == .working }.count
-        guard free > 0 else { return [] }
-        let runs = state.runs.enumerated().filter { $0.element.state == .active }
-            .sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var queues = runs.map { ready(in: state, run: $0.id) }
-        var picked: [UUID] = []
-        while free > 0, queues.contains(where: { !$0.isEmpty }) {
-            for i in queues.indices where free > 0 && !queues[i].isEmpty {
-                picked.append(queues[i].removeFirst())
-                free -= 1
-            }
-        }
-        return picked
+    public static func startable(in state: AppState) -> [UUID] {
+        state.runs.enumerated().filter { $0.element.state == .active }
+            .sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }
+            .flatMap { ready(in: state, run: $0.element.id) }
     }
 
-    /// `startable(in:maxParallel:)` with the queued tasks `excluding` names left out — ones whose window the
-    /// caller is opening or has just opened: the turns and the slots are dealt as if they were not there. A
-    /// task left out holds no slot, and a dependent of it is not ready; nothing else changes.
-    public static func startable(in state: AppState, maxParallel: Int, excluding: Set<UUID>) -> [UUID] {
-        guard !excluding.isEmpty else { return startable(in: state, maxParallel: maxParallel) }
+    /// `startable(in:)` with the queued tasks `excluding` names left out: ones whose window the caller
+    /// is opening or has just opened. A dependent of a task left out is not ready; nothing else changes.
+    public static func startable(in state: AppState, excluding: Set<UUID>) -> [UUID] {
+        guard !excluding.isEmpty else { return startable(in: state) }
         var view = state
         view.tasks.removeAll { excluding.contains($0.id) && $0.operated?.state == .queued }
-        return startable(in: view, maxParallel: maxParallel)
+        return startable(in: view)
     }
 
-    /// The tasks of `run` among `startable(in:maxParallel:)`: what this operation may start now,
-    /// its turn with the others taken into account.
-    public static func startable(in state: AppState, run id: UUID, maxParallel: Int) -> [UUID] {
+    /// The tasks of `run` among `startable(in:)`: what this operation may start now.
+    public static func startable(in state: AppState, run id: UUID) -> [UUID] {
         let mine = Set(state.tasks(inRun: id).map(\.id))
-        return startable(in: state, maxParallel: maxParallel).filter(mine.contains)
+        return startable(in: state).filter(mine.contains)
     }
 
-    /// The run's queued tasks whose dependencies are satisfied, in plan order, slots aside.
+    /// The run's queued tasks whose dependencies are satisfied, in plan order.
     static func ready(in state: AppState, run id: UUID) -> [UUID] {
         let byId = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen: Set<UUID> = []
@@ -91,30 +77,14 @@ public enum RunScheduler {
 }
 
 extension RunScheduler {
-    /// How many of AiTerm's slots are taken: every operated task at work, in every operation, taken
-    /// over or not — a worker you drive is still an agent running. A blocked task holds none:
-    /// `resume_task` continues its live session at once, even over the cap, and new starts wait
-    /// until the count is back under it.
-    public static func occupiedSlots(in state: AppState) -> Int {
-        state.tasks.reduce(0) { $0 + ($1.operated?.state == .working ? 1 : 0) }
-    }
-
-    /// What `maxParallel` leaves free now. Never negative, so a lowered cap starts nothing and stops nothing.
-    public static func freeSlots(in state: AppState, maxParallel: Int) -> Int {
-        max(0, maxParallel - occupiedSlots(in: state))
-    }
-}
-
-extension RunScheduler {
-    /// Every task that may start now, claimed: `startable(in:maxParallel:)`'s list — every operation's
-    /// working tasks against the cap, operations taking turns oldest first — each moved `queued →
-    /// working` by the `.start` transition with its launch intent (the next attempt, at `now`), all in
-    /// this one synchronous change, before anything is launched (spec §8, §11). Two tasks finishing
-    /// at once each end in a call to this; whichever runs second counts the first's claims, so the cap
-    /// holds and no task is claimed twice — nor is an id the state holds twice (F3).
+    /// Every task that may start now, claimed: `startable(in:)`'s list, each moved `queued → working`
+    /// by the `.start` transition with its launch intent (the next attempt, at `now`), all in this one
+    /// synchronous change, before anything is launched (spec §8, §11). Two tasks finishing at once each
+    /// end in a call to this; whichever runs second finds the first's claims taken, so no task is
+    /// claimed twice — nor is an id the state holds twice (F3).
     ///
-    /// `excluding` names queued tasks the caller may already have a window for (`startable(in:maxParallel:excluding:)`).
-    public static func claim(in state: inout AppState, maxParallel: Int, now: Date, excluding: Set<UUID> = []) -> [UUID] {
+    /// `excluding` names queued tasks the caller may already have a window for (`startable(in:excluding:)`).
+    public static func claim(in state: inout AppState, now: Date, excluding: Set<UUID> = []) -> [UUID] {
         // A foreign merge holds its children even though the parent still has an acceptance.
         for task in state.tasks where task.operated?.state == .queued {
             guard let parent = task.operated?.dependsOn.compactMap({ state.task(id: $0.task)?.operated }).first(where: {
@@ -124,7 +94,7 @@ extension RunScheduler {
             _ = try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)
         }
         var claimed: [UUID] = []
-        for id in startable(in: state, maxParallel: maxParallel, excluding: excluding) where !claimed.contains(id) {
+        for id in startable(in: state, excluding: excluding) where !claimed.contains(id) {
             let attempt = LaunchAttempt(number: (state.task(id: id)?.operated?.launch?.number ?? 0) + 1, requestedAt: now)
             // A refusal, or a repeat that changed nothing, is no claim: it is left for the next pass.
             guard let changed = try? OperatedTransitions.apply(.start(attempt), toTask: id, in: &state, by: .aiterm),

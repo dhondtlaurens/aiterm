@@ -19,14 +19,14 @@ enum OperatorUIFixtures {
     }
 
     static func run(id: UUID = UUID(), name: String = "Newsletter signup", profile: OperatorProfile = profile,
-                    state: OperatorRunState = .active, planRevision: Int = 1, approvedRevision: Int? = 1,
+                    state: OperatorRunState = .active, planRevision: Int = 1,
                     done: String? = "a commit per item, tests green, I review and push",
                     questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
                     windowId: String? = "operator-window", projectIds: [UUID] = []) -> OperatorRun {
         OperatorRun(id: id, name: name, profile: profile, projectIds: projectIds,
                     prompt: "PLUTO-231 newsletter signup block in Storyblok",
                     done: done, state: state, intent: nil, planRevision: planRevision,
-                    approvedRevision: approvedRevision, questions: questions, decisions: decisions,
+                    questions: questions, decisions: decisions,
                     operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch)
     }
 

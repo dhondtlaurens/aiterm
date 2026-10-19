@@ -56,13 +56,11 @@ import Testing
         #expect(notifications.posted.count == 1)
     }
 
-    @Test func aWaitingPlanAndABlockedTaskOpenTheOverview() {
+    @Test func aBlockedTaskOpensTheOverview() {
         let run = makeRun(), notifier = makeNotifier()
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-2", state: .blocked)
-        notifier.planWaiting(run)
-        #expect(notifications.posted.first?.title == "The Operator’s plan waits for you")
         notifier.taskBlocked(task, reason: "Retries used up.", in: run)
-        #expect(notifications.posted.map(\.target) == [.overview(run.id), .overview(run.id)])
+        #expect(notifications.posted.map(\.target) == [.overview(run.id)])
         #expect(notifications.posted.last?.body == "Task PLUTO-2: Retries used up.")
     }
 

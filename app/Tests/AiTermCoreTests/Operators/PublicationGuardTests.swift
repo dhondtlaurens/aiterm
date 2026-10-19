@@ -40,7 +40,7 @@ import Testing
         for (state, line) in [(OperatorRunState.paused, "The operation is paused; nothing is published until it runs again."),
                               (.operatorOffline, "The operator is offline; nothing is published until the operation resumes."),
                               (.stopped, "The operation was stopped; it publishes nothing."),
-                              (.planning, "The operation's plan isn't approved yet.")] {
+                              (.planning, "The operation's plan hasn't been submitted yet.")] {
             let (w, task, run) = world(run: state)
             #expect(refusal(w, task, run) == line)
         }

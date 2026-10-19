@@ -8,7 +8,7 @@ import Testing
 @Suite struct RunSchedulerClaimTests {
     let now = Date(timeIntervalSince1970: 1_800_000_600)
 
-    @Test func twoTasksFinishingAtOnceStartNoMoreThanTheCap() {
+    @Test func twoTasksFinishingAtOnceClaimEachQueuedTaskOnce() {
         var world = OperatedWorld()
         let run = world.addRun()
         let first = world.addTask("W-1", run: run, state: .working), second = world.addTask("W-2", run: run, state: .working)
@@ -16,13 +16,12 @@ import Testing
         world.update(first) { $0.state = .accepted }
         world.update(second) { $0.state = .noChange }
 
-        let claimedFirst = RunScheduler.claim(in: &world.state, maxParallel: 2, now: now)
-        let claimedSecond = RunScheduler.claim(in: &world.state, maxParallel: 2, now: now)
+        let claimedFirst = RunScheduler.claim(in: &world.state, now: now)
+        let claimedSecond = RunScheduler.claim(in: &world.state, now: now)
 
-        #expect(claimedFirst.count == 2)
-        #expect(claimedSecond.isEmpty)
-        #expect(Set(claimedFirst).isSubset(of: Set(queued)))
-        #expect(world.state.tasks.filter { $0.operated?.state == .working }.count == 2)
+        #expect(Set(claimedFirst) == Set(queued))
+        #expect(claimedSecond.isEmpty, "the second finds the first's claims taken")
+        #expect(world.state.tasks.filter { $0.operated?.state == .working }.count == 3)
         for id in claimedFirst {
             #expect(world.operated(id)?.launch == LaunchAttempt(number: 1, requestedAt: now), "the launch intent is in the same change")
         }
@@ -31,27 +30,26 @@ import Testing
     @Test func aClaimedTaskIsNeverClaimedAgain() {
         var world = OperatedWorld()
         let run = world.addRun()
-        let first = world.addTask("Q-1", run: run)
-        world.addTask("Q-2", run: run)
-        #expect(RunScheduler.claim(in: &world.state, maxParallel: 1, now: now) == [first])
-        #expect(!RunScheduler.claim(in: &world.state, maxParallel: 5, now: now).contains(first))
+        let first = world.addTask("Q-1", run: run), second = world.addTask("Q-2", run: run)
+        #expect(RunScheduler.claim(in: &world.state, now: now) == [first, second])
+        #expect(RunScheduler.claim(in: &world.state, now: now).isEmpty)
     }
 
-    /// C10's turns, kept by construction: the claim is the scheduler's one list, not a list per operation.
-    @Test func operationsTakeTurnsOldestFirst() {
+    /// The claim is the scheduler's one list, not a list per operation: the oldest operation's tasks come first.
+    @Test func operationsAreClaimedOldestFirst() {
         var world = OperatedWorld()
         let older = world.addRun(), newer = world.addRun(age: 60)
         let olderTasks = (1...3).map { world.addTask("A-\($0)", run: older) }
         let newerTask = world.addTask("B-1", run: newer)
-        let claimed = RunScheduler.claim(in: &world.state, maxParallel: 2, now: now)
-        #expect(claimed == [olderTasks[0], newerTask])
+        let claimed = RunScheduler.claim(in: &world.state, now: now)
+        #expect(claimed == olderTasks + [newerTask])
     }
 
     @Test func aPausedOrStoppedOperationClaimsNothing() {
         var world = OperatedWorld()
         world.addTask("P-1", run: world.addRun(.paused))
         world.addTask("S-1", run: world.addRun(.stopped))
-        #expect(RunScheduler.claim(in: &world.state, maxParallel: 5, now: now).isEmpty)
+        #expect(RunScheduler.claim(in: &world.state, now: now).isEmpty)
     }
 
     /// A retried task (failed → queued) comes back with its last attempt recorded; its new launch is the next.
@@ -60,7 +58,7 @@ import Testing
         let run = world.addRun()
         let retried = world.addTask("R-1", run: run)
         world.update(retried) { $0.launch = LaunchAttempt(number: 1, requestedAt: now.addingTimeInterval(-600)); $0.retriesUsed = 1 }
-        #expect(RunScheduler.claim(in: &world.state, maxParallel: 1, now: now) == [retried])
+        #expect(RunScheduler.claim(in: &world.state, now: now) == [retried])
         #expect(world.operated(retried)?.launch == LaunchAttempt(number: 2, requestedAt: now))
     }
 
@@ -73,18 +71,18 @@ import Testing
         var twin = world.state.tasks[0]
         twin.operated?.key = "Q-1-twin"
         world.state.tasks.append(twin)
-        #expect(RunScheduler.claim(in: &world.state, maxParallel: 5, now: now) == [first])
-        #expect(RunScheduler.claim(in: &world.state, maxParallel: 5, now: now.addingTimeInterval(1)).isEmpty)
+        #expect(RunScheduler.claim(in: &world.state, now: now) == [first])
+        #expect(RunScheduler.claim(in: &world.state, now: now.addingTimeInterval(1)).isEmpty)
         #expect(world.operated(first)?.launch == LaunchAttempt(number: 1, requestedAt: now))
     }
 
-    /// A queued task whose window is already being opened (a reopen) is left out: it takes no turn and no
-    /// slot, and the next one starts in its place.
-    @Test func aTaskAlreadyStartingIsLeftOutAndTakesNoSlot() {
+    /// A queued task whose window is already being opened (a reopen) is left out: it is not claimed,
+    /// and the next one starts.
+    @Test func aTaskAlreadyStartingIsLeftOut() {
         var world = OperatedWorld()
         let run = world.addRun()
         let reopening = world.addTask("Q-1", run: run), next = world.addTask("Q-2", run: run)
-        #expect(RunScheduler.claim(in: &world.state, maxParallel: 1, now: now, excluding: [reopening]) == [next])
+        #expect(RunScheduler.claim(in: &world.state, now: now, excluding: [reopening]) == [next])
         #expect(world.operated(reopening)?.state == .queued)
     }
 }

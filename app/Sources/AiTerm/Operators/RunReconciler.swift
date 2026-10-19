@@ -67,8 +67,7 @@ final class RunReconciler {
 
     /// Where a run picks up once its operator is back: active once a plan revision is under way.
     static func resumedState(of run: OperatorRun) -> OperatorRunState {
-        let started = run.gatesPlans ? run.approvedRevision != nil : run.planRevision > 0
-        return started ? .active : .planning
+        run.planRevision > 0 ? .active : .planning
     }
 
     /// The first pass after AiTerm starts: each open question of the operator — a worker waiting on you

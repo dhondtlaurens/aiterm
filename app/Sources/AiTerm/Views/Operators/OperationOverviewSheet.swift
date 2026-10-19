@@ -5,7 +5,6 @@ import AiTermCore
 /// What the overview's buttons do, handed in by `AppController.overviewActions(for:dismiss:)`; a
 /// snapshot or a test hands in none.
 struct OverviewActions {
-    var approvePlan: @MainActor (Int) -> Void = { _ in }
     var pause: @MainActor () -> Void = {}
     var resume: @MainActor () -> Void = {}
     /// `confirming`: End Operation… asks first; a done operation's End Operation does not.
@@ -17,10 +16,9 @@ struct OverviewActions {
 
 /// One of the overview footer's buttons, in the proposal's words.
 enum OverviewButton: Hashable {
-    case approvePlan, pause, resume, endConfirm, end, giveItMore
+    case pause, resume, endConfirm, end, giveItMore
     var title: String {
         switch self {
-        case .approvePlan: "Approve Plan"
         case .pause: "Pause"
         case .resume: "Resume"
         case .endConfirm: "End Operation…"
@@ -29,11 +27,9 @@ enum OverviewButton: Hashable {
         }
     }
 
-    /// What the button does with the overview the sheet shows: Approve Plan approves exactly the revision
-    /// drawn, never the latest — a plan revised while the sheet is open needs its own approval.
+    /// What the button does.
     @MainActor func perform(_ overview: OperationOverview, _ actions: OverviewActions) {
         switch self {
-        case .approvePlan: if let plan = overview.plan { actions.approvePlan(plan.revision) }
         case .pause: actions.pause()
         case .resume: actions.resume()
         case .endConfirm: actions.end(true)
@@ -43,15 +39,14 @@ enum OverviewButton: Hashable {
     }
 }
 
-/// The footer at each moment: plain buttons at the leading edge, and the primary on ⌘↩ — Approve Plan
-/// while a plan waits, End Operation once it is done — after Close.
+/// The footer at each moment: plain buttons at the leading edge, and the primary on ⌘↩ — End Operation
+/// once it is done — after Close.
 struct OverviewFooterButtons: Equatable {
     var leading: [OverviewButton]
     var primary: OverviewButton?
 
     init(_ footer: OperationOverview.Footer) {
         switch footer {
-        case .planWaits: leading = [.endConfirm]; primary = .approvePlan
         case .working: leading = [.pause, .endConfirm]; primary = nil
         case .paused: leading = [.resume, .endConfirm]; primary = nil
         case .done: leading = [.giveItMore]; primary = .end
@@ -59,8 +54,7 @@ struct OverviewFooterButtons: Equatable {
     }
 }
 
-/// An operation's overview (spec §10.7): the operator and when it is done in the band; the plan on top
-/// while one waits, in a `SettingsGroup` with each task's `+` or `~`; the board — Waiting on you with its count,
+/// An operation's overview (spec §10.7): the operator and when it is done in the band; the board — Waiting on you with its count,
 /// Working, Up next, Done — each a `SidebarHeading` over `Size.menuRow` rows; what it decided on its
 /// own. Close is ⎋; the footer's other buttons are the moment's.
 struct OperationOverviewSheet: View {
@@ -79,7 +73,6 @@ struct OperationOverviewSheet: View {
             SheetSubtitle(overview.subtitle)
         } content: {
             VStack(alignment: .leading, spacing: Space.block) {
-                if let plan = overview.plan { planBox(plan) }
                 ForEach(overview.groups) { board($0) }
                 if let title = overview.decisionsTitle { notes(title, overview.decisions) }
             }
@@ -88,24 +81,6 @@ struct OperationOverviewSheet: View {
                         submit: { buttons.primary?.perform(overview, actions) }) {
                 HStack(spacing: Space.base) {
                     ForEach(buttons.leading, id: \.self) { button in Button(button.title) { button.perform(overview, actions) } }
-                }
-            }
-        }
-    }
-
-    private func planBox(_ plan: OperationOverview.Plan) -> some View {
-        SettingsGroup(title: OperationOverview.Plan.title, help: plan.help) {
-            VStack(alignment: .leading, spacing: Space.hairline) {
-                ForEach(plan.rows) { row in
-                    HStack(spacing: Space.base) {
-                        // A diff's sign: added in its green, changed in the row's own ink.
-                        Text(row.sign).font(Typography.monoCode).foregroundStyle(row.change == .added ? Palette.diffAdded : Palette.text)
-                        key(row.key)
-                        Text(row.title).font(Typography.caption).foregroundStyle(Palette.text).lineLimit(1)
-                        Spacer(minLength: Space.base)
-                        Text(row.detail).font(Typography.help).foregroundStyle(Palette.muted).lineLimit(1)
-                    }
-                    .frame(minHeight: Size.menuRow)
                 }
             }
         }

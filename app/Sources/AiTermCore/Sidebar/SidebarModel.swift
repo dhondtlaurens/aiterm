@@ -470,6 +470,17 @@ public enum SidebarModel {
         }
     }
 
+    /// Each agent's weekly usage in percent, for the agents whose seven-day window is still open: a
+    /// window whose reset time has passed is left out, as ``usageVendorRows`` leaves it out.
+    public static func weeklyUsage(_ snap: UsageSnapshot, now: Date) -> [AgentKind: Int] {
+        let epoch = Int(now.timeIntervalSince1970)
+        var usage: [AgentKind: Int] = [:]
+        for (vendor, window) in [(AgentKind.claude, snap.claude?.sevenDay), (.codex, snap.codex?.sevenDay)] {
+            if let window, (window.resetsAt ?? .max) > epoch { usage[vendor] = window.usedPercent }
+        }
+        return usage
+    }
+
     /// The selected task — or review — as the footer's first row: whatever runs in its active tab,
     /// that provider's last-known fill from `contexts`, and that tab's own counts from `tokens`, by
     /// session. A shell tab has neither even while another tab of the task has both. A task whose

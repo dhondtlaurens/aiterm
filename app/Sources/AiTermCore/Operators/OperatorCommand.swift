@@ -149,9 +149,9 @@ public enum OperatorCommand {
         return out.joined(separator: "\n") + "\n"
     }
 
-    /// Round 1's Routine, kept until plans release at once (the plan's Task 2).
+    /// A submitted plan starts at once; nothing waits for an approval.
     static let planRule = "Answer from the brief and the code; ask on scope or product choices. "
-        + "The person approves each plan revision before its tasks start."
+        + "A plan you submit starts at once; nothing waits for approval."
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
         let askFirst = ["deleting a branch or worktree", "anything that messages a person (email, Teams, Jira or MR comments)",

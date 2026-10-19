@@ -69,7 +69,7 @@ final class OperatorWaker {
         acknowledged(after, of: run)
     }
 
-    /// A fixed reason to wake it — `reconnected`, `plan approved` — which is the line when it is the only news.
+    /// A fixed reason to wake it — `reconnected`, `operation complete` — which is the line when it is the only news.
     func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil) {
         if let status, Self.content(status) == acknowledgedStatus[run] { return }
         reasons[run] = reason
@@ -99,10 +99,12 @@ final class OperatorWaker {
         return "[AiTerm] \(count) update\(count == 1 ? "" : "s") — call run_status"
     }
 
-    /// A status as the operator reads its news: the revision counts calls, not changes.
+    /// A status as the operator reads its news: the revision counts calls, not changes, and the usage
+    /// readings drift with every report: the operator reads them when it asks, they wake it never.
     private static func content(_ status: RunStatus) -> RunStatus {
         var status = status
         status.revision = 0
+        status.run.usage = [:]
         return status
     }
 

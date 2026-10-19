@@ -67,10 +67,4 @@ import Foundation
         #expect(TaskEnd.allCases.filter(OperatorMilestone.m3.supports) == [.commit, .draftMR, .merge])
         #expect(TaskEnd.draftMR.displayName == "draft MR")
     }
-
-    @Test func oneAgentAtOnceInM1AndTheSettingFromM2() {
-        #expect(OperatorMilestone.m1.maxParallel(setting: 4) == 1)
-        #expect(OperatorMilestone.m2.maxParallel(setting: 4) == 4)
-        #expect(OperatorMilestone.m3.maxParallel(setting: 0) == 1)
-    }
 }

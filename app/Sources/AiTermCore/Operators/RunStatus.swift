@@ -15,20 +15,39 @@ public struct TaskLiveFacts: Equatable, Sendable {
     }
 }
 
+/// What AiTerm knows beyond `state.json` that belongs to the whole operation rather than one task:
+/// each agent's weekly usage, in percent, for the agents whose window is still open. Gathered by the
+/// caller from the sidebar's usage readings; `RunStatus` only passes it on.
+public struct RunLiveFacts: Equatable, Sendable {
+    public var weeklyUsage: [AgentKind: Int]
+
+    public init(weeklyUsage: [AgentKind: Int] = [:]) { self.weeklyUsage = weeklyUsage }
+}
+
 /// The `run_status()` answer (spec §6): a numbered snapshot of the operation and every task, and
 /// the **open obligations** — what waits on you or on the operator. It is the operator's memory
 /// after a restart or a compaction, so it says everything the operator acts on, and only that.
 public struct RunStatus: Encodable, Equatable, Sendable {
     public struct Run: Encodable, Equatable, Sendable {
         public var id: UUID, name: String, state: OperatorRunState, prompt: String, review: String?, done: String?
-        /// The last submitted revision, the open one `create_task` adds to, and the last approved.
-        public var planRevision: Int, openRevision: Int, approvedRevision: Int?
-        public var gated: Bool
+        /// The last submitted revision, and the open one `create_task` adds to.
+        public var planRevision: Int, openRevision: Int
+        /// How many tasks the first submitted plan had, nil before one is submitted: what the backlog's growth is measured against.
+        public var firstPlanSize: Int?
+        /// The off-brief finds so far, never worked on.
+        public var finds: [OffBriefFind]
+        /// What the Operator may do beyond the base, as this broadcast froze it.
+        public var slices: Slices
+        /// Whether the Oracle challenges the Operator's calls in this broadcast.
+        public var oracleIsOn: Bool
+        /// Each agent's weekly usage in percent, by the agent's raw value; an agent with no open window is left out.
+        public var usage: [String: Int]
         public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
-                    planRevision: Int, openRevision: Int, approvedRevision: Int? = nil, gated: Bool) {
+                    planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [],
+                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:]) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
-            self.planRevision = planRevision; self.openRevision = openRevision; self.approvedRevision = approvedRevision
-            self.gated = gated
+            self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
+            self.finds = finds; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage
         }
     }
 
@@ -76,13 +95,11 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var readyForAcceptance: [String]
         public var possiblyStalled: [String]
         public var uncertain: [String]
-        /// The submitted revision waiting for your approval, in a gated run (`PlanRevision.awaitsApproval`).
-        public var planAwaitingApproval: Int?
         public init(questionsWaiting: [Question] = [], promptsWaitingOnYou: [String] = [], readyForAcceptance: [String] = [],
-                    possiblyStalled: [String] = [], uncertain: [String] = [], planAwaitingApproval: Int? = nil) {
+                    possiblyStalled: [String] = [], uncertain: [String] = []) {
             self.questionsWaiting = questionsWaiting; self.promptsWaitingOnYou = promptsWaitingOnYou
             self.readyForAcceptance = readyForAcceptance; self.possiblyStalled = possiblyStalled
-            self.uncertain = uncertain; self.planAwaitingApproval = planAwaitingApproval
+            self.uncertain = uncertain
         }
     }
 
@@ -97,7 +114,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     }
 
     /// The snapshot of `run` in `state`; nil for a run the workspace does not have.
-    public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts]) -> RunStatus? {
+    public static func build(state: AppState, run id: UUID, revision: Int, live: [UUID: TaskLiveFacts],
+                             runLive: RunLiveFacts = RunLiveFacts()) -> RunStatus? {
         guard let run = state.run(id: id) else { return nil }
         let items = state.tasks(inRun: id)
         let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
@@ -121,15 +139,15 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         return RunStatus(
             revision: revision,
             run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt, review: run.review, done: run.done,
-                     planRevision: run.planRevision, openRevision: run.openRevision,
-                     approvedRevision: run.approvedRevision, gated: run.gatesPlans),
+                     planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
+                     finds: run.finds, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
+                     usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })),
             tasks: lines,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt)
                 },
-                promptsWaitingOnYou: prompts, readyForAcceptance: ready, possiblyStalled: stalled, uncertain: uncertain,
-                planAwaitingApproval: PlanRevision.awaitsApproval(run) ? run.planRevision : nil))
+                promptsWaitingOnYou: prompts, readyForAcceptance: ready, possiblyStalled: stalled, uncertain: uncertain))
     }
 
     /// The snapshot as the tool returns it: JSON with sorted keys and ISO 8601 dates.

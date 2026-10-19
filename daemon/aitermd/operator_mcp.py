@@ -190,8 +190,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "message_task instead.",
           {"task": _TASK, "brief": _text("The new brief."), "agent": _AGENT, "model": _text("The new model."), "end": _END,
            "dependsOn": _DEPENDS_ON}, ("task",)),
-    _tool("submit_plan", "Closes a plan revision. Where the user approves plans, its new and changed tasks wait for that; "
-          "otherwise they are queued at once. Submitting the same revision again returns the earlier result.",
+    _tool("submit_plan", "Closes a plan revision: its planned tasks are queued at once, with nothing to approve. "
+          "Submitting the same revision again returns the earlier result.",
           {"revision": {"type": "integer", "description": "The revision run_status shows open."}}, ("revision",)),
     _tool("read_task", "Reads a task: its worker's last message, its diff, or the prompt open in its session.",
           {"task": _TASK, "what": _choice("lastMessage, diff or prompt.", "lastMessage", "diff", "prompt")}, ("task", "what")),

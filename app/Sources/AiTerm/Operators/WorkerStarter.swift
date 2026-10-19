@@ -61,11 +61,11 @@ final class WorkerStarter {
     /// out, and so is one whose window was just asked for and is not listed yet (`unlisted`); one whose
     /// code parent kept no commit is blocked first. The caller saves the claims before launching any
     /// (spec §11), and releases them if it cannot.
-    func claimReady(maxParallel: Int) -> [UUID] {
+    func claimReady() -> [UUID] {
         let busy = busy()
-        blockUnbased(maxParallel: maxParallel, excluding: busy)
+        blockUnbased(excluding: busy)
         let before = state, now = ports.now()
-        let claimed = workspace.mutate { RunScheduler.claim(in: &$0, maxParallel: maxParallel, now: now, excluding: busy) }
+        let claimed = workspace.mutate { RunScheduler.claim(in: &$0, now: now, excluding: busy) }
         for id in claimed {
             starting.insert(id)
             if let operated = before.task(id: id)?.operated, let attempt = state.task(id: id)?.operated?.launch {
@@ -76,7 +76,7 @@ final class WorkerStarter {
     }
 
     /// Claims that will not be launched now — the workspace did not save them: each is taken back, so
-    /// the task queues again and its slot is free, and the next pass tries it afresh.
+    /// the task queues again, and the next pass tries it afresh.
     func release(_ ids: [UUID]) {
         for id in ids {
             starting.remove(id)
@@ -127,9 +127,9 @@ final class WorkerStarter {
         return starting.union(unlisted.keys)
     }
 
-    private func blockUnbased(maxParallel: Int, excluding busy: Set<UUID>) {
+    private func blockUnbased(excluding busy: Set<UUID>) {
         var seen: Set<UUID> = []
-        while let id = RunScheduler.startable(in: state, maxParallel: maxParallel, excluding: busy).first(where: { id in
+        while let id = RunScheduler.startable(in: state, excluding: busy).first(where: { id in
             guard !seen.contains(id), let task = state.task(id: id) else { return false }
             return Self.lacksBase(task, in: state)
         }) {

@@ -5,87 +5,72 @@ import Foundation
 @Suite struct PlanRevisionTests {
     typealias F = OperatorFixtures
 
-    /// A fresh gated run in planning, nothing submitted yet, two planned tasks in the open revision 1.
+    /// A fresh run in planning, nothing submitted yet, two planned tasks in the open revision 1.
     private func planning() -> (AppState, a: UUID, b: UUID) {
         let a = F.task("A", .planned), b = F.task("B", .planned, dependsOn: [TaskDependency(task: a.id, kind: .order)])
-        let run = F.run(state: .planning, planRevision: 0, approvedRevision: nil)
+        let run = F.run(state: .planning, planRevision: 0)
         return (F.state(run, [a, b]), a.id, b.id)
     }
 
     private func states(_ s: AppState) -> [OperatedState?] { s.tasks.map { $0.operated?.state } }
 
-    @Test func aGatedSubmissionWaitsForYourApproval() throws {
+    @Test func submitReleasesEveryPlannedTask() throws {
         var (s, a, b) = planning()
-        #expect(s.runs[0].openRevision == 1 && !PlanRevision.awaitsApproval(s.runs[0]))
+        #expect(s.runs[0].openRevision == 1)
 
         let submitted = try PlanRevision.submit(1, run: F.runId, in: &s)
 
-        #expect(submitted == PlanRevision.Submitted(revision: 1, awaitingApproval: true))
+        #expect(submitted == PlanRevision.Submitted(revision: 1, released: [a, b]))
         #expect(s.runs[0].planRevision == 1 && s.runs[0].openRevision == 2)
-        #expect(s.runs[0].state == .planning)
-        #expect(states(s) == [.planned, .planned])
-        #expect(PlanRevision.awaitsApproval(s.runs[0]))
-        #expect(PlanRevision.pending(in: s, run: F.runId) == [PlanChange(task: a, kind: .added), PlanChange(task: b, kind: .added)])
-    }
-
-    @Test func approvingTheLatestRevisionReleasesItAndActivatesTheRun() throws {
-        var (s, a, b) = planning()
-        try PlanRevision.submit(1, run: F.runId, in: &s)
-
-        #expect(try PlanRevision.approve(1, run: F.runId, in: &s) == [a, b])
-
+        #expect(s.runs[0].state == .active)
         #expect(states(s) == [.queued, .queued])
-        #expect(s.runs[0].approvedRevision == 1 && s.runs[0].state == .active)
-        #expect(!PlanRevision.awaitsApproval(s.runs[0]))
-        #expect(try PlanRevision.approve(1, run: F.runId, in: &s) == [], "a second click changes nothing")
-        #expect(PlanRevision.pending(in: s, run: F.runId).isEmpty)
     }
 
-    @Test func nothingCanBeApprovedBeforeAPlanIsSubmitted() {
-        var (s, _, _) = planning()
-        #expect(throws: PlanRevision.Failure.nothingSubmitted) { try PlanRevision.approve(0, run: F.runId, in: &s) }
+    @Test func theOpenRevisionSubmitsWithoutNamingIt() throws {
+        var (s, a, b) = planning()
+        #expect(try PlanRevision.submit(run: F.runId, in: &s).released == [a, b])
+        #expect(s.runs[0].planRevision == 1)
+        #expect(throws: PlanRevision.Failure.unknownRun(UUID(uuidString: "00000000-0000-0000-0000-00000000000F")!)) {
+            try PlanRevision.submit(run: UUID(uuidString: "00000000-0000-0000-0000-00000000000F")!, in: &s)
+        }
     }
 
-    /// Spec §8: a stale approval click fails and releases nothing.
-    @Test func approvingARevisionThatIsNoLongerTheLatestFails() throws {
-        var (s, _, _) = planning()
+    @Test func theFirstSubmitSetsFirstPlanSize() throws {
+        var s = F.state(F.run(state: .planning, planRevision: 0),
+                        (1...5).map { F.task("T\($0)", .planned) })
+        #expect(s.runs[0].firstPlanSize == nil)
         try PlanRevision.submit(1, run: F.runId, in: &s)
-        s.tasks.append(F.task("C", .planned, revision: 2))
+        #expect(s.runs[0].firstPlanSize == 5)
+
+        s.tasks.append(F.task("T6", .planned, revision: 2))
+        s.tasks.append(F.task("T7", .planned, revision: 2))
         try PlanRevision.submit(2, run: F.runId, in: &s)
-        let before = s
-
-        #expect(throws: PlanRevision.Failure.stale(asked: 1, latest: 2)) { try PlanRevision.approve(1, run: F.runId, in: &s) }
-
-        #expect(s == before)
+        #expect(s.runs[0].firstPlanSize == 5, "the backlog's growth is measured against the first plan")
     }
 
-    /// A later revision needs approval of the difference only — shown as what it adds and what it
-    /// changes — while the rest runs on.
-    @Test func aLaterRevisionReleasesOnlyWhatItAddsOrChanges() throws {
+    /// A later revision releases what it adds, and what it changed and had not started; the rest runs on.
+    @Test func aLaterRevisionReleasesOnlyWhatIsStillPlanned() throws {
         var (s, a, b) = planning()
         try PlanRevision.submit(1, run: F.runId, in: &s)
-        try PlanRevision.approve(1, run: F.runId, in: &s)
         let c = F.task("C", .planned, revision: 2)
         s.tasks.append(c)
         try PlanRevision.markChanged(task: b, in: &s)
-        #expect(s.task(id: b)?.operated?.state == .planned, "a changed queued task waits for approval again")
+        #expect(s.task(id: b)?.operated?.state == .queued, "a changed queued task stays queued")
         #expect(s.task(id: b)?.operated?.revision == 2 && s.task(id: b)?.operated?.firstRevision == 1)
-        try PlanRevision.submit(2, run: F.runId, in: &s)
 
-        #expect(PlanRevision.pending(in: s, run: F.runId) == [PlanChange(task: b, kind: .changed), PlanChange(task: c.id, kind: .added)])
-        #expect(try PlanRevision.approve(2, run: F.runId, in: &s) == [b, c.id])
-        #expect(s.task(id: a)?.operated?.state == .queued)
+        #expect(try PlanRevision.submit(2, run: F.runId, in: &s).released == [c.id])
+        #expect(s.task(id: a)?.operated?.state == .queued && s.task(id: c.id)?.operated?.state == .queued)
     }
 
-    /// Tasks the operator adds to the open revision wait for its submission, not for this approval.
-    @Test func theOpenRevisionIsNotPending() throws {
+    /// Tasks the operator adds to the open revision wait for its submission.
+    @Test func theOpenRevisionWaitsForItsSubmission() throws {
         var (s, _, _) = planning()
         try PlanRevision.submit(1, run: F.runId, in: &s)
         let open = F.task("D", .planned, revision: 2)
         s.tasks.append(open)
-        #expect(!PlanRevision.pending(in: s, run: F.runId).map(\.task).contains(open.id))
-        try PlanRevision.approve(1, run: F.runId, in: &s)
         #expect(s.task(id: open.id)?.operated?.state == .planned)
+        try PlanRevision.submit(2, run: F.runId, in: &s)
+        #expect(s.task(id: open.id)?.operated?.state == .queued)
     }
 
     /// Submitting the same revision again returns the earlier result and changes nothing.
@@ -96,7 +81,7 @@ import Foundation
 
         let again = try PlanRevision.submit(1, run: F.runId, in: &s)
 
-        #expect(again == PlanRevision.Submitted(revision: 1, awaitingApproval: true, repeated: true))
+        #expect(again == PlanRevision.Submitted(revision: 1, repeated: true))
         #expect(s == before)
         #expect(throws: PlanRevision.Failure.unknownRevision(open: 2, asked: 5)) { try PlanRevision.submit(5, run: F.runId, in: &s) }
     }
@@ -110,13 +95,12 @@ import Foundation
         #expect(s == before)
     }
 
-    /// Spec §9: a new `submit_plan` reopens a complete run as active; its plan waits for you.
+    /// Spec §9: a new `submit_plan` reopens a complete run as active and releases its tasks.
     @Test func aSubmissionReopensACompleteRun() throws {
-        var s = F.state(F.run(state: .complete, planRevision: 1, approvedRevision: 1),
+        var s = F.state(F.run(state: .complete, planRevision: 1),
                         [F.task("D", .planned, revision: 2)])
         try PlanRevision.submit(2, run: F.runId, in: &s)
-        #expect(s.runs[0].state == .active && s.tasks[0].operated?.state == .planned)
-        #expect(PlanRevision.awaitsApproval(s.runs[0]))
+        #expect(s.runs[0].state == .active && s.tasks[0].operated?.state == .queued)
     }
 
     @Test(arguments: [OperatorRunState.paused, .operatorOffline, .stopped])
@@ -128,7 +112,7 @@ import Foundation
 
     /// Spec §13: a plan asking for more than the milestone supports is refused, not downgraded.
     @Test func aDraftMROrMergeIsRefusedBeforeM3() throws {
-        var s = F.state(F.run(state: .planning, planRevision: 0, approvedRevision: nil), [F.task("A", .planned, end: .merge)])
+        var s = F.state(F.run(state: .planning, planRevision: 0), [F.task("A", .planned, end: .merge)])
         #expect(throws: PlanRevision.Failure.unsupportedEnd(key: "A", .merge)) { try PlanRevision.submit(1, run: F.runId, in: &s, milestone: .m1) }
         #expect(s.runs[0].planRevision == 0)
         try PlanRevision.submit(1, run: F.runId, in: &s, milestone: .m3)

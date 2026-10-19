@@ -87,11 +87,8 @@ import Testing
             let row = SidebarModel.operationRow(run: run, tasks: tasks)
             return (row.caption, row.captionWarns, row.showsProgress, row.status)
         }
-        let waiting = OperatorUIFixtures.run(planRevision: 2, approvedRevision: 1)
-        #expect(row(waiting) == ("plan waits for you", true, false, .needsInput))
-        let approved = OperatorUIFixtures.run(planRevision: 2, approvedRevision: 2)
-        #expect(row(approved) == ("0 of 0 done", false, true, .idle), "an approved plan no longer waits")
-        #expect(row(OperatorUIFixtures.run(state: .planning, planRevision: 0, approvedRevision: nil)) == ("planning", false, false, .working))
+        #expect(row(OperatorUIFixtures.run(planRevision: 2)) == ("0 of 0 done", false, true, .idle), "a submitted plan waits for nobody")
+        #expect(row(OperatorUIFixtures.run(state: .planning, planRevision: 0)) == ("planning", false, false, .working))
         let paused = OperatorUIFixtures.run(state: .paused)
         #expect(row(paused, [task("a", run: paused.id, .working), task("b", run: paused.id, .working)])
                 == ("paused · 2 workers still running", false, false, .idle))
@@ -111,9 +108,9 @@ import Testing
     }
 
     @Test func aFoldedOperatorCountsItsOperationsByState() {
-        let run = OperatorUIFixtures.run(), waiting = OperatorUIFixtures.run(planRevision: 2, approvedRevision: 1)
+        let run = OperatorUIFixtures.run(), offline = OperatorUIFixtures.run(state: .operatorOffline)
         let rows = [SidebarModel.operationRow(run: run, tasks: [task("a", run: run.id, .working)]),
-                    SidebarModel.operationRow(run: waiting, tasks: [])]
+                    SidebarModel.operationRow(run: offline, tasks: [])]
         #expect(SidebarModel.operationStatusCounts(rows) == [StatusCount(status: .working, count: 1),
                                                              StatusCount(status: .needsInput, count: 1)])
     }

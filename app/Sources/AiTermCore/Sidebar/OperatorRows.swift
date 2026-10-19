@@ -95,14 +95,14 @@ public extension SidebarModel {
 
 /// One operation under its operator, ready to draw on a task row's grid: the agents at work in it,
 /// its name, its caption — its progress, `1 of 4 done`, or its state when that says more:
-/// `plan waits for you`, `paused · 2 workers still running`, `operator offline`, `done · 4 of 4` —
+/// `paused · 2 workers still running`, `operator offline`, `done · 4 of 4` —
 /// what waits on you, and the operation's state as a status mark (spec §10.3).
 public struct OperationRow: Equatable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var avatars: AvatarGroup
     public var caption: String
-    /// The caption in amber, off the accent: a plan waiting, an operator gone offline.
+    /// The caption in amber, off the accent: an operator gone offline.
     public var captionWarns: Bool
     /// Whether `caption` is the progress, drawn as a quiet `Badge` with the attention count beside it;
     /// otherwise it is a plain caption and the count is not drawn.
@@ -131,11 +131,6 @@ public struct OperatorSection: Equatable, Identifiable, Sendable {
 }
 
 public extension SidebarModel {
-    /// Whether a submitted plan revision waits for your approval: a gated operator, and a revision
-    /// past the last one you approved (`PlanRevision.awaitsApproval`; what it would release is
-    /// `PlanRevision.pending`, which the overview reads).
-    static func planWaitsForYou(_ run: OperatorRun) -> Bool { PlanRevision.awaitsApproval(run) }
-
     /// The OPERATORS group: the Operator with its broadcasts that have not ended, oldest first; none
     /// while no broadcast runs.
     static func operatorSections(state: AppState, acting: Set<UUID> = [], folded: Set<String> = []) -> [OperatorSection] {
@@ -162,7 +157,6 @@ public extension SidebarModel {
             return row
         }
         if run.state == .complete { return says("done · \(done) of \(counted.count)", status: .done) }
-        if planWaitsForYou(run) { return says("plan waits for you", warns: true, status: .needsInput) }
         switch run.state {
         case .operatorOffline:
             return says("operator offline", warns: true, status: .needsInput)

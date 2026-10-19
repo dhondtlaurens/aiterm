@@ -12,9 +12,3 @@ public extension AppState {
         change(&runs[i])
     }
 }
-
-public extension OperatorRun {
-    /// Whether each plan revision waits for your approval before its tasks start: always, as round 1's
-    /// Routine did, until plans release at once (the plan's Task 2 removes the gate and this with it).
-    var gatesPlans: Bool { true }
-}

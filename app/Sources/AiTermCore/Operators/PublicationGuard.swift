@@ -57,7 +57,7 @@ public enum PublicationGuard {
         case .paused: return "The operation is paused; nothing is published until it runs again."
         case .operatorOffline: return "The operator is offline; nothing is published until the operation resumes."
         case .stopped: return "The operation was stopped; it publishes nothing."
-        case .planning: return "The operation's plan isn't approved yet."
+        case .planning: return "The operation's plan hasn't been submitted yet."
         }
     }
 

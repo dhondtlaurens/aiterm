@@ -5,8 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The plan (spec §6, §8): unstarted tasks added and changed in the open revision, a revision
-/// submitted once, and queued on your approval of that exact revision (every plan is gated until the
-/// plan's Task 2 releases them at once).
+/// submitted once, and queued at once when it is.
 @MainActor @Suite struct OperatorPlanToolsTests {
     let project = OperatorServiceFixtures.project(), other = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-other", name: "Web")
     let docs = OperatorServiceFixtures.project(path: "/tmp/aiterm-operators-docs", name: "Docs")
@@ -44,11 +43,9 @@ import Testing
         #expect(task.operated?.state == .planned && task.operated?.revision == 1 && task.operated?.end == .commit)
     }
 
-    @Test func aTaskOutsideTheOperationsProjectsOrAgentsIsRefusedWhenGated() async throws {
+    @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
         let (world, run) = try makeWorld()
         #expect(await create(world, run, "A", project: "Elsewhere").message == "AiTerm has no project called Elsewhere. This operation’s projects are: Shop, Web.")
-        #expect(await create(world, run, "A", project: "Docs").message
-                == "Docs isn’t one of this operation’s projects: Shop, Web. Adding a project needs the person’s approval: ask_you first.")
         let grok = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "grok", "model": "m"])
         #expect(grok.message == "An operator’s task runs claude or codex.")
         #expect(world.state.tasks.isEmpty)
@@ -74,32 +71,31 @@ import Testing
         let (world, run) = try makeWorld()
         _ = await create(world, run, "A")
         let submitted = await world.call(run.id, "submit_plan", ["revision": 1])
-        #expect(submitted.value?["waitingForApproval"] == true && submitted.value?["openRevision"] == 2)
-        #expect(operated(world, "A")?.state == .planned)
+        #expect(submitted.value?["released"] == 1 && submitted.value?["openRevision"] == 2)
+        #expect(submitted.value?["waitingForApproval"] == nil)
+        #expect(operated(world, "A")?.state == .queued)
         #expect(world.run(run.id)?.planRevision == 1)
         let saved = world.state
         let again = await world.call(run.id, "submit_plan", ["revision": 1])
         #expect(again.value?["repeated"] == true && again.value?["revision"] == 1)
-        // A repeat did not release anything now, but it must not read as "nothing was released" either.
+        // A repeat released nothing now, but it must not read as "nothing was released" either.
         #expect(again.value?["released"] == nil && again.value?["note"]?.stringValue?.contains("already submitted") == true)
         #expect(world.state == saved)
         #expect(await world.call(run.id, "submit_plan", ["revision": 5]).message == PlanRevision.Failure.unknownRevision(open: 2, asked: 5).description)
     }
 
-    @Test func aGatedPlanWaitsForYourApprovalOfThatExactRevision() async throws {
+    @Test func aSubmittedPlanStartsAtOnceWithNothingToApprove() async throws {
         let (world, run) = try makeWorld()
         _ = await create(world, run, "A")
-        #expect(await world.call(run.id, "submit_plan", ["revision": 1]).value?["waitingForApproval"] == true)
-        #expect(operated(world, "A")?.state == .planned && world.run(run.id)?.state == .planning)
-        #expect(world.notifications.posted.map(\.target) == [.overview(run.id)])
-        try world.controller.approvePlan(run: run.id, revision: 1)
-        #expect(operated(world, "A")?.state == .queued && world.run(run.id)?.state == .active && world.run(run.id)?.approvedRevision == 1)
+        let first = await world.call(run.id, "submit_plan", ["revision": 1])
+        #expect(first.value?["released"] == 1 && first.value?["submitted"] == true)
+        #expect(operated(world, "A")?.state == .queued && world.run(run.id)?.state == .active)
+        #expect(world.run(run.id)?.firstPlanSize == 1)
+        #expect(world.notifications.posted.isEmpty, "a plan waits for nobody, so it notifies nobody")
         _ = await create(world, run, "B")
-        _ = await world.call(run.id, "submit_plan", ["revision": 2])
-        #expect(throws: ActionUnavailable.self) { try world.controller.approvePlan(run: run.id, revision: 1) }
-        #expect(operated(world, "B")?.state == .planned)
-        try world.controller.approvePlan(run: run.id, revision: 2)
-        #expect(operated(world, "B")?.state == .queued)
+        #expect(operated(world, "B")?.state == .planned, "the open revision waits for its own submission")
+        #expect(await world.call(run.id, "submit_plan", ["revision": 2]).value?["released"] == 1)
+        #expect(operated(world, "B")?.state == .queued && world.run(run.id)?.firstPlanSize == 1)
     }
 
     /// M3 carries out every end; a stacked task whose end its parent can't carry is refused with the reason.
@@ -156,32 +152,14 @@ import Testing
         #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
         #expect(await create(world, run, "B", project: "Shop", end: "nonsense").message == "A task’s end is commit, draftMR or merge.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id])
-        // A gated plan takes in no other project without your word.
-        #expect(await create(world, run, "C", project: "Docs").message?.hasPrefix("Docs isn’t one of this operation’s projects") == true)
-        #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
+        #expect(world.state.tasks.isEmpty)
     }
 
-    @Test func approvingAnApprovedRevisionAgainWakesTheOperatorOnlyOnce() async throws {
-        let run = OperatorServiceFixtures.run(projects: [project, other])
-        // The helper is attached here, so the one slot is taken by a worker already running: the approved
-        // task stays queued and the only news is the approval, not a start.
-        let running = OperatorServiceFixtures.task(in: run, project: project, key: "W", state: .working, worktree: project.path)
-        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project, other], runs: [run], tasks: [running])) {
-            $0.milestone = .m1
-            $0.wakeCoalesce = .zero
-        }
-        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
-        _ = await create(world, run, "A")
-        _ = await world.call(run.id, "submit_plan", ["revision": 1])
-        func wakes() -> [String] { world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String } }
-        try world.controller.approvePlan(run: run.id, revision: 1)
-        try await world.daemon.received("session.deliver")
-        await world.controller.waker.lastSend?.value
-        #expect(wakes() == ["[AiTerm] plan approved — call run_status"])
-        try world.controller.approvePlan(run: run.id, revision: 1)
-        // Nothing was armed, so nothing arrives; a settled wait is all an absence can be checked with.
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(wakes().count == 1 && world.run(run.id)?.approvedRevision == 1)
+    /// Until the plan's project-joining task removes this: a workspace project outside the operation is taken in.
+    @Test func aWorkspaceProjectOutsideTheOperationIsTakenIn() async throws {
+        let (world, run) = try makeWorld()
+        #expect(await create(world, run, "C", project: "Docs").value?["created"] == true)
+        #expect(world.run(run.id)?.projectIds == [project.id, other.id, docs.id])
     }
 }
 

@@ -155,7 +155,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     /// The plan revision that added or last changed it.
     public var revision: Int
     /// The plan revision that added it: a task whose `revision` is newer was changed since, which
-    /// the plan you approve shows apart from what it adds (`PlanRevision.pending`).
+    /// the overview shows apart from what it adds.
     public var firstRevision: Int
     public var acceptance: TaskAcceptance?, publication: TaskPublication?
     /// While true, the operator's tools refuse the task (spec §8, Take over / Hand back).
@@ -352,11 +352,8 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// `.paused` or `.stopped` when you said so; persisted, and never undone by reconciliation.
     public var intent: OperatorRunState?
     /// The last submitted plan revision, 0 while none is. New and changed tasks go into the open
-    /// one, `openRevision`; `submit_plan` closes it (`PlanRevision`). A plan waits for you while
-    /// `planRevision > (approvedRevision ?? 0)`.
+    /// one, `openRevision`; `submit_plan` closes it and releases its tasks (`PlanRevision`).
     public var planRevision: Int
-    /// Round 1's plan approval, kept only until plans release at once (the plan's Task 2).
-    public var approvedRevision: Int?
     /// How many tasks the first submitted plan had: what the backlog's growth is measured against.
     public var firstPlanSize: Int?
     public var questions: [OperatorQuestion], decisions: [OperatorDecision]
@@ -371,20 +368,20 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
                 prompt: String, review: String? = nil, done: String? = nil, state: OperatorRunState = .planning,
-                intent: OperatorRunState? = nil, planRevision: Int = 0, approvedRevision: Int? = nil, firstPlanSize: Int? = nil,
+                intent: OperatorRunState? = nil, planRevision: Int = 0, firstPlanSize: Int? = nil,
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
                 leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], createdAt: Date) {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
-        self.planRevision = planRevision; self.approvedRevision = approvedRevision; self.firstPlanSize = firstPlanSize
+        self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.createdAt = createdAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision, approvedRevision
+        case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, leftForYou, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, createdAt
     }
@@ -405,7 +402,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         state = try c.decode(OperatorRunState.self, forKey: .state)
         intent = try c.decodeIfPresent(OperatorRunState.self, forKey: .intent)
         planRevision = try c.decode(Int.self, forKey: .planRevision)
-        approvedRevision = try c.decodeIfPresent(Int.self, forKey: .approvedRevision)
         firstPlanSize = try c.decodeIfPresent(Int.self, forKey: .firstPlanSize)
         questions = try c.decodeIfPresent([OperatorQuestion].self, forKey: .questions) ?? []
         decisions = try c.decodeIfPresent([OperatorDecision].self, forKey: .decisions) ?? []
@@ -435,7 +431,6 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(state, forKey: .state)
         try c.encodeIfPresent(intent, forKey: .intent)
         try c.encode(planRevision, forKey: .planRevision)
-        try c.encodeIfPresent(approvedRevision, forKey: .approvedRevision)
         try c.encodeIfPresent(firstPlanSize, forKey: .firstPlanSize)
         try c.encode(questions, forKey: .questions)
         try c.encode(decisions, forKey: .decisions)

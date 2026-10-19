@@ -50,12 +50,6 @@ public enum OperatorMilestone: Int, Comparable, CaseIterable, Sendable {
     /// `finish_task` carries out, from M3. A local merge is refused until `finish_task` carries it
     /// out (the plan's Task 11).
     public func supports(_ end: TaskEnd) -> Bool { end != .mergeLocal && self >= end.availableFrom }
-
-    /// Agents at once: one in M1, the cap from M2 (spec §13). Kept until the cap goes (the plan's Task 2).
-    public func maxParallel(setting: Int) -> Int { self == .m1 ? 1 : max(1, setting) }
-
-    /// The cap every operation together starts under, now Settings › Agents' Agents at once is gone.
-    public static let agentsAtOnce = 2
 }
 
 public extension TaskEnd {

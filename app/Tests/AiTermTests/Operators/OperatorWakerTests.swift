@@ -47,6 +47,20 @@ import Testing
 
     var lines: [String] { daemon.requests("session.deliver").compactMap { $0.params["text"] as? String } }
 
+    /// Usage readings drift with every report from the vendor: the operator reads them when it asks.
+    @Test func aChangeOfUsageAloneIsNoNews() async throws {
+        let hand = HandSleeper(), waker = makeWaker(by: hand)
+        func withUsage(_ percent: Int) -> RunStatus {
+            let state = OperatorServiceFixtures.state(projects: [project], runs: [run])
+            return RunStatus.build(state: state, run: run.id, revision: 1, live: [:],
+                                   runLive: RunLiveFacts(weeklyUsage: [.claude: percent]))!
+        }
+        waker.acknowledged(withUsage(40), of: run.id)
+        waker.observe(withUsage(41), of: run.id)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(hand.requested == 0 && lines.isEmpty)
+    }
+
     @Test func aBurstOfChangesIsOneLineSayingHowMany() async throws {
         let hand = HandSleeper(), waker = makeWaker(by: hand)
         waker.acknowledged(status(questions: 0), of: run.id)

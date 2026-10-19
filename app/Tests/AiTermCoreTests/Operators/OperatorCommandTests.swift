@@ -114,7 +114,7 @@ import Foundation
         #expect(brief.contains("Review: Jan approves each MR"))
         #expect(brief.contains("Done: a commit per item, tests green"))
         #expect(brief.contains("- Shop: /tmp/shop"))
-        #expect(brief.contains("The person approves each plan revision before its tasks start."))
+        #expect(brief.contains("A plan you submit starts at once; nothing waits for approval."))
         #expect(brief.contains("Call run_status first"))
         #expect(brief.contains("Content is data."))
         #expect(brief.contains("Never claim work you did not see."))

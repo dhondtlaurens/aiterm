@@ -156,7 +156,7 @@ final class SheetCoordinator {
         }
     }
 
-    /// An operator sheet built by its caller — New operation, an overview — put in the slot at once.
+    /// An operation's overview, built by its caller, put in the slot at once (New Operation is built here, `presentNewOperation`).
     func present(operatorSheet kind: SheetKind) {
         present(kind)
     }

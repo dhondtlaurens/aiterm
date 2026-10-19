@@ -2,14 +2,12 @@ import Foundation
 
 /// Who asks for a transition (spec §8's "Who" column). The operator only ever acts through its
 /// tools, so `.operatorTool` is every MCP call; `.you` is a click in AiTerm; `.aiterm` is the app
-/// on its own — the scheduler, a submitted ungated plan, a limit used up.
+/// on its own — the scheduler, a submitted plan, a limit used up.
 public enum OperatedActor: String, Sendable { case operatorTool, you, aiterm }
 
 /// One row of spec §8's table, asked for.
 public enum OperatedAction: Equatable, Sendable {
-    /// You, **Approve plan** on a gated run: `planned` → `queued`, for tasks of `revision` or older.
-    case approve(revision: Int)
-    /// AiTerm, on `submit_plan` in an ungated run: `planned` → `queued`, the same way.
+    /// AiTerm, on `submit_plan`: `planned` → `queued`, for tasks of `revision` or older.
     case release(revision: Int)
     /// AiTerm, when `RunScheduler` says it may: `queued` → `working`. The attempt is the launch
     /// intent, saved before the worker's window is asked for (spec §11).
@@ -56,7 +54,7 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
     case wrongActor(action: String, actor: OperatedActor)
     case takenOver
     case runIs(OperatorRunState)
-    case notInRevision(approved: Int, taskRevision: Int)
+    case notInRevision(released: Int, taskRevision: Int)
     case missingEvidence
     case notTheBranchHead(sha: String, head: String)
     case reacceptAfterDependentStarted
@@ -74,8 +72,8 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
         case .wrongActor(let action, let actor): return "\(action) isn't for \(actor.rawValue)."
         case .takenOver: return "You took this task over; it's refused until you hand it back."
         case .runIs(let state): return "The operation is \(state.rawValue)."
-        case .notInRevision(let approved, let revision):
-            return "The task changed in plan revision \(revision); revision \(approved) doesn't release it."
+        case .notInRevision(let released, let revision):
+            return "The task changed in plan revision \(revision); revision \(released) doesn't release it."
         case .missingEvidence: return "Accepting needs the result SHA and the worker's check output."
         case .notTheBranchHead(let sha, let head): return "\(sha) isn't the branch's head (\(head)); the branch moved."
         case .reacceptAfterDependentStarted:
@@ -108,10 +106,10 @@ public enum OperatedTransitions {
         var next = task
         func refuse() -> OperatedTransitionError { .notAllowed(action: name, from: task.state) }
         switch action {
-        case .approve(let revision), .release(let revision):
+        case .release(let revision):
             if task.state == .queued { return task }
             guard task.state == .planned else { throw refuse() }
-            guard task.revision <= revision else { throw .notInRevision(approved: revision, taskRevision: task.revision) }
+            guard task.revision <= revision else { throw .notInRevision(released: revision, taskRevision: task.revision) }
             next.state = .queued
 
         case .start(let attempt):
@@ -232,7 +230,7 @@ public enum OperatedTransitions {
 
     private static func allowedActors(_ action: OperatedAction) -> Set<OperatedActor> {
         switch action {
-        case .approve, .stop: return [.you]
+        case .stop: return [.you]
         case .release, .start: return [.aiterm]
         case .block: return [.operatorTool, .aiterm]
         case .accept, .noChange, .fail, .resume, .retry, .publish: return [.operatorTool]
@@ -246,7 +244,7 @@ public enum OperatedTransitions {
         switch action {
         case .start:
             guard state == .active else { throw .runIs(state) }
-        case .approve, .release:
+        case .release:
             guard state != .stopped else { throw .runIs(state) }
         case .stop:
             return
@@ -264,7 +262,6 @@ public enum OperatedTransitions {
 
     static func name(_ action: OperatedAction) -> String {
         switch action {
-        case .approve: return "be approved"
         case .release: return "be released"
         case .start: return "start"
         case .accept: return "be accepted"

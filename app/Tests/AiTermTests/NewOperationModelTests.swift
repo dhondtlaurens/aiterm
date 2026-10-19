@@ -19,7 +19,7 @@ struct NewOperationModelTests {
         #expect(NewOperationModel.subtitle == "The Operator plans it first; nothing starts before you see the plan.")
         #expect(sheet.destination.text == "Opens in iTerm2 · The Operator’s window · tasks in the projects the brief needs")
         #expect(NewOperationModel.promptHelp == "What to work on, as you would tell a colleague. A Jira key brings in its ticket.")
-        #expect(NewOperationModel.doneHelp == "What finished looks like. A draft MR or a merge happens only when this asks for it, as an end in the plan you approve.")
+        #expect(NewOperationModel.doneHelp == "What finished looks like. A draft MR or a merge happens only when this asks for it, as an end in the plan.")
         #expect(NewOperationModel.donePlaceholder == "a commit per item, tests green, I review and push")
         for text in [NewOperationModel.subtitle, NewOperationModel.promptHelp, NewOperationModel.doneHelp, NewOperationModel.donePlaceholder] {
             #expect(!text.contains("—"), "no em dash in \(text)")

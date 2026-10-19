@@ -27,6 +27,27 @@ import Foundation
         #expect(try store.load() == state)
     }
 
+    /// The plan-approval gate is gone, but a file an earlier build of this one wrote still has the run's
+    /// `approvedRevision`: it is not read, and it is written back as it was.
+    @Test func aRunsOldApprovedRevisionIsKeptUnread() throws {
+        let (store, dir) = scratchStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let known = OperatorFixtures.run()
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        var json = try #require(JSONSerialization.jsonObject(with: encoder.encode(OperatorFixtures.state(known, []))) as? [String: Any])
+        var runs = try #require(json["runs"] as? [[String: Any]])
+        runs[0]["approvedRevision"] = 3
+        json["runs"] = runs
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json).write(to: store.url)
+
+        let loaded = try store.load()
+        #expect(loaded.runs.map(\.id) == [known.id] && loaded.runs.first?.planRevision == known.planRevision, "the run is shown as any other")
+        try store.save(loaded)
+        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: store.url)) as? [String: Any])
+        #expect((saved["runs"] as? [[String: Any]])?.first?["approvedRevision"] as? Int == 3)
+    }
+
     /// A file from before operators: no `runs`, no `operated`. It loads with none, and a save
     /// writes neither key, so an older build reading it back sees the file it always wrote.
     @Test func aWorkspaceFromBeforeOperatorsLoadsAndIsWrittenWithoutTheNewKeys() throws {

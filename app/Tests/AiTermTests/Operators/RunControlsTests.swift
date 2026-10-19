@@ -10,7 +10,7 @@ import Testing
 
     func makeWorld(runState: OperatorRunState = .active, taskState: OperatedState = .working, daemon: RecordingDaemon = RecordingDaemon(),
                    tab: Bool = true, adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> (OperatorWorld, OperatorRun, TaskItem) {
-        let run = OperatorServiceFixtures.run(projects: [project], state: runState, planRevision: 1, approvedRevision: 1)
+        let run = OperatorServiceFixtures.run(projects: [project], state: runState, planRevision: 1)
         let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: taskState, worktree: "/tmp/aiterm-wt")
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), daemon: daemon, adjust: adjust)
         world.show(tab ? [OperatorServiceFixtures.session("op", tag: run.id), OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .done)]
@@ -318,7 +318,7 @@ import Testing
 
     @Test func endingStartsAnotherOperationsQueuedTaskAtOnce() async throws {
         let (world, run, _) = try makeWorld()
-        let other = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1, approvedRevision: 1)
+        let other = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
         let queued = OperatorServiceFixtures.task(in: other, project: project, key: "OTHER-1", state: .queued)
         world.workspace.mutate { $0.runs.append(other); $0.tasks.append(queued) }
         #expect(world.task(queued.id)?.operated?.launch == nil, "no slot while the first operation's worker holds it")

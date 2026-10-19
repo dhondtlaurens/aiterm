@@ -90,11 +90,6 @@ final class OperatorNotifier {
         post("prompt-\(task.id.uuidString)", "\(task.title) waits on you", body, to: .task(task.id))
     }
 
-    func planWaiting(_ run: OperatorRun) {
-        post("plan-\(run.id.uuidString)", "The Operator’s plan waits for you", "Approve “\(run.name)” in its overview.",
-             to: .overview(run.id))
-    }
-
     /// A blocked task notifies at once at every stop, and sends with it the questions the stop was holding.
     func taskBlocked(_ task: TaskItem, reason: String, in run: OperatorRun) {
         post("blocked-\(task.id.uuidString)", "“\(run.name)” is held up", "\(task.title): \(reason)", to: .overview(run.id))

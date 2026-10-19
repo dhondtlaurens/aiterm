@@ -20,10 +20,10 @@ enum OperatorFixtures {
     }
 
     static func run(id: UUID = runId, state: OperatorRunState = .active, oracle: Bool = true,
-                    planRevision: Int = 1, approvedRevision: Int? = 1) -> OperatorRun {
+                    planRevision: Int = 1) -> OperatorRun {
         OperatorRun(id: id, name: "Sprint 42", profile: profile(oracle: oracle), projectIds: [projectId],
                     prompt: "Implement the sprint.", done: "a commit per item, tests green", state: state,
-                    planRevision: planRevision, approvedRevision: approvedRevision, createdAt: epoch)
+                    planRevision: planRevision, createdAt: epoch)
     }
 
     static func operated(_ key: String, _ state: OperatedState = .queued, run: UUID = runId, revision: Int = 1,
