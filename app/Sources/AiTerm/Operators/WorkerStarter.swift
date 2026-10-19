@@ -157,9 +157,10 @@ final class WorkerStarter {
                 state.tasks[i].baseBranch = made.task.baseBranch
             }
             let prompt = Self.prompt(for: task, operated: operated), worktree = made.task.worktreePath
+            let choice = launchChoice(for: task, operated: operated, attempt: attempt)
             // The Operator's worker flags, its brief the first prompt.
             let command = try await BackgroundWork.run {
-                try AgentCommand.build(agent: task.agent, model: task.model, reasoning: task.reasoning, prompt: prompt,
+                try AgentCommand.build(agent: choice.agent, model: choice.model, reasoning: choice.reasoning, prompt: prompt,
                                        worktreePath: worktree, git: git, operated: true)
             }
             // Awaits have passed: the task may have been stopped, taken over or blocked, or its run paused.
@@ -173,6 +174,7 @@ final class WorkerStarter {
                 recordWindow(orphan.windowId, of: id)
                 return
             }
+            if let switched = choice.switchedFrom { recordSwitch(of: id, to: choice, from: switched) }
             let window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: worktree, title: task.branch, agentCommand: command,
                                                            frame: taskFrame(), background: true)
             unlisted[id] = ports.now()
@@ -182,6 +184,42 @@ final class WorkerStarter {
             Log.daemon.info("An operator's worker window may still open; the run reconciler looks again: \(error.message, privacy: .public)")
         } catch {
             block(id, reason: "AiTerm couldn’t start it: \(error.localizedDescription)")
+        }
+    }
+
+    /// What a task launches with. Its planned agent and model, unless this is its first launch, it is not
+    /// pinned and its agent's weekly use is near the limit (`ModelChoice.launchAgent`): then the other agent
+    /// and that agent's default model, and `switchedFrom` names the planned agent. A relaunch or a retry
+    /// keeps the agent it started on.
+    private func launchChoice(for task: TaskItem, operated: OperatedTask, attempt: LaunchAttempt)
+        -> (agent: AgentKind, model: String, reasoning: String?, switchedFrom: AgentKind?, percent: Int) {
+        let keep = (agent: task.agent, model: task.model, reasoning: task.reasoning, switchedFrom: AgentKind?.none, percent: 0)
+        guard attempt.number == 1, operated.retriesUsed == 0 else { return keep }
+        let weekly = ports.weeklyUsage?() ?? [:], installed = ports.installedAgents?() ?? Set(AgentKind.allCases)
+        let agent = ModelChoice.launchAgent(planned: task.agent, pinned: operated.agentPinned, weekly: weekly, installed: installed)
+        guard agent != task.agent else { return keep }
+        let model = OperatorToolHandler.defaultModel(for: agent, remembered: state.lastModelByAgent)
+        return (agent, model.model, model.reasoning, task.agent, weekly[task.agent] ?? 0)
+    }
+
+    /// The switch, saved before the window opens: the task's agent and model, why, and one line in the run's
+    /// decisions, keyed by the task so a launch that runs again logs nothing twice.
+    private func recordSwitch(of id: UUID, to choice: (agent: AgentKind, model: String, reasoning: String?, switchedFrom: AgentKind?, percent: Int),
+                              from planned: AgentKind) {
+        guard let task = state.task(id: id), let runId = task.operated?.runId else { return }
+        let text = "Started \(task.title) on \(SidebarModel.agentName(choice.agent)): \(SidebarModel.agentName(planned))’s weekly limit is at \(choice.percent) %."
+        let key = "switch-\(id.uuidString)", now = ports.now()
+        workspace.mutate { state in
+            guard let i = state.tasks.firstIndex(where: { $0.id == id }) else { return }
+            state.tasks[i].agent = choice.agent
+            state.tasks[i].model = choice.model
+            state.tasks[i].reasoning = choice.reasoning
+            state.tasks[i].operated?.modelReason = text
+            state.updateRun(id: runId) { run in
+                if !run.decisions.contains(where: { $0.key == key }) {
+                    run.decisions.append(OperatorDecision(key: key, text: text, task: id, at: now))
+                }
+            }
         }
     }
 

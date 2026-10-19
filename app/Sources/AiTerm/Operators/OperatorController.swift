@@ -40,6 +40,9 @@ struct OperatorPorts {
     /// An agent's model list in Settings › Agents (`ModelCatalogue.models(for:)`). Blocking: read through
     /// `BackgroundWork`. Nil is the app's own catalogue, which `AppController` fills in.
     var agentModels: (@Sendable (AgentKind) -> [AgentModel])?
+    /// Each agent's weekly use in percent, windows past their reset left out (`SidebarModel.weeklyUsage`): what
+    /// a task's launch reads to start on the other agent. Nil is `live.usage`, which the controller fills in.
+    var weeklyUsage: (@MainActor () -> [AgentKind: Int])?
 
     @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
         OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live)
@@ -107,6 +110,11 @@ final class OperatorController {
 
     init(workspace: WorkspaceStore, live: LiveSessions, notices: Notices, daemon: @escaping @MainActor () -> (any DaemonCommands)?,
          taskFrame: @escaping @MainActor () -> Frame, ports: OperatorPorts) {
+        var ports = ports
+        if ports.weeklyUsage == nil {
+            let now = ports.now
+            ports.weeklyUsage = { [live] in SidebarModel.weeklyUsage(live.usage, now: now()) }
+        }
         self.workspace = workspace
         self.live = live
         self.notices = notices

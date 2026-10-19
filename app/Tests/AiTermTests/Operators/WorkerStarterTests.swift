@@ -45,6 +45,46 @@ import Testing
         #expect(started.operated?.launch?.openedAt != nil, "its window is up: never launched again")
     }
 
+    /// A claude task whose agent is near its weekly limit starts on codex: its agent and model rewritten before
+    /// the window, and the switch logged once for the debrief.
+    @Test func aTaskStartsOnTheOtherAgentNearTheLimit() async throws {
+        let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-start-"))
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        var state = OperatorServiceFixtures.state(projects: [project], runs: [run])
+        state.lastModelByAgent[.codex] = "gpt-6-astra"
+        // Codex's default, as create_task finds it: the Settings card on this Mac, else the remembered model.
+        let fallback = AgentIntegrations.fixerModels(remembered: state.lastModelByAgent)(.codex)
+        let world = try OperatorWorld(state) { $0.weeklyUsage = { [.claude: 84, .codex: 12] } }
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-7", state: .queued, agent: .claude)
+        world.workspace.mutate { $0.tasks.append(task) }
+        world.controller.startReadyTasks()
+        await world.controller.lastStart?.value
+        let started = try #require(world.task(task.id))
+        #expect(started.agent == .codex && started.model == fallback.model && started.reasoning == fallback.reasoning)
+        #expect(started.operated?.modelReason == "Started Task PLUTO-7 on Codex: Claude’s weekly limit is at 84 %.")
+        let expected = try AgentCommand.build(agent: .codex, model: fallback.model, reasoning: fallback.reasoning, prompt: "Do PLUTO-7.",
+                                              worktreePath: started.worktreePath, git: git, operated: true)
+        #expect(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String == expected)
+        let logged = try #require(world.run(run.id)?.decisions)
+        #expect(logged.map(\.key) == ["switch-\(task.id.uuidString)"])
+        #expect(logged.first?.text == "Started Task PLUTO-7 on Codex: Claude’s weekly limit is at 84 %.")
+        #expect(logged.first?.task == task.id)
+    }
+
+    @Test func aPinnedTaskStaysOnItsAgent() async throws {
+        let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-start-"))
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.weeklyUsage = { [.claude: 84] } }
+        var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-8", state: .queued, agent: .claude)
+        task.operated?.agentPinned = true
+        world.workspace.mutate { $0.tasks.append(task) }
+        world.controller.startReadyTasks()
+        await world.controller.lastStart?.value
+        let started = try #require(world.task(task.id))
+        #expect(started.agent == .claude && started.model == "m")
+        #expect(world.run(run.id)?.decisions.isEmpty == true)
+    }
+
     @Test func aCodeDependentBranchesFromItsParentsAcceptedCommit() async throws {
         let (world, run, project) = try makeWorld()
         let accepted = try head(project.path)

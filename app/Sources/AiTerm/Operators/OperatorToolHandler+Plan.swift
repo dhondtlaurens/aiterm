@@ -242,7 +242,12 @@ extension OperatorToolHandler {
 
     /// The model and reasoning Settings › Agents gives `agent`, else the model last picked for it.
     func defaultModel(for agent: AgentKind) -> (model: String, reasoning: String?) {
-        AgentIntegrations.fixerModels(remembered: state.lastModelByAgent)(agent == .codex ? .codex : .claude)
+        Self.defaultModel(for: agent, remembered: state.lastModelByAgent)
+    }
+
+    /// `defaultModel(for:)` over the models remembered in `state`, for a launch that moves a task to the other agent.
+    static func defaultModel(for agent: AgentKind, remembered: [AgentKind: String]) -> (model: String, reasoning: String?) {
+        AgentIntegrations.fixerModels(remembered: remembered)(agent == .codex ? .codex : .claude)
     }
 
     private func end(_ call: ToolCall) throws(ToolRefusal) -> TaskEnd? {
