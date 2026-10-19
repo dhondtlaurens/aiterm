@@ -157,7 +157,8 @@ import Foundation
     /// A broadcast's slices are frozen, and what they do not allow is neither done nor asked for.
     @Test func whatASliceDoesNotAllowIsNeitherDoneNorAskedFor() {
         let brief = OperatorCommand.brief(run: F.run(), projects: [])
-        #expect(brief.contains("Do not do what a slice does not allow, and do not ask to"))
+        #expect(brief.contains("Jira writes, involving people on a merge request and merging are what the slices govern."))
+        #expect(brief.contains("Do not do what a slice above does not allow, and do not ask to."))
     }
 
     @Test func theBriefStatesTheBacklogRuleAndReportFind() {
@@ -189,8 +190,10 @@ import Foundation
         run.done = nil
         let brief = OperatorCommand.brief(run: run, projects: [])
         #expect(brief.contains("Each task's agent commits on the task's branch. Workers never push."))
-        #expect(brief.contains("accept it with mark_task accepted, then call finish_task: AiTerm pushes the branch and opens a draft merge request"))
-        #expect(brief.contains("A Done of \"a commit\" ends at the accepted commit, with no push and no merge request."))
+        #expect(brief.contains("accept it with mark_task accepted. Then, unless the task ends at a commit, call finish_task"))
+        #expect(brief.contains("AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge."))
+        #expect(brief.contains("A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task."))
+        #expect(!brief.contains("then call finish_task:"), "finish_task is never asked for on a commit end")
         #expect(brief.contains("An empty Done ends at a draft merge request."))
         #expect(brief.contains("Done: not said, so end each task at a draft MR"))
         #expect(brief.contains("without one, a draft MR."))
@@ -212,6 +215,20 @@ import Foundation
         }
         let review = OperatorCommand.brief(run: F.run(slices: Slices(jira: false, review: true, merge: false)), projects: [])
         #expect(review.contains("reply in review threads"))
+    }
+
+    /// The two ask-first items are asks the spec keeps; the slice boundary covers only what the slices govern.
+    @Test func theAskFirstItemsAreNeverDescribedAsNeverAsked() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        let boundary = brief.components(separatedBy: "\n\n").first { $0.hasPrefix("Jira writes, involving people") } ?? ""
+        #expect(!boundary.isEmpty)
+        #expect(!boundary.contains("branch") && !boundary.contains("worktree") && !boundary.contains("projects"))
+        let neverAsked = brief.components(separatedBy: "\n").filter { $0.contains("never asked for") || $0.contains("do not ask to") }
+        for line in neverAsked {
+            #expect(!line.contains("deleting a branch or worktree") && !line.contains("outside this broadcast's projects"))
+        }
+        let askFirst = brief.components(separatedBy: "\n").first { $0.contains("Ask first with ask_you") } ?? ""
+        #expect(askFirst.contains("deleting a branch or worktree") && askFirst.contains("anything outside this broadcast's projects"))
     }
 
     @Test func theBriefHasNoEmDash() {

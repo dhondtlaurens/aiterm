@@ -161,9 +161,10 @@ public enum OperatorCommand {
     static let planRule = "Answer from the brief and the code; ask on scope or product choices. "
         + "A plan you submit starts at once; nothing waits for approval. "
         + "Each task's agent commits on the task's branch. Workers never push. "
-        + "When the result is in, check it and accept it with mark_task accepted, then call finish_task: "
-        + "AiTerm pushes the branch and opens a draft merge request, which notifies nobody. "
-        + "The Done decides the end. A Done of \"a commit\" ends at the accepted commit, with no push and no merge request. "
+        + "When the result is in, check it and accept it with mark_task accepted. Then, unless the task ends at a commit, "
+        + "call finish_task: AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge. "
+        + "A draft notifies nobody. "
+        + "The Done decides the end. A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task. "
         + "An empty Done ends at a draft merge request. "
         + "When the Review asks for an agent review, run one and have the task's agent fix what it finds."
 
@@ -186,7 +187,8 @@ public enum OperatorCommand {
             : "You may not merge. A task ends at a commit or a draft merge request."]
     }
 
-    static let sliceBoundary = "Do not do what a slice does not allow, and do not ask to. Leave it undone and say in your last message "
+    static let sliceBoundary = "Jira writes, involving people on a merge request and merging are what the slices govern. "
+        + "Do not do what a slice above does not allow, and do not ask to. Leave it undone and say in your last message "
         + "what you left for the person."
 
     static func backlogRule(oracleIsOn: Bool) -> String {
