@@ -38,8 +38,7 @@ import Testing
         #expect(OperatorLine.task(task, run: run, acting: nil, requests: requests)?.look == .needsYou)
     }
 
-    @Test func workerHasExplicitNetworkAndPublicationGuards() {
-        #expect(AgentCommand.workerWords(agent: .codex, model: "m", reasoning: nil).contains("sandbox_workspace_write.network_access=false"))
+    @Test func claudeWorkerHasExplicitPublicationGuards() {
         for denial in ["Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"] {
             #expect(AgentCommand.operatedClaudeDenials.contains(denial))
         }

@@ -4,7 +4,7 @@ import Foundation
 @testable import AiTermTestSupport
 
 /// A worker the Operator launches, one profile for every broadcast: Claude without the menu tool, push
-/// or merge, in auto permission mode; Codex sandboxed to its workspace instead of bypassed.
+/// or merge, in auto permission mode; Codex with the same approval bypass as a regular task.
 @Suite(.blocking) struct OperatedWorkerCommandTests {
     let wt = FileManager.default.temporaryDirectory.appendingPathComponent("wt-\(UUID().uuidString)").path
 
@@ -22,7 +22,7 @@ import Foundation
         #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools", "AskUserQuestion",
                            "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)", "--permission-mode", "auto"])
         let codex = AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
-        #expect(codex == ["codex", "-s", "workspace-write", "-a", "on-request", "-c", "sandbox_workspace_write.network_access=false", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
+        #expect(codex == ["codex", "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
         #expect(AgentCommand.operatedClaudeDenials == ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"])
         for agent in AgentCommand.operatedAgents {
             let words = AgentCommand.workerWords(agent: agent, model: "m", reasoning: nil)
@@ -40,9 +40,9 @@ import Foundation
         #expect(words.contains("AskUserQuestion"))
     }
 
-    @Test func aCodexWorkerIsSandboxedToItsWorkspace() {
+    @Test func aCodexWorkerUsesTheRegularTaskPermissions() {
         #expect(AgentCommand.previewCommand(agent: .codex, model: "gpt-6-astra", reasoning: "medium", prompt: "fix it", operated: true)
-                == "codex -s workspace-write -a on-request -c sandbox_workspace_write.network_access=false -m gpt-6-astra -c model_reasoning_effort=medium 'fix it'")
+                == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-astra -c model_reasoning_effort=medium 'fix it'")
     }
 
     /// A task you make yourself launches exactly as before.

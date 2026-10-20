@@ -119,6 +119,20 @@ struct SidebarTilingTests {
         #expect(snapped.sorted() == ["task-window", "terminal-window"])
     }
 
+    @Test func aZoomAlsoSnapsOpenOperatorWindows() async throws {
+        let (fixture, server, _, _, _) = try await tiledWorkspace()
+        defer { fixture.controller.shutdown(); fixture.cleanUp() }
+        var open = OperatorServiceFixtures.run(projects: [fixture.project])
+        open.operatorWindowId = "operator-window"
+        let closed = OperatorServiceFixtures.run(projects: [fixture.project])
+        fixture.controller.workspace.mutate { $0.runs = [open, closed] }
+
+        await fixture.controller.tiling.setInterfaceSize(.large)?.value
+
+        let snapped = server.requests("window.setFrame").compactMap { $0.params["windowId"] as? String }
+        #expect(snapped.sorted() == ["operator-window", "task-window", "terminal-window"])
+    }
+
     /// A re-tiling for a newer frame cancels one still under way, so the windows that one had
     /// not reached yet are framed once, for the newer frame, rather than by whichever reply is last.
     @Test func aNewerReTilingCancelsTheOneUnderWay() async throws {

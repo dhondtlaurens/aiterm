@@ -135,7 +135,8 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   start pass (`startReadyTasks`) claims every queued task whose dependencies are met, with no cap,
   saves the claims, then `WorkerStarter` opens each worker's window behind your work. A worker runs
   `AgentCommand.workerWords`: Claude with `--disallowedTools` for asking through a menu, pushing and
-  merging, then `--permission-mode auto`; Codex with `-s workspace-write -a on-request`. The agent and
+  merging, then `--permission-mode auto`; Codex with `--dangerously-bypass-approvals-and-sandbox`,
+  just like a manually created task, on both launch and resume. The agent and
   model are the Operator's choice within limits (`ModelChoice`): an installed agent, a model from that
   agent's list in Settings › Agents, and the other agent once one's weekly use reaches 80 %.
 - **Running.** Everything the Operator does goes through its tools (below). `OperatorWaker` wakes an

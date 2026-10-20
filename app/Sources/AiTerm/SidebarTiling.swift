@@ -3,8 +3,8 @@ import AiTermUI
 import AiTermCore
 
 /// The sidebar window and the terminal windows tiled beside it. Wherever the sidebar goes — dragged,
-/// resized, onto another screen, or redrawn at another size — its frame is saved and every task's
-/// and terminal's window is re-framed to fill the rest of the screen.
+/// resized, onto another screen, or redrawn at another size — its frame is saved and every task's,
+/// terminal's and operator's window is re-framed to fill the rest of the screen.
 @MainActor
 final class SidebarTiling {
     /// Set once the app has made the window.
@@ -100,11 +100,13 @@ final class SidebarTiling {
         return snapAll()
     }
 
-    /// Puts every open task and terminal window beside the sidebar.
+    /// Puts every open task, terminal and operator window beside the sidebar.
     private func snapAll() -> Task<Void, Never>? {
         guard let daemon = daemon() else { return nil }
         let state = workspace.state
-        let frame = taskFrame(), ids = state.tasks.compactMap(\.windowId) + state.terminals.compactMap(\.windowId)
+        let frame = taskFrame()
+        let ids = state.tasks.compactMap(\.windowId) + state.terminals.compactMap(\.windowId)
+            + state.runs.compactMap(\.operatorWindowId)
         snapTask?.cancel()
         let task = Task {
             for id in ids {
