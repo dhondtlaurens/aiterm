@@ -245,4 +245,33 @@ import Testing
         ])
     }
 
+    @Test func forgettingDuringDeliveryPreservesReplacementNewsWithoutOverlappingWakes() async throws {
+        let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
+        let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
+                                  coalesce: .zero, sleep: { await hand.sleep($0) })
+        waker.say("operation complete", to: run.id)
+        await hand.release(1)
+        try await held.received("session.deliver")
+        let original = waker.lastSend
+
+        waker.forget(run.id)
+        waker.say("reconnected", to: run.id)
+        await hand.release(2)
+        await waker.lastCoalesce?.value
+        waker.operatorSessionChanged(run.id)
+        await Task.yield()
+        #expect(held.requests("session.deliver").count == 1, "the forgotten delivery still owns the tab until it replies")
+
+        held.release()
+        await original?.value
+        try await held.received("session.deliver", count: 2)
+        await waker.lastSend?.value
+        #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
+            "[AiTerm] operation complete, call run_status", "[AiTerm] reconnected, call run_status"
+        ])
+        waker.operatorSessionChanged(run.id)
+        await waker.lastSend?.value
+        #expect(held.requests("session.deliver").count == 2)
+    }
+
 }

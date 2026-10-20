@@ -127,6 +127,21 @@ import Foundation
         #expect(RunScheduler.startable(in: world.state, run: run) == [first])
     }
 
+    /// Corrupt state may reuse an id in another operation: its first copy cannot decide whether
+    /// the requested operation's copy is ready or make the other operation's tasks appear here.
+    @Test(arguments: [OperatedState.queued, .blocked])
+    func aSingleRunUsesItsOwnCopyOfADuplicateTaskId(_ requestedState: OperatedState) {
+        let requested = F.run(), other = F.run(id: UUID()), sharedId = UUID()
+        let foreign = F.task("OTHER", requestedState == .queued ? .blocked : .queued, id: sharedId, run: other.id)
+        let local = F.task("LOCAL", requestedState, id: sharedId, run: requested.id)
+        let localOnly = F.task("LOCAL-ONLY"), foreignOnly = F.task("OTHER-ONLY", run: other.id)
+        var state = F.state(requested, [foreign, foreignOnly, local, localOnly])
+        state.runs.append(other)
+
+        #expect(RunScheduler.startable(in: state, run: requested.id) ==
+                (requestedState == .queued ? [sharedId, localOnly.id] : [localOnly.id]))
+    }
+
     @Test func twoTasksWithOneIdDoNotTrapTheStatus() throws {
         var world = OperatedWorld()
         let run = world.addRun()
