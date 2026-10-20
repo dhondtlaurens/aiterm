@@ -37,9 +37,11 @@ public enum OperatorCommand {
 
     /// The line the operator's window runs, every word shell-safe; a first message is read from
     /// `first-message.md` in the run folder, the window's working directory, as a big first prompt
-    /// is read from `.aiterm/first-prompt.md` today.
+    /// is read from `.aiterm/first-prompt.md` today. The line is typed into the person's own shell, so
+    /// it reads the file with `command cat`: an alias or function of theirs named `cat` (one that pages,
+    /// colours or numbers) would hand Claude its output instead of the message.
     public static func command(words: [String], firstMessage: Bool) -> String {
-        (words.map(AgentCommand.shellWord) + (firstMessage ? ["\"$(cat \(firstMessageFile))\""] : [])).joined(separator: " ")
+        (words.map(AgentCommand.shellWord) + (firstMessage ? ["\"$(command cat \(firstMessageFile))\""] : [])).joined(separator: " ")
     }
 
     /// `mcp.json`: one HTTP server, `aiterm` — so its tools are `mcp__aiterm__*` — at the daemon's

@@ -88,6 +88,21 @@ async def test_status_and_create_task_window(stack):
     assert sessions[0]["taskId"] == "t1" and sessions[0]["state"] == "idle"
 
 
+async def test_an_operators_command_is_typed_as_the_app_quoted_it(stack):
+    """The Operator's command, quoted by the app, is typed as it is: nothing stripped or escaped
+    again. Its first message stays in the run folder's file, read by the shell, never typed."""
+    svc, it, files, r, w = stack
+    folder = "/Users/me/Library/Application Support/AiTerm/operators/runs/R"
+    cmd = ("claude --model 'claude-fable-5-1[1m]' --effort high --append-system-prompt-file"
+           f" '{folder}/brief.md' --tools Read,Grep,Glob --add-dir '/code/it'\\''s a \"shop\" → é · 🚀'"
+           f" --mcp-config '{folder}/mcp.json' --allowedTools 'mcp__aiterm__*' --strict-mcp-config"
+           ' "$(command cat first-message.md)"')
+    res = await call(r, w, "window.createTask", {"taskId": "R", "cwd": folder, "title": "Sprint", "agentCommand": cmd,
+                                                 "frame": FRAME})
+    wid = res["result"]["windowId"]
+    assert it.sent == [(it.windows[wid]["sessions"][0], " " + cmd + "\n")]
+
+
 async def test_user_tab_is_tagged_and_redirected(stack):
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]

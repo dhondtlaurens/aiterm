@@ -274,6 +274,29 @@ import AiTermTestSupport
         #expect(text.value == #"Look at /tmp/Screenshot\ 1.png /tmp/spec.pdf "#)
     }
 
+    /// Pasted text goes in as it was copied, every kind a person pastes (`TypedText`), and the
+    /// binding New Broadcast reads holds the same bytes.
+    @Test func pastedTextGoesInWhole() throws {
+        let text = TextBox()
+        let editor = PromptEditor(text: Binding(get: { text.value }, set: { text.value = $0 }),
+                                  agent: .claude, completions: PromptCompletions())
+            .frame(width: 420, height: 150)
+        let host = NSHostingView(rootView: editor)
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
+        host.layoutSubtreeIfNeeded()
+        let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
+        let typed = TypedText.text("Prompt", bytes: 110_000)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("aiterm-test-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString(typed, forType: .string)
+        #expect(textView.readSelection(from: pasteboard, type: .string))
+
+        #expect(Array(textView.string.utf8) == Array(typed.utf8))
+        #expect(Array(text.value.utf8) == Array(typed.utf8))
+    }
+
     @Test func droppedPathsAreEscapedLikeATerminalDrop() {
         #expect(PromptTextView.insertion(for: ["/a/b.png"], after: nil) == "/a/b.png ")
         #expect(PromptTextView.insertion(for: ["/a/b.png"], after: " ") == "/a/b.png ")
