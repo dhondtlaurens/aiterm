@@ -6,6 +6,7 @@ import AiTermCore
 @MainActor
 final class DaemonConnection {
     private let socketPath: String
+    private let claudeConfigDirectory: String?
     private let onClient: @MainActor (DaemonClient?) -> Void
     private let onStatus: @MainActor (ItermConnection) -> Void
     private let onEvent: @MainActor (DaemonEvent) -> Void
@@ -19,12 +20,13 @@ final class DaemonConnection {
     private var lifetime: Task<Void, Never>?
     private var client: DaemonClient?
 
-    init(socketPath: String, onClient: @escaping @MainActor (DaemonClient?) -> Void,
+    init(socketPath: String, claudeConfigDirectory: String? = nil, onClient: @escaping @MainActor (DaemonClient?) -> Void,
          onStatus: @escaping @MainActor (ItermConnection) -> Void, onEvent: @escaping @MainActor (DaemonEvent) -> Void,
          backoff: @escaping @Sendable (_ attempt: Int) -> TimeInterval = { Backoff.delay(attempt: $0) },
          steadyAfter: Duration = .seconds(5),
          requestCookie: @escaping () async -> ItermCookieAnswer = ItermCookie.request) {
         self.socketPath = socketPath
+        self.claudeConfigDirectory = claudeConfigDirectory
         self.onClient = onClient
         self.onStatus = onStatus
         self.onEvent = onEvent
@@ -70,7 +72,7 @@ final class DaemonConnection {
             }
             do {
                 try await BackgroundWork.run { try connection.connect() }
-                let snapshot = try await connection.snapshot()
+                let snapshot = try await connection.snapshot(claudeConfigDirectory: claudeConfigDirectory)
                 try Task.checkCancellation()
                 onClient(connection)
                 statuses.report(ItermConnection.forSnapshot(snapshot))
@@ -107,7 +109,7 @@ final class DaemonConnection {
                         // The iTerm2 that just connected, read afresh. Its reply comes back through
                         // this stream as `.snapshot`, so the events behind this one do not wait for
                         // it. One that fails drops the client, and this loop reconnects.
-                        Task { do { _ = try await connection.snapshot() } catch { connection.disconnect() } }
+                        Task { do { _ = try await connection.snapshot(claudeConfigDirectory: claudeConfigDirectory) } catch { connection.disconnect() } }
                     }
                     onEvent(event)
                 }

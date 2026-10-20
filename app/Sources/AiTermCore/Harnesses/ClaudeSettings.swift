@@ -153,8 +153,8 @@ public enum ClaudeSettings {
         return isOurShim(command, shimPath: shimPath) && isRunnable(command)
     }
 
-    public static func statusLineIsInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser, shimPath: String) -> Bool {
-        statusLineIsInstalled(try? Data(contentsOf: home.appendingPathComponent(ClaudeDriver.settingsPath)), shimPath: shimPath)
+    public static func statusLineIsInstalled(home: URL = FileManager.default.homeDirectoryForCurrentUser, shimPath: String, claudeConfig: ClaudeConfig = ClaudeConfig()) -> Bool {
+        statusLineIsInstalled(try? Data(contentsOf: claudeConfig.directory(home: home).appendingPathComponent("settings.json")), shimPath: shimPath)
     }
 
     /// Exactly the hooks and status line a merge writes, and nothing retired left behind. The

@@ -28,6 +28,9 @@ public protocol DaemonCommands: Sendable {
     func registerOperator(runId: String, token: String) async throws
     func revokeOperator(runId: String) async throws
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws
+    /// Pushes to the iPhone paired with iTerm2 (iTerm2 Buddy): Backpack Mode's, which words it to carry
+    /// nothing private — iTerm2 hands it to its relay and to Apple as plain text.
+    func notifyCompanion(title: String, body: String) async throws -> CompanionPushResult
 }
 
 extension DaemonCommands {

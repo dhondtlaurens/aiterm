@@ -206,6 +206,7 @@ final class CreationModel<Kind: CreationKind> {
     private let rememberedModels: [AgentKind: String]
     /// Whose skills and commands the prompt completes: the person's home in the app.
     private let home: URL
+    private let claudeConfig: ClaudeConfig
     private let catalogue: @Sendable (AgentKind) throws -> [AgentModel]
     /// The catalogue the draft was built from, for the first load of the draft's own agent — and
     /// why it has no models, when it could not be read, so a failed read is not tried twice.
@@ -234,7 +235,7 @@ final class CreationModel<Kind: CreationKind> {
     /// started, or the draft had moved to another branch: the toast naming the backup.
     private let backupKept: @MainActor (FixLanding) -> Void
 
-    init(kind: Kind, project: Project, draft: Draft, home: URL, availableAgents: @escaping @MainActor () -> Set<AgentKind>,
+    init(kind: Kind, project: Project, draft: Draft, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig(), availableAgents: @escaping @MainActor () -> Set<AgentKind>,
          rememberedModels: [AgentKind: String],
          catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel], initialCatalogue: [AgentModel]? = nil,
          initialCatalogueFailure: String? = nil, defaults: UserDefaults, git: any GitRunning,
@@ -246,7 +247,7 @@ final class CreationModel<Kind: CreationKind> {
         var fields = draft
         fields.promptText = ""
         self.kind = kind; self.project = project; self.fields = fields; self.prompt = draft.promptText
-        self.home = home; self.installedAgents = availableAgents
+        self.home = home; self.claudeConfig = claudeConfig; self.installedAgents = availableAgents
         self.rememberedModels = rememberedModels; self.catalogue = catalogue; self.defaults = defaults; self.git = git
         self.reservedSlugs = reservedSlugs
         self.initialCatalogue = initialCatalogue.map { (draft.agent, $0, initialCatalogueFailure) }
@@ -331,7 +332,7 @@ final class CreationModel<Kind: CreationKind> {
 
     func loadAgentCatalogue() async {
         catalogueGeneration += 1
-        let generation = catalogueGeneration, agent = draft.agent, path = project.path, home = self.home
+        let generation = catalogueGeneration, agent = draft.agent, path = project.path, home = self.home, claudeConfig = self.claudeConfig
         let remembered = rememberedModels[agent], catalogueProvider = self.catalogue
         // UserDefaults is documented as thread-safe; the SDK just does not mark it `Sendable`.
         nonisolated(unsafe) let defaults = self.defaults
@@ -343,7 +344,7 @@ final class CreationModel<Kind: CreationKind> {
                 do { models = try catalogueProvider(agent) } catch { failure = error.localizedDescription }
             }
             return (models: models, failure: failure,
-                    completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home),
+                    completions: SkillCatalog.discover(agent: agent, projectPath: path, home: home, claudeConfig: claudeConfig),
                     resolution: ModelSettings.resolution(for: agent, catalog: models, remembered: remembered, defaults: defaults))
         }
         guard !Task.isCancelled, generation == catalogueGeneration, agent == draft.agent else { return }

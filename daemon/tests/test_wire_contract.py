@@ -120,7 +120,8 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     try:
         # Refused. The first cookie request went out before the app attached, so it learns of it
         # from its snapshot, as the app does; the refusal of that cookie brings the next request.
-        assert (await app.call("workspace.snapshot"))["result"]["itermCookieRequest"] == 1
+        bootstrap = await app.call("workspace.snapshot", {"claudeConfigDirectory": "/repo/claude-profile"})
+        assert bootstrap["result"]["itermCookieRequest"] == 1
         mark = app.mark()
         replies["iterm.provideCookie"] = await app.call("iterm.provideCookie", {"requestId": 1, "error": REFUSAL})
         events[protocol.ITERM_AUTH_FAILED] = await app.event(protocol.ITERM_AUTH_FAILED, mark)
@@ -212,6 +213,10 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
 
         iterm.set_frame = broken  # type: ignore[method-assign]
         errors[protocol.INTERNAL] = await app.call("window.setFrame", {"windowId": task_window, "frame": FRAME})
+        # Backpack Mode's push to the paired iPhone: sent, then refused in iTerm2's own words.
+        replies["companion.notify"] = await app.call("companion.notify", {"title": "AiTerm", "body": "Claude Code needs your input."})
+        iterm.push_refusal = "No paired companion device is registered for notifications."
+        replies["companion.notify.refused"] = await app.call("companion.notify", {"title": "AiTerm", "body": "Claude Code finished."})
         mark = app.mark()
         await app.send("[]")
         errors[protocol.PROTOCOL] = await app.first(mark, lambda m: "error" in m and m.get("id") is None)

@@ -282,3 +282,25 @@ private final class MainThreadReadings: Sendable {
     func append(_ value: Bool) { readings.withLock { $0.append(value) } }
     var all: [Bool] { readings.withLock { $0 } }
 }
+
+extension NewBroadcastModelTests {
+    /// `/` lists Claude's skills from the folder the login shell's `CLAUDE_CONFIG_DIR` names.
+    @Test func slashListsClaudesSkillsFromTheConfiguredFolder() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        for (folder, name) in [(".claude", "wrong-folder"), ("profile", "moved")] {
+            let skill = home.appendingPathComponent("\(folder)/skills/\(name)/SKILL.md")
+            try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "---\nname: \(name)\ndescription: A skill\n---\nBody\n".write(to: skill, atomically: true, encoding: .utf8)
+        }
+        let controller = AppController(store: StateStore(url: home.appendingPathComponent("state.json")), preferences: .scratch(),
+                                       harnessHome: home, claudeConfig: ClaudeConfig("~/profile"))
+        try controller.loadWorkspace()
+        controller.presentNewBroadcast()
+        #expect(await eventually(describing: "New Broadcast opens") { controller.sheet != nil })
+        guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
+        await sheet.loadCompletions()
+        let names = sheet.completions.all.map(\.name)
+        #expect(names.contains("moved") && !names.contains("wrong-folder"))
+    }
+}

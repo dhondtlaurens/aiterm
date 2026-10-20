@@ -1,6 +1,7 @@
 {
   "id": 3,
   "result": {
+    "claudeConfigDirectory": "/repo/claude-profile",
     "connected": false,
     "itermAuthError": "execution error: Not authorized to send Apple events to iTerm2. (-1743)",
     "itermCookieRequest": 2,

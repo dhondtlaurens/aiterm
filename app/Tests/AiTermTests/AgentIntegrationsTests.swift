@@ -163,3 +163,45 @@ extension AgentIntegrationsTests {
         #expect(installed.oracle.isOn)
     }
 }
+
+extension AgentIntegrationsTests {
+    @Test func movedSettingsDriveTheUsageProbeAndDisplayedFolder() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home"), resources = root.appendingPathComponent("resources")
+        let hooks = resources.appendingPathComponent("hooks")
+        try FileManager.default.createDirectory(at: hooks, withIntermediateDirectories: true)
+        let shim = hooks.appendingPathComponent("claude-statusline-shim.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: shim)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        let directory = root.appendingPathComponent("Claude Profile")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": shim.path]])
+        try data.write(to: directory.appendingPathComponent("settings.json"))
+        let agents = AgentIntegrations(harnessHome: home, bundledResourcesURL: resources,
+                                       locateAgents: { nil }, rememberedModels: { [:] }, defaults: InterfacePreferences.scratch().defaults,
+                                       claudeConfig: ClaudeConfig(directory.path))
+        await agents.refreshStatusLineState()
+        #expect(agents.claudeStatusLineInstalled)
+        #expect(agents.claudeConfigPath == directory.path)
+    }
+}
+
+extension AgentIntegrationsTests {
+    /// Settings › Operator's `/` lists Claude's skills from the configured folder in the harness home.
+    @Test func operatorSettingsListClaudesSkillsFromTheConfiguredFolder() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        for (folder, name) in [(".claude", "wrong-folder"), ("profile", "moved")] {
+            let skill = home.appendingPathComponent("\(folder)/skills/\(name)/SKILL.md")
+            try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "---\nname: \(name)\ndescription: A skill\n---\nBody\n".write(to: skill, atomically: true, encoding: .utf8)
+        }
+        let agents = AgentIntegrations(harnessHome: home, bundledResourcesURL: nil, locateAgents: { nil }, rememberedModels: { [:] },
+                                       defaults: InterfacePreferences.scratch().defaults, claudeConfig: ClaudeConfig("~/profile"))
+        let settings = agents.operatorSettings()
+        await settings.load()
+        let names = settings.completions.all.map(\.name)
+        #expect(names.contains("moved") && !names.contains("wrong-folder"))
+    }
+}

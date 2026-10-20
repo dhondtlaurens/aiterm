@@ -1,6 +1,7 @@
 {
   "id": 25,
   "result": {
+    "claudeConfigDirectory": "/repo/claude-profile",
     "connected": true,
     "itermAuthError": null,
     "itermCookieRequest": null,

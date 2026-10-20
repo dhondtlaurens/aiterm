@@ -35,16 +35,16 @@ public actor HarnessService {
                 daemonPort: Int, runner: HarnessCommandRunner = .live,
                 catalogue: ModelCatalogue? = nil,
                 resources: HarnessResources = .bundled(),
-                testTransport: HarnessTestTransport = .live) {
+                testTransport: HarnessTestTransport = .live, claudeConfig: ClaudeConfig = ClaudeConfig()) {
         self.runner = runner
-        self.catalogue = catalogue ?? ModelCatalogue(home: home, runner: runner)
+        self.catalogue = catalogue ?? ModelCatalogue(home: home, runner: runner, claudeConfig: claudeConfig)
         self.resources = resources
         self.testClient = HarnessTestClient(runner: runner, transport: testTransport,
                                             daemonPort: daemonPort)
         var drivers: [AgentKind: any HarnessDriver] = [:]
         if resources.installationAllowed {
             for agent in AgentKind.allCases {
-                drivers[agent] = agent.harness.makeDriver(home, daemonPort, resources[agent])
+                drivers[agent] = agent.harness(claudeConfig: claudeConfig).makeDriver(home, daemonPort, resources[agent])
             }
         }
         self.drivers = drivers

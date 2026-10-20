@@ -26,6 +26,25 @@ if (( $# )); then
     [[ "$SUITE" != daemon ]] || { print -u2 "swift test arguments need the swift or all suite"; usage; }
 fi
 
+# One run at a time on this machine. Agents in other worktrees test in parallel, and tests with
+# timeouts fail under the load of several builds and test hosts at once, so a run waits here for
+# the one before it. The kernel drops the lock when this shell exits, however it exits. Runs this
+# one starts (the toolchain guard runs this script against a fake toolchain) inherit it. Who holds
+# it is written beside it, never to it: closing any descriptor of a locked file drops the lock.
+TEST_LOCK="${AITERM_TEST_LOCK:-/tmp/aiterm-test.lock}"
+if [[ -z "${AITERM_TEST_LOCK_HELD:-}" ]]; then
+    zmodload zsh/system
+    : >>"$TEST_LOCK"
+    if ! zsystem flock -t 0 -f test_lock_fd "$TEST_LOCK" 2>/dev/null; then
+        print -u2 "Waiting for another test run to finish (${$(cat "$TEST_LOCK.holder" 2>/dev/null):-holder unknown})."
+        waited_since=$SECONDS
+        zsystem flock -f test_lock_fd "$TEST_LOCK"
+        print -u2 "Waited $(( SECONDS - waited_since ))s for the test lock."
+    fi
+    print -r -- "pid $$, $SUITE in $ROOT since $(date '+%H:%M:%S')" >"$TEST_LOCK.holder"
+    export AITERM_TEST_LOCK_HELD=1
+fi
+
 if [[ "$SUITE" != daemon ]]; then
     # Validate first, before spending time on daemon tests with an unusable Swift compiler.
     TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE=1 "$ROOT/scripts/test-swift-toolchain.sh"

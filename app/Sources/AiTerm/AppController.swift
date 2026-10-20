@@ -114,6 +114,7 @@ final class AppController {
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
+         claudeConfig: ClaudeConfig = ClaudeConfig(),
          bundledResourcesURL: URL?,
          locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
          findPython: @escaping @Sendable () -> URL?,
@@ -142,7 +143,7 @@ final class AppController {
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
-        let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
+        let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython, claudeConfig: claudeConfig, harnessHome: harnessHome,
                                 notices: notices)
         let daemon: @MainActor () -> (any DaemonCommands)? = { helper.daemon }
         let live = LiveSessions(workspace: workspace)
@@ -156,7 +157,7 @@ final class AppController {
                              activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent },
-                                       defaults: preferences.defaults)
+                                       defaults: preferences.defaults, claudeConfig: claudeConfig)
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, workflow: workflow, git: git, daemon: daemon)
         let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
@@ -268,6 +269,12 @@ final class AppController {
         sheets.onDismiss = { [weak self] in self?.presentRequestedOverview() }
         presentRequestedOverview()
         watchOverviewRequests()
+        // Backpack Mode's pushes read the rows as the sidebar shows them, and go out through the helper.
+        backpack.pushRows = { [weak self] in self?.pushRows() ?? [] }
+        backpack.sendPush = { [weak self] push in
+            guard let self else { return nil }
+            return await self.sendPush(push)
+        }
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -330,6 +337,32 @@ final class AppController {
             Task { await backpack.turnOff() }
         } else {
             sheets.presentBackpack(backpack)
+        }
+    }
+
+    /// Every row as Backpack Mode's pushes read it: each project's terminals and tasks — what the Dock
+    /// badge counts, less the tasks on their way out — then the broadcast's.
+    func pushRows() -> [PushRow] {
+        PushRow.rows(sections: rows.sections, sessions: live.rowSessions, terminalWindows: rows.terminals.compactMapValues(\.windowId),
+                     skippingTasks: remover.leavingTasks)
+            + [PushRow.broadcast(state: state)].compactMap { $0 }
+    }
+
+    /// A push to the iPhone paired with iTerm2, through the helper: nil once it is out, else why not, as
+    /// the Backpack sheet says it — iTerm2's own sentence, or the helper's.
+    func sendPush(_ push: BackpackPush) async -> String? {
+        guard let daemon = helper.daemon else { return "AiTerm’s helper isn’t connected." }
+        do {
+            let result = try await daemon.notifyCompanion(title: push.title, body: push.body)
+            guard !result.sent else { return nil }
+            let reason = (result.reason ?? "iTerm2 didn’t send it").trimmingCharacters(in: .whitespacesAndNewlines)
+            return reason.hasSuffix(".") ? reason : reason + "."
+        } catch let error as DaemonError {
+            // A helper an updated AiTerm adopted from before `companion.notify`: say how to mend it, as
+            // the banner does for a mismatched helper — this line may be the only place it shows.
+            return error.isMismatch ? "AiTerm’s helper is from another version. Quit and reopen AiTerm.app." : error.userMessage
+        } catch {
+            return "AiTerm’s helper ran into a problem."
         }
     }
 
@@ -579,7 +612,7 @@ final class AppController {
 }
 
 extension AppController {
-    /// The real wiring: the person's `state.json`, `~/.claude` and `~/.codex`, the app's bundle, the
+    /// The real wiring: the person's `state.json`, Claude's folder and `~/.codex`, the app's bundle, the
     /// Keychain and a login shell for what they hold, modal alerts for questions, the Dock badge,
     /// Backpack Mode's live ports — `sudo pmset`, CoreWLAN, IOKit, CoreLocation — the Mac's load from Mach, and iTerm2 handed focus — AiTerm is frontmost when a row is chosen, so macOS lets it hand
     /// activation over. A caller that renders rather than runs (the snapshots) names what it
@@ -587,6 +620,7 @@ extension AppController {
     static func live(store: StateStore = StateStore(url: StateStore.defaultURL),
                      preferences: InterfacePreferences = InterfacePreferences(defaults: .standard),
                      harnessHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                     claudeConfig: ClaudeConfig = .loginShell,
                      bundledResourcesURL: URL? = Bundle.main.resourceURL,
                      locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { AgentAvailability.installed() },
                      setBadge: @escaping @MainActor (String?) -> Void = { NSApplication.shared.dockTile.badgeLabel = $0 },
@@ -609,7 +643,7 @@ extension AppController {
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      }) -> AppController {
-        AppController(store: store, preferences: preferences, harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL,
+        AppController(store: store, preferences: preferences, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,
@@ -623,7 +657,7 @@ extension AppController {
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
                       git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }))
+                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }, claudeConfig: claudeConfig))
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

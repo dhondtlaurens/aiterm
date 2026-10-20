@@ -49,6 +49,23 @@ import Foundation
         #expect(secrets.get("backpack.password") == nil)
     }
 
+    /// Notifies is remembered from trip to trip, unlike Turns off: it starts on Needs input.
+    @Test func pushesDefaultToNeedsInputAndRoundTrip() {
+        let defaults = ScratchDefaults.make()
+        let settings = BackpackSettings(defaults: defaults)
+        #expect(settings.pushes == .needsInput)
+        settings.pushes = .never
+        #expect(BackpackSettings(defaults: defaults).pushes == .never)
+        #expect(defaults.string(forKey: "backpack.pushes") == "never")
+    }
+
+    /// A value only another build knows reads as the default rather than as Never.
+    @Test func anUnknownPushesValueReadsAsTheDefault() {
+        let defaults = ScratchDefaults.make()
+        defaults.set("sometimes", forKey: "backpack.pushes")
+        #expect(BackpackSettings(defaults: defaults).pushes == .needsInput)
+    }
+
     @Test func theCutoffIsNoLongerAPreference() {
         #expect(BackpackSettings.cutoff == 10)
     }

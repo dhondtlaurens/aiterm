@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from . import protocol
-from .iterm_bridge import ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, use_cookie
+from .iterm_bridge import ItermApiIncompatible, ItermAuthFailed, ItermNotRunning, ItermPort, ItermUnavailable, use_cookie
 from .rpc_params import optional_param, param
 
 log = logging.getLogger(__name__)
@@ -134,7 +134,9 @@ class ItermSupervisor:
         try:
             await self._cookie_from_app()
             self.version = await self.iterm.connect()
-        except ItermAuthFailed as exc:
+        except (ItermAuthFailed, ItermApiIncompatible) as exc:
+            # Both refusals require intervention. Reuse the app's existing reason-bearing warning
+            # and snapshot fields; plain unavailability only logs and shows "Reconnecting…".
             await self._auth_failed(str(exc))
             return False
         except ItermUnavailable as exc:

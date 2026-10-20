@@ -43,6 +43,10 @@
       "window.closed": "event.window.closed.json"
     },
     "replies": {
+      "companion.notify": [
+        "reply.companion.notify.json",
+        "reply.companion.notify.refused.json"
+      ],
       "delivery.policy": [
         "reply.delivery.policy.json"
       ],
@@ -114,6 +118,7 @@
   },
   "maxFrameBytes": 1048576,
   "methods": [
+    "companion.notify",
     "delivery.policy",
     "interface.setMatchItermBackground",
     "iterm.provideCookie",

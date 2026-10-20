@@ -50,7 +50,8 @@ extension AppController {
     /// that expects one passes its own. The lookups come last, after `scan` and `confirmsRemoval`,
     /// which is also what tells this initializer from the designated one.
     convenience init(store: StateStore? = nil, preferences: InterfacePreferences,
-                     harnessHome: URL = ScratchHome.bare, bundledResourcesURL: URL? = nil,
+                     harnessHome: URL = ScratchHome.bare, claudeConfig: ClaudeConfig = ClaudeConfig(),
+                     bundledResourcesURL: URL? = nil,
                      prompter: Prompter = ScriptedPrompter(),
                      setBadge: @escaping @MainActor (String?) -> Void = { _ in },
                      activateIterm: @escaping @MainActor () -> Void = {}, launchIterm: @escaping @MainActor () -> Void = {},
@@ -75,7 +76,7 @@ extension AppController {
                      gitHubSettings: @escaping @Sendable () -> GitHubConfig? = { nil }) {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-test-state-\(UUID().uuidString).json")
         self.init(store: store ?? StateStore(url: scratch), preferences: preferences, harnessHome: harnessHome,
-                  bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
+                  claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents, findPython: findPython,
                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                   prompter: prompter, setBadge: setBadge, activateIterm: activateIterm, launchIterm: launchIterm,
                   itermRunning: itermRunning, bringForward: bringForward, backpackPorts: backpackPorts,

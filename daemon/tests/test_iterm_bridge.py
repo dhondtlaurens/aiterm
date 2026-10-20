@@ -717,6 +717,55 @@ async def test_a_refused_connection_is_plain_unavailability(monkeypatch):
     assert not isinstance(err.value, ItermAuthFailed)
 
 
+async def test_a_406_exit_is_unavailability_and_the_event_loop_keeps_running(monkeypatch):
+    from websockets.legacy.exceptions import InvalidStatusCode
+
+    monkeypatch.setattr(iterm_bridge, "request_cookie", lambda: None)
+
+    async def rejected(_self):
+        raise InvalidStatusCode(406, Headers())
+
+    # Keep async_create real: it raises SystemExit(1) while handling this handshake failure.
+    monkeypatch.setattr(iterm2.Connection, "_get_connect_coro", rejected)
+    bridge = ItermBridge()
+    with pytest.raises(ItermUnavailable) as err:
+        await bridge.connect()
+
+    reason = str(err.value)
+    assert "406" in reason and "Python API library" in reason
+    assert "Update AiTerm and iTerm2" in reason
+    assert not bridge.is_connected()
+    # Another attempt on the same loop still gets an ordinary, recoverable failure.
+    await asyncio.sleep(0)
+    with pytest.raises(ItermUnavailable, match="406"):
+        await bridge.connect()
+
+
+@pytest.mark.parametrize("failure,status", [
+    (SystemExit(1), None),
+    (SystemExit(1), 401),
+    (SystemExit(2), 406),
+    (KeyboardInterrupt(), 406),
+])
+async def test_connect_does_not_swallow_unrelated_exits_or_interrupts(monkeypatch, failure, status):
+    from websockets.legacy.exceptions import InvalidStatusCode
+
+    monkeypatch.setattr(iterm_bridge, "request_cookie", lambda: None)
+
+    async def interrupted():
+        if status is None:
+            raise failure
+        try:
+            raise InvalidStatusCode(status, Headers())
+        except InvalidStatusCode:
+            raise failure from None
+
+    monkeypatch.setattr(iterm2.Connection, "async_create", staticmethod(interrupted))
+    with pytest.raises(type(failure)) as err:
+        await ItermBridge().connect()
+    assert err.value is failure
+
+
 async def test_the_cookie_request_runs_off_the_event_loop(patched_connect, monkeypatch):
     # osascript can take seconds (or wait on a permission dialog); the loop must keep serving.
     import threading
@@ -1405,3 +1454,73 @@ async def test_monitor_epoch_exists_only_while_subscription_is_live(patched_conn
     await bridge.connect()
     assert bridge.keystroke_epoch() is not None and bridge.keystroke_epoch() is not first
     await bridge.close()
+
+
+def _invoke_reply(status: str | None = None, reason: str = "") -> iterm2.api_pb2.ServerOriginatedMessage:
+    """iTerm2's answer to an InvokeFunctionRequest: a success, as the push builtin answers with no
+    result, or an error with its status and reason."""
+    reply = iterm2.api_pb2.ServerOriginatedMessage()
+    if status is None:
+        reply.invoke_function_response.success.json_result = "null"
+    else:
+        reply.invoke_function_response.error.status = iterm2.api_pb2.InvokeFunctionResponse.Status.Value(status)
+        reply.invoke_function_response.error.error_reason = reason
+    return reply
+
+
+def _pushing_bridge(monkeypatch, reply: iterm2.api_pb2.ServerOriginatedMessage) -> tuple[ItermBridge, list[dict]]:
+    """A connected bridge whose function invocations are recorded and answered with `reply`."""
+    calls: list[dict] = []
+
+    async def invoke(connection, invocation, session_id=None, tab_id=None, window_id=None, timeout=-1, receiver=None):
+        calls.append({"connection": connection, "invocation": invocation, "session_id": session_id, "tab_id": tab_id,
+                      "window_id": window_id, "timeout": timeout, "receiver": receiver})
+        return reply
+
+    monkeypatch.setattr(iterm2.rpc, "async_invoke_function", invoke)
+    bridge = ItermBridge()
+    bridge._conn = object()  # type: ignore[assignment]
+    return bridge, calls
+
+
+async def test_the_invocation_quotes_its_arguments_as_json(monkeypatch):
+    """`it2 notify`'s own call: iTerm2's builtin, in app context, each argument a JSON string, so a
+    quote or a backslash stays inside it. iTerm2 is given 8 s, inside the bridge's own deadline."""
+    bridge, calls = _pushing_bridge(monkeypatch, _invoke_reply())
+    assert await bridge.send_companion_notification("AiTerm", 'say "hi" \\ there') is None
+    assert calls == [{"connection": bridge._conn,
+                      "invocation": 'iterm2.send_companion_notification(title: "AiTerm", body: "say \\"hi\\" \\\\ there")',
+                      "session_id": None, "tab_id": None, "window_id": None, "timeout": 8, "receiver": None}]
+
+
+async def test_itermss_refusal_is_its_own_reason(monkeypatch):
+    reason = "No paired companion device is registered for notifications."
+    bridge, _ = _pushing_bridge(monkeypatch, _invoke_reply("FAILED", reason))
+    assert await bridge.send_companion_notification("AiTerm", "Codex needs your input.") == reason
+
+
+@pytest.mark.parametrize("refusal", [
+    # What an iTerm2 before 3.7.5 answers the daemon, whose connection means its Python API is on.
+    "No function registered for invocation “iterm2.send_companion_notification(body,title)”. "
+    "Ensure the script is running and the function name and argument names are correct.",
+    # The same call's answer with the API off.
+    "Undefined function with signature “iterm2.send_companion_notification(body,title)”",
+])
+async def test_an_iterm_without_the_builtin_says_which_version_it_needs(monkeypatch, refusal):
+    bridge, _ = _pushing_bridge(monkeypatch, _invoke_reply("FAILED", refusal))
+    assert await bridge.send_companion_notification("AiTerm", "Codex needs your input.") == "Pushes need iTerm2 3.7.5 or later."
+
+
+async def test_itermss_timeout_says_it_did_not_send_in_time(monkeypatch):
+    bridge, _ = _pushing_bridge(monkeypatch, _invoke_reply("TIMEOUT"))
+    assert await bridge.send_companion_notification("AiTerm", "Codex needs your input.") == "iTerm2 did not send it within 8 s."
+
+
+async def test_a_refusal_without_a_reason_names_itermss_status(monkeypatch):
+    bridge, _ = _pushing_bridge(monkeypatch, _invoke_reply("REQUEST_MALFORMED"))
+    assert await bridge.send_companion_notification("AiTerm", "Codex needs your input.") == "iTerm2 answered REQUEST_MALFORMED."
+
+
+async def test_a_push_without_a_connection_is_unavailable():
+    with pytest.raises(ItermUnavailable):
+        await ItermBridge().send_companion_notification("AiTerm", "Codex needs your input.")

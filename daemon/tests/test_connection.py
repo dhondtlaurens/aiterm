@@ -150,6 +150,39 @@ async def test_refused_authentication_backs_off_is_reported_and_does_not_relaunc
         assert (await h.supervisor.status(None))["authError"] is None
 
 
+async def test_a_406_refusal_reaches_the_app_and_keeps_the_supervisor_running(harness, monkeypatch):
+    import iterm2
+    from websockets.datastructures import Headers
+    from websockets.legacy.exceptions import InvalidStatusCode
+
+    from aitermd import iterm_bridge
+
+    monkeypatch.setattr(iterm_bridge, "request_cookie", lambda: None)
+
+    async def rejected(_self):
+        raise InvalidStatusCode(406, Headers())
+
+    monkeypatch.setattr(iterm2.Connection, "_get_connect_coro", rejected)
+    bridge = iterm_bridge.ItermBridge()
+    h = harness(bridge)
+    await h.supervisor.start()
+    payload = await h.broadcasts.next("iterm.auth_failed")
+    reason = payload["reason"]
+    assert "406" in reason and "Update AiTerm and iTerm2" in reason
+    assert (await h.supervisor.status(None))["authError"] == reason
+    assert h.supervisor.snapshot_fields()["itermAuthError"] == reason
+    await wait_until(lambda: len(h.delays) >= 3)
+    assert h.launches == []
+
+    # Once a compatible connection succeeds, the app's stale warning is cleared.
+    async def connected():
+        return "3.7.2"
+
+    monkeypatch.setattr(bridge, "connect", connected)
+    assert await h.broadcasts.next("iterm.connected") == {"version": "3.7.2"}
+    assert (await h.supervisor.status(None))["authError"] is None
+
+
 async def test_refused_authentication_after_a_disconnect_is_broadcast_and_cleared_when_it_stops(harness):
     it = FakeIterm()
     h = harness(it, auth_backoff_cap_seconds=0.08)

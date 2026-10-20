@@ -72,6 +72,8 @@ public extension AgentKind {
         }
     }
 
+    func harness(claudeConfig: ClaudeConfig) -> Harness { self == .claude ? .claude(config: claudeConfig) : harness }
+
     var displayName: String { harness.displayName }
 }
 

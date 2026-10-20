@@ -130,7 +130,7 @@ struct Fixture {
     static func emptyController(scan: WorkspaceScan = WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [],
                                                                     removedTasks: [], remotes: [:])) -> AppController {
         let store = StateStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("aiterm-snapshots-\(UUID().uuidString).json"))
-        return AppController.live(store: store, preferences: preferences, harnessHome: home, locateAgents: { nil },
+        return AppController.live(store: store, preferences: preferences, harnessHome: home, claudeConfig: ClaudeConfig(), locateAgents: { nil },
                                   setBadge: { _ in }, activateIterm: {}, backpackPorts: .inert,
                                   machineSensor: InertMachineSensor(), scan: { _, _, _, _, _, _, _ in scan })
     }

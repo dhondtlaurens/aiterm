@@ -96,7 +96,8 @@ Settings. The steps it follows are in [docs/ai-install.md](docs/ai-install.md).
 
 - **Agent hooks** — nothing until you press **Install** on an agent's card in *Settings › Agents*;
   until then that agent's status does not reach the sidebar. Install merges hooks into
-  `~/.claude/settings.json` or `~/.codex/config.toml`, writes `~/.grok/hooks/aiterm.json` (plus
+  Claude's `settings.json` under the login shell's `$CLAUDE_CONFIG_DIR` (default `~/.claude`)
+  or `~/.codex/config.toml`, writes `~/.grok/hooks/aiterm.json` (plus
   Grok's status line in `~/.grok/config.toml`) or the PI extension, and adds a status-line bridge
   for Claude usage. A backup is kept next to every file it edits; the same card repairs or
   reinstalls them.

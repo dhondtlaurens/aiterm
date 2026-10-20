@@ -225,7 +225,13 @@ password, filled with the saved one as if typed (`caretAtEnd`) for the remembere
 for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
 while nothing is chosen. Under them “Turns off”, a `Select` in the Hotspot's column — “When agents
 stop” (the 2-minute idle grace) or “When I turn it off” — with “Either way, at 10 % battery.” as its
-`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. “On the
+`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. Beside
+it, in the Password's column, “Notifies”: what reaches the iPhone paired with iTerm2 (iTerm2 Buddy)
+while the lid is shut — “When agents need you”, “Also when they finish” or “Never” — over its own
+`HelpText`, “Through iTerm2 Buddy, naming only the agent.”, or, while it is not Never and the last push
+did not go out, “Last push failed.” and why, in the `.warning` tone. Each column's help sits under its
+own select. Unlike Turns off, Notifies is remembered: every sheet opens on the saved choice, and
+Connect saves it with the hotspot. “On the
 iPhone” follows as the hotspot's help: three `NumberedSteps`, `receded` (text in `Palette.muted`)
 once a hotspot is chosen, full again while a connect waits for it.
 Connect (⌘↩) is disabled until both permissions are granted and a hotspot is chosen; it runs in
@@ -507,8 +513,10 @@ while the CLI or the driver is missing, Repair while a check is amber, Reinstall
 Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
 is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the
 vendor's own installer and then the driver; over a present one it writes the driver whether or not
-it is already installed, so it can be overwritten. A Jira, GitLab or GitHub card holding saved
-credentials trails a Disconnect, which empties its fields and marks the service for removal: Save
+it is already installed, so it can be overwritten. Claude Code's card leads its fields with one
+`HelpText` line, `Configuration:` and the full path of the folder its settings, models and skills are
+read from: the login shell's `CLAUDE_CONFIG_DIR`, else `~/.claude`. A Jira, GitLab or GitHub card
+holding saved credentials trails a Disconnect, which empties its fields and marks the service for removal: Save
 removes the saved site or host and the Keychain token, Cancel keeps everything. Save is all or
 nothing: it checks every card before it writes any, so while one card cannot save (a mistyped URL)
 nothing is written at all — a Disconnect or a new connection on another card is not applied either —

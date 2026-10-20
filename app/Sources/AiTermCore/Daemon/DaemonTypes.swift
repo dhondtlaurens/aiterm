@@ -121,6 +121,8 @@ public struct DaemonError: Error, Equatable, LocalizedError, CustomStringConvert
 
 public struct DaemonSnapshot: Decodable, Equatable, Sendable {
     public let protocolVersion: Int
+    /// Acknowledges the app-resolved Claude folder. Older helpers omit it.
+    public var claudeConfigDirectory: String? = nil
     public let connected: Bool
     public let sessions: [SessionInfo]
     public let usage: UsageSnapshot
@@ -174,6 +176,14 @@ public struct DeliveryVerdict: Codable, Equatable, Sendable {
     public var policy: DeliveryPolicy
     public var version: String?
     public init(policy: DeliveryPolicy, version: String?) { self.policy = policy; self.version = version }
+}
+
+/// A push to the paired iPhone (`companion.notify`): sent — handed to iTerm2's push relay — or, when
+/// not, why, in iTerm2's words where it gave them.
+public struct CompanionPushResult: Codable, Equatable, Sendable {
+    public var sent: Bool
+    public var reason: String?
+    public init(sent: Bool, reason: String?) { self.sent = sent; self.reason = reason }
 }
 
 /// The prompt a session has open, as the daemon's screen markers classify it.

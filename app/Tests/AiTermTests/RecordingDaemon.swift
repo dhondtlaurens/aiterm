@@ -25,6 +25,8 @@ final class RecordingDaemon: DaemonCommands {
     /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
     var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
                                                           .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
+    /// Why `companion.notify` is not sent, in iTerm2's words; sent when nil.
+    var pushRefusal: String?
     private let holding: String?
     private var released = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -149,5 +151,11 @@ final class RecordingDaemon: DaemonCommands {
         params["result"] = result
         params["error"] = error
         try await answer("operator.reply", params)
+    }
+
+    /// Refused with `pushRefusal` when it is set, as iTerm2 refuses with no phone paired.
+    func notifyCompanion(title: String, body: String) async throws -> CompanionPushResult {
+        try await answer("companion.notify", ["title": title, "body": body])
+        return CompanionPushResult(sent: pushRefusal == nil, reason: pushRefusal)
     }
 }

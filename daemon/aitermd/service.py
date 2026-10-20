@@ -76,6 +76,9 @@ class Service:
         # `monotonic` times the orphan settle, and `path_missing` is its directory check, which runs
         # on a worker thread: a stat on a hung network mount must not stall the daemon.
         self.claude_files, self.codex_files, self.clock = claude_files, codex_files, clock
+        # Claude's folder as the app last named it, which a snapshot echoes as it was sent: the app compares
+        # the strings, and pathlib would spell some paths otherwise ("a/./b" as "a/b").
+        self._claude_directory: str | None = None
         self.supervisor = supervisor or ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count)
         self.registry = SessionRegistry()
         self.status = StatusEngine(self.registry, clock, monotonic)
@@ -177,8 +180,12 @@ class Service:
         r("operator.reply", self.operators.reply)
         r("usage.get", self._h_usage_get)
         r("interface.setMatchItermBackground", self.windows.set_match_iterm_background)
+        r("companion.notify", self._h_companion_notify)
 
     async def _h_snapshot(self, _p: Any) -> dict[str, Any]:
+        if isinstance(_p, dict) and "claudeConfigDirectory" in _p:
+            self._claude_directory = param(_p, "claudeConfigDirectory", str)
+            self.claude_files.configure(Path(self._claude_directory))
         try:
             await self.tick()
         except Exception:  # noqa: BLE001 - the last known registry beats no bootstrap at all
@@ -186,6 +193,8 @@ class Service:
         # No await between reading state and returning it. RpcServer writes the reply
         # before yielding, making it a barrier between earlier and later events.
         return {"protocolVersion": protocol.VERSION, **self.supervisor.snapshot_fields(),
+                "claudeConfigDirectory": self._claude_directory if self._claude_directory is not None
+                else str(self.claude_files.root.parent),
                 "sessions": [s.to_json() for s in self.registry.all()],
                 "usage": self.usage.snapshot()}
 
@@ -223,6 +232,18 @@ class Service:
 
     async def _h_usage_get(self, _p: Any) -> dict[str, Any]:
         return self.usage.snapshot()
+
+    async def _h_companion_notify(self, p: Any) -> dict[str, Any]:
+        """A push to the iPhone paired with iTerm2, for Backpack Mode: sent, or iTerm2's reason it was
+        not. The app words it to carry nothing private, so the log may name it."""
+        title, body = param(p, "title", str), param(p, "body", str)
+        require_iterm(self.iterm)
+        reason = await guard(self.iterm.send_companion_notification(title, body))
+        if reason is None:
+            log.info("pushed to the paired iPhone: %s", body)
+        else:
+            log.warning("iTerm2 did not push to the paired iPhone: %s", reason)
+        return {"sent": reason is None, "reason": reason}
 
     async def _h_deliver(self, p: Any) -> dict[str, Any]:
         session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)

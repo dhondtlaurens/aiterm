@@ -33,7 +33,8 @@ Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  Hoo
 ```
 
 - **Claude Code & Codex** — running in those iTerm2 tabs. Lifecycle hooks are merged into
-  `~/.claude/settings.json` and `~/.codex/config.toml` by the agent's Install action in
+  Claude's `settings.json` under the login shell's `$CLAUDE_CONFIG_DIR` (default `~/.claude`)
+  and `~/.codex/config.toml` by the agent's Install action in
   Settings › Agents — merge-only, with a backup, because Emdash owns hook slots in the same files.
 - **Grok Build** — command hooks, because Grok refuses `http://` hook URLs. AiTerm owns its whole
   hooks file, `~/.grok/hooks/aiterm.json`, rather than merging into one Emdash also touches; the
@@ -153,7 +154,7 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **The window closed.** It ends nothing: a broadcast under way goes `operatorOffline` and reads
   `paused · the Operator’s window is closed`. A click on its row opens the board and reopens the window
   behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
-  same frozen profile. When that conversation is gone from `~/.claude`, the board keeps a `Notice` in its
+  same frozen profile. When that conversation is gone from Claude's folder, the board keeps a `Notice` in its
   footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
@@ -290,6 +291,25 @@ failed join dropped; during one the attempt under way finishes, but no retry fol
 `disablesleep 0` succeeds: a failed restore is retried on every check, a launch that finds the
 marker puts sleep back, and quit closes the mode first, so no turn-on can follow it.
 
+While on, the check also pushes to the iPhone paired with iTerm2 (iTerm2 Buddy) through the helper's
+`companion.notify` — iTerm2 3.7.5's `iterm2.send_companion_notification` builtin, which `it2 notify`
+calls too. The sheet's Notifies chooses what: a row moving to needs input, to needs input or done, or
+never (`backpack.pushes`, remembered). Only to a person away — the lid shut — and only for a row that
+*moves* into a chosen status after Connect, whose rows the person has seen: a task or terminal row as
+the sidebar draws it, or the broadcast's row for what moves no task row — the Operator's question, a
+blocked task, a problem — and its debrief. `BackpackPushQueue` holds the first waiting row 30 s, then
+sends every row still waiting in one push; it sends at most one push per 5 minutes, and never the same
+row and status twice within 15 minutes (one asking again sooner goes once they have passed). Off the
+hotspot the rows are still followed, and an open lid still starts the queue over, but what comes due
+waits for the Mac to be back on it. The mode ending itself, with the lid shut and the Mac on the
+hotspot, sends at once what still waits and what moved since the last check, before the Mac sleeps;
+otherwise, and on opening the lid or turning the mode off, the queue starts over. A push is
+titled "AiTerm" and names the agent, or counts the rows: never a project, a task, a branch, a path or
+what an agent asks, as iTerm2 hands it to its push relay and to Apple as plain text and it lands on a
+lock screen. One that does not go out is not retried; the next sheet's Notifies says why. The push
+signals "come back": a tab waiting on input is not work, so with "When agents stop" the mode still
+ends 2 minutes after the last working tab.
+
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
 socket; the app's tests record it in process instead.
 
@@ -315,7 +335,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 
 | Command | What it does |
 |---|---|
-| `workspace.snapshot` | the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
+| `workspace.snapshot` | accepts the app-resolved `claudeConfigDirectory`, applies it before the tick, and echoes it as sent (also on adoption); the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
 | `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task the Operator starts opens behind your work |
 | `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |
@@ -332,6 +352,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
 | `operator.register` / `operator.revoke` | open and close `/operator` to a broadcast's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
+| `companion.notify` | Backpack Mode's push to the iPhone paired with iTerm2: iTerm2 3.7.5's `iterm2.send_companion_notification` builtin in app context, as `it2 notify` calls it, each argument a JSON string, iTerm2 given 8 s. `{sent, reason}`: the reason in iTerm2's words (no paired phone, notifications off in Buddy, the relay refusing), or "Pushes need iTerm2 3.7.5 or later." |
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of
@@ -409,8 +430,8 @@ each move into it the first time it is missing. Settings' Save still checks ever
 writes and puts back what it wrote when the Keychain refuses one.
 
 **Backpack Mode** — `/etc/sudoers.d/aiterm`, only once the Mac card's Allow… is pressed, and
-removed by its Remove; the hotspot's name and the crash marker in UserDefaults
-(`backpack.network`, `backpack.engaged`).
+removed by its Remove; the hotspot's name, Notifies' choice and the crash marker in UserDefaults
+(`backpack.network`, `backpack.pushes`, `backpack.engaged`).
 
 **Its own state** — `~/Library/Application Support/AiTerm/state.json` — projects, tasks,
 terminals, the Shelf (`AppState.archive`: each shelved task or review with when it went, written

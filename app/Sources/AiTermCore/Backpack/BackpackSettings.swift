@@ -17,6 +17,7 @@ public final class BackpackSettings: @unchecked Sendable {
         static let network = "backpack.network"
         static let engaged = "backpack.engaged"
         static let password = "backpack.password"
+        static let pushes = "backpack.pushes"
     }
 
     private let defaults: UserDefaults?
@@ -46,6 +47,14 @@ public final class BackpackSettings: @unchecked Sendable {
     public var network: String? {
         get { (read(Key.network) as? String).flatMap { $0.isEmpty ? nil : $0 } }
         set { write(newValue, Key.network) }
+    }
+
+    /// What reaches the iPhone while the lid is shut: the sheet's Notifies, saved by Connect as the
+    /// hotspot is. Unlike Turns off it is remembered — it can never keep a Mac awake in a bag. A value
+    /// this build does not know reads as the default.
+    public var pushes: BackpackPushes {
+        get { (read(Key.pushes) as? String).flatMap(BackpackPushes.init(rawValue:)) ?? .needsInput }
+        set { write(newValue.rawValue, Key.pushes) }
     }
 
     /// Set just before `disablesleep 1` and cleared just after `disablesleep 0`, so a launch after a

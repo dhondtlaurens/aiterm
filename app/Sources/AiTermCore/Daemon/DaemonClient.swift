@@ -506,6 +506,7 @@ public final class DaemonClient: Sendable {
     struct SessionTitlesParams: Encodable { var titles: [SessionTitle] }
     struct TaskParams: Encodable { var taskId: String }
     struct InterfaceParams: Encodable { var matchItermBackground: Bool }
+    struct NotifyParams: Encodable { var title, body: String }
     struct CookieParams: Encodable {
         var requestId: Int; var cookie, key, error: String?; var notRunning: Bool?
         init(requestId: Int, answer: ItermCookieAnswer) {
@@ -522,11 +523,19 @@ public final class DaemonClient: Sendable {
     /// The daemon's state, which is also yielded as `.snapshot` in the event stream: the daemon
     /// writes it with no pause after reading its state, so it is a barrier between the events
     /// before it and those after.
-    public func snapshot() async throws -> DaemonSnapshot {
-        let snapshot = try await request(.workspaceSnapshot, params: Optional<NoParams>.none, as: DaemonSnapshot.self,
+    public func snapshot() async throws -> DaemonSnapshot { try await snapshot(claudeConfigDirectory: nil) }
+
+    public func snapshot(claudeConfigDirectory: String?) async throws -> DaemonSnapshot {
+        struct Configuration: Encodable { let claudeConfigDirectory: String }
+        let params = claudeConfigDirectory.map { Configuration(claudeConfigDirectory: $0) }
+        let snapshot = try await request(.workspaceSnapshot, params: params, as: DaemonSnapshot.self,
                                          ordered: { .snapshot($0) }, isLivenessCheck: false)
         guard snapshot.protocolVersion == DaemonProtocol.version else {
             throw Self.logged(DaemonError(code: .incompatible, message: "The helper speaks protocol \(snapshot.protocolVersion), this app \(DaemonProtocol.version)"),
+                              .workspaceSnapshot)
+        }
+        if let claudeConfigDirectory, snapshot.claudeConfigDirectory != claudeConfigDirectory {
+            throw Self.logged(DaemonError(code: .incompatible, message: "The helper did not acknowledge Claude’s configuration directory"),
                               .workspaceSnapshot)
         }
         return snapshot
@@ -589,5 +598,8 @@ public final class DaemonClient: Sendable {
     }
     public func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {
         _ = try await request(.operatorReply, params: OperatorReplyParams(requestId: requestId, result: result, error: error), as: Empty.self)
+    }
+    public func notifyCompanion(title: String, body: String) async throws -> CompanionPushResult {
+        try await request(.companionNotify, params: NotifyParams(title: title, body: body), as: CompanionPushResult.self)
     }
 }

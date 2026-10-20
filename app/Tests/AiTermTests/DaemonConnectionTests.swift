@@ -321,3 +321,58 @@ private final class Attempts: Sendable {
     var all: [Int] { asked.withLock { $0 } }
     func record(_ attempt: Int) { asked.withLock { $0.append(attempt) } }
 }
+
+extension AppControllerTests {
+    @Test func everyConnectionSendsTheAppsClaudeDirectoryBeforeItsSnapshot() async throws {
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let server = try await PythonSocketServer.start(script: """
+import json,socket,sys
+path,log=sys.argv[1:]
+s=socket.socket(socket.AF_UNIX);s.bind(path);s.listen()
+for _ in range(2):
+ c,_=s.accept()
+ with c:
+  message=json.loads(c.makefile('rb').readline())
+  with open(log,'a') as f: f.write(json.dumps(message)+'\\n')
+  result={'protocolVersion':1,'connected':False,'sessions':[],'usage':{'claude':None,'codex':None},'claudeConfigDirectory':message['params']['claudeConfigDirectory']}
+  c.sendall((json.dumps({'id':message['id'],'result':result})+'\\n').encode())
+""", arguments: [log.path])
+        let directory = "/tmp/Claude Profile"
+        let connection = DaemonConnection(socketPath: server.path, claudeConfigDirectory: directory,
+                                          onClient: { _ in }, onStatus: { _ in }, onEvent: { _ in }, backoff: { _ in 0.01 })
+        defer { connection.stop(); server.stop(); try? FileManager.default.removeItem(at: log) }
+        connection.start()
+        await eventually { ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count == 2 }
+        let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+        #expect(lines.count == 2)
+        for line in lines {
+            let request = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+            #expect(request["method"] as? String == "workspace.snapshot")
+            #expect((request["params"] as? [String: String])?["claudeConfigDirectory"] == directory)
+        }
+    }
+}
+
+extension AppControllerTests {
+    @Test func anOlderHelperCannotSilentlyIgnoreTheClaudeDirectory() async throws {
+        let server = try await PythonSocketServer.start(script: """
+import json,socket,sys
+s=socket.socket(socket.AF_UNIX);s.bind(sys.argv[1]);s.listen()
+c,_=s.accept()
+with c:
+ for line in c.makefile('rb'):
+  message=json.loads(line)
+  result={'protocolVersion':1,'connected':False,'sessions':[],'usage':{'claude':None,'codex':None}}
+  c.sendall((json.dumps({'id':message['id'],'result':result})+'\\n').encode())
+""")
+        var mismatch = false, attached = false
+        let connection = DaemonConnection(socketPath: server.path, claudeConfigDirectory: "/tmp/Claude Profile",
+                                          onClient: { if $0 != nil { attached = true } },
+                                          onStatus: { if $0 == .helperMismatch { mismatch = true } }, onEvent: { _ in })
+        defer { connection.stop(); server.stop() }
+        connection.start()
+        await eventually { mismatch || attached }
+        #expect(mismatch)
+        #expect(!attached)
+    }
+}
