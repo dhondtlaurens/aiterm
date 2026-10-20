@@ -284,14 +284,14 @@ import Foundation
         #expect(throws: OperatedTransitionError.endIsCommit) { try apply(.publish(publication), commit, m3) }
     }
 
-    @Test(arguments: [OperatedState.planned, .queued, .working, .blocked, .failed])
+    @Test(arguments: [OperatedState.planned, .queued, .working, .blocked, .failed, .accepted])
     func youStopAnyOpenTask(_ state: OperatedState) throws {
         let stopped = try apply(.stop, F.operated("A", state), by: .you, OperatedContext(runState: .paused, retryLimit: 2, milestone: .m1))
         #expect(stopped.state == .stopped)
         #expect(try apply(.stop, stopped, by: .you) == stopped)
     }
 
-    @Test(arguments: [OperatedState.accepted, .noChange, .published])
+    @Test(arguments: [OperatedState.noChange, .published])
     func anEndedTaskCannotBeStopped(_ state: OperatedState) {
         #expect(throws: OperatedTransitionError.notAllowed(action: "be stopped", from: state)) {
             try apply(.stop, F.operated("A", state), by: .you)
@@ -300,7 +300,7 @@ import Foundation
 
     @Test func refusalsReadAsTheToolsAnswer() {
         #expect(OperatedTransitionError.notAllowed(action: "be stopped", from: .accepted).description == "A task that is accepted can't be stopped.")
-        #expect(OperatedTransitionError.runIs(.paused).description == "The operation is paused.")
+        #expect(OperatedTransitionError.runIs(.paused).description == "The broadcast is paused.")
     }
 
     @Test func shortAndFullSHAsNameOneCommit() {

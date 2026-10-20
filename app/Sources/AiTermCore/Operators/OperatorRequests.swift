@@ -34,7 +34,7 @@ public enum OperatorRequests {
     public static func open(run: OperatorRun, state: AppState, prompts: [UUID: String]) -> [BroadcastRequest] {
         guard run.state != .stopped, run.intent != .stopped else { return [] }
         let tasks = state.tasks(inRun: run.id)
-        let takenOver = Set(tasks.filter { $0.operated?.takenOver == true }.map(\.id))
+        let takenOver = Set(tasks.filter { $0.operated?.takenOver == true || $0.operated.map(SidebarModel.isFinished) == true }.map(\.id))
         var requests: [BroadcastRequest] = []
 
         for task in tasks where !takenOver.contains(task.id) {
@@ -45,10 +45,10 @@ public enum OperatorRequests {
                 let said = prompts[task.id].map { "\(agent) asks to \($0)" } ?? recorded?.text ?? "\(agent) waits for input"
                 requests.append(BroadcastRequest(kind: .permission, runId: run.id, taskId: task.id, text: sentence("\(said) in \(task.title)")))
             }
-            if operated.problem != nil {
+            if operated.problem != nil || operated.publication?.problem != nil {
                 // The banner's sentence is the reason a blocked task keeps; one that kept its state has only the issue.
-                let said = operated.blockedReason.map(lowercasingFirst) ?? "problem is shown in the banner"
-                requests.append(BroadcastRequest(kind: .problem, runId: run.id, taskId: task.id, text: sentence("\(task.title)’s \(said)")))
+                let said = operated.publication?.problem ?? operated.blockedReason ?? "The problem is shown in the banner"
+                requests.append(BroadcastRequest(kind: .problem, runId: run.id, taskId: task.id, text: sentence("\(task.title): \(said)")))
             } else if operated.state == .blocked {
                 let reason = operated.blockedReason ?? "it needs you"
                 requests.append(BroadcastRequest(kind: .blocked, runId: run.id, taskId: task.id, text: sentence("\(task.title) is blocked: \(reason)")))
@@ -67,7 +67,4 @@ public enum OperatorRequests {
         return trimmed.hasSuffix(".") ? trimmed : trimmed + "."
     }
 
-    static func lowercasingFirst(_ text: String) -> String {
-        text.prefix(1).lowercased() + text.dropFirst()
-    }
 }

@@ -72,11 +72,11 @@ import Testing
         #expect(world.state.tasks.first?.model == "gpt-6-mini", "update_task checks the list too")
     }
 
-    @Test func endDefaultsToDraftMR() async throws {
+    @Test func endDefaultsToCommitWithoutAConnectedHost() async throws {
         let (world, run) = try makeWorld()
         _ = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "codex",
                                                      "modelReason": "The default."])
-        #expect(operated(world, "A")?.end == .draftMR)
+        #expect(operated(world, "A")?.end == .commit)
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.done = "A commit per item, tests green." } }
         _ = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "codex",
                                                      "modelReason": "The default."])
@@ -90,7 +90,7 @@ import Testing
     /// No project joins a broadcast: a task goes in one of the run's own.
     @Test func aProjectOutsideTheRunIsRefused() async throws {
         let (world, run) = try makeWorld()
-        #expect(await create(world, run, "C", project: "Docs").message == "Docs isn’t one of this operation’s projects: Shop, Web.")
+        #expect(await create(world, run, "C", project: "Docs").message == "Docs isn’t one of this broadcast’s projects: Shop, Web.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
     }
 
@@ -218,10 +218,10 @@ import Testing
 
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {
         let (world, run) = try makeWorld()
-        #expect(await create(world, run, "A", project: "Elsewhere").message == "Elsewhere isn’t one of this operation’s projects: Shop, Web.")
+        #expect(await create(world, run, "A", project: "Elsewhere").message == "Elsewhere isn’t one of this broadcast’s projects: Shop, Web.")
         let grok = await world.call(run.id, "create_task", ["key": "B", "title": "B", "brief": "b", "project": "Shop", "agent": "grok",
                                                             "modelReason": "m"])
-        #expect(grok.message == "An operator’s task runs claude or codex.")
+        #expect(grok.message == "The Operator’s task runs claude or codex.")
         #expect(world.state.tasks.isEmpty)
     }
 
@@ -274,7 +274,14 @@ import Testing
 
     /// M3 carries out every end; a stacked task whose end its parent can't carry is refused with the reason.
     @Test func aPlanWhoseStackedEndItsParentCannotCarryIsRefusedWithTheReason() async throws {
-        let (world, run) = try makeWorld(milestone: .m3)
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        var profile = OperatorServiceFixtures.profile()
+        profile.slices.merge = true
+        let run = OperatorServiceFixtures.run(profile, projects: [project])
+        let host = FakeMergeHost()
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.publisher = { _ in host } }
+        world.link.attached = false
         _ = await create(world, run, "A")
         _ = await create(world, run, "B", end: "draftMR", dependsOn: [["task": "A", "kind": "code"]])
         let why = try #require(PlanEndRules.refusal(for: world.state.tasks))
@@ -357,9 +364,9 @@ import Testing
         let (world, run) = try makeWorld()
         let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "grok",
                                                                "modelReason": "m"])
-        #expect(refused.message == "An operator’s task runs claude or codex.")
+        #expect(refused.message == "The Operator’s task runs claude or codex.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id] && world.state.tasks.isEmpty)
-        #expect(await create(world, run, "B", project: "Shop", end: "nonsense").message == "A task’s end is commit, draftMR or merge.")
+        #expect(await create(world, run, "B", project: "Shop", end: "nonsense").message == "A task’s end is commit, draftMR, merge or mergeLocal.")
         #expect(world.run(run.id)?.projectIds == [project.id, other.id])
         #expect(world.state.tasks.isEmpty)
     }
@@ -369,4 +376,33 @@ import Testing
 private extension Array {
     /// The one element, or nil when there are none or several.
     var only: Element? { count == 1 ? first : nil }
+}
+
+extension OperatorPlanToolsTests {
+    @Test func forbiddenEndsAreRefusedBeforeTasksStart() async throws {
+        let (world, run) = try makeWorld(milestone: .m3)
+        for end in ["merge", "mergeLocal"] {
+            #expect(await create(world, run, "A", end: end).message == "Merge is off for this broadcast: end it at a commit or a draft MR.")
+        }
+        #expect(await create(world, run, "A", end: "draftMR").message == "Shop has no connected code host: end it at a commit.")
+        #expect(world.state.tasks.isEmpty)
+        _ = await create(world, run, "A")
+        #expect(await world.call(run.id, "update_task", ["task": "A", "end": "merge"]).message == "Merge is off for this broadcast: end it at a commit or a draft MR.")
+        #expect(await world.call(run.id, "update_task", ["task": "A", "end": "draftMR"]).message == "Shop has no connected code host: end it at a commit.")
+        #expect(operated(world, "A")?.end == .commit)
+    }
+}
+
+extension OperatorPlanToolsTests {
+    @Test func anOriginWithoutAConnectionRefusesRemoteEndsAndAConnectedOneDefaultsToDraft() async throws {
+        let fixture = try GitFixture.withOrigin(branch: "feat/source")
+        let project = OperatorServiceFixtures.project(path: fixture.path)
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let disconnected = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        #expect(await create(disconnected, run, "A", end: "draftMR").message == "Shop has no connected code host: end it at a commit.")
+        let host = FakeMergeHost()
+        let connected = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.publisher = { _ in host } }
+        _ = await connected.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "codex", "modelReason": "The default."])
+        #expect(operated(connected, "A")?.end == .draftMR)
+    }
 }

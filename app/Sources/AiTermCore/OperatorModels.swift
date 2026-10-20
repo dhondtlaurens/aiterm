@@ -53,6 +53,9 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     private var preservedFields = PreservedFields()
     /// The commit pushed to the task's own branch on origin: the accepted one.
     public var pushedSHA: String?
+    /// Publication permanently left to the person for this broadcast.
+    public var leftForYou: Bool = false
+    public var waitingReason: String?
     /// The merge or pull request opened for it, and its number on its host.
     public var mergeRequestURL: String?
     public var mergeRequestNumber: Int?
@@ -87,16 +90,16 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
-                repository: String? = nil) {
+                repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
-        self.repository = repository
+        self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsHeld, repository
+        case conditionsHeld, repository, leftForYou, waitingReason
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -116,6 +119,8 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
         conditionsHeld = try c.decodeIfPresent(String.self, forKey: .conditionsHeld)
         repository = try c.decodeIfPresent(String.self, forKey: .repository)
+        leftForYou = try c.decodeIfPresent(Bool.self, forKey: .leftForYou) ?? false
+        waitingReason = try c.decodeIfPresent(String.self, forKey: .waitingReason)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -133,6 +138,8 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encodeIfPresent(conditionsHeld, forKey: .conditionsHeld)
         try c.encodeIfPresent(repository, forKey: .repository)
+        try c.encode(leftForYou, forKey: .leftForYou)
+        try c.encodeIfPresent(waitingReason, forKey: .waitingReason)
     }
 }
 
@@ -486,6 +493,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var questions: [OperatorQuestion], decisions: [OperatorDecision]
     /// The off-brief finds, for the debrief; and what the slices kept the Operator from doing.
     public var finds: [OffBriefFind], leftForYou: [String]
+    public var leftForYouRecords: [String: String]?
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
     public var jiraCreated: [String: String]
     /// The review threads `reply_thread` answered, by the key the Operator gave the call: the same key again posts nothing.
@@ -512,6 +520,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
         self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
+        self.leftForYouRecords = nil
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
         self.threadReplies = threadReplies; self.pendingWrites = pendingWrites
@@ -520,7 +529,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
-        case firstPlanSize, questions, decisions, finds, leftForYou, challenges, operatorConversation, operatorWindowId
+        case firstPlanSize, questions, decisions, finds, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, jiraCreated, threadReplies, pendingWrites, createdAt
     }
 
@@ -545,6 +554,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         decisions = try c.decodeIfPresent([OperatorDecision].self, forKey: .decisions) ?? []
         finds = try c.decodeIfPresent([OffBriefFind].self, forKey: .finds) ?? []
         leftForYou = try c.decodeIfPresent([String].self, forKey: .leftForYou) ?? []
+        leftForYouRecords = try c.decodeIfPresent([String: String].self, forKey: .leftForYouRecords)
         challenges = try c.decodeIfPresent([ChallengeRecord].self, forKey: .challenges) ?? []
         operatorConversation = try c.decodeIfPresent(String.self, forKey: .operatorConversation)
         operatorWindowId = try c.decodeIfPresent(String.self, forKey: .operatorWindowId)
@@ -577,6 +587,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(decisions, forKey: .decisions)
         try c.encode(finds, forKey: .finds)
         try c.encode(leftForYou, forKey: .leftForYou)
+        try c.encodeIfPresent(leftForYouRecords, forKey: .leftForYouRecords)
         try c.encode(challenges, forKey: .challenges)
         try c.encodeIfPresent(operatorConversation, forKey: .operatorConversation)
         try c.encodeIfPresent(operatorWindowId, forKey: .operatorWindowId)

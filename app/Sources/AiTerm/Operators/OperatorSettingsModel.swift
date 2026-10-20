@@ -173,6 +173,7 @@ extension OperatorSettingsModel {
                      skills: @escaping @Sendable (AgentKind) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: nil) }) -> OperatorSettingsModel {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let store = defaults
+        let installedNow = installed()
         return OperatorSettingsModel(installed: installed, load: {
             var models: [AgentKind: [AgentModel]] = [:], agentDefaults: [AgentKind: ModelPreference] = [:]
             for agent in oracleAgents {
@@ -186,7 +187,7 @@ extension OperatorSettingsModel {
             for agent in skillAgents {
                 for item in skills(agent) where seen.insert(item.name).inserted { found.append(item) }
             }
-            return Loaded(profile: OperatorProfileStore.load(store, claudeDefault: claude), models: models,
+            return Loaded(profile: OperatorProfileStore.load(store, claudeDefault: claude, installed: installedNow), models: models,
                           agentDefaults: agentDefaults, skills: found)
         }, save: { OperatorProfileStore.save($0, store) })
     }

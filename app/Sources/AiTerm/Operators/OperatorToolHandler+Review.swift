@@ -149,7 +149,7 @@ extension OperatorToolHandler {
     /// `read_task` with `what: review`: the agent review's findings, and for a task with a request people
     /// review, its threads, its approvals and who was asked, read from the host now.
     func reviewReading(_ task: TaskItem, in run: OperatorRun) async throws -> JSONValue {
-        guard let operated = task.operated else { throw ToolRefusal("\(task.title) isn’t this operation’s.") }
+        guard let operated = task.operated else { throw ToolRefusal("\(task.title) isn’t this broadcast’s.") }
         var answer: [String: JSONValue] = ["agentReview": operated.agentReview.map { Self.reviewAnswer($0, started: false) } ?? .null]
         guard let number = operated.publication?.mergeRequestNumber, operated.state == .inReview || operated.peopleReview != nil else {
             return .object(answer)
@@ -258,11 +258,11 @@ extension OperatorToolHandler {
     func writeCheck(_ original: TaskItem, number: Int, in runId: UUID) -> @Sendable () async throws -> Void {
         { @MainActor [weak self] in
             guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
-            guard let run = state.run(id: runId) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+            guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
             try acceptsWork(run)
             guard run.profile.slices.review else { throw ToolRefusal(Self.sliceOff) }
             guard let task = state.task(id: original.id), task.operated?.runId == runId else {
-                throw ToolRefusal("This task is no longer in this operation.")
+                throw ToolRefusal("This task is no longer in this broadcast.")
             }
             let operated = try notTakenOver(task)
             guard operated.ownership == original.operated?.ownership, operated.publication?.mergeRequestNumber == number,

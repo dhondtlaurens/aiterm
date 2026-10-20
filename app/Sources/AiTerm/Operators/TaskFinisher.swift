@@ -144,10 +144,30 @@ final class TaskFinisher {
     /// A publication's step, and what the Merge slice kept from happening left for you once (spec §5).
     private func advance(_ id: UUID, restart: Bool) async -> Result {
         let result = await publish(id, restart: restart)
-        if result.result == "refused", result.reason == PublicationGuard.mergeSliceOff, let operated = store.state.task(id: id)?.operated {
-            leaveForYou(PublicationGuard.mergeLeftForYou(operated), in: operated.runId)
+        if result.result == "refused", let reason = result.reason,
+           let task = store.state.task(id: id), let operated = task.operated,
+           operated.state == .accepted, Self.permanent(reason) {
+            let project = store.state.project(id: task.projectId)?.name ?? "its project"
+            let remaining = operated.end.merges ? "Merge \(task.branch) in \(project)" : "Push \(task.branch) in \(project) and open its merge request"
+            let sentence = "\(remaining): \(reason)"
+            store.mutate { state in
+                state.updateOperated(id) {
+                    var publication = $0.publication ?? TaskPublication()
+                    publication.leftForYou = true
+                    publication.problem = nil
+                    $0.publication = publication
+                }
+                state.updateRun(id: operated.runId) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
+            }
+            _ = store.flush()
         }
         return result
+    }
+
+    private static func permanent(_ reason: String) -> Bool {
+        reason == PublicationGuard.mergeSliceOff || reason == PublishRefusal.noOrigin.localizedDescription
+            || reason.contains("no connected code host") || reason.contains("protected on the host")
+            || reason.contains("branch is the default branch")
     }
 
     /// `sentence` in the run's Left for you, once.
@@ -169,6 +189,7 @@ final class TaskFinisher {
         }
         let task = first.task, operated = first.operated, project = first.project
         // What is done is answered from the record, whatever the host's connection is now.
+        if operated.publication?.leftForYou == true { return Result(operated.publication, result: "leftForYou", reason: nil) }
         if operated.state == .published || operated.publication?.merged == true {
             return apply(.published(operated.publication ?? TaskPublication()), to: id)
         }
@@ -193,7 +214,10 @@ final class TaskFinisher {
         }
         let host: any MergeRequestPublishing
         do { host = try connect(remote) }
-        catch { return Result(store.state.task(id: id)?.operated?.publication, result: "refused", reason: Self.unavailable(error)) }
+        catch {
+            let reason = error is MergeRequestSearch.Unavailable ? "\(project.name) has no connected code host." : Self.unavailable(error)
+            return Result(store.state.task(id: id)?.operated?.publication, result: "refused", reason: reason)
+        }
         // Read fresh: the checks above awaited git.
         guard let current = context(of: id) else { return Result(result: "refused", reason: PublicationGuard.gone) }
         let ownership = current.operated.ownership, accepted = current.operated.acceptance?.resultSHA ?? ""
@@ -344,6 +368,8 @@ final class TaskFinisher {
             _ = store.flush()
             return Result(publication, result: "published", reason: nil)
         case .waiting(let publication, let why):
+            store.mutate { $0.updateOperated(id) { $0.publication?.waitingReason = why } }
+            _ = store.flush()
             watch(id)
             return Result(publication, result: "waitingToMerge", reason: why)
         case .blocked(let publication, let why):

@@ -24,9 +24,9 @@ public enum PlanRevision {
 
         public var description: String {
             switch self {
-            case .unknownRun(let id): return "There's no operation \(id.uuidString)."
-            case .unknownTask(let id): return "There's no task \(id.uuidString) in this operation."
-            case .runIs(let state): return "The operation is \(state.rawValue)."
+            case .unknownRun(let id): return "There's no broadcast \(id.uuidString)."
+            case .unknownTask(let id): return "There's no task \(id.uuidString) in this broadcast."
+            case .runIs(let state): return "The broadcast is \(state.rawValue)."
             case .unknownRevision(let open, let asked): return "Revision \(asked) isn't open; the open revision is \(open)."
             case .nothingSubmitted: return "No plan has been submitted yet."
             case .unsupportedEnd(let key, let end):
@@ -34,10 +34,10 @@ public enum PlanRevision {
             case .endsDisagree(let why): return why
             case .tooManyCodeParents(let key): return "\(key) builds on more than one task's code; a task can stack on one."
             case .codeParentInAnotherProject(let key): return "\(key) builds on code in another project; a code dependency stays in one project."
-            case .unknownDependency(let key): return "\(key) depends on a task that isn't in this operation."
+            case .unknownDependency(let key): return "\(key) depends on a task that isn't in this broadcast."
             case .cycle(let keys): return "The dependencies go round in a circle: \(keys.joined(separator: ", "))."
             case .started(let key): return "\(key) has started; steer it with message_task instead."
-            case .duplicateTask(let key): return "\(key) appears twice in this operation under one task id; the plan can't be read until that is fixed."
+            case .duplicateTask(let key): return "\(key) appears twice in this broadcast under one task id; the plan can't be read until that is fixed."
             }
         }
     }

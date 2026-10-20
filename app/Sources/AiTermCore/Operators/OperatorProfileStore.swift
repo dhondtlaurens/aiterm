@@ -7,9 +7,11 @@ public enum OperatorProfileStore {
 
     /// The saved profile; before the first save, or when what is saved cannot be read, Claude's default
     /// model with every slice off, the standard Oracle and no instructions.
-    public static func load(_ defaults: UserDefaults = .standard, claudeDefault: (model: String, reasoning: String?)) -> OperatorProfile {
+    public static func load(_ defaults: UserDefaults = .standard, claudeDefault: (model: String, reasoning: String?), installed: Set<AgentKind> = Set(AgentKind.allCases)) -> OperatorProfile {
         if let data = defaults.data(forKey: key), let saved = try? JSONDecoder().decode(OperatorProfile.self, from: data) { return saved }
-        return OperatorProfile(model: claudeDefault.model, reasoning: claudeDefault.reasoning)
+        var profile = OperatorProfile(model: claudeDefault.model, reasoning: claudeDefault.reasoning)
+        profile.oracle.isOn = installed.contains(.codex)
+        return profile
     }
 
     public static func save(_ profile: OperatorProfile, _ defaults: UserDefaults = .standard) {

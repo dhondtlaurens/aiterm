@@ -71,7 +71,7 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
         case .notAllowed(let action, let from): return "A task that is \(from.rawValue) can't \(action)."
         case .wrongActor(let action, let actor): return "\(action) isn't for \(actor.rawValue)."
         case .takenOver: return "You took this task over; it's refused until you hand it back."
-        case .runIs(let state): return "The operation is \(state.rawValue)."
+        case .runIs(let state): return "The broadcast is \(state.rawValue)."
         case .notInRevision(let released, let revision):
             return "The task changed in plan revision \(revision); revision \(released) doesn't release it."
         case .missingEvidence: return "Accepting needs the result SHA and the worker's check output."
@@ -83,8 +83,8 @@ public enum OperatedTransitionError: Error, Equatable, CustomStringConvertible {
         case .notInThisMilestone(let end): return "This version of AiTerm can't carry out a \(end.displayName) yet."
         case .publishedSHANotAccepted(let sha): return "\(sha) isn't the accepted SHA."
         case .unknownTask(let id): return "There's no task \(id.uuidString)."
-        case .notOperated(let id): return "Task \(id.uuidString) isn't in an operation."
-        case .unknownRun(let id): return "There's no operation \(id.uuidString)."
+        case .notOperated(let id): return "Task \(id.uuidString) isn't in a broadcast."
+        case .unknownRun(let id): return "There's no broadcast \(id.uuidString)."
         }
     }
 }
@@ -197,7 +197,7 @@ public enum OperatedTransitions {
 
         case .stop:
             if task.state == .stopped { return task }
-            guard task.state.isOpen else { throw refuse() }
+            guard task.state.isOpen || (task.state == .accepted && task.publication?.leftForYou != true) else { throw refuse() }
             next.state = .stopped
             next.blockedFrom = nil
             next.flags.subtract([.possiblyStalled, .waitingOnYou])

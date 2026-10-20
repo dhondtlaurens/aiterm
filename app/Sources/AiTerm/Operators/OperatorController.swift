@@ -138,8 +138,8 @@ final class OperatorController {
             ports.weeklyUsage = { [live] in SidebarModel.weeklyUsage(live.usage, now: now()) }
         }
         if ports.profile == nil {
-            let models = ports.agentModels
-            ports.profile = { OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: models?(.claude) ?? [])) }
+            let models = ports.agentModels, installed = ports.installedAgents?() ?? Set(AgentKind.allCases)
+            ports.profile = { OperatorProfileStore.load(claudeDefault: OperatorProfileStore.claudeDefault(models: models?(.claude) ?? []), installed: installed) }
         }
         self.workspace = workspace
         self.live = live
@@ -315,7 +315,7 @@ final class OperatorController {
     func settle(_ id: UUID) {
         guard let run = run(id: id), run.state == .active, RunScheduler.isComplete(run, in: workspace.state) else { return }
         mutateRun(id) { $0.state = .complete }
-        waker.say("operation complete", to: id)
+        waker.say("broadcast complete", to: id)
     }
 
     // -- starting ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ final class OperatorController {
     /// The brief and the MCP file stay. Best effort, logged when it fails.
     private func discardToken(in folder: URL) async {
         let file = folder.appendingPathComponent(OperatorCommand.tokenFile)
-        await Log.workspace.attempt("Removing the token file of an operation that did not start") {
+        await Log.workspace.attempt("Removing the token file of a broadcast that did not start") {
             try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
         }
     }
@@ -452,13 +452,13 @@ final class OperatorController {
         registering = Task {
             for (id, folder) in open {
                 guard let token = await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) else { continue }
-                await Log.daemon.attempt("Registering the token of operation \(id.uuidString)") {
+                await Log.daemon.attempt("Registering the token of broadcast \(id.uuidString)") {
                     try await daemon.registerOperator(runId: id.uuidString, token: token)
                 }
             }
             for (id, folder) in ended {
                 guard await BackgroundWork.run({ OperatorCommand.existingToken(in: folder) }) != nil else { continue }
-                await Log.daemon.attempt("Revoking the token of operation \(id.uuidString)") {
+                await Log.daemon.attempt("Revoking the token of broadcast \(id.uuidString)") {
                     try await daemon.revokeOperator(runId: id.uuidString)
                 }
             }
@@ -589,7 +589,7 @@ final class OperatorController {
         guard let operated = workspace.state.task(id: id)?.operated, let run = run(id: operated.runId) else { return }
         let key = "merged-on-host-\(id.uuidString)"
         guard !run.questions.contains(where: { $0.id == key }) else { return }
-        let question = OperatorQuestion(id: key, text: "\(why) AiTerm publishes nothing more of it or on top of it: decide how the operation goes on.",
+        let question = OperatorQuestion(id: key, text: "\(why) AiTerm publishes nothing more of it or on top of it: decide how the broadcast goes on.",
                                         task: id, askedAt: ports.now(), resolution: nil)
         workspace.mutate { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }

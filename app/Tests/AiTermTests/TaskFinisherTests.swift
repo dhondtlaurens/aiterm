@@ -292,7 +292,7 @@ final class MergeClock: Sendable {
     @Test func aHostThatIsNotConnectedIsRefusedBeforeAnythingIsPushed() async throws {
         let s = try setUp(end: .draftMR, connect: { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) })
         let result = await s.finisher.finish(s.task)
-        #expect(result == TaskFinisher.Result(result: "refused", reason: "Connect GitLab in Settings › Integrations first.",
+        #expect(result == TaskFinisher.Result(result: "refused", reason: "acme-web has no connected code host.",
                                               mergeRequest: nil, pushedSHA: nil, merged: false, mergedSHA: nil))
         #expect((try? git.run(["rev-parse", "--verify", "--quiet", "refs/heads/feat/pluto-231"], in: s.origin)) == nil)
     }
@@ -341,7 +341,9 @@ final class MergeClock: Sendable {
         let result = await s.finisher.finish(s.task)
         #expect(result.result == "refused" && result.reason == "The Merge slice is off for this broadcast.")
         _ = await s.finisher.finish(s.task)
-        #expect(s.store.state.run(id: s.run)?.leftForYou == ["Merge PLUTO-231: the Merge slice is off."], "said once")
+        #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1, "said once")
+        #expect(operated(s)?.publication?.leftForYou == true)
+        #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
         #expect(s.host.log.isEmpty && s.remotes.all.isEmpty, "no host asked")
         #expect(try git.run(["for-each-ref", "refs/heads/feat/pluto-231"], in: s.origin).isEmpty, "nothing pushed")
     }
@@ -528,5 +530,27 @@ final class MergeClock: Sendable {
         #expect(world.notifications.posted.contains { $0.body.contains("merged on the host") }, "you are notified at once")
         #expect(world.controller.finisher.watching.isEmpty)
         #expect(world.run(run)?.state == .active, "an open question keeps the operation from completing")
+    }
+}
+
+extension TaskFinisherTests {
+    @Test func aProtectedTaskBranchSettlesAsLeftForYou() async throws {
+        let s = try setUp(end: .draftMR)
+        s.host.update { $0.protected["feat/pluto-231"] = "release policy" }
+        let first = await s.finisher.finish(s.task)
+        #expect(first.result == "refused")
+        #expect(operated(s)?.publication?.leftForYou == true)
+        #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
+        #expect(await s.finisher.finish(s.task).result == "leftForYou")
+        #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1)
+    }
+
+    @Test func aProjectWithNoOriginSettlesAsLeftForYou() async throws {
+        let s = try setUp(end: .draftMR)
+        _ = try git.run(["remote", "remove", "origin"], in: s.path)
+        #expect(await s.finisher.finish(s.task).result == "refused")
+        #expect(operated(s)?.publication?.leftForYou == true)
+        #expect(s.store.state.run(id: s.run)?.leftForYou.first?.contains("feat/pluto-231") == true)
+        #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
     }
 }

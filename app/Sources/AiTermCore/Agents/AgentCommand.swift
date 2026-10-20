@@ -32,7 +32,7 @@ public enum AgentCommand {
     /// What Claude workers under an operator may never do themselves: ask through a menu, which the
     /// operator cannot answer (spec §4.1), push — only AiTerm's `finish_task` pushes — or merge,
     /// which `finish_task` does through the host when the plan's end says so (spec §4.3).
-    public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)"]
+    public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
 
     /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
     /// broadcast, whatever the slices (spec §12's worker launch profile):
@@ -50,7 +50,7 @@ public enum AgentCommand {
             return words + ["--disallowedTools"] + operatedClaudeDenials + ["--permission-mode", "auto"]
         case .codex:
             let rest = words.dropFirst().filter { $0 != "--dangerously-bypass-approvals-and-sandbox" }
-            return [words[0], "-s", "workspace-write", "-a", "on-request"] + rest
+            return [words[0], "-s", "workspace-write", "-a", "on-request", "-c", "sandbox_workspace_write.network_access=false"] + rest
         case .grok, .pi:
             return words
         }

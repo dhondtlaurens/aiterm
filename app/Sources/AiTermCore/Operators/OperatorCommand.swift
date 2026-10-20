@@ -120,7 +120,7 @@ public enum OperatorCommand {
         var text = firstMessage(for: run)
         text += "\n\nThis is a new session of a broadcast already under way: its earlier conversation can’t be resumed. "
             + "Where it stands, as run_status shows it now:\n\n" + status
-        let decisions = run.decisions.map { "- " + $0.text }
+        let decisions = run.decisions.map { "- " + $0.text + ($0.why.map { " Why: " + $0 } ?? "") }
         text += decisions.isEmpty ? "\n\nNo decisions are logged yet." : "\n\nYour decisions so far:\n" + decisions.joined(separator: "\n")
         return text + "\n\nCall run_status, then carry on from there."
     }
@@ -159,9 +159,10 @@ public enum OperatorCommand {
                    "## This broadcast", "", "Broadcast: \(run.name)",
                    "Review: \(said(run.review) ?? "not said")",
                    "Done: \(said(run.done) ?? "not said, so end each task at a draft MR")",
+                   "Jira projects: \(run.jiraProjectKeys.isEmpty ? "none" : run.jiraProjectKeys.joined(separator: ", "))",
                    "Projects:"] + projects.map { "- \($0.name): \($0.path)" } + [""]
         out += ["## What you may do", "", planRule, ""]
-        out += slicesRule(run.profile.slices, oracleIsOn: run.profile.oracle.isOn).flatMap { [$0, ""] } + [sliceBoundary, ""]
+        out += slicesRule(run.profile.slices, oracleIsOn: run.profile.oracle.isOn).flatMap { [$0, ""] } + [sliceBoundary + " Call leave_for_you(key, text) for anything a slice kept you from doing, naming what is left and why.", ""]
         out += ["## The backlog", "", backlogRule(oracleIsOn: run.profile.oracle.isOn), ""]
         out += ["## Agent and model", "", agentChoiceRule, ""]
         let instructions = said(run.profile.instructions)
@@ -243,7 +244,7 @@ public enum OperatorCommand {
         let ends = TaskEnd.allCases.filter(milestone.supports).map(\.displayName)
         var rules = [
             "Call run_status first: when you start, after any restart or compaction, and whenever a line starting with "
-                + "[AiTerm] arrives. It is the truth about this operation; your memory is not.",
+                + "[AiTerm] arrives. It is the truth about this broadcast; your memory is not.",
             "Write no em dashes in anything you write: tasks, messages, tickets, comments or answers.",
             "You write no code. You read with Read, Grep and Glob, plan with create_task, update_task and submit_plan, "
                 + "and steer workers only with message_task. AiTerm starts queued tasks; you never type into a terminal.",

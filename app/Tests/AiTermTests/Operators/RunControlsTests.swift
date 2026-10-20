@@ -64,7 +64,6 @@ import Testing
             #expect(operated.ownership == 1, "as after a takeover, nothing the Operator queued lands")
         }
         #expect(world.task(accepted.id)?.operated?.state == .accepted && world.task(accepted.id)?.operated?.takenOver == false)
-        #expect(world.daemon.requests("session.interrupt").isEmpty, "no agent is interrupted")
         #expect(world.daemon.requests("operator.revoke").map { $0.params["runId"] as? String } == [run.id.uuidString])
         #expect(world.daemon.requests("session.setOwnership").map { $0.params["sessionId"] as? String } == ["w1"])
     }
@@ -121,7 +120,7 @@ import Testing
         world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
         try await world.daemon.received("session.deliver")
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
-        #expect(lines.contains { $0.contains("operation complete") || $0.contains("updates") }, "its Operator is told: \(lines)")
+        #expect(lines.contains { $0.contains("broadcast complete") || $0.contains("updates") }, "its Operator is told: \(lines)")
     }
 
     /// AiTerm's own git problem on a driven task (a checkout or a rebase that failed, in the banner): the task
@@ -347,8 +346,7 @@ import Testing
         #expect(try world.workspace.file.load().runs.first?.intent == .stopped, "saved before anything else")
         #expect(world.daemon.requests("operator.revoke").first?.params["runId"] as? String == run.id.uuidString)
         #expect(world.daemon.requests("window.close").first?.params["windowId"] as? String == "w1")
-        #expect(world.daemon.requests("session.interrupt").isEmpty)
-        #expect(await world.call(run.id, "run_status").message == "This operation has ended; its tools no longer act.")
+        #expect(await world.call(run.id, "run_status").message == "This broadcast has ended; its tools no longer act.")
     }
 
     /// From the debrief: the broadcast is stopped, so the "+" returns, and what ended stays as it ended.

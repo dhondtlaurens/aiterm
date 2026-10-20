@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import AiTermCore
 
 /// The agent CLIs and AiTerm's hooks into them, as this machine has them: which CLIs the login
@@ -11,7 +12,10 @@ final class AgentIntegrations {
     /// and joined by any CLI Settings installs; until the probe answers, every agent is assumed
     /// present so the sheet is never wrongly blocked. Written only by `probe()` and Settings'
     /// installs, and by tests that need an agent missing; the creation sheets read it live.
-    var availableAgents: Set<AgentKind> = Set(AgentKind.allCases)
+    var availableAgents: Set<AgentKind> = Set(AgentKind.allCases) {
+        didSet { profileAvailability.set(availableAgents) }
+    }
+    private let profileAvailability = ProfileAgentAvailability()
     /// Whether AiTerm's shim is still Claude Code's `statusLine` command. Re-read at every launch
     /// and after every hook repair, never cached in UserDefaults: the shim is the whole Claude
     /// usage feed and anything that edits `~/.claude/settings.json` can take it back out, so the
@@ -39,10 +43,10 @@ final class AgentIntegrations {
     var operatorProfile: @Sendable () -> OperatorProfile {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let defaults = defaults
-        let catalogue = catalogue
+        let catalogue = catalogue, availability = profileAvailability
         return {
             OperatorProfileStore.load(defaults, claudeDefault: OperatorProfileStore.claudeDefault(
-                models: (try? catalogue.models(for: .claude)) ?? [], defaults: defaults))
+                models: (try? catalogue.models(for: .claude)) ?? [], defaults: defaults), installed: availability.get())
         }
     }
 
@@ -195,4 +199,11 @@ final class AgentIntegrations {
         retainedHarnessSettings = settings
         return settings
     }
+}
+
+/// A background profile read sees the latest CLI probe, including after the port was created.
+private final class ProfileAgentAvailability: Sendable {
+    private let agents = Mutex(Set(AgentKind.allCases))
+    func set(_ installed: Set<AgentKind>) { agents.withLock { $0 = installed } }
+    func get() -> Set<AgentKind> { agents.withLock { $0 } }
 }

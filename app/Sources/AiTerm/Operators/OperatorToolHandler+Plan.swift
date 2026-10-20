@@ -17,15 +17,16 @@ extension OperatorToolHandler {
         let agent = try self.agent(call), project = try self.project(call, in: run)
         // Every branch name the repository has, local and on origin (F7), and the agent's own models.
         let git = ports.git, path = project.path, models = agentModels
+        let connected = await hasCodeHost(project)
         let (repositoryBranches, catalogue) = await BackgroundWork.run { (Repository(path, git: git).branches(), models(agent)) }
         // Another call may have made this key while git was read: this one is its repeat.
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The operation as it is now, not as the call began: a pause or an end since is the person's.
         guard let current = state.run(id: run.id), current.state != .stopped, current.intent != .stopped else {
-            throw ToolRefusal("This operation has ended; its tools no longer act.")
+            throw ToolRefusal("This broadcast has ended; its tools no longer act.")
         }
-        if current.intent == .paused { throw ToolRefusal("The person paused this operation. Wait until they resume it.") }
-        let draft = try self.draft(call, in: current, catalogue: catalogue)
+        if current.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
+        let draft = try self.draft(call, in: current, catalogue: catalogue, connected: connected)
         // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
         switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {
         case .free: break
@@ -79,7 +80,9 @@ extension OperatorToolHandler {
         try acceptsPlanChanges(run)
         let agent = try self.agent(call), models = agentModels
         let catalogue = await BackgroundWork.run { models(agent) }
-        _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue)
+        let project = try self.project(call, in: run)
+        let connected = await hasCodeHost(project)
+        _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue, connected: connected)
     }
 
     /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.
@@ -90,12 +93,13 @@ extension OperatorToolHandler {
         var dependencies: [TaskDependency]
     }
 
-    private func draft(_ call: ToolCall, in run: OperatorRun, catalogue: [AgentModel]) throws(ToolRefusal) -> NewTask {
+    private func draft(_ call: ToolCall, in run: OperatorRun, catalogue: [AgentModel], connected: Bool) throws(ToolRefusal) -> NewTask {
         try acceptsPlanChanges(run)
         let title = try call.string("title"), brief = try call.string("brief")
         let project = try self.project(call, in: run), agent = try self.agent(call)
         let model = try self.model(call, for: agent, catalogue: catalogue), modelReason = try call.string("modelReason")
-        let end = try self.end(call) ?? Self.defaultEnd(for: run)
+        let end = try self.end(call) ?? ((OperatorCommand.said(run.done) == nil && !connected) ? .commit : Self.defaultEnd(for: run))
+        try validateEnd(end, in: run, project: project, connected: connected)
         return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), project: project, agent: agent, model: model, end: end,
                        modelReason: modelReason, agentPinned: call.arguments["agentPinned"]?.boolValue ?? false,
                        dependencies: try dependencies(call, in: run, project: project))
@@ -107,6 +111,23 @@ extension OperatorToolHandler {
         let done = OperatorCommand.said(run.done)?.lowercased() ?? ""
         let saysRequest = done.contains(/\b(mrs?|prs?|merge|merged|merges|merge requests?|pull requests?)\b/)
         return done.contains(/\bcommits?\b/) && !saysRequest ? .commit : .draftMR
+    }
+
+    /// Only an origin whose host AiTerm can connect to supports a remote publication end.
+    private func hasCodeHost(_ project: Project) async -> Bool {
+        let git = ports.git, path = project.path
+        guard let origin = try? await BackgroundWork.run({ try git.ask(["remote", "get-url", "origin"], in: path, none: [2]) }) else { return false }
+        let remote = ProviderDetector.detect(remoteUrl: origin, repoPath: path)
+        do { _ = try ports.publisher(remote); return true } catch { return false }
+    }
+
+    private func validateEnd(_ end: TaskEnd, in run: OperatorRun, project: Project, connected: Bool) throws(ToolRefusal) {
+        if end.merges, !run.profile.slices.merge {
+            throw ToolRefusal("Merge is off for this broadcast: end it at a commit or a draft MR.")
+        }
+        if (end == .draftMR || end == .merge), !connected {
+            throw ToolRefusal("\(project.name) has no connected code host: end it at a commit.")
+        }
     }
 
     /// The agents' model lists, as the ports read them; none read is an empty list.
@@ -124,6 +145,7 @@ extension OperatorToolHandler {
         }
         try acceptsPlanChanges(run)
         let project = state.project(id: task.projectId)
+        let connected = if let project { await hasCodeHost(project) } else { false }
         let brief = call.optionalString("brief")
         let agent = try call.optionalString("agent").map { _ in try self.agent(call) }
         // A new agent with no model named takes that agent's default, not the old agent's model; a model named
@@ -147,6 +169,7 @@ extension OperatorToolHandler {
         }
         try acceptsPlanChanges(state.run(id: run.id) ?? run)
         let end = try self.end(call)
+        if let end, let project { try validateEnd(end, in: state.run(id: run.id) ?? run, project: project, connected: connected) }
         let dependencies = try call.arguments["dependsOn"].map { _ in try self.dependencies(call, in: run, project: project) }
         if let dependencies, dependencies.contains(where: { $0.task == task.id }) { throw ToolRefusal("A task can’t depend on itself.") }
         do {
@@ -199,9 +222,9 @@ extension OperatorToolHandler {
     func acceptsPlanChanges(_ run: OperatorRun) throws(ToolRefusal) {
         switch run.state {
         case .planning, .active, .complete: return
-        case .paused: throw ToolRefusal("The person paused this operation. Wait until they resume it.")
-        case .operatorOffline: throw ToolRefusal("AiTerm has this operation offline; it resumes it first.")
-        case .stopped: throw ToolRefusal("This operation was stopped; its tools no longer act.")
+        case .paused: throw ToolRefusal("The person paused this broadcast. Wait until they resume it.")
+        case .operatorOffline: throw ToolRefusal("AiTerm has this broadcast offline; it resumes it first.")
+        case .stopped: throw ToolRefusal("This broadcast was stopped; its tools no longer act.")
         }
     }
 
@@ -212,7 +235,7 @@ extension OperatorToolHandler {
         guard let project = projects.first(where: {
             $0.id.uuidString.caseInsensitiveCompare(ref) == .orderedSame || $0.name.caseInsensitiveCompare(ref) == .orderedSame
         }) else {
-            throw ToolRefusal("\(ref) isn’t one of this operation’s projects: \(projects.map(\.name).joined(separator: ", ")).")
+            throw ToolRefusal("\(ref) isn’t one of this broadcast’s projects: \(projects.map(\.name).joined(separator: ", ")).")
         }
         return project
     }
@@ -221,7 +244,7 @@ extension OperatorToolHandler {
         switch try call.string("agent").lowercased() {
         case "claude": return .claude
         case "codex": return .codex
-        default: throw ToolRefusal("An operator’s task runs claude or codex.")
+        default: throw ToolRefusal("The Operator’s task runs claude or codex.")
         }
     }
 
@@ -260,7 +283,7 @@ extension OperatorToolHandler {
 
     private func end(_ call: ToolCall) throws(ToolRefusal) -> TaskEnd? {
         guard let raw = call.optionalString("end") else { return nil }
-        guard let end = TaskEnd(rawValue: raw) else { throw ToolRefusal("A task’s end is commit, draftMR or merge.") }
+        guard let end = TaskEnd(rawValue: raw) else { throw ToolRefusal("A task’s end is commit, draftMR, merge or mergeLocal.") }
         return end
     }
 
@@ -272,7 +295,7 @@ extension OperatorToolHandler {
             guard let ref = item.stringValue ?? item["task"]?.stringValue else {
                 throw ToolRefusal("Each dependsOn entry is a task, or {\"task\": …, \"kind\": \"order\" or \"code\"}.")
             }
-            guard let parent = state.task(inRun: run.id, named: ref) else { throw ToolRefusal("dependsOn names \(ref), which isn’t a task of this operation.") }
+            guard let parent = state.task(inRun: run.id, named: ref) else { throw ToolRefusal("dependsOn names \(ref), which isn’t a task of this broadcast.") }
             let kind = item["kind"]?.stringValue.flatMap(DependencyKind.init(rawValue:)) ?? .order
             if kind == .code, parent.projectId != project?.id {
                 let name = state.project(id: parent.projectId)?.name ?? "another project"

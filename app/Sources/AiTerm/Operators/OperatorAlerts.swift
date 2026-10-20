@@ -7,7 +7,7 @@ import AiTermCore
 enum OperatorAlerts {
     static func stopTask(_ task: TaskItem) -> AlertPrompt {
         AlertPrompt(message: "Stop “\(task.title)”?",
-                    detail: "Its operator stops on it for good, and the tasks that build on it wait for you. Its window and its branch stay; an agent at work there finishes its turn.",
+                    detail: "The Operator stops on it for good, and the tasks that build on it wait for you. Its window and its branch stay; an agent at work there finishes its turn.",
                     buttons: ["Stop Task", "Cancel"])
     }
     /// End Broadcast… (spec §13): what happens to the `unstarted` tasks and the `running` ones, a sentence

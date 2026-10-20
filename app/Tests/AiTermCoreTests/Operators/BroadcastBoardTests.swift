@@ -32,7 +32,7 @@ import Testing
                       agent: AgentKind = .claude, started: Bool? = nil, takenOver: Bool = false, end: TaskEnd = .commit,
                       blockedReason: String? = nil) -> TaskItem {
         var operated = OperatorUIFixtures.operated(run: run, key: jira ?? title, state: state, end: end,
-                                                   sha: SidebarModel.isFinished(state) ? "9b3e07d11" : nil,
+                                                   sha: [.accepted, .noChange, .published].contains(state) ? "9b3e07d11" : nil,
                                                    takenOver: takenOver, blockedReason: blockedReason)
         if started ?? ![.planned, .queued].contains(state) {
             operated.launch = LaunchAttempt(number: 1, requestedAt: OperatorUIFixtures.epoch, openedAt: OperatorUIFixtures.epoch)

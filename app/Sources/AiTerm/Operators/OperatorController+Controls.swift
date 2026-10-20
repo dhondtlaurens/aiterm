@@ -10,7 +10,7 @@ extension OperatorController {
     /// hears of it. Taken over already, it only sets the
     /// generation on the tabs again, which is what a retry after a failure is.
     func takeOver(task id: UUID) async throws {
-        guard let operated = workspace.state.task(id: id)?.operated else { throw ActionUnavailable("That task is no operator’s.") }
+        guard let operated = workspace.state.task(id: id)?.operated else { throw ActionUnavailable("That task isn’t the Operator’s.") }
         guard !operated.takenOver else { return try await setOwnership(operated.ownership, on: id) }
         let ownership = operated.ownership + 1
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = true; $0.ownership = ownership } }
@@ -45,7 +45,7 @@ extension OperatorController {
     /// resolved — an open one would keep the operation from completing. The operation is then settled the
     /// way every other end settles it: the last open task stopped completes it.
     func stop(task id: UUID) throws {
-        guard let runId = workspace.state.task(id: id)?.operated?.runId else { throw ActionUnavailable("That task is no operator’s.") }
+        guard let runId = workspace.state.task(id: id)?.operated?.runId else { throw ActionUnavailable("That task isn’t the Operator’s.") }
         do {
             try workspace.mutate { state in
                 _ = try OperatedTransitions.apply(.stop, toTask: id, in: &state, by: .you)
@@ -58,7 +58,7 @@ extension OperatorController {
         } catch let refused as OperatedTransitionError {
             throw ActionUnavailable(refused.description)
         }
-        // Defensive: `.stop` refuses an accepted task, the only kind watched.
+        // Stopping an accepted task also stops its publication watch.
         finisher.stopWatching(id)
         runChanged(runId)
     }
@@ -114,13 +114,13 @@ extension OperatorController {
     /// cancelled — the daemon offers no way to — it ends as the daemon's rules end it.
     func pause(run id: UUID) throws {
         guard let run = self.run(id: id), [.planning, .active, .operatorOffline].contains(run.state) else {
-            throw ActionUnavailable("Only an operation under way can be paused.")
+            throw ActionUnavailable("Only a broadcast under way can be paused.")
         }
         let before = snapshot()
         mutateRun(id) { $0.intent = .paused; $0.state = .paused }
         guard workspace.flush() else {
             restore(before)
-            throw ActionUnavailable("The pause couldn’t be saved, so the operation was left as it was.")
+            throw ActionUnavailable("The pause couldn’t be saved, so the broadcast was left as it was.")
         }
         finisher.stopWatching(inRun: id)
     }
@@ -225,16 +225,16 @@ extension OperatorController {
     private func closeOperatorWindowIfOnlyItsOperator(_ id: UUID, daemon: any DaemonCommands) async {
         guard tabsKnown, let tab = operatorTab(of: id) else { return }
         guard live.sessions.allSatisfy({ $0.windowId != tab.windowId || $0.taskUUID == id }) else {
-            Log.daemon.info("The window of the ended operation \(id.uuidString, privacy: .public) holds other tabs too, so it is left open")
+            Log.daemon.info("The window of the ended broadcast \(id.uuidString, privacy: .public) holds other tabs too, so it is left open")
             return
         }
-        await Log.daemon.attempt("Closing the window of the ended operation \(id.uuidString)") { try await daemon.closeWindowIfOpen(tab.windowId) }
+        await Log.daemon.attempt("Closing the window of the ended broadcast \(id.uuidString)") { try await daemon.closeWindowIfOpen(tab.windowId) }
     }
 
     func rename(run id: UUID, to name: String) throws {
-        guard run(id: id) != nil else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
+        guard run(id: id) != nil else { throw ActionUnavailable("This broadcast is no longer in AiTerm.") }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw ActionUnavailable("Give the operation a name.") }
+        guard !name.isEmpty else { throw ActionUnavailable("Give the broadcast a name.") }
         mutateRun(id) { $0.name = name }
     }
 
@@ -244,7 +244,7 @@ extension OperatorController {
     /// accepted task waiting on its end) keeps its state, its `problem` alone saying so. Refused for a task
     /// that is no operator's, and for an issue the banner does not show.
     func markProblem(task id: UUID, issueId: String) throws {
-        guard let operated = workspace.state.task(id: id)?.operated else { throw ActionUnavailable("That task is no operator’s.") }
+        guard let operated = workspace.state.task(id: id)?.operated else { throw ActionUnavailable("That task isn’t the Operator’s.") }
         guard let issue = notices.issue, issue.id == issueId else { throw ActionUnavailable("That problem is no longer shown.") }
         workspace.mutate { state in
             _ = try? OperatedTransitions.apply(.block(reason: issue.title), toTask: id, in: &state, by: .aiterm)
@@ -321,8 +321,8 @@ extension OperatorController {
     /// opens it behind what is in front: the board the broadcast row's click opened.
     @discardableResult
     func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {
-        guard let run = self.run(id: id) else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
-        guard !hasEnded(id) else { throw ActionUnavailable("This operation has ended.") }
+        guard let run = self.run(id: id) else { throw ActionUnavailable("This broadcast is no longer in AiTerm.") }
+        guard !hasEnded(id) else { throw ActionUnavailable("This broadcast has ended.") }
         guard operatorTab(of: id) == nil else { return .open }
         guard !reopeningOperator.contains(id) else { return .underway }
         guard let daemon = daemon(), tabsKnown else { throw ActionUnavailable(OperationIssue.disconnected("again").title) }
@@ -346,7 +346,7 @@ extension OperatorController {
         // Ended while the folder was written: prepare made its token file again, and nothing was registered.
         guard !hasEnded(id) else {
             let file = folder.appendingPathComponent(OperatorCommand.tokenFile)
-            await Log.workspace.attempt("Removing the token file of an operation ended while its operator reopened") {
+            await Log.workspace.attempt("Removing the token file of a broadcast ended while its operator reopened") {
                 try await BackgroundWork.run { try FileManager.default.removeItem(at: file) }
             }
             return .ended
@@ -380,11 +380,11 @@ extension OperatorController {
     /// What an end that came while the operator opened or reopened could not undo itself: the token
     /// registered after its revoke goes again, and the window opened after its close is closed.
     func revokeAfterEnd(_ id: UUID, window: String?, daemon: any DaemonCommands) async {
-        await Log.daemon.attempt("Revoking the token of operation \(id.uuidString) ended while its operator opened") {
+        await Log.daemon.attempt("Revoking the token of broadcast \(id.uuidString) ended while its operator opened") {
             try await daemon.revokeOperator(runId: id.uuidString)
         }
         if let window {
-            await Log.daemon.attempt("Closing the window of operation \(id.uuidString) ended while its operator opened") {
+            await Log.daemon.attempt("Closing the window of broadcast \(id.uuidString) ended while its operator opened") {
                 try await daemon.closeWindowIfOpen(window)
             }
         }

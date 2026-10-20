@@ -34,7 +34,7 @@ public enum ChallengeLaunch {
     """
 
     /// The Oracle's yes/no on a backlog addition past the threshold (spec §4.1, §8): its answer is a veto.
-    /// `addition` is the create_task call's arguments, `run` the operation as run_status shows it, the brief in it.
+    /// `addition` is the create_task call's arguments, `run` the broadcast as run_status shows it, the brief in it.
     public static func vetoPrompt(addition: String, run: String) -> String {
         """
         \(vetoInstructions)

@@ -28,7 +28,7 @@ import Testing
             #expect(refusal(w, task, run) == nil)
         }
         let (w, task, run) = world(run: .complete)
-        #expect(refusal(w, task, run) == nil, "a complete operation still publishes")
+        #expect(refusal(w, task, run) == nil, "a complete broadcast still publishes")
     }
 
     @Test func aCommitEndHasNothingToFinish() {
@@ -37,10 +37,10 @@ import Testing
     }
 
     @Test func anOperationThatIsNotRunningPublishesNothing() {
-        for (state, line) in [(OperatorRunState.paused, "The operation is paused; nothing is published until it runs again."),
-                              (.operatorOffline, "The operator is offline; nothing is published until the operation resumes."),
-                              (.stopped, "The operation was stopped; it publishes nothing."),
-                              (.planning, "The operation's plan hasn't been submitted yet.")] {
+        for (state, line) in [(OperatorRunState.paused, "The broadcast is paused; nothing is published until it runs again."),
+                              (.operatorOffline, "The Operator is offline; nothing is published until the broadcast resumes."),
+                              (.stopped, "The broadcast was stopped; it publishes nothing."),
+                              (.planning, "The broadcast's plan hasn't been submitted yet.")] {
             let (w, task, run) = world(run: state)
             #expect(refusal(w, task, run) == line)
         }
@@ -109,10 +109,10 @@ import Testing
     @Test func yourPauseOrEndIsHeardThroughTheIntent() {
         var (w, task, run) = world(run: .complete)
         w.state.runs[0].intent = .stopped
-        #expect(refusal(w, task, run) == "The operation was stopped; it publishes nothing.")
+        #expect(refusal(w, task, run) == "The broadcast was stopped; it publishes nothing.")
         w.state.runs[0].state = .active
         w.state.runs[0].intent = .paused
-        #expect(refusal(w, task, run) == "The operation is paused; nothing is published until it runs again.")
+        #expect(refusal(w, task, run) == "The broadcast is paused; nothing is published until it runs again.")
     }
 
     /// Before every later step: the run's state and your intent, the task's state, ownership and acceptance.
@@ -124,10 +124,10 @@ import Testing
         }
         #expect(recheck() == nil)
         w.state.runs[0].intent = .paused
-        #expect(recheck() == "The operation is paused; nothing is published until it runs again.")
+        #expect(recheck() == "The broadcast is paused; nothing is published until it runs again.")
         w.state.runs[0].intent = nil
         w.state.runs[0].state = .stopped
-        #expect(recheck() == "The operation was stopped; it publishes nothing.")
+        #expect(recheck() == "The broadcast was stopped; it publishes nothing.")
         w.state.runs[0].state = .active
         w.update(task) { $0.ownership = 1 }
         #expect(recheck() == PublicationGuard.changedMidway, "taken over and handed back meanwhile")

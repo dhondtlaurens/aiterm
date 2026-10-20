@@ -162,6 +162,7 @@ extension OperatorToolHandler {
                 try approve(call, in: run, askedSHA: askedSHA)
                 return nil
             case .unchallenged:
+                if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: askedSHA); return nil }
                 try await refuseUnanswered(call, in: run)
             }
         }
@@ -191,8 +192,10 @@ extension OperatorToolHandler {
             return try vetoPendingAnswer(call, id, in: run)
         case .running:
             updateChallenge(id, in: run.id) { $0.stage = .unchallenged; $0.unchallengedReason = "AiTerm restarted before the Oracle answered." }
+            if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA); return nil }
             try await refuseUnanswered(call, in: run)
         case .unchallenged:
+            if call.tool == "finish_task" { try proceedUnchallenged(call, in: run, askedSHA: kept.askedSHA); return nil }
             try await refuseUnanswered(call, in: run)
         case .ready, .delivered, .acted:
             guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique) }
@@ -244,12 +247,21 @@ extension OperatorToolHandler {
         throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the debrief" + Self.ending(filing))
     }
 
-    private func refuseUnanswered(_ call: ToolCall, in run: OperatorRun) async throws -> Never {
-        if call.tool == "finish_task" {
-            let key = try task(call, in: run).operated?.key ?? "the task"
-            refuseMerge(call, in: run, problem: "The Oracle didn’t answer whether the conditions to merge hold.")
-            throw ToolRefusal("The Oracle didn’t answer, so AiTerm didn’t merge \(key). AiTerm recorded it on the task; call finish_task again.")
+    private func proceedUnchallenged(_ call: ToolCall, in run: OperatorRun, askedSHA: String?) throws {
+        try approve(call, in: run, askedSHA: askedSHA)
+        let task = try task(call, in: run)
+        let why = "The Oracle didn’t answer, so the merge went ahead unchallenged."
+        mutate(in: run.id) { state in
+            state.updateRun(id: run.id) {
+                let key = "unchallenged-merge-\(task.id)-\(askedSHA ?? "")"
+                guard !$0.decisions.contains(where: { $0.key == key }) else { return }
+                $0.decisions.append(OperatorDecision(key: key, text: "Merged \(task.title) unchallenged.", task: task.id,
+                                                     at: ports.now(), challenge: "unchallenged", why: why))
+            }
         }
+    }
+
+    private func refuseUnanswered(_ call: ToolCall, in run: OperatorRun) async throws -> Never {
         let filing = await noteFind(call, in: run, why: "The Oracle didn’t answer in time.")
         throw ToolRefusal("The Oracle didn’t answer in time. AiTerm noted it for the debrief" + Self.ending(filing))
     }
@@ -328,8 +340,17 @@ extension OperatorToolHandler {
     /// kept its act against the critique.
     private func record(_ call: ToolCall, in run: OperatorRun, challenge: String, reply: String, objection: String? = nil) {
         let taskId = (try? task(call, in: run))?.id
-        let decision = OperatorDecision(key: "challenge-\(UUID().uuidString)", text: "\(call.tool): \(reply)", task: taskId,
-                                        at: ports.now(), challenge: challenge, objection: objection)
+        let title = taskId.flatMap { state.task(id: $0)?.title } ?? "the plan"
+        let words: String
+        switch call.tool {
+        case "mark_task": words = call.optionalString("outcome") == "accepted" ? "Accepted \(title)" : "Marked \(title) \(call.optionalString("outcome") ?? "done")"
+        case "submit_plan": words = "Kept the plan"
+        default: words = "Kept the choice for \(title)"
+        }
+        let capped = objection.map { $0.count > 300 ? String($0.prefix(299)) + "…" : $0 }
+        let text = objection == nil ? "\(call.tool): \(reply)" : words + " despite the Oracle’s objection."
+        let decision = OperatorDecision(key: "challenge-\(UUID().uuidString)", text: text, task: taskId,
+                                        at: ports.now(), challenge: challenge, objection: capped)
         mutate(in: run.id) { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
     }
 

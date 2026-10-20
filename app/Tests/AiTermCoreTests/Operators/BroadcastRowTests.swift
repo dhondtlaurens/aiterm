@@ -21,7 +21,7 @@ import Testing
     private func task(_ key: String, run: UUID, _ state: OperatedState, takenOver: Bool = false) -> TaskItem {
         OperatorUIFixtures.task(key, project: web.id,
                                 operated: OperatorUIFixtures.operated(run: run, key: key, state: state,
-                                                                      sha: SidebarModel.isFinished(state) ? "4f2a91c00" : nil,
+                                                                      sha: [.accepted, .noChange, .published].contains(state) ? "4f2a91c00" : nil,
                                                                       takenOver: takenOver))
     }
 

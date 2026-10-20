@@ -50,6 +50,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var firstPlanSize: Int?
         /// The off-brief finds so far, never worked on.
         public var finds: [OffBriefFind]
+        public var jiraProjectKeys: [String]
         /// What the Operator may do beyond the base, as this broadcast froze it.
         public var slices: Slices
         /// Whether the Oracle challenges the Operator's calls in this broadcast.
@@ -60,9 +61,10 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var agents: [String: AgentChoice]
         public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
                     planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [],
-                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:]) {
+                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:], jiraProjectKeys: [String] = []) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
+            self.jiraProjectKeys = jiraProjectKeys
             self.finds = finds; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
         }
     }
@@ -182,7 +184,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                      planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
                      finds: run.finds, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
                      usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                     agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })),
+                     agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }), jiraProjectKeys: run.jiraProjectKeys),
             tasks: lines,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {

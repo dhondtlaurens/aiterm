@@ -37,7 +37,7 @@ import Testing
         #expect(world.notifications.withdrawn == ["request-\(run.id.uuidString)-question-locale"])
         #expect(resolved.value?["open"] == false)
         #expect(world.run(run.id)?.questions.first?.resolution == "nl-BE")
-        #expect(await world.call(run.id, "resolve_question", ["key": "nope", "summary": "x"]).message == "No question nope in this operation.")
+        #expect(await world.call(run.id, "resolve_question", ["key": "nope", "summary": "x"]).message == "No question nope in this broadcast.")
     }
 
     @Test func aDecisionIsWrittenOncePerKey() async throws {
@@ -297,9 +297,9 @@ import Testing
     @Test func finishTaskComesInM3AndAnUnknownToolOrRunIsAnError() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
-        #expect(await world.call(run.id, "finish_task", ["task": "x"]).message == "No task x in this operation.")
+        #expect(await world.call(run.id, "finish_task", ["task": "x"]).message == "No task x in this broadcast.")
         #expect(await world.call(run.id, "merge_everything").message == "AiTerm has no tool called merge_everything.")
-        #expect(await world.call(UUID(), "run_status").message == "This operation is no longer in AiTerm.")
+        #expect(await world.call(UUID(), "run_status").message == "This broadcast is no longer in AiTerm.")
     }
 
     @Test func aRequestIsAnsweredThroughTheDaemonWithItsId() async throws {
@@ -351,7 +351,7 @@ import Testing
     @Test func anEndedOperationsToolsDoNotAct() async throws {
         let stopped = OperatorServiceFixtures.run(projects: [project], state: .stopped)
         let world = try makeWorld(stopped)
-        let ended = "This operation has ended; its tools no longer act."
+        let ended = "This broadcast has ended; its tools no longer act."
         #expect(await world.call(stopped.id, "ask_you", ["key": "k", "question": "Q?"]).message == ended)
         #expect(world.run(stopped.id)?.questions.isEmpty == true)
         // Ended by you, its state not yet caught up.
@@ -367,7 +367,7 @@ import Testing
         let jira = FakeJira(tickets: [])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [unlinked], runs: [run])) { $0.jira = { jira } }
         let answer = await world.call(run.id, "jira_search", ["jql": "x"])
-        #expect(answer.message == "None of this operation’s projects is linked to a Jira project, so there is nothing jira_search may search.")
+        #expect(answer.message == "None of this broadcast’s projects is linked to a Jira project, so there is nothing jira_search may search.")
         #expect(jira.searches.isEmpty)
     }
 
@@ -377,8 +377,8 @@ import Testing
         #expect(await world.call(run.id, "ask_you", ["key": "k"]).message == "ask_you needs `question`.")
         #expect(await world.call(run.id, "ask_you", ["key": "k", "question": "   "]).message == "ask_you needs `question`.")
         #expect(await world.call(run.id, "jira_search").message == "jira_search needs `jql`.")
-        #expect(await world.call(run.id, "log_decision", ["key": "d", "text": "t", "task": "nope"]).message == "No task nope in this operation.")
-        #expect(await world.call(run.id, "ask_you", ["key": "k", "question": "Q?", "task": "nope"]).message == "No task nope in this operation.")
+        #expect(await world.call(run.id, "log_decision", ["key": "d", "text": "t", "task": "nope"]).message == "No task nope in this broadcast.")
+        #expect(await world.call(run.id, "ask_you", ["key": "k", "question": "Q?", "task": "nope"]).message == "No task nope in this broadcast.")
         #expect(world.run(run.id)?.questions.isEmpty == true && world.run(run.id)?.decisions.isEmpty == true)
     }
 
@@ -457,7 +457,7 @@ import Testing
         run.state = .active
         let world = try makeWorld(run, jira: jira)
         jira.beforeTransition.withLock { $0 = { @MainActor in world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .paused } } } }
-        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"]).message == "The person paused this operation. Wait until they resume it.")
+        #expect(await world.call(run.id, "jira_move", ["key": "PLUTO-231", "status": "Done"]).message == "The person paused this broadcast. Wait until they resume it.")
         #expect(jira.writes.isEmpty)
     }
 
@@ -494,11 +494,99 @@ import Testing
         jira.failNextCreateOnTheWay()
         #expect(await world.call(run.id, "jira_create", ticket()).message != nil)
         jira.searchHold.withLock { $0 = { @MainActor in world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .paused } } } }
-        #expect(await world.call(run.id, "jira_create", ticket()).message == "The person paused this operation. Wait until they resume it.")
+        #expect(await world.call(run.id, "jira_create", ticket()).message == "The person paused this broadcast. Wait until they resume it.")
         #expect(jira.writes.isEmpty)
         jira.searchHold.withLock { $0 = nil }
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = nil } }
         #expect(await world.call(run.id, "jira_create", ticket()).value?["created"] == true)
         #expect(jira.writes.count == 1)
+    }
+}
+
+extension OperatorToolHandlerTests {
+    @Test func selectedJiraProjectsAreVisibleAndSearchableWithoutRepositories() async throws {
+        var run = OperatorServiceFixtures.run(projects: [])
+        run.jiraProjectKeys = ["PAY"]
+        let jira = FakeJira()
+        let world = try makeWorld(run, jira: jira)
+        #expect(await world.call(run.id, "run_status").value?["run"]?["jiraProjectKeys"] == ["PAY"])
+        let answer = await world.call(run.id, "jira_search", ["jql": "status = Open ORDER BY updated DESC"])
+        #expect(answer.message == nil)
+        #expect(jira.searches.last?.jql == "project in (\"PAY\") AND (status = Open) ORDER BY updated DESC")
+    }
+
+    @Test func selectedAndLinkedJiraProjectsAreSearchedTogether() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.jiraProjectKeys = ["PAY"]
+        let jira = FakeJira()
+        let world = try makeWorld(run, jira: jira)
+        _ = await world.call(run.id, "jira_search", ["jql": "status = Open"])
+        #expect(jira.searches.last?.jql == "project in (\"PAY\", \"PLUTO\") AND (status = Open)")
+    }
+
+    @Test func leftForYouIsRecordOnlyAndIdempotentAfterRestart() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "leave_for_you", ["key": "push", "text": "Push main: merged locally."])
+        #expect(world.workspace.flush())
+        let restarted = try OperatorWorld(try world.workspace.file.load())
+        _ = await restarted.call(run.id, "leave_for_you", ["key": "push", "text": "Another text."])
+        #expect(restarted.run(run.id)?.leftForYou == ["Push main: merged locally."])
+        #expect(restarted.state.tasks.isEmpty && restarted.run(run.id)?.questions.isEmpty == true)
+    }
+
+    @Test func filingAFindRecoversTheLabelAfterALostReply() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.profile.slices.jira = true
+        run.jiraProjectKeys = ["PLUTO"]
+        let jira = FakeJira()
+        jira.loseNextCreateReply()
+        let world = try makeWorld(run, jira: jira)
+        let args: JSONValue = ["key": "leak", "title": "Token leak", "why": "Logs expose it."]
+        _ = await world.call(run.id, "report_find", args)
+        _ = await world.call(run.id, "report_find", args)
+        #expect(jira.writes.count == 1)
+        #expect(jira.labels.values.first == [OperatorToolHandler.createLabel(run: run.id, key: "find/leak")])
+        #expect(world.run(run.id)?.finds.first?.ticket != nil)
+        #expect(world.run(run.id)?.pendingWrites.isEmpty == true)
+    }
+}
+
+extension OperatorToolHandlerTests {
+    @Test func aFindKeyDoesNotReuseAnIndependentJiraCreateTicket() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.profile.slices.jira = true
+        run.jiraProjectKeys = ["PLUTO"]
+        let jira = FakeJira()
+        let world = try makeWorld(run, jira: jira)
+        let made = await world.call(run.id, "jira_create", ["key": "leak", "project": "PLUTO", "type": "Task",
+                                                           "summary": "Planned work", "description": "In the brief."])
+        _ = await world.call(run.id, "report_find", ["key": "leak", "title": "Token leak", "why": "Off brief."])
+        #expect(jira.writes.count == 2)
+        #expect(world.run(run.id)?.finds.first?.ticket != made.value?["key"]?.stringValue)
+        #expect(world.run(run.id)?.jiraCreated["leak"] == made.value?["key"]?.stringValue)
+        #expect(world.run(run.id)?.jiraCreated["find/leak"] == world.run(run.id)?.finds.first?.ticket)
+    }
+}
+
+extension OperatorToolHandlerTests {
+    @Test func publicJiraCreateCannotUseTheInternalFindKeyNamespace() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        run.profile.slices.jira = true
+        run.jiraProjectKeys = ["PLUTO"]
+        let jira = FakeJira()
+        let world = try makeWorld(run, jira: jira)
+        let args: JSONValue = ["key": "find/leak", "project": "PLUTO", "type": "Task",
+                               "summary": "Independent ticket", "description": "In the brief."]
+        let refusal = "jira_create keys starting with “find/” are reserved for off-brief finds. Choose another key."
+        #expect(await world.call(run.id, "jira_create", args).message == refusal)
+        #expect(jira.writes.isEmpty && world.run(run.id)?.jiraCreated.isEmpty == true)
+        _ = await world.call(run.id, "report_find", ["key": "leak", "title": "Token leak", "why": "Off brief."])
+        #expect(jira.writes.count == 1)
+        let ticket = try #require(world.run(run.id)?.finds.first?.ticket)
+        #expect(world.run(run.id)?.jiraCreated["find/leak"] == ticket)
+        #expect(await world.call(run.id, "jira_create", args).message == refusal)
+        #expect(jira.writes.count == 1)
+        #expect(world.run(run.id)?.finds.first?.ticket == ticket)
     }
 }

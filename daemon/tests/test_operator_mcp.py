@@ -136,7 +136,8 @@ def test_memory_wins_over_a_file(tmp_path):
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
                   "submit_plan", "read_task", "message_task", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you",
-                  "resolve_question", "report_find", "log_decision", "review_task", "request_review", "reply_thread", "find_user"}
+                  "resolve_question", "report_find", "log_decision", "leave_for_you", "review_task", "request_review",
+                  "reply_thread", "find_user"}
 
 
 def test_the_tools_are_the_contracts():
@@ -460,3 +461,12 @@ async def test_restart_drops_old_reply_while_new_call_waits(monkeypatch):
         routes.append(OperatorRoute(broadcast, lambda: 1))
         assert await routes[-1].ask_app("run", "run_status", {}) == {"fresh": True}
     assert ids[0] != ids[1]
+
+
+def test_leave_for_you_is_record_only_and_requires_key_and_text():
+    tool = next(tool for tool in TOOLS if tool["name"] == "leave_for_you")
+    schema = tool["inputSchema"]
+    assert set(schema["required"]) == {"key", "text"}
+    assert set(schema["properties"]) == {"key", "text"}
+    assert "sends nothing" in tool["description"]
+    assert "leave_for_you" not in CHALLENGED_TOOLS

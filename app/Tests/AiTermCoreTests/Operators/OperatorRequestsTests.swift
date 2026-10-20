@@ -72,17 +72,18 @@ import Foundation
         #expect(open(run, [task]).map(\.text) == ["Payment provider switch is blocked: Past its runtime."])
     }
 
-    @Test func aProblemIsSaidWithItsFirstLetterLowercasedAndIsNotAlsoBlocked() {
+    @Test func aProblemKeepsItsSentenceAndIsNotAlsoBlocked() {
         var task = codexTask("PAY-5", .blocked)
         task.operated?.blockedReason = "Couldn’t check out the branch."
         task.operated?.problem = "git-checkout-1"
         let requests = open(run, [task])
         #expect(requests.map(\.kind) == [.problem])
-        #expect(requests.first?.text == "Payment provider switch’s couldn’t check out the branch.")
+        #expect(requests.first?.text == "Payment provider switch: Couldn’t check out the branch.")
     }
 
     @Test func aProblemOnATaskThatKeptItsStateStillAsks() {
         var task = codexTask("PAY-6", .accepted)
+        task.operated?.end = .draftMR
         task.operated?.problem = "git-rebase-1"
         #expect(open(run, [task]).map(\.kind) == [.problem])
     }

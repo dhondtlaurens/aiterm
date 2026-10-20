@@ -93,7 +93,7 @@ public struct OperatorLine: Equatable, Sendable {
               run.state != .stopped, run.intent != .stopped else { return nil }
         let oracle = run.profile.oracle.agent
         // A finished task's leftover asks nothing.
-        if !SidebarModel.isFinished(operated.state) {
+        if !SidebarModel.isFinished(operated) {
             if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id }) {
                 return line(for: request, task: task, oracle: oracle)
             }
@@ -125,7 +125,12 @@ public struct OperatorLine: Equatable, Sendable {
             return needsYou("blocked", reason(operated.blockedReason) ?? "it needs you", tooltip: nil, oracle: oracle)
         case .stopped:
             return nil
-        case .accepted, .noChange, .published:
+        case .accepted:
+            if let ending = ending(of: operated) { return quiet(ending) }
+            if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil, oracle: oracle) }
+            if let publication = operated.publication, publication.waitingSince != nil { return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready") }
+            return quiet(operated.end == .draftMR ? "opening the MR" : "merging")
+        case .noChange, .published:
             return ending(of: operated).map(quiet)
         }
     }
@@ -137,7 +142,8 @@ public struct OperatorLine: Equatable, Sendable {
         let sha = String((operated.publication?.mergedSHA ?? operated.acceptance?.resultSHA ?? "").prefix(7))
         switch operated.state {
         case .accepted:
-            return "done · " + sha
+            if operated.publication?.leftForYou == true { return "left for you · " + sha }
+            return operated.end == .commit ? "done · " + sha : nil
         case .noChange:
             return "done · no change"
         case .published:
@@ -166,7 +172,7 @@ public struct OperatorLine: Equatable, Sendable {
         let oracle = run.profile.oracle.agent
         let driven = tasks.filter { $0.operated?.runId == run.id }
         // A finished task's leftover asks nothing, as on its own line.
-        let finished = Set(driven.filter { ($0.operated?.state).map(SidebarModel.isFinished) ?? false }.map(\.id))
+        let finished = Set(driven.filter { $0.operated.map(SidebarModel.isFinished) ?? false }.map(\.id))
         let asked = requests.filter { $0.runId == run.id && !($0.taskId.map(finished.contains) ?? false) }
         // A request outranks everything: one is said, several are counted by what asks.
         if let top = first(asked) {
@@ -236,7 +242,7 @@ public struct OperatorLine: Equatable, Sendable {
         case .blocked:
             return needsYou("blocked", reason(task?.operated?.blockedReason) ?? "it needs you", tooltip: request.text, oracle: oracle)
         case .problem:
-            return needsYou("blocked", reason(task?.operated?.blockedReason) ?? "a problem in AiTerm", tooltip: request.text, oracle: oracle)
+            return needsYou("blocked", reason(task?.operated?.publication?.problem ?? task?.operated?.blockedReason) ?? "a problem in AiTerm", tooltip: request.text, oracle: oracle)
         }
     }
 

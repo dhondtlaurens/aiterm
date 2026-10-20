@@ -222,7 +222,7 @@ extension OperatorToolHandler {
     func recheck(_ original: TaskItem) throws(ToolRefusal) {
         guard let task = state.task(id: original.id), let operated = task.operated,
               let run = state.run(id: operated.runId), operated.runId == original.operated?.runId else {
-            throw ToolRefusal("This task is no longer in this operation.")
+            throw ToolRefusal("This task is no longer in this broadcast.")
         }
         try acceptsWork(run)
         _ = try notTakenOver(task)
@@ -235,19 +235,19 @@ extension OperatorToolHandler {
 
     /// Work moves only in an active or complete operation (spec §9).
     func acceptsWork(_ run: OperatorRun) throws(ToolRefusal) {
-        if run.intent == .stopped { throw ToolRefusal("This operation was stopped; its tools no longer act.") }
-        if run.intent == .paused { throw ToolRefusal("The person paused this operation. Wait until they resume it.") }
+        if run.intent == .stopped { throw ToolRefusal("This broadcast was stopped; its tools no longer act.") }
+        if run.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
         switch run.state {
         case .active, .complete: return
-        case .planning: throw ToolRefusal("This operation’s plan isn’t under way yet.")
-        case .paused: throw ToolRefusal("The person paused this operation. Wait until they resume it.")
-        case .operatorOffline: throw ToolRefusal("AiTerm has this operation offline; it resumes it first.")
-        case .stopped: throw ToolRefusal("This operation was stopped; its tools no longer act.")
+        case .planning: throw ToolRefusal("This broadcast’s plan isn’t under way yet.")
+        case .paused: throw ToolRefusal("The person paused this broadcast. Wait until they resume it.")
+        case .operatorOffline: throw ToolRefusal("AiTerm has this broadcast offline; it resumes it first.")
+        case .stopped: throw ToolRefusal("This broadcast was stopped; its tools no longer act.")
         }
     }
 
     func notTakenOver(_ task: TaskItem) throws(ToolRefusal) -> OperatedTask {
-        guard let operated = task.operated else { throw ToolRefusal("\(task.title) isn’t this operation’s.") }
+        guard let operated = task.operated else { throw ToolRefusal("\(task.title) isn’t this broadcast’s.") }
         guard !operated.takenOver else { throw ToolRefusal("The person took over \(operated.key). Leave it until they hand it back.") }
         return operated
     }

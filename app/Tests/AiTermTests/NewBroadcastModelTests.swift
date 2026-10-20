@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import AiTermCore
 @testable import AiTerm
@@ -223,7 +224,7 @@ struct NewBroadcastModelTests {
     }
 
     /// The OPERATOR heading's "+" opens it on the sidebar's projects, and on nothing while the workspace can't change.
-    @Test func theHeadingsPlusOpensIt() throws {
+    @Test func theHeadingsPlusOpensIt() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
@@ -231,6 +232,7 @@ struct NewBroadcastModelTests {
         let webshop = project("webshop", jira: [pay])
         controller.workspace.mutate { $0.items = [.project(webshop)] }
         controller.presentNewBroadcast()
+        #expect(await eventually(describing: "New Broadcast opens") { controller.sheet != nil })
         guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
         #expect(sheet.offeredProjects == [webshop])
         #expect(sheet.offeredJiraProjects == [pay])
@@ -255,4 +257,28 @@ struct NewBroadcastModelTests {
         await sheet.loadCompletions()
         #expect(sheet.completions.all.map(\.name) == ["superpowers:brainstorming", "code-review", "deploy", "imagegen"])
     }
+}
+
+extension NewBroadcastModelTests {
+    @Test func openingNewBroadcastReadsTheBlockingProfileOffMain() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mainReads = MainThreadReadings()
+        var ports = OperatorPorts.scratch()
+        ports.profile = {
+            mainReads.append(Thread.isMainThread)
+            return OperatorProfile(model: "opus", reasoning: nil)
+        }
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch(), operatorPorts: ports)
+        try controller.loadWorkspace()
+        controller.presentNewBroadcast()
+        #expect(await eventually(describing: "New Broadcast opens after profile read") { controller.sheet != nil })
+        #expect(mainReads.all == [false])
+    }
+}
+
+private final class MainThreadReadings: Sendable {
+    private let readings = Mutex<[Bool]>([])
+    func append(_ value: Bool) { readings.withLock { $0.append(value) } }
+    var all: [Bool] { readings.withLock { $0 } }
 }

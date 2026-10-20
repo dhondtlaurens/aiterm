@@ -73,7 +73,7 @@ final class HeldBranchesGit: GitRunning {
         #expect(await eventually(describing: "the call to be reading the branches") { git.waiting == 1 })
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .paused; $0.state = .paused } }
         git.open()
-        #expect(await call.value.message == "The person paused this operation. Wait until they resume it.")
+        #expect(await call.value.message == "The person paused this broadcast. Wait until they resume it.")
         #expect(world.state.tasks.isEmpty)
     }
 
@@ -84,7 +84,7 @@ final class HeldBranchesGit: GitRunning {
         #expect(await eventually(describing: "the call to be reading the branches") { git.waiting == 1 })
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.intent = .stopped; $0.state = .stopped } }
         git.open()
-        #expect(await call.value.message == "This operation has ended; its tools no longer act.")
+        #expect(await call.value.message == "This broadcast has ended; its tools no longer act.")
         #expect(world.state.tasks.isEmpty)
     }
 }

@@ -12,7 +12,7 @@ import Foundation
         #expect(try AgentCommand.build(agent: .claude, model: "opus", reasoning: "high", prompt: "fix it", worktreePath: wt,
                                        git: .hermetic(), operated: true)
                 == "claude --model opus --effort high --disallowedTools AskUserQuestion 'Bash(git push:*)' "
-                + "'Bash(gh pr merge:*)' 'Bash(glab mr merge:*)' --permission-mode auto 'fix it'")
+                + "'Bash(gh pr merge:*)' 'Bash(glab mr merge:*)' 'Bash(gh pr create:*)' 'Bash(glab mr create:*)' 'Bash(gh pr ready:*)' 'Bash(glab mr update:*)' 'Bash(git -C * push:*)' 'Bash(git * push:*)' --permission-mode auto 'fix it'")
     }
 
     /// Every broadcast launches its workers the same way: the words take no setting but the agent, its model and its
@@ -20,10 +20,10 @@ import Foundation
     @Test func oneProfileForEveryBroadcast() throws {
         let claude = AgentCommand.workerWords(agent: .claude, model: "opus", reasoning: "high")
         #expect(claude == ["claude", "--model", "opus", "--effort", "high", "--disallowedTools", "AskUserQuestion",
-                           "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "--permission-mode", "auto"])
+                           "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)", "--permission-mode", "auto"])
         let codex = AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
-        #expect(codex == ["codex", "-s", "workspace-write", "-a", "on-request", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
-        #expect(AgentCommand.operatedClaudeDenials == ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)"])
+        #expect(codex == ["codex", "-s", "workspace-write", "-a", "on-request", "-c", "sandbox_workspace_write.network_access=false", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium"])
+        #expect(AgentCommand.operatedClaudeDenials == ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"])
         for agent in AgentCommand.operatedAgents {
             let words = AgentCommand.workerWords(agent: agent, model: "m", reasoning: nil)
             #expect(AgentCommand.resumeWorker(agent: agent, conversation: "c", model: "m", reasoning: nil)
@@ -42,7 +42,7 @@ import Foundation
 
     @Test func aCodexWorkerIsSandboxedToItsWorkspace() {
         #expect(AgentCommand.previewCommand(agent: .codex, model: "gpt-6-astra", reasoning: "medium", prompt: "fix it", operated: true)
-                == "codex -s workspace-write -a on-request -m gpt-6-astra -c model_reasoning_effort=medium 'fix it'")
+                == "codex -s workspace-write -a on-request -c sandbox_workspace_write.network_access=false -m gpt-6-astra -c model_reasoning_effort=medium 'fix it'")
     }
 
     /// A task you make yourself launches exactly as before.

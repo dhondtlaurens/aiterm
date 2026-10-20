@@ -68,7 +68,7 @@ public struct JiraClient: Sendable {
     /// `jql`'s condition in parentheses after `scope`, so an `OR` in it cannot reach past the scope, and
     /// its `ORDER BY` — the last one outside quoted text — kept last. Nil when its parentheses outside
     /// quoted text do not pair up: one that closes early could close the scope's.
-    static func confined(_ jql: String, to scope: String) -> String? {
+    public static func confined(_ jql: String, to scope: String) -> String? {
         var depth = 0, quote: Character? = nil, escaped = false
         var quoted: [Range<String.Index>] = [], opened = jql.startIndex
         for index in jql.indices {

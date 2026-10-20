@@ -544,8 +544,9 @@ public enum SidebarModel {
 
 public extension SidebarModel {
     /// The ends a task reaches by being done: accepted, no change needed, or published (M3).
-    static func isFinished(_ state: OperatedState) -> Bool {
-        state == .accepted || state == .noChange || state == .published
+    static func isFinished(_ task: OperatedTask) -> Bool {
+        task.state == .noChange || task.state == .published || task.state == .stopped
+            || (task.state == .accepted && (task.end == .commit || task.publication?.leftForYou == true))
     }
 
     /// An agent as a caption names it: its vendor's short name, not its CLI's display name.

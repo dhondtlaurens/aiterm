@@ -137,7 +137,7 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "report_find",
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find",
                                         "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
@@ -167,8 +167,8 @@ final class OperatorToolHandler {
     }
 
     func answer(_ request: OperatorRequest) async -> ToolAnswer {
-        guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else { return .error("This operation is no longer in AiTerm.") }
-        guard run.state != .stopped, run.intent != .stopped else { return .error("This operation has ended; its tools no longer act.") }
+        guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else { return .error("This broadcast is no longer in AiTerm.") }
+        guard run.state != .stopped, run.intent != .stopped else { return .error("This broadcast has ended; its tools no longer act.") }
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }
@@ -182,9 +182,9 @@ final class OperatorToolHandler {
             // The gate marks a challenge it lets act; whatever way this call ends, the mark goes with it.
             let acting = call.optionalString("challengeId").flatMap { actingChallenges.contains($0) ? $0 : nil }
             defer { if let acting { actingChallenges.remove(acting) } }
-            guard let current = state.run(id: id) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+            guard let current = state.run(id: id) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
             guard current.state != .stopped, current.intent != .stopped else {
-                throw ToolRefusal("This operation has ended; its tools no longer act.")
+                throw ToolRefusal("This broadcast has ended; its tools no longer act.")
             }
             if Self.mutating.contains(call.tool), current.state != run.state || current.intent != run.intent,
                current.state == .paused || current.state == .operatorOffline || current.intent == .paused {
@@ -217,11 +217,16 @@ final class OperatorToolHandler {
         switch call.tool {
         case "run_status": return try await runStatus(run)
         case "jira_search": return try await jiraSearch(call, in: run)
-        case "jira_create": return try await jiraCreate(call, in: run)
+        case "jira_create":
+            guard !(try call.string("key")).hasPrefix("find/") else {
+                throw ToolRefusal("jira_create keys starting with “find/” are reserved for off-brief finds. Choose another key.")
+            }
+            return try await jiraCreate(call, in: run)
         case "jira_move": return try await jiraMove(call, in: run)
         case "jira_link": return try await jiraLink(call, in: run)
         case "ask_you": return try askYou(call, in: run)
         case "resolve_question": return try resolveQuestion(call, in: run)
+        case "leave_for_you": return try leaveForYou(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
         case "report_find": return try await reportFind(call, in: run)
         case "create_task": return try await createTask(call, in: run)
@@ -252,7 +257,7 @@ final class OperatorToolHandler {
     /// The task an operator names in `key`, in this run.
     func task(_ call: ToolCall, _ key: String = "task", in run: OperatorRun) throws(ToolRefusal) -> TaskItem {
         let ref = try call.string(key)
-        guard let task = state.task(inRun: run.id, named: ref) else { throw ToolRefusal("No task \(ref) in this operation.") }
+        guard let task = state.task(inRun: run.id, named: ref) else { throw ToolRefusal("No task \(ref) in this broadcast.") }
         return task
     }
 
@@ -263,7 +268,7 @@ final class OperatorToolHandler {
     private func runStatus(_ run: OperatorRun) async throws -> JSONValue {
         let agents = await agentChoices()
         guard let current = state.run(id: run.id), var content = currentStatus(of: current) else {
-            throw ToolRefusal("This operation is no longer in AiTerm.")
+            throw ToolRefusal("This broadcast is no longer in AiTerm.")
         }
         content.run.agents = Dictionary(agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         let previous = numbered[run.id]
@@ -289,10 +294,19 @@ final class OperatorToolHandler {
         let jql = try call.string("jql")
         guard let jira = ports.jira() else { throw ToolRefusal("Jira isn’t connected in AiTerm’s Settings › Integrations.") }
         let linked = run.projectIds.compactMap(state.project(id:)).flatMap(\.jiraProjects).linkedOnce
-        guard !linked.isEmpty else {
-            throw ToolRefusal("None of this operation’s projects is linked to a Jira project, so there is nothing jira_search may search.")
+        let keys = Set(linked.map { $0.key.uppercased() })
+        let extra = run.jiraProjectKeys.map { $0.uppercased() }.filter { !keys.contains($0) }
+        let scope = Set(linked.map(\.key) + extra).sorted()
+        guard !scope.isEmpty else {
+            throw ToolRefusal("None of this broadcast’s projects is linked to a Jira project, so there is nothing jira_search may search.")
         }
-        let tickets = try await jira.search(jql: jql, in: linked)
+        let tickets: [JiraTicket]
+        if extra.isEmpty { tickets = try await jira.search(jql: jql, in: linked) }
+        else {
+            let quoted = scope.map { "\"" + $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }.joined(separator: ", ")
+            guard let confined = JiraClient.confined(jql, to: "project in (\(quoted))") else { throw ToolRefusal("jira_search needs a balanced JQL query.") }
+            tickets = try await jira.search(jql: confined, in: [])
+        }
         return .array(tickets.map { ticket in
             ["key": .string(ticket.key), "summary": .string(ticket.summary), "status": ticket.status.map(JSONValue.string) ?? .null,
              "type": ticket.issueType.map(JSONValue.string) ?? .null, "url": .string(ticket.url),
@@ -315,7 +329,7 @@ final class OperatorToolHandler {
 
     private func resolveQuestion(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), summary = try call.string("summary")
-        guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this operation.") }
+        guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
         mutate(in: run.id) { state in
@@ -332,6 +346,19 @@ final class OperatorToolHandler {
 
     /// `why` is the reason in a sentence, and `objection` the Oracle's, when the Operator decided against it: the
     /// debrief lists them under the decision.
+    private func leaveForYou(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+        let key = try call.string("key"), text = try call.string("text")
+        mutate(in: run.id) { state in
+            state.updateRun(id: run.id) {
+                guard $0.leftForYouRecords?[key] == nil else { return }
+                if $0.leftForYouRecords == nil { $0.leftForYouRecords = [:] }
+                $0.leftForYouRecords?[key] = text
+                $0.leftForYou.append(text)
+            }
+        }
+        return ["key": .string(key), "recorded": true]
+    }
+
     private func logDecision(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("text")
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }

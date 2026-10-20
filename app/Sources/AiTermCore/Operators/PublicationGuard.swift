@@ -4,9 +4,9 @@ import Foundation
 /// the first step; `recheck`, through `TaskPublisher`'s `recheck`, before every later one that changes
 /// something outside this machine.
 public enum PublicationGuard {
-    public static let notOperated = "This task isn't an operator's: only an operation's tasks are finished."
+    public static let notOperated = "This task isn’t the Operator’s: only a broadcast’s tasks are finished."
     public static let changedMidway = "The task was taken over, handed on or accepted again while it was being published. What was done so far is recorded; call finish_task again once it is yours."
-    public static let gone = "The task or its operation is no longer in AiTerm."
+    public static let gone = "The task or its broadcast is no longer in AiTerm."
     /// A merge, through the request or local, with the broadcast's frozen Merge slice off (spec §5).
     public static let mergeSliceOff = "The Merge slice is off for this broadcast."
 
@@ -107,14 +107,14 @@ public enum PublicationGuard {
 
     /// An operation publishes while it is active or complete and you have neither paused nor ended it.
     public static func runRefusal(_ run: OperatorRun) -> String? {
-        if run.intent == .stopped { return "The operation was stopped; it publishes nothing." }
-        if run.intent == .paused { return "The operation is paused; nothing is published until it runs again." }
+        if run.intent == .stopped { return "The broadcast was stopped; it publishes nothing." }
+        if run.intent == .paused { return "The broadcast is paused; nothing is published until it runs again." }
         switch run.state {
         case .active, .complete: return nil
-        case .paused: return "The operation is paused; nothing is published until it runs again."
-        case .operatorOffline: return "The operator is offline; nothing is published until the operation resumes."
-        case .stopped: return "The operation was stopped; it publishes nothing."
-        case .planning: return "The operation's plan hasn't been submitted yet."
+        case .paused: return "The broadcast is paused; nothing is published until it runs again."
+        case .operatorOffline: return "The Operator is offline; nothing is published until the broadcast resumes."
+        case .stopped: return "The broadcast was stopped; it publishes nothing."
+        case .planning: return "The broadcast's plan hasn't been submitted yet."
         }
     }
 

@@ -55,7 +55,7 @@ enum OperatorMenus {
     static func task(_ operated: OperatedTask?, broadcastLive: Bool) -> [OperatorMenuItem] {
         guard let operated, broadcastLive else { return [] }
         let owner: OperatorMenuItem = operated.takenOver ? .handBack : .takeOver
-        return operated.state.isOpen ? [owner, .separator, .stopTask] : [owner]
+        return (operated.state.isOpen || (operated.state == .accepted && operated.publication?.leftForYou != true)) ? [owner, .separator, .stopTask] : [owner]
     }
 }
 

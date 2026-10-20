@@ -35,7 +35,7 @@ import Synchronization
     /// A broadcast with the Oracle on and `slices` frozen, its Review and Done written, and one accepted task `A`
     /// ending in `end` on the branch of a repository with an origin.
     func merging(end: TaskEnd = .merge, slices: Slices = Slices(merge: true), review: String? = "Merge after Jan approves.",
-                 answer: String?, gate: OracleGate? = nil, budget: Duration = .seconds(60)) throws -> Merging {
+                 answer: String?, gate: OracleGate? = nil, budget: Duration = .seconds(60), runner: SecondOpinionRunner? = nil) throws -> Merging {
         let fixture = try GitFixture.withOrigin(branch: "feat/a")
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude)
@@ -51,7 +51,7 @@ import Synchronization
         let host = FakeMergeHost(), prompts = Prompts()
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: { ports in
             ports.publisher = { _ in host }
-            ports.secondOpinion = Self.oracle(answer, gate: gate, prompts: prompts)
+            ports.secondOpinion = runner ?? Self.oracle(answer, gate: gate, prompts: prompts)
             ports.challengeReplyBudget = budget
         })
         world.live.sessions = [OperatorServiceFixtures.session("operator", tag: run.id), OperatorServiceFixtures.session("worker", tag: task.id)]
@@ -84,12 +84,13 @@ import Synchronization
         #expect(m.prompts.list.count == 1)
     }
 
-    @Test func anOracleThatDoesNotAnswerRefusesTheMerge() async throws {
+    @Test func anOracleThatDoesNotAnswerLetsTheMergeProceedUnchallenged() async throws {
         let m = try merging(answer: nil)
         let answer = await m.world.call(m.run.id, "finish_task", ["task": "A"])
-        #expect(answer.message == "The Oracle didn’t answer, so AiTerm didn’t merge A. AiTerm recorded it on the task; call finish_task again.")
-        #expect(publication(m)?.problem == "The Oracle didn’t answer whether the conditions to merge hold.")
-        #expect(m.host.log.isEmpty)
+        #expect(answer.value?["result"] == "waitingToMerge")
+        #expect(publication(m)?.conditionsHeld == m.sha && publication(m)?.problem == nil)
+        #expect(m.world.run(m.run.id)?.decisions.last?.why == "The Oracle didn’t answer, so the merge went ahead unchallenged.")
+        #expect(m.host.log.contains { $0.hasPrefix("readiness") })
     }
 
     /// An Oracle still judging when the reply is due answers pending; the call again with its id acts on the yes.
@@ -118,7 +119,9 @@ import Synchronization
         let off = try merging(end: .mergeLocal, slices: .none, answer: "NO.")
         let refused = await off.world.call(off.run.id, "finish_task", ["task": "A"])
         #expect(refused.value?["result"] == "refused" && refused.value?["reason"]?.stringValue == "The Merge slice is off for this broadcast.")
-        #expect(off.world.run(off.run.id)?.leftForYou == ["Merge A: the Merge slice is off."])
+        #expect(off.world.run(off.run.id)?.leftForYou.count == 1)
+        #expect(publication(off)?.leftForYou == true)
+        #expect(RunScheduler.isComplete(off.world.run(off.run.id)!, in: off.world.state))
         #expect(off.prompts.list.isEmpty)
 
         let reviewed = try merging(slices: Slices(review: true, merge: true), answer: "YES.")
@@ -164,5 +167,34 @@ import Synchronization
         #expect(second.message == Self.acceptedAgain)
         #expect(publication(m)?.conditionsHeld == nil)
         #expect(m.host.log.isEmpty)
+    }
+}
+
+extension OperatorMergeTests {
+    @Test func aMissingOracleAlsoLetsTheMergeProceedUnchallenged() async throws {
+        let m = try merging(answer: nil)
+        let id = "lost-oracle"
+        m.world.workspace.mutate { state in
+            state.updateRun(id: m.run.id) { $0.challenges.append(ChallengeRecord(id: id, tool: "finish_task", kind: .veto,
+                askedArguments: OperatorToolHandler.invocation(ToolCall(tool: "finish_task", arguments: ["task": "A"])),
+                askedSHA: m.sha, askedAt: Date())) }
+        }
+        let answer = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
+        #expect(answer.value?["result"] == "waitingToMerge")
+        #expect(m.world.run(m.run.id)?.decisions.last?.why == "The Oracle didn’t answer, so the merge went ahead unchallenged.")
+    }
+}
+
+extension OperatorMergeTests {
+    @Test func aMissingAgentAndATimedOutOracleProceedUnchallenged() async throws {
+        let timedOut = SecondOpinionRunner(locate: { _ in "/fake/oracle" }, run: { _, _, _, _, _ in
+            ProcessOutput(status: 15, stdout: "", stderr: "", timedOut: true)
+        })
+        for runner in [SecondOpinionRunner.unavailable, timedOut] {
+            let m = try merging(answer: nil, runner: runner)
+            #expect(await m.world.call(m.run.id, "finish_task", ["task": "A"]).value?["result"] == "waitingToMerge")
+            #expect(publication(m)?.conditionsHeld == m.sha)
+            #expect(m.world.run(m.run.id)?.decisions.last?.why == "The Oracle didn’t answer, so the merge went ahead unchallenged.")
+        }
     }
 }

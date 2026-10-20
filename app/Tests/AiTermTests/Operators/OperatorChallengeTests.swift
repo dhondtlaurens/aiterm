@@ -31,7 +31,7 @@ import Testing
         let second = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "A is one change."])
         #expect(second.value?["submitted"] == true && world.run(run.id)?.planRevision == 1)
         let decision = try #require(world.run(run.id)?.decisions.last)
-        #expect(decision.challenge == "A is two tasks." && decision.text == "submit_plan: A is one change.")
+        #expect(decision.challenge == "A is two tasks." && decision.text == "Kept the plan despite the Oracle’s objection.")
         #expect(decision.task == nil)
         // The acting call again — its reply lost — answers what it answered, and acts no further.
         let decisions = world.run(run.id)?.decisions.count
@@ -74,7 +74,7 @@ import Testing
         let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
         _ = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "A is one change."])
         let kept = try #require(world.run(run.id)?.decisions.last)
-        #expect(kept.objection == "A is two tasks." && kept.text == "submit_plan: A is one change.")
+        #expect(kept.objection == "A is two tasks." && kept.text == "Kept the plan despite the Oracle’s objection.")
 
         let (revised, revisedRun) = try await makeWorld(runner: .answering("A is two tasks."))
         let second = try #require(await revised.call(revisedRun.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
@@ -217,5 +217,17 @@ import Testing
         #expect(world.task(task.id)?.operated?.state == .working)
         world.controller.tools.actingChallenges.remove(id)
         #expect(await world.call(run.id, "mark_task", acting).value?["state"] == "blocked")
+    }
+}
+
+extension OperatorChallengeTests {
+    @Test func anOverruledObjectionIsCappedForTheDebrief() async throws {
+        let objection = String(repeating: "x", count: 500)
+        let (world, run) = try await makeWorld(runner: .answering(objection))
+        let id = try #require(await world.call(run.id, "submit_plan", ["revision": 1]).value?["challengeId"]?.stringValue)
+        _ = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id), "challengeReply": "One change."])
+        let kept = try #require(world.run(run.id)?.decisions.last)
+        #expect(kept.objection?.count == 300 && kept.objection?.hasSuffix("…") == true)
+        #expect(kept.challenge == objection, "the full critique stays in the log")
     }
 }

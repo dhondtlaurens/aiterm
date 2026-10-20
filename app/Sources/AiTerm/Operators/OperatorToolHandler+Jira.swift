@@ -56,7 +56,7 @@ extension OperatorToolHandler {
     /// Jira writes go while the operation plans (its tickets for planned work) or runs, read fresh: never while you
     /// paused or ended it, its Operator is offline, or its slice is off.
     func jiraWritable(_ runId: UUID) throws(ToolRefusal) {
-        guard let run = state.run(id: runId) else { throw ToolRefusal("This operation is no longer in AiTerm.") }
+        guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
         guard run.profile.slices.jira else { throw ToolRefusal(Self.sliceOff) }
         if run.state == .planning, run.intent == nil { return }
         try acceptsWork(run)
@@ -137,18 +137,23 @@ extension OperatorToolHandler {
         guard let run = state.run(id: runId), run.profile.slices.jira, let find = run.finds.first(where: { $0.key == key }) else { return .notAttempted }
         if let ticket = find.ticket { return .filed(ticket) }
         guard let project = run.jiraProjectKeys.first else { return .notFiled("This broadcast has no Jira project to file it in.") }
-        guard let jira = ports.jira() else { return .notFiled(Self.notConnected) }
+        guard ports.jira() != nil else { return .notFiled(Self.notConnected) }
         // Another call is filing this find now: it is that call's to say.
         guard filingFinds.insert("\(runId.uuidString)/\(key)").inserted else { return .notAttempted }
         defer { filingFinds.remove("\(runId.uuidString)/\(key)") }
         do {
             try jiraWritable(runId)
-            let ticket = try await jira.createIssue(project: project, type: "Task", summary: find.title, description: find.why, parent: nil, labels: [])
+            // Finds and explicit jira_create calls have separate idempotency keys.
+            let call = ToolCall(tool: "jira_create", arguments: ["key": .string("find/" + key), "project": .string(project),
+                "type": "Task", "summary": .string(find.title), "description": .string(find.why)])
+            let answer = try await jiraCreate(call, in: run)
+            guard let ticket = answer["key"]?.stringValue else { return .notFiled("Jira returned no ticket key.") }
             mutate(in: runId) { state in
                 state.updateRun(id: runId) { run in
                     if let index = run.finds.firstIndex(where: { $0.key == key }) { run.finds[index].ticket = ticket }
                 }
             }
+            _ = workspace.flush()
             return .filed(ticket)
         } catch let refusal as ToolRefusal {
             return .notFiled(refusal.message)

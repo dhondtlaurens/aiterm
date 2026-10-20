@@ -194,7 +194,7 @@ import Testing
         #expect(world.run(run.id)?.state == .complete)
         #expect(world.notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] operation complete, call run_status")
+        #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] broadcast complete, call run_status")
         #expect(world.task(task.id)?.operated?.state == .noChange)
     }
 
@@ -221,9 +221,9 @@ import Testing
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.state = .paused; $0.intent = .paused } }
         world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done)])
         #expect(await world.call(run.id, "message_task", ["task": "PLUTO-1", "text": "x"]).message
-                == "The person paused this operation. Wait until they resume it.")
+                == "The person paused this broadcast. Wait until they resume it.")
         #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange"]).message
-                == "The person paused this operation. Wait until they resume it.")
+                == "The person paused this broadcast. Wait until they resume it.")
         #expect(world.daemon.requests("session.deliver").isEmpty)
     }
 }

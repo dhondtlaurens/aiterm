@@ -38,13 +38,14 @@ struct OperatorMenusTests {
         let run = OperatorUIFixtures.run()
         func menu(_ operated: OperatedTask?) -> [String] { titles(OperatorMenus.task(operated, broadcastLive: true)) }
         #expect(menu(nil).isEmpty, "a task you made yourself")
+        #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .accepted)) == ["Take Over", "—", "Stop Task…"])
         #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .working)) == ["Take Over", "—", "Stop Task…"])
         #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .working, takenOver: true))
                 == ["Hand Back", "—", "Stop Task…"], "taken over, it is still the Operator's to stop")
         #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .blocked)) == ["Take Over", "—", "Stop Task…"])
         #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .failed)) == ["Take Over", "—", "Stop Task…"],
                 "failed is still open")
-        for ended in [OperatedState.accepted, .noChange, .published, .stopped] {
+        for ended in [OperatedState.noChange, .published, .stopped] {
             #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: ended, sha: "4f2a91c")) == ["Take Over"],
                     "\(ended): ended, there is nothing left to stop")
             #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: ended, takenOver: true)) == ["Hand Back"],
@@ -90,7 +91,7 @@ struct OperatorMenusTests {
 
         let alert = OperatorAlerts.stopTask(task)
         #expect(alert.message == "Stop “The signup block schema”?")
-        #expect(alert.detail == "Its operator stops on it for good, and the tasks that build on it wait for you. Its window and its branch stay; an agent at work there finishes its turn.")
+        #expect(alert.detail == "The Operator stops on it for good, and the tasks that build on it wait for you. Its window and its branch stay; an agent at work there finishes its turn.")
         #expect(alert.buttons == ["Stop Task", "Cancel"] && alert.escapeButton == 1 && !alert.defaultDeletes)
 
         #expect(await !controller.confirmStop(task))
@@ -98,5 +99,15 @@ struct OperatorMenusTests {
         #expect(await controller.confirmStop(task))
         #expect(prompter.asked == [alert, alert])
         await eventually(describing: "the task stopped") { controller.state.task(id: task.id)?.operated?.state == .stopped }
+    }
+}
+
+extension OperatorMenusTests {
+    @Test func anAcceptedUnpublishedTaskHasAStopEscapeHatch() {
+        let run = OperatorUIFixtures.run()
+        var operated = OperatorUIFixtures.operated(run: run.id, key: "a", state: .accepted, end: .merge, sha: "4f2a91c")
+        #expect(OperatorMenus.task(operated, broadcastLive: true).contains(.stopTask))
+        operated.publication = TaskPublication(leftForYou: true)
+        #expect(!OperatorMenus.task(operated, broadcastLive: true).contains(.stopTask))
     }
 }

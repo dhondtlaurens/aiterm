@@ -135,7 +135,7 @@ def _choice(description: str, *values: str) -> dict[str, Any]:
 _TASK = _text("The task: its key as you gave it to create_task, or its id from run_status.")
 _KEY = _text("Your idempotency key for this act: the same key again returns what the first call did.")
 _AGENT = _choice("The agent that works the task, among those installed.", "claude", "codex")
-_END = _choice("Where the task ends, from the operation's Done when: commit; draftMR, push and open a draft merge request; "
+_END = _choice("Where the task ends, from the broadcast's Done when: commit; draftMR, push and open a draft merge request; "
                "merge, push, open a merge request and merge it once the host says it can be; or mergeLocal, merge the "
                "accepted commit into the project's own default branch, with nothing pushed. A merge needs the broadcast's "
                "Merge slice. Left out, a task ends at a draftMR, or at a commit when the Done says a commit.",
@@ -167,7 +167,7 @@ CHALLENGED_TOOLS = ("submit_plan", "mark_task", "create_task", "finish_task")
 
 
 def _tool(name: str, description: str, properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
-    """One tool as MCP's tools/list serves it. A closed schema: the operator's model shapes its calls
+    """One tool as MCP's tools/list serves it. A closed schema: the Operator's model shapes its calls
     by it. The daemon checks no argument; the app does."""
     properties = dict(properties or {})
     if name in CHALLENGED_TOOLS:
@@ -181,11 +181,11 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 # The operator's tools (spec §6), served by /operator and answered by the app's OperatorToolHandler.
 # Every one that changes something is safe to repeat: the repeat returns the recorded result.
 TOOLS: tuple[dict[str, Any], ...] = (
-    _tool("run_status", "The operation now, numbered by revision: every task with its state, live status, branch, last commit "
+    _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
           "and a one-line summary, and what is open: questions waiting, prompts waiting on the user, tasks ready to accept, "
           "tasks possibly stalled, anything uncertain. Under run it also shows the off-brief finds, each agent's weekly use, "
           "and each installed agent's models with its default model. Call it first after any restart or compaction."),
-    _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the operation's projects.",
+    _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
           "is on, and outside its Jira projects; AiTerm then leaves it for the person. The same key returns the ticket "
@@ -205,13 +205,13 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"key": _text("The ticket the link is read from."), "to": _text("The ticket it points to."),
            "type": _text("The Jira link type's name, such as Blocks, Relates or Duplicate.")},
           ("key", "to", "type")),
-    _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the operation's projects. The same key "
-          "in this operation returns the task already made. Once the first plan is submitted, additions past a quarter of its "
+    _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
+          "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
           "size need the Oracle's yes, which may answer pending: call again with its challengeId. One the Oracle refuses, "
           "or any past that limit with the Oracle off, is refused and noted for the debrief by AiTerm.",
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
-           "project": _text("The project it belongs to, one of the operation's, by name or by id from run_status."),
+           "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
            "ticket": _text("The Jira key it works, if any."), "agent": _AGENT, "model": _MODEL,
            "modelReason": _text("Why this agent and model, in one line, as the task's card and the debrief show it."),
            "agentPinned": {"type": "boolean", "description": "True when the person's words named this task's agent: it then "
@@ -294,7 +294,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "finish_task again. A takeover stops a merge's waiting: call finish_task again once the task is handed "
           "back. "
           "Refused if the task ends in a commit, the task was taken over, its branch moved past the accepted commit, "
-          "its parent was accepted again, the operation is paused, stopped or offline, the host protects its branch "
+          "its parent was accepted again, the broadcast is paused, stopped or offline, the host protects its branch "
           "or cannot say whether it does, or it is the default branch. "
           "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
           {"task": _TASK}, ("task",)),
@@ -308,7 +308,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "Task in the first of its Jira projects and answers the ticket's key, or why it could not. The same key is recorded once.",
           {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
           ("key", "title", "why")),
-    _tool("log_decision", "Writes a decision you took on your own to the operation's log, for the debrief. The same key is "
+    _tool("leave_for_you", "Records what a slice kept you from doing, naming what is left and why. "
+          "It changes no task and sends nothing. The same key is recorded once for the debrief.",
+          {"key": _KEY, "text": _text("What is left for the person and why, in one sentence.")}, ("key", "text")),
+    _tool("log_decision", "Writes a decision you took on your own to the broadcast's log, for the debrief. The same key is "
           "written once.",
           {"key": _KEY, "text": _text("The decision, in a few words."), "task": _TASK,
            "why": _text("Why you decided it, in one sentence."),
