@@ -49,14 +49,14 @@ func settle(_ host: NSView, describing what: @autoclosure () -> String = "the vi
 /// resize, say, where what is read afterwards is the same before and after. Prefer
 /// ``settle(_:describing:timeout:sourceLocation:until:)``: a fixed spin is too long on a fast machine and too short on a loaded one.
 @MainActor
-func settle(_ host: NSView, for seconds: TimeInterval = 0.05) {
+public func settle(_ host: NSView, for seconds: TimeInterval = 0.05) {
     RunLoop.main.run(until: Date().addingTimeInterval(seconds))
     host.layoutSubtreeIfNeeded()
 }
 
 extension NSView {
     /// The first descendant of `type`, depth first.
-    func firstDescendant<T: NSView>(_ type: T.Type) -> T? {
+    public func firstDescendant<T: NSView>(_ type: T.Type) -> T? {
         for subview in subviews {
             if let match = subview as? T ?? subview.firstDescendant(type) { return match }
         }

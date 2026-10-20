@@ -76,15 +76,39 @@ import SwiftUI
         #expect(field.placeholderString == "Search branches")
     }
 
+    @Test func undoAndRedoReachTheBinding() throws {
+        let state = FieldState()
+        let (window, host) = Self.host(StatefulField(state: state))
+        defer { window.orderOut(nil) }
+        let field = try #require(host.firstSubview(of: FocusableTextField.self))
+        window.makeFirstResponder(field)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))
+        settle(host)
+        #expect(state.text == "abc")
+
+        let undo = try #require(editor.undoManager)
+        #expect(undo.canUndo)
+        undo.undo()
+        settle(host)
+        #expect(editor.string == "")
+        #expect(state.text == "", "undo must update the search query")
+        undo.redo()
+        settle(host)
+        #expect(editor.string == "abc")
+        #expect(state.text == "abc", "redo must update the search query")
+    }
+
     private final class FieldState: ObservableObject {
         @Published var focused = false
+        @Published var text = ""
         @Published var placeholder = "Search tickets"
     }
 
     private struct StatefulField: View {
         @ObservedObject var state: FieldState
         var body: some View {
-            SearchField(placeholder: state.placeholder, text: .constant(""),
+            SearchField(placeholder: state.placeholder, text: Binding(get: { state.text }, set: { state.text = $0 }),
                         focused: Binding(get: { state.focused }, set: { state.focused = $0 }), onCommand: { _ in false })
                 .frame(width: 200, height: 24)
         }

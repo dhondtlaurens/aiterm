@@ -20,8 +20,7 @@ import AiTermTestSupport
 /// One turn of the run loop, then layout: long enough for SwiftUI to push a state change into a
 /// hosted AppKit view.
 @MainActor func settle(_ host: NSView) {
-    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-    host.layoutSubtreeIfNeeded()
+    AiTermTestSupport.settle(host)
 }
 
 /// What `view` drew, as PNG data, for comparing two renders.
@@ -56,10 +55,7 @@ import AiTermTestSupport
 extension NSView {
     /// The first descendant of `type`, depth first.
     func firstSubview<T: NSView>(of type: T.Type) -> T? {
-        for subview in subviews {
-            if let match = subview as? T ?? subview.firstSubview(of: type) { return match }
-        }
-        return nil
+        firstDescendant(type)
     }
 }
 
