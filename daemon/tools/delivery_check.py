@@ -10,6 +10,7 @@ From daemon/, with iTerm2 open:
     .venv/bin/python -m tools.delivery_check                  # run, and print the verdicts
     .venv/bin/python -m tools.delivery_check --write          # and write them into the policy file
     .venv/bin/python -m tools.delivery_check --agents codex --skip-iterm
+    .venv/bin/python -m tools.delivery_check --agents claude,codex
 
 Never run by the test suite: it opens windows, starts agents that spend tokens, and asks you to
 answer a dialog and type once. Codex runs with a scratch CODEX_HOME holding copies of its login and
@@ -39,7 +40,7 @@ from typing import Any
 from aitermd.delivery import ESC, PASTE_END, PASTE_START, POLICY_PATH, Deliverer, Verdict, open_prompt, shows_input_box
 from aitermd.iterm_bridge import ItermBridge, ItermPort
 from aitermd.keystrokes import TypingGuard
-from aitermd.models import AgentKind, Frame
+from aitermd.models import HARNESS_BY_AGENT, AgentKind, Frame
 from aitermd.sessions import SessionRegistry
 
 # Which scenarios each verdict needs. Paste-safe: text pasted into an open prompt never acts as its
@@ -77,6 +78,10 @@ def parse_version(output: str) -> str | None:
 def chosen_agents(text: str) -> tuple[AgentKind, ...]:
     """The CLIs `--agents` names that this check knows, in its own order."""
     wanted = {name.strip() for name in text.split(",")}
+    bad = sorted(wanted - set(AGENTS))
+    if bad:
+        raise ValueError(f"invalid --agents value {', '.join(repr(name) for name in bad)}; "
+                         "use --agents codex or --agents claude,codex")
     return tuple(agent for agent in AGENTS if agent in wanted)
 
 
@@ -158,6 +163,18 @@ def idle(agent: AgentKind) -> Callable[[str], bool]:
     return lambda screen: shows_input_box(agent, screen) and open_prompt(agent, screen) is None and WORKING not in _flat(screen).lower()
 
 
+
+def expected_idle(agent: AgentKind) -> str:
+    return (f"idle input_box marker {HARNESS_BY_AGENT[agent].input_box!r}, no prompt "
+            f"(open_prompt=None), and no working footer 'esc to interrupt' ({WORKING!r})")
+
+
+def expected_prompt(agent: AgentKind, kind: str) -> str:
+    harness = HARNESS_BY_AGENT[agent]
+    markers = harness.startup_prompt if kind == "startup" else harness.permission_prompt
+    return f"{kind} prompt with any harness marker {markers!r}"
+
+
 def report(where: str, name: str, result: ScenarioResult) -> None:
     print(f"  {where} {name}: {'pass' if result.passed else 'FAIL'} -- {result.detail}")
 
@@ -180,6 +197,7 @@ class Live:
     def __init__(self, bridge: ItermPort):
         self.bridge, self.registry, self.typing = bridge, SessionRegistry(), TypingGuard(bridge.keystroke_epoch)
         self.keys: Counter[str] = Counter()
+        self.last_screen: dict[str, str] = {}
         # Each CLI's version, as its `--version` printed it: the one the verdict is written for.
         self.versions: dict[AgentKind, str] = {}
         bridge.on_keystroke(self._key)
@@ -189,7 +207,27 @@ class Live:
         self.typing.note_key(session_id, time.monotonic(), characters, modifiers)
 
     async def screen(self, session_id: str) -> str:
-        return await self.bridge.screen_text(session_id) or ""
+        screen = await self.bridge.screen_text(session_id) or ""
+        self.last_screen[session_id] = screen
+        return screen
+
+    async def failure(self, sid: str | None, agent: AgentKind | None, expected: str,
+                      reason: str = "", *, refresh: bool = False) -> ScenarioResult:
+        if sid is None:
+            screen = ""
+        elif refresh or sid not in self.last_screen:
+            screen = await self.screen(sid)
+        else:
+            screen = self.last_screen[sid]
+        if agent is None:
+            interpretation = "; ".join(
+                f"{kind}: open_prompt={open_prompt(kind, screen)!r}, shows_input_box={shows_input_box(kind, screen)}"
+                for kind in AGENTS)
+        else:
+            interpretation = f"open_prompt={open_prompt(agent, screen)!r}, shows_input_box={shows_input_box(agent, screen)}"
+        excerpt = "\n".join(screen.rstrip().splitlines()[-40:])[-8000:]
+        return ScenarioResult(False, f"Expected {expected}. {reason}\n{interpretation}\n"
+                                     f"Last screen (up to 40 lines, 8000 characters):\n{excerpt or '(no screen read)'}")
 
     async def wait_for(self, session_id: str, seen: Callable[[str], bool], seconds: float) -> bool:
         """Whether the screen shows what `seen` looks for within `seconds`, read twice a second."""
@@ -225,21 +263,27 @@ async def startup_paste(live: Live, agent: AgentKind, sid: str) -> ScenarioResul
     """Pastes the hazard into the folder-trust dialog a fresh folder opens with; the dialog must stay
     open. Then you answer it: Claude's default option is "No, exit", so the check never presses Enter."""
     if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "startup", 60):
-        return ScenarioResult(False, "no startup dialog showed, so pasting into one was not checked")
+        return await live.failure(sid, agent, expected_prompt(agent, "startup"),
+                                  "No startup dialog showed, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
     await asyncio.sleep(3)
     after = await live.screen(sid)
     passed = open_prompt(agent, after) == "startup"
     await asyncio.to_thread(input, f"  {agent}: trust the folder in its window's dialog yourself, then press Return here. ")
-    return ScenarioResult(passed, "the dialog stayed open under the paste" if passed else f"the paste answered the dialog:\n{after}")
+    if not passed:
+        return await live.failure(sid, agent, expected_prompt(agent, "startup") + " to stay open under the paste")
+    return ScenarioResult(True, "the dialog stayed open under the paste")
 
 
 async def idle_submit(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     result = await live.deliverer(agent).deliver(sid, "Reply with only the word ALPHA followed by the result of 6 times 7.", 1)
     if result.result != "delivered":
-        return ScenarioResult(False, f"{result.result}: {result.reason}")
+        return await live.failure(sid, agent, "delivery from " + expected_idle(agent),
+                                  f"{result.result}: {result.reason}", refresh=True)
     answered = await live.wait_for(sid, shows("ALPHA 42"), 120)
-    return ScenarioResult(answered, "answered" if answered else "no answer within 2 minutes: the Enter did not submit")
+    if not answered:
+        return await live.failure(sid, agent, "answer marker 'ALPHA 42' within 2 minutes after Enter")
+    return ScenarioResult(True, "answered")
 
 
 async def multi_line(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
@@ -247,24 +291,32 @@ async def multi_line(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
             "Reply with only the word from line one followed by the result from line two.")
     result = await live.deliverer(agent).deliver(sid, text, 1)
     if result.result != "delivered":
-        return ScenarioResult(False, f"{result.result}: {result.reason}")
+        return await live.failure(sid, agent, "delivery from " + expected_idle(agent),
+                                  f"{result.result}: {result.reason}", refresh=True)
     answered = await live.wait_for(sid, shows("DELTA 5"), 120)
-    return ScenarioResult(answered, "all three lines arrived as one message" if answered else "no DELTA 5: the lines did not arrive whole")
+    if not answered:
+        return await live.failure(sid, agent, "answer marker 'DELTA 5' from all three lines in one message")
+    return ScenarioResult(True, "all three lines arrived as one message")
 
 
 async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     story = "Write a 200-word story about a lighthouse keeper, then end with the line STORY OVER."
     first = await live.deliverer(agent).deliver(sid, story, 1)
     if first.result != "delivered":
-        return ScenarioResult(False, f"the first message: {first.result}: {first.reason}")
+        return await live.failure(sid, agent, "first message delivered from " + expected_idle(agent),
+                                  f"{first.result}: {first.reason}", refresh=True)
     if not await live.wait_for(sid, lambda screen: WORKING in _flat(screen).lower(), 30):
-        return ScenarioResult(False, "the agent never showed it was working, so a queued message was not checked")
+        return await live.failure(sid, agent, f"working footer 'esc to interrupt' ({WORKING!r})",
+                                  "The agent never showed it was working, so a queued message was not checked.")
     second = await live.deliverer(agent).deliver(sid, "When you are done, reply with only the word CHARLIE followed by 5 plus 4.", 1)
     if second.result != "delivered":
-        return ScenarioResult(False, f"the queued message: {second.result}: {second.reason}")
+        return await live.failure(sid, agent, f"queued delivery while working ({WORKING!r}) with "
+                                  f"input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
+                                  f"{second.result}: {second.reason}", refresh=True)
     answered = await live.wait_for(sid, shows("CHARLIE 9"), 240)
-    return ScenarioResult(answered, "the message typed while it worked was queued and answered" if answered
-                          else "no CHARLIE 9: the message typed while it worked was lost")
+    if not answered:
+        return await live.failure(sid, agent, "answer marker 'CHARLIE 9' for the queued message")
+    return ScenarioResult(True, "the message typed while it worked was queued and answered")
 
 
 async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
@@ -279,13 +331,23 @@ async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     deliverers[0].set_ownership(sid, 1)
     result = await deliverers[0].deliver(sid, "Reply with only the word ECHO followed by the result of 2 plus 2.", 1)
     if result.result != "partial":
-        return ScenarioResult(False, f"expected partial, got {result.result}: {result.reason}")
+        return await live.failure(sid, agent, "partial delivery after takeover from " + expected_idle(agent),
+                                  f"got {result.result}: {result.reason}", refresh=True)
     waiting = await live.wait_for(sid, shows("ECHO followed by the result of 2 plus 2"), 5)
+    failures = []
+    if not waiting:
+        failures.append((await live.failure(sid, agent, "unsent input marker 'ECHO followed by the result of 2 plus 2'")).detail)
     submitted = await live.wait_for(sid, shows("ECHO 4"), 10)
+    if submitted:
+        failures.append((await live.failure(sid, agent, "no answer marker 'ECHO 4' before Enter")).detail)
     # Entered now, by the check, so the session is left idle for the next scenario.
     await live.bridge.send_text(sid, "\r")
     answered = await live.wait_for(sid, shows("ECHO 4"), 120)
     passed = waiting and not submitted and answered
+    if not answered:
+        failures.append((await live.failure(sid, agent, "answer marker 'ECHO 4' after Enter")).detail)
+    if not passed:
+        return ScenarioResult(False, "\n".join(failures))
     return ScenarioResult(passed, f"text waiting in the input: {waiting}; submitted without Enter: {submitted}; "
                                   f"answered once entered: {answered}")
 
@@ -299,16 +361,22 @@ async def permission_paste(live: Live, agent: AgentKind, sid: str, folder: Path)
     target.parent.mkdir(parents=True, exist_ok=True)
     asked = await live.deliverer(agent).deliver(sid, f"Run exactly this shell command and nothing else: touch {target}", 1)
     if asked.result != "delivered":
-        return ScenarioResult(False, f"the request: {asked.result}: {asked.reason}")
+        return await live.failure(sid, agent, "permission request delivered from " + expected_idle(agent),
+                                  f"{asked.result}: {asked.reason}", refresh=True)
     if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "permission", 120):
-        return ScenarioResult(False, "no approval prompt opened, so pasting into one was not checked")
+        return await live.failure(sid, agent, expected_prompt(agent, "permission"),
+                                  "No approval prompt opened, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
     await asyncio.sleep(3)
     still_open = open_prompt(agent, await live.screen(sid)) == "permission"
     approved, rules = target.exists(), allow_rules(agent, folder)
     await live.bridge.send_text(sid, ESC)
     passed = still_open and not approved and not rules
-    return ScenarioResult(passed, f"prompt still open: {still_open}; command ran: {approved}; allow rules written: {rules or 'none'}")
+    detail = f"prompt still open: {still_open}; command ran: {approved}; allow rules written: {rules or 'none'}"
+    if not passed:
+        return await live.failure(sid, agent, expected_prompt(agent, "permission") +
+                                  " to stay open, no command execution and no allow rules written", detail)
+    return ScenarioResult(True, detail)
 
 
 async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, ScenarioResult]:
@@ -336,7 +404,9 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
         )
         for name, step in steps:
             if not await live.ready(agent, sid):
-                print(f"  {agent} is not idle with no prompt open (answer any dialog in its window); {name} and the rest are not run")
+                results[name] = await live.failure(sid, agent, expected_idle(agent),
+                                                   f"{name} and the rest are not run; registry must also identify {agent}.")
+                report(agent, name, results[name])
                 break
             results[name] = await step()
             report(agent, name, results[name])
@@ -356,24 +426,48 @@ async def keystrokes_pass_through(live: Live) -> ScenarioResult:
         seen = live.keys[sid]
     finally:
         await live.bridge.close_window(window)
-    return ScenarioResult(echoed and seen >= len("aiterm"), f"the shell got the keys: {echoed}; the monitor saw {seen} keys")
+    detail = f"the shell got the keys: {echoed}; the monitor saw {seen} keys"
+    if not echoed or seen < len("aiterm"):
+        return await live.failure(sid, None, "shell echo marker 'GOT:aiterm' and at least 6 monitored keys", detail)
+    return ScenarioResult(True, detail)
 
 
-async def background_window(live: Live) -> ScenarioResult:
-    """A window made in the background must neither activate iTerm2 nor come forward."""
-    print("  In the next 5 seconds, click a window of an app other than iTerm2, and leave it in front.")
-    await asyncio.sleep(5)
-    before = front_app()
-    window, _sid = await live.bridge.create_window(str(Path.home()), "delivery check · background", {},
-                                                   Frame(200, 160, 700, 400), background=True)
+async def background_window(live: Live, *, front: Callable[[], str] = front_app,
+                            sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+                            iterm_asn: str | None = None, seconds: float = 60) -> ScenarioResult:
+    """Wait for another app, then ensure creating a background window leaves it in front."""
+    if iterm_asn is None:
+        iterm_asn = subprocess.run(["lsappinfo", "find", "bundleID=com.googlecode.iterm2"],
+                                  capture_output=True, text=True, timeout=5).stdout.strip()
+    expected = "another app in front, then the same front-app ASN after creating a background window"
+    if not iterm_asn:
+        return await live.failure(None, None, expected, "Could not identify iTerm2's ASN; background window was not checked.")
+    print(f"  Click a window of an app other than iTerm2 and leave it in front. Waiting up to {seconds:g} seconds.")
+    remaining = seconds
+    deadline = time.monotonic() + seconds
+    while True:
+        before = front()
+        if before and before != iterm_asn:
+            break
+        remaining = min(remaining, deadline - time.monotonic())
+        if remaining <= 0:
+            return await live.failure(None, None, expected,
+                                      f"iTerm2 was still in front or the front app was unknown after {seconds:g} seconds "
+                                      f"(front app {before!r}); the background window was not checked.")
+        interval = min(0.5, remaining)
+        await sleep(interval)
+        remaining -= interval
+    window, sid = await live.bridge.create_window(str(Path.home()), "delivery check · background", {},
+                                                  Frame(200, 160, 700, 400), background=True)
     try:
-        await asyncio.sleep(2)
-        after = front_app()
-        answer = await asyncio.to_thread(input, '  Did a window "delivery check · background" come to the front? [y/N] ')
+        await sleep(2)
+        after = front()
+        await live.screen(sid)
+        if before != after:
+            return await live.failure(sid, None, expected, f"front app before {before}, after {after}")
+        return ScenarioResult(True, f"front app before {before}, after {after}")
     finally:
         await live.bridge.close_window(window)
-    raised = answer.strip().lower().startswith("y")
-    return ScenarioResult(before == after and not raised, f"front app before {before}, after {after}; you saw it come forward: {raised}")
 
 
 async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, policy_path: Path) -> int:
@@ -411,12 +505,16 @@ async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, poli
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="delivery_check", description="Checks whether AiTerm may type into each agent CLI.")
-    parser.add_argument("--agents", default=",".join(AGENTS), help="comma-separated, of claude and codex")
+    parser.add_argument("--agents", default=",".join(AGENTS), help="use --agents codex or --agents claude,codex (comma-separated)")
     parser.add_argument("--skip-iterm", action="store_true", help="leave out iTerm2's own two checks")
     parser.add_argument("--write", action="store_true", help="write the verdicts into the policy file")
     parser.add_argument("--policy", type=Path, default=POLICY_PATH, help="the policy file (default: the daemon's)")
     ns = parser.parse_args(argv)
-    return asyncio.run(run(chosen_agents(ns.agents), ns.skip_iterm, ns.write, ns.policy))
+    try:
+        agents = chosen_agents(ns.agents)
+    except ValueError as error:
+        parser.error(str(error))
+    return asyncio.run(run(agents, ns.skip_iterm, ns.write, ns.policy))
 
 
 if __name__ == "__main__":
