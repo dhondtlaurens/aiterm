@@ -1,6 +1,6 @@
 # daemon/tests/test_delivery_service.py
-"""session.deliver, session.prompt, session.dismissStartup and session.setOwnership
-over the app's socket."""
+"""session.deliver, session.prompt, session.dismissStartup, session.setOwnership and
+delivery.policy over the app's socket."""
 import asyncio
 import json
 
@@ -118,6 +118,18 @@ async def test_session_dismiss_startup_leaves_every_dialog_but_an_update_offer(c
     assert (await call("session.dismissStartup", {"sessionId": sid}))["result"] == {"dismissed": False}
     assert it.sent == []
     assert (await call("session.dismissStartup", {"sessionId": "s404"}))["error"]["code"] == "not_found"
+
+
+async def test_the_policy_names_every_harness_and_the_version_its_check_vouches_for(claude):
+    """What the Operator is told before it plans: each CLI's verdict as the daemon reads it on every
+    delivery, a CLI the check never passed `off` with no version. Read again on every call."""
+    _svc, _it, _sid, call, policy = claude
+    reply = await call("delivery.policy")
+    assert reply["result"] == {"agents": {
+        "claude": {"policy": "auto", "version": "2.1.301"}, "codex": {"policy": "off", "version": None},
+        "grok": {"policy": "off", "version": None}, "pi": {"policy": "off", "version": None}}}
+    policy["codex"] = ("pasteOnly", "0.160.0")
+    assert (await call("delivery.policy"))["result"]["agents"]["codex"] == {"policy": "pasteOnly", "version": "0.160.0"}
 
 
 @pytest.mark.parametrize("method,params", [

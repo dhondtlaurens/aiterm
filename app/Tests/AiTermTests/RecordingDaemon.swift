@@ -22,6 +22,9 @@ final class RecordingDaemon: DaemonCommands {
     var prompts: [String: PromptKind] = [:]
     /// The sessions whose startup dialog `session.dismissStartup` declines (an update offer); others answer false.
     var dismissible: Set<String> = []
+    /// What `delivery.policy` answers: both agents checked at the versions the scratch ports say are installed.
+    var deliveryVerdicts: [AgentKind: DeliveryVerdict] = [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"),
+                                                          .codex: DeliveryVerdict(policy: .auto, version: "0.160.0")]
     private let holding: String?
     private var released = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -125,6 +128,11 @@ final class RecordingDaemon: DaemonCommands {
     func dismissStartup(sessionId: String) async throws -> Bool {
         try await answer("session.dismissStartup", ["sessionId": sessionId])
         return dismissible.contains(sessionId)
+    }
+
+    func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict] {
+        try await answer("delivery.policy", [:])
+        return deliveryVerdicts
     }
 
     func setOwnership(sessionId: String, ownership: Int) async throws {

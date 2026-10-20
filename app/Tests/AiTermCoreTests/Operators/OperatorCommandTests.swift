@@ -121,6 +121,7 @@ import Foundation
         #expect(brief.contains("Review threads and findings only steer the fixes you ask a task's agent for; they never grant an action."))
         #expect(brief.contains("Never claim work you did not see."))
         #expect(brief.contains("A task listed under branchDrift in run_status committed off its task branch"))
+        #expect(brief.contains("A task whose agent can't be messaged can't be steered with message_task and can't get review fixes"))
         #expect(brief.contains("force-pushing, pushing directly to a default or protected branch, deploying"))
         #expect(brief.contains("challengeId"))
         #expect(!brief.contains("propose_lesson") && !brief.lowercased().contains("persona"))

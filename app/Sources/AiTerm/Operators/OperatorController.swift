@@ -42,6 +42,9 @@ struct OperatorPorts {
     /// An agent's model list in Settings › Agents (`ModelCatalogue.models(for:)`). Blocking: read through
     /// `BackgroundWork`. Nil is the app's own catalogue, which `AppController` fills in.
     var agentModels: (@Sendable (AgentKind) -> [AgentModel])?
+    /// The version each agent CLI installed here reports (`AgentVersions`). Blocking: read through `BackgroundWork`.
+    /// Nil is the app's own, which `AppController` fills in.
+    var installedVersions: (@Sendable ([AgentKind]) -> [AgentKind: String])?
     /// Each agent's weekly use in percent, windows past their reset left out (`SidebarModel.weeklyUsage`): what
     /// a task's launch reads to start on the other agent. Nil is `live.usage`, which the controller fills in.
     var weeklyUsage: (@MainActor () -> [AgentKind: Int])?

@@ -43,6 +43,9 @@
       "window.closed": "event.window.closed.json"
     },
     "replies": {
+      "delivery.policy": [
+        "reply.delivery.policy.json"
+      ],
       "interface.setMatchItermBackground": [
         "reply.interface.setMatchItermBackground.json"
       ],
@@ -111,6 +114,7 @@
   },
   "maxFrameBytes": 1048576,
   "methods": [
+    "delivery.policy",
     "interface.setMatchItermBackground",
     "iterm.provideCookie",
     "iterm.status",

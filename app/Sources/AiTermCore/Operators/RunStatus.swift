@@ -34,11 +34,13 @@ public struct RunLiveFacts: Equatable, Sendable {
 /// after a restart or a compaction, so it says everything the operator acts on, and only that.
 public struct RunStatus: Encodable, Equatable, Sendable {
     /// What an installed agent may run (spec §15): the model ids in its own list in Settings › Agents, and
-    /// the model and reasoning a task starts on when the Operator names none.
+    /// the model and reasoning a task starts on when the Operator names none; and whether its workers can be
+    /// messaged, nil while AiTerm's helper can't say.
     public struct AgentChoice: Encodable, Equatable, Sendable {
         public var models: [String], defaultModel: String, defaultReasoning: String?
-        public init(models: [String], defaultModel: String, defaultReasoning: String? = nil) {
-            self.models = models; self.defaultModel = defaultModel; self.defaultReasoning = defaultReasoning
+        public var delivery: AgentDelivery?
+        public init(models: [String], defaultModel: String, defaultReasoning: String? = nil, delivery: AgentDelivery? = nil) {
+            self.models = models; self.defaultModel = defaultModel; self.defaultReasoning = defaultReasoning; self.delivery = delivery
         }
     }
 

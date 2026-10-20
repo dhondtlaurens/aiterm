@@ -54,6 +54,18 @@ final class DaemonOperatorWireTests {
         #expect(method() == "session.prompt")
     }
 
+    /// What the delivery check vouches for, per agent: a policy a newer daemon names reads as off, and a
+    /// harness this app doesn't know is left out.
+    @Test func theDeliveryPolicyReadsAsEachAgentsVerdict() async throws {
+        try connect { _ in ["agents": ["claude": ["policy": "auto", "version": "2.1.301"], "codex": ["policy": "pasteOnly", "version": "0.160.0"],
+                                       "grok": ["policy": "somethingNew", "version": "1.0.0"], "pi": ["policy": "off", "version": NSNull()],
+                                       "later": ["policy": "auto", "version": "9.9.9"]]] }
+        let verdicts = try await client.deliveryPolicy()
+        #expect(method() == "delivery.policy")
+        #expect(verdicts == [.claude: DeliveryVerdict(policy: .auto, version: "2.1.301"), .codex: DeliveryVerdict(policy: .pasteOnly, version: "0.160.0"),
+                             .grok: DeliveryVerdict(policy: .off, version: "1.0.0"), .pi: DeliveryVerdict(policy: .off, version: nil)])
+    }
+
     @Test func anUnknownPromptKindReadsAsAnOpenMenuAndANullKindStaysNone() async throws {
         try connect { req in
             switch (req["params"] as? [String: Any])?["sessionId"] as? String {

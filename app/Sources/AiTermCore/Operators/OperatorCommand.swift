@@ -237,7 +237,12 @@ public enum OperatorCommand {
         + "When an agent's weekly use reaches 80 %, start new tasks on the other agent. "
         + "A task whose agent the person's words named stays on it. Say so with agentPinned. "
         + "If the other agent is missing or also at 80 %, the task stays on its agent. "
-        + "run_status shows each agent's weekly use. Under agents, run_status lists each installed agent's models and its default model."
+        + "run_status shows each agent's weekly use. Under agents, run_status lists each installed agent's models and its default model, "
+        + "and under delivery whether its workers can be messaged: auto, pasteOnly (the person presses Enter) or off, with the version "
+        + "installed and the version AiTerm's delivery check passed. "
+        + "A task whose agent can't be messaged can't be steered with message_task and can't get review fixes. "
+        + "Plan on an agent whose delivery isn't off; create_task refuses an agent that can't be messaged while another can, "
+        + "unless agentPinned says the person's words name it."
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
         let askFirst = ["deleting a branch or worktree", "anything outside this broadcast's projects"]

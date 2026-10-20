@@ -19,6 +19,7 @@ extension OperatorToolHandler {
         let git = ports.git, path = project.path, models = agentModels
         let connected = await hasCodeHost(project)
         let (repositoryBranches, catalogue) = await BackgroundWork.run { (Repository(path, git: git).branches(), models(agent)) }
+        let delivery = await deliveryStatus()
         // Another call may have made this key while git was read: this one is its repeat.
         if let existing = existingTask(key, in: run) { return Self.taskAnswer(existing, created: false) }
         // The operation as it is now, not as the call began: a pause or an end since is the person's.
@@ -26,7 +27,7 @@ extension OperatorToolHandler {
             throw ToolRefusal("This broadcast has ended; its tools no longer act.")
         }
         if current.intent == .paused { throw ToolRefusal("The person paused this broadcast. Wait until they resume it.") }
-        let draft = try self.draft(call, in: current, catalogue: catalogue, connected: connected)
+        let draft = try self.draft(call, in: current, catalogue: catalogue, connected: connected, delivery: delivery)
         // Past the first plan, the backlog grows by a quarter of it on the Operator's word, then by the Oracle's yes (spec §4.1).
         switch vettedCalls.contains(Self.invocation(call)) ? .free : backlogVerdict(current) {
         case .free: break
@@ -48,7 +49,8 @@ extension OperatorToolHandler {
                                      stackedOn: draft.dependencies.first { $0.kind == .code }?.task, revision: current.openRevision,
                                      modelReason: draft.modelReason, agentPinned: draft.agentPinned)
         mutate(in: run.id) { $0.tasks.append(task) }
-        return Self.taskAnswer(task, created: true)
+        let answer = Self.taskAnswer(task, created: true)
+        return draft.deliveryWarning.map { answer.adding("warning", .string($0)) } ?? answer
     }
 
     private func existingTask(_ key: String, in run: OperatorRun) -> TaskItem? {
@@ -82,7 +84,8 @@ extension OperatorToolHandler {
         let catalogue = await BackgroundWork.run { models(agent) }
         let project = try self.project(call, in: run)
         let connected = await hasCodeHost(project)
-        _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue, connected: connected)
+        let delivery = await deliveryStatus()
+        _ = try draft(call, in: state.run(id: run.id) ?? run, catalogue: catalogue, connected: connected, delivery: delivery)
     }
 
     /// What `create_task` asks for, checked against `run` as it is now: nothing is changed here.
@@ -91,18 +94,38 @@ extension OperatorToolHandler {
         var project: Project, agent: AgentKind, model: (model: String, reasoning: String?), end: TaskEnd
         var modelReason: String, agentPinned: Bool
         var dependencies: [TaskDependency]
+        /// Said with the answer when its agent's workers can be messaged only by halves, or not at all.
+        var deliveryWarning: String?
     }
 
-    private func draft(_ call: ToolCall, in run: OperatorRun, catalogue: [AgentModel], connected: Bool) throws(ToolRefusal) -> NewTask {
+    private func draft(_ call: ToolCall, in run: OperatorRun, catalogue: [AgentModel], connected: Bool,
+                       delivery: [AgentKind: AgentDelivery]?) throws(ToolRefusal) -> NewTask {
         try acceptsPlanChanges(run)
         let title = try call.string("title"), brief = try call.string("brief")
         let project = try self.project(call, in: run), agent = try self.agent(call)
         let model = try self.model(call, for: agent, catalogue: catalogue), modelReason = try call.string("modelReason")
         let end = try self.end(call) ?? ((OperatorCommand.said(run.done) == nil && !connected) ? .commit : Self.defaultEnd(for: run))
         try validateEnd(end, in: run, project: project, connected: connected)
+        let pinned = call.arguments["agentPinned"]?.boolValue ?? false
+        let warning = try deliveryWarning(for: agent, pinned: pinned, delivery: delivery)
         return NewTask(title: title, brief: brief, ticket: call.optionalString("ticket"), project: project, agent: agent, model: model, end: end,
-                       modelReason: modelReason, agentPinned: call.arguments["agentPinned"]?.boolValue ?? false,
-                       dependencies: try dependencies(call, in: run, project: project))
+                       modelReason: modelReason, agentPinned: pinned,
+                       dependencies: try dependencies(call, in: run, project: project), deliveryWarning: warning)
+    }
+
+    /// A task whose agent's workers can't be messaged can't be steered or get review fixes: refused while another
+    /// installed agent's can be, unless the person's words pin this one; planned with a warning otherwise. A paste-only
+    /// agent is planned with what that means for each message. Nothing is said while the helper can't tell.
+    private func deliveryWarning(for agent: AgentKind, pinned: Bool, delivery: [AgentKind: AgentDelivery]?) throws(ToolRefusal) -> String? {
+        guard let mine = delivery?[agent], mine.messaging != .auto else { return nil }
+        guard mine.messaging == .off else { return mine.note }
+        let name = SidebarModel.agentName(agent), why = "\(name)’s workers can’t be messaged: \(mine.note ?? "")"
+        let steerable = ModelChoice.pair.first { $0 != agent && (delivery?[$0]).map { $0.messaging != .off } == true }
+        if !pinned, let other = steerable {
+            throw ToolRefusal(why + " A task on it can’t be steered with message_task or get review fixes. "
+                              + "Plan it on \(SidebarModel.agentName(other)), which can be messaged, or set agentPinned if the person’s words name \(name).")
+        }
+        return why + " This task can’t be steered with message_task or get review fixes."
     }
 
     /// A task with no end named ends at a draft MR, or at a commit when the broadcast's Done says a commit

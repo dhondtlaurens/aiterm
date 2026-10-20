@@ -488,6 +488,7 @@ public final class DaemonClient: Sendable {
     struct RunParams: Encodable { var runId: String }
     struct PromptResult: Decodable { var kind: PromptKind? }
     struct DismissResult: Decodable { var dismissed: Bool }
+    struct DeliveryPolicyResult: Decodable { var agents: [String: DeliveryVerdict] }
     /// `result` and `error` are both always sent, `null` when absent, as the daemon reads them.
     struct OperatorReplyParams: Encodable {
         var requestId: String, result: JSONValue?, error: String?
@@ -571,6 +572,11 @@ public final class DaemonClient: Sendable {
     /// other screen, a trust question included, which it leaves for the person.
     public func dismissStartup(sessionId: String) async throws -> Bool {
         try await request(.sessionDismissStartup, params: SessionParams(sessionId: sessionId), as: DismissResult.self).dismissed
+    }
+    /// Each agent's delivery verdict; a harness this app does not know is left out.
+    public func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict] {
+        let agents = try await request(.deliveryPolicy, as: DeliveryPolicyResult.self).agents
+        return Dictionary(agents.compactMap { key, verdict in AgentKind(rawValue: key).map { ($0, verdict) } }, uniquingKeysWith: { first, _ in first })
     }
     public func setOwnership(sessionId: String, ownership: Int) async throws {
         _ = try await request(.sessionSetOwnership, params: OwnershipParams(sessionId: sessionId, ownership: ownership), as: Empty.self)

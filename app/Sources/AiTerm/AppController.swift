@@ -189,6 +189,7 @@ final class AppController {
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
         // The agents a task may run and their model lists are Settings › Agents', unless the caller named its own.
         var operatorPorts = operatorPorts
+        if operatorPorts.installedVersions == nil { operatorPorts.installedVersions = { AgentVersions.shared.current($0) } }
         if operatorPorts.installedAgents == nil { operatorPorts.installedAgents = { [weak agents] in agents?.availableAgents ?? [] } }
         if operatorPorts.agentModels == nil {
             let catalogue = agents.catalogue

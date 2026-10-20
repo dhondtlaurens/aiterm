@@ -14,7 +14,7 @@ from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .claude_tokens import ClaudeTranscriptTallies
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
-from .delivery import Deliverer, Verdict, read_policy
+from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
 from .hooks_server import HookServer
 from .iterm_bridge import ItermPort
@@ -171,6 +171,7 @@ class Service:
         r("session.prompt", self._h_prompt)
         r("session.dismissStartup", self._h_dismiss_startup)
         r("session.setOwnership", self._h_set_ownership)
+        r("delivery.policy", self._h_delivery_policy)
         r("operator.register", self.operators.register)
         r("operator.revoke", self.operators.revoke)
         r("operator.reply", self.operators.reply)
@@ -241,6 +242,16 @@ class Service:
     async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
         self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))
         return {}
+
+    async def _h_delivery_policy(self, _p: Any) -> dict[str, Any]:
+        """Each harness's delivery verdict as the Deliverer reads it now (delivery.load_policy): what the
+        app tells the Operator before it plans a task on that CLI, and checks against the version installed."""
+        verdicts = self.deliverer.policy()
+        agents: dict[str, Any] = {}
+        for agent in HARNESS_BY_AGENT:
+            policy, version = verdicts.get(agent, NOT_CHECKED)
+            agents[agent] = {"policy": policy, "version": version}
+        return {"agents": agents}
 
     # -- iTerm2 notifications ------------------------------------------------
     async def _on_window_activated(self, window_id: str) -> None:

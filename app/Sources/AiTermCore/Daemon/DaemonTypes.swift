@@ -158,6 +158,24 @@ public struct Delivery: Codable, Equatable, Sendable {
     public init(result: DeliveryOutcome, reason: String?) { self.result = result; self.reason = reason }
 }
 
+/// How AiTerm may type into one agent CLI, from the delivery check it last passed (the daemon's
+/// `delivery.load_policy`): `auto` pastes and presses Enter, `pasteOnly` pastes and leaves the Enter to
+/// the person, `off` types nothing. A policy a newer daemon names that this app does not know reads as
+/// `off`: delivery fails closed.
+public enum DeliveryPolicy: String, Codable, CaseIterable, Sendable {
+    case auto, pasteOnly, off
+    public init(from decoder: Decoder) throws {
+        self = DeliveryPolicy(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .off
+    }
+}
+
+/// The delivery check's verdict on one CLI: its policy, and the one version it vouches for.
+public struct DeliveryVerdict: Codable, Equatable, Sendable {
+    public var policy: DeliveryPolicy
+    public var version: String?
+    public init(policy: DeliveryPolicy, version: String?) { self.policy = policy; self.version = version }
+}
+
 /// The prompt a session has open, as the daemon's screen markers classify it.
 /// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
 /// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)

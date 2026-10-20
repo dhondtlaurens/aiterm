@@ -89,6 +89,13 @@ import Testing
             case .sessionDeliver: #expect(try read(Delivery.self).result.rawValue == field("result") as? String)
             case .sessionPrompt: #expect(try read(DaemonClient.PromptResult.self).kind?.rawValue == field("kind") as? String)
             case .sessionDismissStartup: #expect(try read(DaemonClient.DismissResult.self).dismissed == field("dismissed") as? Bool)
+            case .deliveryPolicy:
+                let agents = try #require(field("agents") as? [String: [String: Any]])
+                let verdicts = try read(DaemonClient.DeliveryPolicyResult.self).agents
+                #expect(Set(verdicts.keys) == Set(agents.keys))
+                for (agent, verdict) in verdicts {
+                    #expect(verdict.policy.rawValue == agents[agent]?["policy"] as? String && verdict.version == agents[agent]?["version"] as? String)
+                }
             case .itermProvideCookie: #expect(try read(DaemonClient.AcceptedResult.self).accepted == field("accepted") as? Bool)
             case .windowCreateTask, .windowCreateTerminal: #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
             case .tabCreate: #expect(try read(DaemonClient.SessionResult.self).sessionId == field("sessionId") as? String)

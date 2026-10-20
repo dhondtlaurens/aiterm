@@ -274,7 +274,9 @@ final class OperatorToolHandler {
     /// anything changed gets the next one. It carries what each installed agent may run, its model list read
     /// off the main actor; the rest is read after that, as it is when the answer goes.
     private func runStatus(_ run: OperatorRun) async throws -> JSONValue {
-        let agents = await agentChoices()
+        let delivery = await deliveryStatus()
+        var agents = await agentChoices()
+        for (agent, messaging) in delivery ?? [:] { agents[agent]?.delivery = messaging }
         guard let current = state.run(id: run.id), var content = currentStatus(of: current) else {
             throw ToolRefusal("This broadcast is no longer in AiTerm.")
         }
@@ -286,6 +288,16 @@ final class OperatorToolHandler {
         status.revision = revision
         waker.acknowledged(status, of: run.id)
         return try JSONValue(encoding: status)
+    }
+
+    /// Whether each installed agent's workers can be messaged now (`AgentDelivery`): the helper's delivery verdicts held
+    /// against the versions installed, read off the main actor. Nil while no helper answers: not known, which run_status
+    /// leaves out and create_task doesn't refuse on.
+    func deliveryStatus() async -> [AgentKind: AgentDelivery]? {
+        guard let daemon = daemon(), let verdicts = try? await daemon.deliveryPolicy() else { return nil }
+        let agents = ModelChoice.pair.filter(installedAgents.contains), versions = ports.installedVersions
+        let installed = await BackgroundWork.run { versions?(agents) ?? [:] }
+        return Dictionary(agents.map { ($0, AgentDelivery.of($0, verdict: verdicts[$0], installed: installed[$0])) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Each installed agent the Operator chooses from (Claude, Codex): its own models and its default (spec §15).

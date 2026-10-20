@@ -23,6 +23,8 @@ public protocol DaemonCommands: Sendable {
     /// Declines Codex's update offer with Esc, and nothing else: true when it did.
     func dismissStartup(sessionId: String) async throws -> Bool
     func setOwnership(sessionId: String, ownership: Int) async throws
+    /// What the delivery check vouches for, per agent: whether, and at which version, its workers can be messaged.
+    func deliveryPolicy() async throws -> [AgentKind: DeliveryVerdict]
     func registerOperator(runId: String, token: String) async throws
     func revokeOperator(runId: String) async throws
     func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws

@@ -59,6 +59,55 @@ import Testing
     }
 
     /// Spec §15: only a model in the agent's own list in Settings › Agents; the refusal names that list.
+    /// A task whose agent can't be messaged can't be steered or get review fixes: create_task refuses it while
+    /// another installed agent can be messaged, and plans it with a warning when the person's words pin the agent.
+    @Test func anAgentWhoseWorkersCannotBeMessagedIsRefusedUnlessPinned() async throws {
+        let (world, run) = try makeWorld()
+        world.link.attached = true
+        world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .auto, version: "0.150.0")
+        let refused = await create(world, run, "PLUTO-1")
+        #expect(refused.message == "Codex’s workers can’t be messaged: Codex 0.160.0 is installed, but AiTerm's delivery check passed 0.150.0 only. "
+                + "A task on it can’t be steered with message_task or get review fixes. Plan it on Claude, which can be messaged, "
+                + "or set agentPinned if the person’s words name Codex.")
+        #expect(world.state.tasks.isEmpty)
+        let pinned = await world.call(run.id, "create_task", ["key": "PLUTO-2", "title": "B", "brief": "b", "project": "Shop", "agent": "codex",
+                                                              "model": "gpt-6-astra", "modelReason": "The prompt says Codex.", "agentPinned": true])
+        #expect(pinned.value?["created"] == true)
+        #expect(pinned.value?["warning"] == .string("Codex’s workers can’t be messaged: Codex 0.160.0 is installed, but AiTerm's delivery check passed 0.150.0 only. "
+                + "This task can’t be steered with message_task or get review fixes."))
+    }
+
+    /// With no installed agent that can be messaged there is nowhere better to plan it: it is planned, with the warning.
+    /// A paste-only agent is planned too, and told that each message waits for the person's Enter.
+    @Test func withNoAgentToMessageOrAPasteOnlyOneTheTaskIsPlannedWithAWarning() async throws {
+        let (world, run) = try makeWorld()
+        world.link.attached = true
+        world.daemon.deliveryVerdicts = [.codex: DeliveryVerdict(policy: .off, version: nil), .claude: DeliveryVerdict(policy: .off, version: nil)]
+        let alone = await create(world, run, "PLUTO-1")
+        #expect(alone.value?["created"] == true)
+        #expect(alone.value?["warning"] == .string("Codex’s workers can’t be messaged: AiTerm's delivery check hasn't passed Codex 0.160.0. "
+                + "This task can’t be steered with message_task or get review fixes."))
+        world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .pasteOnly, version: "0.160.0")
+        let paste = await create(world, run, "PLUTO-2")
+        #expect(paste.value?["created"] == true)
+        #expect(paste.value?["warning"] == "Messages to its workers are pasted without Enter: the person presses Enter to send each one.")
+        world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .auto, version: "0.160.0")
+        #expect(await create(world, run, "PLUTO-3").value?["warning"] == nil)
+    }
+
+    /// run_status says, for each installed agent, whether its workers can be messaged and which version was checked.
+    @Test func runStatusSaysWhetherEachAgentCanBeMessaged() async throws {
+        let (world, run) = try makeWorld()
+        world.link.attached = true
+        world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .auto, version: "0.150.0")
+        let agents = try #require(await world.call(run.id, "run_status").value?["run"]?["agents"])
+        #expect(agents["claude"]?["delivery"]?["messaging"] == "auto" && agents["claude"]?["delivery"]?["checkedVersion"] == "2.1.301")
+        let codex = try #require(agents["codex"]?["delivery"])
+        #expect(codex["messaging"] == "off" && codex["installedVersion"] == "0.160.0" && codex["checkedVersion"] == "0.150.0")
+        world.link.attached = false
+        #expect(await world.call(run.id, "run_status").value?["run"]?["agents"]?["codex"]?["delivery"] == nil, "no helper: not known")
+    }
+
     @Test func anUnknownModelIsRefusedWithTheList() async throws {
         let (world, run) = try makeWorld()
         let refused = await world.call(run.id, "create_task", ["key": "A", "title": "A", "brief": "a", "project": "Shop", "agent": "codex",
