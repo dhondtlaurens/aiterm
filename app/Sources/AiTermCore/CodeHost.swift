@@ -21,8 +21,8 @@ public enum CodeHost: String, Sendable, Equatable {
 public struct MergeRequest: Equatable, Sendable, Identifiable {
     public var iid: Int, title: String, sourceBranch: String, targetBranch: String
     public var author: String?, state: String, draft: Bool, url: String
-    /// `owner:branch` when the branch lives in a fork rather than on origin, which is where a
-    /// review checks out from. Only GitHub reports it.
+    /// The source owner/project and branch when it lives in a fork rather than on origin,
+    /// which is where a review checks out from. Both GitHub and GitLab report it.
     public var forkHead: String?
     public var id: Int { iid }
     public init(iid: Int, title: String, sourceBranch: String, targetBranch: String,

@@ -253,6 +253,100 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(r.world.run(r.run.id)?.leftForYou == [])
     }
 
+    @Test func independentlyDispatchedReviewRequestsPreserveBothReviewers() async throws {
+        let gate = ReviewGate()
+        let connections = AsyncStream<Void>.makeStream()
+        let r = try reviewed(.inReview, slices: Slices(review: true)) { ports in
+            let publisher = ports.publisher
+            ports.publisher = { connection in
+                connections.continuation.yield(())
+                return try publisher(connection)
+            }
+        }
+        r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
+        let tools = r.world.controller.tools
+        func dispatch(_ reviewer: String) -> Task<Void, Never>? {
+            tools.handle(OperatorRequest(requestId: reviewer, runId: r.run.id.uuidString, tool: "request_review",
+                                         arguments: ["task": "A", "reviewers": [.string(reviewer)]]))
+            return tools.lastReply
+        }
+        var connected = connections.stream.makeAsyncIterator()
+        let first = dispatch("jan")
+        _ = await connected.next()
+        await gate.started()
+        let second = dispatch("sara")
+        _ = await connected.next()
+        await gate.release()
+        await first?.value
+        await second?.value
+        #expect(Set(r.host.reviewers) == ["jan", "sara"])
+        #expect(Set(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers ?? []) == ["jan", "sara"])
+        #expect(r.host.log == ["ready 12", "reviewers 12 jan", "ready 12", "reviewers 12 sara"])
+    }
+
+    @Test(arguments: [true, false])
+    func aWaitingReviewRequestRechecksCancellationAndOwnership(_ cancelled: Bool) async throws {
+        let gate = ReviewGate()
+        let connections = AsyncStream<Void>.makeStream()
+        let r = try reviewed(.inReview, slices: Slices(review: true)) { ports in
+            let publisher = ports.publisher
+            ports.publisher = { connection in
+                connections.continuation.yield(())
+                return try publisher(connection)
+            }
+        }
+        r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
+        let tools = r.world.controller.tools
+        func dispatch(_ name: String) -> Task<Void, Never>? {
+            tools.handle(OperatorRequest(requestId: name, runId: r.run.id.uuidString, tool: "request_review",
+                                         arguments: ["task": "A", "reviewers": [.string(name)]]))
+            return tools.lastReply
+        }
+        var connected = connections.stream.makeAsyncIterator()
+        let first = dispatch("jan")
+        _ = await connected.next()
+        await gate.started()
+        let second = dispatch("sara")
+        _ = await connected.next()
+        if cancelled { second?.cancel() }
+        else { r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.ownership += 1 } } }
+        await gate.release()
+        await first?.value
+        await second?.value
+        #expect(!r.host.reviewers.contains("sara"))
+        let savedReviewers = r.world.task(r.task.id)?.operated?.peopleReview?.reviewers ?? []
+        #expect(!savedReviewers.contains("sara"))
+        #expect(await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["lee"]]).value?["requested"] == true,
+                "both refusal and cancellation release ownership for the next call")
+    }
+
+    @Test func anAssignmentMergesIntoCurrentPeopleReview() async throws {
+        let gate = ReviewGate()
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update { $0.onCall = { if $0.hasPrefix("reviewers 12 jan") { await gate.wait() } } }
+        let call = Task { await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan", "JAN"]]) }
+        await gate.started()
+        r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.peopleReview?.reviewers = ["sara"] } }
+        await gate.release()
+        #expect(await call.value.value?["reviewers"] == ["sara", "jan"])
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers == ["sara", "jan"])
+    }
+
+    @Test(arguments: [true, false])
+    func aDelayedAssignmentResponseCannotRecordAfterInvalidation(_ cancelled: Bool) async throws {
+        let gate = ReviewGate()
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update { $0.afterAssignment = { await gate.wait() } }
+        let call = Task { await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["jan"]]) }
+        await gate.started()
+        #expect(r.host.reviewers == ["jan"], "the host already committed before its answer was delayed")
+        if cancelled { call.cancel() }
+        else { r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.ownership += 1 } } }
+        await gate.release()
+        #expect(await call.value.message != nil)
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers.isEmpty == true)
+    }
+
     @Test func anAgentReviewNeedsNoSlice() async throws {
         let gate = ReviewGate()
         let seen = TaskFinisherTests.Recorded<String>()

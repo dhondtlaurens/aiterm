@@ -32,9 +32,8 @@ extension OperatorToolHandler {
         }
         if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
             // The key still identifies the original write if retry arguments name another allowed project.
-            let scope = run.jiraProjectKeys.map { "project = \"\($0.uppercased())\"" }.joined(separator: " OR ")
-            let jql = "(\(scope)) AND labels = \"\(label)\""
-            let matches = try await jira.search(jql: jql, in: [])
+            let projects = run.jiraProjectKeys.map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: jira.siteURL) }
+            let matches = try await jira.search(jql: "labels = \"\(label)\"", in: projects)
             guard matches.count <= 1 else {
                 throw ToolRefusal("More than one Jira ticket has this create's label. Reconcile them manually before continuing; AiTerm kept the pending marker and sent nothing.")
             }

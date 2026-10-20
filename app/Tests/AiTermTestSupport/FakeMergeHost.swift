@@ -26,6 +26,8 @@ final class FakeMergeHost: MergeRequestPublishing {
         /// The request's review threads and approvals, as the Review slice reads them.
         var threads: [ReviewThread] = []
         var approvals: [String] = []
+        /// The host replaces this list after its read, just as GitLab does.
+        var reviewers: [String] = []
         /// The people `findUsers` searches.
         var users: [HostUser] = []
         /// Thrown by every Review slice call while set.
@@ -38,6 +40,8 @@ final class FakeMergeHost: MergeRequestPublishing {
         var onCall: (@Sendable (String) async -> Void)?
         /// The next reply reaches the host, then its answer is lost.
         var loseReply = false
+        /// A response delayed after the host committed its reviewer replacement.
+        var afterAssignment: (@Sendable () async -> Void)?
     }
 
     private let script: Mutex<Script>
@@ -46,6 +50,7 @@ final class FakeMergeHost: MergeRequestPublishing {
     init(_ script: Script = Script()) { self.script = Mutex(script) }
 
     var log: [String] { calls.withLock { $0 } }
+    var reviewers: [String] { script.withLock { $0.reviewers } }
     func update(_ change: (inout Script) -> Void) { script.withLock { change(&$0) } }
 
     static let url = "https://git.example.net/web/acme-web/-/merge_requests/12"
@@ -110,8 +115,11 @@ final class FakeMergeHost: MergeRequestPublishing {
     }
 
     func assignReviewers(_ number: Int, usernames: [String], beforeWrite: @Sendable () async throws -> Void) async throws {
-        try await beforeWrite()
+        let current = script.withLock { $0.reviewers }
         try await reviewCall("reviewers \(number) \(usernames.joined(separator: ","))")
+        try await beforeWrite()
+        script.withLock { $0.reviewers = current + usernames.filter { !current.contains($0) } }
+        if let hook = script.withLock({ $0.afterAssignment }) { await hook() }
     }
 
     func threads(of number: Int) async throws -> [ReviewThread] {

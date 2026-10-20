@@ -80,6 +80,10 @@ final class OperatorToolHandler {
     var sendingMessages: Set<MessageKey> = []
     /// The finds being filed in Jira now, by run and key: a second call for one leaves it to the first.
     var filingFinds: Set<String> = []
+    /// Host reviewer assignment is a read/replace sequence, owned once per published request.
+    struct ReviewRequestKey: Hashable { let repository: String?; let number: Int }
+    struct ReviewWaiter { let id: UUID; let continuation: CheckedContinuation<Void, any Error> }
+    var reviewAssignments: [ReviewRequestKey: [ReviewWaiter]] = [:]
     /// The agent reviews running now, by task: one in a task's record but not here was lost with AiTerm's restart.
     var runningReviews: [UUID: Task<Void, Never>] = [:]
     /// The latest agent review, for a test to await. Set by `OperatorToolHandler+Review.swift`.

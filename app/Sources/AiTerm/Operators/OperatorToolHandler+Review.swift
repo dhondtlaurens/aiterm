@@ -176,39 +176,75 @@ extension OperatorToolHandler {
     /// Marks the task's request ready and asks `reviewers` to review it. The same reviewers again change nothing.
     func requestReview(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run)
+        var seen: Set<String> = []
         let reviewers = (call.arguments["reviewers"]?.arrayValue ?? []).compactMap { $0.stringValue }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "@")) }
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         guard !reviewers.isEmpty else { throw ToolRefusal("request_review needs `reviewers`: the usernames to ask, from find_user.") }
-        let operated = try notTakenOver(task)
-        try requireReviewSlice(in: run, otherwise: "Assign \(Self.names(reviewers)) to \(Self.request(of: operated))")
+        let original = try notTakenOver(task)
+        try requireReviewSlice(in: run, otherwise: "Assign \(Self.names(reviewers)) to \(Self.request(of: original))")
         try acceptsWork(run)
-        guard let number = operated.publication?.mergeRequestNumber else {
-            throw ToolRefusal("\(operated.key) has no merge request yet: finish_task opens it.")
+        guard let number = original.publication?.mergeRequestNumber else {
+            throw ToolRefusal("\(original.key) has no merge request yet: finish_task opens it.")
         }
+        let host = try await reviewHost(of: task, request: original.publication)
+        let identity = ReviewRequestKey(repository: original.publication?.repository, number: number)
+        try await acquireReviewAssignment(identity)
+        defer { releaseReviewAssignment(identity) }
+        let check = writeCheck(task, number: number, in: run.id)
+        try await check()
+        guard let latest = state.task(id: task.id) else { throw ToolRefusal("This task is no longer in AiTerm.") }
+        let operated = try notTakenOver(latest)
         guard [.inReview, .accepted, .published].contains(operated.state) else {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): only a task with its request open is reviewed.")
         }
         let asked = Set((operated.peopleReview?.reviewers ?? []).map { $0.lowercased() })
         let wanted = Set(reviewers.map { $0.lowercased() })
         if wanted.isSubset(of: asked) { return Self.requestAnswer(operated, reviewers: operated.peopleReview?.reviewers ?? [], requested: false) }
-        let host = try await reviewHost(of: task, request: operated.publication)
-        // Read fresh before each write, and inside each host call after its reads: a Pause, an End or a takeover
-        // meanwhile writes nothing more.
-        let check = writeCheck(task, number: number, in: run.id)
-        try await check()
+        // Ownership spans both host writes and their internal reads, so GitLab's replacement assignment
+        // cannot overwrite another concurrent call. Validity is checked at every write and before recording.
         try await host.markReady(number, beforeWrite: check)
         try await check()
         try await host.assignReviewers(number, usernames: reviewers, beforeWrite: check)
-        let all = (operated.peopleReview?.reviewers ?? []) + reviewers.filter { !asked.contains($0.lowercased()) }
+        try await check()
+        var all: [String] = []
         mutate(in: run.id) { state in
             state.updateOperated(task.id) { task in
                 var review = task.peopleReview ?? PeopleReview()
-                review.reviewers = all
+                var current = Set(review.reviewers.map { $0.lowercased() })
+                review.reviewers += reviewers.filter { current.insert($0.lowercased()).inserted }
+                all = review.reviewers
                 task.peopleReview = review
             }
         }
         return Self.requestAnswer(operated, reviewers: all, requested: true)
+    }
+
+    /// A cancelled waiter leaves the queue immediately. An owner always releases in defer, including
+    /// cancellation after handoff; other requests have independent queues.
+    private func acquireReviewAssignment(_ key: ReviewRequestKey) async throws {
+        try Task.checkCancellation()
+        guard reviewAssignments[key] != nil else { reviewAssignments[key] = []; return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
+                reviewAssignments[key, default: []].append(ReviewWaiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let index = reviewAssignments[key]?.firstIndex(where: { $0.id == id }) else { return }
+                let waiter = reviewAssignments[key]!.remove(at: index)
+                waiter.continuation.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    private func releaseReviewAssignment(_ key: ReviewRequestKey) {
+        guard var waiting = reviewAssignments[key], !waiting.isEmpty else { reviewAssignments[key] = nil; return }
+        let next = waiting.removeFirst()
+        reviewAssignments[key] = waiting
+        next.continuation.resume()
     }
 
     /// A reply in one of the task's review threads, once per key. The key is saved as pending before the reply is
@@ -257,6 +293,7 @@ extension OperatorToolHandler {
     /// back since) with the same request in the same repository.
     func writeCheck(_ original: TaskItem, number: Int, in runId: UUID) -> @Sendable () async throws -> Void {
         { @MainActor [weak self] in
+            try Task.checkCancellation()
             guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
             guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
             try acceptsWork(run)
