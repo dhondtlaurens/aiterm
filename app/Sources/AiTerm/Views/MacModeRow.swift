@@ -55,7 +55,7 @@ struct MacModeLine: Equatable {
 }
 
 enum MacModePresentation {
-    static func line(mode: MacMode, hotspot: String?, wifi: String?) -> MacModeLine {
+    static func line(mode: MacMode, hotspot: String?, wifi: String?, until: BackpackUntil = .agentsStop) -> MacModeLine {
         let phone = hotspot ?? "the iPhone"
         let cutoff = BackpackSettings.cutoff
         switch mode {
@@ -65,7 +65,8 @@ enum MacModePresentation {
         case .turningOn:
             return MacModeLine(mode: mode, help: "Turning on backpack mode · joining \(phone)")
         case .on:
-            return MacModeLine(mode: mode, help: "Backpack mode on · \(phone) · ends when your agents stop, or at \(cutoff) %")
+            let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents stop"
+            return MacModeLine(mode: mode, help: "Backpack mode on · \(phone) · \(ends), or at \(cutoff) %")
         case .needsYou(.lostHotspot):
             return MacModeLine(mode: mode, help: "Backpack mode needs you · lost \(phone), open Personal Hotspot on the iPhone")
         case .needsYou(.lowBattery(let level)):

@@ -162,7 +162,8 @@ struct SelectedRowSidebarFooter: View {
         SidebarFooter(task: controller.rows.usageRow(for: controller.focus.selection), rows: vendors,
                       machine: controller.machine.lines,
                       mac: MacModePresentation.line(mode: MacMode(state: backpack.state, transition: backpack.transition),
-                                                    hotspot: backpack.network, wifi: backpack.currentNetwork),
+                                                    hotspot: backpack.network, wifi: backpack.currentNetwork,
+                                                    until: backpack.state.until),
                       toggleMac: { controller.toggleBackpack() },
                       openMacSettings: { controller.presentSettings(tab: .integrations) })
     }

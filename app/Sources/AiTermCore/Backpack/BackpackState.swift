@@ -22,17 +22,27 @@ public struct BackpackSetup: Equatable, Sendable {
     public var isComplete: Bool { missingSteps.isEmpty && network != nil }
 }
 
+/// What ends the mode, chosen per turn-on on the Backpack sheet. Either way the battery cutoff does.
+public enum BackpackUntil: Hashable, Sendable {
+    /// `BackpackMode.idleGrace` after the last working session, with the lid shut.
+    case agentsStop
+    /// Only the person, by turning it off.
+    case turnedOff
+}
+
 /// The mode while it is on.
 public struct BackpackStatus: Equatable, Sendable {
     public var network: String
     /// Whether the Mac is on `network` now.
     public var joined: Bool
     public var power: PowerReading
+    public var until: BackpackUntil
 
-    public init(network: String, joined: Bool, power: PowerReading) {
+    public init(network: String, joined: Bool, power: PowerReading, until: BackpackUntil = .agentsStop) {
         self.network = network
         self.joined = joined
         self.power = power
+        self.until = until
     }
 
     /// On battery, within 5 points of the cutoff.
@@ -48,6 +58,11 @@ public enum BackpackState: Equatable, Sendable {
 
     public var isOn: Bool {
         if case .on = self { true } else { false }
+    }
+
+    /// What ends it while on; off, `.agentsStop`, the sheet's default.
+    public var until: BackpackUntil {
+        if case .on(let status) = self { status.until } else { .agentsStop }
     }
 }
 
@@ -74,7 +89,8 @@ public enum BackpackRefusal: Error, Equatable, Sendable {
 
 /// Why the mode ended itself.
 public enum BackpackEnding: Equatable, Sendable {
-    /// No session had been working, with the lid shut, for `BackpackMode.idleGrace`.
+    /// No session had been working, with the lid shut, for `BackpackMode.idleGrace`; only when it
+    /// was turned on until `.agentsStop`.
     case agentsStopped
     /// On battery, at or under `BackpackSettings.cutoff`.
     case batteryLow(level: Int)

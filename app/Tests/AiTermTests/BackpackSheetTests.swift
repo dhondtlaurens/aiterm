@@ -142,6 +142,26 @@ import Testing
         #expect(model.isSafe && !model.isConnecting)
     }
 
+    /// Every sheet opens ending with the work; turned off by hand is chosen per trip, and the mode
+    /// keeps that choice while it is on.
+    @Test func turnsOffStartsWhenAgentsStopAndConnectCarriesTheChoice() async {
+        let fake = FakeBackpack()
+        let backpack = backpack(fake)
+        let model = BackpackSheetModel(backpack: backpack)
+        #expect(model.until == .agentsStop)
+        #expect(BackpackSheetPresentation.untilChoices == [.agentsStop, .turnedOff])
+        #expect(BackpackSheetPresentation.untilLabel(.agentsStop) == "When agents stop")
+        #expect(BackpackSheetPresentation.untilLabel(.turnedOff) == "When I turn it off")
+        #expect(BackpackSheetPresentation.untilHelp == "Either way, at 10 % battery.")
+        await model.load()
+        model.until = .turnedOff
+        model.connect()
+        #expect(await until { model.backpack.phase == .safe })
+        guard case .on(let status) = backpack.state else { Issue.record("not on"); return }
+        #expect(status.until == .turnedOff)
+        #expect(BackpackSheetModel(backpack: backpack).until == .agentsStop, "the next sheet starts over")
+    }
+
     /// No Back: a failure leaves the fields live, the person fixes the password, and Connect retries.
     @Test func aFailureLeavesTheFieldsLiveAndConnectRetries() async {
         let fake = FakeBackpack()
@@ -208,8 +228,10 @@ import Testing
     }
 
     @Test func theSafeStateSaysWhatHappensNext() {
-        #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone")
+        #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .agentsStop)
                 == "On Laurens’s iPhone. Backpack mode ends when your agents stop, or at 10 % battery.")
+        #expect(BackpackSheetPresentation.safeHelp(hotspot: "Laurens’s iPhone", until: .turnedOff)
+                == "On Laurens’s iPhone. Backpack mode stays on until you turn it off, or at 10 % battery.")
         #expect(BackpackSheetPresentation.title == "Backpack mode")
         #expect(BackpackSheetPresentation.subtitle.hasSuffix("through your iPhone."))
     }

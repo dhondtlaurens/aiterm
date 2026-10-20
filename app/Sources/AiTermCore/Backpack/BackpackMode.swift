@@ -45,8 +45,9 @@ public final class BackpackMode: Sendable {
     /// leaves the mode off and nothing changed but, at most, the Wi-Fi network. The join comes
     /// without a scan first: a locked iPhone's hotspot is missing from scans but joins with its
     /// password; the scan only decides which failure to report. `onJoined` runs once the Mac is on
-    /// the hotspot, before the marker.
-    public func turnOn(onJoined: @escaping @Sendable () -> Void = {}) -> Result<BackpackStatus, BackpackRefusal> {
+    /// the hotspot, before the marker. `until` is what ends it, besides the cutoff.
+    public func turnOn(until: BackpackUntil = .agentsStop,
+                       onJoined: @escaping @Sendable () -> Void = {}) -> Result<BackpackStatus, BackpackRefusal> {
         if closed.withLock({ $0 }) { return .failure(.quitting) }
         if case .on(let status) = state { return .success(status) }
         let setup = setup()
@@ -66,7 +67,7 @@ public final class BackpackMode: Sendable {
                 settings.engaged = false
                 return .failure(.needsSetup)
             }
-            let status = BackpackStatus(network: network, joined: true, power: power)
+            let status = BackpackStatus(network: network, joined: true, power: power, until: until)
             current.withLock { $0 = .on(status) }
             activePassword.withLock { $0 = password }
             rejoin.withLock { $0 = (nil, 0) }
@@ -113,8 +114,8 @@ public final class BackpackMode: Sendable {
         if ports.lidSleep.setDisabled(false) { settings.engaged = false }
     }
 
-    /// The 5 s check while on: the battery cutoff, then the work — an open lid counting as work —
-    /// then the network. Off the network, a rejoin is tried at once, then after each of
+    /// The 5 s check while on: the battery cutoff, then the work — an open lid counting as work, and
+    /// none of it checked when turned on until `.turnedOff` — then the network. Off the network, a rejoin is tried at once, then after each of
     /// `rejoinDelays`, the last repeating; joined again, that starts over.
     public func tick(agentsWorking: Bool) -> BackpackTick {
         guard case .on(let old) = state else {
@@ -130,7 +131,7 @@ public final class BackpackMode: Sendable {
         let time = now()
         if agentsWorking || ports.lidSensor.isClosed() == false {
             lastWork.withLock { $0 = time }
-        } else if let last = lastWork.withLock({ $0 }), time.timeIntervalSince(last) >= Self.idleGrace {
+        } else if old.until == .agentsStop, let last = lastWork.withLock({ $0 }), time.timeIntervalSince(last) >= Self.idleGrace {
             turnOff()
             return .ended(.agentsStopped)
         }
@@ -140,7 +141,7 @@ public final class BackpackMode: Sendable {
             if !joined { bookNextRejoin() }
         }
         if joined { rejoin.withLock { $0 = (nil, 0) } }
-        let next = BackpackStatus(network: old.network, joined: joined, power: power)
+        let next = BackpackStatus(network: old.network, joined: joined, power: power, until: old.until)
         guard next != old else { return .unchanged }
         current.withLock { if $0.isOn { $0 = .on(next) } }
         return .changed
