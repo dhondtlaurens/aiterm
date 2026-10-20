@@ -423,7 +423,7 @@ with no row shown Restore is absent. Nothing shelved reads "Nothing on the shelf
 A project header wears **one** quiet Jira `Badge` beside its name, however many Jira projects it
 links (proposal E2, 8 Oct 2026): the first linked project's key, which opens that project, and —
 when it links more — `Space.snug` after it a boxed `+n` `Badge`, as `BranchLabelView` counts a
-window's other branches. The `+n` opens a menu of every project, the first included — `KEY — Name`
+window's other branches. The `+n` opens a menu of every project, the first included — `KEY · Name`
 in the order they were linked, each opening its own — then "Jira Projects…", greyed while the
 workspace is locked. The `+n` stays when Settings › Interface turns the project key off, since it is
 not a key; its tooltip names every project and VoiceOver the rest ("2 more Jira projects: PAY and

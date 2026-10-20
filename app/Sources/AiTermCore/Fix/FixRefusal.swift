@@ -47,7 +47,7 @@ public enum FixRefusal: Error, Equatable, LocalizedError {
         case .droppedCommit(let b, let sha):
             "The fix would have dropped commit \(sha.prefix(7)) from “\(b)” without saying so, so nothing was changed."
         case .tooManyCommits(let b, let count):
-            "“\(b)” has \(count) commits that aren’t on origin — too many to check a fix against."
+            "“\(b)” has \(count) commits that aren’t on origin, too many to check a fix against."
         case .verifyFailed(let command, let status):
             "\(command) failed (status \(status)) after the fix, so nothing was changed."
         case .branchMovedMeanwhile(let b):

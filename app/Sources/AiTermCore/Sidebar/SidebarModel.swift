@@ -318,7 +318,7 @@ public enum SidebarModel {
         var lines: [String] = []
         if drifted, let own { lines.append("task · " + own) }
         if extra > 0 {
-            lines += ordered.map { "tab \($0.tabIndex + 1) · \($0.agent.rawValue) · " + (branchByCwd[$0.effectiveCwd] ?? "—") }
+            lines += ordered.map { "tab \($0.tabIndex + 1) · \($0.agent.rawValue) · " + (branchByCwd[$0.effectiveCwd] ?? "no branch") }
         }
         return BranchLabel(name: name, extra: extra, drifted: drifted, detail: lines.joined(separator: "\n"))
     }

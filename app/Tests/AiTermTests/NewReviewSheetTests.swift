@@ -106,7 +106,7 @@ import AiTermCore
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         host.layoutSubtreeIfNeeded()
         #expect(host.fittingSize.height > 0)
-        #expect(AgentStep.modelPlaceholder(agent: .pi, catalogueLoaded: true) == "No PI providers are signed in — run /login in PI.")
+        #expect(AgentStep.modelPlaceholder(agent: .pi, catalogueLoaded: true) == "No PI providers are signed in. Run /login in PI.")
         #expect(AgentStep.modelPlaceholder(agent: .claude, catalogueLoaded: true) == "No models are available.")
         #expect(AgentStep.modelPlaceholder(agent: .pi, catalogueLoaded: false) == "Loading models…")
     }

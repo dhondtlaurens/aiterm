@@ -209,7 +209,7 @@ struct BoardScroll<Content: View>: View {
 }
 
 /// A task on the board (spec §4, §13): a `groupChrome` box, `Space.inset` inside. Its agent's
-/// `VendorMark` once started and the title, two lines at most; then the quiet Jira and merge-request
+/// `VendorMark` on every card, started or not (spec §15.4), and the title, two lines at most; then the quiet Jira and merge-request
 /// `Badge`s a task row wears, and the project when the broadcast spans several, never the branch; then its
 /// status line, one `Size.chip` line: the task's `OperatorBadge`, or `taken over` with no badge. A card
 /// that needs you has its edge in `Palette.statusChipAttentionStroke` and the needs-you badge, nothing more:

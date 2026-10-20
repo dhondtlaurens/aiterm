@@ -616,7 +616,7 @@ struct ProjectJiraBadge: Equatable {
         // The row shows the key only; the project's full name is worth a hover, and the URL beside
         // it is what every other badge in the sidebar puts there. A badge without its key names it
         // there too.
-        help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") — \(jira.browseURL.absoluteString)"
+        help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") · \(jira.browseURL.absoluteString)"
         self.overflow = overflow
     }
 }
@@ -627,7 +627,7 @@ extension ProjectJiraBadge.Overflow {
         let rest = Array(jira.dropFirst())
         guard !rest.isEmpty else { return nil }
         label = "+\(rest.count)"
-        items = jira.map { .init(title: "\($0.key) — \($0.name)", url: $0.browseURL) }
+        items = jira.map { .init(title: "\($0.key) · \($0.name)", url: $0.browseURL) }
         // A count says nothing on its own: the hover names every project, and VoiceOver the rest.
         help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
         accessibilityLabel = "\(rest.count) more Jira \(rest.count == 1 ? "project" : "projects"): \(rest.keyList)"
@@ -775,12 +775,12 @@ struct TaskRowBadges: Equatable {
         ticket = row.jiraKey.map { key in
             details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl)
-                : Link(label: nil, help: row.jiraUrl.map { "\(key) — \($0)" } ?? key, url: row.jiraUrl)
+                : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl)
         }
         mergeRequest = row.mr.map { mr in
             var link = details.mergeRequest
                 ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
-                : Link(label: nil, help: "\(mr.reference) — \(mr.title)", url: mr.url, host: mr.host)
+                : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
             // Nothing until there is a thread to count; then it stays, all resolved included.
             if let threads, threads.total > 0 {
                 let words = Self.words(threads)

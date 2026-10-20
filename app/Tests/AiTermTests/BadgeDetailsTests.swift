@@ -26,7 +26,7 @@ import AiTermUI
 
         let compact = ProjectJiraBadge(jira: jira, showsKey: false)
         #expect(compact.label == nil)
-        #expect(compact.help == "Storefront (SHOP) — https://example.atlassian.net/browse/SHOP")
+        #expect(compact.help == "Storefront (SHOP) · https://example.atlassian.net/browse/SHOP")
         #expect(compact.url == full.url)
     }
 
