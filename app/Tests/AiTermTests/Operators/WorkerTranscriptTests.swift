@@ -89,3 +89,18 @@ import Testing
         #expect(WorkerTranscript.lastMessage(agent: .codex, conversation: "missing", home: home) == nil)
     }
 }
+
+extension WorkerTranscriptTests {
+    /// Claude keeps its conversations under the folder the login shell's `CLAUDE_CONFIG_DIR` names.
+    @Test func claudesConversationIsReadFromTheConfiguredFolder() throws {
+        defer { cleanUp() }
+        func reply(_ text: String) -> String { #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(text)"}]}}"# }
+        try write([reply("From ~/.claude.")], to: ".claude/projects/-Users-x-shop/0d9c-conv.jsonl")
+        try write([reply("From the profile.")], to: "profile/projects/-Users-x-shop/0d9c-conv.jsonl")
+        let config = ClaudeConfig("~/profile")
+        #expect(WorkerTranscript.lastMessage(agent: .claude, conversation: "0d9c-conv", home: home, claudeConfig: config) == "From the profile.")
+        try FileManager.default.removeItem(at: home.appendingPathComponent("profile"))
+        #expect(WorkerTranscript.file(agent: .claude, conversation: "0d9c-conv", home: home, claudeConfig: config) == nil,
+                "a conversation only ~/.claude holds is another configuration's")
+    }
+}

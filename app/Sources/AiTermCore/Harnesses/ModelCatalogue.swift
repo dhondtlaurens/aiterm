@@ -38,11 +38,13 @@ public final class ModelCatalogue: Sendable {
     private struct State { var entries: [AgentKind: Entry] = [:], reads = 0 }
 
     private let home: URL
+    private let claudeConfig: ClaudeConfig
     private let runner: HarnessCommandRunner
     private let state = Mutex(State())
 
-    public init(home: URL, runner: HarnessCommandRunner) {
+    public init(home: URL, runner: HarnessCommandRunner, claudeConfig: ClaudeConfig = ClaudeConfig()) {
         self.home = home
+        self.claudeConfig = claudeConfig
         self.runner = runner
     }
 
@@ -51,7 +53,7 @@ public final class ModelCatalogue: Sendable {
     /// its files are unchanged; Settings' probe refreshes, because it is the place that says
     /// whether PI can be launched at all.
     public func read(_ agent: AgentKind, executable: String? = nil, refreshing: Bool = false) -> Reading {
-        let harness = agent.harness, listing = harness.models
+        let harness = agent.harness(claudeConfig: claudeConfig), listing = harness.models
         let cli = listing.launchesCLI ? executable ?? runner.locate(harness.executable) : nil
         if listing.launchesCLI, cli == nil { return fallback(agent, failure: .unavailable) }
         // Stamped before the read, so a file that changes while it runs is read again next time.

@@ -311,7 +311,7 @@ extension OperatorController {
     /// The operator's window opened again, in front: its conversation resumed under the same frozen
     /// profile, or — with no conversation to resume — a fresh operator, briefed with the broadcast and
     /// where it stands (`OperatorCommand.freshStartMessage`; `prepare` writes `first-message.md` only for a
-    /// fresh start). A conversation whose file is gone from `~/.claude` is refused (`cannotResume`): Start
+    /// fresh start). A conversation whose file is gone from Claude's folder is refused (`cannotResume`): Start
     /// Fresh lets it go. The run folder is written afresh with its token kept. Nothing when its window is
     /// open, is being opened, or was opened a moment ago and iTerm2 has not listed its tab yet; refused
     /// while iTerm2's tabs are not known, as a tab not listed then is not a tab closed. An operation ended
@@ -330,13 +330,14 @@ extension OperatorController {
         reopeningOperator.insert(id)
         defer { reopeningOperator.remove(id) }
         let projects = run.projectIds.compactMap(workspace.state.project(id:)), home = ports.home, folder = self.folder(of: id)
+        let claudeConfig = ports.claudeConfig
         let milestone = ports.milestone, conversation = run.operatorConversation, cannotResume = Self.cannotResume
         // A fresh Operator is told where the broadcast stands; a resumed one remembers.
         let fresh = conversation == nil
             ? OperatorCommand.freshStartMessage(for: run, status: status(of: run).flatMap { try? String(decoding: $0.json(), as: UTF8.self) } ?? "{}")
             : nil
         let prepared = try await BackgroundWork.run {
-            if let conversation, WorkerTranscript.file(agent: .claude, conversation: conversation, home: home) == nil {
+            if let conversation, WorkerTranscript.file(agent: .claude, conversation: conversation, home: home, claudeConfig: claudeConfig) == nil {
                 throw ActionUnavailable(cannotResume)
             }
             let token = OperatorCommand.existingToken(in: folder) ?? OperatorCommand.makeToken()

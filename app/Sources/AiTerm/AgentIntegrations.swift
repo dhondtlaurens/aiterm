@@ -29,6 +29,8 @@ final class AgentIntegrations {
     /// what Settings' cards show, read through one catalogue so the two agree, and so a sheet opened
     /// again does not read `~/.claude.json` or launch PI again.
     let catalogue: ModelCatalogue
+    let claudeConfig: ClaudeConfig
+    private(set) var claudeConfigPath: String?
 
     /// Settings › Agents' “Help with problems”, saved on every write.
     var helpWithProblems: HelpWithProblems {
@@ -53,7 +55,9 @@ final class AgentIntegrations {
     /// Settings › Operator's staged edits, over these defaults and this catalogue: a new one for each
     /// opening of Settings, so Cancel drops it.
     func operatorSettings() -> OperatorSettingsModel {
-        .live(defaults: defaults, catalogue: catalogue, installed: { [weak self] in self?.availableAgents ?? [] })
+        let home = harnessHome, claudeConfig = self.claudeConfig
+        return .live(defaults: defaults, catalogue: catalogue, installed: { [weak self] in self?.availableAgents ?? [] },
+                     skills: { SkillCatalog.discover(agent: $0, projectPath: nil, home: home, claudeConfig: claudeConfig) })
     }
 
     /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
@@ -93,35 +97,38 @@ final class AgentIntegrations {
     private let locateAgents: @Sendable () -> Set<AgentKind>?
     /// Whether Claude Code's settings in a home run a shim at a path: `ClaudeSettings`' answer, which
     /// a test that orders two reads replaces.
-    private let statusLineIsInstalled: @Sendable (_ home: URL, _ shimPath: String) -> Bool
+    private let statusLineIsInstalled: @Sendable (_ home: URL, _ shimPath: String, _ config: ClaudeConfig) -> Bool
     @ObservationIgnored private var retainedHarnessSettings: HarnessSettingsModel?
 
     init(harnessHome: URL, bundledResourcesURL: URL?, locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
          rememberedModels: @escaping @MainActor () -> [AgentKind: String],
-         statusLineIsInstalled: @escaping @Sendable (_ home: URL, _ shimPath: String) -> Bool = {
-             ClaudeSettings.statusLineIsInstalled(home: $0, shimPath: $1)
-         },
-         defaults: UserDefaults = .standard) {
+         statusLineIsInstalled: (@Sendable (_ home: URL, _ shimPath: String) -> Bool)? = nil,
+         defaults: UserDefaults = .standard, claudeConfig: ClaudeConfig = ClaudeConfig()) {
         self.defaults = defaults
+        self.claudeConfig = claudeConfig
         helpWithProblems = HelpWithProblems.load(defaults: defaults)
         self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         claudeShim = HarnessResources.bundled(resourceURL: bundledResourcesURL, for: [.claude])[.claude]
-        catalogue = ModelCatalogue(home: harnessHome, runner: .live)
+        catalogue = ModelCatalogue(home: harnessHome, runner: .live, claudeConfig: claudeConfig)
         self.locateAgents = locateAgents
         self.rememberedModels = rememberedModels
-        self.statusLineIsInstalled = statusLineIsInstalled
+        self.statusLineIsInstalled = { home, shim, config in
+            statusLineIsInstalled?(home, shim) ?? ClaudeSettings.statusLineIsInstalled(home: home, shimPath: shim, claudeConfig: config)
+        }
     }
 
     /// Over a scratch store and no login shell, every agent assumed present: for a Settings sheet or a test that never probes.
     /// Its defaults are named by a path in the temporary folder, which `UserDefaults` takes as the
     /// file to keep the domain in, so nothing lands in `~/Library/Preferences`.
-    static func inert() -> AgentIntegrations {
+    static func inert(claudeConfigPath: String? = nil) -> AgentIntegrations {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("AiTerm.inert-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        return AgentIntegrations(harnessHome: scratch.appendingPathComponent("home"),
+        let agents = AgentIntegrations(harnessHome: scratch.appendingPathComponent("home"),
                                  bundledResourcesURL: nil, locateAgents: { nil }, rememberedModels: { [:] },
                                  defaults: UserDefaults(suiteName: scratch.appendingPathComponent("defaults").path)!)
+        agents.claudeConfigPath = claudeConfigPath
+        return agents
     }
 
     /// Claude Code's status-line shim in the bundle, if it is there and can be run. Bundle lookups
@@ -156,10 +163,11 @@ final class AgentIntegrations {
     /// Off the main actor, both: `settings.json` is the user's file, of any size, and parsing it
     /// must not hold up the app.
     private func readStatusLine(migratingFirst migrating: Bool) async {
-        let shim = claudeShim, home = harnessHome, isInstalled = statusLineIsInstalled
+        let shim = claudeShim, home = harnessHome, isInstalled = statusLineIsInstalled, config = claudeConfig
         statusLineReadsStarted += 1
         let read = statusLineReadsStarted
-        let installed = await BackgroundWork.run {
+        let (installed, directory) = await BackgroundWork.run {
+            let directory = config.directory(home: home)
             if migrating {
                 Log.harness.attempt("Migrating the saved status line") { try StatusLineOriginal.migrate(home: home) }
                 // The shims are in the bundle and so are as new as the app, but read the port from a
@@ -169,11 +177,12 @@ final class AgentIntegrations {
             }
             // The harness home this was given, never the default: in a test that is a temporary
             // directory, and the developer's own `~/.claude` says nothing about it.
-            return shim.map { isInstalled(home, $0) } ?? false
+            return (shim.map { isInstalled(home, $0, config) } ?? false, directory.path)
         }
         guard !Task.isCancelled, read > statusLineReadsApplied else { return }
         statusLineReadsApplied = read
         claudeStatusLineInstalled = installed
+        claudeConfigPath = directory
     }
 
     /// Retained across Settings presentations, and its service with it, so the last-known-good PI
@@ -189,7 +198,7 @@ final class AgentIntegrations {
             return retainedHarnessSettings
         }
         let service = service ?? HarnessService(
-            home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue, resources: resources)
+            home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue, resources: resources, claudeConfig: claudeConfig)
         let settings = HarnessSettingsModel(
             service: service, rememberedModels: { [weak self] in self?.rememberedModels() ?? [:] },
             integrationChanged: { [weak self] agent in

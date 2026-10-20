@@ -114,8 +114,8 @@ Tell the person the following. Don't do any of it for them:
 
 - **Agent status needs hooks.** In *AiTerm › Settings › Agents*, press **Install** on the card for
   each agent they use (Claude Code, Codex, Grok Build, PI). AiTerm writes those hooks itself and
-  keeps a backup of every file it changes. Don't edit `~/.claude/settings.json`, `~/.codex/` or
-  `~/.grok/` by hand for this.
+  keeps a backup of every file it changes. Don't edit Claude's `settings.json` (in `~/.claude`, or the
+  folder `$CLAUDE_CONFIG_DIR` names), `~/.codex/` or `~/.grok/` by hand for this.
 - **Jira, GitLab and GitHub** credentials go in *Settings › Integrations*. AiTerm stores them in
   the Keychain.
 - **Codex runs without approvals.** AiTerm starts new Codex tasks with

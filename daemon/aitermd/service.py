@@ -76,6 +76,9 @@ class Service:
         # `monotonic` times the orphan settle, and `path_missing` is its directory check, which runs
         # on a worker thread: a stat on a hung network mount must not stall the daemon.
         self.claude_files, self.codex_files, self.clock = claude_files, codex_files, clock
+        # Claude's folder as the app last named it, which a snapshot echoes as it was sent: the app compares
+        # the strings, and pathlib would spell some paths otherwise ("a/./b" as "a/b").
+        self._claude_directory: str | None = None
         self.supervisor = supervisor or ItermSupervisor(iterm, rpc.broadcast, lambda: rpc.client_count)
         self.registry = SessionRegistry()
         self.status = StatusEngine(self.registry, clock, monotonic)
@@ -179,6 +182,9 @@ class Service:
         r("companion.notify", self._h_companion_notify)
 
     async def _h_snapshot(self, _p: Any) -> dict[str, Any]:
+        if isinstance(_p, dict) and "claudeConfigDirectory" in _p:
+            self._claude_directory = param(_p, "claudeConfigDirectory", str)
+            self.claude_files.configure(Path(self._claude_directory))
         try:
             await self.tick()
         except Exception:  # noqa: BLE001 - the last known registry beats no bootstrap at all
@@ -186,6 +192,8 @@ class Service:
         # No await between reading state and returning it. RpcServer writes the reply
         # before yielding, making it a barrier between earlier and later events.
         return {"protocolVersion": protocol.VERSION, **self.supervisor.snapshot_fields(),
+                "claudeConfigDirectory": self._claude_directory if self._claude_directory is not None
+                else str(self.claude_files.root.parent),
                 "sessions": [s.to_json() for s in self.registry.all()],
                 "usage": self.usage.snapshot()}
 

@@ -3,19 +3,20 @@ import AiTermCore
 
 /// The last thing a worker said, read from its agent's own conversation file — never the screen, where
 /// Claude's grey suggestion reads as typed text (spec §2.2). Claude keeps a conversation in
-/// `~/.claude/projects/<folder>/<id>.jsonl`, Codex in `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-…-<id>.jsonl`;
+/// `projects/<folder>/<id>.jsonl` under its configuration folder (`ClaudeConfig`: `~/.claude` unless
+/// `CLAUDE_CONFIG_DIR` names another), Codex in `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-…-<id>.jsonl`;
 /// both are named by the conversation id the daemon reports (`SessionInfo.conversationId`).
 enum WorkerTranscript {
     /// How much of a conversation's end is read: a reply is kilobytes, the file can be megabytes.
     static let tailBytes = 512 * 1024
 
     /// The conversation's file under `home`, if there is one. An id that could name a path finds none.
-    static func file(agent: AgentKind, conversation: String, home: URL) -> URL? {
+    static func file(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> URL? {
         guard TaskConversation.isResumable(conversation), !conversation.contains("/"), !conversation.contains("..") else { return nil }
         let fileManager = FileManager.default
         switch agent {
         case .claude:
-            let projects = home.appendingPathComponent(".claude/projects")
+            let projects = claudeConfig.directory(home: home).appendingPathComponent("projects")
             let folders = (try? fileManager.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil)) ?? []
             return folders.map { $0.appendingPathComponent(conversation + ".jsonl") }.first { fileManager.fileExists(atPath: $0.path) }
         case .codex:
@@ -31,8 +32,8 @@ enum WorkerTranscript {
         }
     }
 
-    static func lastMessage(agent: AgentKind, conversation: String, home: URL) -> String? {
-        file(agent: agent, conversation: conversation, home: home).flatMap { lastMessage(in: $0, agent: agent) }
+    static func lastMessage(agent: AgentKind, conversation: String, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> String? {
+        file(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig).flatMap { lastMessage(in: $0, agent: agent) }
     }
 
     /// The newest reply in the file's last `tailBytes`, read from the end.

@@ -513,8 +513,10 @@ while the CLI or the driver is missing, Repair while a check is amber, Reinstall
 Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
 is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the
 vendor's own installer and then the driver; over a present one it writes the driver whether or not
-it is already installed, so it can be overwritten. A Jira, GitLab or GitHub card holding saved
-credentials trails a Disconnect, which empties its fields and marks the service for removal: Save
+it is already installed, so it can be overwritten. Claude Code's card leads its fields with one
+`HelpText` line, `Configuration:` and the full path of the folder its settings, models and skills are
+read from: the login shell's `CLAUDE_CONFIG_DIR`, else `~/.claude`. A Jira, GitLab or GitHub card
+holding saved credentials trails a Disconnect, which empties its fields and marks the service for removal: Save
 removes the saved site or host and the Keychain token, Cancel keeps everything. Save is all or
 nothing: it checks every card before it writes any, so while one card cannot save (a mistyped URL)
 nothing is written at all — a Disconnect or a new connection on another card is not applied either —

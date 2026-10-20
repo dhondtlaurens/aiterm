@@ -29,6 +29,13 @@ class ClaudeSessionFiles:
         # asks for a pid by session id; both go through this, so an unchanged file is not reparsed.
         self._index: dict[Path, _Entry] = {}
 
+    def configure(self, directory: Path) -> None:
+        """The app resolves the login shell's configuration, including on helper adoption."""
+        root = directory / "sessions"
+        if root != self.root:
+            self.root = root
+            self._index.clear()
+
     def read(self, pid: int) -> ClaudeSessionFile | None:
         path = self.root / f"{pid}.json"
         if (entry := self._load(path)) is None:

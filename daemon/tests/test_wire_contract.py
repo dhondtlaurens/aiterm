@@ -120,7 +120,8 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
     try:
         # Refused. The first cookie request went out before the app attached, so it learns of it
         # from its snapshot, as the app does; the refusal of that cookie brings the next request.
-        assert (await app.call("workspace.snapshot"))["result"]["itermCookieRequest"] == 1
+        bootstrap = await app.call("workspace.snapshot", {"claudeConfigDirectory": "/repo/claude-profile"})
+        assert bootstrap["result"]["itermCookieRequest"] == 1
         mark = app.mark()
         replies["iterm.provideCookie"] = await app.call("iterm.provideCookie", {"requestId": 1, "error": REFUSAL})
         events[protocol.ITERM_AUTH_FAILED] = await app.event(protocol.ITERM_AUTH_FAILED, mark)

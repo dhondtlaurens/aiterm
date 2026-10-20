@@ -2138,6 +2138,30 @@ async def test_service_stop_drains_the_shared_tick_started_by_an_unplaced_hook(m
         await asyncio.wait_for(finished.wait(), 1)
 
 
+async def test_snapshot_uses_app_supplied_claude_directory(stack, tmp_path, monkeypatch):
+    svc, _, _, r, w = stack
+    profile = tmp_path / "Claude Profile"
+    sessions = profile / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "123.json").write_text(json.dumps({"pid": 123, "sessionId": "moved", "status": "idle"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "wrong"))
+    response = await call(r, w, "workspace.snapshot", {"claudeConfigDirectory": str(profile)})
+    assert response["result"]["claudeConfigDirectory"] == str(profile)
+    assert svc.claude_files.root == sessions
+    assert svc.resolver.claude_files.pid_for_session("moved") == 123
+    other = tmp_path / "other"
+    await call(r, w, "workspace.snapshot", {"claudeConfigDirectory": str(other)})
+    assert svc.claude_files.pid_for_session("moved") is None
+
+
+async def test_snapshot_echoes_the_claude_directory_as_the_app_spelled_it(stack, tmp_path):
+    svc, _, _, r, w = stack
+    spelled = f"{tmp_path}/./Claude Profile"  # pathlib would spell it without the "./"
+    response = await call(r, w, "workspace.snapshot", {"claudeConfigDirectory": spelled})
+    assert response["result"]["claudeConfigDirectory"] == spelled
+    assert svc.claude_files.root == tmp_path / "Claude Profile" / "sessions"
+
+
 async def test_companion_notify_pushes_through_iterm(stack):
     svc, it, files, r, w = stack
     reply = await call(r, w, "companion.notify", {"title": "AiTerm", "body": "Codex needs your input."})

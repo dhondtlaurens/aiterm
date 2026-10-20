@@ -752,3 +752,19 @@ import Testing
         #expect(world.task(task.id)?.operated?.launch?.openedAt == nil && world.task(task.id)?.windowId == nil)
     }
 }
+
+extension RunControlsTests {
+    /// The Operator's `claude` keeps its conversation under the folder `CLAUDE_CONFIG_DIR` names, so that
+    /// is where a reopening looks for it before it resumes it.
+    @Test func resumingFindsTheOperatorsConversationInTheConfiguredClaudeFolder() async throws {
+        let (world, run, _) = try makeWorld(runState: .operatorOffline, adjust: { $0.claudeConfig = ClaudeConfig("~/profile") })
+        world.controller.mutateRun(run.id) { $0.operatorConversation = "c-9" }
+        let folder = world.ports.home.appendingPathComponent("profile/projects/-operator")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: folder.appendingPathComponent("c-9.jsonl"))
+        world.show([])
+        try await world.controller.resume(run: run.id)
+        let window = try #require(world.daemon.requests("window.createTask").first)
+        #expect((window.params["agentCommand"] as? String)?.contains("c-9") == true)
+    }
+}

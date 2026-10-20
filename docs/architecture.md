@@ -33,7 +33,8 @@ Claude Code, Codex, Grok Build & PI  ──HTTP POST 127.0.0.1:47821──>  Hoo
 ```
 
 - **Claude Code & Codex** — running in those iTerm2 tabs. Lifecycle hooks are merged into
-  `~/.claude/settings.json` and `~/.codex/config.toml` by the agent's Install action in
+  Claude's `settings.json` under the login shell's `$CLAUDE_CONFIG_DIR` (default `~/.claude`)
+  and `~/.codex/config.toml` by the agent's Install action in
   Settings › Agents — merge-only, with a backup, because Emdash owns hook slots in the same files.
 - **Grok Build** — command hooks, because Grok refuses `http://` hook URLs. AiTerm owns its whole
   hooks file, `~/.grok/hooks/aiterm.json`, rather than merging into one Emdash also touches; the
@@ -153,7 +154,7 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **The window closed.** It ends nothing: a broadcast under way goes `operatorOffline` and reads
   `paused · the Operator’s window is closed`. A click on its row opens the board and reopens the window
   behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
-  same frozen profile. When that conversation is gone from `~/.claude`, the board keeps a `Notice` in its
+  same frozen profile. When that conversation is gone from Claude's folder, the board keeps a `Notice` in its
   footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
@@ -334,7 +335,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 
 | Command | What it does |
 |---|---|
-| `workspace.snapshot` | the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
+| `workspace.snapshot` | accepts the app-resolved `claudeConfigDirectory`, applies it before the tick, and echoes it as sent (also on adoption); the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
 | `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task the Operator starts opens behind your work |
 | `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |

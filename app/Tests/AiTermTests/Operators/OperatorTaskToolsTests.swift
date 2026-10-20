@@ -10,14 +10,14 @@ import Testing
     let git = GitRunner.hermetic()
 
     /// An active run with one working task whose worktree is a real checkout off `main`.
-    func makeWorld() throws -> (OperatorWorld, OperatorRun, TaskItem) {
+    func makeWorld(adjust: (inout OperatorPorts) -> Void = { _ in }) throws -> (OperatorWorld, OperatorRun, TaskItem) {
         let project = OperatorServiceFixtures.project(path: try GitFixture.makeRepo(prefix: "op-tools-"))
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         var task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working)
         task = try TaskCreator.checkOutWorker(task, project: project, start: "main", git: git).task
         task.operated?.launch = LaunchAttempt(number: 1, requestedAt: Date())
         task.operated?.ownership = 3
-        return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])), run, task)
+        return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task]), adjust: adjust), run, task)
     }
 
     @discardableResult
@@ -225,5 +225,17 @@ import Testing
         #expect(await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange"]).message
                 == "The person paused this broadcast. Wait until they resume it.")
         #expect(world.daemon.requests("session.deliver").isEmpty)
+    }
+}
+
+extension OperatorTaskToolsTests {
+    @Test func readTaskReadsTheWorkersConversationFromTheConfiguredClaudeFolder() async throws {
+        let (world, run, task) = try makeWorld(adjust: { $0.claudeConfig = ClaudeConfig("~/profile") })
+        let file = world.ports.home.appendingPathComponent("profile/projects/p/conv-1.jsonl")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Which locale?"}]}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        world.show([OperatorServiceFixtures.session("w1", tag: task.id, state: .done, conversation: "conv-1")])
+        #expect(await world.call(run.id, "read_task", ["task": "PLUTO-1", "what": "lastMessage"]).value?["lastMessage"] == "Which locale?")
     }
 }

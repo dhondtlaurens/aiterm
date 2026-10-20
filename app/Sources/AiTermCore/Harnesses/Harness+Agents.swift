@@ -2,7 +2,9 @@ import Foundation
 
 /// The four harnesses, side by side: what differs between them is read here, in one table.
 extension Harness {
-    static let claude = Harness(
+    static let claude = claude(config: ClaudeConfig())
+
+    static func claude(config: ClaudeConfig) -> Harness { Harness(
         agent: .claude, executable: "claude", displayName: "Claude Code",
         installCommand: "curl -fsSL https://claude.ai/install.sh | bash",
         fallbackEfforts: ModelFiles.claudeEfforts, defaultEffort: "high",
@@ -11,10 +13,10 @@ extension Harness {
         bundledResource: .script("claude-statusline-shim.sh"),
         launchArguments: { model, reasoning in ["--model", model] + (reasoning.map { ["--effort", $0] } ?? []) },
         resumeArguments: { ["--resume", $0] },
-        models: .files(sources: { ModelFiles.claudeSources(home: $0) }, read: { ModelFiles.claudeModels(home: $0) }),
+        models: .files(sources: { ModelFiles.claudeSources(home: $0, claudeConfig: config) }, read: { ModelFiles.claudeModels(home: $0, claudeConfig: config) }),
         skillRoots: { home, project in
             // Claude Code, like Grok, keeps a `user-invocable: false` skill out of its `/` menu.
-            let user = home.appendingPathComponent(".claude")
+            let user = config.directory(home: home)
             var roots = [SkillRoot(.skills(hidingNonInvocable: true), user.appendingPathComponent("skills"), .user),
                          SkillRoot(.commands(), user.appendingPathComponent("commands"), .user),
                          SkillRoot(.plugins(hidingNonInvocable: true), user, .user)]
@@ -24,7 +26,7 @@ extension Harness {
             }
             return roots
         },
-        makeDriver: { home, port, shim in shim.map { ClaudeDriver(home: home, daemonPort: port, shimPath: $0) } })
+        makeDriver: { home, port, shim in shim.map { ClaudeDriver(home: home, daemonPort: port, shimPath: $0, claudeConfig: config) } }) }
 
     static let codex = Harness(
         agent: .codex, executable: "codex", displayName: "Codex",

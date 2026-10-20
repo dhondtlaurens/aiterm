@@ -44,9 +44,11 @@ extension OperatorToolHandler {
                 return Self.reviewAnswer(review, started: false)
             }
         }
-        let home = ports.home, other: AgentKind = agent == .codex ? .claude : .codex
+        let home = ports.home, claudeConfig = ports.claudeConfig, other: AgentKind = agent == .codex ? .claude : .codex
         let project = state.project(id: task.projectId)?.path
-        let skills = await BackgroundWork.run { AgentReview.skills(in: instructions, agents: [agent, other], projectPath: project, home: home) }
+        let skills = await BackgroundWork.run {
+            AgentReview.skills(in: instructions, agents: [agent, other], projectPath: project, home: home, claudeConfig: claudeConfig)
+        }
         try recheck(task)
         if runningReviews[task.id] != nil, let review = state.task(id: task.id)?.operated?.agentReview {
             return Self.reviewAnswer(review, started: false)

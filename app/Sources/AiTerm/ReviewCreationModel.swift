@@ -72,7 +72,7 @@ extension CreationModel where Kind == ReviewCreation {
     /// `home` and `catalogue` have no defaults: each reads an agent's configuration, and a default
     /// would read the developer's own from anything that left them out. A `catalogue` that throws
     /// has no models to offer, and the sheet says why in their place.
-    convenience init(project: Project, draft: ReviewDraft, home: URL,
+    convenience init(project: Project, draft: ReviewDraft, home: URL, claudeConfig: ClaudeConfig = ClaudeConfig(),
                      availableAgents: @escaping @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) },
                      rememberedModels: [AgentKind: String] = [:],
                      catalogue: @escaping @Sendable (AgentKind) throws -> [AgentModel],
@@ -88,7 +88,7 @@ extension CreationModel where Kind == ReviewCreation {
                      fixer: @escaping @MainActor () -> FixerResolution = { .off }, pipeline: FixPipeline? = nil,
                      fixLanded: @escaping @MainActor (FixLanding, FixerAgent) -> Void = { _, _ in },
                      backupKept: @escaping @MainActor (FixLanding) -> Void = { _ in }) {
-        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home,
+        self.init(kind: ReviewCreation(codeHost: codeHost, findOwner: owningTask, fix: recover), project: project, draft: draft, home: home, claudeConfig: claudeConfig,
                   availableAgents: availableAgents, rememberedModels: rememberedModels, catalogue: catalogue,
                   initialCatalogue: initialCatalogue, initialCatalogueFailure: initialCatalogueFailure, defaults: defaults,
                   git: git, reservedSlugs: reservedSlugs, canChangeWorkspace: canChangeWorkspace, search: searchMergeRequests, submit: createReview,

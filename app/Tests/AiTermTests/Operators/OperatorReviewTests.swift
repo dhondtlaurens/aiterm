@@ -667,3 +667,26 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(try r.world.workspace.file.load().run(id: r.run.id)?.threadReplies == ["r2": "d1"])
     }
 }
+
+extension OperatorReviewTests {
+    /// The skill a review's instructions name is handed over from the folder Claude's configuration is in.
+    @Test func anAgentReviewHandsOverTheNamedSkillFromTheConfiguredClaudeFolder() async throws {
+        let seen = TaskFinisherTests.Recorded<String>()
+        let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
+            for word in arguments { seen.append(word) }
+            let json = String(decoding: try JSONEncoder().encode(["result": "Sound."]), as: UTF8.self)
+            return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
+        })
+        let r = try reviewed(.working) { $0.agentReviewer = runner; $0.claudeConfig = ClaudeConfig("~/profile") }
+        for (folder, text) in [(".claude", "Wrong folder."), ("profile", "Attack every assumption.")] {
+            let skill = r.world.ports.home.appendingPathComponent("\(folder)/skills/review-skill/SKILL.md")
+            try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "---\nname: review-skill\n---\n\(text)\n".write(to: skill, atomically: true, encoding: .utf8)
+        }
+        try #require(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review it with /review-skill."])
+            .value?["review"] == "started")
+        await r.world.controller.tools.lastReview?.value
+        #expect(seen.all.contains { $0.contains("Attack every assumption.") })
+        #expect(!seen.all.contains { $0.contains("Wrong folder.") })
+    }
+}
