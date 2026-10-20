@@ -134,7 +134,7 @@ struct SettingsView: View {
         } content: {
             settingsContent
         } footer: {
-            SheetFooter(primary: "Save", cancel: { cancel(); dismiss.afterThisEvent() },
+            SheetFooter(primary: "Save", closeList: closeOpenList, cancel: { cancel(); dismiss.afterThisEvent() },
                         submit: { if save() { dismiss.afterThisEvent() } }) {
                 if let result { Text(result).font(Typography.caption).foregroundStyle(Palette.muted).lineLimit(2) }
             }
@@ -160,6 +160,14 @@ struct SettingsView: View {
             async let mac: Void = backpack.refreshSetup()
             _ = await (profile, harnesses, mac)
         }
+    }
+
+    /// ⎋ closes Instructions' `/` popup while it is open, and only then Settings: the popup is the
+    /// footer's to close, not the text view's, because the footer's hidden ⎋ button hears the key first.
+    private func closeOpenList() -> Bool {
+        guard let completions = operatorSettings?.completions, completions.isOpen else { return false }
+        completions.close()
+        return true
     }
 
     private var settingsContent: some View {

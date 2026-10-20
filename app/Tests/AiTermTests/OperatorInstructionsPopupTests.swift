@@ -57,6 +57,44 @@ struct OperatorInstructionsPopupTests {
         #expect(bottom >= field.maxY - PromptEditor.textInset.height, "above the caret's line, the editor's first, clear of its text")
     }
 
+    /// ⎋ with the `/` popup open closes the popup and keeps the sheet and its edits; the next ⎋ is Cancel.
+    @Test func escapeClosesTheOpenPopupBeforeSettingsCancels() throws {
+        let skills = (1...3).map { AgentCompletion(name: "skill-\($0)", kind: .skill, detail: nil, source: .user) }
+        let model = OperatorSettingsModel(load: { fatalError("handed in") }, save: { _ in })
+        model.received(.init(profile: OperatorProfile(model: "claude-opus-5-5", reasoning: "high"),
+                             models: [.claude: [AgentModel(id: "claude-opus-5-5", label: "Opus 5.5", detail: nil,
+                                                           efforts: ["high"], defaultEffort: "high")]],
+                             agentDefaults: [:], skills: skills))
+        var cancels = 0
+        let settings = SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: HarnessSettingsModel.preview(),
+                                    itermConnection: { .connected(version: "3.7.2") },
+                                    checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
+                                    preferences: .scratch(), setMatchItermBackground: { _ in },
+                                    setInterfaceSize: { _ in cancels += 1 },
+                                    initialTab: .operator, testRecord: ServiceTestRecord(), operatorSettings: model)
+        let host = NSHostingView(rootView: settings)
+        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        settle(host) { textView(in: host) != nil }
+        let editor = try #require(textView(in: host))
+        #expect(window.makeFirstResponder(editor))
+        editor.insertText("/", replacementRange: editor.selectedRange())
+        settle(host)
+        #expect(model.completions.isOpen)
+
+        let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                      windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                      charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        _ = window.performKeyEquivalent(with: escape)
+        settle(host)
+        #expect(!model.completions.isOpen, "the first ⎋ closes the popup")
+        #expect(cancels == 0, "and Settings' Cancel has not run")
+    }
+
     private func textView(in view: NSView) -> PromptTextView? {
         if let text = view as? PromptTextView { return text }
         return view.subviews.lazy.compactMap { textView(in: $0) }.first
