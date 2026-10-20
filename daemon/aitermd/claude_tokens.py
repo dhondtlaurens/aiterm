@@ -69,9 +69,11 @@ class ClaudeTranscriptTallies:
             # Not a transcript Claude appended to: start over rather than count a file twice, or
             # from the middle of a line.
             conversation = self._conversations[transcript] = _Conversation()
+        complete = True
         for path, inode, size in stamps:
-            self._read(path, inode, size, conversation)
-        conversation.stamps = stamps
+            complete = self._read(path, inode, size, conversation) and complete
+        # Failed or short reads must be retried even if no writer changes the file.
+        conversation.stamps = stamps if complete else None
         conversation.tally = TokenTally.combined(TokenTally(*reply) for reply in conversation.replies.values())
         return conversation.tally
 
@@ -95,18 +97,18 @@ class ClaudeTranscriptTallies:
         return cursor is not None and (cursor.inode != inode or size < cursor.offset)
 
     @classmethod
-    def _read(cls, path: Path, inode: int, size: int, conversation: _Conversation) -> None:
+    def _read(cls, path: Path, inode: int, size: int, conversation: _Conversation) -> bool:
         """Reads `path` on from its cursor to `size`, the length it was stamped at, and keeps an
         unfinished last line for the next read."""
         cursor = conversation.cursors.setdefault(path, _Cursor(inode))
         if size <= cursor.offset:
-            return
+            return True
         try:
             with path.open("rb") as stream:
                 stream.seek(cursor.offset)
                 chunk = stream.read(size - cursor.offset)
         except OSError:
-            return
+            return False
         cursor.offset += len(chunk)
         *lines, cursor.partial = (cursor.partial + chunk).split(b"\n")
         for line in lines:
@@ -116,6 +118,8 @@ class ClaudeTranscriptTallies:
                 # The most of each field, not the last line read: a count only ever grows.
                 conversation.replies[reply_id] = spent if kept is None else (
                     max(kept[0], spent[0]), max(kept[1], spent[1]), max(kept[2], spent[2]))
+
+        return cursor.offset == size
 
     @staticmethod
     def _reply(line: bytes) -> tuple[str, tuple[int, int, int]] | None:

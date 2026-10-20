@@ -96,3 +96,11 @@ def test_read_names_the_version_claude_wrote_into_its_file(tmp_path):
     write(tmp_path, 45, version="")
     files = ClaudeSessionFiles(tmp_path)
     assert [files.read(pid).version for pid in (42, 43, 44, 45)] == ["2.1.301", None, None, None]
+
+
+def test_non_object_session_file_does_not_break_other_sessions(tmp_path):
+    (tmp_path / "7.json").write_text("[]")
+    write(tmp_path, 8)
+    files = ClaudeSessionFiles(tmp_path)
+    assert files.read(7) is None
+    assert files.pid_for_session("sid-8") == 8

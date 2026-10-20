@@ -90,7 +90,7 @@ def _claude_running_subagents(tasks: Any) -> frozenset[str] | None:
         return None
     running: set[str] = set()
     for task in tasks:
-        if not isinstance(task, dict) or task.get("type") not in CLAUDE_MATCHABLE_TASK_TYPES:
+        if not isinstance(task, dict) or _nonempty_string(task.get("type")) not in CLAUDE_MATCHABLE_TASK_TYPES:
             return None
         if task["type"] != "subagent" or _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES:
             continue

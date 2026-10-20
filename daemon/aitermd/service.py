@@ -425,6 +425,9 @@ class Service:
         readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
+            # A hook or a replacement process may have changed the binding during the read.
+            if self.resolver.codex_thread(session_id) != thread_id:
+                continue
             context, tally, version = readings.get(thread_id, (None, None, None))
             # The running Codex's version, which delivery is held against (delivery.Verdict).
             self.registry.set_cli_version(session_id, version)
@@ -433,7 +436,7 @@ class Service:
                 changed.append(session_id)
             changed += self.status.apply_metadata(session_id, context=context, tokens=tally)
         # Only the tabs running Codex now: a closed or quit one's binding goes with it.
-        self._codex_threads = dict(threads)
+        self._codex_threads = {sid: tid for sid, tid in threads.items() if self.resolver.codex_thread(sid) == tid}
         return changed
 
     async def _apply_claude_tallies(self) -> list[str]:
@@ -441,10 +444,8 @@ class Service:
         grows to megabytes and its first read is whole, so it is read on a worker thread, which keeps
         what it read for the next tick even when this one stops waiting."""
         transcripts = {s.session_id: s.transcript for s in self.registry.all() if s.transcript}
-        if not transcripts:
-            # Nothing to read. The cache is pruned by the next read that has transcripts, on the
-            # worker thread: pruning here could race a read an earlier tick left running.
-            return []
+        # Even an empty owner set goes through the worker gate: it must prune the last
+        # conversation without racing a read an earlier tick left running.
         tallies = self.claude_tallies
 
         def read() -> dict[str, TokenTally | None]:

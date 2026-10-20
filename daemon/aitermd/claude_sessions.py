@@ -58,6 +58,8 @@ class ClaudeSessionFiles:
     def _parse(path: Path, written_at: float) -> ClaudeSessionFile | None:
         try:
             d = json.loads(path.read_text())
+            if not isinstance(d, dict):
+                return None
             version = d.get("version")
             return ClaudeSessionFile(int(d["pid"]), str(d["sessionId"]), str(d.get("cwd", "")), str(d.get("status", "")),
                                      written_at, version if isinstance(version, str) and version else None)

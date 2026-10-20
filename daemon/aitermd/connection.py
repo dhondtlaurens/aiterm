@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -208,7 +209,13 @@ class ItermSupervisor:
     def _retry_delay(self) -> float:
         if not self._auth_failures:
             return self.reconnect_seconds
-        return min(self.reconnect_seconds * 2.0 ** (self._auth_failures - 1), self.auth_backoff_cap_seconds)
+        exponent = self._auth_failures - 1
+        # Compare exponents before scaling: a prolonged refusal must not overflow and
+        # terminate the reconnect loop after the delay has already reached its cap.
+        if (self.reconnect_seconds > 0 and self.auth_backoff_cap_seconds > 0
+                and exponent >= math.log2(self.auth_backoff_cap_seconds) - math.log2(self.reconnect_seconds)):
+            return self.auth_backoff_cap_seconds
+        return min(math.ldexp(self.reconnect_seconds, exponent), self.auth_backoff_cap_seconds)
 
     async def _on_disconnect(self) -> None:
         if self._stopped:

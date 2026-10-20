@@ -41,17 +41,46 @@ class HookServer:
         self.host, self.port, self.on_post = host, port, on_post
         self.read_timeout = read_timeout
         self._server: asyncio.AbstractServer | None = None
+        self._connections: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
+        self._stopping = False
         # Set by the service to the operator's MCP server; /operator is a 404 without it.
         self.operator_route: Route | None = None
 
     async def start(self) -> None:
-        self._server = await asyncio.start_server(self._serve, self.host, self.port)
+        self._stopping = False
+        self._server = await asyncio.start_server(self._accept, self.host, self.port)
         self.port = self._server.sockets[0].getsockname()[1]
 
     async def stop(self) -> None:
+        self._stopping = True
         if self._server:
             self._server.close()
+        # Close sockets before waiting for the listener: Python 3.12+ wait_closed also
+        # waits for accepted transports. Request tasks may be reading or delivering.
+        current = asyncio.current_task()
+        pending = [task for task in self._connections if task is not current]
+        for task, writer in tuple(self._connections.items()):
+            writer.close()
+            if task is not current:
+                task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if self._server:
             await self._server.wait_closed()
+
+    def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        # Register synchronously, before a stop can run between acceptance and task startup.
+        if self._stopping:
+            writer.close()
+            return
+        task = asyncio.create_task(self._serve(reader, writer))
+        self._connections[task] = writer
+
+        def finished(done: asyncio.Task[None]) -> None:
+            self._connections.pop(done, None)
+            if not done.cancelled() and done.exception() is not None:
+                log.error("hook request failed", exc_info=done.exception())
+
+        task.add_done_callback(finished)
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:

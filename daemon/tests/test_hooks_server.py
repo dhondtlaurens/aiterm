@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import pytest
 import pytest_asyncio
@@ -429,3 +430,40 @@ async def test_an_operator_route_that_fails_is_a_500_not_a_dropped_connection(se
     srv.operator_route = StubRoute(status=500)
     assert (await operator_post(srv.port, {}, token="t" * 40))[0] == 500
     assert "operator route failed" in caplog.text
+
+
+async def test_stop_closes_an_incomplete_request(server):
+    srv, _ = server
+    reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+    writer.write(b"POST /hook/claude HTTP/1.1\r\n")
+    await writer.drain()
+    try:
+        await asyncio.wait_for(srv.stop(), 0.2)
+        with contextlib.suppress(ConnectionResetError):
+            assert await asyncio.wait_for(reader.read(), 0.2) == b""
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError):
+            await writer.wait_closed()
+
+
+async def test_stop_cancels_an_active_hook_delivery():
+    entered, finished, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def deliver(path, body):
+        entered.set()
+        try:
+            await release.wait()
+        finally:
+            finished.set()
+
+    srv = HookServer(port=0, on_post=deliver)
+    await srv.start()
+    try:
+        assert await http(srv.port, "POST", "/hook/claude", {}) == 200
+        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(srv.stop(), 0.2)
+        assert finished.is_set()
+    finally:
+        release.set()
+        await srv.stop()

@@ -123,3 +123,19 @@ def test_retain_forgets_conversations_no_tab_runs(tmp_path):
     tallies.tally(str(transcript))
     tallies.retain(set())
     assert tallies._conversations == {}
+
+
+def test_unreadable_transcript_is_retried_without_a_file_change(tmp_path, monkeypatch):
+    transcript, tallies = tmp_path / "s.jsonl", ClaudeTranscriptTallies()
+    append(transcript, reply("m1", fresh=10, output=2))
+    original = type(transcript).open
+
+    def unreadable(path, *args, **kwargs):
+        if path == transcript:
+            raise OSError("temporarily unavailable")
+        return original(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(transcript), "open", unreadable)
+        assert tallies.tally(str(transcript)) is None
+    assert tallies.tally(str(transcript)) == TokenTally(10, 0, 2)

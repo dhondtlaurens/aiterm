@@ -151,9 +151,15 @@ def _coordinate(d: dict[str, Any], key: str) -> float:
     """A JSON number that can place a window. `float()` alone would take `true` as 1, a numeric
     string, and the NaN and Infinity that Python's JSON parser accepts."""
     value = d[key]
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{key} must be a finite number, not {value!r}")
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{key} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{key} must be a finite number, not {value!r}")
+    return number
 
 
 @dataclass

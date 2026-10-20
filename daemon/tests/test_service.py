@@ -2079,3 +2079,34 @@ async def test_the_tick_reads_each_clis_version_from_its_own_files(stack):
     await it.user_runs(claude, "claude", job_pid=4244)  # another Claude in the tab, its file not written yet
     await svc.tick()
     assert svc.registry.get(claude).cli_version is None
+
+
+async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypatch):
+    svc, it, files, r, w = stack
+    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "codex", job_pid=500, title="Codex")
+    await svc.tick()
+    svc.resolver.bind(sid, "codex", "old-thread", "SessionStart")
+
+    async def replaced_during_read(name, work, nothing):
+        svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
+        return {"old-thread": (90, TokenTally(999, 9, 99), "old-version")}
+
+    monkeypatch.setattr(svc, "_off_loop", replaced_during_read)
+    assert await svc._apply_codex_rollouts({sid: "old-thread"}) == []
+    session = svc.registry.get(sid)
+    assert (session.context_percent, session.tokens, session.cli_version) == (None, None, None)
+    assert svc._codex_threads.get(sid) != "old-thread"
+
+
+async def test_last_claude_transcript_owner_releases_cached_tallies(make_service, tmp_path):
+    from tests.test_claude_tokens import append, reply
+    svc = make_service()
+    transcript = tmp_path / "old.jsonl"
+    append(transcript, reply("m1", fresh=2, output=1))
+    svc.claude_tallies.tally(str(transcript))
+    assert svc.registry.all() == []
+    await svc._apply_claude_tallies()
+    assert svc.claude_tallies._conversations == {}
