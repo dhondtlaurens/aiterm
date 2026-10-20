@@ -106,7 +106,10 @@ import Testing
                 #expect(try push.reason == field("reason") as? String)
             case .workspaceSnapshot: try Self.expectSame(read(DaemonSnapshot.self), #require(result["result"] as? [String: Any]))
             // ctl's: read as the models the app shares with it.
-            case .sessionsList: try Self.expectSame(read([SessionInfo].self), #require(result["result"]))
+            case .sessionsList:
+                try Self.expectSame(read([SessionInfo].self), #require(result["result"]))
+                // The Operator's extra worker tab the daemon's script opened: its key comes back on its session.
+                #expect(try read([SessionInfo].self).contains { $0.tabKey == "review" && $0.taskId != nil })
             case .usageGet: try Self.expectSame(read(UsageSnapshot.self), #require(result["result"]))
             }
         }

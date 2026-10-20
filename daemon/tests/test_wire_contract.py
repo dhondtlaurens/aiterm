@@ -92,7 +92,7 @@ class App:
 async def emitted(make_service, monkeypatch) -> dict[str, str]:
     """Every fixture file's name and content, from one scripted run of a real daemon over a
     FakeIterm: the app attaches while iTerm2 refuses the cookie it was given, connects with the
-    next, opens a task window with a PI tab and a terminal, closes the terminal, and loses iTerm2.
+    next, opens a task window with a PI tab, an extra worker tab and a terminal, closes the terminal, and loses iTerm2.
     Each frame is taken as the app receives it. Ids are FakeIterm's counters and the request ids
     the script sends; the clock is make_service's, stopped at 1000."""
     monkeypatch.setattr("aitermd.operator_mcp.uuid.uuid4", lambda: UUID(int=1))
@@ -142,7 +142,9 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         task_window = replies["window.createTask"]["result"]["windowId"]
         await iterm.settle()
         events[protocol.SESSION_OPENED] = await app.event(protocol.SESSION_OPENED, mark)
-        replies["tab.create"] = await app.call("tab.create", {"windowId": task_window, "cwd": WORKTREE})
+        # An Operator's extra worker tab: its key comes back on its session in sessions.list and the snapshot.
+        replies["tab.create"] = await app.call("tab.create", {"windowId": task_window, "cwd": WORKTREE, "tabKey": "review",
+                                                              "background": True})
         replies["window.createTerminal"] = await app.call("window.createTerminal", {
             "projectId": PROJECT_ID, "cwd": "/repo", "title": "Logs", "frame": FRAME})
         terminal_window = replies["window.createTerminal"]["result"]["windowId"]

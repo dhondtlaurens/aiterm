@@ -27,6 +27,10 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// The terminal row this tab's window was opened for, which adopts a window iTerm2 renumbered or
     /// restored. Nil for a task's tab, and from a daemon too old to send it.
     public var terminalId: String? = nil
+    /// The key of the Operator's extra worker tab this is (`open_tab`): it tells that tab apart from its task's
+    /// first worker and from the task's other extra tabs, all tagged with the task. Nil for any other tab, and
+    /// from a daemon too old to send it.
+    public var tabKey: String? = nil
     public var id: String { sessionId }
     /// The task tag as the id it names. The app writes `uuidString`, but a tag read back from
     /// iTerm2 is a string, so it is compared as a UUID rather than by spelling.
@@ -63,6 +67,7 @@ extension SessionInfo {
         tokens = (try? c.decodeIfPresent(TokenTally.self, forKey: .tokens)) ?? nil
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
+        tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
     }
 }
 

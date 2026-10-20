@@ -13,6 +13,7 @@ final class RunReconciler {
     private let workspace: WorkspaceStore
     private let live: LiveSessions
     private let starter: WorkerStarter
+    private let tabs: TabOpener
     private let waker: OperatorWaker
     private let ports: OperatorPorts
     /// Whether a connected snapshot has come since the helper attached: until then, a tab not listed
@@ -20,6 +21,8 @@ final class RunReconciler {
     var synced = false
     /// The latest relaunch, for a test to await.
     private(set) var lastLaunch: Task<Void, Never>?
+    /// The latest extra tab asked for again, for a test to await.
+    private(set) var lastTab: Task<Void, Never>?
     /// When the last tick counted runtime; nil until the first tick after AiTerm starts, which only
     /// sets it, so the time AiTerm was not running is not counted.
     private var lastCounted: Date?
@@ -27,10 +30,11 @@ final class RunReconciler {
     /// AiTerm started) is counted a minute from here at the soonest, so a slow iTerm2 has listed its window.
     private var firstSynced: Date?
 
-    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, waker: OperatorWaker, ports: OperatorPorts) {
+    init(workspace: WorkspaceStore, live: LiveSessions, starter: WorkerStarter, tabs: TabOpener, waker: OperatorWaker, ports: OperatorPorts) {
         self.workspace = workspace
         self.live = live
         self.starter = starter
+        self.tabs = tabs
         self.waker = waker
         self.ports = ports
     }
@@ -44,11 +48,13 @@ final class RunReconciler {
         let sessions = live.sessions, now = ports.now()
         firstSynced = firstSynced ?? now
         var changed: Set<UUID> = []
+        tabs.tabsListed(sessions)
         for run in state.runs where !run.hasEnded {
             if reconcileOperator(run, sessions: sessions) { changed.insert(run.id) }
             let active = state.run(id: run.id)?.state == .active
             for task in state.tasks(inRun: run.id) {
                 reconcileWorker(task, active: active, sessions: sessions, now: now)
+                if let task = state.task(id: task.id) { reconcileTabs(task, sessions: sessions, now: now) }
             }
         }
         changed.formUnion(applyLimits(now: now, sessions: sessions))
@@ -98,6 +104,30 @@ final class RunReconciler {
         workspace.mutate { $0.updateOperated(task.id) { $0.launch = attempt } }
         guard workspace.flush() else { return }
         lastLaunch = starter.relaunch(task.id, attempt: attempt) ?? lastLaunch
+    }
+
+    /// The Operator's extra worker tabs (`open_tab`); a tab tagged with the task and a tab's key is that tab, recorded by
+    /// `TabOpener.tabsListed`. One whose request showed no tab, that the daemon did not refuse, its request older than
+    /// `launchAdoptAfter`, with no tab tagged for it, is asked for again as its next attempt, saved first, a minute after
+    /// its request ended (or, with no end known, after this run of AiTerm's first pass), while its task may have one
+    /// (`TabOpener.holds`): the daemon answers with the tab it tagged, if there is one, never a second. A tab that showed
+    /// and was closed is not opened again.
+    private func reconcileTabs(_ task: TaskItem, sessions: [SessionInfo], now: Date) {
+        guard let operated = task.operated, !operated.extraTabs.isEmpty, TabOpener.holds(task, in: state) else { return }
+        for tab in operated.extraTabs where tab.sessionId == nil && tab.launch.openedAt == nil && tab.failure == nil {
+            let id = TabOpener.ID(task: task.id, key: tab.key)
+            guard !tabs.opening.contains(id), !sessions.contains(where: { $0.taskUUID == task.id && $0.tabKey == tab.key }),
+                  now.timeIntervalSince(max(tab.launch.requestedAt, tabs.settledAt[id] ?? firstSynced ?? now)) > OperatorTiming.launchAdoptAfter
+            else { continue }
+            let attempt = LaunchAttempt(number: tab.launch.number + 1, requestedAt: now)
+            workspace.mutate { state in
+                state.updateOperated(task.id) { operated in
+                    if let i = operated.extraTabs.firstIndex(where: { $0.key == tab.key }) { operated.extraTabs[i].launch = attempt }
+                }
+            }
+            guard workspace.flush() else { return }
+            lastTab = tabs.relaunch(id, attempt: attempt) ?? lastTab
+        }
     }
 
     /// Spec §8's limits. Each tick adds the time since the last one to every working task of an active

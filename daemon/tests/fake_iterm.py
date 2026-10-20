@@ -80,10 +80,15 @@ class FakeIterm:
         await self._announce_new(sid)
         return wid, sid
 
-    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str:
+    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
+                         background: bool = False) -> str:
         if cwd is None:
             cwd = self.sessions[self.windows[window_id]["sessions"][0]].cwd
+        current = self.windows[window_id]["current"]
         sid = await self._add_session(window_id, cwd, tags, command_line="-zsh", title="zsh")
+        if background:
+            # Not selected: the window keeps the tab it had current.
+            self.windows[window_id]["current"] = current
         await self._announce_new(sid)
         return sid
 

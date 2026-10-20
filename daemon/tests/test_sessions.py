@@ -12,7 +12,8 @@ def test_first_snapshot_opens_sessions_with_agent_and_tag():
     assert reg.get("s1").to_json() == ({
         "sessionId": "s1", "windowId": "w1", "tabIndex": 0, "taskId": "t1", "projectId": None,
         "agent": "claude", "model": None, "reasoning": None, "state": "idle", "title": "zsh", "cwd": "/home",
-        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None, "conversationId": None, "terminalId": None})
+        "agentCwd": None, "active": False, "contextPercent": None, "tokens": None, "conversationId": None, "terminalId": None,
+        "tabKey": None})
 
 
 def test_untagged_session_in_tagged_window_inherits_task():
@@ -78,6 +79,17 @@ def test_project_for_window_answers_alongside_task_for_window():
     assert reg.project_for_window("w1") is None
     reg.apply_snapshot([])
     assert reg.project_for_window("w3") is None
+
+
+def test_an_extra_worker_tabs_key_is_its_own_never_its_windows():
+    # The task tag goes to every tab of its window; the key an Operator's extra worker tab carries
+    # tells that one tab apart, so a tab beside it inherits none.
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(sid="s1", aiterm_task="t1"), raw(sid="s2", tab=1, aiterm_task="t1", aiterm_tab="review"),
+                        raw(sid="s3", tab=2)])
+    assert [(reg.get(sid).task_id, reg.get(sid).tab_key) for sid in ("s1", "s2", "s3")] == [
+        ("t1", None), ("t1", "review"), ("t1", None)]
+    assert reg.get("s2").to_json()["tabKey"] == "review"
 
 
 def test_a_terminal_tag_is_inherited_by_a_tab_without_it_and_evicted_with_its_window():

@@ -1057,7 +1057,8 @@ def _variables_bridge(monkeypatch, windows: dict[str, list[list[str]]], closed: 
         reply.variable_response.status = iterm2.api_pb2.VariableResponse.Status.Value(status)
         if status == "OK":
             values = {"commandLine": "-zsh", "jobPid": 123, "autoName": session_id, "path": "/x",
-                      "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None}
+                      "user.aiterm_task": "t1", "user.aiterm_project": None, "user.aiterm_terminal": None,
+                      "user.aiterm_tab": None}
             answered = [name for name in gets if not (unset_omitted and len(gets) > 1 and values[name] is None)]
             reply.variable_response.values.extend(json.dumps(values[name]) for name in answered)
         return reply
@@ -1397,6 +1398,26 @@ async def test_a_background_window_is_placed_and_tagged_but_not_activated(creati
     window = app.live["w1"]
     assert window.frames and not window.activated
     assert window.current_tab.current_session.variables == {"user.aiterm_task": "t1"}
+
+
+async def test_a_background_tab_is_tagged_but_not_selected(creating_app, monkeypatch):
+    """An Operator's extra worker tab opens behind your work: iTerm2 is asked not to select it,
+    which also leaves its window where it is and keyboard focus where you had it."""
+    bridge, app = creating_app()
+    app.add_window("w0").tabs.append(_CreatingApp.Tab(_CreatingApp.Session("s0")))
+    selected: list[bool] = []
+    asked = app.create_tab_rpc
+
+    async def create_tab_rpc(*args, select=True, **kwargs):
+        selected.append(select)
+        return await asked(*args, select=select, **kwargs)
+
+    monkeypatch.setattr(iterm2.rpc, "async_create_tab", create_tab_rpc)
+    tags = {"aiterm_task": "t1", "aiterm_tab": "review"}
+    assert await bridge.create_tab("w0", tags, cwd="/wt", background=True) == "s1"
+    assert await bridge.create_tab("w0", {"aiterm_task": "t1"}, cwd="/wt") == "s2"
+    assert selected == [False, True]
+    assert app.live["w0"].tabs[1].current_session.variables == {"user.aiterm_task": "t1", "user.aiterm_tab": "review"}
 
 
 async def test_a_tab_is_returned_even_if_tagging_it_fails(creating_app):

@@ -135,8 +135,8 @@ def test_memory_wins_over_a_file(tmp_path):
 
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
-                  "submit_plan", "read_task", "message_task", "mark_task", "resume_task", "retry_task", "finish_task", "ask_you",
-                  "resolve_question", "report_find", "log_decision", "leave_for_you", "review_task", "request_review",
+                  "submit_plan", "read_task", "message_task", "open_tab", "mark_task", "resume_task", "retry_task", "finish_task",
+                  "ask_you", "resolve_question", "report_find", "log_decision", "leave_for_you", "review_task", "request_review",
                   "reply_thread", "find_user"}
 
 
@@ -186,6 +186,15 @@ def test_the_values_are_the_apps():
     assert {"why", "objection"} <= set(properties["log_decision"]) and required["log_decision"] == {"key", "text"}
     assert required["jira_create"] == {"key", "project", "type", "summary", "description"} and "parent" in properties["jira_create"]
     assert required["jira_move"] == {"key", "status"} and required["jira_link"] == {"key", "to", "type"}
+
+
+def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
+    tool = next(tool for tool in TOOLS if tool["name"] == "open_tab")
+    schema = tool["inputSchema"]
+    assert set(schema["properties"]) == {"task", "key", "agent", "model", "modelReason", "agentPinned", "brief"}
+    assert set(schema["required"]) == {"task", "key", "agent", "modelReason", "brief"}
+    assert schema["properties"]["agent"]["enum"] == ["claude", "codex"] and schema["properties"]["agentPinned"]["type"] == "boolean"
+    assert "same worktree and branch" in tool["description"] and "same key" in tool["description"]
 
 
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():

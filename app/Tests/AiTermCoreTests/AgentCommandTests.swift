@@ -67,6 +67,18 @@ import Darwin
         #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == long)
     }
 
+    /// An extra worker tab's prompt goes to a file of its own: the task's first worker, started in the same
+    /// worktree, may not have read its own yet.
+    @Test func testALongPromptGoesToTheFileNamed() throws {
+        try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
+        let long = String(repeating: "y", count: 9000)
+        let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: wt, git: .hermetic(),
+                                         promptFile: "first-prompt-tab.md")
+        #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt-tab.md)\"")
+        #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt-tab.md", encoding: .utf8) == long)
+        #expect(!FileManager.default.fileExists(atPath: wt + "/.aiterm/first-prompt.md"))
+    }
+
     /// The command is typed into a tab whose shell may not have started its line editor yet. Until
     /// it does, the terminal is in canonical mode, where macOS keeps at most 1024 bytes of input
     /// (`MAX_CANON`) and silently drops the rest: a 1 kB prompt once lost its closing quote and

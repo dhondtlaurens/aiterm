@@ -327,7 +327,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
 | `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
-| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `log_decision` |
+| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `open_tab`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `log_decision` |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 
@@ -341,7 +341,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `window.activate` | bring it forward when its row is clicked |
 | `window.setFrame` | re-snap beside the sidebar |
 | `window.close` | on remove, and before a worktree is deleted. The window is closed once iTerm2 has answered: a failed tick after it is logged, not answered |
-| `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is |
+| `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is. The optional `tabKey` tags that one tab `aiterm_tab` beside its task's tag, never inherited, and the sessions carry it back as `tabKey`: an Operator's extra worker tab (`open_tab`). A request with a `tabKey` already on a tab of its task returns that tab. With `background`, iTerm2 is asked not to select it: its window is not brought forward and keeps the tab you were on |
 | `sessions.setTitles` | branch titles for AiTerm tabs, re-sent every couple of seconds; the daemon only applies changes |
 | `sessions.markSeen` | clear a done mark when its row is opened |
 | `interface.setMatchItermBackground` | paint AiTerm windows #1E1E1E |

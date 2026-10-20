@@ -105,6 +105,9 @@ ITERM_SESSION_FIELD = "_aiterm_iterm_session_id"
 TASK_TAG = "aiterm_task"
 PROJECT_TAG = "aiterm_project"
 TERMINAL_TAG = "aiterm_terminal"
+# The key of an Operator's extra worker tab (open_tab), on that one tab beside its task tag: it tells
+# the tab apart from its task's first worker and from the task's other extra tabs. Never inherited.
+TAB_TAG = "aiterm_tab"
 # The tab's user variable an AiTerm branch title is kept in; the tab's title interpolates it.
 TITLE_TAG = "aiterm_title"
 
@@ -246,6 +249,8 @@ class SessionInfo:
     # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).
     # Neither sent nor compared; it goes with the agent's process, as the transcript does.
     cli_version: str | None = field(default=None, compare=False)
+    # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
+    tab_key: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -254,7 +259,7 @@ class SessionInfo:
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
             "tokens": self.tokens.to_json() if self.tokens else None,
-            "conversationId": self.conversation_id, "terminalId": self.terminal_id,
+            "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
         }
 
 

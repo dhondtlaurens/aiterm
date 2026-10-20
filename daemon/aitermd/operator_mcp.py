@@ -254,6 +254,17 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
           "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried.",
           {"task": _TASK, "text": _text("The message.")}, ("task", "text")),
+    _tool("open_tab", "Adds a worker tab to a task that is working or in review: another agent in the task's window, on the "
+          "same worktree and branch, for more work on that task. It is part of the task: one card, one branch, accepted once. "
+          "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "
+          "behind the user's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
+          "key with other arguments is refused. Returns the tab's key, agent, model, and opened or opening.",
+          {"task": _TASK, "key": _KEY, "agent": _AGENT, "model": _MODEL,
+           "modelReason": _text("Why this agent and model, in one line."),
+           "agentPinned": {"type": "boolean", "description": "True when the person's words named this agent: an agent whose "
+                                                             "workers can't be messaged is then not refused."},
+           "brief": _text("The tab's first prompt: what this worker does, since it sees nothing else.")},
+          ("task", "key", "agent", "modelReason", "brief")),
     _tool("mark_task", "Records a working task's outcome: accepted, with the result commit on its branch and the worker's check "
           "output; noChange; blocked or failed, with the reason in note. The same outcome for the same commit returns the earlier "
           "result.",
