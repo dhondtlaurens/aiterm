@@ -171,7 +171,7 @@ and you restore the worktree or remove the task.
 
 ## Known limits
 
-- A window with iTerm2's Window > Lock Location on is snapped back by iTerm2 when AiTerm places it beside the sidebar, so turn Lock Location off for task windows.
+- **iTerm2's Window ▸ Lock Location** snaps a task window back when AiTerm places it. Turn it off.
 - **A window iTerm2 restores whose agent did not survive** (you quit iTerm2 with its window
   restoration turned on) is recognised and taken back as it is, a shell, without resuming the
   conversation. After a crash, iTerm2 usually keeps the agent running, so this is mostly about a
