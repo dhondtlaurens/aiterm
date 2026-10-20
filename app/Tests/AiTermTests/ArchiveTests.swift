@@ -445,7 +445,7 @@ extension AppControllerTests {
         // While the question is up the branch is checked out in the project's folder, so `-D` fails.
         let git = fixture.git, repo = fixture.repo
         prompter.whileAsking = { prompt in
-            if prompt.message == "Delete branch feat/work?" { try? git.run(["checkout", "-q", "feat/work"], in: repo.path) }
+            if prompt.message == "Delete branch feat/work?" { _ = try? git.run(["checkout", "-q", "feat/work"], in: repo.path) }
         }
 
         await (await fixture.controller.confirmRemove(archived: task.id))?.value

@@ -98,7 +98,7 @@ import Testing
 
     /// A task `settle` has seen: working, a quiet agent tab observed at minute 0 (its busy sibling is judged too, so these look at `task` alone).
     func quietWorker() -> (world: OperatedWorld, task: UUID, watch: StallWatch) {
-        var (world, _, quiet) = twoWorkers()
+        let (world, _, quiet) = twoWorkers()
         var watch = StallWatch()
         watch.observe([session("b", task: quiet)], at: minutes(0))
         watch.settle(in: world.state, at: minutes(0))

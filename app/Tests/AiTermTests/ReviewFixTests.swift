@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 import Foundation
+import Synchronization
 import AiTermUI
 @testable import AiTerm
 @testable import AiTermCore
@@ -114,21 +115,22 @@ import AiTermUI
     /// A landed fix whose create cannot start — the workspace locked meanwhile — lets its session
     /// go, so the footer is the sheet's again rather than a finished Apply that never ends.
     @Test func aCreateThatCannotStartAfterTheFixLetsTheSessionGo() async throws {
-        var locked = false, kept: [FixLanding] = []
+        let locked = Mutex(false)
+        var kept: [FixLanding] = []
         let model = ReviewCreationModelTests.makeModel(create: { _ in throw WorktreeError.rebaseConflicted("feat/x", detail: nil) },
                                                        fixer: .ready(.claude), pipeline: .stub(look: .fix(proposal)),
-                                                       backupKept: { kept.append($0) }, canChangeWorkspace: { !locked })
+                                                       backupKept: { kept.append($0) }, canChangeWorkspace: { !locked.withLock { $0 } })
         model.draft.setBranch("feat/x")
         await model.loadAgentCatalogue()
         _ = await model.create()
         let session = try #require(model.fixSession)
         session.start(); await session.settled()
-        locked = true
+        locked.withLock { $0 = true }
         model.applyFix(); await session.settled()
         #expect(session.state == .proposal(proposal), "no Apply while the create after it could not run")
-        locked = false
+        locked.withLock { $0 = false }
         model.applyFix()
-        locked = true   // locked while the fix lands
+        locked.withLock { $0 = true }   // locked while the fix lands
         await session.settled()
         #expect(model.fixSession == nil)
         #expect(!model.createdAfterFix)

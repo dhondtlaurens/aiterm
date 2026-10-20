@@ -96,7 +96,7 @@ import Foundation
     @Test func aResumeSendsNoFirstMessageAndRewritesTheToken() throws {
         let home = home()
         defer { try? FileManager.default.removeItem(at: home) }
-        try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: OperatorCommand.makeToken())
+        _ = try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: OperatorCommand.makeToken())
 
         let resumed = try OperatorCommand.prepare(run: F.run(), projects: [], home: home, token: token, resuming: "conv-1")
 

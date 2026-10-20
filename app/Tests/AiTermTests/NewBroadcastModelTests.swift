@@ -142,13 +142,13 @@ struct NewBroadcastModelTests {
 
     /// As New Task's: nothing moves on while the workspace can't change.
     @Test func itWaitsForAWorkspaceThatCanChange() {
-        var canChange = false
+        let canChange = Mutex(false)
         let webshop = project("webshop")
-        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, canChangeWorkspace: { canChange }, start: { _ in UUID() })
+        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, canChangeWorkspace: { canChange.withLock { $0 } }, start: { _ in UUID() })
         sheet.add(project: webshop)
         sheet.prompt = "PAY-230"
         #expect(!sheet.canAdvance(step: 1) && !sheet.canStart)
-        canChange = true
+        canChange.withLock { $0 = true }
         #expect(sheet.canAdvance(step: 1) && sheet.canStart)
     }
 

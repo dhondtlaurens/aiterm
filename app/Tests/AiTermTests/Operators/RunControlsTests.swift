@@ -291,7 +291,7 @@ import Testing
         try await daemon.received("window.createTask")
         try await world.controller.reopenOperatorWindow(run.id)
         daemon.release()
-        try await first.value
+        _ = try await first.value
         #expect(daemon.requests("window.createTask").count == 1)
     }
 
