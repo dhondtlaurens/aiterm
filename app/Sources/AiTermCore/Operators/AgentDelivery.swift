@@ -22,7 +22,7 @@ public struct AgentDelivery: Encodable, Equatable, Sendable {
 
     /// `agent`'s delivery, from the daemon's `verdict` (nil: it named none) and the `installed` version.
     public static func of(_ agent: AgentKind, verdict: DeliveryVerdict?, installed: String?) -> AgentDelivery {
-        let name = SidebarModel.agentName(agent), named = installed.map { "\(name) \($0)" } ?? name
+        let name = agent.harness.displayName, named = installed.map { "\(name) \($0)" } ?? name
         guard let verdict, let checked = verdict.version else {
             return AgentDelivery(messaging: .off, installedVersion: installed, checkedVersion: nil,
                                  note: "AiTerm's delivery check hasn't passed \(named).")

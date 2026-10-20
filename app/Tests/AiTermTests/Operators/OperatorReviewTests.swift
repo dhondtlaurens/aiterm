@@ -127,7 +127,10 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         world.live.sessions.append(OperatorServiceFixtures.session("operator", tag: run.id, state: .working))
         _ = await world.call(run.id, "run_status")
         let call = Task { await world.call(run.id, "message_task", ["task": "A", "text": "Continue"]) }
-        #expect(await request.next() == "session.deliver")
+        // run_status asked the helper which agents can be messaged first.
+        var next = await request.next()
+        while next == "delivery.policy" { next = await request.next() }
+        #expect(next == "session.deliver")
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.questions.append(OperatorServiceFixtures.question()) } }
         await gate.started()
         daemon.release()

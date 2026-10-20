@@ -29,7 +29,7 @@ import Foundation
     @Test func anInstalledVersionNotReadLeavesTheVerdictAndSaysWhichVersionItHoldsFor() {
         let unread = AgentDelivery.of(.claude, verdict: DeliveryVerdict(policy: .auto, version: "2.1.301"), installed: nil)
         #expect(unread == AgentDelivery(messaging: .auto, installedVersion: nil, checkedVersion: "2.1.301",
-                                        note: "AiTerm couldn't read which Claude version is installed: its workers can be messaged only while it is 2.1.301."))
+                                        note: "AiTerm couldn't read which Claude Code version is installed: its workers can be messaged only while it is 2.1.301."))
     }
 
     @Test func itReadsAsJSONWithItsVersions() throws {
