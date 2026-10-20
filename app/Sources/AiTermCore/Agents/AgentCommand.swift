@@ -40,18 +40,14 @@ public enum AgentCommand {
     /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
     ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
     ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool.
-    /// - Codex: `-s workspace-write -a on-request` instead of
-    ///   `--dangerously-bypass-approvals-and-sandbox`, which a task you make keeps.
+    /// - Codex: the same `--dangerously-bypass-approvals-and-sandbox` as a task you make.
     /// - Grok and PI are not offered to the Operator (`operatedAgents`) and launch as they always do.
     public static func workerWords(agent: AgentKind, model: String, reasoning: String?) -> [String] {
         let words = agent.harness.launchWords(model: model, reasoning: reasoning)
         switch agent {
         case .claude:
             return words + ["--disallowedTools"] + operatedClaudeDenials + ["--permission-mode", "auto"]
-        case .codex:
-            let rest = words.dropFirst().filter { $0 != "--dangerously-bypass-approvals-and-sandbox" }
-            return [words[0], "-s", "workspace-write", "-a", "on-request", "-c", "sandbox_workspace_write.network_access=false"] + rest
-        case .grok, .pi:
+        case .codex, .grok, .pi:
             return words
         }
     }

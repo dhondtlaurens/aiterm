@@ -8,7 +8,7 @@ import Testing
         let words = AgentCommand.workerWords(agent: .codex, model: "gpt-6-astra", reasoning: "medium")
         let resume = AgentCommand.resumeWorker(agent: .codex, conversation: "019a-thread", model: "gpt-6-astra", reasoning: "medium")
         #expect(resume == (["codex", "resume", "019a-thread"] + words.dropFirst()).map(AgentCommand.shellWord).joined(separator: " "))
-        #expect(!resume.contains("--dangerously-bypass-approvals-and-sandbox"))
+        #expect(resume.contains("--dangerously-bypass-approvals-and-sandbox"))
     }
 
     @Test func aClaudeWorkerResumesItsSessionUnderTheWorkerFlags() {
@@ -18,12 +18,10 @@ import Testing
                 == (["claude", "--resume", "c-1"] + words.dropFirst()).map(AgentCommand.shellWord).joined(separator: " "))
     }
 
-    /// The blanket bypass is what a sheet's Codex task resumes with; no operated Codex worker gets it back.
-    @Test func noCodexResumeCarriesTheBypass() {
+    /// Reopening an operated task keeps the same permissions as a fresh launch.
+    @Test func aCodexResumeKeepsTheBypass() {
         let resume = AgentCommand.resumeWorker(agent: .codex, conversation: "t-1", model: "gpt-6-astra", reasoning: "high")
-        #expect(!resume.contains("dangerously"))
-        #expect(resume.contains("-s workspace-write"))
-        #expect(resume.contains("-a on-request"))
+        #expect(resume == "codex resume t-1 --dangerously-bypass-approvals-and-sandbox -m gpt-6-astra -c model_reasoning_effort=high")
     }
 
     /// A resumed Claude worker keeps the denials and the permission mode it launched with.
