@@ -16,7 +16,8 @@ enum SettingsSnapshots {
                                         loadProjects: { jiraProjects }, submit: { _ in })
                     .seeded(projects: jiraProjects, open: true)
             },
-        ] + SettingsTab.allCases.map { tab in
+        // Settings › Operator came after these images; it is drawn after them, as an added image is.
+        ] + SettingsTab.allCases.filter { $0 != .operator }.map { tab in
             // A Jira site and email typed in, no token yet.
             Snapshot("settings-\(tab.rawValue.lowercased()).png") {
                 let jira = JiraConfig(siteURL: URL(string: "https://example.atlassian.net")!, email: "you@example.com", token: "")
@@ -48,7 +49,7 @@ enum SettingsSnapshots {
     }
 
     private static func fixerGroup(_ choice: HelpWithProblems, installed: Set<AgentKind>) -> some View {
-        FixerSettingsGroup(choice: .constant(choice), installed: installed).frame(width: Sheet.width - 2 * Space.margin)
+        HelpWithProblemsGroup(choice: .constant(choice), installed: installed).frame(width: Sheet.width - 2 * Space.margin)
     }
 
     private static let site = URL(string: "https://example.atlassian.net")!

@@ -4,11 +4,12 @@ import AiTermCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case agents = "Agents"
+    case `operator` = "Operator"
     case integrations = "Integrations"
     case interface = "Interface"
     var id: Self { self }
 
-    /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
+    /// ⌘1–⌘4 pick the tabs in the order the tab bar draws them.
     var key: KeyEquivalent {
         KeyEquivalent(Character(String(Self.allCases.firstIndex(of: self)! + 1)))
     }
@@ -56,7 +57,8 @@ struct SettingsView: View {
     /// Handed to the Agents tab, which is its one observer: this view only starts its load and
     /// its save, so a probe landing redraws that tab and not the whole sheet.
     let harnessModel: HarnessSettingsModel
-    /// The Agents tab's fixer choice and the CLIs it can choose from.
+    /// The Agents tab's fixer choice and the CLIs it can choose from, and where the Operator tab's
+    /// profile is kept.
     let agents: AgentIntegrations
     /// The live state of the chain to iTerm2. A closure rather than a value so this view's own body
     /// reads the controller, and the card follows a reconnect while Settings is open.
@@ -70,6 +72,10 @@ struct SettingsView: View {
     /// made from the connections Settings was opened with.
     private var _integrations: State<IntegrationSettingsModel>
     private var integrations: IntegrationSettingsModel { _integrations.wrappedValue }
+    /// Settings › Operator's edits, staged until Save, made from `agents` with the first `init` of a
+    /// presentation. Handed to the Operator tab, its one observer.
+    var _operatorSettings: State<OperatorSettingsModel>
+    var operatorSettings: OperatorSettingsModel { _operatorSettings.wrappedValue }
     var _tab = State<SettingsTab>(initialValue: .agents)
     private var tab: SettingsTab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
     var _matchItermBackground: State<Bool>
@@ -102,6 +108,7 @@ struct SettingsView: View {
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
         self.agents = agents
+        _operatorSettings = State(initialValue: agents.operatorSettings())
         _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
                                                                      record: testRecord))
         self.itermConnection = itermConnection
@@ -127,7 +134,7 @@ struct SettingsView: View {
                 if let result { Text(result).font(Typography.caption).foregroundStyle(Palette.muted).lineLimit(2) }
             }
         }
-        // ⌘1–⌘3, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
+        // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
         // not buttons of their own.
         .background {
             ForEach(SettingsTab.allCases) { item in
@@ -140,6 +147,7 @@ struct SettingsView: View {
         .task {
             testIterm()
             integrations.testConfigured()
+            await operatorSettings.load()
             await harnessModel.load()
             await backpack.refreshSetup()
         }
@@ -149,6 +157,7 @@ struct SettingsView: View {
         Group {
             switch tab {
             case .agents: HarnessSettingsPane(model: harnessModel, agents: agents)
+            case .operator: OperatorSettingsPane(model: operatorSettings)
             case .integrations: integrationSettings
             case .interface:
                 InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,
@@ -224,11 +233,13 @@ struct SettingsView: View {
         result = nil
     }
 
-    /// Jira, GitLab and GitHub are optional. Validate them before committing harness defaults so a failed
-    /// save can still be cancelled without changing the models used by new tasks.
+    /// Jira, GitLab and GitHub are optional. Validate them before committing the Operator's profile and
+    /// harness defaults so a failed save can still be cancelled without changing the models used by
+    /// new tasks or the next broadcast.
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
         saveInterface()
+        operatorSettings.save()
         harnessModel.save()
         return true
     }

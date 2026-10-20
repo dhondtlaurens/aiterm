@@ -46,6 +46,10 @@ final class AgentIntegrations {
         }
     }
 
+    /// Settings › Operator's staged edits, over these defaults and this catalogue: a new one for each
+    /// opening of Settings, so Cancel drops it.
+    func operatorSettings() -> OperatorSettingsModel { .live(defaults: defaults, catalogue: catalogue) }
+
     /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
     /// handed, since the fixer is always the Operator's own, Claude.
     var fixModel: @Sendable (FixerAgent) -> (model: String, reasoning: String?) {

@@ -165,7 +165,16 @@ import Testing
         #expect(KeyBinding(action: "Switch", keys: ["⌘", "⇥"]).spokenKeys == "Command Tab")
         #expect(KeyBinding(action: "Settings", keys: ["⌘", ","]).spokenKeys == "Command ,")
         #expect(KeyBinding(action: "Fold", keys: ["←", "→"]).spokenKeys == "Left Arrow Right Arrow")
-        #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–3"]).spokenKeys == "Command 1 to 3")
+        #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–4"]).spokenKeys == "Command 1 to 4")
+    }
+
+    /// One row for Settings' four tabs, numbered in the order the tab bar draws them.
+    @Test func settingsTabsAreOneToFour() throws {
+        let sheets = try #require(KeyBindings.all.first { $0.title == "Sheets" })
+        let tabs = try #require(sheets.bindings.first { $0.action == "Switch Settings tabs" })
+        #expect(tabs.keys == ["⌘", "1–4"])
+        #expect(tabs.spokenKeys == "Command 1 to 4")
+        #expect(SettingsTab.allCases.count == 4)
     }
 
     /// There is no ⌘I (spec §3, §10): a click or ↩ on the broadcast row opens its overview. No row lists

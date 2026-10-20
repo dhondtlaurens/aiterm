@@ -192,7 +192,7 @@ vendor needs both.
 `OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
-`FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
+`HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
 `NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
 `TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
 
@@ -465,8 +465,8 @@ behind the highlighted one (the keyboard's or the pointer's), dimmed while press
 the field's). `SearchPicker`'s results and `PromptEditor`'s completion popup are both drawn and
 keyed through them.
 
-`SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or
-with ⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
+`SettingsView` has four tabs — Agents, Operator, Integrations, Interface — picked from the tab bar
+or with ⌘1–⌘4, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
 saved service's last test failed (`ServiceTestRecord`), and on Agents otherwise; that is decided
 once, as the sheet opens, and a test answering afterwards never switches the tab.
 
@@ -512,11 +512,22 @@ card's actions sit — Help with problems' switch; with no rows there is no rule
 The terminal-background row is not one: it has no heading of its own, only a swatch, a title and
 a switch, in the same `groupChrome` box.
 
-`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Help with problems” with a
+`HelpWithProblemsGroup` is the top of Settings › Agents: a `SettingsGroup` “Help with problems” with a
 `SettingsSwitch` as its accessory and no rows — no agent select, since the fix runs as the Operator
-(`HelpWithProblems`, kept under `operator.helpWithProblems`). With Claude Code missing the switch is off
-and disabled, and the group's help says to install it. Settings › Operator, where its model is set,
-comes with the Operator's settings.
+(`HelpWithProblems`, kept under `operator.helpWithProblems`), at the model Settings › Operator sets.
+With Claude Code missing the switch is off and disabled, and the group's help says to install it.
+
+`OperatorSettingsPane` is Settings › Operator, four `SettingsGroup`s staged in `OperatorSettingsModel`
+until Save writes them through `OperatorProfileStore.save` (only when something changed; Cancel drops
+them). **Agent** names Claude Code by its `VendorMark` with no control to pick it, then Model and
+Reasoning `Select`s from Claude's catalogue. **Autonomy** lists the base with “Always on” trailing,
+then the Jira, Review and Merge slices, each its name in `Typography.bodyEmphasis` over a `HelpText`
+with a `SettingsSwitch` trailing, rows split by a `Hairline`; under them the fixed Never lines, each
+led by `nosign`, all in `Palette.muted`: facts, not failures. **Oracle** carries its switch as the
+group's accessory over Agent (Claude Code or Codex), Model and Reasoning; off, they are dimmed and
+disabled and keep their values. **Instructions** is a `PromptEditor` whose `/` lists both agents'
+skills. Autonomy's and the Oracle's help end “Changes apply to the next broadcast.”: a broadcast
+freezes the profile as it starts.
 
 `InterfaceSettingsPane` draws its preferences outside cards: the terminal-background row, a
 "Sidebar size" group (a `SegmentedControl` of `InterfaceSize`, applied to the sidebar behind the

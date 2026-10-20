@@ -52,13 +52,14 @@ import Foundation
 
     /// Without Claude Code the group says what to do instead, and its switch reads off.
     @Test func withoutClaudeTheSwitchIsOffAndTheHelpSaysWhy() {
-        #expect(FixerSettingsGroup.title == "Help with problems")
-        #expect(FixerSettingsGroup.groupHelp(installed: [.claude]).hasPrefix("When AiTerm hits a git problem"))
-        #expect(FixerSettingsGroup.groupHelp(installed: [.codex, .grok])
+        #expect(HelpWithProblemsGroup.title == "Help with problems")
+        #expect(HelpWithProblemsGroup.groupHelp(installed: [.claude])
+                == "When AiTerm hits a git problem, like a diverged branch or a conflicted rebase, a button asks the Operator for a fix, with the agent and model set in Settings › Operator. Nothing changes until you press Apply.")
+        #expect(HelpWithProblemsGroup.groupHelp(installed: [.codex, .grok])
                 == "Needs Claude Code, the Operator’s agent. Install it on its card below.")
-        #expect(FixerSettingsGroup.switchIsOn(HelpWithProblems(isOn: true), installed: [.claude]))
-        #expect(!FixerSettingsGroup.switchIsOn(HelpWithProblems(isOn: true), installed: [.codex]))
-        #expect(!FixerSettingsGroup.switchIsOn(HelpWithProblems(isOn: false), installed: [.claude]))
+        #expect(HelpWithProblemsGroup.switchIsOn(HelpWithProblems(isOn: true), installed: [.claude]))
+        #expect(!HelpWithProblemsGroup.switchIsOn(HelpWithProblems(isOn: true), installed: [.codex]))
+        #expect(!HelpWithProblemsGroup.switchIsOn(HelpWithProblems(isOn: false), installed: [.claude]))
     }
 
     /// Settings' stand-in integrations leave no preferences file of their own behind.

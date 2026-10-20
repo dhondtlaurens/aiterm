@@ -49,7 +49,7 @@ struct HarnessSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
-            FixerSettingsGroup(choice: Binding(get: { agents.helpWithProblems }, set: { agents.helpWithProblems = $0 }),
+            HelpWithProblemsGroup(choice: Binding(get: { agents.helpWithProblems }, set: { agents.helpWithProblems = $0 }),
                                installed: agents.availableAgents)
             ForEach(HarnessCardPresentation.agents, id: \.self) { agent in
                 if let snapshot = model.snapshots[agent] {
@@ -136,10 +136,11 @@ struct HarnessSettingsPane: View {
     }
 }
 
-/// “Help with problems” (spec §8, §13): one switch for whether a problem AiTerm hits offers Find a
-/// Fix. No agent select: the fix runs as the Operator, Claude, at Settings › Operator's model and
-/// reasoning. With Claude Code missing the switch is off and disabled, and the help says why.
-struct FixerSettingsGroup: View {
+/// “Help with problems” (spec §8, §13), the first group on Settings › Agents: one switch for whether
+/// a problem AiTerm hits offers Find a Fix. No agent select: the fix runs as the Operator, Claude, at
+/// Settings › Operator's model and reasoning. With Claude Code missing the switch is off and
+/// disabled, and the help says why.
+struct HelpWithProblemsGroup: View {
     @Binding var choice: HelpWithProblems
     let installed: Set<AgentKind>
 
@@ -163,7 +164,7 @@ struct FixerSettingsGroup: View {
             SettingsSwitch(title: Self.title,
                            isOn: Binding(get: { Self.switchIsOn(choice, installed: installed) }, set: { choice.isOn = $0 }))
                 .disabled(!choice.isAvailable(installed: installed))
-                .accessibilityIdentifier("fixer-switch")
+                .accessibilityIdentifier("help-with-problems-switch")
         } rows: {
             EmptyView()
         }
