@@ -195,7 +195,11 @@ final class FakeJira: OperatorJira {
         seen.withLock { $0.append((jql, projects.map(\.key))) }
         if let hold = searchHold.withLock({ $0 }) { await hold() }
         // A search for a label finds the tickets made with it, as Jira would.
-        let marked = labels.filter { _, labels in labels.contains { jql.contains("\"\($0)\"") } }.keys.sorted()
+        let requestedProjects = jql.components(separatedBy: "project = \"").dropFirst().compactMap { $0.split(separator: "\"").first.map(String.init) }
+        let marked = labels.filter { key, labels in
+            let project = String(key.prefix { $0 != "-" })
+            return (requestedProjects.isEmpty || requestedProjects.contains(project)) && labels.contains { jql.contains("\"\($0)\"") }
+        }.keys.sorted()
         if !marked.isEmpty {
             return marked.map { JiraTicket(key: $0, summary: "", description: nil, issueType: "Task", status: "To Do", url: "https://acme.atlassian.net/browse/\($0)") }
         }

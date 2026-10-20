@@ -432,7 +432,11 @@ import Testing
     // MARK: - Gate C: Jira writes wait while the operation does not run, and a lost answer makes no second ticket
 
     /// The label `jira_create` gives the ticket for `key` in `run`.
-    static func label(_ run: OperatorRun, _ key: String) -> String { "aiterm-\(run.id.uuidString.prefix(8).lowercased())-\(key)" }
+    static func label(_ run: OperatorRun, _ key: String) -> String {
+        // All these fixtures use t1; this is its independently calculated SHA-256 digest.
+        precondition(key == "t1")
+        return "aiterm-v2-\(run.id.uuidString.lowercased())-628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02"
+    }
 
     @Test(arguments: [(OperatorRunState.active, OperatorRunState?.some(.paused)), (.paused, .paused), (.operatorOffline, nil),
                       (.planning, .paused)])
@@ -470,13 +474,112 @@ import Testing
         #expect(jira.labels["PLUTO-101"] == [Self.label(run, "t1")])
     }
 
+    @Test func collidingRawKeysRecoverTheirOwnTickets() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        func args(_ key: String) -> JSONValue {
+            ["key": .string(key), "project": "PLUTO", "type": "Task", "summary": .string(key), "description": "Work"]
+        }
+        jira.loseNextCreateReply()
+        #expect(await world.call(run.id, "jira_create", args("a/b")).message != nil)
+        jira.loseNextCreateReply()
+        #expect(await world.call(run.id, "jira_create", args("a_b")).message != nil)
+        let second = await world.call(run.id, "jira_create", args("a_b"))
+        let first = await world.call(run.id, "jira_create", args("a/b"))
+        #expect(first.value?["key"] == "PLUTO-101")
+        #expect(second.value?["key"] == "PLUTO-102")
+        #expect(jira.writes.count == 2)
+    }
+
+    @Test func runsWithTheSameOldPrefixRecoverTheirOwnTickets() async throws {
+        let jira = FakeJira()
+        var first = jiraRun(slice: true), second = jiraRun(slice: true)
+        first.id = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!
+        second.id = UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000002")!
+        let one = try makeWorld(first, jira: jira), two = try makeWorld(second, jira: jira)
+        jira.loseNextCreateReply()
+        _ = await one.call(first.id, "jira_create", ticket())
+        jira.loseNextCreateReply()
+        _ = await two.call(second.id, "jira_create", ticket())
+        #expect(await one.call(first.id, "jira_create", ticket()).value?["key"] == "PLUTO-101")
+        #expect(await two.call(second.id, "jira_create", ticket()).value?["key"] == "PLUTO-102")
+        #expect(jira.writes.count == 2)
+    }
+
+    @Test func canonicallyEquivalentKeysRecoverTheSameTicketAfterRestart() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        func args(_ key: String) -> JSONValue {
+            ["key": .string(key), "project": "PLUTO", "type": "Task", "summary": "Work", "description": "Work"]
+        }
+        jira.loseNextCreateReply()
+        _ = await world.call(run.id, "jira_create", args("caf\u{e9}"))
+        let restarted = try OperatorWorld(try world.workspace.file.load()) { $0.jira = { jira } }
+        #expect(await restarted.call(run.id, "jira_create", args("cafe\u{301}")).value?["key"] == "PLUTO-101")
+        #expect(jira.writes.count == 1)
+    }
+
+    @Test func retryWithAnotherAllowedProjectRecoversTheOriginalWrite() async throws {
+        let jira = FakeJira()
+        var run = jiraRun(slice: true)
+        run.jiraProjectKeys = ["PLUTO", "WEB"]
+        let world = try makeWorld(run, jira: jira)
+        jira.loseNextCreateReply()
+        _ = await world.call(run.id, "jira_create", ticket())
+        #expect(await world.call(run.id, "jira_create", ticket(["project": "WEB"])).value?["key"] == "PLUTO-101")
+        #expect(jira.writes.count == 1)
+    }
+
+    @Test func collidingFindKeysRecoverTheirOwnTickets() async throws {
+        let jira = FakeJira()
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        for key in ["a/b", "a_b"] {
+            jira.loseNextCreateReply()
+            _ = await world.call(run.id, "report_find", ["key": .string(key), "title": .string(key), "why": "Off brief"])
+        }
+        for key in ["a_b", "a/b"] {
+            _ = await world.call(run.id, "report_find", ["key": .string(key), "title": .string(key), "why": "Off brief"])
+        }
+        #expect(world.run(run.id)?.finds.map(\.ticket) == ["PLUTO-101", "PLUTO-102"])
+        #expect(jira.writes.count == 2)
+    }
+
+    @Test func legacyPendingCreateIsRetainedForManualReconciliationAfterRestart() async throws {
+        let jira = FakeJira()
+        var run = jiraRun(slice: true)
+        run.pendingWrites = ["jira_create/t1"]
+        let world = try makeWorld(run, jira: jira)
+        #expect(world.workspace.flush())
+        let restarted = try OperatorWorld(try world.workspace.file.load()) { $0.jira = { jira } }
+        let answer = await restarted.call(run.id, "jira_create", ticket())
+        #expect(answer.message?.contains("older Jira label") == true)
+        #expect(jira.writes.isEmpty && jira.searches.isEmpty)
+        #expect(restarted.run(run.id)?.pendingWrites == ["jira_create/t1"])
+    }
+
+    @Test func multipleRecoveryMatchesAreRefusedWithoutAnotherWrite() async throws {
+        let jira = FakeJira(tickets: [
+            JiraTicket(key: "PLUTO-101", summary: "Work", description: nil, issueType: "Task", status: "Open", url: "https://acme.atlassian.net/browse/PLUTO-101"),
+            JiraTicket(key: "PLUTO-102", summary: "Work", description: nil, issueType: "Task", status: "Open", url: "https://acme.atlassian.net/browse/PLUTO-102")])
+        let run = jiraRun(slice: true)
+        let world = try makeWorld(run, jira: jira)
+        jira.failNextCreateOnTheWay()
+        _ = await world.call(run.id, "jira_create", ticket())
+        #expect(await world.call(run.id, "jira_create", ticket()).message != nil)
+        #expect(jira.writes.isEmpty)
+        #expect(world.run(run.id)?.jiraCreated.isEmpty == true)
+    }
+
     @Test func aCreateWhoseAnswerWasLostAdoptsTheTicketItMade() async throws {
         let jira = FakeJira()
         let run = jiraRun(slice: true)
         let world = try makeWorld(run, jira: jira)
         jira.loseNextCreateReply()
         #expect(await world.call(run.id, "jira_create", ticket()).message != nil)
-        #expect(try world.workspace.file.load().run(id: run.id)?.pendingWrites == ["jira_create/t1"], "kept as sent, on disk")
+        #expect(try world.workspace.file.load().run(id: run.id)?.pendingWrites == ["jira_create_v2/t1"], "kept as sent, on disk")
         let again = await world.call(run.id, "jira_create", ticket())
         #expect(again.value?["key"] == "PLUTO-101")
         #expect(jira.writes.count == 1, "the ticket made before is adopted, not made twice")

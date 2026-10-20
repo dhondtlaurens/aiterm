@@ -220,8 +220,9 @@ final class OperatorToolHandler {
         case "run_status": return try await runStatus(run)
         case "jira_search": return try await jiraSearch(call, in: run)
         case "jira_create":
-            // Judged by the label the key becomes, so “find_leak” can't take the ticket filed for the find “leak”.
-            guard !Self.createLabel(run: run.id, key: try call.string("key")).hasPrefix(Self.createLabel(run: run.id, key: "find/")) else {
+            // Keep the legacy find_ reservation alongside the internal raw-key namespace.
+            let key = try call.string("key")
+            guard !key.hasPrefix("find/"), !key.hasPrefix("find_") else {
                 throw ToolRefusal("jira_create keys starting with “find/” or “find_” are reserved for off-brief finds. Choose another key.")
             }
             return try await jiraCreate(call, in: run)

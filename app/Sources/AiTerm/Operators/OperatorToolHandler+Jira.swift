@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import AiTermCore
 
 /// The Jira slice (spec §5): `jira_create`, `jira_move` and `jira_link`, and the filing of off-brief finds. A
@@ -25,10 +26,19 @@ extension OperatorToolHandler {
         guard filingFinds.insert(flight).inserted else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
         defer { filingFinds.remove(flight) }
         // The ticket carries the call's label: a create whose answer was lost is found by it, not made again.
-        let label = Self.createLabel(run: run.id, key: callKey), pending = "jira_create/\(callKey)"
+        let label = Self.createLabel(run: run.id, key: callKey), pending = "jira_create_v2/\(callKey)"
+        if state.run(id: run.id)?.pendingWrites.contains("jira_create/\(callKey)") == true {
+            throw ToolRefusal("This pending create used an older Jira label that cannot identify its ticket safely. Reconcile it manually in Jira and the saved broadcast before continuing; AiTerm kept the pending marker and sent nothing.")
+        }
         if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
-            let jql = "project = \"\(projectKey)\" AND labels = \"\(label)\""
-            if let made = try await jira.search(jql: jql, in: []).first {
+            // The key still identifies the original write if retry arguments name another allowed project.
+            let scope = run.jiraProjectKeys.map { "project = \"\($0.uppercased())\"" }.joined(separator: " OR ")
+            let jql = "(\(scope)) AND labels = \"\(label)\""
+            let matches = try await jira.search(jql: jql, in: [])
+            guard matches.count <= 1 else {
+                throw ToolRefusal("More than one Jira ticket has this create's label. Reconcile them manually before continuing; AiTerm kept the pending marker and sent nothing.")
+            }
+            if let made = matches.first {
                 settle(pending, in: run.id) { $0.jiraCreated[callKey] = made.key }
                 return ["key": .string(made.key), "created": false, "note": "The first call made it; its answer was lost."]
             }
@@ -46,11 +56,12 @@ extension OperatorToolHandler {
         return ["key": .string(key), "created": true]
     }
 
-    /// `aiterm-<the run's first 8>-<the call's key>`: Jira labels take no spaces, so anything but letters, digits,
-    /// `-`, `_` and `.` in the key is `_`.
+    /// Bounded, Jira-safe identity for the complete run and key. NFC matches Swift String equality,
+    /// so a canonically equivalent retry searches the same label as its persisted pending marker.
     static func createLabel(run: UUID, key: String) -> String {
-        let safe = String(key.map { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) ? $0 : "_" })
-        return "aiterm-\(run.uuidString.prefix(8).lowercased())-\(safe)"
+        let digest = SHA256.hash(data: Data(key.precomposedStringWithCanonicalMapping.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return "aiterm-v2-\(run.uuidString.lowercased())-\(digest)"
     }
 
     /// Jira writes go while the operation plans (its tickets for planned work) or runs, read fresh: never while you
