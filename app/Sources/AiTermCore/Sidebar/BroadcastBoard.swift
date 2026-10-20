@@ -40,7 +40,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// The task's id.
         public var id: UUID
         public var title: String
-        /// Its agent, once it has started: the mark leading the title.
+        /// Its agent, started or not (spec §15.4): the mark leading the title.
         public var agent: AgentKind?
         /// Its Jira key, and the ticket's summary for the badge's tooltip.
         public var ticket: String?
@@ -187,7 +187,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                     return (host.reference(number), host, nil)
                 }
             }
-        return Card(id: task.id, title: task.title, agent: operated.started ? task.agent : nil,
+        return Card(id: task.id, title: task.title, agent: task.agent,
                     ticket: task.jira?.key, ticketSummary: task.jira?.summary,
                     mr: mr?.reference, mrHost: mr?.host, mrTitle: mr?.title, project: project,
                     line: takenOver ? nil : line, takenOver: takenOver,

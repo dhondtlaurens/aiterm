@@ -293,7 +293,7 @@ apart, Review only when the broadcast has a review; each is a `BoardHeading` (a 
 count in `Typography.monoChip`, `Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its
 own (`BoardScroll`), an empty one saying so in one `Typography.help` line ("Nothing started yet."). A card
 (`BoardCardView`) is a `groupChrome` box, `Space.inset` inside, `Space.tight` between its lines: the
-agent's `VendorMark` at `Size.avatar` once the task has started, and the title in `Typography.body`, two
+agent's `VendorMark` at `Size.avatar` on every card, started or not, and the title in `Typography.body`, two
 lines at most; then the quiet Jira and merge-request `Badge`s (`TaskBadges`) and, only when the broadcast
 spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its

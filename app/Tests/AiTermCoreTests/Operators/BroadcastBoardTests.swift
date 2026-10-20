@@ -92,9 +92,10 @@ import Testing
         #expect(column(board, .review) == ["Shipping step"])
         #expect(column(board, .done) == ["Checkout layout", "Price formatting", "Nothing to do"], "a stopped task is on no column")
 
-        // The agent's mark once it has started, and the line its row says.
+        // The agent's mark on every card, started or not (spec §15.4), and the line its row says.
         let cards = board.columns.flatMap(\.cards)
-        #expect(cards.first { $0.title == "Address autocomplete" }?.agent == nil)
+        #expect(cards.first { $0.title == "Address autocomplete" }?.agent == .claude, "a Todo card wears its agent before launch")
+        #expect(cards.filter { $0.agent == nil }.isEmpty, "no card is without its agent")
         #expect(cards.first { $0.title == "Payment provider switch" }?.agent == .codex)
         #expect(cards.first { $0.title == "Checkout layout" }?.line?.text == "merged · 9b3e07d")
         #expect(cards.first { $0.title == "Address autocomplete" }?.line?.text == "queued")
