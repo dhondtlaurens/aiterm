@@ -253,6 +253,18 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(r.world.run(r.run.id)?.leftForYou == [])
     }
 
+    @Test func aRecordedReviewRequestReplaysWithoutHostAccess() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true)) {
+            $0.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
+        }
+        r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.peopleReview?.reviewers = ["jan"] } }
+        let replay = await r.world.call(r.run.id, "request_review", ["task": "A", "reviewers": ["Jan"]])
+        #expect(replay.message == nil)
+        #expect(replay.value?["requested"] == false)
+        #expect(replay.value?["reviewers"] == ["jan"])
+        #expect(r.host.log.isEmpty)
+    }
+
     @Test func independentlyDispatchedReviewRequestsPreserveBothReviewers() async throws {
         let gate = ReviewGate()
         let connections = AsyncStream<Void>.makeStream()

@@ -187,6 +187,14 @@ extension OperatorToolHandler {
         guard let number = original.publication?.mergeRequestNumber else {
             throw ToolRefusal("\(original.key) has no merge request yet: finish_task opens it.")
         }
+        guard [.inReview, .accepted, .published].contains(original.state) else {
+            throw ToolRefusal("\(original.key) is \(original.state.rawValue): only a task with its request open is reviewed.")
+        }
+        let wanted = Set(reviewers.map { $0.lowercased() })
+        let recorded = original.peopleReview?.reviewers ?? []
+        if wanted.isSubset(of: Set(recorded.map { $0.lowercased() })) {
+            return Self.requestAnswer(original, reviewers: recorded, requested: false)
+        }
         let host = try await reviewHost(of: task, request: original.publication)
         let identity = ReviewRequestKey(repository: original.publication?.repository, number: number)
         try await acquireReviewAssignment(identity)
@@ -199,7 +207,6 @@ extension OperatorToolHandler {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): only a task with its request open is reviewed.")
         }
         let asked = Set((operated.peopleReview?.reviewers ?? []).map { $0.lowercased() })
-        let wanted = Set(reviewers.map { $0.lowercased() })
         if wanted.isSubset(of: asked) { return Self.requestAnswer(operated, reviewers: operated.peopleReview?.reviewers ?? [], requested: false) }
         // Ownership spans both host writes and their internal reads, so GitLab's replacement assignment
         // cannot overwrite another concurrent call. Validity is checked at every write and before recording.
