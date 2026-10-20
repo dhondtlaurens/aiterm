@@ -410,7 +410,9 @@ private struct MergeRequestPayload: Decodable {
 
     var mergeRequest: MergeRequest {
         MergeRequest(iid: iid, title: title, sourceBranch: sourceBranch, targetBranch: targetBranch,
-                     author: author?.name, state: state ?? "opened", draft: draft ?? false, url: webUrl)
+                     author: author?.name, state: state ?? "opened", draft: draft ?? false, url: webUrl,
+                     forkHead: sourceProjectId != nil && targetProjectId != nil && sourceProjectId != targetProjectId
+                         ? "project \(sourceProjectId!):\(sourceBranch)" : nil)
     }
 }
 

@@ -29,6 +29,17 @@ import Foundation
         #expect(req.url?.absoluteString == "https://git.example.net/api/v4/projects/web%2Facme-web/merge_requests?state=opened&order_by=updated_at&per_page=25")
     }
 
+    @Test(arguments: [true, false])
+    func projectIdentityPreservesForks(_ fork: Bool) async throws {
+        var payload = mr
+        payload["source_project_id"] = fork ? 99 : 12
+        payload["target_project_id"] = 12
+        let body = try JSONSerialization.data(withJSONObject: [payload])
+        let (client, _) = makeClient { _ in (200, body) }
+        let found = try #require(try await client.mergeRequests(project: "web/acme-web", search: "").first)
+        #expect(found.forkHead == (fork ? "project 99:feat-gift-card" : nil))
+    }
+
     @Test func testSubgroupPathIsEncodedAsOneSegment() {
         #expect(GitLabClient.encodedProject("a/b/c") == "a%2Fb%2Fc")
         #expect(GitLabClient.encodedProject("group/my project") == "group%2Fmy%20project")
