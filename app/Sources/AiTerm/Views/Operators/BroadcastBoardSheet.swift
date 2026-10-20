@@ -16,7 +16,9 @@ struct BoardActions {
 
 /// The board's footer at each moment (spec §9, §13): Pause Broadcast or Resume Broadcast and End
 /// Broadcast… while it runs; End Broadcast on ⌘↩ once it is the debrief, asking nothing; and when the
-/// Operator's window could not be reopened, a Notice saying so with Start Fresh on ⌘↩. Close (⎋) always.
+/// Operator's window could not be reopened, a Notice saying so with Start Fresh on ⌘↩. The debrief
+/// outranks a failed reopening: it keeps End Broadcast on ⌘↩, the Notice still shown and Start Fresh a
+/// plain button beside it. Close (⎋) always.
 struct BoardFooter: Equatable {
     enum Button: Hashable {
         case pause, resume, endConfirm, end, startFresh
@@ -51,15 +53,17 @@ struct BoardFooter: Equatable {
     var notice: NoticeText?
 
     init(_ board: BroadcastBoard, reopenFailed: Bool) {
-        if reopenFailed {
+        notice = reopenFailed
+            ? NoticeText(title: "Couldn’t reopen the Operator’s window",
+                         description: "Its conversation couldn’t be resumed. A fresh one starts from the board and what it decided so far.")
+            : nil
+        if board.debrief != nil {
+            leading = reopenFailed ? [.startFresh] : []; primary = .end
+        } else if reopenFailed {
             // End Broadcast… stays in the row's menu.
             leading = []; primary = .startFresh
-            notice = NoticeText(title: "Couldn’t reopen the Operator’s window",
-                                description: "Its conversation couldn’t be resumed. A fresh one starts from the board and what it decided so far.")
-        } else if board.debrief != nil {
-            leading = []; primary = .end; notice = nil
         } else {
-            leading = [board.isPaused ? .resume : .pause, .endConfirm]; primary = nil; notice = nil
+            leading = [board.isPaused ? .resume : .pause, .endConfirm]; primary = nil
         }
     }
 }
@@ -69,12 +73,20 @@ struct BoardFooter: Equatable {
 /// `Typography.caption`; then the Asked line, the whole of it in its tooltip. Under them the columns, each
 /// a `SidebarHeading` and its count over its cards, scrolling on its own; once every task is done, the
 /// debrief in their place (`BroadcastDebriefView`). A card's click closes the sheet first, then opens what
-/// resolves it (`choose`).
-struct BroadcastBoardSheet: View {
+/// resolves it (`choose`). Equatable by what it draws, its actions left out (they act on the broadcast
+/// as it is when pressed), so the host's `.equatable()` skips a body that would draw the same.
+struct BroadcastBoardSheet: View, Equatable {
     let board: BroadcastBoard
     let reopenFailed: Bool
     let actions: BoardActions
     @Environment(\.dismiss) private var dismiss
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.board == rhs.board && lhs.reopenFailed == rhs.reopenFailed
+    }
 
     init(board: BroadcastBoard, reopenFailed: Bool, actions: BoardActions) {
         self.board = board; self.reopenFailed = reopenFailed; self.actions = actions
@@ -92,6 +104,9 @@ struct BroadcastBoardSheet: View {
     static func isButton(_ opens: BroadcastBoard.Opens) -> Bool { opens != .nothing }
 
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(board.runId)
+        #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
         SheetLayout(title: board.title, height: Sheet.height, width: Sheet.boardWidth, bandHeight: nil, scrolls: false,
                     contentVerticalPadding: Space.block) {
@@ -120,12 +135,9 @@ struct BroadcastBoardSheet: View {
         } footer: {
             SheetFooter(secondary: footer.secondary, primary: footer.primary?.title, cancel: { dismiss.afterThisEvent() },
                         submit: { footer.primary?.perform(actions) }) {
-                if let notice = footer.notice {
-                    Notice(title: notice.title, description: notice.description)
-                } else {
-                    HStack(spacing: Space.base) {
-                        ForEach(footer.leading, id: \.self) { button in Button(button.title) { button.perform(actions) } }
-                    }
+                HStack(spacing: Space.base) {
+                    if let notice = footer.notice { Notice(title: notice.title, description: notice.description) }
+                    ForEach(footer.leading, id: \.self) { button in Button(button.title) { button.perform(actions) } }
                 }
             }
         }
@@ -143,7 +155,7 @@ struct BroadcastBoardSheet: View {
                     if lane.cards.isEmpty {
                         Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.base)
                     }
-                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: { choose(card.opens) }) }
+                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: { choose(card.opens) }).equatable() }
                 }
             }
         }
@@ -201,13 +213,22 @@ struct BoardScroll<Content: View>: View {
 /// `Badge`s a task row wears, and the project when the broadcast spans several, never the branch; then its
 /// status line, one `Size.chip` line: the task's `OperatorBadge`, or `taken over` with no badge. A card
 /// that needs you has its edge in `Palette.statusChipAttentionStroke` and the needs-you badge, nothing more:
-/// the card is the action. Its tooltip is the model the Operator chose and why.
-struct BoardCardView: View {
+/// the card is the action. Its tooltip is the model the Operator chose and why. Equatable by its card
+/// alone, so a change to another card redraws this one not at all.
+struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
     let choose: () -> Void
     @State private var hovered = false
+    #if DEBUG
+    @Environment(\.rowBodyCounter) private var bodyCounter
+    #endif
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.card == rhs.card }
 
     var body: some View {
+        #if DEBUG
+        let _ = bodyCounter?.count(card.id)
+        #endif
         if BroadcastBoardSheet.isButton(card.opens) {
             Button(action: choose) { box }
                 .buttonStyle(.plain)

@@ -60,6 +60,11 @@ struct BroadcastBoardSheetTests {
         #expect(shown(failed) == ([], "Start Fresh", "Couldn’t reopen the Operator’s window"))
         #expect(failed.notice?.description == "Its conversation couldn’t be resumed. A fresh one starts from the board and what it decided so far.")
         #expect(failed.secondary == "Close")
+
+        // The debrief outranks a failed reopening: ⌘↩ stays End Broadcast, Start Fresh a plain button by the Notice.
+        let both = BoardFooter(board(complete, [done]), reopenFailed: true)
+        #expect(shown(both) == (["Start Fresh"], "End Broadcast", "Couldn’t reopen the Operator’s window"))
+        #expect(both.secondary == "Close")
     }
 
     @Test func eachButtonDoesItsOneThing() {
@@ -103,14 +108,78 @@ struct BroadcastBoardSheetTests {
         controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
         var chosen: [UUID] = []
         controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
-        controller.open(.taskWindow(task.id), run: run)
+        controller.open(.taskWindow(task.id), run: run.id)
         #expect(controller.focus.selection == .task(task.id))
-        controller.open(.sidebarBanner(issue: "issue-7"), run: run)
+        controller.open(.sidebarBanner(issue: "issue-7"), run: run.id)
         #expect(controller.focus.selection == .task(task.id), "the banner is already up: nothing else moves")
         controller.workspace.mutate { $0.runs[0].operatorWindowId = nil }
-        controller.open(.operatorWindow, run: run)
+        controller.open(.operatorWindow, run: run.id)
         #expect(controller.focus.selection == .operation(run.id))
         #expect(chosen == [run.id], "its window is asked back when it is closed")
+    }
+
+    /// A card never acts on a broadcast that is no longer the active one: ended, or being ended.
+    @Test func aCardOfAnEndedBroadcastOpensNothing() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run(windowId: nil)
+        let project = OperatorUIFixtures.project("pluto-web")
+        let task = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
+        controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
+        var chosen: [UUID] = []
+        controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
+        controller.workspace.mutate { $0.runs[0].intent = .stopped }
+        controller.open(.taskWindow(task.id), run: run.id)
+        controller.open(.operatorWindow, run: run.id)
+        #expect(controller.focus.selection == nil)
+        #expect(chosen.isEmpty)
+        var paused = false
+        controller.boardActions(for: run.id, dismiss: { paused = true }).end(false)
+        #expect(!paused, "nor does a button")
+    }
+
+    /// The board is the projection's, written only when it differs: a change it draws nothing of — another
+    /// project's task, the sidebar's frame — re-runs neither the board's body nor a card's; a change to its
+    /// run re-runs the board and the card that moved, not the others.
+    @Test func theBoardRedrawsForItsRunAlone() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let web = OperatorUIFixtures.project("pluto-web"), other = OperatorUIFixtures.project("other")
+        let run = OperatorUIFixtures.run(projectIds: [web.id])
+        let moving = OperatorUIFixtures.task("Footer", project: web.id,
+                                             operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
+        let waiting = OperatorUIFixtures.task("Header", project: web.id,
+                                              operated: OperatorUIFixtures.operated(run: run.id, key: "b", state: .queued))
+        controller.workspace.mutate { state in
+            state.append(project: web); state.append(project: other); state.runs = [run]; state.tasks = [moving, waiting]
+        }
+        let counter = RowBodyCounter()
+        let host = NSHostingView(rootView: BroadcastBoardHost(runId: run.id, controller: controller).environment(\.rowBodyCounter, counter))
+        host.frame = NSRect(x: 0, y: 0, width: Sheet.boardWidth, height: Sheet.height)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.orderOut(nil) }
+        settle(host) { counter.counts[run.id] != nil && counter.counts[waiting.id] != nil }
+        settle(host, for: 0.1)
+
+        counter.reset()
+        controller.workspace.mutate { state in
+            state.tasks.append(OperatorUIFixtures.task("Elsewhere", project: other.id, operated: nil))
+            state.sidebarFrame = CGRect(x: 10, y: 10, width: 400, height: 800)
+        }
+        settle(host, for: 0.2)
+        #expect(counter.counts.isEmpty, "nothing the board draws: redrawn \(counter.counts)")
+
+        controller.workspace.mutate { $0.tasks[0].operated?.state = .noChange }
+        settle(host) { counter.counts[run.id] != nil }
+        settle(host, for: 0.1)
+        #expect(counter.counts[run.id] != nil, "its run changed: the board redraws")
+        #expect(counter.counts[moving.id] != nil, "the card that moved is drawn again")
+        #expect(counter.counts[waiting.id] == nil, "a card that did not change is not")
     }
 
     @Test func endingAsksFirstWithCancelOnEscape() {

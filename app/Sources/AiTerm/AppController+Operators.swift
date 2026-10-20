@@ -165,26 +165,37 @@ extension AppController {
         focus.select(.operation(run.id))
     }
 
-    /// The board's buttons. End Broadcast… asks first and closes the board once it ended; the debrief's End
+    /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer
+    /// the active one. End Broadcast… asks first and closes the board once it ended; the debrief's End
     /// Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
-    func boardActions(for run: OperatorRun, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
+    func boardActions(for id: UUID, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
         BoardActions(
-            open: { [weak self] opens in self?.open(opens, run: run) },
-            pause: { [weak self] in self?.pause(run) },
-            resume: { [weak self] in self?.resume(run) },
+            open: { [weak self] opens in self?.open(opens, run: id) },
+            pause: { [weak self] in self?.onActiveRun(id) { self?.pause($0) } },
+            resume: { [weak self] in self?.onActiveRun(id) { self?.resume($0) } },
             end: { [weak self] confirming in
-                guard let self else { return }
-                if confirming { Task { if await self.confirmEnd(run) { dismiss() } } } else { self.end(run); dismiss() }
+                self?.onActiveRun(id) { run in
+                    guard let self else { return }
+                    if confirming { Task { if await self.confirmEnd(run) { dismiss() } } } else { self.end(run); dismiss() }
+                }
             },
-            startFresh: { [weak self] in self?.startFresh(run) })
+            startFresh: { [weak self] in self?.onActiveRun(id) { self?.startFresh($0) } })
+    }
+
+    /// `work` on the broadcast with this id, as it is now, while it is the active one.
+    private func onActiveRun(_ id: UUID, _ work: (OperatorRun) -> Void) {
+        guard let run = state.activeRun, run.id == id else { return }
+        work(run)
     }
 
     /// What a card's click opens, the board already closed (spec §4, §13): the task's window, or the
     /// Operator's — raised when it is open, reopened in front when it is closed. A problem AiTerm hit is the
-    /// sidebar banner's, which already shows it with its recovery: nothing else comes forward.
-    func open(_ opens: BroadcastBoard.Opens, run: OperatorRun) {
+    /// sidebar banner's, which already shows it with its recovery: nothing else comes forward. Nothing at all
+    /// once the broadcast is no longer the active one: a card never acts on an ended broadcast.
+    func open(_ opens: BroadcastBoard.Opens, run id: UUID) {
+        guard let run = state.activeRun, run.id == id else { return }
         switch opens {
-        case .taskWindow(let id): focus.select(.task(id))
+        case .taskWindow(let task): focus.select(.task(task))
         case .operatorWindow: openOperatorWindow(run)
         case .sidebarBanner, .nothing: break
         }

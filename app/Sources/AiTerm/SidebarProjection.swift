@@ -23,8 +23,12 @@ final class SidebarProjection {
     private(set) var terminals: [UUID: TerminalItem] = [:]
     /// The broadcast row under the OPERATOR heading, above the projects; nil while no broadcast exists.
     private(set) var broadcast: BroadcastRow?
-    /// Each live or ended run by id: what the broadcast row's menu and its overview read.
+    /// Each live or ended run by id: what the broadcast row's menu reads.
     private(set) var runs: [UUID: OperatorRun] = [:]
+    /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists.
+    /// Derived with the rows and written only when it differs, so a change it draws nothing of (another
+    /// project's task, the sidebar's frame) redraws no board.
+    private(set) var board: BroadcastBoard?
     /// What the Operator is doing now, to each task and each broadcast, as `actingSource` last said.
     private(set) var acting: OperatorActs = .none
     /// What the Operator is doing, read on every derivation. The app points it at its
@@ -80,6 +84,11 @@ final class SidebarProjection {
         }
         let broadcast = SidebarModel.broadcastRow(state: state, acting: next.acting)
         if broadcast != self.broadcast { self.broadcast = broadcast }
+        let board = state.activeRun.map { run in
+            BroadcastBoard.make(run: run, state: state, acting: next.acting,
+                                requests: OperatorRequests.open(run: run, state: state, prompts: [:]))
+        }
+        if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
                                            projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks)
         // Rebuilt only when their own list changed, since most derivations are for a status; and
