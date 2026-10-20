@@ -238,7 +238,7 @@ final class MergeClock: Sendable {
         #expect(s.finisher.watching.isEmpty, "paused: nothing to watch")
         let again = await s.finisher.finish(s.task)
         #expect(again.result == "refused")
-        #expect(again.reason == "The operation is paused; nothing is published until it runs again.")
+        #expect(again.reason == "The broadcast is paused; nothing is published until it runs again.")
         #expect(again.mergeRequest == FakeMergeHost.url && again.pushedSHA == s.sha, "a refusal says what was done so far")
         #expect(!s.host.log.contains { $0.hasPrefix("merge") })
         s.store.mutate { state in state.runs[0].state = .active; state.runs[0].intent = nil }
@@ -311,7 +311,7 @@ final class MergeClock: Sendable {
         s.store.mutate { state in state.runs[0].state = .stopped }
         let result = await s.finisher.finish(s.task)
         #expect(result.result == "refused")
-        #expect(result.reason == "The operation was stopped; it publishes nothing.")
+        #expect(result.reason == "The broadcast was stopped; it publishes nothing.")
         s.finisher.resumeWatching()
         #expect(s.finisher.watching.isEmpty)
     }
@@ -543,6 +543,16 @@ extension TaskFinisherTests {
         #expect(RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
         #expect(await s.finisher.finish(s.task).result == "leftForYou")
         #expect(s.store.state.run(id: s.run)?.leftForYou.count == 1)
+    }
+
+    /// A protection lookup that failed can succeed on the next call: the task stays AiTerm's to publish.
+    @Test func aFailedProtectionLookupIsNotLeftForYou() async throws {
+        let s = try setUp(end: .draftMR)
+        s.host.update { $0.protectionFails = true }
+        #expect(await s.finisher.finish(s.task).result == "refused")
+        #expect(operated(s)?.publication?.leftForYou != true)
+        #expect(s.store.state.run(id: s.run)?.leftForYou.isEmpty == true)
+        #expect(!RunScheduler.isComplete(s.store.state.run(id: s.run)!, in: s.store.state))
     }
 
     @Test func aProjectWithNoOriginSettlesAsLeftForYou() async throws {

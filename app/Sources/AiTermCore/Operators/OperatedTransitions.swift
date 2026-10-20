@@ -197,7 +197,7 @@ public enum OperatedTransitions {
 
         case .stop:
             if task.state == .stopped { return task }
-            guard task.state.isOpen || (task.state == .accepted && task.publication?.leftForYou != true) else { throw refuse() }
+            guard task.state.isOpen || (task.state == .accepted && !task.isFinished) else { throw refuse() }
             next.state = .stopped
             next.blockedFrom = nil
             next.flags.subtract([.possiblyStalled, .waitingOnYou])

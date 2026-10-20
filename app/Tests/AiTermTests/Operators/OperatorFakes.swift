@@ -185,6 +185,7 @@ final class FakeJira: OperatorJira {
     private let seen = Mutex<[(jql: String, projects: [String])]>([])
     private let made = Mutex<[Write]>([])
     init(tickets: [JiraTicket] = []) { self.tickets = tickets }
+    let siteURL = URL(string: "https://acme.atlassian.net")!
     var searches: [(jql: String, projects: [String])] { seen.withLock { $0 } }
     var writes: [Write] { made.withLock { $0 } }
     func failWrites(_ value: Bool = true) { failing.withLock { $0 = value ? .badResponse(500) : nil } }

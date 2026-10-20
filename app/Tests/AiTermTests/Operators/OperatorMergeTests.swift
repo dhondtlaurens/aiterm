@@ -179,6 +179,9 @@ extension OperatorMergeTests {
                 askedArguments: OperatorToolHandler.invocation(ToolCall(tool: "finish_task", arguments: ["task": "A"])),
                 askedSHA: m.sha, askedAt: Date())) }
         }
+        let other = await m.world.call(m.run.id, "finish_task", ["task": "B", "challengeId": .string(id)])
+        #expect(other.message == "Challenge \(id) was asked about another finish_task. Call again without challengeId.",
+                "an unanswered challenge proceeds only for the call it was asked about")
         let answer = await m.world.call(m.run.id, "finish_task", ["task": "A", "challengeId": .string(id)])
         #expect(answer.value?["result"] == "waitingToMerge")
         #expect(m.world.run(m.run.id)?.decisions.last?.why == "The Oracle didn’t answer, so the merge went ahead unchallenged.")

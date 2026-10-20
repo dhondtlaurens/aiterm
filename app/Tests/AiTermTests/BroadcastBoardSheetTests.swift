@@ -280,7 +280,7 @@ struct BroadcastBoardSheetTests {
         controller.rename(run: run, to: "Other")
         await eventually(describing: "the rename's banner") { controller.notices.issue != nil }
         #expect(controller.notices.issue?.title == "Couldn’t rename “Newsletter signup”.")
-        #expect(controller.notices.issue?.reason == "This operation is no longer in AiTerm.")
+        #expect(controller.notices.issue?.reason == "This broadcast is no longer in AiTerm.")
         controller.notices.dismissIssue()
         controller.pause(run)
         await eventually(describing: "the pause's banner") { controller.notices.issue != nil }

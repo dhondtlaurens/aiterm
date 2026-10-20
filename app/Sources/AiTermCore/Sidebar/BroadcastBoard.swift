@@ -170,7 +170,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     public static func progress(of run: OperatorRun, tasks: [TaskItem]) -> String? {
         guard run.firstPlanSize != nil else { return nil }
         let counted = tasks.filter { $0.operated?.runId == run.id && $0.operated?.state != .stopped }
-        let done = counted.filter { $0.operated.map(SidebarModel.isFinished) ?? false }.count
+        let done = counted.filter { $0.operated.map(\.isFinished) ?? false }.count
         return "\(done) of \(counted.count) done"
     }
 
@@ -204,7 +204,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         case .blocked: return operated.started ? .inProgress : .todo
         case .working, .failed: return .inProgress
         case .inReview: return hasReview ? .review : .inProgress
-        case .accepted: return SidebarModel.isFinished(operated) ? .done : (hasReview && operated.peopleReview?.ended == false ? .review : .inProgress)
+        case .accepted: return operated.isFinished ? .done : (hasReview && operated.peopleReview?.ended == false ? .review : .inProgress)
         case .noChange, .published, .stopped: return .done
         }
     }
@@ -213,7 +213,7 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// it has started. A finished task's leftover request asks nothing, as on its line.
     private static func opens(_ task: TaskItem, _ operated: OperatedTask, requests: [BroadcastRequest]) -> Opens {
         var kind: BroadcastRequest.Kind?
-        if !operated.takenOver, !SidebarModel.isFinished(operated) {
+        if !operated.takenOver, !operated.isFinished {
             kind = OperatorLine.first(requests.filter { $0.runId == operated.runId && $0.taskId == task.id })?.kind
             // Blocked, whether or not its request was passed in: what blocks it is the Operator's, or AiTerm's.
             if kind == nil, operated.state == .blocked { kind = operated.problem == nil ? .blocked : .problem }

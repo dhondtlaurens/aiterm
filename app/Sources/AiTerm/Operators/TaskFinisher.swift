@@ -166,7 +166,7 @@ final class TaskFinisher {
 
     private static func permanent(_ reason: String) -> Bool {
         reason == PublicationGuard.mergeSliceOff || reason == PublishRefusal.noOrigin.localizedDescription
-            || reason.contains("no connected code host") || reason.contains("protected on the host")
+            || reason.contains("no connected code host") || reason.hasSuffix(TaskPublisher.neverPushesProtected)
             || reason.contains("branch is the default branch")
     }
 

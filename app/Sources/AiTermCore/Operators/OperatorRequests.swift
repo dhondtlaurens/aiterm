@@ -34,7 +34,7 @@ public enum OperatorRequests {
     public static func open(run: OperatorRun, state: AppState, prompts: [UUID: String]) -> [BroadcastRequest] {
         guard run.state != .stopped, run.intent != .stopped else { return [] }
         let tasks = state.tasks(inRun: run.id)
-        let takenOver = Set(tasks.filter { $0.operated?.takenOver == true || $0.operated.map(SidebarModel.isFinished) == true }.map(\.id))
+        let takenOver = Set(tasks.filter { $0.operated?.takenOver == true || $0.operated.map(\.isFinished) == true }.map(\.id))
         var requests: [BroadcastRequest] = []
 
         for task in tasks where !takenOver.contains(task.id) {

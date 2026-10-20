@@ -79,7 +79,7 @@ import Testing
         #expect(notifications.posted.first?.target == .overview(run.id))
         change { $0.updateOperated(task.id) { $0.problem = "git-rebase-1"; $0.blockedReason = "Couldn’t rebase it." } }
         notifier.requestsChanged(run: current)
-        #expect(notifications.posted.last?.body == "Task PAY-1’s couldn’t rebase it.")
+        #expect(notifications.posted.last?.body == "Task PAY-1: Couldn’t rebase it.")
         #expect(notifications.withdrawn == ["request-\(run.id.uuidString)-\(task.id.uuidString)-blocked"], "the problem replaces the block")
     }
 

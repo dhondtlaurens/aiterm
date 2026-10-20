@@ -65,9 +65,9 @@ public enum RunScheduler {
     /// planned yet.
     public static func isComplete(_ run: OperatorRun, in state: AppState) -> Bool {
         let tasks = state.tasks(inRun: run.id).compactMap(\.operated)
-        let finished = Set(state.tasks(inRun: run.id).filter { $0.operated.map(SidebarModel.isFinished) == true }.map(\.id))
+        let finished = Set(state.tasks(inRun: run.id).filter { $0.operated.map(\.isFinished) == true }.map(\.id))
         guard !tasks.isEmpty, run.questions.allSatisfy({ $0.resolution != nil || $0.task.map(finished.contains) == true }) else { return false }
-        return tasks.allSatisfy(SidebarModel.isFinished)
+        return tasks.allSatisfy(\.isFinished)
     }
 }
 

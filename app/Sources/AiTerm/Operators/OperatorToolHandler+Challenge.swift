@@ -187,6 +187,10 @@ extension OperatorToolHandler {
     /// restart refuses, and AiTerm notes the addition for the debrief.
     private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) async throws -> JSONValue? {
         let id = kept.id
+        // A challenge answers only the call it was asked about, whatever its stage: never another task's.
+        guard kept.askedArguments == Self.invocation(call) else {
+            throw ToolRefusal("Challenge \(id) was asked about another \(call.tool). Call again without challengeId.")
+        }
         switch kept.stage {
         case .running where runningChallenges[id] != nil:
             return try vetoPendingAnswer(call, id, in: run)
@@ -199,9 +203,6 @@ extension OperatorToolHandler {
             try await refuseUnanswered(call, in: run)
         case .ready, .delivered, .acted:
             guard kept.approved == true else { try await refuseVetoed(call, in: run, why: kept.critique) }
-            guard kept.askedArguments == Self.invocation(call) else {
-                throw ToolRefusal("Challenge \(id) is the Oracle's yes to another \(call.tool). Call again without challengeId.")
-            }
             try approve(call, in: run, askedSHA: kept.askedSHA)
             updateChallenge(id, in: run.id) { $0.stage = .delivered }
             actingChallenges.insert(id)

@@ -598,3 +598,12 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(createdAt, forKey: .createdAt)
     }
 }
+
+public extension OperatedTask {
+    /// The ends a task reaches by being done: no change needed, published, stopped, or accepted with
+    /// nothing left to publish (a commit end, or a publication left for you).
+    var isFinished: Bool {
+        state == .noChange || state == .published || state == .stopped
+            || (state == .accepted && (end == .commit || publication?.leftForYou == true))
+    }
+}

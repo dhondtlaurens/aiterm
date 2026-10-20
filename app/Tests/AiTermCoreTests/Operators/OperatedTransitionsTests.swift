@@ -284,11 +284,23 @@ import Foundation
         #expect(throws: OperatedTransitionError.endIsCommit) { try apply(.publish(publication), commit, m3) }
     }
 
-    @Test(arguments: [OperatedState.planned, .queued, .working, .blocked, .failed, .accepted])
+    @Test(arguments: [OperatedState.planned, .queued, .working, .blocked, .failed])
     func youStopAnyOpenTask(_ state: OperatedState) throws {
         let stopped = try apply(.stop, F.operated("A", state), by: .you, OperatedContext(runState: .paused, retryLimit: 2, milestone: .m1))
         #expect(stopped.state == .stopped)
         #expect(try apply(.stop, stopped, by: .you) == stopped)
+    }
+
+    /// An accepted task still waiting on its end is yours to stop; one whose end was its commit has ended.
+    @Test func anAcceptedTaskIsStoppedOnlyWhileItsEndIsAhead() throws {
+        var waiting = F.operated("A", .accepted)
+        waiting.end = .draftMR
+        #expect(try apply(.stop, waiting, by: .you).state == .stopped)
+        var committed = waiting
+        committed.end = .commit
+        #expect(throws: OperatedTransitionError.notAllowed(action: "be stopped", from: .accepted)) {
+            try apply(.stop, committed, by: .you)
+        }
     }
 
     @Test(arguments: [OperatedState.noChange, .published])

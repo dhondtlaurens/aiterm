@@ -22,6 +22,9 @@ import Foundation
 /// operator's) or the publisher stops there. One advance per task runs at a time (the caller's
 /// in-flight registry); any partial run may be followed by another.
 public struct TaskPublisher: Sendable {
+    /// How a refusal for a protected task branch ends: a refusal that can't change during the broadcast.
+    public static let neverPushesProtected = "AiTerm never pushes to a protected branch."
+
     public struct Context: Sendable {
         public var task: TaskItem, run: OperatorRun, parent: TaskItem?
         /// The task goes into review once its request is open (spec §5, the Review slice): the request is
@@ -128,7 +131,7 @@ public struct TaskPublisher: Sendable {
                 return .refused("AiTerm couldn’t tell whether \(branch) is protected on the host, so it pushed nothing: \(error.localizedDescription)")
             }
             if case .protected(let why) = protection {
-                return .refused("\(branch) is protected on the host (\(why)): AiTerm never pushes to a protected branch.")
+                return .refused("\(branch) is protected on the host (\(why)): \(Self.neverPushesProtected)")
             }
             // An earlier push that timed out may have landed: if origin has the commit, it is not pushed again.
             if try await BackgroundWork.run({ try repository.originTip(of: branch) }) != sha {

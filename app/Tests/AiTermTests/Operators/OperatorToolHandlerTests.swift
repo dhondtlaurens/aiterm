@@ -512,7 +512,8 @@ extension OperatorToolHandlerTests {
         #expect(await world.call(run.id, "run_status").value?["run"]?["jiraProjectKeys"] == ["PAY"])
         let answer = await world.call(run.id, "jira_search", ["jql": "status = Open ORDER BY updated DESC"])
         #expect(answer.message == nil)
-        #expect(jira.searches.last?.jql == "project in (\"PAY\") AND (status = Open) ORDER BY updated DESC")
+        #expect(jira.searches.last?.projects == ["PAY"])
+        #expect(jira.searches.last?.jql == "status = Open ORDER BY updated DESC")
     }
 
     @Test func selectedAndLinkedJiraProjectsAreSearchedTogether() async throws {
@@ -521,7 +522,7 @@ extension OperatorToolHandlerTests {
         let jira = FakeJira()
         let world = try makeWorld(run, jira: jira)
         _ = await world.call(run.id, "jira_search", ["jql": "status = Open"])
-        #expect(jira.searches.last?.jql == "project in (\"PAY\", \"PLUTO\") AND (status = Open)")
+        #expect(jira.searches.last?.projects == ["PLUTO", "PAY"], "the linked project keeps its own site check beside the chosen one")
     }
 
     @Test func leftForYouIsRecordOnlyAndIdempotentAfterRestart() async throws {
@@ -578,7 +579,7 @@ extension OperatorToolHandlerTests {
         let world = try makeWorld(run, jira: jira)
         let args: JSONValue = ["key": "find/leak", "project": "PLUTO", "type": "Task",
                                "summary": "Independent ticket", "description": "In the brief."]
-        let refusal = "jira_create keys starting with “find/” are reserved for off-brief finds. Choose another key."
+        let refusal = "jira_create keys starting with “find/” or “find_” are reserved for off-brief finds. Choose another key."
         #expect(await world.call(run.id, "jira_create", args).message == refusal)
         #expect(jira.writes.isEmpty && world.run(run.id)?.jiraCreated.isEmpty == true)
         _ = await world.call(run.id, "report_find", ["key": "leak", "title": "Token leak", "why": "Off brief."])
@@ -586,6 +587,9 @@ extension OperatorToolHandlerTests {
         let ticket = try #require(world.run(run.id)?.finds.first?.ticket)
         #expect(world.run(run.id)?.jiraCreated["find/leak"] == ticket)
         #expect(await world.call(run.id, "jira_create", args).message == refusal)
+        let sameLabel: JSONValue = ["key": "find_leak", "project": "PLUTO", "type": "Task",
+                                    "summary": "Independent ticket", "description": "In the brief."]
+        #expect(await world.call(run.id, "jira_create", sameLabel).message == refusal, "a key whose label is the find's is refused too")
         #expect(jira.writes.count == 1)
         #expect(world.run(run.id)?.finds.first?.ticket == ticket)
     }

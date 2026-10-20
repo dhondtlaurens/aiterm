@@ -52,6 +52,7 @@ public enum JiraError: Error, Equatable, LocalizedError {
 public struct JiraClient: Sendable {
     let config: JiraConfig, session: URLSession
     public init(config: JiraConfig, session: URLSession = .shared) { self.config = config; self.session = session }
+    public var siteURL: URL { config.siteURL }
 
     public static let openIssuesJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 
@@ -68,7 +69,7 @@ public struct JiraClient: Sendable {
     /// `jql`'s condition in parentheses after `scope`, so an `OR` in it cannot reach past the scope, and
     /// its `ORDER BY` — the last one outside quoted text — kept last. Nil when its parentheses outside
     /// quoted text do not pair up: one that closes early could close the scope's.
-    public static func confined(_ jql: String, to scope: String) -> String? {
+    static func confined(_ jql: String, to scope: String) -> String? {
         var depth = 0, quote: Character? = nil, escaped = false
         var quoted: [Range<String.Index>] = [], opened = jql.startIndex
         for index in jql.indices {

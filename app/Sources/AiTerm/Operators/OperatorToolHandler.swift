@@ -30,6 +30,8 @@ struct ToolCall {
 
 /// The Jira search behind `jira_search`: the app's client, or a test's.
 protocol OperatorJira: Sendable {
+    /// The site Settings is connected to: where the broadcast's chosen Jira projects live.
+    var siteURL: URL { get }
     func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket]
     /// The Jira slice's writes (spec §5).
     /// `labels` mark it as this call's, so a retry after a lost answer finds it.
@@ -218,8 +220,9 @@ final class OperatorToolHandler {
         case "run_status": return try await runStatus(run)
         case "jira_search": return try await jiraSearch(call, in: run)
         case "jira_create":
-            guard !(try call.string("key")).hasPrefix("find/") else {
-                throw ToolRefusal("jira_create keys starting with “find/” are reserved for off-brief finds. Choose another key.")
+            // Judged by the label the key becomes, so “find_leak” can't take the ticket filed for the find “leak”.
+            guard !Self.createLabel(run: run.id, key: try call.string("key")).hasPrefix(Self.createLabel(run: run.id, key: "find/")) else {
+                throw ToolRefusal("jira_create keys starting with “find/” or “find_” are reserved for off-brief finds. Choose another key.")
             }
             return try await jiraCreate(call, in: run)
         case "jira_move": return try await jiraMove(call, in: run)
@@ -294,19 +297,15 @@ final class OperatorToolHandler {
         let jql = try call.string("jql")
         guard let jira = ports.jira() else { throw ToolRefusal("Jira isn’t connected in AiTerm’s Settings › Integrations.") }
         let linked = run.projectIds.compactMap(state.project(id:)).flatMap(\.jiraProjects).linkedOnce
+        // The Jira projects chosen for the broadcast are on the connected site; a linked one is checked against it.
         let keys = Set(linked.map { $0.key.uppercased() })
-        let extra = run.jiraProjectKeys.map { $0.uppercased() }.filter { !keys.contains($0) }
-        let scope = Set(linked.map(\.key) + extra).sorted()
+        let chosen = run.jiraProjectKeys.map { $0.uppercased() }.filter { !keys.contains($0) }
+            .map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: jira.siteURL) }
+        let scope = linked + chosen
         guard !scope.isEmpty else {
             throw ToolRefusal("None of this broadcast’s projects is linked to a Jira project, so there is nothing jira_search may search.")
         }
-        let tickets: [JiraTicket]
-        if extra.isEmpty { tickets = try await jira.search(jql: jql, in: linked) }
-        else {
-            let quoted = scope.map { "\"" + $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }.joined(separator: ", ")
-            guard let confined = JiraClient.confined(jql, to: "project in (\(quoted))") else { throw ToolRefusal("jira_search needs a balanced JQL query.") }
-            tickets = try await jira.search(jql: confined, in: [])
-        }
+        let tickets = try await jira.search(jql: jql, in: scope)
         return .array(tickets.map { ticket in
             ["key": .string(ticket.key), "summary": .string(ticket.summary), "status": ticket.status.map(JSONValue.string) ?? .null,
              "type": ticket.issueType.map(JSONValue.string) ?? .null, "url": .string(ticket.url),

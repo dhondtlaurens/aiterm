@@ -93,7 +93,7 @@ public struct OperatorLine: Equatable, Sendable {
               run.state != .stopped, run.intent != .stopped else { return nil }
         let oracle = run.profile.oracle.agent
         // A finished task's leftover asks nothing.
-        if !SidebarModel.isFinished(operated) {
+        if !operated.isFinished {
             if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id }) {
                 return line(for: request, task: task, oracle: oracle)
             }
@@ -172,7 +172,7 @@ public struct OperatorLine: Equatable, Sendable {
         let oracle = run.profile.oracle.agent
         let driven = tasks.filter { $0.operated?.runId == run.id }
         // A finished task's leftover asks nothing, as on its own line.
-        let finished = Set(driven.filter { $0.operated.map(SidebarModel.isFinished) ?? false }.map(\.id))
+        let finished = Set(driven.filter { $0.operated.map(\.isFinished) ?? false }.map(\.id))
         let asked = requests.filter { $0.runId == run.id && !($0.taskId.map(finished.contains) ?? false) }
         // A request outranks everything: one is said, several are counted by what asks.
         if let top = first(asked) {
