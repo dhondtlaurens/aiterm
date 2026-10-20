@@ -25,6 +25,8 @@ final class OperatorWaker {
     struct Reason: Equatable { var text: String, colon: Bool }
     private var armed: [UUID: Task<Void, Never>] = [:], retrying: [UUID: Task<Void, Never>] = [:]
     private var sending: Set<UUID> = []
+    /// A delivery may consume only news from before the same acknowledgment.
+    private var generations: [UUID: UUID] = [:]
     /// The latest delivery, for a test to await.
     private(set) var lastSend: Task<Void, Never>?
     /// The latest coalescing pass, for a test to release and await.
@@ -56,6 +58,7 @@ final class OperatorWaker {
     /// The operator has seen `status`: it called `run_status`, or its own call made the change.
     func acknowledged(_ status: RunStatus, of run: UUID) {
         let status = Self.content(status)
+        generations[run] = UUID()
         acknowledgedStatus[run] = status
         lastSeen[run] = status
         updates[run] = nil
@@ -89,6 +92,7 @@ final class OperatorWaker {
 
     /// A run gone or stopped: nothing about it is kept.
     func forget(_ run: UUID) {
+        generations[run] = nil
         acknowledgedStatus[run] = nil
         lastSeen[run] = nil
         updates[run] = nil
@@ -129,12 +133,20 @@ final class OperatorWaker {
         let count = updates[run, default: 0]
         guard count > 0, !sending.contains(run), awake(run), let daemon = daemon(), let tab = session(run), tab.state != .working
         else { return }
+        let generation = generations[run] ?? UUID()
+        generations[run] = generation
         let text = Self.line(updates: count, reason: reasons[run])
         sending.insert(run)
         lastSend = Task { [weak self] in
             let delivery = try? await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: 0, wake: true, worktree: nil)
             guard let self else { return }
             sending.remove(run)
+            guard generations[run] == generation else {
+                // An acknowledgment or forget ended the old delivery's ownership. News from the
+                // replacement may already have waited out its coalescing period while this was out.
+                if armed[run] == nil { send(run) }
+                return
+            }
             // Typed, or left in the input for the person to send: the news is out. Refused — the person
             // typing there, a prompt open — it waits for the next idle moment, or `retryAfter`.
             guard let delivery, delivery.result != .refused else { retryLater(run); return }
@@ -142,6 +154,9 @@ final class OperatorWaker {
             let left = updates[run, default: 0] - count
             updates[run] = left > 0 ? left : nil
             if left <= 0 { reasons[run] = nil }
+            // A timer that fired during delivery could not send then. Accepted news clears only
+            // its snapshot; already-coalesced news that arrived meanwhile gets its own wake now.
+            if left > 0, armed[run] == nil { send(run) }
         }
     }
 

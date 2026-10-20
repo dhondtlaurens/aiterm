@@ -16,6 +16,7 @@ final class MachineMonitor {
     @ObservationIgnored private let power: any PowerSource
     @ObservationIgnored private let interval: Duration
     @ObservationIgnored private var previous: MachineSample?
+    @ObservationIgnored private var sampleGeneration = UUID()
     @ObservationIgnored private var sampling: Task<Void, Never>?
 
     init(sensor: any MachineSensor, power: any PowerSource, interval: Duration = .seconds(5)) {
@@ -29,13 +30,15 @@ final class MachineMonitor {
         guard sampling == nil else { return }
         // Weak: the loop must not keep the monitor alive, and it ends when the monitor goes.
         sampling = Task { [weak self] in
-            while let pause = await self?.sample(), !Task.isCancelled {
-                try? await Task.sleep(for: pause)
+            while !Task.isCancelled {
+                guard let pause = await self?.sample() else { return }
+                do { try await Task.sleep(for: pause) } catch { return }
             }
         }
     }
 
     func stop() {
+        sampleGeneration = UUID()
         sampling?.cancel()
         sampling = nil
     }
@@ -44,8 +47,11 @@ final class MachineMonitor {
     /// first wait is short: the CPU's share needs a second sample, and a row without `cpu` for a
     /// whole interval after launch reads as broken.
     func sample() async -> Duration {
+        let generation = UUID()
+        sampleGeneration = generation
         let sensor = self.sensor, power = self.power
         let (current, battery) = await ThreadWork.run { (sensor.sample(), power.reading()) }
+        guard !Task.isCancelled, sampleGeneration == generation else { return interval }
         let next = MachineReadings.lines(previous: previous, current: current, power: battery)
         let pause = previous == nil ? min(interval, .seconds(1)) : interval
         previous = current

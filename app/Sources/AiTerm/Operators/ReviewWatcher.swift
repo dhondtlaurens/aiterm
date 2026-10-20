@@ -31,8 +31,6 @@ final class ReviewWatcher {
     private let ports: OperatorPorts
     private let waker: OperatorWaker
     private var polling: Task<Void, Never>?
-    /// The username each project's host token acts as, once asked.
-    private var me: [UUID: String] = [:]
     /// The latest pass, for a test to await.
     private(set) var lastPoll: Task<Void, Never>?
 
@@ -69,7 +67,7 @@ final class ReviewWatcher {
     private func check(_ id: UUID) async {
         guard let task = state.task(id: id), isWatched(task), let number = task.operated?.publication?.mergeRequestNumber,
               let project = state.project(id: task.projectId) else { return }
-        let threads: [ReviewThread], approvals: [String]?
+        let threads: [ReviewThread], approvals: [String]?, own: String?
         do {
             let host = try await ReviewHosts.host(of: project, git: ports.git, connect: ports.publisher)
             // Another repository's request of the same number is not this one: origin changed since it was opened.
@@ -80,20 +78,24 @@ final class ReviewWatcher {
             threads = try await host.threads(of: number)
             // Approvals only where the host gives them: one that cannot leaves them as they were.
             approvals = try? await host.approvals(of: number)
-            if me[project.id] == nil, let user = try? await host.currentUser() { me[project.id] = user }
+            // The connection is fresh each check; Settings may now name a different token user.
+            own = try? await host.currentUser()
         } catch {
             Log.network.error("Reading the review of \(task.operated?.key ?? task.title, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             return
         }
         // Read fresh: the host was asked meanwhile.
-        guard let current = state.task(id: id), isWatched(current), let operated = current.operated else { return }
+        guard let current = state.task(id: id), isWatched(current), let operated = current.operated,
+              current.projectId == task.projectId, state.project(id: project.id)?.path == project.path,
+              operated.runId == task.operated?.runId, operated.ownership == task.operated?.ownership,
+              operated.acceptance == task.operated?.acceptance,
+              operated.publication == task.operated?.publication else { return }
         let seen = operated.peopleReview ?? PeopleReview()
         var next = seen
         next.threads = Dictionary(threads.map { ($0.id, $0.resolved) }, uniquingKeysWith: { first, _ in first })
         if let approvals { next.approvals = approvals }
         // A note is told apart from AiTerm's own only once the token's user is known: until then the notes seen stay
         // as they were, so a reviewer's reply is still news on a later pass.
-        let own = me[project.id]
         if own != nil {
             next.notes = Dictionary(threads.map { ($0.id, Self.signature($0)) }, uniquingKeysWith: { first, _ in first })
         }

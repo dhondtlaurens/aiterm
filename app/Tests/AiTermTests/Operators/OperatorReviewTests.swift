@@ -350,6 +350,42 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(r.host.log.count == reads)
     }
 
+    @Test func aWatchResultForAReplacedPublicationIsDropped() async throws {
+        let gate = ReviewGate()
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        r.host.update {
+            $0.threads = [ReviewThread(id: "old", resolved: false, lastAuthor: "jan", lastBody: "Old request")]
+            $0.onCall = { line in if line == "threads 12" { await gate.wait() } }
+        }
+        let watcher = r.world.controller.reviewWatcher
+        watcher.poll()
+        await gate.started()
+        r.world.workspace.mutate { $0.updateOperated(r.task.id) {
+            $0.publication?.mergeRequestNumber = 13
+            $0.publication?.mergeRequestURL = "https://github.com/acme/shop/pull/13"
+        } }
+        await gate.release()
+        await watcher.lastPoll?.value
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty != false)
+        #expect(await wakes(r.world) == [])
+    }
+
+    @Test func aChangedTokensUserIsReadAgainOnTheNextPoll() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        let watcher = r.world.controller.reviewWatcher
+        r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename")] }
+        watcher.poll()
+        await watcher.lastPoll?.value
+        #expect(await wakes(r.world).count == 1)
+        r.host.update {
+            $0.me = "new-token-user"
+            $0.threads[0] = ReviewThread(id: "d1", resolved: false, lastAuthor: "new-token-user", lastBody: "Done")
+        }
+        watcher.poll()
+        await watcher.lastPoll?.value
+        #expect(await wakes(r.world).count == 1, "a reply by the replacement token is its own, so it adds no wake")
+    }
+
     @Test func aTakenOverTaskIsNotWatched() async throws {
         let r = try reviewed(.inReview, slices: Slices(review: true))
         r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.takenOver = true } }

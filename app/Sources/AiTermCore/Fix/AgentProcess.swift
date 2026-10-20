@@ -152,11 +152,15 @@ private final class Spawned: Sendable {
     /// After the exit, whatever ended it: waits until no member of the group is left to signal. A grandchild that left
     /// the group itself (`setsid`) is beyond reach; agents' tools do not do that.
     func groupGone() async {
-        let deadline = ContinuousClock.now + AgentProcess.goneGrace
-        // Signal 0 only checks; a SIGKILLed member lingers just until its new parent reaps it.
-        while killpg(pid, 0) == 0, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        // Cleanup must outlive the caller's cancellation. In a cancelled task every sleep throws
+        // immediately, so a group still leaving would be polled continuously until the deadline.
+        await Task { [pid] in
+            let deadline = ContinuousClock.now + AgentProcess.goneGrace
+            // Signal 0 only checks; a SIGKILLed member may linger until its parent reaps it.
+            while killpg(pid, 0) == 0, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }.value
     }
 
     /// Gives the pipes a moment past the exit to deliver what was written (see `ProcessRunner`).

@@ -199,4 +199,30 @@ import Testing
         try await Task.sleep(for: .milliseconds(50))
         #expect(lines.count == 2 && hand.requested == 3)
     }
+    @Test(arguments: [false, true])
+    func newsCoalescedDuringDeliveryStillWakesAfterItCompletes(_ acknowledge: Bool) async throws {
+        let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
+        let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
+                                  coalesce: .zero, sleep: { await hand.sleep($0) })
+        waker.acknowledged(status(questions: 0), of: run.id)
+        waker.observe(status(questions: 1), of: run.id)
+        await hand.release(1)
+        try await held.received("session.deliver")
+        let first = waker.lastSend
+        if acknowledge { waker.acknowledged(status(questions: 1), of: run.id) }
+        waker.observe(status(questions: 2), of: run.id)
+        await hand.release(2)
+        await waker.lastCoalesce?.value
+        held.release()
+        await first?.value
+        // No session change is needed: the coalescing deadline has already passed.
+        await eventually { held.requests("session.deliver").count == 2 }
+        await waker.lastSend?.value
+        #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
+            "[AiTerm] 1 update, call run_status", "[AiTerm] 1 update, call run_status"
+        ])
+        waker.operatorSessionChanged(run.id)
+        #expect(held.requests("session.deliver").count == 2)
+    }
+
 }
