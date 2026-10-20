@@ -212,7 +212,7 @@ struct BackpackSheet: View {
             // Again every few seconds: the iPhone shows its hotspot only while its Personal Hotspot
             // screen is open. Not during a connect, where a scan would get in the join's way.
             while !Task.isCancelled {
-                try? await Task.sleep(for: BackpackSheetPresentation.rescan)
+                do { try await Task.sleep(for: BackpackSheetPresentation.rescan) } catch { return }
                 if !model.isConnecting, !model.isSafe { await model.refreshNetworks() }
             }
         }

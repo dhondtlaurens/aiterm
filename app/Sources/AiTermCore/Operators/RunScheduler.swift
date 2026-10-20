@@ -13,9 +13,10 @@ public enum RunScheduler {
     /// parent is accepted, published or ended with no change, and each `code` parent is accepted
     /// or published — a `code` child branches from that accepted SHA (`baseCommit`).
     public static func startable(in state: AppState) -> [UUID] {
-        state.runs.enumerated().filter { $0.element.state == .active }
+        let index = TaskIndex(state.tasks)
+        return state.runs.enumerated().filter { $0.element.state == .active }
             .sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }
-            .flatMap { ready(in: state, run: $0.element.id) }
+            .flatMap { ready(index.tasksByRun[$0.element.id] ?? [], byId: index.byId) }
     }
 
     /// `startable(in:)` with the queued tasks `excluding` names left out: ones whose window the caller
@@ -29,15 +30,27 @@ public enum RunScheduler {
 
     /// The tasks of `run` among `startable(in:)`: what this operation may start now.
     public static func startable(in state: AppState, run id: UUID) -> [UUID] {
-        let mine = Set(state.tasks(inRun: id).map(\.id))
-        return startable(in: state).filter(mine.contains)
+        let index = TaskIndex(state.tasks)
+        return state.runs.filter { $0.id == id && $0.state == .active }
+            .flatMap { _ in ready(index.tasksByRun[id] ?? [], byId: index.byId) }
+    }
+
+    /// One pass's dependency lookup and plan-order task lists, built together rather than per run.
+    private struct TaskIndex {
+        var byId: [UUID: TaskItem] = [:]
+        var tasksByRun: [UUID: [TaskItem]] = [:]
+        init(_ tasks: [TaskItem]) {
+            for task in tasks {
+                if byId[task.id] == nil { byId[task.id] = task }
+                if let run = task.operated?.runId { tasksByRun[run, default: []].append(task) }
+            }
+        }
     }
 
     /// The run's queued tasks whose dependencies are satisfied, in plan order.
-    static func ready(in state: AppState, run id: UUID) -> [UUID] {
-        let byId = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    private static func ready(_ tasks: [TaskItem], byId: [UUID: TaskItem]) -> [UUID] {
         var seen: Set<UUID> = []
-        return state.tasks(inRun: id).filter { task in
+        return tasks.filter { task in
             // A task id held twice starts once: never a second worktree or window for the same task.
             guard let o = task.operated, o.state == .queued, !o.takenOver, seen.insert(task.id).inserted else { return false }
             return o.dependsOn.allSatisfy { dependency in
@@ -64,8 +77,9 @@ public enum RunScheduler {
     /// `published`; a stopped task is ended too. A run with no tasks is not done — it has not
     /// planned yet.
     public static func isComplete(_ run: OperatorRun, in state: AppState) -> Bool {
-        let tasks = state.tasks(inRun: run.id).compactMap(\.operated)
-        let finished = Set(state.tasks(inRun: run.id).filter { $0.operated.map(\.isFinished) == true }.map(\.id))
+        let runTasks = state.tasks(inRun: run.id)
+        let tasks = runTasks.compactMap(\.operated)
+        let finished = Set(runTasks.filter { $0.operated.map(\.isFinished) == true }.map(\.id))
         guard !tasks.isEmpty, run.questions.allSatisfy({ $0.resolution != nil || $0.task.map(finished.contains) == true }) else { return false }
         return tasks.allSatisfy(\.isFinished)
     }

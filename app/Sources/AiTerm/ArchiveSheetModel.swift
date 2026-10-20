@@ -21,20 +21,26 @@ final class ArchiveSheetModel: Identifiable {
         self.entries = entries; self.restore = restore; self.remove = remove
     }
 
-    var rows: [ArchiveSearch.Entry] { ArchiveSearch.rank(entries(), query: query) }
-    var total: Int { entries().count }
-
-    var highlighted: ArchiveSearch.Entry? {
-        let rows = rows
-        return rows.first { $0.archived.id == highlightedId } ?? rows.first
+    /// One render or command's consistent view of the archive: ranked once, without caching a
+    /// closure's changing workspace inputs across renders.
+    struct Projection {
+        let rows: [ArchiveSearch.Entry]
+        let total: Int
+        let highlighted: ArchiveSearch.Entry?
+        let status: String
     }
 
-    var status: String { query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(total) shelved" : "\(rows.count) of \(total)" }
+    var projection: Projection {
+        let entries = entries(), rows = ArchiveSearch.rank(entries, query: query)
+        let highlighted = rows.first { $0.archived.id == highlightedId } ?? rows.first
+        let status = query.trimmingCharacters(in: .whitespaces).isEmpty ? "\(entries.count) shelved" : "\(rows.count) of \(entries.count)"
+        return Projection(rows: rows, total: entries.count, highlighted: highlighted, status: status)
+    }
 
     func move(by step: Int) {
-        let rows = rows
+        let view = projection, rows = view.rows
         guard !rows.isEmpty else { return }
-        let at = rows.firstIndex { $0.archived.id == highlighted?.archived.id } ?? 0
+        let at = rows.firstIndex { $0.archived.id == view.highlighted?.archived.id } ?? 0
         highlightedId = rows[((at + step) % rows.count + rows.count) % rows.count].archived.id
     }
 
@@ -48,13 +54,13 @@ final class ArchiveSheetModel: Identifiable {
     }
 
     func restoreHighlighted() -> Bool {
-        guard let row = highlighted else { return false }
+        guard let row = projection.highlighted else { return false }
         restore(row.archived.id)
         return true
     }
 
     func removeHighlighted() -> Bool {
-        guard let row = highlighted else { return false }
+        guard let row = projection.highlighted else { return false }
         remove(row.archived.id)
         return true
     }

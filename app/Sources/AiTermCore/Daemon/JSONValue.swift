@@ -61,5 +61,4 @@ public indirect enum JSONValue: Codable, Equatable, Sendable, ExpressibleByStrin
     public var boolValue: Bool? { if case .bool(let v) = self { v } else { nil } }
     public var arrayValue: [JSONValue]? { if case .array(let v) = self { v } else { nil } }
     public var objectValue: [String: JSONValue]? { if case .object(let v) = self { v } else { nil } }
-    public var isNull: Bool { self == .null }
 }

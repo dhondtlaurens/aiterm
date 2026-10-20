@@ -553,9 +553,5 @@ public extension SidebarModel {
         }
     }
 
-    /// How a caption names the task another depends on: its ticket's key, or its title.
-    static func dependencyLabel(_ id: UUID, tasks: [UUID: TaskItem]) -> String {
-        guard let task = tasks[id] else { return "another task" }
-        return task.jira?.key ?? task.title
-    }
+
 }

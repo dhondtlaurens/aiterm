@@ -32,7 +32,7 @@ public final class StateStore: Sendable {
 
     public func load() throws -> AppState {
         // Looked at before it is read: a file replaced in between then fails to match, and is read again.
-        let identity = FileIdentity(of: url)
+        let identity = FileStamps.stamp(url.path)
         if let data = try dataIfPresent(at: url) {
             let state = try decode(data)
             remember(data, identity)
@@ -52,7 +52,7 @@ public final class StateStore: Sendable {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         if let previous { try previous.write(to: backupURL, options: .atomic) }
         try data.write(to: url, options: .atomic)
-        remember(data, FileIdentity(of: url))
+        remember(data, FileStamps.stamp(url.path))
     }
 
     public func restoreBackup() throws -> AppState {
@@ -63,7 +63,7 @@ public final class StateStore: Sendable {
             try FileManager.default.copyItem(at: url, to: preserved)
         }
         try data.write(to: url, options: .atomic)
-        remember(data, FileIdentity(of: url))
+        remember(data, FileStamps.stamp(url.path))
         return state
     }
 
@@ -71,7 +71,7 @@ public final class StateStore: Sendable {
     /// there when it is still that file, or else the file read and checked — a primary that cannot
     /// be read back is never replaced, and a missing one beside a backup has to be restored first.
     private func previousData() throws -> Data? {
-        if let known = lastKnown.withLock({ $0 }), let identity = FileIdentity(of: url), known.identity == identity {
+        if let known = lastKnown.withLock({ $0 }), let identity = FileStamps.stamp(url.path), known.identity == identity {
             return known.data
         }
         let previous = try dataIfPresent(at: url)
@@ -83,7 +83,7 @@ public final class StateStore: Sendable {
         return previous
     }
 
-    private func remember(_ data: Data, _ identity: FileIdentity?) {
+    private func remember(_ data: Data, _ identity: FileStamps.Stamp?) {
         lastKnown.withLock { $0 = identity.map { KnownFile(data: data, identity: $0) } }
     }
 
@@ -123,20 +123,5 @@ public final class StateStore: Sendable {
 /// The bytes a `StateStore` last read or wrote, and the file it found them in.
 private struct KnownFile: Sendable {
     let data: Data
-    let identity: FileIdentity
-}
-
-/// Which file is at a path, and which version of it: an atomic write is a new inode, an edit in
-/// place a new modification time, and either can change the size.
-private struct FileIdentity: Equatable, Sendable {
-    let inode: UInt64, size: UInt64, modified: Date
-
-    /// Nil when there is no file to describe.
-    init?(of url: URL) {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value,
-              let size = (attributes[.size] as? NSNumber)?.uint64Value,
-              let modified = attributes[.modificationDate] as? Date else { return nil }
-        self.inode = inode; self.size = size; self.modified = modified
-    }
+    let identity: FileStamps.Stamp
 }
