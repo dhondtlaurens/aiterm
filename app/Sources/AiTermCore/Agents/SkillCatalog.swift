@@ -235,7 +235,7 @@ public enum SkillCatalog {
     /// written in, among `agent`'s roots for `projectPath`: what a headless run, which cannot invoke a
     /// skill, is handed as text (`AgentReview`). The first root that has it wins, as in discovery.
     public static func file(named name: String, agent: AgentKind, projectPath: String?,
-                            home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
+                            home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig()) -> URL? {
         let walk = Walk(), leaf = leafName(name)
         func skill(in root: URL, namespace: String?) -> URL? {
             descend(root, depth: maxDepth, walk: walk).lazy.map { $0.appendingPathComponent("SKILL.md") }.first { manifest in
@@ -251,7 +251,7 @@ public enum SkillCatalog {
             let file = parts.dropLast().reduce(root) { $0.appendingPathComponent($1) }.appendingPathComponent(parts.last! + ".md")
             return FileManager.default.fileExists(atPath: file.path) ? file : nil
         }
-        for root in agent.harness.skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
+        for root in agent.harness(claudeConfig: claudeConfig).skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
             switch root.kind {
             case .skills(let namespace, _):
                 if let found = skill(in: root.url, namespace: namespace) { return found }

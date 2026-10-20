@@ -2,11 +2,13 @@ import Foundation
 import AiTermCore
 
 /// What the operators reach beyond the app's own owners: the home — run folders
-/// (`OperatorCommand.runFolder`) and the agents' conversations (`~/.claude`, `~/.codex`) are under it —
+/// (`OperatorCommand.runFolder`) and the agents' conversations (Claude's folder, `~/.codex`) are under it —
 /// git, the notification centre and the clock. The app's are `live`; a test's reach
 /// nothing real (`OperatorPorts.scratch`). Each later service adds the port it needs, defaulted.
 struct OperatorPorts {
     var home: URL
+    /// Where under `home` Claude keeps its conversations and skills: the app's `ClaudeConfig`, from the login shell.
+    var claudeConfig = ClaudeConfig()
     var git: any GitRunning
     var notifications: any OperatorNotifications
     /// The Jira client `jira_search` runs through, while Settings has one.
@@ -50,8 +52,10 @@ struct OperatorPorts {
     /// `AppController` replaces with the app's own defaults.
     var profile: (@Sendable () -> OperatorProfile)?
 
-    @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?) -> OperatorPorts {
-        OperatorPorts(home: home, git: git, notifications: LiveOperatorNotifications(), jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live,
+    @MainActor static func live(home: URL, git: any GitRunning, jiraSettings: @escaping @Sendable () -> JiraConfig?,
+                                claudeConfig: ClaudeConfig = ClaudeConfig()) -> OperatorPorts {
+        OperatorPorts(home: home, claudeConfig: claudeConfig, git: git, notifications: LiveOperatorNotifications(),
+                      jira: { jiraSettings().map { JiraClient(config: $0) } }, secondOpinion: .live,
                       agentReviewer: .live)
     }
 }

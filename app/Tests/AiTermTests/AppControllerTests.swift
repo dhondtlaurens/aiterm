@@ -1503,3 +1503,18 @@ private struct DefaultBranchFailingGit: GitRunning {
         return try inner.run(args, in: dir, timeout: timeout, environment: environment)
     }
 }
+
+extension AppControllerTests {
+    /// The operators read Claude's conversations from the app's Claude folder, as every other reader does.
+    @Test func theLiveOperatorsReadTheAppsClaudeFolder() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let scan = WorkspaceScan(branchByCwd: [:], projectBranch: [:], missingCheckouts: [], removedTasks: [], remotes: [:])
+        let controller = AppController.live(store: StateStore(url: home.appendingPathComponent("state.json")), preferences: .scratch(),
+                                            harnessHome: home, claudeConfig: ClaudeConfig("~/profile"), bundledResourcesURL: nil,
+                                            locateAgents: { nil }, setBadge: { _ in }, activateIterm: {}, launchIterm: {},
+                                            itermRunning: { true }, backpackPorts: .inert, machineSensor: InertMachineSensor(),
+                                            scan: { _, _, _, _, _, _, _ in scan })
+        #expect(controller.operatorController.ports.claudeConfig.directory(home: home) == home.appendingPathComponent("profile"))
+    }
+}

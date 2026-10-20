@@ -45,10 +45,11 @@ public enum AgentReview {
     /// The text of each skill `instructions` names that one of `agents` has, looked for in that order, for
     /// `projectPath`. A name no agent has is left out: the instructions still say it.
     public static func skills(in instructions: String, agents: [AgentKind], projectPath: String?,
-                              home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [NamedSkill] {
+                              home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                              claudeConfig: ClaudeConfig = ClaudeConfig()) -> [NamedSkill] {
         skillNames(in: instructions).compactMap { name in
             for agent in agents {
-                guard let file = SkillCatalog.file(named: name, agent: agent, projectPath: projectPath, home: home),
+                guard let file = SkillCatalog.file(named: name, agent: agent, projectPath: projectPath, home: home, claudeConfig: claudeConfig),
                       let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
                 return NamedSkill(name: name, text: String(text.prefix(skillLimit)))
             }

@@ -186,3 +186,22 @@ extension AgentIntegrationsTests {
         #expect(agents.claudeConfigPath == directory.path)
     }
 }
+
+extension AgentIntegrationsTests {
+    /// Settings › Operator's `/` lists Claude's skills from the configured folder in the harness home.
+    @Test func operatorSettingsListClaudesSkillsFromTheConfiguredFolder() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        for (folder, name) in [(".claude", "wrong-folder"), ("profile", "moved")] {
+            let skill = home.appendingPathComponent("\(folder)/skills/\(name)/SKILL.md")
+            try FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "---\nname: \(name)\ndescription: A skill\n---\nBody\n".write(to: skill, atomically: true, encoding: .utf8)
+        }
+        let agents = AgentIntegrations(harnessHome: home, bundledResourcesURL: nil, locateAgents: { nil }, rememberedModels: { [:] },
+                                       defaults: InterfacePreferences.scratch().defaults, claudeConfig: ClaudeConfig("~/profile"))
+        let settings = agents.operatorSettings()
+        await settings.load()
+        let names = settings.completions.all.map(\.name)
+        #expect(names.contains("moved") && !names.contains("wrong-folder"))
+    }
+}

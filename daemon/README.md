@@ -7,9 +7,10 @@ against a running iTerm2: `AITERMD_LIVE=1 .venv/bin/pytest tests/integration -q`
 `workspace.snapshot` returns protocol version 1, iTerm2 availability, tagged sessions, and
 usage. On each connection the app supplies `claudeConfigDirectory` in the snapshot request,
 resolved from its login shell's `CLAUDE_CONFIG_DIR` (empty or unset means `~/.claude`). The daemon
-uses its `sessions/` folder and echoes the directory in the response; it never reads that environment
-variable itself. This also updates an adopted helper. An older helper that cannot acknowledge the
-folder is reported as incompatible. Requests without the parameter keep the current directory.
+uses its `sessions/` folder and echoes the directory, as the app spelled it, in the response; it
+never reads that environment variable itself. This also updates an adopted helper. An older helper
+that cannot acknowledge the folder is reported as incompatible. Requests without the parameter keep
+the current directory.
 
 The server writes this response before yielding; the Swift client places it in its
 event stream as a bootstrap barrier. Events before the barrier are discarded. A disconnected

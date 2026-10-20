@@ -579,7 +579,7 @@ final class AppController {
 }
 
 extension AppController {
-    /// The real wiring: the person's `state.json`, `~/.claude` and `~/.codex`, the app's bundle, the
+    /// The real wiring: the person's `state.json`, Claude's folder and `~/.codex`, the app's bundle, the
     /// Keychain and a login shell for what they hold, modal alerts for questions, the Dock badge,
     /// Backpack Mode's live ports — `sudo pmset`, CoreWLAN, IOKit, CoreLocation — the Mac's load from Mach, and iTerm2 handed focus — AiTerm is frontmost when a row is chosen, so macOS lets it hand
     /// activation over. A caller that renders rather than runs (the snapshots) names what it
@@ -624,7 +624,7 @@ extension AppController {
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
                       git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
-                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }))
+                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }, claudeConfig: claudeConfig))
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

@@ -151,9 +151,9 @@ final class SheetCoordinator {
                              start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
-        let home = harnessHome, git = self.git, workspace = workspace
+        let home = harnessHome, claudeConfig = agents.claudeConfig, git = self.git, workspace = workspace
         sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, slices: slices,
-                                                skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home) },
+                                                skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: claudeConfig) },
                                                 files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
                                                 canChangeWorkspace: { workspace.canChangeWorkspace }, start: start))
     }

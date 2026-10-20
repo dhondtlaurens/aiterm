@@ -2150,3 +2150,11 @@ async def test_snapshot_uses_app_supplied_claude_directory(stack, tmp_path, monk
     other = tmp_path / "other"
     await call(r, w, "workspace.snapshot", {"claudeConfigDirectory": str(other)})
     assert svc.claude_files.pid_for_session("moved") is None
+
+
+async def test_snapshot_echoes_the_claude_directory_as_the_app_spelled_it(stack, tmp_path):
+    svc, _, _, r, w = stack
+    spelled = f"{tmp_path}/./Claude Profile"  # pathlib would spell it without the "./"
+    response = await call(r, w, "workspace.snapshot", {"claudeConfigDirectory": spelled})
+    assert response["result"]["claudeConfigDirectory"] == spelled
+    assert svc.claude_files.root == tmp_path / "Claude Profile" / "sessions"

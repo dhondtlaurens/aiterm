@@ -55,7 +55,9 @@ final class AgentIntegrations {
     /// Settings › Operator's staged edits, over these defaults and this catalogue: a new one for each
     /// opening of Settings, so Cancel drops it.
     func operatorSettings() -> OperatorSettingsModel {
-        .live(defaults: defaults, catalogue: catalogue, installed: { [weak self] in self?.availableAgents ?? [] })
+        let home = harnessHome, claudeConfig = self.claudeConfig
+        return .live(defaults: defaults, catalogue: catalogue, installed: { [weak self] in self?.availableAgents ?? [] },
+                     skills: { SkillCatalog.discover(agent: $0, projectPath: nil, home: home, claudeConfig: claudeConfig) })
     }
 
     /// The model and reasoning every Fix runs with: the Operator's (spec §8, §13), whichever agent it is
