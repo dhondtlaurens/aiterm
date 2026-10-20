@@ -463,7 +463,10 @@ is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows. No 
 behind the highlighted one (the keyboard's or the pointer's), dimmed while pressed — and
 `DropdownKeys` its key contract (arrows wrap, ↩ accepts, ⎋ closes only the popup, everything else is
 the field's). `SearchPicker`'s results and `PromptEditor`'s completion popup are both drawn and
-keyed through them.
+keyed through them. The completion popup hangs below the caret's line, never wider than its field,
+and opens above the line instead when it does not fit below inside the scroll view around the editor
+(or its window) and there is more room above: Settings › Operator's Instructions, a scrolling
+sheet's last field.
 
 `SettingsView` has four tabs — Agents, Operator, Integrations, Interface — picked from the tab bar
 or with ⌘1–⌘4, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
@@ -524,7 +527,8 @@ Reasoning `Select`s from Claude's catalogue. **Autonomy** lists the base with �
 then the Jira, Review and Merge slices, each its name in `Typography.bodyEmphasis` over a `HelpText`
 with a `SettingsSwitch` trailing, rows split by a `Hairline`; under them the fixed Never lines, each
 led by `nosign`, all in `Palette.muted`: facts, not failures. **Oracle** carries its switch as the
-group's accessory over Agent (Claude Code or Codex), Model and Reasoning; off, they are dimmed and
+group's accessory over Agent (Claude Code or Codex, whichever is installed, and the saved one
+shown as it is though it is not), Model and Reasoning; off, they are dimmed and
 disabled and keep their values. **Instructions** is a `PromptEditor` whose `/` lists both agents'
 skills. Autonomy's and the Oracle's help end “Changes apply to the next broadcast.”: a broadcast
 freezes the profile as it starts.

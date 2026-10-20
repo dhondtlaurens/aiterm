@@ -27,6 +27,18 @@ import Foundation
         }, save: { OperatorProfileStore.save($0, defaults) })
     }
 
+    /// A model already loaded with `profile`, over `installed` agents and the catalogues given.
+    private func loaded(_ profile: OperatorProfile, installed: Set<AgentKind>,
+                        models: [AgentKind: [AgentModel]] = [.claude: [Self.opus], .codex: [Self.astra]],
+                        agentDefaults: [AgentKind: ModelPreference] = [:],
+                        into defaults: UserDefaults = ScratchDefaults.make()) -> OperatorSettingsModel {
+        nonisolated(unsafe) let defaults = defaults
+        let settings = OperatorSettingsModel(installed: { installed }, load: { fatalError("handed in") },
+                                             save: { OperatorProfileStore.save($0, defaults) })
+        settings.received(.init(profile: profile, models: models, agentDefaults: agentDefaults, skills: []))
+        return settings
+    }
+
     private func saved(_ defaults: UserDefaults) -> OperatorProfile {
         OperatorProfileStore.load(defaults, claudeDefault: (model: "unsaved", reasoning: nil))
     }
@@ -88,6 +100,7 @@ import Foundation
         let settings = settings(ScratchDefaults.make())
         await settings.load()
         #expect(OperatorSettingsModel.oracleAgents == [.claude, .codex])
+        #expect(settings.oracleAgentChoices == [.claude, .codex], "both installed")
         settings.select(oracleAgent: .claude)
         #expect(settings.oracle == OracleSetting(isOn: true, agent: .claude, model: "claude-opus-5-5", reasoning: "high"))
         settings.select(oracleAgent: .codex)
@@ -97,6 +110,43 @@ import Foundation
         settings.select(oracleReasoning: "medium")
         settings.select(oracleModel: Self.mini)
         #expect(settings.oracle.reasoning == "low", "Mini has no medium, so its own default")
+    }
+
+    /// The Oracle's Agent offers the agents installed here; the saved one stays, shown as it is,
+    /// though it is not installed, and one neither installed nor saved is no pick.
+    @Test func theOraclesAgentIsOneInstalled() {
+        let opusProfile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high")
+        let codexSaved = loaded(opusProfile, installed: [.claude])
+        #expect(codexSaved.oracleAgentChoices == [.claude, .codex], "Codex is saved: shown, not swapped")
+        codexSaved.select(oracleAgent: .claude)
+        #expect(codexSaved.oracle.agent == .claude)
+        #expect(codexSaved.oracleAgentChoices == [.claude, .codex], "still the saved one, to go back to")
+
+        let claudeOracle = OracleSetting(isOn: true, agent: .claude, model: "claude-opus-5-5", reasoning: "high")
+        let claudeSaved = loaded(OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: claudeOracle), installed: [.claude])
+        #expect(claudeSaved.oracleAgentChoices == [.claude])
+        claudeSaved.select(oracleAgent: .codex)
+        #expect(claudeSaved.oracle == claudeOracle, "Codex is not installed")
+        let both = loaded(OperatorProfile(model: "claude-opus-5-5", reasoning: "high", oracle: claudeOracle), installed: [.claude, .codex])
+        #expect(both.oracleAgentChoices == [.claude, .codex])
+    }
+
+    /// No pick leaves a model empty, and Save never writes one: the loaded model stands in.
+    @Test func anEmptyModelIsNeverSaved() {
+        let defaults = ScratchDefaults.make()
+        let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high")
+        let settings = loaded(profile, installed: [.claude, .codex], models: [:], into: defaults)
+        settings.select(oracleAgent: .claude)
+        #expect(settings.oracle == .standard, "Claude has no model to take here, so it is no pick")
+
+        settings.select(model: AgentModel(id: "", label: "Unavailable", detail: nil, efforts: [], defaultEffort: nil))
+        settings.oracle.model = ""
+        settings.slices.jira = true
+        settings.save()
+        let written = saved(defaults)
+        #expect(written.model == "claude-opus-5-5" && written.reasoning == "high")
+        #expect(written.oracle == .standard)
+        #expect(written.slices.jira, "the rest of the edit is kept")
     }
 
     /// A saved model the catalogue no longer lists is still offered, by its id, with its reasoning.

@@ -72,10 +72,14 @@ struct SettingsView: View {
     /// made from the connections Settings was opened with.
     private var _integrations: State<IntegrationSettingsModel>
     private var integrations: IntegrationSettingsModel { _integrations.wrappedValue }
-    /// Settings › Operator's edits, staged until Save, made from `agents` with the first `init` of a
-    /// presentation. Handed to the Operator tab, its one observer.
-    var _operatorSettings: State<OperatorSettingsModel>
-    var operatorSettings: OperatorSettingsModel { _operatorSettings.wrappedValue }
+    /// Settings › Operator's edits, staged until Save and handed to the Operator tab, its one
+    /// observer. Made once per presentation, as the sheet's task starts, not in `init`, which SwiftUI
+    /// runs again on every redraw of the view that presents it; a test or a snapshot hands one in.
+    var _operatorSettings: State<OperatorSettingsModel?>
+    var operatorSettings: OperatorSettingsModel? {
+        get { _operatorSettings.wrappedValue }
+        nonmutating set { _operatorSettings.wrappedValue = newValue }
+    }
     var _tab = State<SettingsTab>(initialValue: .agents)
     private var tab: SettingsTab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
     var _matchItermBackground: State<Bool>
@@ -103,12 +107,13 @@ struct SettingsView: View {
          setInterfaceSize: @escaping (InterfaceSize) -> Void,
          initialTab: SettingsTab? = nil,
          testRecord: ServiceTestRecord = .shared,
-         backpack: BackpackController = .inert()) {
+         backpack: BackpackController = .inert(),
+         operatorSettings: OperatorSettingsModel? = nil) {
         _tab = State(initialValue: initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
         self.agents = agents
-        _operatorSettings = State(initialValue: agents.operatorSettings())
+        _operatorSettings = State(initialValue: operatorSettings)
         _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
                                                                      record: testRecord))
         self.itermConnection = itermConnection
@@ -143,13 +148,17 @@ struct SettingsView: View {
             .hidden()
         }
         // A result is only true for the moment it was taken, so every opening checks again rather
-        // than showing a remembered answer: iTerm2, each saved service, then every harness.
+        // than showing a remembered answer: iTerm2, each saved service, every harness and the Mac.
+        // The Operator's profile is read beside them, so a slow catalogue holds none of them up.
         .task {
             testIterm()
             integrations.testConfigured()
-            await operatorSettings.load()
-            await harnessModel.load()
-            await backpack.refreshSetup()
+            let operatorSettings = self.operatorSettings ?? agents.operatorSettings()
+            if self.operatorSettings == nil { self.operatorSettings = operatorSettings }
+            async let profile: Void = operatorSettings.loadIfNeeded()
+            async let harnesses: Void = harnessModel.load()
+            async let mac: Void = backpack.refreshSetup()
+            _ = await (profile, harnesses, mac)
         }
     }
 
@@ -157,7 +166,7 @@ struct SettingsView: View {
         Group {
             switch tab {
             case .agents: HarnessSettingsPane(model: harnessModel, agents: agents)
-            case .operator: OperatorSettingsPane(model: operatorSettings)
+            case .operator: if let operatorSettings { OperatorSettingsPane(model: operatorSettings) }
             case .integrations: integrationSettings
             case .interface:
                 InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,
@@ -239,7 +248,7 @@ struct SettingsView: View {
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
         saveInterface()
-        operatorSettings.save()
+        operatorSettings?.save()
         harnessModel.save()
         return true
     }

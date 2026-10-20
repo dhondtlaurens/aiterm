@@ -134,7 +134,7 @@ private struct OracleGroup: View {
         } rows: {
             VStack(alignment: .leading, spacing: Space.gap) {
                 FormField("Agent") {
-                    Select(values: OperatorSettingsModel.oracleAgents,
+                    Select(values: model.oracleAgentChoices,
                            selection: Binding(get: { oracle.agent }, set: { model.select(oracleAgent: $0) }),
                            label: { $0.displayName })
                 }

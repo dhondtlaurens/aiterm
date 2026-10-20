@@ -96,6 +96,20 @@ import AiTermTestSupport
         #expect(textView.textContainer?.lineFragmentPadding == PromptEditor.lineFragmentPadding)
     }
 
+    /// The popup hangs below the caret's line while it fits there, and above it only when it does
+    /// not and there is more room above. In window coordinates, y up.
+    @Test func thePopupOpensAboveOnlyWithoutRoomBelow() {
+        let height = CompletionPopup.height(rows: 8)
+        #expect(height == 8 * Size.menuRow + 2 * Space.tight)
+        let visible = CGRect(x: 0, y: 0, width: 500, height: 500)
+        #expect(!CompletionPopup.opensAbove(line: CGRect(x: 0, y: 400, width: 10, height: 16), height: height, visible: visible))
+        #expect(CompletionPopup.opensAbove(line: CGRect(x: 0, y: 60, width: 10, height: 16), height: height, visible: visible))
+        #expect(!CompletionPopup.opensAbove(line: CGRect(x: 0, y: 60, width: 10, height: 16), height: height,
+                                            visible: CGRect(x: 0, y: 0, width: 500, height: 100)),
+                "no more room above than below: it stays below")
+        #expect(!CompletionPopup.opensAbove(line: CGRect(x: 0, y: 60, width: 10, height: 16), height: height, visible: nil))
+    }
+
     @Test func popupOpenedNearTheRightEdgeStaysInsideTheField() throws {
         let text = TextBox()
         let completions = PromptCompletions()

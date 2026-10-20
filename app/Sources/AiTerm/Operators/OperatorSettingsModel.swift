@@ -37,10 +37,22 @@ final class OperatorSettingsModel {
     @ObservationIgnored private var original: OperatorProfile?
     @ObservationIgnored private let read: @Sendable () -> Loaded
     @ObservationIgnored private let write: @MainActor (OperatorProfile) -> Void
+    /// The agent CLIs this machine has, read live (`AgentIntegrations.availableAgents`), so the
+    /// Oracle's Agent follows a probe or an install landing while Settings is open.
+    @ObservationIgnored private let installed: @MainActor () -> Set<AgentKind>
 
-    init(load: @escaping @Sendable () -> Loaded, save: @escaping @MainActor (OperatorProfile) -> Void) {
+    init(installed: @escaping @MainActor () -> Set<AgentKind> = { Set(AgentKind.allCases) },
+         load: @escaping @Sendable () -> Loaded, save: @escaping @MainActor (OperatorProfile) -> Void) {
+        self.installed = installed
         read = load
         write = save
+    }
+
+    /// What the Oracle's Agent offers: the Oracle agents installed here, and the one saved or picked
+    /// even when it is not, shown as it is rather than swapped for another.
+    var oracleAgentChoices: [AgentKind] {
+        let present = installed()
+        return Self.oracleAgents.filter { present.contains($0) || $0 == oracle.agent || $0 == original?.oracle.agent }
     }
 
     /// The profile as it stands, edits and all.
@@ -54,6 +66,12 @@ final class OperatorSettingsModel {
         let loaded = await BackgroundWork.run { read() }
         guard !Task.isCancelled else { return }
         received(loaded)
+    }
+
+    /// Loads unless a test or a snapshot has already handed the model what it would find.
+    func loadIfNeeded() async {
+        guard !isLoaded else { return }
+        await load()
     }
 
     /// What a load found; the snapshots hand it in directly.
@@ -73,11 +91,19 @@ final class OperatorSettingsModel {
     }
 
     /// The sheet's Save: writes the profile when it changed, and nothing otherwise, so a profile never
-    /// saved keeps following Claude's default in Settings › Agents.
+    /// saved keeps following Claude's default in Settings › Agents. An empty model is never written:
+    /// the one loaded stands in for it.
     func save() {
-        guard isLoaded, let original, profile != original else { return }
-        write(profile)
-        self.original = profile
+        guard isLoaded, let original else { return }
+        var saving = profile
+        if saving.model.isEmpty { saving.model = original.model; saving.reasoning = original.reasoning }
+        if saving.oracle.model.isEmpty {
+            saving.oracle = OracleSetting(isOn: saving.oracle.isOn, agent: original.oracle.agent,
+                                          model: original.oracle.model, reasoning: original.oracle.reasoning)
+        }
+        guard saving != original else { return }
+        write(saving)
+        self.original = saving
     }
 
     // -- picking --------------------------------------------------------------------
@@ -89,10 +115,12 @@ final class OperatorSettingsModel {
 
     func select(reasoning picked: String) { reasoning = picked }
 
-    /// Takes the agent's default model at its reasoning; the Oracle stays on or off as it was.
+    /// Takes the agent's default model at its reasoning; the Oracle stays on or off as it was. An
+    /// agent not offered, or with no model to take, is no pick.
     func select(oracleAgent agent: AgentKind) {
-        guard agent != oracle.agent else { return }
+        guard agent != oracle.agent, oracleAgentChoices.contains(agent) else { return }
         let choice = defaultChoice(for: agent)
+        guard !choice.model.isEmpty else { return }
         oracle = OracleSetting(isOn: oracle.isOn, agent: agent, model: choice.model, reasoning: choice.reasoning)
     }
 
@@ -141,11 +169,11 @@ final class OperatorSettingsModel {
 extension OperatorSettingsModel {
     /// The live model: the profile, the catalogues and the skills as these defaults and this machine
     /// have them, and Save writing to the same defaults.
-    static func live(defaults: UserDefaults, catalogue: ModelCatalogue,
+    static func live(defaults: UserDefaults, catalogue: ModelCatalogue, installed: @escaping @MainActor () -> Set<AgentKind>,
                      skills: @escaping @Sendable (AgentKind) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: nil) }) -> OperatorSettingsModel {
         // UserDefaults is thread-safe, though not marked Sendable.
         nonisolated(unsafe) let store = defaults
-        return OperatorSettingsModel(load: {
+        return OperatorSettingsModel(installed: installed, load: {
             var models: [AgentKind: [AgentModel]] = [:], agentDefaults: [AgentKind: ModelPreference] = [:]
             for agent in oracleAgents {
                 let listed = (try? catalogue.models(for: agent)) ?? []
