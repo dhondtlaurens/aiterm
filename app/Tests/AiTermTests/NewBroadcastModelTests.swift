@@ -80,6 +80,64 @@ struct NewBroadcastModelTests {
         #expect(sheet.matchingJiraProjects(query: "pay") == [pay])
     }
 
+    /// The picker offers the connection's Jira projects, as the Jira projects sheet fetches them, the
+    /// ones the sidebar's projects link first; picking one still picks its linked projects.
+    @Test func theJiraPickerOffersTheConnectionsProjectsLinkedOnesFirst() async {
+        let ops = JiraProjectRef(id: "10003", key: "OPS", name: "Operations", siteURL: Self.site)
+        let web = JiraProjectRef(id: "10004", key: "WEB", name: "Website", siteURL: Self.site)
+        let webshop = project("webshop", jira: [shop, pay]), api = project("payments-api", jira: [pay])
+        let sheet = NewBroadcastModel(projects: [webshop, api], slices: .none, loadJiraProjects: { [ops, pay, web, shop] },
+                                      start: { _ in UUID() })
+        #expect(sheet.jiraLoad == .loading)
+        #expect(sheet.jiraStatus == "Loading Jira projects…")
+        #expect(sheet.offeredJiraProjects == [shop, pay], "the linked ones while Jira answers")
+        await sheet.loadJiraProjects()
+        #expect(sheet.jiraLoad == .loaded && sheet.jiraStatus == nil)
+        #expect(sheet.offeredJiraProjects == [shop, pay, ops, web], "linked first, then the rest in Jira's order, each once")
+        #expect(sheet.matchingJiraProjects(query: "") == [shop, pay, ops, web])
+        #expect(sheet.matchingJiraProjects(query: "web") == [web, shop], "a key match before a name match")
+        #expect(sheet.matchingJiraProjects(query: "oper") == [ops])
+        sheet.add(jiraProject: ops)
+        #expect(sheet.projects.isEmpty, "a Jira project no project links picks none")
+        sheet.add(jiraProject: pay)
+        #expect(sheet.projects == [webshop, api])
+        #expect(sheet.matchingJiraProjects(query: "") == [shop, web], "what is picked is not offered again")
+    }
+
+    @Test func aConnectionWithNoJiraProjectsSaysSo() async {
+        let sheet = NewBroadcastModel(projects: [project("blog")], slices: .none, loadJiraProjects: { [] }, start: { _ in UUID() })
+        await sheet.loadJiraProjects()
+        #expect(sheet.offeredJiraProjects.isEmpty)
+        #expect(sheet.jiraStatus == "No Jira projects found.")
+    }
+
+    /// Jira away, or not connected: the linked ones stay on offer, the help says so, and Start isn't held up.
+    @Test func aJiraThatCantBeReachedKeepsTheLinkedOnesAndDoesNotBlockStart() async {
+        struct Offline: Error {}
+        let webshop = project("webshop", jira: [pay])
+        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, loadJiraProjects: { throw Offline() }, start: { _ in UUID() })
+        await sheet.loadJiraProjects()
+        #expect(sheet.jiraLoad == .failed)
+        #expect(sheet.offeredJiraProjects == [pay])
+        #expect(sheet.jiraStatus == "Jira couldn’t be reached, so only the Jira projects your projects link are offered.")
+        sheet.add(jiraProject: pay)
+        sheet.prompt = "PAY-230"
+        #expect(sheet.canStart)
+        #expect(await sheet.start() != nil)
+    }
+
+    /// As New Task's: nothing moves on while the workspace can't change.
+    @Test func itWaitsForAWorkspaceThatCanChange() {
+        var canChange = false
+        let webshop = project("webshop")
+        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, canChangeWorkspace: { canChange }, start: { _ in UUID() })
+        sheet.add(project: webshop)
+        sheet.prompt = "PAY-230"
+        #expect(!sheet.canAdvance(step: 1) && !sheet.canStart)
+        canChange = true
+        #expect(sheet.canAdvance(step: 1) && sheet.canStart)
+    }
+
     @Test func helpFollowsTheSlices() {
         let off = model(slices: .none), on = model(slices: Slices(jira: false, review: true, merge: true))
         #expect(on.reviewHelp == "Who reviews each task and how. Optional. An agent review (“an adversarial review with /code-review”) needs no switch; involving people needs Review, which is on in Settings › Operator.")

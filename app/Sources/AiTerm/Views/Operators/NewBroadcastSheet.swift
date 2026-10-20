@@ -41,6 +41,7 @@ struct NewBroadcastSheet: View {
         }
         // Both agents' skills, from the home and the picked projects: read again as the picks change.
         .task(id: model.projects.map(\.id)) { await model.loadCompletions() }
+        .task { await model.loadJiraProjects() }
     }
 
     @ViewBuilder private var content: some View {
@@ -73,6 +74,7 @@ struct NewBroadcastSheet: View {
                             row: { PickerResultRow(mark: .brand(Palette.jira), key: $0.key, keyWidth: Self.jiraKeyWidth, title: $0.name, detail: nil) },
                             onPick: { model.add(jiraProject: $0) }, onRemove: { model.remove(jiraProject: $0) })
                 HelpText(NewBroadcastModel.jiraProjectsHelp)
+                jiraStatus
             }
             FormField("Projects") {
                 ChipsPicker(placeholder: NewBroadcastModel.projectsPlaceholder, picks: model.projects,
@@ -81,6 +83,20 @@ struct NewBroadcastSheet: View {
                             row: { ProjectResultRow(project: $0) },
                             onPick: { model.add(project: $0) }, onRemove: { model.remove(project: $0) })
                 HelpText(NewBroadcastModel.projectsHelp)
+            }
+        }
+    }
+
+    /// Loading, none found, or Jira not reached, under the help, as the Jira projects sheet says them.
+    @ViewBuilder private var jiraStatus: some View {
+        if let status = model.jiraStatus {
+            if model.jiraLoad == .loading {
+                HStack(spacing: Space.snug) {
+                    ProgressView().controlSize(.small)
+                    HelpText(status)
+                }
+            } else {
+                HelpText(status)
             }
         }
     }

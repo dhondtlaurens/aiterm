@@ -140,6 +140,7 @@ enum OperatorSnapshots {
                 let scene = OperatorScene()
                 let model = NewBroadcastModel(projects: [scene.cms, scene.web], slices: .none, skills: { _, _ in [] }) { _ in UUID() }
                 model.add(project: scene.cms)
+                model.received([])
                 return NewBroadcastSheet(model: model)
             },
             Snapshot("overview-plan.png") { overview(OperatorScene.planWaiting()) },

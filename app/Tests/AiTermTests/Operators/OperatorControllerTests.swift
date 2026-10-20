@@ -58,20 +58,6 @@ import Testing
         #expect(world.daemon.requests.isEmpty)
     }
 
-    /// The Jira projects of a broadcast's projects, by key: each once, in the order the projects list them.
-    @Test func theJiraKeysAreTheProjectsLinkedOnesEachOnce() {
-        let site = URL(string: "https://acme.atlassian.net")!
-        let shop = OperatorServiceFixtures.project(name: "Shop", jira: [JiraProjectRef(id: "1", key: "PLUTO", name: "Pluto", siteURL: site),
-                                                                       JiraProjectRef(id: "2", key: "SHOP", name: "Shop", siteURL: site)])
-        let blog = OperatorServiceFixtures.project(name: "Blog", jira: [JiraProjectRef(id: "3", key: "BLOG", name: "Blog", siteURL: site),
-                                                                       JiraProjectRef(id: "1", key: "PLUTO", name: "Pluto", siteURL: site)])
-        let none = OperatorServiceFixtures.project(name: "None")
-        let state = OperatorServiceFixtures.state(projects: [shop, blog, none], runs: [])
-        #expect(OperatorController.jiraKeys(of: [shop.id, blog.id], in: state) == ["PLUTO", "SHOP", "BLOG"])
-        #expect(OperatorController.jiraKeys(of: [blog.id, shop.id], in: state) == ["BLOG", "PLUTO", "SHOP"])
-        #expect(OperatorController.jiraKeys(of: [none.id, UUID()], in: state).isEmpty, "a project with none, and one not in the workspace")
-    }
-
     @Test func theOperatorsTaggedTabGivesTheRunItsSessionWindowAndConversation() throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
@@ -95,15 +81,6 @@ import Testing
         #expect(world.daemon.requests("operator.register").first?.params["token"] as? String == tokens[active.id])
         try await world.daemon.received("session.deliver")
         #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] reconnected, call run_status")
-    }
-
-    @Test func anOperationWorksInTheProjectsItsBriefsTicketsBelongTo() {
-        let pluto = OperatorServiceFixtures.project(name: "Pluto", jira: [JiraProjectRef(id: "1", key: "PLUTO", name: "Pluto",
-                                                                                 siteURL: URL(string: "https://acme.atlassian.net")!)])
-        let other = OperatorServiceFixtures.project(name: "Other")
-        let state = OperatorServiceFixtures.state(projects: [pluto, other], runs: [])
-        #expect(OperatorController.projects(for: "Do pluto-12 and PLUTO-13.", in: state) == [pluto.id])
-        #expect(OperatorController.projects(for: "Tidy the docs.", in: state) == [pluto.id, other.id])
     }
 
     @Test func aRunChangingIsHeardOnceAndAnUnrelatedChangeNotAtAll() throws {

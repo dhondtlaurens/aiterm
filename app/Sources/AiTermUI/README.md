@@ -272,7 +272,10 @@ mark at `Size.pickerRowLogo`, the name in `Typography.caption`, the ✕ in `Typo
 `Palette.muted`, on `Palette.badge` at `Radius.chip`, `Size.chip` plus `Space.tight` tall), wrapping by
 `ChipFlow` `Space.tight` apart, then a search field taking the rest of the line, all in one `fieldBox` at least
 `Size.control` tall, its results a `DropdownList` hanging `Space.tight` under it. It needs one project, and
-picking a Jira project picks the projects linked to it. Prompt, Review and Done are one `PromptStep` each, the
+picking a Jira project picks the projects linked to it. The Jira field offers the connection's Jira projects,
+fetched as the Jira projects sheet fetches them, the linked ones first; under its help a plain line says while
+they load ("Loading Jira projects…", with a small `ProgressView`), when there are none ("No Jira projects
+found.") and when Jira couldn't be reached, which leaves the linked ones on offer and holds nothing up. Prompt, Review and Done are one `PromptStep` each, the
 same editor at `PromptStep.editorHeight`, whose `/` lists Claude's and Codex's skills and `@` the files of the
 one picked project; under each its help in place of `CompletionHint`. Review's and Done's help say what the
 slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not

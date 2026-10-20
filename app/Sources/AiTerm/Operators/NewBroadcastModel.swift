@@ -34,14 +34,24 @@ final class NewBroadcastModel: Identifiable {
     private(set) var error: CreationFailure?
     /// What `/` lists in the three editors (both agents' skills) and `@` (one project's files).
     let completions = PromptCompletions()
+    /// Where the connection's Jira projects are: being fetched as the sheet opens, in hand, or not
+    /// reached (Jira away, or not connected), which leaves the linked ones and holds nothing up.
+    enum JiraLoad: Equatable { case loading, loaded, failed }
+
     /// The sidebar's projects, which step 1 offers.
     let offeredProjects: [Project]
-    /// Every Jira project the sidebar's projects link, each once.
-    let offeredJiraProjects: [JiraProjectRef]
+    /// Every Jira project the sidebar's projects link, each once: offered first, and alone until
+    /// the connection answers.
+    let linkedJiraProjects: [JiraProjectRef]
+    /// The connection's Jira projects, as the Jira projects sheet fetches them (`JiraClient.projects`).
+    private(set) var fetchedJiraProjects: [JiraProjectRef] = []
+    private(set) var jiraLoad = JiraLoad.loading
     let slices: Slices
     @ObservationIgnored private let skills: @Sendable (AgentKind, String?) -> [AgentCompletion]
     @ObservationIgnored private let files: @Sendable (String) -> FileIndex
     @ObservationIgnored private let startBroadcast: @MainActor (Request) async throws -> UUID
+    @ObservationIgnored private let fetchJiraProjects: @MainActor () async throws -> [JiraProjectRef]
+    @ObservationIgnored private let canChangeWorkspace: @MainActor () -> Bool
 
     static let title = "New broadcast"
     static let stepNames = ["Broadcast", "Prompt", "Review", "Done"]
@@ -51,6 +61,9 @@ final class NewBroadcastModel: Identifiable {
     static let nameHelp = "Optional."
     static let jiraProjectsPlaceholder = "Add a Jira project"
     static let jiraProjectsHelp = "Where it reads tickets, and files them with the Jira slice on."
+    static let jiraLoading = "Loading Jira projects…"
+    static let noJiraProjects = "No Jira projects found."
+    static let jiraUnreachable = "Jira couldn’t be reached, so only the Jira projects your projects link are offered."
     static let projectsPlaceholder = "Add a project"
     static let projectsHelp = "The repositories it may work in. Picking a Jira project adds its linked projects."
     static let promptHelp = "What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files."
@@ -63,9 +76,13 @@ final class NewBroadcastModel: Identifiable {
     init(projects: [Project], slices: Slices,
          skills: @escaping @Sendable (AgentKind, String?) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: $1) },
          files: @escaping @Sendable (String) -> FileIndex = { _ in .empty },
+         loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef] = { [] },
+         canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
          start: @escaping @MainActor (Request) async throws -> UUID) {
         offeredProjects = projects
-        offeredJiraProjects = projects.flatMap(\.jiraProjects).linkedOnce
+        linkedJiraProjects = projects.flatMap(\.jiraProjects).linkedOnce
+        fetchJiraProjects = loadJiraProjects
+        self.canChangeWorkspace = canChangeWorkspace
         self.slices = slices
         self.skills = skills
         self.files = files
@@ -89,6 +106,38 @@ final class NewBroadcastModel: Identifiable {
     }
 
     // -- step 1 ---------------------------------------------------------------------
+
+    /// The linked Jira projects, then the connection's others in its order, each once.
+    var offeredJiraProjects: [JiraProjectRef] { (linkedJiraProjects + fetchedJiraProjects).linkedOnce }
+
+    /// The line under the Jira projects help while there is something to say: still loading, none
+    /// found, or Jira not reached. Plain help, never amber: Start is not held up by it.
+    var jiraStatus: String? {
+        switch jiraLoad {
+        case .loading: Self.jiraLoading
+        case .failed: Self.jiraUnreachable
+        case .loaded: offeredJiraProjects.isEmpty ? Self.noJiraProjects : nil
+        }
+    }
+
+    /// Fetches the connection's Jira projects once, as the sheet opens.
+    func loadJiraProjects() async {
+        jiraLoad = .loading
+        do {
+            let found = try await fetchJiraProjects()
+            guard !Task.isCancelled else { return }
+            received(found)
+        } catch {
+            guard !Task.isCancelled else { return }
+            jiraLoad = .failed
+        }
+    }
+
+    /// The connection's answer, as a fetch lands it; the snapshots hand it in directly.
+    func received(_ jiraProjects: [JiraProjectRef]) {
+        fetchedJiraProjects = jiraProjects
+        jiraLoad = .loaded
+    }
 
     /// Picks `jiraProject`, and every offered project linked to it that isn't picked yet.
     func add(jiraProject: JiraProjectRef) {
@@ -118,7 +167,8 @@ final class NewBroadcastModel: Identifiable {
         projects = ordered + picked.filter { project in !ordered.contains { $0.id == project.id } }
     }
 
-    /// The offered Jira projects not picked yet, by key and then name (`JiraProjectSearch`).
+    /// The offered Jira projects not picked yet, by key and then name (`JiraProjectSearch`), the
+    /// linked ones first within each.
     func matchingJiraProjects(query: String) -> [JiraProjectRef] {
         JiraProjectSearch.rank(offeredJiraProjects, query: query, excluding: jiraProjects)
     }
@@ -142,7 +192,7 @@ final class NewBroadcastModel: Identifiable {
 
     /// Step 1 needs a project; every later step a prompt too. Review and Done may be left empty.
     func canAdvance(step: Int) -> Bool {
-        guard !starting, !projects.isEmpty else { return false }
+        guard !starting, canChangeWorkspace(), !projects.isEmpty else { return false }
         return step == 1 || Self.said(prompt) != nil
     }
 

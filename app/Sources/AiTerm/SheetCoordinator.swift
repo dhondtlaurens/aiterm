@@ -145,14 +145,17 @@ final class SheetCoordinator {
     /// New Broadcast…, on the sidebar's projects, its Review and Done help following `slices`: Settings ›
     /// Operator's as the sheet opens, the profile the operator controller freezes as it starts the
     /// broadcast (`startBroadcast`). `/` lists both agents' skills from the person's home; `@` the files
-    /// git tracks in the one picked project. Not over another sheet.
-    func presentNewBroadcast(slices: Slices, start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
+    /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
+    /// the Jira projects sheet fetches them. Not over another sheet.
+    func presentNewBroadcast(slices: Slices, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
+                             start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
-        let home = harnessHome, git = self.git
+        let home = harnessHome, git = self.git, workspace = workspace
         sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, slices: slices,
                                                 skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home) },
-                                                files: { ProjectFiles.list(in: $0, git: git) }, start: start))
+                                                files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
+                                                canChangeWorkspace: { workspace.canChangeWorkspace }, start: start))
     }
 
     /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).

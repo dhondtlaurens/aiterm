@@ -256,23 +256,6 @@ final class OperatorController {
         return facts
     }
 
-    /// The projects a brief's tickets belong to, by the Jira projects linked to each (spec §5.3); every
-    /// project when it names a ticket of none of them.
-    static func projects(for brief: String, in state: AppState) -> [UUID] {
-        let prefixes = Set(brief.uppercased().matches(of: /\b([A-Z][A-Z0-9_]+)-[0-9]+\b/).map { String($0.output.1) })
-        let linked = state.projects.filter { project in project.jiraProjects.contains { prefixes.contains($0.key.uppercased()) } }
-        return (linked.isEmpty ? state.projects : linked).map(\.id)
-    }
-
-    /// The Jira projects linked to `projects`, by key, each once in the order the projects list them.
-    static func jiraKeys(of projects: [UUID], in state: AppState) -> [String] {
-        var keys: [String] = []
-        for project in projects.compactMap(state.project(id:)) {
-            for key in project.jiraProjects.map(\.key) where !keys.contains(key) { keys.append(key) }
-        }
-        return keys
-    }
-
     /// The first line of the brief, as the run's row names it until the person renames it.
     static func operationName(from brief: String) -> String {
         let line = brief.split(whereSeparator: \.isNewline).lazy

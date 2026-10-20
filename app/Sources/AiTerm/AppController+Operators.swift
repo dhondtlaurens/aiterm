@@ -46,7 +46,7 @@ extension AppController {
         guard canChangeWorkspace else { return }
         let controller = operatorController
         let slices = controller.ports.profile?().slices ?? .none
-        sheets.presentNewBroadcast(slices: slices) { [weak self] request in
+        sheets.presentNewBroadcast(slices: slices, loadJiraProjects: { [weak self] in try await self?.loadJiraProjects() ?? [] }) { [weak self] request in
             let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                          projectIds: request.projectIds, prompt: request.prompt,
                                                          review: request.review, done: request.done)
