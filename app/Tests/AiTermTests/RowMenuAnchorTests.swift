@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import AiTermTestSupport
 @testable import AiTerm
 
 @MainActor
@@ -16,7 +17,7 @@ import Testing
         let old = UUID(), new = UUID()
         let host = NSHostingView(rootView: Row(id: old))
         host.frame = NSRect(x: 0, y: 0, width: 80, height: 20)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }
@@ -43,7 +44,7 @@ import Testing
         let a = UUID(), b = UUID()
         let host = NSHostingView(rootView: TwoRows(first: a, second: b))
         host.frame = NSRect(x: 0, y: 0, width: 80, height: 40)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.contentView = host
         window.orderFront(nil)
         defer { window.orderOut(nil) }

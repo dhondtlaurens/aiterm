@@ -33,6 +33,17 @@ class HookRouter:
         # The tick the next unplaced hook will wait for, until it starts reading; and when the last began.
         self._pending_tick: asyncio.Task[bool] | None = None
         self._last_tick_start = float("-inf")
+        self._ticks: set[asyncio.Task[bool]] = set()
+        self._stopped = False
+
+    async def stop(self) -> None:
+        """End shared retry ticks, including those shielded from a cancelled HTTP caller."""
+        self._stopped = True
+        pending = tuple(self._ticks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._pending_tick = None
 
     async def handle_hook(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         if (statusline := STATUSLINE_PARSERS.get(path)) is not None:
@@ -48,7 +59,7 @@ class HookRouter:
             # one, and a Grok tick between turns may carry nothing new but its totals.
             if (tick.model or tick.reasoning or tick.context_percent is not None or tick.tokens is not None
                     or tick.transcript) and (
-                    sid := self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)):
+                    sid := self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)[0]):
                 await self.publisher.session_changed(self.status.apply_metadata(
                     sid, model=tick.model, reasoning=tick.reasoning, context=tick.context_percent,
                     tokens=tick.tokens, transcript=tick.transcript))
@@ -59,15 +70,14 @@ class HookRouter:
         ev = parser(body) if parser else None
         if ev is None:
             return None
-        sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
+        sid, direct = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None and await self._tick_for_unplaced():
-            sid = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
+            sid, direct = self._resolve_post(ev.agent, ev.session_id, ev.cwd, ev.iterm_session_id, ev.event_name)
         if sid is None:
             log.debug("hook for unknown session: %s %s", ev.agent, ev.cwd)
             return None
         # Placed by evidence -- the agent's pid, or the tab id its hook carries -- rather than by a pin or
         # the directory, either of which can name a sibling tab.
-        direct = self.resolver.resolve_directly(ev.agent, ev.session_id, ev.iterm_session_id)
         # The post came from the agent itself, so its cwd is the agent's — the only source
         # there is for a Codex or PI session, neither of which has a polled session file. Its
         # conversation is the tab's only when the post was placed by evidence.
@@ -90,10 +100,12 @@ class HookRouter:
         arrives while it runs shares the next, which waits out `retick_seconds` since this one began:
         at most one running and one waiting, however many posts come. False if there is no tick to
         wait for or it failed, and the post is then dropped as before."""
-        if self._tick is None:
+        if self._stopped or self._tick is None:
             return False
         if (task := self._pending_tick) is None:
             task = self._pending_tick = asyncio.get_running_loop().create_task(self._paced_tick(self._tick))
+            self._ticks.add(task)
+            task.add_done_callback(self._ticks.discard)
         return await asyncio.shield(task)
 
     async def _paced_tick(self, tick: Callable[[], Awaitable[None]]) -> bool:
@@ -112,7 +124,8 @@ class HookRouter:
         return True
 
     def _resolve_post(self, agent: AgentKind, session_id: str | None, cwd: str | None,
-                      iterm_session_id: str | None = None, hook_event: str | None = None) -> str | None:
-        if (sid := self.resolver.resolve(agent, session_id, cwd, iterm_session_id)) is not None:
+                      iterm_session_id: str | None = None, hook_event: str | None = None) -> tuple[str | None, str | None]:
+        sid, direct = self.resolver.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)
+        if sid is not None:
             self.resolver.bind(sid, agent, session_id, hook_event)
-        return sid
+        return sid, direct

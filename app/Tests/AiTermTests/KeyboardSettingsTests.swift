@@ -1,6 +1,8 @@
 import AppKit
 import Testing
 @testable import AiTerm
+@testable import AiTermCore
+@testable import AiTermTestSupport
 
 @MainActor
 @Suite(.serialized) struct KeyboardSettingsTests {
@@ -163,6 +165,28 @@ import Testing
         #expect(KeyBinding(action: "Switch", keys: ["⌘", "⇥"]).spokenKeys == "Command Tab")
         #expect(KeyBinding(action: "Settings", keys: ["⌘", ","]).spokenKeys == "Command ,")
         #expect(KeyBinding(action: "Fold", keys: ["←", "→"]).spokenKeys == "Left Arrow Right Arrow")
-        #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–3"]).spokenKeys == "Command 1 to 3")
+        #expect(KeyBinding(action: "Tabs", keys: ["⌘", "1–4"]).spokenKeys == "Command 1 to 4")
+    }
+
+    /// One row for Settings' four tabs, numbered in the order the tab bar draws them.
+    @Test func settingsTabsAreOneToFour() throws {
+        let sheets = try #require(KeyBindings.all.first { $0.title == "Sheets" })
+        let tabs = try #require(sheets.bindings.first { $0.action == "Switch Settings tabs" })
+        #expect(tabs.keys == ["⌘", "1–4"])
+        #expect(tabs.spokenKeys == "Command 1 to 4")
+        #expect(SettingsTab.allCases.count == 4)
+    }
+
+    /// There is no ⌘I (spec §3, §10): a click or ↩ on the broadcast row opens its overview. No row lists
+    /// it, no menu item claims it, and the list hands it on.
+    @Test func thereIsNoCommandI() throws {
+        #expect(KeyBindings.all.flatMap(\.bindings).filter { $0.keys.last == "I" }.isEmpty)
+        let saved = NSApplication.shared.mainMenu
+        defer { NSApplication.shared.mainMenu = saved }
+        AiTermApp(controller: AppController(preferences: .scratch())).buildMenu()
+        let items = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).flatMap(\.items)
+        #expect(items.filter { $0.keyEquivalent.lowercased() == "i" }.isEmpty)
+        let sidebar = try #require(KeyBindings.all.first { $0.title == "Sidebar" })
+        #expect(sidebar.bindings.contains { $0.action.contains("broadcast") }, "↩ names what it does on the broadcast row")
     }
 }

@@ -16,7 +16,7 @@ struct KeyBinding: Equatable, Identifiable {
     private static let spokenNames = [
         "⌘": "Command", "⇧": "Shift", "⌥": "Option", "⌃": "Control", "↩": "Return", "⎋": "Escape",
         "⌫": "Delete", "⇥": "Tab", "↑": "Up Arrow", "↓": "Down Arrow", "←": "Left Arrow", "→": "Right Arrow",
-        "−": "minus", "+": "plus", "1–3": "1 to 3",
+        "−": "minus", "+": "plus", "1–4": "1 to 4",
     ]
 }
 
@@ -60,14 +60,14 @@ enum KeyBindings {
         ]),
         KeyBindingGroup(title: "Sidebar", help: "While the list has the keyboard.", bindings: [
             KeyBinding(action: "Peek at a row’s window", keys: ["↑", "↓"]),
-            KeyBinding(action: "Go to the row’s window, fold or open a project, or open an empty one’s menu", keys: ["↩"]),
+            KeyBinding(action: "Go to the row’s window, open the broadcast’s overview, fold or open a project, or open an empty one’s menu", keys: ["↩"]),
             KeyBinding(action: "Remove the task, review or terminal", keys: ["⌘", "⌫"]),
         ]),
-        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf and Settings.", bindings: [
+        KeyBindingGroup(title: "Sheets", help: "New task, New review, New terminal, Add divider, Rename, Jira projects, Shelf, Settings, New Broadcast and a broadcast’s overview.", bindings: [
             KeyBinding(action: "Continue, create or save", keys: ["⌘", "↩"]),
             KeyBinding(action: "Back a step, or close", keys: ["⎋"]),
-            // One row for the three: the tabs are numbered in the order the tab bar draws them.
-            KeyBinding(action: "Switch Settings tabs", keys: ["⌘", "1–3"]),
+            // One row for the four: the tabs are numbered in the order the tab bar draws them.
+            KeyBinding(action: "Switch Settings tabs", keys: ["⌘", "1–4"]),
         ]),
         KeyBindingGroup(title: "Lists and the prompt", help: "A picker’s results, and the prompt’s completions.", bindings: [
             KeyBinding(action: "Move through the list", keys: ["↑", "↓"]),

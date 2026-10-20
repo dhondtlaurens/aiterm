@@ -370,6 +370,19 @@ import Synchronization
         #expect(noReset[0].lines[0].help == "5-hour limit, 5 % used")
     }
 
+    /// What the Operator reads of your usage: each agent's weekly percent, a window past its reset left out.
+    @Test func weeklyUsageKeepsOnlyWindowsStillOpen() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000), epoch = Int(now.timeIntervalSince1970)
+        let snap = UsageSnapshot(
+            claude: Usage(fiveHour: UsageWindow(usedPercent: 99, resetsAt: epoch + 60), sevenDay: UsageWindow(usedPercent: 84, resetsAt: epoch + 3600),
+                          spend: nil, plan: nil, updatedAt: epoch),
+            codex: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 23, resetsAt: epoch - 1), spend: nil, plan: nil, updatedAt: epoch))
+        #expect(SidebarModel.weeklyUsage(snap, now: now) == [.claude: 84], "codex's week ended; the 5-hour window is not the week")
+        let noReset = UsageSnapshot(claude: Usage(fiveHour: nil, sevenDay: UsageWindow(usedPercent: 5, resetsAt: nil), spend: nil, plan: nil, updatedAt: epoch), codex: nil)
+        #expect(SidebarModel.weeklyUsage(noReset, now: now) == [.claude: 5])
+        #expect(SidebarModel.weeklyUsage(.empty, now: now).isEmpty)
+    }
+
     /// "No usage data yet" is the honest answer while the first status line tick is awaited, but it is a
     /// lie once AiTerm's shim is no longer Claude Code's status line: no tick is coming, ever. The
     /// footer has to tell those two apart, or a broken feed looks like a slow one forever.

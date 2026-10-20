@@ -28,18 +28,18 @@ import Synchronization
 
     private var cloneExists: Bool { FileManager.default.fileExists(atPath: clone.path) }
 
-    @Test func theButtonNamesTheAgent() {
-        #expect(FixSession(request: request, fixer: .ready(.codex), pipeline: pipeline(), retry: { _ in }).buttonTitle == "Fix with Codex")
-        #expect(FixSession(request: request, fixer: .ready(.claude), pipeline: pipeline(), retry: { _ in }).buttonTitle == "Fix with Claude")
+    /// Find a Fix says what you get, not who gives it.
+    @Test func theButtonIsFindAFix() {
+        #expect(FixSession(request: request, fixer: .ready(.claude), pipeline: pipeline(), retry: { _ in }).buttonTitle == "Find a Fix")
     }
 
-    @Test func aMissingOrOffFixerIsUnavailableAndDoesNotStart() async {
-        let missing = FixSession(request: request, fixer: .missing(.claude), pipeline: pipeline(), retry: { _ in })
-        #expect(missing.state == .unavailable("Claude Code isn’t installed. Install it in Settings › Agents, or choose another agent there."))
-        missing.start(); await missing.settled()
-        #expect(missing.state == .unavailable("Claude Code isn’t installed. Install it in Settings › Agents, or choose another agent there."))
+    /// Off — Help with problems turned off, or Claude Code missing — offers nothing and does not start.
+    @Test func anOffFixerIsUnavailableAndDoesNotStart() async {
+        let off = FixSession(request: request, fixer: .off, pipeline: pipeline(), retry: { _ in })
+        #expect(off.state == .unavailable(""))
+        off.start(); await off.settled()
+        #expect(off.state == .unavailable(""))
         #expect(!cloneExists)
-        #expect(FixSession(request: request, fixer: .off, pipeline: pipeline(), retry: { _ in }).state == .unavailable(""))
     }
 
     @Test func lookThenProposalThenApplyThenDoneAndRetry() async {

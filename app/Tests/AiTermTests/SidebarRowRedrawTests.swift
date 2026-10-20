@@ -57,12 +57,12 @@ import Testing
         let counter = RowBodyCounter()
         let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.rowBodyCounter, counter))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 700)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        // Header, two project rows, two terminals and seven tasks.
-        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 12 } ?? false }
+        // OPERATORS, header, two project rows, two terminals and seven tasks.
+        settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows == 13 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
         let sidebar = Sidebar(controller: controller, counter: counter, host: host, window: window, list: list,
                               project: projects[0], tasks: tasks, terminals: terminals)
@@ -102,6 +102,35 @@ import Testing
         }
     }
 
+    /// A change to the broadcast redraws its row alone: a request appearing or its progress showing
+    /// changes what the row draws; a change it draws nothing of, a decision recorded, redraws nothing.
+    @Test func aBroadcastChangeRedrawsOnlyItsRow() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil) }
+        let run = OperatorUIFixtures.run(windowId: nil)
+        sidebar.controller.workspace.mutate { $0.runs = [run] }
+        sidebar.settleRows { sidebar.list.numberOfRows == 14 && sidebar.counter.counts[run.id] != nil }
+
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.runs[0].questions = [OperatorUIFixtures.question("retry policy?")] }
+        sidebar.settleRows { sidebar.counter.counts[run.id] != nil }
+        #expect(sidebar.controller.rows.broadcast?.status == .needsInput)
+        #expect(Set(sidebar.counter.counts.keys) == [run.id], "a request: redrawn \(sidebar.counter.counts.count) rows")
+
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.runs[0].firstPlanSize = 4 }
+        sidebar.settleRows { sidebar.counter.counts[run.id] != nil }
+        #expect(sidebar.controller.rows.broadcast?.progress == "0 of 0 done")
+        #expect(Set(sidebar.counter.counts.keys) == [run.id], "progress: redrawn \(sidebar.counter.counts.count) rows")
+
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { state in
+            state.runs[0].decisions = [OperatorDecision(key: "k", text: "Kept the subtitle.", task: nil, at: Date(), challenge: nil)]
+        }
+        sidebar.settleRows()
+        #expect(sidebar.counter.counts.isEmpty, "nothing the row draws: redrawn \(sidebar.counter.counts.count) rows")
+    }
+
     @Test func aMissingCheckoutRedrawsOnlyItsRow() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
@@ -129,5 +158,26 @@ import Testing
             #expect(Set(sidebar.counter.counts.keys) == [counted],
                     "\(String(describing: threads)): redrawn \(sidebar.counter.counts.count) of \(sidebar.allRows.count) rows")
         }
+    }
+
+    /// A driven task the Operator acts on shimmers on Core Animation's clock: its row's body is not run
+    /// again frame by frame while its words sweep.
+    @Test func anActingRowIsNotRedrawnPerFrame() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil) }
+        let acted = sidebar.tasks[2]
+        let run = OperatorUIFixtures.run(projectIds: [sidebar.project.id])
+        sidebar.controller.rows.actingSource = { OperatorActs(tasks: [acted.id: .answering]) }
+        sidebar.controller.workspace.mutate { state in
+            state.runs = [run]
+            if let i = state.tasks.firstIndex(where: { $0.id == acted.id }) {
+                state.tasks[i].operated = OperatorUIFixtures.operated(run: run.id, key: "t2", state: .working)
+            }
+        }
+        sidebar.settleRows { sidebar.host.firstDescendant(ShimmerWordsView.self) != nil }
+        #expect(sidebar.host.firstDescendant(ShimmerWordsView.self) != nil, "the acting row shimmers")
+        sidebar.counter.reset()
+        settle(sidebar.host, for: 0.5)
+        #expect(sidebar.counter.counts[acted.id] == nil, "the acting row was redrawn \(sidebar.counter.counts[acted.id] ?? 0) times in 0.5 s")
     }
 }

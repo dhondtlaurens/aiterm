@@ -42,6 +42,14 @@ import Testing
                                             "Add Project…": true, "Add Divider…": true])
     }
 
+    /// The OPERATOR heading's "+" is the only way to start a broadcast (spec §13): File has no item for one,
+    /// with a broadcast or without.
+    @Test func thereIsNoBroadcastItem() throws {
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = try controller()
+        #expect(try enabled(controller).keys.filter { $0.localizedCaseInsensitiveContains("broadcast") || $0.contains("Operat") }.isEmpty)
+    }
+
     @Test func aSelectedRowTargetsItsProject() throws {
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = try controller()

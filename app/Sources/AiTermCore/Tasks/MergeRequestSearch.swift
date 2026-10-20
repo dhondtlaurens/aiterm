@@ -24,15 +24,23 @@ public enum MergeRequestSearch {
         remote.provider == .github ? .gitHub : .gitLab
     }
 
-    /// The search for `remote`'s requests on ``host(for:)``, with that host's connection. One GitLab
-    /// host is configured, and a project whose remote points elsewhere is refused rather than
-    /// searched there, which would list another project's merge requests.
-    public static func source(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?) throws(Unavailable) -> any MergeRequestSearching {
+    /// The host and the project on it that `remote`'s requests are on, with that host's connection.
+    /// One GitLab host is configured, and a project whose remote points elsewhere is refused rather
+    /// than asked there, which would name another project. Search and publishing both ask this.
+    ///
+    /// `remote` is only as right as the URL it was read from. Publishing needs the repository a push
+    /// goes to, which is `origin`'s fetch URL (a push refuses unless origin has one push URL at that
+    /// host and path); `Repository.remoteUrl()` may name another remote, the branch's upstream.
+    public enum Connection: Equatable, Sendable {
+        case gitHub(GitHubConfig, repo: String), gitLab(GitLabConfig, project: String)
+    }
+
+    public static func connection(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?) throws(Unavailable) -> Connection {
         switch host(for: remote) {
         case .gitHub:
             guard let gitHub else { throw .notConnected(.gitHub) }
             guard !remote.path.isEmpty else { throw .noRepositoryPath(.gitHub) }
-            return GitHubPullRequestSearch(client: GitHubClient(config: gitHub), repo: remote.path)
+            return .gitHub(gitHub, repo: remote.path)
         case .gitLab:
             guard let gitLab else { throw .notConnected(.gitLab) }
             let configured = gitLab.hostURL.host?.lowercased()
@@ -40,7 +48,15 @@ public enum MergeRequestSearch {
                 throw .otherGitLabHost(remote: remote.host, configured: gitLab.hostURL.host)
             }
             guard !remote.path.isEmpty else { throw .noRepositoryPath(.gitLab) }
-            return GitLabMergeRequestSearch(client: GitLabClient(config: gitLab), project: remote.path)
+            return .gitLab(gitLab, project: remote.path)
+        }
+    }
+
+    /// The search for `remote`'s requests on ``host(for:)``, with that host's connection.
+    public static func source(for remote: RemoteInfo, gitLab: GitLabConfig?, gitHub: GitHubConfig?) throws(Unavailable) -> any MergeRequestSearching {
+        switch try connection(for: remote, gitLab: gitLab, gitHub: gitHub) {
+        case .gitHub(let config, let repo): return GitHubPullRequestSearch(client: GitHubClient(config: config), repo: repo)
+        case .gitLab(let config, let project): return GitLabMergeRequestSearch(client: GitLabClient(config: config), project: project)
         }
     }
 }

@@ -14,7 +14,7 @@ public enum FixerAgent: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// What the button says after “Fix with”: the vendor's short name, not the CLI's display name.
+    /// The vendor's short name, not the CLI's display name: “Applies Claude’s fix”.
     public var shortName: String {
         switch self {
         case .claude: "Claude"
@@ -27,67 +27,37 @@ public extension AgentKind {
     var fixer: FixerAgent? { FixerAgent(rawValue: rawValue) }
 }
 
-/// Settings › Agents' “Fix with AI”: whether Fix buttons are offered, and the agent they ask. The
-/// agent is kept while the switch is off, so turning it back on asks the same one.
-public struct FixerChoice: Equatable, Sendable {
+/// Settings › Agents' “Help with problems”: whether a problem AiTerm hits offers Find a Fix. The fix
+/// runs as the Operator (spec §8, §13): its agent is always Claude, at Settings › Operator's model and
+/// reasoning, so the one choice left is the switch. Without Claude Code it is off, whatever was saved.
+public struct HelpWithProblems: Equatable, Sendable {
     public var isOn: Bool
-    public var agent: FixerAgent
 
-    public init(isOn: Bool, agent: FixerAgent) {
-        self.isOn = isOn
-        self.agent = agent
-    }
+    public init(isOn: Bool) { self.isOn = isOn }
 
-    /// On, asking `fixer`.
-    public static func agent(_ fixer: FixerAgent) -> FixerChoice { FixerChoice(isOn: true, agent: fixer) }
-    /// Off, keeping `fixer` for when it is turned back on.
-    public static func off(keeping fixer: FixerAgent = FixerAgent.allCases[0]) -> FixerChoice {
-        FixerChoice(isOn: false, agent: fixer)
-    }
+    /// The UserDefaults key. The old Fix with AI keys (`fixer`, `fixerIsOn`) are not read.
+    public static let key = "operator.helpWithProblems"
 
-    /// The chosen agent when it is installed, else that agent named as missing — never another
-    /// vendor's (spec §3, decision 7).
+    /// Whether the switch can be on: the Operator's agent, Claude Code, is installed.
+    public func isAvailable(installed: Set<AgentKind>) -> Bool { installed.contains(.claude) }
+
+    /// Claude when the switch is on and Claude Code is installed; Off otherwise. Never another vendor.
     public func resolve(installed: Set<AgentKind>) -> FixerResolution {
-        guard isOn else { return .off }
-        return installed.contains(agent.agent) ? .ready(agent) : .missing(agent)
+        isOn && isAvailable(installed: installed) ? .ready(.claude) : .off
+    }
+
+    /// The saved switch; on until it is turned off.
+    public static func load(defaults: UserDefaults) -> HelpWithProblems {
+        HelpWithProblems(isOn: defaults.object(forKey: key) as? Bool ?? true)
+    }
+
+    public static func save(_ choice: HelpWithProblems, defaults: UserDefaults) {
+        defaults.set(choice.isOn, forKey: key)
     }
 }
 
+/// What every Find a Fix is: the agent it asks, or Off — no button.
 public enum FixerResolution: Equatable, Sendable {
     case ready(FixerAgent)
-    /// Greyed, its tooltip naming the agent that is not installed.
-    case missing(FixerAgent)
     case off
-}
-
-public enum FixerSettings {
-    /// The agent — or, from a version before the switch, `off`, read as any unknown value is.
-    private static let key = "fixer"
-    /// Whether the switch is on; missing before the switch existed, when an agent in `key` meant on.
-    private static let isOnKey = "fixerIsOn"
-
-    /// The choice the person made — or that first launch saved for them — and nil before either.
-    /// Never saves, so the app can tell a first launch from a later one. A value this version does
-    /// not know reads as Off, keeping the first fixer.
-    public static func saved(defaults: UserDefaults) -> FixerChoice? {
-        guard let raw = defaults.string(forKey: key) else { return nil }
-        guard let fixer = FixerAgent(rawValue: raw) else { return .off() }
-        let isOn = defaults.object(forKey: isOnKey) as? Bool ?? true
-        return FixerChoice(isOn: isOn, agent: fixer)
-    }
-
-    /// The saved choice; on first launch the first installed fixer, switched on, saved at once so a
-    /// later install never changes it. With none installed, Off.
-    public static func load(defaults: UserDefaults, installed: Set<AgentKind>) -> FixerChoice {
-        if let saved = saved(defaults: defaults) { return saved }
-        let first = FixerAgent.allCases.first { installed.contains($0.agent) }
-        let choice = first.map(FixerChoice.agent) ?? .off()
-        save(choice, defaults: defaults)
-        return choice
-    }
-
-    public static func save(_ choice: FixerChoice, defaults: UserDefaults) {
-        defaults.set(choice.agent.rawValue, forKey: key)
-        defaults.set(choice.isOn, forKey: isOnKey)
-    }
 }

@@ -17,8 +17,13 @@ final class PromptCompletions {
     @ObservationIgnored var files = FileIndex.empty
     var visible: [AgentCompletion] = []
     var index = 0
-    /// Top-left of the popup, in the editor's own coordinates.
+    /// Top-left of the popup, in the editor's own coordinates: under the caret's line, or above it
+    /// when `opensAbove`.
     var anchor = CGPoint.zero
+    /// Whether the popup hangs above the caret's line: there was no room for it below, inside what
+    /// shows of the editor's surroundings (the scroll view it sits in, else its window), and more
+    /// room above. Settings › Operator's Instructions, the last field of a scrolling sheet, is one.
+    var opensAbove = false
     /// The editor's own width, so the popup can pull itself left instead of running past the
     /// field's right edge when the token starts near the end of a line.
     var fieldWidth: CGFloat = 0
@@ -174,13 +179,20 @@ struct PromptEditor: NSViewRepresentable {
                 : SkillCatalog.matches(model.all, query: trigger.query)
             guard !matches.isEmpty else { model.close(); return }
             if model.visible != matches { model.visible = matches; model.index = 0 }
-            model.anchor = caretAnchor(in: textView, tokenStart: trigger.range.lowerBound)
+            let line = tokenLine(in: textView, tokenStart: trigger.range.lowerBound)
+            let height = CompletionPopup.height(rows: matches.count)
+            let above = CompletionPopup.opensAbove(line: textView.convert(line, to: nil), height: height, visible: visibleArea(of: textView))
+            let scrolled = textView.enclosingScrollView?.contentView.bounds.origin.y ?? 0
+            // A hairline between the popup and the caret's line, so it never touches the text.
+            let y = above ? line.minY - scrolled - Space.hairline - height : line.maxY - scrolled + Space.hairline
+            if model.opensAbove != above { model.opensAbove = above }
+            model.anchor = CGPoint(x: line.minX, y: y)
             model.fieldWidth = textView.enclosingScrollView?.bounds.width ?? textView.bounds.width
         }
 
-        /// Bottom-left of the line the caret is on, in the scroll view's visible coordinates, so the
-        /// popup hangs under the token being typed rather than at a fixed spot.
-        private func caretAnchor(in textView: NSTextView, tokenStart: Int) -> CGPoint {
+        /// The line the token being typed starts on, in the text view's coordinates, so the popup
+        /// hangs by the token rather than at a fixed spot.
+        private func tokenLine(in textView: NSTextView, tokenStart: Int) -> CGRect {
             guard let layout = textView.layoutManager, let container = textView.textContainer else { return .zero }
             let text = textView.string
             let start = text.index(text.startIndex, offsetBy: min(tokenStart, text.count))
@@ -189,10 +201,19 @@ struct PromptEditor: NSViewRepresentable {
             var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
             rect.origin.x += textView.textContainerInset.width
             rect.origin.y += textView.textContainerInset.height
-            let scrolled = textView.enclosingScrollView?.contentView.bounds.origin.y ?? 0
-            // A hairline below the caret's line, so the popup never touches the text above it.
-            return CGPoint(x: rect.minX, y: rect.maxY - scrolled + Space.hairline)
+            return rect
         }
+
+        /// What shows around the editor, in window coordinates: the scroll view it sits in (a
+        /// sheet's), else its window's content; nil outside a window.
+        private func visibleArea(of textView: NSTextView) -> CGRect? {
+            if let outer = textView.enclosingScrollView?.enclosingScrollView {
+                return outer.contentView.convert(outer.contentView.bounds, to: nil)
+            }
+            guard let content = textView.window?.contentView else { return nil }
+            return content.convert(content.bounds, to: nil)
+        }
+
     }
 }
 
@@ -280,11 +301,27 @@ struct CompletionPopup: View {
     var body: some View {
         // The offset lives here, not at the call site: only this view reads the model, so an
         // anchor read anywhere else would be the one from when the sheet last rebuilt.
+        // Never wider than the field it opens from, which a sheet's scroller can narrow.
+        let width = completions.fieldWidth > 0 ? min(self.width, completions.fieldWidth) : self.width
         if completions.visible.isEmpty { EmptyView() } else {
             list.frame(width: width)
                 .offset(x: Self.leading(anchorX: completions.anchor.x, width: width, fieldWidth: completions.fieldWidth),
                         y: completions.anchor.y)
         }
+    }
+
+    /// The popup's height for `rows` results: `DropdownList`'s rows inside its padding. The editor
+    /// reads it to decide whether the popup fits below the caret's line.
+    static func height(rows: Int) -> CGFloat { CGFloat(rows) * Size.menuRow + 2 * Space.tight }
+
+    /// Above only when the popup does not fit below the caret's line and there is more room above
+    /// it. `line` and `visible` are in window coordinates, whose y runs up; with no `visible` (no
+    /// window yet) it hangs below.
+    static func opensAbove(line: CGRect, height: CGFloat, visible: CGRect?) -> Bool {
+        guard let visible else { return false }
+        let below = line.minY - Space.hairline - visible.minY
+        let above = visible.maxY - (line.maxY + Space.hairline)
+        return below < height && above > below
     }
 
     /// The popup's x: under the token when it fits, otherwise pulled left until its right edge

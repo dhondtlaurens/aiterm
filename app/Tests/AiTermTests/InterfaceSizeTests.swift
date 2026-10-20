@@ -1,6 +1,7 @@
 import AppKit
 import AiTermUI
 import Testing
+import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -31,8 +32,7 @@ struct InterfaceSizeTests {
 
     @Test func settingASizeResizesTheSidebarWindow() throws {
         let controller = try controller()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 600), styleMask: [.titled, .resizable],
-                              backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 600), styleMask: [.titled, .resizable])
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 360, height: 400)
         controller.tiling.sidebarWindow = window

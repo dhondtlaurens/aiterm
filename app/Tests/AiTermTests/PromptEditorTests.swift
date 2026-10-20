@@ -3,6 +3,7 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 import Testing
+import AiTermTestSupport
 @testable import AiTerm
 
 @MainActor
@@ -67,7 +68,7 @@ import Testing
             .frame(width: 420, height: 150)
         let host = NSHostingView(rootView: editor)
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 150)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.contentView = host
         defer { window.orderOut(nil) }
@@ -93,6 +94,20 @@ import Testing
         let textView = try #require(descendant(of: NSScrollView.self, in: host)?.documentView as? NSTextView)
         #expect(textView.textContainerInset == PromptEditor.textInset)
         #expect(textView.textContainer?.lineFragmentPadding == PromptEditor.lineFragmentPadding)
+    }
+
+    /// The popup hangs below the caret's line while it fits there, and above it only when it does
+    /// not and there is more room above. In window coordinates, y up.
+    @Test func thePopupOpensAboveOnlyWithoutRoomBelow() {
+        let height = CompletionPopup.height(rows: 8)
+        #expect(height == 8 * Size.menuRow + 2 * Space.tight)
+        let visible = CGRect(x: 0, y: 0, width: 500, height: 500)
+        #expect(!CompletionPopup.opensAbove(line: CGRect(x: 0, y: 400, width: 10, height: 16), height: height, visible: visible))
+        #expect(CompletionPopup.opensAbove(line: CGRect(x: 0, y: 60, width: 10, height: 16), height: height, visible: visible))
+        #expect(!CompletionPopup.opensAbove(line: CGRect(x: 0, y: 60, width: 10, height: 16), height: height,
+                                            visible: CGRect(x: 0, y: 0, width: 500, height: 100)),
+                "no more room above than below: it stays below")
+        #expect(!CompletionPopup.opensAbove(line: CGRect(x: 0, y: 60, width: 10, height: 16), height: height, visible: nil))
     }
 
     @Test func popupOpenedNearTheRightEdgeStaysInsideTheField() throws {

@@ -368,11 +368,13 @@ import Foundation
                             kind: .review, mr: MergeRequestRef(iid: 4, title: "Add gift card", url: "https://git.example.net/g/p/-/merge_requests/4"),
                             agent: .grok, model: "grok-4", reasoning: "high", firstPrompt: "Look at it", appendTicket: true,
                             createdAt: Date(timeIntervalSince1970: 1_700_000_000), windowId: "w9",
-                            conversations: [TaskConversation(agent: .grok, id: "g-1"), TaskConversation(agent: .claude, id: "c-2")])
+                            conversations: [TaskConversation(agent: .grok, id: "g-1"), TaskConversation(agent: .claude, id: "c-2")],
+                            operated: OperatedTask(runId: UUID(), key: "SHOP-1", state: .working, brief: "Do it", revision: 1))
         let data = try JSONEncoder().encode(task)
         let keys = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         #expect(Set(keys) == ["id", "projectId", "title", "branch", "worktreePath", "baseBranch", "jira", "kind", "mr", "agent",
-                              "model", "reasoning", "firstPrompt", "appendTicket", "createdAt", "windowId", "conversations"])
+                              "model", "reasoning", "firstPrompt", "appendTicket", "createdAt", "windowId", "conversations",
+                              "operated"])
         #expect(try JSONDecoder().decode(TaskItem.self, from: data) == task)
     }
 

@@ -299,3 +299,10 @@ async def test_a_disconnect_reconnects_without_launching_iterm(harness):
     await it.reconnect()
     assert await h.broadcasts.next("iterm.connected") == {"version": "3.7.2"}
     assert h.launches == []
+
+
+async def test_authentication_backoff_stays_capped_after_thousands_of_failures(harness):
+    h = harness(reconnect_seconds=3.0)
+    for _ in range(2000):
+        await h.supervisor._auth_failed(REFUSED)
+    assert h.supervisor._retry_delay() == 60.0

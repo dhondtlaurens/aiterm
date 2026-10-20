@@ -12,7 +12,7 @@ struct InputTests {
     @Test func onlyARealEditReachesTheBinding() {
         var value = "feat/login"
         var writes = 0
-        let binding = Input.edits(to: Binding(get: { value }, set: { value = $0; writes += 1 }))
+        let binding = TextFieldEditing.edits(to: Binding(get: { value }, set: { value = $0; writes += 1 }))
 
         binding.wrappedValue = "feat/logout"
         #expect(writes == 1)

@@ -15,6 +15,19 @@ private final class ScriptedSensor: MachineSensor, @unchecked Sendable {
     }
 }
 
+private final class GatedMachineSensor: MachineSensor, @unchecked Sendable {
+    private let gates = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
+    private let reads = Mutex(0)
+    var count: Int { reads.withLock { $0 } }
+    func release(_ index: Int) { gates[index].signal() }
+    func sample() -> MachineSample {
+        let index = reads.withLock { let index = $0; $0 += 1; return index }
+        gates[index].wait()
+        return MachineSample(cpu: nil, memory: MemoryUse(used: index == 0 ? 4 : 12, total: 16),
+                             throttled: false, memoryPressure: false)
+    }
+}
+
 @MainActor
 struct MachineMonitorTests {
     private func sample(user: UInt32, idle: UInt32, used: UInt64 = 8) -> MachineSample {
@@ -68,4 +81,20 @@ struct MachineMonitorTests {
         monitor.stop()
         #expect(monitor.lines.map(\.window) == [.ram])
     }
+    @Test func aStoppedSampleCannotOverwriteItsReplacementsReading() async {
+        let sensor = GatedMachineSensor()
+        let monitor = MachineMonitor(sensor: sensor, power: FakePower())
+        let old = Task { await monitor.sample() }
+        await eventually { sensor.count == 1 }
+        monitor.stop()
+        let replacement = Task { await monitor.sample() }
+        await eventually { sensor.count == 2 }
+        sensor.release(1)
+        _ = await replacement.value
+        #expect(monitor.lines.map(\.percent) == [75])
+        sensor.release(0)
+        _ = await old.value
+        #expect(monitor.lines.map(\.percent) == [75])
+    }
+
 }

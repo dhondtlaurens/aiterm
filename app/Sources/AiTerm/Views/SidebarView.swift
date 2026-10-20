@@ -27,8 +27,8 @@ struct SidebarView: View {
     /// frame and remembered choices no row draws.
     let controller: AppController
 
-    /// One entry's rows, in the order the list draws them: a divider, or a project's header and —
-    /// open — its terminals, then its tasks. The snapshots stack the same rows, since
+    /// One entry's rows, in the order the list draws them, after the Operator's: a divider, or a
+    /// project's header and — open — its terminals, then its tasks. The snapshots stack the same rows, since
     /// `ImageRenderer` cannot draw a `List`, so they cannot show another order.
     @ViewBuilder static func rows(of entry: SidebarEntry, in rows: SidebarProjection, controller: AppController) -> some View {
         switch entry {
@@ -56,6 +56,15 @@ struct SidebarView: View {
         }
     }
 
+    /// The OPERATOR heading and, while a broadcast exists, its row, as the list draws them above the
+    /// projects. The heading is off the arrow path, as a divider is; the row is on it, tagged with its run.
+    @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
+        OperatorHeading(controller: controller).selectionDisabled()
+        if let broadcast = rows.broadcast {
+            BroadcastRowView(row: broadcast, controller: controller).tag(broadcast.id)
+        }
+    }
+
     var body: some View {
         let scale = controller.preferences.interfaceSize.scale
         let rows = controller.rows
@@ -63,6 +72,8 @@ struct SidebarView: View {
             SidebarBanners(controller: controller)
             ScrollViewReader { scroller in
                 List(selection: selection) {
+                    Self.operatorRows(in: rows, controller: controller)
+                    .listRowSeparator(.hidden)
                     SidebarHeader(controller: controller).selectionDisabled()
                     if !rows.hasProjects {
                         SidebarEmptyState(controller: controller).selectionDisabled().listRowSeparator(.hidden)
@@ -207,12 +218,18 @@ struct SidebarSheetPresenter: View {
 }
 
 /// What sits above the list: a failed save, a failed operation, and the helper's connection state.
+/// The first two, and iTerm2 refusing the connection, are `Notice`s; the grey line while AiTerm
+/// connects is not a request, and stays a line of muted text.
 struct SidebarBanners: View {
     let controller: AppController
 
     var body: some View {
         if let message = controller.persistenceError {
-            SidebarBanner(text: message, tone: .error, actions: [.init(title: "Retry Saving") { controller.workspace.flush() }])
+            SidebarBanner {
+                Notice(title: message, description: nil) {
+                    Button("Retry Saving") { controller.workspace.flush() }
+                }
+            }
         }
         if let issue = controller.issue {
             IssueBanner(issue: issue, fix: controller.notices.fixSession,
@@ -220,15 +237,40 @@ struct SidebarBanners: View {
                         cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.dismissIssue() })
         }
         if let banner = controller.helper.itermConnection.banner {
-            // Amber, like "Usage disconnected": a warning waits on the person, not on a retry.
-            SidebarBanner(text: banner.text, tone: banner.tone == .warning ? .warning : .info, trailing: Space.block)
+            SidebarConnectionBanner(banner: banner, status: controller.helper.itermConnection.status)
         }
     }
 }
 
-/// A failed operation above the list, and the Fix it offers (`BannerFixPresentation`): the
-/// issue's sentence and its ways out, then — once a Fix is asked for — the agent's line, its
-/// proposal with Apply and Cancel, and Applying… with the banner held, where the sentence was.
+/// The helper's connection state: grey while it connects, which waits on nothing of yours; a
+/// `Notice` while iTerm2 refuses the connection, which waits on you — the card's status its title,
+/// what to do its description.
+struct SidebarConnectionBanner: View {
+    let banner: DaemonBanner
+    /// `ItermConnection.status`, which the banner's text opens with.
+    let status: String
+
+    /// The refusal's title and description: the status as a sentence, then the rest of the banner's text.
+    static func notice(_ text: String, status: String) -> (title: String, description: String?) {
+        let title = status + "."
+        guard text.hasPrefix(title + " ") else { return (text, nil) }
+        return (title, String(text.dropFirst(title.count + 1)))
+    }
+
+    var body: some View {
+        switch banner.tone {
+        case .warning:
+            let notice = Self.notice(banner.text, status: status)
+            SidebarBanner(trailing: Space.block) { Notice(title: notice.title, description: notice.description) }
+        case .info:
+            SidebarBanner(trailing: Space.block) { SidebarBannerText(text: banner.text) }
+        }
+    }
+}
+
+/// A failed operation above the list, and the Find a Fix it offers (`BannerFixPresentation`), as one
+/// `Notice`: the issue's title and reason, its ways out as links — then, once a fix is asked for, the
+/// busy line or the proposal under the issue, with Apply and Cancel, and Applying… with the banner held.
 struct IssueBanner: View {
     let issue: OperationIssue
     /// The Fix offered for the issue, if any; its state is the one thing here it observes.
@@ -236,122 +278,89 @@ struct IssueBanner: View {
     let perform: (OperationIssue.Action) -> Void
     let cancelFix: () -> Void
     let dismiss: () -> Void
+    @Environment(\.interfaceScale) private var scale
 
     var body: some View {
         let shown = BannerFixPresentation(issue: issue, state: fix?.state, fixer: fix?.fixer)
-        let actions = shown.links.map(action)
-        switch shown.content {
-        case .text(let title, let detail, let help):
-            SidebarBanner(text: title, detail: detail, help: help, tone: .error, actions: actions, vertical: Space.base)
-        case .busy(let line):
-            SidebarBanner(tone: .error, actions: actions, vertical: Space.base) { FixBusyLine(text: line, compact: true) }
-        case .proposal(let agent, let proposal):
-            SidebarBanner(tone: .error, actions: actions, vertical: Space.base) {
-                FixProposalBlock(agent: agent, proposal: proposal, compact: true)
+        SidebarBanner(vertical: Space.base) {
+            switch shown.content {
+            case .text(let title, let detail, let help):
+                Notice(title: title, description: detail, help: help) { links(shown.links) }
+            case .busy(let line):
+                Notice(title: issue.title, description: issue.reason, help: issue.detail) {
+                    FixBusyLine(text: line, compact: true)
+                } actions: { links(shown.links) }
+            case .proposal(let agent, let proposal):
+                Notice(title: issue.title, description: issue.reason, help: issue.detail) {
+                    FixProposalBlock(agent: agent, proposal: proposal, compact: true)
+                } actions: { links(shown.links) }
             }
         }
     }
 
-    private func action(_ link: BannerFixPresentation.Link) -> SidebarBannerAction {
-        switch link {
-        case .action(let action): .init(title: link.title) { perform(action) }
-        case .fix(_, let isEnabled, let help): .init(title: link.title, isEnabled: isEnabled, help: help) { fix?.start() }
-        case .tryAgain(let help): .init(title: link.title, help: help) { fix?.tryAgain() }
-        case .apply(let help): .init(title: link.title, help: help) { fix?.apply() }
-        case .cancel(let isEnabled): .init(title: link.title, isEnabled: isEnabled, perform: cancelFix)
-        case .dismiss: .init(title: link.title, perform: dismiss)
+    @ViewBuilder private func links(_ links: [BannerFixPresentation.Link]) -> some View {
+        ForEach(links.indices, id: \.self) { index in
+            let link = links[index]
+            switch link {
+            case .action(let action): Button(link.title) { perform(action) }
+            case .fix(_, let isEnabled, let help):
+                Button { fix?.start() } label: { FixOfferLabel(scale: scale) }.disabled(!isEnabled).help(help)
+            case .tryAgain(let help): Button(link.title) { fix?.tryAgain() }.help(help)
+            case .apply(let help): Button(link.title) { fix?.apply() }.help(help)
+            case .cancel(let isEnabled): Button(link.title, action: cancelFix).disabled(!isEnabled)
+            case .dismiss: Button(link.title, action: dismiss)
+            }
         }
     }
 }
 
-/// What inks a banner's sentence: `.error` `Palette.text`, `.warning` `Palette.amber`, `.info` `Palette.muted`.
-enum SidebarBannerTone { case error, warning, info }
+/// Find a Fix, led by the Operator's mark — its agent's, Claude's — at `Size.inlineMark`, where Fix
+/// with AI had `sparkles`: the fix runs as the Operator. `scale` is the surface's: the sidebar's, or
+/// ×1 in a sheet.
+struct FixOfferLabel: View {
+    var scale: InterfaceScale = .standard
 
-/// A banner's link: its title, what it does, and — greyed — why it cannot.
-struct SidebarBannerAction {
-    let title: String
-    var isEnabled = true
-    var help: String? = nil
-    let perform: () -> Void
+    var body: some View {
+        HStack(spacing: scale(Space.tight)) {
+            VendorMark(agent: .claude, size: scale(Size.inlineMark))
+            Text(FixOffer.title)
+        }
+    }
 }
 
-/// One line — or a few — above the list, and the links that answer it. Its text starts where the
-/// `PROJECTS` heading's does, the list's inset plus `Space.base`, as the sidebar footer's marks do below.
-/// `detail` follows `text` in `Palette.muted`: what happened, then why; `help` is the tooltip, git's
-/// whole output where there is one. Built with `content` instead, it draws that in the text's place —
-/// a Fix's line or its proposal — with the same margins and links.
+/// What stands above the list: its content's text starts where the `PROJECTS` heading's does, the
+/// list's inset plus `Space.base`, as the sidebar footer's marks do below.
 ///
 /// Only the leading edge is shared. `trailing` and `vertical` (×1 tokens, scaled here) keep each
 /// banner's own margins as they were — a failed operation stands a little taller, the helper's
 /// state wraps a little sooner — until someone decides the three should be one.
 struct SidebarBanner<Content: View>: View {
-    typealias Action = SidebarBannerAction
-    typealias Tone = SidebarBannerTone
-
-    let tone: Tone
-    var actions: [Action] = []
     var trailing: CGFloat = Space.base
     var vertical: CGFloat = Space.snug
     @ViewBuilder let content: Content
     @Environment(\.interfaceScale) private var scale
 
-    init(tone: Tone, actions: [Action] = [], trailing: CGFloat = Space.base, vertical: CGFloat = Space.snug,
-         @ViewBuilder content: () -> Content) {
-        self.tone = tone; self.actions = actions; self.trailing = trailing; self.vertical = vertical
+    init(trailing: CGFloat = Space.base, vertical: CGFloat = Space.snug, @ViewBuilder content: () -> Content) {
+        self.trailing = trailing; self.vertical = vertical
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: scale(Space.tight)) {
-            content
-            if !actions.isEmpty {
-                HStack(spacing: scale(Space.gap)) {
-                    ForEach(actions.indices, id: \.self) { index in
-                        let action = actions[index]
-                        Button(action.title, action: action.perform).disabled(!action.isEnabled).help(action.help ?? "")
-                    }
-                }
-                .buttonStyle(.link).font(Typography.help)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, scale(Space.inset) + scale(Space.base))
-        .padding(.trailing, scale(trailing))
-        .padding(.vertical, scale(vertical))
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, scale(Space.inset) + scale(Space.base))
+            .padding(.trailing, scale(trailing))
+            .padding(.vertical, scale(vertical))
     }
 }
 
-extension SidebarBanner where Content == SidebarBannerText {
-    init(text: String, detail: String? = nil, help: String? = nil, tone: Tone, actions: [Action] = [],
-         trailing: CGFloat = Space.base, vertical: CGFloat = Space.snug) {
-        self.init(tone: tone, actions: actions, trailing: trailing, vertical: vertical) {
-            SidebarBannerText(text: text, detail: detail, help: help, tone: tone)
-        }
-    }
-}
-
-/// A banner's sentence: `text` in its tone's ink, `detail` after it in `Palette.muted`.
+/// The grey line while AiTerm connects: in `Typography.help` and `Palette.muted`. Not a `Notice`: it
+/// waits on nothing of yours.
 struct SidebarBannerText: View {
     let text: String
-    let detail: String?
-    let help: String?
-    let tone: SidebarBannerTone
-
-    private var ink: Color {
-        switch tone {
-        case .error: Palette.text
-        case .warning: Palette.amber
-        case .info: Palette.muted
-        }
-    }
 
     var body: some View {
-        // Interpolated, so neither part is read as Markdown: a branch name can hold a `*` or `_`.
-        Group {
-            if let detail { Text("\(text) \(Text(detail).foregroundStyle(Palette.muted))") } else { Text(text) }
-        }
-        .font(Typography.help).foregroundStyle(ink).textSelection(.enabled)
-        .help(help ?? "")
+        Text(text).font(Typography.help).foregroundStyle(Palette.muted).textSelection(.enabled)
     }
 }
 
@@ -381,6 +390,7 @@ struct SidebarSheet: View {
                         case .divider(let divider): controller.rename(divider: divider, to: name)
                         case .task(let task): controller.rename(task: task, to: name)
                         case .terminal(let terminal): controller.rename(terminal: terminal, to: name)
+                        case .broadcast(let run): controller.rename(run: run, to: name)
                         }
                     })
                 case .settings(let jira, let gitLab, let gitHub, let tab):
@@ -396,6 +406,8 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
+                case .newBroadcast(let model): NewBroadcastSheet(model: model)
+                case .broadcastBoard(let id): BroadcastBoardHost(runId: id, controller: controller)
             }
         }
         .interfaceScale(.standard)

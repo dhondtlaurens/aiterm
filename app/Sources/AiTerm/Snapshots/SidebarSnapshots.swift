@@ -89,15 +89,18 @@ enum SidebarSnapshots {
                 .frame(width: Size.sidebarWidth + 20, height: 76)
                 .background(Palette.sidebar)
             },
-            // Every banner the sidebar can raise, one of each tone: their text shares one leading edge.
+            // Every banner the sidebar can raise: the three Notices, then the grey connecting line.
+            // Their text shares one leading edge.
             Snapshot("sidebar-banners.png") {
                 VStack(spacing: 0) {
-                    SidebarBanner(text: "Couldn’t save the workspace: the disk is full.", tone: .error,
-                                  actions: [.init(title: "Retry Saving") {}])
-                    SidebarBanner(text: "Branch feat/migrate-alert kept.", detail: "It has commits that aren’t on main.", tone: .error,
-                                  actions: ["Keep Branch", "Delete Branch…", "Dismiss"].map { .init(title: $0) {} }, vertical: Space.base)
-                    SidebarBanner(text: ItermConnection.refused("not allowed").banner?.text ?? "", tone: .warning, trailing: Space.block)
-                    SidebarBanner(text: "Waiting for iTerm2…", tone: .info, trailing: Space.block)
+                    SidebarBanner {
+                        Notice(title: "Couldn’t save the workspace: the disk is full.", description: nil) { Button("Retry Saving") {} }
+                    }
+                    IssueBanner(issue: OperationIssue.branchKept("feat/migrate-alert", of: UUID(), because: .notMerged(base: "main")),
+                                fix: nil, perform: { _ in }, cancelFix: {}, dismiss: {})
+                    SidebarConnectionBanner(banner: ItermConnection.refused("not allowed").banner!,
+                                            status: ItermConnection.refused("not allowed").status)
+                    SidebarConnectionBanner(banner: .info("Waiting for iTerm2…"), status: "Waiting for iTerm2…")
                 }
                 .frame(width: Size.sidebarWidth + 20)
                 .background(Palette.sidebar)
@@ -116,23 +119,17 @@ enum SidebarSnapshots {
             // Reviews and their merge requests' threads: none yet, some resolved, all resolved, and a
             // GitHub pull request selected, where the count turns white with the badge.
             reviewThreads("sidebar-review-threads.png"),
-            // Pull main's Fix in the banner (banner states 1–5 of the picked design): offered alone
-            // for a conflict and beside Rebase for a diverged branch, looking, the proposal, applying,
-            // no fix, and a fix that failed.
-            Snapshot("banner-fix-offered.png") { fixBanner(.offered, issue: mainConflict) },
-            Snapshot("banner-fix-offered-beside-rebase.png") {
+            // Pull main's Find a Fix in the banner, in the states the Operator's images leave out (offered,
+            // looking, the proposal and a failed fix are `OperatorSnapshots`'): offered beside Rebase for a
+            // diverged branch, applying, and no fix.
+            Snapshot("banner-find-a-fix-offered-beside-rebase.png") {
                 fixBanner(.offered, issue: .pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 3), in: UUID(),
                                                         projectPath: "/Users/me/Sites/jvs-platform"))
             },
-            Snapshot("banner-fix-looking.png") { fixBanner(.looking, issue: mainConflict) },
-            Snapshot("banner-fix-proposal.png") { fixBanner(.proposal(mainProposal), issue: mainConflict) },
-            Snapshot("banner-fix-applying.png") { fixBanner(.applying, issue: mainConflict) },
-            Snapshot("banner-fix-nofix.png") {
+            Snapshot("banner-find-a-fix-applying.png") { fixBanner(.applying, issue: mainConflict) },
+            Snapshot("banner-find-a-fix-nofix.png") {
                 fixBanner(.noFix("Claude found no fix it can stand behind: your commit and origin’s change the same release version."),
                           issue: mainConflict)
-            },
-            Snapshot("banner-fix-failed.png") {
-                fixBanner(.failed("Claude’s fix left a conflict in package.json, so nothing was changed."), issue: mainConflict)
             },
         ]
     }
@@ -162,6 +159,7 @@ enum SidebarSnapshots {
     /// `ImageRenderer` never materialises a `List`.
     @ViewBuilder private static func listRows(_ controller: AppController) -> some View {
         let rows = controller.rows
+        SidebarView.operatorRows(in: rows, controller: controller)
         SidebarHeader(controller: controller)
         ForEach(rows.entries) { SidebarView.rows(of: $0, in: rows, controller: controller) }
     }

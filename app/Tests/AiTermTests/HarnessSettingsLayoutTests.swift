@@ -9,10 +9,16 @@ import AiTermUI
 @MainActor
 @Suite struct HarnessSettingsLayoutTests {
     @Test func settingsTabsAndCardsStayInHarnessOrder() {
-        #expect(SettingsTab.allCases == [.agents, .integrations, .interface])
         #expect(SettingsTab.agents.rawValue == "Agents")
         #expect(SettingsTab.interface.rawValue == "Interface")
         #expect(HarnessCardPresentation.agents == [.claude, .codex, .grok, .pi])
+    }
+
+    /// Agents · Operator · Integrations · Interface, on ⌘1 to ⌘4.
+    @Test func tabsAreFour() {
+        #expect(SettingsTab.allCases == [.agents, .operator, .integrations, .interface])
+        #expect(SettingsTab.allCases.map(\.rawValue) == ["Agents", "Operator", "Integrations", "Interface"])
+        #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3", "4"])
     }
 
     /// Integrations when something there is broken, Agents otherwise.
@@ -55,7 +61,7 @@ import AiTermUI
     }
 
     @Test func commandDigitsPickTheTabsInOrder() {
-        #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3"])
+        #expect(SettingsTab.allCases.map(\.key) == ["1", "2", "3", "4"])
     }
 
     @Test func aCardDrawsItsMarkAndActionsAtTheControlHeight() {
@@ -179,7 +185,7 @@ import AiTermUI
                                     preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in }, initialTab: .agents)
         let host = NSHostingView(rootView: settings)
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.settingsHeight)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)

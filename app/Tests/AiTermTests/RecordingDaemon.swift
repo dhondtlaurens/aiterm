@@ -13,8 +13,15 @@ import Foundation
 final class RecordingDaemon: DaemonCommands {
     struct Request { let method: String; let params: [String: Any] }
     private(set) var requests: [Request] = []
+    var onRequest: (String) -> Void = { _ in }
     /// The code each method fails with: one of the app's, or one only a newer helper would send.
     var failing: [String: DaemonError.Code]
+    /// What `session.deliver` answers, in order, the last one repeated; delivered when empty.
+    var deliveries: [Delivery] = []
+    /// What `session.prompt` answers for each session; none open when absent.
+    var prompts: [String: PromptKind] = [:]
+    /// The sessions whose startup dialog `session.dismissStartup` declines (an update offer); others answer false.
+    var dismissible: Set<String> = []
     private let holding: String?
     private var released = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -45,6 +52,7 @@ final class RecordingDaemon: DaemonCommands {
     @discardableResult
     private func answer(_ method: String, _ params: [String: Any], id: String = "") async throws -> String {
         requests.append(Request(method: method, params: params))
+        onRequest(method)
         if method == holding, !released { await withCheckedContinuation { held.append($0) } }
         replies[method, default: 0] += 1
         let count = replies[method, default: 1]
@@ -59,9 +67,10 @@ final class RecordingDaemon: DaemonCommands {
         return DaemonSnapshot(protocolVersion: 1, connected: true, sessions: [], usage: .empty)
     }
 
-    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
+    func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String {
         var params: [String: Any] = ["taskId": taskId, "cwd": cwd, "title": title, "frame": Self.frame(frame)]
         params["agentCommand"] = agentCommand
+        if background { params["background"] = true }
         return try await answer("window.createTask", params, id: "reopened")
     }
 
@@ -96,5 +105,41 @@ final class RecordingDaemon: DaemonCommands {
 
     func setMatchItermBackground(_ enabled: Bool) async throws {
         try await answer("interface.setMatchItermBackground", ["matchItermBackground": enabled])
+    }
+
+    func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery {
+        var params: [String: Any] = ["sessionId": sessionId, "text": text, "ownership": ownership, "wake": wake]
+        params["worktree"] = worktree
+        try await answer("session.deliver", params)
+        guard let first = deliveries.first else { return Delivery(result: .delivered, reason: nil) }
+        if deliveries.count > 1 { deliveries.removeFirst() }
+        return first
+    }
+
+    func prompt(sessionId: String) async throws -> PromptKind? {
+        try await answer("session.prompt", ["sessionId": sessionId])
+        return prompts[sessionId]
+    }
+
+
+    func dismissStartup(sessionId: String) async throws -> Bool {
+        try await answer("session.dismissStartup", ["sessionId": sessionId])
+        return dismissible.contains(sessionId)
+    }
+
+    func setOwnership(sessionId: String, ownership: Int) async throws {
+        try await answer("session.setOwnership", ["sessionId": sessionId, "ownership": ownership])
+    }
+
+    func registerOperator(runId: String, token: String) async throws { try await answer("operator.register", ["runId": runId, "token": token]) }
+
+    func revokeOperator(runId: String) async throws { try await answer("operator.revoke", ["runId": runId]) }
+
+    /// Recorded with `result` as the `JSONValue` itself, so a test reads the answer as the operator would.
+    func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {
+        var params: [String: Any] = ["requestId": requestId]
+        params["result"] = result
+        params["error"] = error
+        try await answer("operator.reply", params)
     }
 }

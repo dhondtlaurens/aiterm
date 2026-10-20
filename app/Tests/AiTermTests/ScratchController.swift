@@ -67,6 +67,7 @@ extension AppController {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      },
                      confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval = TaskRemover.diskConfirmsRemoval,
+                     operatorPorts: OperatorPorts? = nil,
                      locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { nil },
                      findPython: @escaping @Sendable () -> URL? = { nil },
                      jiraSettings: @escaping @Sendable () -> JiraConfig? = { nil },
@@ -81,6 +82,6 @@ extension AppController {
                   backpackSecrets: backpackSecrets, openLocationSettings: openLocationSettings, machineSensor: machineSensor, peekDelay: peekDelay,
                   checkoutPollInterval: checkoutPollInterval, toastLifetime: toastLifetime, closedWindowHold: closedWindowHold, now: now,
                   git: git, scan: scan,
-                  confirmsRemoval: confirmsRemoval)
+                  confirmsRemoval: confirmsRemoval, operatorPorts: operatorPorts ?? .scratch())
     }
 }

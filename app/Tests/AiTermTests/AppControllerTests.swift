@@ -516,8 +516,7 @@ import Testing
         controller.workspace.mutate { $0.lastModelByAgent[.claude] = "opus" }
         #expect(!controller.workspace.flush())
         // Closing the last window triggers quit too; Cancel must make Retry reachable again.
-        app.window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
-                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        app.window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled, .closable])
         app.window.isReleasedWhenClosed = false
         defer { app.window.orderOut(nil) }
         #expect(app.applicationShouldTerminate(NSApplication.shared) == .terminateCancel)

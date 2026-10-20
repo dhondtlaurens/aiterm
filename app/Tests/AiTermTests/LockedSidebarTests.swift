@@ -29,7 +29,7 @@ struct LockedSidebarTests {
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         // Tall enough for the list to keep its rows beside SYSTEM and USAGE.
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -38,7 +38,7 @@ struct LockedSidebarTests {
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
 
         let list = try #require(host.firstDescendant(NSTableView.self))
-        var row = list.convert(list.rect(ofRow: 1), to: host)
+        var row = list.convert(list.rect(ofRow: 2), to: host)
         row.size.width = 340 - SidebarRowLayout.trailingInset(.standard) - SidebarRowLayout.trailingSlot(.standard) - 4
         // Rows exist before their SwiftUI content has drawn: wait for ink, a pixel that is not the row's ground.
         var bitmap: NSBitmapImageRep?
@@ -66,8 +66,10 @@ struct LockedSidebarTests {
     /// hosted alone, not in the sidebar's list — a click the row does not take falls to the table,
     /// whose own tracking loop would wait for events the test host never delivers — in a
     /// non-activating panel, because a window in the test host never becomes key and SwiftUI takes
-    /// the first click in an inactive window as activation only.
-    @Test(.serialized, arguments: [false, true]) func aClickOnTheHeaderCollapsesItOnlyWhileUnlocked(locked: Bool) throws {
+    /// the first click in an inactive window as activation only. Not while the screen is locked:
+    /// the login window keeps key focus then, and the panel never becomes key.
+    @Test(.serialized, .enabled(if: !LoginSession.isLocked, "a panel cannot become key while the screen is locked"),
+          arguments: [false, true]) func aClickOnTheHeaderCollapsesItOnlyWhileUnlocked(locked: Bool) throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
@@ -81,7 +83,7 @@ struct LockedSidebarTests {
         guard case .project(let section)? = entries.first else { Issue.record("expected a project section"); return }
         let host = NSHostingView(rootView: ProjectHeaderRow(section: section, controller: controller).frame(width: 300))
         host.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
-        let panel = NSPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = testPanel(contentRect: host.frame, styleMask: [.titled, .nonactivatingPanel])
         panel.isReleasedWhenClosed = false; panel.contentView = host; panel.makeKeyAndOrderFront(nil)
         defer { panel.orderOut(nil) }
         settle(host) { panel.isKeyWindow }

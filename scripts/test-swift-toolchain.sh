@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # A toolchain that reports whatever version AITERM_FIXTURE_SWIFT_VERSION names.
 OTHER_SWIFT="$ROOT/scripts/fixtures/swift-version.sh"
-GOOD_SWIFT="$HOME/.swiftly/bin/swift"
+GOOD_SWIFT="${SWIFT:-$HOME/.swiftly/bin/swift}"
 PINNED_VERSION="$(sed -nE 's/^([0-9]+\.[0-9]+).*/\1/p' "$ROOT/.swift-version")"
 
 [[ -x "$OTHER_SWIFT" ]] || { print -u2 "missing fixture: $OTHER_SWIFT"; exit 1; }
@@ -56,6 +56,28 @@ if print -r -- "$manifest_diagnostics" | grep -Eq '(^|[[:space:]])(warning|error
     print -u2 "expected the app package manifest to load without compiler diagnostics"
     print -u2 -- "$manifest_diagnostics"
     exit 1
+fi
+
+# Exercise the runner without a real build: empty, unfinished, failed and nonzero runs
+# must fail even when the compiler process reports success. Avoid recursing through this guard.
+if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
+    "$ROOT/scripts/fixtures/check-bundle-verifier.sh"
+    (
+        runner_logs="$(mktemp -d -t aiterm-runner-fixture)"
+        trap 'rm -rf "$runner_logs"' EXIT
+        for result in passed zero incomplete failed nonzero; do
+            runner_status=0
+            TMPDIR="$runner_logs/" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 AITERM_FIXTURE_TEST_RUN="$result" \
+                SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" "$ROOT/scripts/test.sh" swift -- --filter fixture \
+                >"$bad_output" 2>&1 || runner_status=$?
+            if [[ "$result" == passed && "$runner_status" -ne 0 ]] || \
+               [[ "$result" != passed && "$runner_status" -eq 0 ]]; then
+                print -u2 "unexpected test-runner status $runner_status for $result fixture"
+                sed -n '1,30p' "$bad_output" >&2
+                exit 1
+            fi
+        done
+    )
 fi
 
 if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE:-0}" == "1" ]]; then

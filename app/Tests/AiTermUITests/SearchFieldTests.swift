@@ -1,4 +1,5 @@
 import Testing
+import AiTermTestSupport
 import AppKit
 import SwiftUI
 @testable import AiTermUI
@@ -12,8 +13,7 @@ import SwiftUI
         field.focusIfNeeded()   // no window yet: must not crash, must not claim focus
         #expect(field.currentEditor() == nil)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled])
         window.contentView?.addSubview(field)
         field.viewDidMoveToWindow()
         #expect(window.firstResponder === field.currentEditor() || window.firstResponder === field)
@@ -21,8 +21,7 @@ import SwiftUI
 
     @Test func testAFieldThatDoesNotWantFocusNeverTakesIt() {
         let field = FocusableTextField()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled])
         window.contentView?.addSubview(field)
         field.viewDidMoveToWindow()
         #expect(field.currentEditor() == nil)
@@ -77,15 +76,39 @@ import SwiftUI
         #expect(field.placeholderString == "Search branches")
     }
 
+    @Test func undoAndRedoReachTheBinding() throws {
+        let state = FieldState()
+        let (window, host) = Self.host(StatefulField(state: state))
+        defer { window.orderOut(nil) }
+        let field = try #require(host.firstSubview(of: FocusableTextField.self))
+        window.makeFirstResponder(field)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))
+        settle(host)
+        #expect(state.text == "abc")
+
+        let undo = try #require(editor.undoManager)
+        #expect(undo.canUndo)
+        undo.undo()
+        settle(host)
+        #expect(editor.string == "")
+        #expect(state.text == "", "undo must update the search query")
+        undo.redo()
+        settle(host)
+        #expect(editor.string == "abc")
+        #expect(state.text == "abc", "redo must update the search query")
+    }
+
     private final class FieldState: ObservableObject {
         @Published var focused = false
+        @Published var text = ""
         @Published var placeholder = "Search tickets"
     }
 
     private struct StatefulField: View {
         @ObservedObject var state: FieldState
         var body: some View {
-            SearchField(placeholder: state.placeholder, text: .constant(""),
+            SearchField(placeholder: state.placeholder, text: Binding(get: { state.text }, set: { state.text = $0 }),
                         focused: Binding(get: { state.focused }, set: { state.focused = $0 }), onCommand: { _ in false })
                 .frame(width: 200, height: 24)
         }

@@ -15,6 +15,13 @@ extension DismissAction {
 struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
+    /// `Sheet.width`, or `Sheet.boardWidth` for the broadcast's board.
+    let width: CGFloat
+    /// The band's height: `Size.control` for a step bar, a tab bar or a subtitle; nil for a band of lines
+    /// that sizes itself (the board's badge line and Asked line), `Space.base` under the title.
+    let bandHeight: CGFloat?
+    /// Whether the content scrolls as one; the board's columns scroll on their own instead.
+    let scrolls: Bool
     /// The content's inset from the rules above and below it: a sheet's margin, or less for a list of
     /// rows whose own pills already pad them (the Archive sheet's).
     let contentVerticalPadding: CGFloat
@@ -26,12 +33,16 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let content: Content
     let footer: Footer
 
-    init(title: String, height: CGFloat, contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
+    init(title: String, height: CGFloat, width: CGFloat = Sheet.width, bandHeight: CGFloat? = Size.control, scrolls: Bool = true,
+         contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
          @ViewBuilder navigation: () -> Navigation,
          @ViewBuilder content: () -> Content,
          @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.height = height
+        self.width = width
+        self.bandHeight = bandHeight
+        self.scrolls = scrolls
         self.contentVerticalPadding = contentVerticalPadding
         self.onBackgroundTap = onBackgroundTap
         self.navigation = navigation()
@@ -41,23 +52,25 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.block) {
+            VStack(alignment: .leading, spacing: bandHeight == nil ? Space.base : Space.block) {
                 Text(title).font(Typography.title).foregroundStyle(Palette.text)
                     .lineLimit(1).truncationMode(.middle).help(title)
-                navigation.frame(height: Size.control)
+                if let bandHeight { navigation.frame(height: bandHeight) } else { navigation }
             }
             .padding(.horizontal, Space.margin).padding(.top, Space.section).padding(.bottom, Space.block)
             Hairline()
             Group {
                 #if DEBUG
                 // The snapshots' `ImageRenderer` cannot materialise a ScrollView's contents.
-                if isSnapshot {
+                if isSnapshot || !scrolls {
                     paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
                 } else {
                     ScrollView { paddedContent }
                 }
                 #else
-                ScrollView { paddedContent }
+                if scrolls { ScrollView { paddedContent } } else {
+                    paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
+                }
                 #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -67,7 +80,7 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surfaceRaised)
         }
-        .frame(width: Sheet.width, height: Sheet.fittingHeight(height))
+        .frame(width: width, height: Sheet.fittingHeight(height))
         .background {
             if let onBackgroundTap {
                 Color.clear.contentShape(Rectangle()).onTapGesture(perform: onBackgroundTap)
@@ -180,21 +193,27 @@ struct SheetFooter<Status: View>: View {
     }
 }
 
-/// The footer New Task and New Review share: the last failure, why no agent can run, and a
-/// `SheetFooter` — Back, or Cancel on the first step, and Continue or the create button. A failure
+/// The footer every creation sheet shares (New Task, New Review, New Broadcast): the last failure,
+/// why no agent can run, and a `SheetFooter` — Back, or Cancel on the first step, and Continue or
+/// the create button on the last (`CreationSteps`). A failure
 /// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
 /// slot: a plain button with no key, since it moves a branch — ⌘↩ stays the create.
 ///
-/// A failure shows its reason, never the head of git's output: that is the command line and git's
-/// narration, and three lines of it used to be all there was room for. The reason is git's failure
-/// lines as one sentence (`GitError.sentence`), or any other error's own, as the banner has it —
-/// short by construction, so it is never cut; git's whole output is the tooltip.
+/// A failure is a `Notice` with no actions — the footer's buttons are its actions — and shows its
+/// reason, never the head of git's output: that is the command line and git's narration, and three
+/// lines of it used to be all there was room for. The reason is git's failure lines as one sentence
+/// (`GitError.sentence`), or any other error's own, as the banner has it — short by construction, so
+/// it is never cut, and the Notice's title alone; git's whole output is the tooltip.
 ///
-/// A failure an agent can fix (`fix`, New Review's) offers “Fix with Claude” after the recovery;
-/// from then on the session's state is drawn where the failure was, and takes Cancel and the
-/// primary while the agent looks, proposes — Apply on ⌘↩ — and applies (`FixFooterPresentation`).
+/// A failure an agent can fix (`fix`, New Review's) offers Find a Fix after the recovery, led by the
+/// Operator's mark; from then on the session's state is drawn where the failure was, and takes
+/// Cancel and the primary while the agent looks, proposes — Apply on ⌘↩ — and applies
+/// (`FixFooterPresentation`). A fix that fails keeps the failure's sentence as the title, with why
+/// it failed as the description.
 struct CreationFooter: View {
     let step: Int
+    /// How many steps there are and which picks the agent: New Task's and New Review's three unless told.
+    var steps = CreationSteps(count: 3, agentStep: 2)
     let error: CreationFailure?
     let availableAgents: Set<AgentKind>
     let createLabel: String
@@ -219,17 +238,16 @@ struct CreationFooter: View {
         let shown = FixFooterPresentation(error: error, state: state, fixer: fix?.fixer, lastProposal: applied)
         VStack(alignment: .leading, spacing: Space.gap) {
             switch shown.lead {
-            case .failure(let text, let help)?:
-                Text(text).font(Typography.caption).foregroundStyle(Palette.amber).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true).help(help)
+            case .failure(let text, let description, let help)?:
+                Notice(title: text, description: description, help: help)
             case .busy(let text)?: FixBusyLine(text: text)
             case .proposal(let agent, let proposal)?: FixProposalBlock(agent: agent, proposal: proposal)
             case nil: EmptyView()
             }
-            if step == 3, availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
-                Text(note).font(Typography.caption).foregroundStyle(Palette.amber)
+            if steps.saysNoAgentCanRun(onStep: step), availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
+                Notice(title: note)
             }
-            SheetFooter(secondary: shown.buttons == .sheet ? (step == 1 ? "Cancel" : "Back") : "Cancel",
+            SheetFooter(secondary: shown.buttons == .sheet ? steps.secondaryTitle(onStep: step) : "Cancel",
                         primary: primaryTitle(shown.buttons),
                         canCancel: shown.buttons == .applying ? false : !creating,
                         canSubmit: canSubmit(shown.buttons),
@@ -245,8 +263,10 @@ struct CreationFooter: View {
                     Button(recovery.title, action: recover).help(recovery.help).disabled(creating)
                 }
                 if let offer = shown.offer {
-                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: { Label(offer.title, systemImage: "sparkles") }
-                        .help(offer.help).disabled(!offer.isEnabled || creating)
+                    Button { offer.retries ? fix?.tryAgain() : fix?.start() } label: {
+                        if offer.retries { Text(offer.title) } else { FixOfferLabel() }
+                    }
+                    .help(offer.help).disabled(!offer.isEnabled || creating)
                 }
                 if shown.buttons == .applying {
                     Text("Applying…").font(Typography.caption).foregroundStyle(Palette.muted)
@@ -276,17 +296,18 @@ struct CreationFooter: View {
     private func primaryTitle(_ buttons: FixFooterPresentation.Buttons) -> String {
         switch buttons {
         case .proposal, .applying: "Apply"
-        case .sheet, .looking: step == 3 ? createLabel : "Continue"
+        case .sheet, .looking: steps.primaryTitle(onStep: step, createLabel: createLabel)
         }
     }
 }
 
 /// 1 Task —— 2 Agent —— 3 Prompt, spread across the full width of the header: the connectors
-/// stretch, so the three steps sit at the left, middle and right rather than bunching up.
+/// stretch, so the steps sit evenly from the left edge to the right rather than bunching up. New
+/// Broadcast's four (Broadcast · Prompt · Review · Done) are drawn the same; no step name is a button.
 struct StepBar: View {
     let step: Int
-    /// New Task's first step names a ticket; New Review's names a branch. Everything else about
-    /// the bar is identical, so the names are the only thing that varies.
+    /// New Task's first step names a ticket; New Review's names a branch; New Broadcast has four.
+    /// Everything else about the bar is identical, so the names are the only thing that varies.
     let names: [String]
 
     var body: some View {

@@ -26,6 +26,8 @@ final class ReviewThreadsWatcher {
     /// The merge request each count held was read for, so a row that went or now carries another
     /// merge request loses its count in the change that did it.
     private var readFor: [UUID: String] = [:]
+    /// A newer selection or pass owns its rows before any network work starts.
+    private var latestReads: [UUID: UUID] = [:]
     private var hook: WorkspaceStore.Hook?
     private var polling: Task<Void, Never>?
     /// The pass under way, if any.
@@ -75,11 +77,13 @@ final class ReviewThreadsWatcher {
         pass = nil
         selectionRead?.cancel()
         selectionRead = nil
+        latestReads.removeAll()
     }
 
     /// One pass: every row whose task carries a merge request, read in turn.
     @discardableResult
     func refresh() -> Task<Void, Never> {
+        pass?.cancel()
         let task = read(workspace.state.tasks.filter { $0.mr != nil }.map(\.id))
         pass = task
         return task
@@ -95,6 +99,8 @@ final class ReviewThreadsWatcher {
 
     private func read(_ ids: [UUID]) -> Task<Void, Never> {
         let requests = ids.compactMap { id in workspace.state.task(id: id)?.mr.map { (id: id, mr: $0) } }
+        let generation = UUID()
+        for request in requests { latestReads[request.id] = generation }
         let connect = self.connect
         return Task { [weak self] in
             guard !requests.isEmpty else { return }
@@ -106,7 +112,9 @@ final class ReviewThreadsWatcher {
                     try await reader.threads(of: request.mr)
                 } ?? nil
                 guard !Task.isCancelled else { return }
-                if let threads { self?.apply(threads, to: request.id, readFor: request.mr) }
+                if let self, latestReads[request.id] == generation, let threads {
+                    apply(threads, to: request.id, readFor: request.mr)
+                }
             }
         }
     }
@@ -122,6 +130,8 @@ final class ReviewThreadsWatcher {
     /// A count whose row went, or whose row's merge request changed, goes in the same change; its
     /// cell then holds the default, which `PerRow` drops at the next.
     private func dropStale() {
+        let live = Set(workspace.state.tasks.map(\.id))
+        latestReads = latestReads.filter { live.contains($0.key) }
         for (id, url) in readFor where workspace.state.task(id: id)?.mr?.url != url {
             readFor[id] = nil
             rows[id] = nil

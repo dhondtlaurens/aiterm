@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, TypeVar
 
 from . import protocol
@@ -13,15 +14,18 @@ from .claude_subagents import SubagentTranscripts, TranscriptTail
 from .claude_tokens import ClaudeTranscriptTallies
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
+from .delivery import Deliverer, Verdict, read_policy
 from .hook_router import HookRouter
 from .hooks_server import HookServer
 from .iterm_bridge import ItermPort
+from .keystrokes import TypingGuard
 from .offload import run_detached
+from .operator_mcp import OperatorRoute, OperatorTokens
 from .publisher import Publisher
 from .resolver import SessionResolver
-from .rpc_params import frame_param, guard, param, require_iterm
+from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcServer
-from .models import HARNESS_BY_AGENT, SessionInfo, TokenTally
+from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, TokenTally
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, path_is_missing, shows_trust_prompt
 from .usage import UsageStore, parse_codex_rate_limits
@@ -63,7 +67,9 @@ class Service:
     def __init__(self, iterm: ItermPort, rpc: RpcServer, hooks: HookServer, claude_files: ClaudeSessionFiles,
                  clock: Callable[[], float], codex_files: CodexSessionFiles | None = None,
                  supervisor: ItermSupervisor | None = None, path_missing: Callable[[str], bool] = path_is_missing,
-                 monotonic: Callable[[], float] = time.monotonic):
+                 monotonic: Callable[[], float] = time.monotonic,
+                 delivery_policy: Callable[[], Mapping[AgentKind, Verdict]] | None = None,
+                 operator_runs: Path | None = None):
         self.iterm, self.rpc, self.hooks = iterm, rpc, hooks
         # `clock` is the wall clock, in seconds. Fractional: the status engine stamps each hook with
         # it and compares the stamp with a session file's mtime, which a whole second would blur.
@@ -81,6 +87,18 @@ class Service:
         self.windows = WindowManager(iterm, self.registry, self.tick)
         self.supervisor.on_connected = self.windows.forget_titles
         self.supervisor.on_launched_connected = self.windows.capture_startup_window
+        # The delivery adapter (Operators spec §7.1), and when you last typed in each session, which
+        # holds back an operator's wake line (§7.4). The policy is read on every delivery, so the
+        # delivery check that writes it needs no restart.
+        self._monotonic = monotonic
+        self.typing = TypingGuard(self.iterm.keystroke_epoch)
+        self.deliverer = Deliverer(iterm, self.registry, delivery_policy or read_policy, self.typing, monotonic=monotonic)
+        # The operator's MCP server (Operators spec §5), on the hook server's port: its tool calls
+        # are forwarded to the attached app, which answers them over this socket.
+        # `operator_runs` is where the app keeps each run's token file, which a restarted daemon loads
+        # (spec §11); None keeps tokens in memory only.
+        self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs))
+        self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
         # window.setFrame and window.activate each leave a state the next one replaces, and the app
         # sends them from separate tasks; requests are answered concurrently, so they take this in
@@ -107,6 +125,7 @@ class Service:
         self.iterm.on_new_session(self.windows.on_new_session)
         self.iterm.on_session_closed(self._on_session_closed)
         self.iterm.on_window_activated(self._on_window_activated)
+        self.iterm.on_keystroke(self._on_keystroke)
         await self.rpc.start()
         try:
             await self.hooks.start()
@@ -120,8 +139,9 @@ class Service:
         if (task := self._poll_task) is not None and task is not asyncio.current_task():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        await self.supervisor.stop()
         await self.hooks.stop()
+        await self.hook_router.stop()
+        await self.supervisor.stop()
         await self.rpc.stop()
 
     async def _poll_forever(self) -> None:
@@ -147,6 +167,13 @@ class Service:
         r("sessions.list", self._h_sessions_list)
         r("sessions.setTitles", self.windows.set_titles)
         r("sessions.markSeen", self._h_mark_seen)
+        r("session.deliver", self._h_deliver)
+        r("session.prompt", self._h_prompt)
+        r("session.dismissStartup", self._h_dismiss_startup)
+        r("session.setOwnership", self._h_set_ownership)
+        r("operator.register", self.operators.register)
+        r("operator.revoke", self.operators.revoke)
+        r("operator.reply", self.operators.reply)
         r("usage.get", self._h_usage_get)
         r("interface.setMatchItermBackground", self.windows.set_match_iterm_background)
 
@@ -196,6 +223,25 @@ class Service:
     async def _h_usage_get(self, _p: Any) -> dict[str, Any]:
         return self.usage.snapshot()
 
+    async def _h_deliver(self, p: Any) -> dict[str, Any]:
+        session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)
+        wake, worktree = bool(optional_param(p, "wake", bool)), optional_param(p, "worktree", str)
+        return (await self.deliverer.deliver(session_id, text, ownership, wake=wake, worktree=worktree)).to_json()
+
+    async def _h_prompt(self, p: Any) -> dict[str, Any]:
+        session_id = param(p, "sessionId", str)
+        require_iterm(self.iterm)
+        return {"kind": await guard(self.deliverer.prompt(session_id))}
+
+    async def _h_dismiss_startup(self, p: Any) -> dict[str, Any]:
+        session_id = param(p, "sessionId", str)
+        require_iterm(self.iterm)
+        return {"dismissed": await guard(self.deliverer.dismiss_startup(session_id))}
+
+    async def _h_set_ownership(self, p: Any) -> dict[str, Any]:
+        self.deliverer.set_ownership(param(p, "sessionId", str), param(p, "ownership", int))
+        return {}
+
     # -- iTerm2 notifications ------------------------------------------------
     async def _on_window_activated(self, window_id: str) -> None:
         # A macOS notification can bring an iTerm2 window forward without an AiTerm row being
@@ -205,6 +251,11 @@ class Service:
             await self.rpc.broadcast(protocol.WINDOW_ACTIVATED, {"windowId": window_id})
         except Exception:  # noqa: BLE001 - must not escape into the iTerm2 library's dispatch
             log.exception("on_window_activated failed for %s", window_id)
+
+    async def _on_keystroke(self, session_id: str, characters: str, modifiers: frozenset[str]) -> None:
+        # Only the moment and the key's effect on the input are kept (keystrokes.TypingGuard), and
+        # nothing here can raise into the library's dispatch.
+        self.typing.note_key(session_id, self._monotonic(), characters, modifiers)
 
     async def _on_session_closed(self, session_id: str) -> None:
         try:
@@ -318,6 +369,8 @@ class Service:
                 # The file's cwd is the agent's own, and it follows it into a worktree;
                 # `s.cwd` is the shell's and never moves (spec: branch awareness, §1).
                 changed += self.status.apply_metadata(s.session_id, cwd=f.cwd)
+                # The running Claude's own version, which delivery is held against (delivery.Verdict).
+                self.registry.set_cli_version(s.session_id, f.version)
             elif s.job_pid and (s.state == "idle" or self.status.showing_trust_prompt(s.session_id)):
                 # No file yet: the trust dialog, which only the screen shows, or a Claude just starting.
                 screens.append(s.session_id)
@@ -345,13 +398,14 @@ class Service:
         if (files := self.codex_files) is None:
             return []
 
-        def read() -> dict[str, tuple[int | None, TokenTally | None]]:
-            readings: dict[str, tuple[int | None, TokenTally | None]] = {}
+        def read() -> dict[str, tuple[int | None, TokenTally | None, str | None]]:
+            readings: dict[str, tuple[int | None, TokenTally | None, str | None]] = {}
             for thread_id in set(threads.values()):
                 # Another process's file: one that cannot be read costs only its own thread, and only
                 # the reading that failed -- a tally that raises still lets the context through.
                 context: int | None = None
                 tally: TokenTally | None = None
+                version: str | None = None
                 try:
                     context = files.context_percent(thread_id)
                 except Exception:  # noqa: BLE001
@@ -360,21 +414,30 @@ class Service:
                     tally = files.tally(thread_id)
                 except Exception:  # noqa: BLE001
                     log.exception("reading the Codex tally of thread %s failed", thread_id)
-                readings[thread_id] = (context, tally)
+                try:
+                    version = files.cli_version(thread_id)
+                except Exception:  # noqa: BLE001
+                    log.exception("reading the Codex version of thread %s failed", thread_id)
+                readings[thread_id] = (context, tally, version)
             files.retain(set(threads.values()))
             return readings
 
-        none: dict[str, tuple[int | None, TokenTally | None]] = {}
+        none: dict[str, tuple[int | None, TokenTally | None, str | None]] = {}
         readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
-            context, tally = readings.get(thread_id, (None, None))
+            # A hook or a replacement process may have changed the binding during the read.
+            if self.resolver.codex_thread(session_id) != thread_id:
+                continue
+            context, tally, version = readings.get(thread_id, (None, None, None))
+            # The running Codex's version, which delivery is held against (delivery.Verdict).
+            self.registry.set_cli_version(session_id, version)
             # None is no reading, which apply_metadata leaves alone; on a new thread it is no spend yet.
             if tally is None and self._codex_threads.get(session_id) != thread_id and self.registry.set_tokens(session_id, None):
                 changed.append(session_id)
             changed += self.status.apply_metadata(session_id, context=context, tokens=tally)
         # Only the tabs running Codex now: a closed or quit one's binding goes with it.
-        self._codex_threads = dict(threads)
+        self._codex_threads = {sid: tid for sid, tid in threads.items() if self.resolver.codex_thread(sid) == tid}
         return changed
 
     async def _apply_claude_tallies(self) -> list[str]:
@@ -382,10 +445,8 @@ class Service:
         grows to megabytes and its first read is whole, so it is read on a worker thread, which keeps
         what it read for the next tick even when this one stops waiting."""
         transcripts = {s.session_id: s.transcript for s in self.registry.all() if s.transcript}
-        if not transcripts:
-            # Nothing to read. The cache is pruned by the next read that has transcripts, on the
-            # worker thread: pruning here could race a read an earlier tick left running.
-            return []
+        # Even an empty owner set goes through the worker gate: it must prune the last
+        # conversation without racing a read an earlier tick left running.
         tallies = self.claude_tallies
 
         def read() -> dict[str, TokenTally | None]:
@@ -458,7 +519,8 @@ class Service:
         """Drops what each part keeps of a closed session, each on its own: one that raises keeps
         only its own state, not the others'."""
         for what, forget in (("window state", self.windows.forget_session), ("turn", self.status.forget_session),
-                             ("bindings", self.resolver.forget)):
+                             ("bindings", self.resolver.forget), ("delivery state", self.deliverer.forget_session),
+                             ("last key", self.typing.forget)):
             with _logged(f"forgetting the {what} of closed session {session_id}"):
                 forget(session_id)
 

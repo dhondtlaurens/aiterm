@@ -2,8 +2,8 @@
 
 ## `make-app.sh`
 
-Builds `build/AiTerm.app`, the only form of AiTerm that is fully functional (the daemon, Claude
-status-line shim and PI status extension are bundle resources).
+Builds `build/AiTerm.app`, the only form of AiTerm that is fully functional (the daemon, Claude and Grok
+status-line shims and PI status extension are bundle resources).
 
     scripts/make-app.sh
 
@@ -97,7 +97,7 @@ installs the daemon package with its test and lint dependencies (the `dev` extra
 `PYTHON=/path/to/python3` to use a specific Python 3.11+ interpreter, or `PYTEST=/path/to/pytest`
 to use an existing test runner.
 
-After pytest it lints the daemon: `mypy aitermd tests`, then `ruff check aitermd tests`. The tests
+After pytest it lints the daemon: `mypy aitermd tests tools`, then `ruff check aitermd tests tools`. The tests
 are type-checked too, so `FakeIterm` must keep matching the `ItermPort` it stands in for. The lint
 always runs `daemon/.venv`'s own `mypy` and `ruff`, whatever `PYTEST` names: an override need not
 live in a venv at all (the toolchain guard's own check passes `/usr/bin/true`). A venv made before
@@ -108,13 +108,14 @@ The Swift suites run in one `swift test` pass. No test raises a real modal alert
 questions go through a `Prompter` that tests script. `swift test` exits 0 on a run that never
 finished, so the pass counts as green only if every test target's host printed swift-testing's
 closing "Test run with N tests … passed" line. A run narrowed with arguments after `--` reaches
-hosts that cannot be known beforehand, so it is green when at least one host finished and every
-one that did passed; a filter that matches nothing fails. On a failure the logs are kept, and the
+hosts that cannot be known beforehand, so it is green when at least one host finished, at least one test ran, and every
+one that finished passed; a filter that matches nothing fails. On a failure the logs are kept, and the
 script prints where.
 
 Runtime Python versions are pinned in `daemon/pyproject.toml`; the bundle installs that package
 directly so development and release do not maintain different dependency lists.
-`scripts/test-app-bundle.sh` checks the executable, icon, hook shim, bundled dependency versions,
+`scripts/test-app-bundle.sh` honors `PYTHON` and checks the executable, icon, all three hook resources
+against their source, bundled dependency versions from `daemon/pyproject.toml`,
 and strict code signature. Both signing and signature verification must succeed during a build.
 
 Snapshots always use the app’s dark appearance. For captures of actual AppKit controls and native selection materials:
@@ -132,13 +133,15 @@ What it produces:
     build/AiTerm.app/Contents/Resources/daemon/aitermd/        the daemon package
     build/AiTerm.app/Contents/Resources/daemon/<deps>          iterm2, websockets, protobuf (pip --target)
     build/AiTerm.app/Contents/Resources/hooks/claude-statusline-shim.sh
+    build/AiTerm.app/Contents/Resources/hooks/grok-statusline-shim.sh
     build/AiTerm.app/Contents/Resources/hooks/pi-aiterm-status.ts
 
-Both hook resources are copied from this repository while the app is built. AiTerm never
+All three hook resources are copied from this repository while the app is built. AiTerm never
 downloads executable integration code during installation or at runtime.
 
 The app launches the daemon with `PYTHONPATH=<Contents/Resources/daemon>`, so both `aitermd` and
 its dependencies resolve from the bundle — nothing is installed into the user's Python.
 
-The bundle is signed ad hoc (`codesign --sign -`). Developer ID signing and notarisation are a
-later task; `build/` is git-ignored.
+The bundle uses the `AiTerm Release` certificate when available, with ad-hoc signing as the fallback
+and `SIGN_IDENTITY` as the override. Signing and strict verification must succeed. Developer ID
+signing and notarisation are a later task; `build/` is git-ignored.

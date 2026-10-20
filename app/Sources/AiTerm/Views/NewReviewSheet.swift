@@ -149,7 +149,7 @@ struct NewReviewSheet: View {
     /// slug looks at the disk.
     static func destination(step: Int, project: Project, owner: TaskItem?, slug: @autoclosure () -> String,
                             branch: String) -> Destination? {
-        guard Destination.isShown(onStep: step), !branch.isEmpty else { return nil }
+        guard Destination.isShown(onStep: step, of: ReviewCreation.steps), !branch.isEmpty else { return nil }
         if let owner { return .existing(owner) }
         return .worktree(project: project, slug: slug(), branch: branch)
     }

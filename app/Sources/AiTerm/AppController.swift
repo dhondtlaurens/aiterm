@@ -91,6 +91,8 @@ final class AppController {
     let remover: TaskRemover
     /// Archives tasks and reviews.
     let archiver: TaskArchiver
+    /// The operations: their runs, their operators' tabs and tokens, and the services under them.
+    let operatorController: OperatorController
     @ObservationIgnored private var agentProbe: Task<Void, Never>?
 
     /// Nothing here has a default: every dependency that reaches outside the process — the state
@@ -108,6 +110,7 @@ final class AppController {
     /// `bringForward` brings AiTerm forward for it; `launchIterm` starts iTerm2 when AiTerm starts
     /// while `itermRunning` says it is not, and when a row is chosen while it is away.
     /// `confirmsRemoval` is the last look at a checkout the monitor found gone (`TaskRemover`).
+    /// `operatorPorts` are what the operators reach: run folders, the agents' home, notifications.
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
@@ -134,7 +137,8 @@ final class AppController {
          now: @escaping @MainActor () -> ContinuousClock.Instant,
          git: any GitRunning,
          scan: @escaping CheckoutMonitor.Scanner,
-         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval) {
+         confirmsRemoval: @escaping TaskRemover.ConfirmsRemoval,
+         operatorPorts: OperatorPorts) {
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
@@ -183,6 +187,22 @@ final class AppController {
         windows = WindowReconciler(helper: helper, workspace: workspace, work: work, live: live, checkouts: checkouts, focus: focus,
                                    remover: remover, archiver: archiver, launcher: launcher, terminals: terminals,
                                    notices: notices, daemon: daemon, now: now, closeHold: closedWindowHold, bringForward: bringForward, launchIterm: launchIterm)
+        // The agents a task may run and their model lists are Settings › Agents', unless the caller named its own.
+        var operatorPorts = operatorPorts
+        if operatorPorts.installedAgents == nil { operatorPorts.installedAgents = { [weak agents] in agents?.availableAgents ?? [] } }
+        if operatorPorts.agentModels == nil {
+            let catalogue = agents.catalogue
+            operatorPorts.agentModels = { (try? catalogue.models(for: $0)) ?? [] }
+        }
+        // A broadcast freezes Settings › Operator's profile as these preferences keep it.
+        if operatorPorts.profile == nil { operatorPorts.profile = agents.operatorProfile }
+        // After the window lock, which hands the live sessions each event first: the operators read
+        // the operator's tab from them.
+        let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
+                                                    taskFrame: { tiling.taskFrame() }, ports: operatorPorts)
+        self.operatorController = operatorController
+        helper.onEvent { [weak operatorController] in operatorController?.handle($0) }
+        helper.onAttach { [weak operatorController] in operatorController?.daemonAttached() }
         sheets = SheetCoordinator(workspace: workspace, checkouts: checkouts, agents: agents, git: git, harnessHome: harnessHome,
                                   jiraSettings: jiraSettings, gitLabSettings: gitLabSettings, gitHubSettings: gitHubSettings,
                                   launcher: launcher, workflow: workflow)
@@ -198,9 +218,9 @@ final class AppController {
                                       openLocationSettings: openLocationSettings,
                                       toast: { notices.showToast($0, symbol: BackpackController.symbol) })
         machine = MachineMonitor(sensor: machineSensor, power: backpackPorts.power)
-        fixPipeline = { [workspace] project in
+        fixPipeline = { [agents] project in
             .live(git: git, workflow: workflow, project: project,
-                  model: AgentIntegrations.fixerModels(remembered: workspace.state.lastModelByAgent),
+                  model: agents.fixModel,
                   locate: { HarnessCommandRunner.live.locate($0) })
         }
         // The rows are derived again whenever something they are made of may have changed, and the
@@ -223,6 +243,30 @@ final class AppController {
         workspace.onChange { [weak remover] in remover?.pruneRemovals() }
         // The banner's Fix needs the agents and the pull, both built after the notices.
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
+        // A notification's click: an overview opens over the sidebar, a task's window comes forward.
+        operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
+        // The broadcast row and the driven task rows read what the Operator is acting on, which the
+        // operator controller owns; a change to it derives the rows again.
+        let operators = operatorController
+        rows.actingSource = { [weak operators] in operators?.acting ?? .none }
+        operators.onChange { [weak self] in self?.refreshRows() }
+        refreshRows()
+        // A chosen broadcast without a window — closed, or its Operator offline — is the operator
+        // controller's to reopen.
+        focus.onChoosingOperationWithoutWindow { [weak operators] id, behind in
+            Task { await operators?.reopenOperator(run: id, background: behind) }
+        }
+        // A driven task whose window you closed: its conversation resumed by the operator controller,
+        // never a second worker beside a live one (integration decision 7). The row raises the window
+        // it opened once the reopen is done.
+        focus.onChoosingOperatedTaskWithoutWindow { [weak operators] id in
+            Task { await operators?.reopenWorker(task: id) }
+        }
+        // A notification's click on a waiting plan, a done or a blocked operation opens its overview:
+        // D7 records the request on the operator controller; this presents it, and any made before now.
+        sheets.onDismiss = { [weak self] in self?.presentRequestedOverview() }
+        presentRequestedOverview()
+        watchOverviewRequests()
     }
 
     // -- workspace ------------------------------------------------------------------
@@ -244,6 +288,7 @@ final class AppController {
         // A login shell costing the better part of a second, as the helper's Python lookup is; neither waits on the other.
         agentProbe = Task { await agents.probe() }
         helper.start()
+        operatorController.start()
         // A fix that crashed left its throwaway clone in the temp folder; only a dead owner's is swept.
         // Blocking disk work, so off the cooperative pool.
         DispatchQueue.global(qos: .utility).async { FixClone.sweep() }
@@ -268,6 +313,9 @@ final class AppController {
         if case .newReview(let model)? = sheet { model.fixSession?.stop() }
         focus.cancel()
         windows.stop()
+        operatorController.stop()
+        operatorController.tools.cancelChallenges()
+        operatorController.tools.cancelReviews()
         helper.shutdown()
     }
 
@@ -415,7 +463,7 @@ final class AppController {
         }
     }
 
-    /// The banner's Fix for a refused Pull main or its rebase, with the agent Settings names: once
+    /// The banner's Find a Fix for a refused Pull main or its rebase, as Help with problems allows: once
     /// the fix has landed, the banner goes, what waited behind it comes up, and the pull runs
     /// again — saying where the branch as it was is kept, however it ends, or in a toast when the
     /// project's default branch is no longer the one fixed. None for a problem
@@ -423,7 +471,7 @@ final class AppController {
     private func makeFix(for request: FixRequest) -> FixSession? {
         guard case .pullDefault(let id) = request.retry, let project = state.project(id: id) else { return nil }
         let resolution = agents.fixer
-        let agent: FixerAgent? = switch resolution { case .ready(let agent), .missing(let agent): agent; case .off: nil }
+        let agent: FixerAgent? = if case .ready(let agent) = resolution { agent } else { nil }
         return FixSession(request: request, fixer: resolution, pipeline: fixPipeline(project)) { [weak self] landing in
             guard let self else { return }
             // Only this fix's banner: nothing replaces it while it lands, and the landed session is the shown one.
@@ -477,7 +525,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case nil: nil
+        case .operation, nil: nil
         }
     }
 
@@ -490,9 +538,18 @@ final class AppController {
     var canCreateTask: Bool { canUseFileMenu && targetProject.map { $0.provider != .none } == true }
 
     // -- the selected row -------------------------------------------------------------
-    /// ↩ on the list: a header folds or opens its project; any other row goes to its window. An
-    /// empty project has nothing to fold, so its header opens its context menu — its first items
-    /// are the ones that give it a row.
+    /// What a notification's click opens (spec §10.3): an operation's overview — the sidebar presents
+    /// what `presentOverview` names — or the window of the task whose prompt waits on you.
+    func openNote(_ target: OperatorNote.Target) {
+        switch target {
+        case .overview(let id): operatorController.presentOverview = id
+        case .task(let id): focus.select(.task(id))
+        }
+    }
+
+    /// ↩ on the list: a header folds or opens its project; the broadcast row opens its overview; any
+    /// other row goes to its window. An empty project has nothing to fold, so its header opens its
+    /// context menu — its first items are the ones that give it a row.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
@@ -505,6 +562,8 @@ final class AppController {
             }
             return nil
         }
+        // The broadcast row's ↩ is its click: the overview.
+        if let id = focus.selectedOperationId { return openBroadcast(id) }
         return focus.activateSelection()
     }
 
@@ -562,7 +621,8 @@ extension AppController {
                       machineSensor: machineSensor,
                       peekDelay: .milliseconds(120), checkoutPollInterval: .seconds(2),
                       toastLifetime: .seconds(10), closedWindowHold: ClosedWindowTriage.hold, now: { .now },
-                      git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval)
+                      git: GitRunner(), scan: scan, confirmsRemoval: TaskRemover.diskConfirmsRemoval,
+                      operatorPorts: .live(home: harnessHome, git: GitRunner(), jiraSettings: { JiraSettings.load() }))
     }
 
     /// AiTerm brought forward for Remove's question about a window the person closed in iTerm2. macOS's

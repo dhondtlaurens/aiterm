@@ -358,3 +358,32 @@ async def test_a_codex_subagents_start_and_stop_leave_the_tabs_conversation(hook
     for name in ("SubagentStart", "SubagentStop"):
         await hooks.post("/hook/codex", {**base, "hook_event_name": name, "session_id": "thread-2", "agent_id": "child-1"})
         assert hooks.registry.get(sid).conversation_id == "thread-1", name
+
+
+async def test_cancelling_a_hook_wait_preserves_its_shared_tick(hooks):
+    entered, finished, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    cancelled = []
+
+    async def gated_tick():
+        entered.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+        finally:
+            finished.set()
+
+    hooks.on_tick = gated_tick
+    posting = asyncio.create_task(hooks.post("/hook/codex", {
+        "hook_event_name": "UserPromptSubmit", "session_id": "unplaced", "cwd": "/missing"}))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        posting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await posting
+        assert not finished.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(finished.wait(), 1)
+    assert cancelled == []

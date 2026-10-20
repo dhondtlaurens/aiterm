@@ -13,8 +13,6 @@ struct ConnectCheck: Equatable {
 enum BackpackSheetPresentation {
     static let title = "Backpack mode"
     static let subtitle = "Keeps your agents working with the lid closed, online through your iPhone."
-    /// The permissions' heading, shown only while one is missing.
-    static let thisMac = "This Mac"
     /// The iPhone steps' heading: help for the Hotspot menu, under it.
     static let onTheIPhone = "On the iPhone"
     static let remembered = "The hotspot you used last, and its password from Keychain."
@@ -56,6 +54,15 @@ enum BackpackSheetPresentation {
         case .keychainRefused?:
             return [ConnectCheck(text: "Couldn’t save the hotspot password in Keychain", mark: .idle, warns: true), awake]
         }
+    }
+
+    /// The permission ask, while one is missing (spec §6.1): a `Notice` whose title is what the Mac
+    /// card's status says is missing, and whose description is its steps, then where else to find them.
+    /// Allow… is its one link. Nil once both are granted.
+    static func permissionNotice(_ setup: BackpackSetup) -> (title: String, description: String)? {
+        let steps = MacCardPresentation.steps(setup)
+        guard !steps.isEmpty else { return nil }
+        return (MacCardPresentation.status(setup).text, (steps + [MacCardPresentation.alsoInSettings]).joined(separator: " "))
     }
 
     static func safeHelp(hotspot: String, until: BackpackUntil) -> String {
@@ -197,9 +204,10 @@ final class BackpackSheetModel: Identifiable {
     }
 }
 
-/// Backpack Mode's sheet, opened by every turn-on: one sheet, in the order it is used. "This Mac"'s
-/// permissions while one is missing, then the Hotspot and Password — the remembered one filled in —
-/// and Turns off, then the iPhone's steps as the hotspot's help, receding once one is chosen. Connect
+/// Backpack Mode's sheet, opened by every turn-on: one sheet, in the order it is used. A `Notice`
+/// asking for the Mac's permissions while one is missing, then the Hotspot and Password — the
+/// remembered one filled in — and Turns off, then the iPhone's steps as the hotspot's help,
+/// receding once one is chosen. Connect
 /// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid." with
 /// Done; a failure leaves the fields live and Connect retries. Closing the lid closes it: with
 /// nothing running that is a cancel; during a connect the attempt under way keeps going, but no
@@ -221,7 +229,7 @@ struct BackpackSheet: View {
             // Again every few seconds: the iPhone shows its hotspot only while its Personal Hotspot
             // screen is open. Not during a connect, where a scan would get in the join's way.
             while !Task.isCancelled {
-                try? await Task.sleep(for: BackpackSheetPresentation.rescan)
+                do { try await Task.sleep(for: BackpackSheetPresentation.rescan) } catch { return }
                 if !model.isConnecting, !model.isSafe { await model.refreshNetworks() }
             }
         }
@@ -238,15 +246,9 @@ struct BackpackSheet: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: Space.section) {
-            if !model.missing.isEmpty {
-                FormField(BackpackSheetPresentation.thisMac) {
-                    VStack(alignment: .leading, spacing: Space.block) {
-                        NumberedSteps(MacCardPresentation.steps(model.backpack.setup))
-                        HStack(spacing: Space.base) {
-                            Button("Allow…") { Task { await model.backpack.setUp() } }.disabled(model.backpack.busy)
-                            HelpText(MacCardPresentation.alsoInSettings)
-                        }
-                    }
+            if let ask = BackpackSheetPresentation.permissionNotice(model.backpack.setup) {
+                Notice(title: ask.title, description: ask.description) {
+                    Button("Allow…") { Task { await model.backpack.setUp() } }.disabled(model.backpack.busy)
                 }
             }
             VStack(alignment: .leading, spacing: Space.block) {

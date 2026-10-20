@@ -61,9 +61,17 @@ enum HTTPJSON {
     }
 
     static func send(_ request: URLRequest, session: URLSession) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await sendUnchecked(request, session: session)
+        guard (200..<300).contains(response.statusCode) else { throw Failure.status(response.statusCode) }
+        return (data, response)
+    }
+
+    /// `send` that leaves the status to the caller, so a client can read the body a refusal came with.
+    static func sendUnchecked(_ request: URLRequest, session: URLSession) async throws -> (Data, HTTPURLResponse) {
         let guarded = CredentialGuard(origin: request.url)
         let (data, response) = try await transfer { try await session.data(for: request, delegate: guarded) }
-        return (data, try check(response))
+        guard let http = response as? HTTPURLResponse else { throw Failure.status(0) }
+        return (data, http)
     }
 
     /// `send` for a body streamed to a temporary file, which the caller moves or deletes. A file
@@ -97,6 +105,15 @@ extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return decoder
+    }()
+}
+
+extension JSONEncoder {
+    /// GitLab's request bodies are snake_case.
+    static let snakeCase: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        return encoder
     }()
 }
 

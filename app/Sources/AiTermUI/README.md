@@ -169,8 +169,9 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 `InterfaceScale`, `IconSource`, and the view modifiers in `ControlChrome.swift`: `focusRing`,
 `fieldChrome` (a single-line field: padding, height and `fieldBox`), `fieldBox` (the field's fill,
 hairline and focus ring alone, for the prompt editor), `menuChrome` (the panel a dropdown hangs in), `menuRowHighlight` (a dropdown row on
-the accent, declaring `.surface(.accent)`) and `groupChrome` (a Settings card's or a segmented
-track's box).
+the accent, declaring `.surface(.accent)`) and `groupChrome` (a Settings card's, a segmented
+track's or a board card's box; a board card passes its hover `fill`, `Palette.rowHoverSolid`, and its
+needs-you `edge`, `Palette.statusChipAttentionStroke`).
 `Logos` (the bundled SVG data and its image cache) and `LogoGlyph` are internal to this module.
 `TypeStyle` is the type `Typography`'s members are declared as and the `View.font(_:)` overload
 takes; `Brand` is what `Icon(.brand(…))` and `Badge(icon: .brand(…))` consume. An agent adding a text size or a
@@ -179,18 +180,21 @@ vendor needs both.
 ### Patterns — `app/Sources/AiTerm/Views/`
 
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
-`AgentSegmented`, `AgentSegmentLabel`, `FixProposalBlock`, `FixBusyLine`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
+`AgentSegmented`, `AgentSegmentLabel`, `Notice`, `FixProposalBlock`, `FixBusyLine`, `FixOfferLabel`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
 `NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
-`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `IssueBanner`, `SidebarToast`,
+`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
-`ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`, `TerminalRowView`, `DividerRow`,
+`ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
+`OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
-`FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`, `ArchiveSheet`, `ArchiveRow`.
+`HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
+`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
+`TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -213,8 +217,9 @@ the backpack; a right-click offers Mac Settings…; ⌘B does what the click doe
 VoiceOver sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 
 Turning on is `BackpackSheet`, one `SheetLayout` with a `SheetSubtitle`, laid out in the order it
-is used. While a permission is missing, “This Mac” leads with `NumberedSteps` and an Allow… button.
-Then Hotspot, a `Select` of the networks one scan finds now — the remembered hotspot first and chosen
+is used. While a permission is missing it opens with a `Notice`: its title what the Mac card's status
+says is missing, its description the card's steps and where else to find them, and Allow… its one link
+(`BackpackSheetPresentation.permissionNotice`). Then Hotspot, a `Select` of the networks one scan finds now — the remembered hotspot first and chosen
 once it shows up, scanned again every 5 s while no connect runs — beside a secure `Input` for the
 password, filled with the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty
 for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
@@ -233,13 +238,109 @@ the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
 
-**A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
+**The Operator.** The OPERATOR heading leads the list, above PROJECTS (`OperatorHeading`): a
+`SidebarHeading` on PROJECTS' anatomy whose "+", an `AddMenu` with New Broadcast…, is the one way to
+start a broadcast, so with none it is the heading and its "+" and nothing else; there is no File menu
+item. One broadcast at a time: while one exists the "+" is absent and the broadcast row sits under the
+heading on a task row's grid (`BroadcastRowView`, on `SelectableRow`): the Operator's agent's
+`VendorMark` as its avatar, the title, then `2 of 8 done` as a quiet `Badge` (absent until the first
+plan is in Todo), the first project as a quiet `Badge` led by its host's mark and a boxed `+n`, then its
+status line, `OperatorBadge(line: OperatorLine.broadcast(...))`, and its `StatusMark` trailing: amber
+while any request is open, spinning while something works, the idle ring while paused or only waiting
+on people, the accent dot once the debrief is ready. ↑ ↓ peek at the Operator's window, as on a task
+row; a click or ↩ opens the board, and with the Operator's window closed reopens it behind the
+sheet. Its menu is Rename… (`NameSheet`), Pause Broadcast or Resume Broadcast, and End Broadcast…,
+which is not red: it asks with a blue default, since nothing is deleted; the same items are its
+VoiceOver actions. No Overview…, no ⌘I, no Interrupt Agents. Menus and buttons are Title Case, as everywhere. A driven task's avatars are its own
+agents, as any task's are; its third line is the Operator's status line, `OperatorBadge(line:)`, and
+its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
+task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
+status line is that badge: Claude's `VendorMark` at `Size.inlineMark`, the Oracle's beside it
+(overlapping by `Space.tight`, ringed in the surface's occluding colour) while the Oracle is consulted,
+then the words in `Typography.monoChip`, always one `Size.chip` line cut with an ellipsis, the whole in
+its tooltip. Quiet has no box and the surface's secondary ink; acting has no box and its words shimmer,
+a band of the surface's ink sweeping over its secondary ink every 1.6 s on Core Animation's clock
+(`ShimmerWordsView`: a `CAGradientLayer` masking the ink's `CATextLayer`, nothing updated per frame),
+standing still in the surface's ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
+`Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
+decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
+broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
+by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
+acts, shimmering: `loading the construct`, `consulting the Oracle` (the Oracle's mark joining),
+`starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
+`assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
+a ticket` and `reopening its window`. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
+`working`, `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
+`done · 4f2a91c`, `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`,
+and on the broadcast's line `working · 3 tasks`, `paused`, `paused · the Operator’s window is closed`,
+`done · debrief ready` and `ended`. Needs you: `waiting on you · npm install?`, `waiting on you · retry
+policy?`, `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the tests fail on
+main` and `blocked · the rebase conflicted`. A line is at most `OperatorLine.maxLength` (40) characters,
+its detail cut at a word. The broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
+
+The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation
+frame's parts on four steps, Broadcast · Prompt · Review · Done, and no agent step (`CreationSteps.broadcast`):
+the shipped `StepBar`, its names not buttons; Continue on ⌘↩ through step 3, Back from step 2, Cancel on step 1,
+Start Broadcast on step 4, and a failed start the footer's `Notice` (`CreationFooter`). Step 1 is Name (an
+`Input`, optional), Jira projects and Projects, each a `ChipsPicker`: the picks as `PickChip`s (the service's
+mark at `Size.pickerRowLogo`, the name in `Typography.caption`, the ✕ in `Typography.micro` and
+`Palette.muted`, on `Palette.badge` at `Radius.chip`, `Size.chip` plus `Space.tight` tall), wrapping by
+`ChipFlow` `Space.tight` apart, then a search field taking the rest of the line, all in one `fieldBox` at least
+`Size.control` tall, its results a `DropdownList` hanging `Space.tight` under it. It needs one project, and
+picking a Jira project picks the projects linked to it. The Jira field offers the connection's Jira projects,
+fetched as the Jira projects sheet fetches them, the linked ones first; under its help a plain line says while
+they load ("Loading Jira projects…", with a small `ProgressView`), when there are none ("No Jira projects
+found.") and when the fetch failed, which says why as the Jira projects sheet does ("Connect Jira in Settings › Integrations to choose a Jira project.") and, while any are linked, that only the Jira projects the projects link are offered; it holds nothing up. Prompt, Review and Done are one `PromptStep` each, the
+same editor at `PromptStep.editorHeight`, whose `/` lists Claude's and Codex's skills and `@` the files of the
+one picked project; under each its help in place of `CompletionHint`. Review's and Done's help say what the
+slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
+linked, and nothing is amber. No command preview: the Operator chooses each task's agent. The
+`DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 4. No new `Palette` or `Metrics` member.
+
+The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
+`BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
+two lines (`bandHeight: nil`, `Space.base` under the title) and its content not scrolling as one
+(`scrolls: false`). The band is the broadcast's `OperatorBadge`, then `2 of 8 done · webshop, payments-api`
+in `Typography.caption` and `Palette.muted` (no progress until the first plan); under it one Asked line in
+`Typography.help`, `Asked …  · Review …  · Done …` with each label in `Palette.text` at medium weight, cut
+to one line, the whole in its tooltip. The columns are Todo · In progress · Review · Done, `Space.gap`
+apart, Review only when the broadcast has a review; each is a `BoardHeading` (a `SidebarHeading` and its
+count in `Typography.monoChip`, `Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its
+own (`BoardScroll`), an empty one saying so in one `Typography.help` line ("Nothing started yet."). A card
+(`BoardCardView`) is a `groupChrome` box, `Space.inset` inside, `Space.tight` between its lines: the
+agent's `VendorMark` at `Size.avatar` on every card, started or not, and the title in `Typography.body`, two
+lines at most; then the quiet Jira and merge-request `Badge`s (`TaskBadges`) and, only when the broadcast
+spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
+task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
+edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
+Its tooltip is the model the Operator chose and its one-line reason. A card's click closes the sheet
+first, then opens what resolves it (`BroadcastBoard.Opens`): a permission prompt or a started task, the
+task's window; a question or a blocked task, the Operator's window; a problem AiTerm hit, nothing more
+than the sidebar banner already showing it. A Todo card is no button. The footer is Pause Broadcast or
+Resume Broadcast, End Broadcast… (the blue alert), and Close (⎋). With the Operator's window closed the
+row's click reopens it behind the board, decided by the listed tabs, not the recorded window id; if its
+conversation can't be resumed the board stays, a `Notice` in the footer ("Couldn’t reopen the
+Operator’s window") with Close and Start Fresh on ⌘↩ (`OperatorController.reopenFailed`).
+
+Once every task is done the debrief takes the columns' place (`BroadcastDebriefView`), `Space.margin`
+between its two columns: Delivered on the left, full height and scrolling, each row at least
+`Size.menuRow` the agent's `VendorMark` at `Size.vendorMark`, the title in `Typography.caption`, the quiet
+`Badge`s and the result in `Typography.mono` (`merged · 9b3e07d`), its tooltip the model and its reason,
+its click the task's window; on the right, stacked `Space.section` apart and scrolling, Decided on its own
+(with its why in a sentence under it, then the Oracle's objection when it made the decision against it), Found along the way (a filed find's
+ticket as a quiet Jira `Badge`) and Left for you, each a `BoardHeading` over items in `Typography.caption`
+with their why in `Typography.help` and `Palette.muted`; a list with nothing in it is left out. Its footer
+is Close and End Broadcast on ⌘↩, which asks nothing. A broadcast whose last task waits on a person keeps
+the board. No new `Palette` or `Metrics` member.
+
+**A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review, New Broadcast), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
 sheet does, never a path. Every sheet that opens a window ends its content with one
 `DestinationLine`, in one format: `Opens in iTerm2 · <project>/<worktree path in it> · <branch>` —
 the project alone for New terminal, `task “<title>”` in place of the path for a review that opens in
-the task that has its branch. New Task and New Review draw it on steps 1 and 3 (`Destination`),
-New terminal under its field; nothing else writes where a window opens.
+the task that has its branch, `the Operator’s window` alone for New Broadcast. New Task and New Review draw it
+on steps 1 and 3, New Broadcast on steps 1 and 4 (`CreationSteps.showsDestination`), New terminal under its
+field; nothing else writes where a window opens.
 Above it, on step 1 of New Task and New Review, the step's last field is `WorktreeIncludeToggle`
 when the project's `.worktreeinclude` selects files and a worktree will be made: “Copy files
 listed in .worktreeinclude”, a `.checkbox` `Toggle` in `Typography.body` as step 3's “Include Jira
@@ -248,7 +349,13 @@ disabled, otherwise — and for a review that opens in the task that has its bra
 
 `CreationSheet` is the frame New Task and New Review share — step bar, command preview, destination
 line, footer and its keys, the loads on appear — generic over the sheet's `CreationKind`; each
-sheet hands it values and keeps its own first step. A failed create shows its error as a sentence in
+sheet hands it values and keeps its own first step. A kind says how many steps it has and which one
+picks the agent (`stepCount`, 3, and `agentStep`, 2, by default), and `CreationSteps` decides the rest
+from those two in one place: the last step creates, the first has Cancel and every other Back, the
+destination line ends the first step and the last, the command preview and the missing-agent note
+belong to a sheet with an agent step, and every step past the first but the agent's is a prompt editor
+whose popup ⎋ closes. New Broadcast, which starts no agent of its own, draws the same parts from
+`CreationSteps.broadcast` around its own model, `CreationFooter` included. A failed create shows its error as a sentence in
 the footer — git's failure lines through `GitError.sentence`, as the banner has them — with git's
 whole output in the tooltip (`CreationFailure`). A review's branch git refused offers its fix at the
 footer's leading edge, in `SheetFooter`'s `status` slot: **Switch to main** when the branch is checked
@@ -256,27 +363,46 @@ out in the project's own folder and that folder has no uncommitted changes, **Re
 branch and origin's have diverged. A plain button with no key — ⌘↩ stays the create — that runs the
 fix and then the create it stopped (`CreationFailure.Recovery`).
 
-**Fix with AI.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
-Pull main's — offers **Fix with Claude** (or **Codex**), after the failure's own recovery: a plain
-button with the `sparkles` symbol and no key, greyed with its reason in the tooltip while the agent is
-missing. From then on the session's state (`FixSession.State`) is drawn where the failure's sentence
-was, by `FixFooterPresentation` in the footer and `BannerFixPresentation` in the banner, so each state is
-tested without rendering. `FixBusyLine` is the line while the agent looks — “Claude is looking at the
-conflict…”: a working `StatusMark` at `Size.statusMark`, `Space.snug` before the line in
-`Typography.caption` and `Palette.muted`. `FixProposalBlock` is its plan: the agent's `VendorMark` at
-`Size.vendorMark`, then what it found in `Typography.label` and `Palette.text`, why in
-`Typography.caption` and `Palette.muted`, and up to three numbered steps in `Typography.help`, the number
-hanging in a `Space.block` indent, `Space.tight` between the parts and `Space.hairline` between steps; its
-text is selectable. `compact`, the banner's size, sets the line and the why in `Typography.help`. In the
-footer Cancel and a primary **Apply** on ⌘↩ — the footer's only; the banner has no key — replace Back and
-Create while a proposal is up, and “Applying…” with Cancel off and the sheet held open while it is applied.
-In the banner (`IssueBanner`) the offer is a link beside the issue's own, then Apply and Cancel as links,
-then Cancel greyed while it is applied. A fix that fails shows the failure in the sentence's place with
-**Try Again**; one with nothing to propose shows the agent's reason and no Fix. No new tokens.
+**Notice.** Every “needs your attention or your answer” is one `Notice` (spec §6.1, proposal 19 Oct
+2026): an amber `exclamationmark.circle.fill` at `Size.inlineMark`, `Space.snug` before the title in
+`Typography.label` and `Palette.text` on one row; the description under it in `Typography.help` and
+`Palette.muted`; then the actions as links `Space.gap` apart; `Space.tight` between the rows and nothing
+indented. No amber text: the mark carries the tone. It is the sidebar's banner about a failed save
+or a failed operation (`IssueBanner`) and iTerm2 refusing the connection (`SidebarConnectionBanner`:
+the status its title, what to do its description), a failed create in `CreationFooter`, and the
+Backpack sheet's permission ask (Allow… its one link). In a sheet's footer the caller passes no
+actions and keeps its buttons, and a failure with one sentence (`GitError.sentence`) is the title
+alone. Not Notices: the grey line while AiTerm connects (`SidebarBannerText`), field help, row captions
+and toasts. `SidebarBanner` is only the banners' margins now: their text starts where `PROJECTS`
+does. The Operator's greenfield design added two Metrics members: `Size.inlineMark` (12), a mark that
+leads a line of text — the Notice's, Find a Fix's — and `Sheet.boardWidth` (820), the broadcast
+board's width. The board's footer carries a Notice too, when the Operator's window could not be reopened.
+
+**Find a Fix.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
+Pull main's — offers **Find a Fix**, after the failure's own recovery and before Dismiss: led by the
+Operator's mark, its agent's `VendorMark` (Claude's) at `Size.inlineMark` (`FixOfferLabel`), a plain
+button with no key in the footer and a link in the banner. The fix runs as the Operator: Claude, at
+Settings › Operator's model and reasoning (`AgentIntegrations.fixModel`); with Help with problems off,
+or Claude Code missing, there is no button and the sentence keeps “Rebase it by hand.”. From then on
+the session's state (`FixSession.State`) follows the problem, decided by `FixFooterPresentation` in the
+footer and `BannerFixPresentation` in the banner, so each state is tested without rendering.
+`FixBusyLine` is the line while it looks — “Looking for a fix…”: a working `StatusMark` at
+`Size.statusMark`, `Space.snug` before the line in `Typography.caption` and `Palette.muted`.
+`FixProposalBlock` is its plan: the agent's `VendorMark` at `Size.vendorMark`, then what it found in
+`Typography.label` and `Palette.text`, why in `Typography.caption` and `Palette.muted`, and up to three
+numbered steps in `Typography.help`, the number hanging in a `Space.block` indent, `Space.tight` between
+the parts and `Space.hairline` between steps; its text is selectable. `compact`, the banner's size,
+sets the line and the why in `Typography.help`. In the footer the busy line and the proposal stand
+where the failure was; Cancel and a primary **Apply** on ⌘↩ — the footer's only; the banner has no
+key — replace Back and Create while a proposal is up, and “Applying…” with Cancel off and the sheet
+held open while it is applied. In the banner they are drawn in the issue's `Notice`, under its title
+and reason, with Apply and Cancel as its links, then Cancel greyed while it is applied. A fix that
+fails, or finds nothing, keeps the problem's title with what it said as the description, and offers
+**Try Again** (a failure) or nothing (no fix).
 
 `NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",
-"Terminal name") and a divider — each rename's title, field and sentence from `RenameTarget`. A
+"Terminal name"), a broadcast (its row's Rename…) and a divider — each rename's title, field and sentence from `RenameTarget`. A
 terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraProjectSheet` is
 reached only from a project's context menu: Add Project… has no sheet, the folder chooser adds the
 project at once, and a folder inside a repository adds that repository with a toast saying so.
@@ -301,7 +427,7 @@ with no row shown Restore is absent. Nothing shelved reads "Nothing on the shelf
 A project header wears **one** quiet Jira `Badge` beside its name, however many Jira projects it
 links (proposal E2, 8 Oct 2026): the first linked project's key, which opens that project, and —
 when it links more — `Space.snug` after it a boxed `+n` `Badge`, as `BranchLabelView` counts a
-window's other branches. The `+n` opens a menu of every project, the first included — `KEY — Name`
+window's other branches. The `+n` opens a menu of every project, the first included — `KEY · Name`
 in the order they were linked, each opening its own — then "Jira Projects…", greyed while the
 workspace is locked. The `+n` stays when Settings › Interface turns the project key off, since it is
 not a key; its tooltip names every project and VoiceOver the rest ("2 more Jira projects: PAY and
@@ -337,8 +463,8 @@ again when chosen — a click or ↩, never the arrows; its hint and tooltip say
 except while the workspace cannot change, when choosing the row retries nothing. A row whose window is
 still coming back is drawn as it was.
 
-`CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` and `@`
-open — `/` the one trigger for every agent's commands and skills, a Codex skill picked there written
+`CompletionHint` is the line `PromptStep` draws under the prompt editor (unless the step hands its own
+help, as New Broadcast's three do), saying what `/` and `@` open — `/` the one trigger for every agent's commands and skills, a Codex skill picked there written
 as its `$` mention; `@` the project's files and folders, each row a `doc` or `folder` glyph and its
 path, truncated in the middle, with no source beside it.
 `SheetFooter` is the foot of every sheet — Cancel (or Back), a `SheetPrimaryButton` and optional
@@ -352,10 +478,13 @@ is a sheet's prominent action; it answers ⌘↩ only, the keycaps it shows. No 
 behind the highlighted one (the keyboard's or the pointer's), dimmed while pressed — and
 `DropdownKeys` its key contract (arrows wrap, ↩ accepts, ⎋ closes only the popup, everything else is
 the field's). `SearchPicker`'s results and `PromptEditor`'s completion popup are both drawn and
-keyed through them.
+keyed through them. The completion popup hangs below the caret's line, never wider than its field,
+and opens above the line instead when it does not fit below inside the scroll view around the editor
+(or its window) and there is more room above: Settings › Operator's Instructions, a scrolling
+sheet's last field.
 
-`SettingsView` has three tabs — Agents, Integrations, Interface — picked from the tab bar or
-with ⌘1–⌘3, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
+`SettingsView` has four tabs — Agents, Operator, Integrations, Interface — picked from the tab bar
+or with ⌘1–⌘4, and none opens with an intro line. It opens on Integrations while iTerm2 is not connected or a
 saved service's last test failed (`ServiceTestRecord`), and on Agents otherwise; that is decided
 once, as the sheet opens, and a test answering afterwards never switches the tab.
 
@@ -397,17 +526,27 @@ Sidebar badges, each keyboard group: the card's box and rule without its mark, s
 actions. A heading over one line of `HelpText`, a `Hairline`, then the rows, one heading gap
 (`Space.gap`) either side of the rule and between rows; rows split themselves with a `Hairline`.
 `SettingsGroup(title:help:accessory:rows:)` puts one control at the heading's trailing edge, as a
-card's actions sit — Fix with AI's switch.
+card's actions sit — Help with problems' switch; with no rows there is no rule.
 The terminal-background row is not one: it has no heading of its own, only a swatch, a title and
 a switch, in the same `groupChrome` box.
 
-`FixerSettingsGroup` is the top of Settings › Agents: a `SettingsGroup` “Fix with AI” with a
-`SettingsSwitch` as its accessory, and below the rule a `FormField` “Agent” with a `Select` of the
-agents that can fix — Claude and Codex, by their short names — in the left of two columns, so it
-lines up with the cards' Default model. Off dims the select and keeps its agent. A chosen agent that
-is not installed stays chosen, never swapped for the other vendor, and one `HelpText` under the
-select says so; with neither installed the switch is off and disabled, and the group's help says to
-install one.
+`HelpWithProblemsGroup` is the top of Settings › Agents: a `SettingsGroup` “Help with problems” with a
+`SettingsSwitch` as its accessory and no rows — no agent select, since the fix runs as the Operator
+(`HelpWithProblems`, kept under `operator.helpWithProblems`), at the model Settings › Operator sets.
+With Claude Code missing the switch is off and disabled, and the group's help says to install it.
+
+`OperatorSettingsPane` is Settings › Operator, four `SettingsGroup`s staged in `OperatorSettingsModel`
+until Save writes them through `OperatorProfileStore.save` (only when something changed; Cancel drops
+them). **Agent** names Claude Code by its `VendorMark` with no control to pick it, then Model and
+Reasoning `Select`s from Claude's catalogue. **Autonomy** lists the base with “Always on” trailing,
+then the Jira, Review and Merge slices, each its name in `Typography.bodyEmphasis` over a `HelpText`
+with a `SettingsSwitch` trailing, rows split by a `Hairline`; under them the fixed Never lines, each
+led by `nosign`, all in `Palette.muted`: facts, not failures. **Oracle** carries its switch as the
+group's accessory over Agent (Claude Code or Codex, whichever is installed, and the saved one
+shown as it is though it is not), Model and Reasoning; off, they are dimmed and
+disabled and keep their values. **Instructions** is a `PromptEditor` whose `/` lists both agents'
+skills. Autonomy's and the Oracle's help end “Changes apply to the next broadcast.”: a broadcast
+freezes the profile as it starts.
 
 `InterfaceSettingsPane` draws its preferences outside cards: the terminal-background row, a
 "Sidebar size" group (a `SegmentedControl` of `InterfaceSize`, applied to the sidebar behind the

@@ -34,10 +34,10 @@ struct MacSettingsCardTests {
         #expect(MacCardPresentation.summary == "Backpack mode keeps the Mac awake with the lid closed and finds your iPhone’s hotspot. AiTerm never reads where you are. Remove takes the lid-sleep rule out again.")
     }
 
-    /// Backpack is no longer a tab: Agents, Integrations, Interface on ⌘1–⌘3.
-    @Test func settingsHasThreeTabs() {
-        #expect(SettingsTab.allCases == [.agents, .integrations, .interface])
-        #expect(SettingsTab.interface.key == "3")
+    /// Backpack is no longer a tab: Agents, Operator, Integrations, Interface on ⌘1–⌘4.
+    @Test func settingsHasFourTabs() {
+        #expect(SettingsTab.allCases == [.agents, .operator, .integrations, .interface])
+        #expect(SettingsTab.interface.key == "4")
     }
 
     /// A missing Mac permission does not pull Settings onto Integrations; iTerm2 still does.

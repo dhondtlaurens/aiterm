@@ -31,7 +31,12 @@ public extension SessionInfo {
     }
 }
 
-public struct AvatarGroup: Equatable, Sendable { public var marks: [SessionAgent]; public var overflow: Int }
+/// A row's marks: up to `SidebarModel.avatarMax`, the last becoming `+n`. A task the Operator drives
+/// draws its own agents, as any task does: the Operator speaks on its line (`OperatorLine`).
+public struct AvatarGroup: Equatable, Sendable {
+    public var marks: [SessionAgent]; public var overflow: Int
+    public init(marks: [SessionAgent], overflow: Int) { self.marks = marks; self.overflow = overflow }
+}
 /// A row's branch line (design canvas, "Branch awareness · 17 Sep"): the branch of the tab you are
 /// looking at, how many *other* branches the same window has open, and whether that branch is not
 /// the one the row is bound to. `detail` is the hover text; it is empty when there is nothing to
@@ -50,6 +55,12 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     public var id: UUID, title: String, jiraKey: String?, jiraUrl: String?, mr: MergeRequestRef?
     public var branch: BranchLabel, avatars: AvatarGroup, status: TaskStatus
     public var diff: BaseDiff? = nil
+    /// The status line of a task the Operator drives (`OperatorLine.task`), its row's third line; nil for a
+    /// task you made yourself or took over.
+    public var operatorLine: OperatorLine? = nil
+    /// The task is driven by a broadcast that has not ended: its menu leads with the Operator's items.
+    /// False for a task you made yourself, and for every task of an ended broadcast, handed to you.
+    public var broadcastLive = false
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
 /// merge-request target. The VS Code badge draws only the counts, `+12 −3`; the base it measures
@@ -307,7 +318,7 @@ public enum SidebarModel {
         var lines: [String] = []
         if drifted, let own { lines.append("task · " + own) }
         if extra > 0 {
-            lines += ordered.map { "tab \($0.tabIndex + 1) · \($0.agent.rawValue) · " + (branchByCwd[$0.effectiveCwd] ?? "—") }
+            lines += ordered.map { "tab \($0.tabIndex + 1) · \($0.agent.rawValue) · " + (branchByCwd[$0.effectiveCwd] ?? "no branch") }
         }
         return BranchLabel(name: name, extra: extra, drifted: drifted, detail: lines.joined(separator: "\n"))
     }
@@ -330,12 +341,13 @@ public enum SidebarModel {
 
     public static func entries(state: AppState, sessions: [SessionInfo],
                                branchByCwd: [String: String], projectBranch: [UUID: String],
-                               diffByTask: [UUID: DiffStat] = [:]) -> [SidebarEntry] {
+                               diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:]) -> [SidebarEntry] {
         // Grouped once for every row, rather than filtered per task and per terminal — and the
         // rows by project once, rather than filtered again for every project.
         let tabs = Tabs(byTask: Dictionary(grouping: sessions, by: \.taskUUID), byWindow: Dictionary(grouping: sessions, by: \.windowId))
         let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
                         terminals: Dictionary(grouping: state.terminals, by: \.projectId))
+        let operated = OperatedLookup(state: state, acting: acting)
         // A row only a newer build can draw is skipped, and does not count as an end to move towards.
         let drawn = state.items.indices.filter { state.items[$0].isDrawn }
         let first = drawn.first ?? 0, last = drawn.last ?? 0
@@ -344,7 +356,7 @@ public enum SidebarModel {
             case .unknown: return nil
             case .divider(let d): return .divider(DividerEntry(divider: d, canMoveUp: index > first, canMoveDown: index < last))
             case .project(let project):
-                var section = section(project: project, rows: rows, tabs: tabs,
+                var section = section(project: project, rows: rows, tabs: tabs, operated: operated,
                                       branchByCwd: branchByCwd, projectBranch: projectBranch, diffByTask: diffByTask)
                 section.canMoveUp = index > first; section.canMoveDown = index < last
                 return .project(section)
@@ -358,15 +370,31 @@ public enum SidebarModel {
     /// The workspace's tasks and terminals by project, each list in the workspace's order.
     private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]] }
 
+    /// The runs, tasks and requests a driven task's row reads, built once per derivation, and left empty,
+    /// at no cost, while no task is driven. `acting` is what the Operator is doing to each task.
+    private struct OperatedLookup {
+        var runs: [UUID: OperatorRun] = [:], tasks: [UUID: TaskItem] = [:], acting: [UUID: OperatorAct] = [:]
+        var requests: [UUID: [BroadcastRequest]] = [:]
+        init(state: AppState, acting: [UUID: OperatorAct]) {
+            guard state.tasks.contains(where: { $0.operated != nil }) else { return }
+            runs = Dictionary(state.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            tasks = Dictionary(state.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            self.acting = acting
+            // What waits on you, as the notifications say it; no prompt's words are known here.
+            for run in runs.values { requests[run.id] = OperatorRequests.open(run: run, state: state, prompts: [:]) }
+        }
+    }
+
     /// The project-only view of `entries`, for the callers that never draw a divider.
     public static func sections(state: AppState, sessions: [SessionInfo],
                                 branchByCwd: [String: String], projectBranch: [UUID: String],
-                                diffByTask: [UUID: DiffStat] = [:]) -> [ProjectSection] {
-        entries(state: state, sessions: sessions, branchByCwd: branchByCwd, projectBranch: projectBranch, diffByTask: diffByTask)
+                                diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:]) -> [ProjectSection] {
+        entries(state: state, sessions: sessions, branchByCwd: branchByCwd, projectBranch: projectBranch,
+                diffByTask: diffByTask, acting: acting)
             .compactMap { if case .project(let s) = $0 { return s } else { return nil } }
     }
 
-    private static func section(project: Project, rows: Rows, tabs: Tabs,
+    private static func section(project: Project, rows: Rows, tabs: Tabs, operated: OperatedLookup,
                                 branchByCwd: [String: String], projectBranch: [UUID: String],
                                 diffByTask: [UUID: DiffStat]) -> ProjectSection {
         let projectTasks = rows.tasks[project.id] ?? []
@@ -377,10 +405,16 @@ public enum SidebarModel {
             + projectTasks.filter { $0.kind == .review }
         let tasks = orderedTasks.map { task -> TaskRow in
             let own = tabs.byTask[task.id] ?? []
+            let run = task.operated.flatMap { operated.runs[$0.runId] }
+            let line = run.flatMap { run in
+                OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
+                                  tasks: operated.tasks)
+            }
             return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                            branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                            avatars: avatars(for: own), status: aggregate(own.map(\.state)),
-                           diff: baseDiff(task: task, stat: diffByTask[task.id]))
+                           diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
+                           broadcastLive: run.map { !$0.hasEnded } ?? false)
         }
         let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the
@@ -439,6 +473,17 @@ public enum SidebarModel {
         }
     }
 
+    /// Each agent's weekly usage in percent, for the agents whose seven-day window is still open: a
+    /// window whose reset time has passed is left out, as ``usageVendorRows`` leaves it out.
+    public static func weeklyUsage(_ snap: UsageSnapshot, now: Date) -> [AgentKind: Int] {
+        let epoch = Int(now.timeIntervalSince1970)
+        var usage: [AgentKind: Int] = [:]
+        for (vendor, window) in [(AgentKind.claude, snap.claude?.sevenDay), (.codex, snap.codex?.sevenDay)] {
+            if let window, (window.resetsAt ?? .max) > epoch { usage[vendor] = window.usedPercent }
+        }
+        return usage
+    }
+
     /// The selected task — or review — as the footer's first row: whatever runs in its active tab,
     /// that provider's last-known fill from `contexts`, and that tab's own counts from `tokens`, by
     /// session. A shell tab has neither even while another tab of the task has both. A task whose
@@ -495,4 +540,18 @@ public enum SidebarModel {
             return f.string(from: date)
         }
     }
+}
+
+public extension SidebarModel {
+    /// An agent as a caption names it: its vendor's short name, not its CLI's display name.
+    static func agentName(_ agent: AgentKind) -> String {
+        switch agent {
+        case .claude: "Claude"
+        case .codex: "Codex"
+        case .grok: "Grok"
+        case .pi: "PI"
+        }
+    }
+
+
 }

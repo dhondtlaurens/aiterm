@@ -1,0 +1,63 @@
+import Foundation
+import AiTermCore
+
+/// The Operator's broadcasts and the tasks they drive, for the sidebar's, the sheets' and the overview's
+/// tests — built here, in one place, so a change to the operator types' initialisers is one edit.
+/// The example is the design's: "Newsletter signup" over pluto-cms and pluto-web.
+enum OperatorUIFixtures {
+    static let epoch = Date(timeIntervalSince1970: 0)
+
+    /// The profile the design's broadcast froze: Claude on Opus, every slice off, the standard Oracle.
+    static let profile = OperatorProfile(model: "claude-opus-5-5", reasoning: "high",
+                                         instructions: "You are a senior frontend engineer on Nuxt and Storyblok projects.")
+
+    /// `profile` with the Oracle on or off.
+    static func profile(oracle: Bool) -> OperatorProfile {
+        var profile = profile
+        profile.oracle.isOn = oracle
+        return profile
+    }
+
+    static func run(id: UUID = UUID(), name: String = "Newsletter signup", profile: OperatorProfile = profile,
+                    state: OperatorRunState = .active, planRevision: Int = 1,
+                    done: String? = "a commit per item, tests green, I review and push",
+                    questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [],
+                    windowId: String? = "operator-window", projectIds: [UUID] = []) -> OperatorRun {
+        OperatorRun(id: id, name: name, profile: profile, projectIds: projectIds,
+                    prompt: "PLUTO-231 newsletter signup block in Storyblok",
+                    done: done, state: state, intent: nil, planRevision: planRevision,
+                    questions: questions, decisions: decisions,
+                    operatorConversation: nil, operatorWindowId: windowId, operatorSessionId: nil, createdAt: epoch)
+    }
+
+    static func operated(run: UUID, key: String, state: OperatedState, end: TaskEnd = .commit,
+                         dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int = 1,
+                         sha: String? = nil, takenOver: Bool = false, blockedReason: String? = nil,
+                         flags: Set<OperatedFlag> = []) -> OperatedTask {
+        OperatedTask(runId: run, key: key, state: state, end: end, brief: "Do \(key).", dependsOn: dependsOn,
+                     stackedOn: stackedOn, revision: revision,
+                     acceptance: sha.map { TaskAcceptance(resultSHA: $0, prerequisiteSHAs: [], checkOutput: "tests green",
+                                                          note: nil, at: epoch) },
+                     publication: nil, takenOver: takenOver, ownership: 0, launch: nil, retriesUsed: 0, runtimeUsed: 0,
+                     blockedReason: blockedReason, flags: flags)
+    }
+
+    static func task(_ title: String, id: UUID = UUID(), jira: String? = nil, agent: AgentKind = .claude,
+                     project: UUID, windowId: String? = nil, operated: OperatedTask?) -> TaskItem {
+        var task = TaskItem(id: id, projectId: project, title: title, branch: "feat/\(id.uuidString.prefix(8))",
+                            worktreePath: "/r/.worktrees/\(id.uuidString.prefix(8))", baseBranch: "main",
+                            jira: jira.map { JiraRef(key: $0, summary: title, url: "https://jira.example/browse/\($0)") },
+                            agent: agent, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false,
+                            createdAt: epoch, windowId: windowId)
+        task.operated = operated
+        return task
+    }
+
+    static func project(_ name: String) -> Project {
+        Project(id: UUID(), name: name, path: "/r/\(name)", provider: .gitlab, remoteUrl: nil, addedAt: epoch, collapsed: false)
+    }
+
+    static func question(_ text: String, id: String = UUID().uuidString, task: UUID? = nil) -> OperatorQuestion {
+        OperatorQuestion(id: id, text: text, task: task, askedAt: epoch, resolution: nil)
+    }
+}

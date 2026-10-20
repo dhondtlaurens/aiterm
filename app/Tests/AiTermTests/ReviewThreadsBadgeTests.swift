@@ -49,8 +49,8 @@ import AiTermUI
         let link = badge(ReviewThreads(resolved: 2, total: 5), details: BadgeDetails(mergeRequest: false))
         #expect(link?.label == nil)
         #expect(link?.threads == Badge.Suffix(icon: bubble, text: "2/5"))
-        #expect(link?.help == "!87 — Add diff setting · 2 of 5 threads resolved")
-        #expect(link?.accessibilityLabel == "!87 — Add diff setting, 2 of 5 threads resolved")
+        #expect(link?.help == "!87 · Add diff setting · 2 of 5 threads resolved")
+        #expect(link?.accessibilityLabel == "!87 · Add diff setting, 2 of 5 threads resolved")
     }
 
     @Test func oneThreadIsSingular() {

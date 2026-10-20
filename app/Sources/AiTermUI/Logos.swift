@@ -30,12 +30,12 @@ enum Logos {
     /// The four-colour tanuki as drawn on the design canvas (decision "GitLab B", 17 Sep 2026).
     static let gitlabFourColourSVG = ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#E24329" d="M12 23.6 7.6 10h8.8z"/><path fill="#FC6D26" d="M12 23.6 2 10h5.6zM12 23.6 22 10h-5.6z"/><path fill="#FCA326" d="M2 10 .6 14.2c-.1.4 0 .9.4 1.1L12 23.6zM22 10l1.4 4.2c.1.4 0 .9-.4 1.1L12 23.6z"/><path fill="#E24329" d="M2 10 4.6 1.9c.1-.4.7-.4.9 0L7.6 10zM22 10 19.4 1.9c-.1-.4-.7-.4-.9 0L16.4 10z"/></svg>"##
 
-    /// A brand's mark is cached under its name and fill, since a body asks for its mark each time
+    /// A brand's mark is cached under its name, fill and winding rule, since a body asks for its mark each time
     /// it runs and hashing a path of kilobytes is what a path key would cost every time. The entry
     /// keeps the path it was drawn from, and a hit counts only for that path: two brands given one
     /// name by mistake are drawn apart, at the cost of a string comparison that is a pointer check
     /// for the same brand — `Palette`'s paths are literals, one buffer however often read.
-    private struct BrandKey: Hashable { let name: String, fill: String }
+    private struct BrandKey: Hashable { let name: String, fill: String; let evenOdd: Bool }
 
     /// Main-actor state: every reader is a view's `body`.
     @MainActor private static var brands: [BrandKey: (path: String, image: NSImage)] = [:]
@@ -46,7 +46,7 @@ enum Logos {
     /// path: only Grok's mark needs it, whose inner cut renders filled under SVG's default nonzero
     /// winding rule.
     @MainActor static func image(brand: Brand, fill: String) -> NSImage? {
-        let key = BrandKey(name: brand.name, fill: fill)
+        let key = BrandKey(name: brand.name, fill: fill, evenOdd: brand.evenOdd)
         if let hit = brands[key], hit.path == brand.path { return hit.image }
         let rule = brand.evenOdd ? #" fill-rule="evenodd""# : ""
         guard let image = rasterise(#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="\#(fill)"\#(rule) d="\#(brand.path)"/></svg>"#) else {

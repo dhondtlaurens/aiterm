@@ -41,6 +41,10 @@ public struct OperationIssue: Equatable, Sendable {
         self.detail = detail; self.fix = fix
     }
 
+    /// What names this issue while the banner shows it: its subject and its title. A driven task blocked by
+    /// it keeps this as its `problem`, which sends its card to the banner (`OperatorController.markProblem`).
+    public var id: String { "issue-\(subject?.uuidString ?? "app")-\(title)" }
+
     /// A failure and the error behind it: `title` is AiTerm's own sentence, and the error's goes in
     /// `reason`, by the one rule every report follows (`reason(of:)`); a git failure's command and
     /// whole stderr in `detail`, as New Review's footer has them — when git said anything.

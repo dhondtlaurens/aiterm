@@ -14,7 +14,10 @@ import AiTermCore
 final class SheetCoordinator {
     typealias SheetKind = AppController.SheetKind
 
-    var sheet: SheetKind?
+    var sheet: SheetKind? {
+        didSet { if sheet == nil { onDismiss?() } }
+    }
+    @ObservationIgnored var onDismiss: (@MainActor () -> Void)?
     /// The preparation on its way to the slot, if any; tests await it.
     @ObservationIgnored private(set) var preparingSheet: Task<Void, Never>?
 
@@ -96,6 +99,11 @@ final class SheetCoordinator {
         present(.rename(.terminal(current)))
     }
 
+    func presentRename(run: OperatorRun) {
+        guard canChangeWorkspace, let current = state.runs.first(where: { $0.id == run.id }) else { return }
+        present(.rename(.broadcast(current)))
+    }
+
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over
     /// another sheet: ⌘B and the footer's Mac rows reach it while one may be up, and it refuses rather than
     /// take that sheet's place, as Settings does.
@@ -132,6 +140,27 @@ final class SheetCoordinator {
             guard !Task.isCancelled, canPresentSettings else { return }
             sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: tab)
         }
+    }
+
+    /// New Broadcast…, on the sidebar's projects, its Review and Done help following `slices`: Settings ›
+    /// Operator's as the sheet opens, the profile the operator controller freezes as it starts the
+    /// broadcast (`startBroadcast`). `/` lists both agents' skills from the person's home; `@` the files
+    /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
+    /// the Jira projects sheet fetches them. Not over another sheet.
+    func presentNewBroadcast(slices: Slices, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
+                             start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
+        guard canChangeWorkspace, sheet == nil else { return }
+        preparingSheet?.cancel()
+        let home = harnessHome, git = self.git, workspace = workspace
+        sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, slices: slices,
+                                                skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home) },
+                                                files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
+                                                canChangeWorkspace: { workspace.canChangeWorkspace }, start: start))
+    }
+
+    /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
+    func present(operatorSheet kind: SheetKind) {
+        present(kind)
     }
 
     /// The New Terminal sheet, prefilled with the next free name. It asks for nothing else: the
@@ -246,7 +275,7 @@ final class SheetCoordinator {
                             recover: { try await launcher.recover($0, in: project) },
                             fixer: { [agents] in agents.fixer },
                             pipeline: .live(git: git, workflow: workflow, project: project,
-                                            model: AgentIntegrations.fixerModels(remembered: state.lastModelByAgent),
+                                            model: agents.fixModel,
                                             locate: { HarnessCommandRunner.live.locate($0) }),
                             fixLanded: { launcher.announceFix($0, by: $1) },
                             backupKept: { launcher.announceBackup($0) })

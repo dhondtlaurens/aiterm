@@ -15,14 +15,14 @@ import Testing
     @Test func theHighlightStartsOnTheNewestWrapsAndResetsWhenTheQueryChanges() {
         let a = entry("Alpha", at: 1), b = entry("Beta", at: 2), c = entry("Gamma", at: 3)
         let model = ArchiveSheetModel(entries: { [a, b, c] }, restore: { _ in }, remove: { _ in })
-        #expect(model.highlighted == c)
-        model.move(by: 1); #expect(model.highlighted == b)
-        model.move(by: -2); #expect(model.highlighted == a, "wraps")
+        #expect(model.projection.highlighted == c)
+        model.move(by: 1); #expect(model.projection.highlighted == b)
+        model.move(by: -2); #expect(model.projection.highlighted == a, "wraps")
         // "e" is in all three rows (their branch and project), so nothing but the reset puts the
         // highlight back on the newest: `a` would stay highlighted without it.
-        model.query = "e"; #expect(model.rows.count == 3); #expect(model.highlighted == c, "the highlight resets with the query")
-        model.query = "be"; #expect(model.highlighted == b)
-        model.query = "zzz"; #expect(model.highlighted == nil)
+        model.query = "e"; #expect(model.projection.rows.count == 3); #expect(model.projection.highlighted == c, "the highlight resets with the query")
+        model.query = "be"; #expect(model.projection.highlighted == b)
+        model.query = "zzz"; #expect(model.projection.highlighted == nil)
     }
 
     @Test func escapeClearsASearchBeforeTheSheetCloses() {
@@ -47,9 +47,9 @@ import Testing
 
     @Test func theStatusCountsTheArchiveOrTheMatches() {
         let model = ArchiveSheetModel(entries: { [self.entry("Alpha", at: 1), self.entry("Beta", at: 2)] }, restore: { _ in }, remove: { _ in })
-        #expect(model.status == "2 shelved")
+        #expect(model.projection.status == "2 shelved")
         model.query = "alp"
-        #expect(model.status == "1 of 2")
+        #expect(model.projection.status == "1 of 2")
     }
 
     @Test func theArchiveOpensOnlyWithNoSheetUpAndAWorkspaceThatCanChange() throws {
@@ -60,4 +60,13 @@ import Testing
         guard case .archive = controller.sheet else { Issue.record("no archive sheet"); return }
         #expect(!controller.canPresentArchive, "not over another sheet")
     }
+    @Test func movingReadsAndRanksOneConsistentArchive() {
+        let a = entry("Alpha", at: 1), b = entry("Beta", at: 2)
+        var reads = 0
+        let model = ArchiveSheetModel(entries: { reads += 1; return [a, b] }, restore: { _ in }, remove: { _ in })
+        model.move(by: 1)
+        #expect(reads == 1)
+        #expect(model.projection.highlighted == a)
+    }
+
 }

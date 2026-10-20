@@ -76,7 +76,7 @@ def _patch_connection(monkeypatch, tmp_path) -> list[_FakeConn]:
         return None
 
     monkeypatch.setattr(iterm2.Connection, "async_create", staticmethod(fake_create))
-    for name in ("new_session", "terminate_session", "focus_change"):
+    for name in ("new_session", "terminate_session", "focus_change", "keystroke"):
         monkeypatch.setattr(iterm2.notifications, f"async_subscribe_to_{name}_notification", fake_subscribe)
     return conns
 
@@ -822,7 +822,7 @@ def real_registration(monkeypatch, tmp_path):
     answers OK over a live connection and raises over a closed one, as it would against iTerm2.
     The library's handler lists are process-wide, so each test starts from empty ones."""
     subscribe = {name: getattr(iterm2.notifications, f"async_subscribe_to_{name}_notification")
-                 for name in ("new_session", "terminate_session", "focus_change")}
+                 for name in ("new_session", "terminate_session", "focus_change", "keystroke")}
     conns = _patch_connection(monkeypatch, tmp_path)
     for name, real in subscribe.items():
         monkeypatch.setattr(iterm2.notifications, f"async_subscribe_to_{name}_notification", real)
@@ -862,6 +862,7 @@ async def test_a_reconnect_leaves_one_handler_per_notification(real_registration
     assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_NEW_SESSION)] == [bridge._on_new]
     assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_TERMINATE_SESSION)] == [bridge._on_closed]
     assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_FOCUS_CHANGE)] == [bridge._on_focus]
+    assert handlers[(None, iterm2.api_pb2.NOTIFY_ON_KEYSTROKE)] == [bridge._on_keystroke]
     # The live App keeps the handler that updates its tree from the notification itself.
     assert [h.__self__ for h in handlers[(None, iterm2.api_pb2.NOTIFY_ON_LAYOUT_CHANGE)]] == [iterm2.app.App.instance]
 
@@ -1339,7 +1340,68 @@ async def test_a_window_is_returned_even_if_setting_it_up_times_out(creating_app
     assert await asyncio.wait_for(bridge.create_window("/wt", "x", {"aiterm_task": "t1"}, frame), 2) == ("w1", "s2")
 
 
+async def test_a_background_window_is_placed_and_tagged_but_not_activated(creating_app):
+    """A task an operator starts opens behind your work (Operators spec §10.9)."""
+    bridge, app = creating_app()
+    frame = iterm_bridge.Frame(0, 0, 10, 10)
+    assert await bridge.create_window("/wt", "x", {"aiterm_task": "t1"}, frame, background=True) == ("w1", "s2")
+    window = app.live["w1"]
+    assert window.frames and not window.activated
+    assert window.current_tab.current_session.variables == {"user.aiterm_task": "t1"}
+
+
 async def test_a_tab_is_returned_even_if_tagging_it_fails(creating_app):
     bridge, app = creating_app(fails=True)
     app.add_window("w0")
     assert await bridge.create_tab("w0", {"aiterm_task": "t1"}, cwd="/wt") == "s1"
+
+
+async def test_a_key_pressed_in_any_session_is_reported_with_that_session(real_registration):
+    """One monitor for every session: iTerm2 reports each key-down with the session it went to, and
+    lets the key through (a monitor, not a filter). Its characters and modifiers come along, for
+    what the key did to the input (keystrokes.TypingGuard)."""
+    conns, _requests = real_registration
+    bridge = ItermBridge()
+    await bridge.connect()
+    typed: list[tuple[str, str, frozenset[str]]] = []
+
+    async def record(session_id: str, characters: str, modifiers: frozenset[str]) -> None:
+        typed.append((session_id, characters, modifiers))
+
+    bridge.on_keystroke(record)
+    message = iterm2.api_pb2.ServerOriginatedMessage()
+    message.notification.keystroke_notification.session = "s7"
+    message.notification.keystroke_notification.characters = "a"
+    await iterm2.notifications._async_dispatch_helper(conns[0], message)
+    message = iterm2.api_pb2.ServerOriginatedMessage()
+    message.notification.keystroke_notification.session = "s7"
+    message.notification.keystroke_notification.characters = "\r"
+    message.notification.keystroke_notification.modifiers.extend(
+        [iterm2.api_pb2.Modifiers.SHIFT, iterm2.api_pb2.Modifiers.NUMPAD])
+    await iterm2.notifications._async_dispatch_helper(conns[0], message)
+    assert typed == [("s7", "a", frozenset()), ("s7", "\r", frozenset({"shift"}))]
+
+
+async def test_a_refused_keystroke_monitor_does_not_fail_the_connection(patched_connect, monkeypatch, caplog):
+    async def refused(_conn, _cb):
+        raise iterm2.notifications.SubscriptionException("REQUEST_MALFORMED")
+
+    monkeypatch.setattr(iterm2.notifications, "async_subscribe_to_keystroke_notification", refused)
+    bridge = ItermBridge()
+    assert await bridge.connect() == "3.7.2"
+    assert bridge.is_connected()
+    assert "keystroke monitor" in caplog.text
+    assert bridge.keystroke_epoch() is None
+
+
+async def test_monitor_epoch_exists_only_while_subscription_is_live(patched_connect):
+    bridge = ItermBridge()
+    assert bridge.keystroke_epoch() is None
+    await bridge.connect()
+    first = bridge.keystroke_epoch()
+    assert first is not None
+    await bridge.close()
+    assert bridge.keystroke_epoch() is None
+    await bridge.connect()
+    assert bridge.keystroke_epoch() is not None and bridge.keystroke_epoch() is not first
+    await bridge.close()

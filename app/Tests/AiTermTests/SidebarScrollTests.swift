@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -26,7 +27,7 @@ struct SidebarScrollTests {
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -46,7 +47,7 @@ struct SidebarScrollTests {
 
         // The last terminal is the last row. Not `selectedRow`: a selection set from the model
         // reaches the table's own `selectedRow` only later, if at all.
-        #expect(list.numberOfRows == 41)
+        #expect(list.numberOfRows == 42)
         #expect(list.visibleRect.contains(list.rect(ofRow: list.numberOfRows - 1)))
     }
 }

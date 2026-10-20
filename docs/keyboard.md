@@ -29,7 +29,7 @@ project's "+" and its context menu all list them in this order: Add Project…, 
 New Task…, New Review…, New Terminal…. None clashes with a sheet: ⌘P, ⌘D, ⌘R and ⌘T mean nothing
 to a text field, and the File menu is off while a sheet is up anyway.
 
-There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself.
+There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast row's — Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…; the OPERATOR heading's "+" (New Broadcast…) has no key, and there is no File menu item for it.
 
 The Keyboard shortcuts section of Settings › Interface lists every key AiTerm answers to
 (`KeyBindings.all`), a row that mirrors a menu item under that item's exact title, and
@@ -43,8 +43,8 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. A row whose window is still coming back is only selected. |
-| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a row whose window is still coming back waits for it, and one that could not be reopened is tried again. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
+| ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. A row whose window is still coming back is only selected. The broadcast row peeks at the Operator's window, as a task row peeks at its own; the OPERATOR heading is stepped over, as a divider is. |
+| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a row whose window is still coming back waits for it, and one that could not be reopened is tried again. On the broadcast row, ↩ — or a click — opens the broadcast's board instead; with the Operator's window closed (no tab of it listed) it also reopens that window behind the board, resuming its conversation and the broadcast. On a task the Operator drives whose window you closed, ↩ or a click brings it back with its conversation resumed — never a second agent. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
 | ⌘⌫ | Remove the task, review or terminal | The row's own Remove, as its context menu has it: a task or a review asks first, a terminal just closes. Nothing on a header. On the list, not a menu command — a menu's key equivalent would beat a text field's own ⌘⌫. |
 | ⌘F | Focus View | Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you — its window shown even when it was already selected — with the keyboard left in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included; the Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | Opens every project that has rows. |
@@ -62,20 +62,23 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 | ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key in iTerm2 closes the window first; AiTerm then asks Remove's question a second later, Shelve puts the task away instead, and Cancel brings the window back. |
 | ← → | Fold and open a project, Finder-style | Dropped: ↩ on a header folds or opens it, as a click on its label does. ⌘L opens every project. |
 | ⌘A | — | Edit › Select All claims it even on the list, where it is disabled, so Show Shelf took ⌘S. |
+| ⌘I | Open the broadcast's board | Dropped: a click or ↩ on the broadcast row opens it, and the row's menu has no Overview…. |
 | — | Shelve a task | Shelve Task is in the row's menu and Shelve is in the window-close question. |
 
-## New Task and New Review sheets
+## New Task, New Review and New Broadcast sheets
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. |
+| ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. New Broadcast has four steps: Continue on Broadcast (once it has a project), Prompt (once it says something) and Review, Start Broadcast on Done. |
 | ↩ | Nothing sheet-wide | It picks the highlighted result in an open dropdown, and inserts a newline in the prompt editor. It does not press the primary button. |
-| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; on the prompt step, the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
+| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; New Broadcast its Jira projects list before its projects list; on a prompt step (New Broadcast's Prompt, Review and Done), the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
 
 ## A picker's list
 
-Every `SearchPicker` — the ticket, merge request, branch and Jira project fields — answers the
-same keys while its list is open (`DropdownKeys`), and hands every key back once it is closed.
+Every `SearchPicker` — the ticket, merge request, branch and Jira project fields — and New Broadcast's
+two `ChipsPicker`s, whose list opens as the field takes the keyboard, answer the same keys while the list is
+open (`DropdownKeys`), and hand every key back once it is closed. A pick in a `ChipsPicker` joins its chips,
+and the field stays for the next.
 
 | Keys | Action | Notes |
 |---|---|---|
@@ -87,8 +90,8 @@ same keys while its list is open (`DropdownKeys`), and hands every key back once
 
 | Keys | Action | Notes |
 |---|---|---|
-| / | Open | At the start of a word, for every agent. The list is the commands and skills that agent actually has installed, for this project. `$` opens nothing, so a price or `$HOME` in a prompt stays plain text. |
-| @ | Open | At the start of a word, so an address stays plain text. The list is the files git tracks in the project — what the task's worktree will have — and the folders that hold them; a folder that is not a checkout is walked instead (`ProjectFiles`). `@../`, `@~/` or `@/` lists that folder on disk instead, `@./` is the project's root. |
+| / | Open | At the start of a word, for every agent. The list is the commands and skills that agent actually has installed, for this project; in New Broadcast, Claude's and Codex's skills, from the home and each picked project. `$` opens nothing, so a price or `$HOME` in a prompt stays plain text. |
+| @ | Open | At the start of a word, so an address stays plain text. The list is the files git tracks in the project (in New Broadcast, the one picked project; across several it lists none) — what the task's worktree will have — and the folders that hold them; a folder that is not a checkout is walked instead (`ProjectFiles`). `@../`, `@~/` or `@/` lists that folder on disk instead, `@./` is the project's root. |
 | ↑ ↓ | Move | Wraps at both ends. |
 | ↩ | Accept | Replaces the typed token with the item as its agent runs it: `/bra` → `/brainstorming`. Codex runs a skill as a `$` mention, so for Codex `/imag` → `$imagegen`; its commands, `/prompts:<name>` among them, keep the `/` (`SkillCatalog.invocation`). A file is written as its `@` mention from the project's root, `@rea` → `@README.md`, the form Claude Code, Grok and PI attach a file by. A folder is written without the trailing space, `@ap` → `@app/`, and the list stays open on what is inside it. A pick outside the project is written as its absolute path, since `../` means somewhere else in the task's worktree under `.worktrees/`; one back inside it is written from the project's root. |
 | ⎋ | Close | Only the popup. Every other key, and every key when it is closed, reaches the text view as usual. |
@@ -117,20 +120,23 @@ finds none (`ArchiveSearch`).
 
 ## Every other sheet
 
-New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings and Jira projects.
+New terminal, Add divider, Rename divider, Rename task, Rename terminal, Rename broadcast, Settings, Jira projects
+and a broadcast's board.
 Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Create Terminal · Add Divider · Rename · Save | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
+| ⌘↩ | Create Terminal · Add Divider · Rename · Save · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
+
+The board's ⌘↩ is the moment's: End Broadcast once it is the debrief, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. A card's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a question or a blocked task, the sidebar's banner for a problem AiTerm hit. A Todo card is not a button. ⎋ is Close.
 
 ## Settings
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘1 ⌘2 ⌘3 | Agents, Integrations, Interface | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
+| ⌘1 ⌘2 ⌘3 ⌘4 | Agents, Operator, Integrations, Interface | The tabs in the tab bar's order, from anywhere in the sheet. On hidden buttons, since a view carries one shortcut and the bar's segments are not buttons. |
 
 ## Alerts
 
@@ -146,6 +152,8 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 | Uncommitted changes | Keep Task / Keep Review, blue | Keep Task / Keep Review — Delete Changes and Remove, or Delete Changes and Shelve, is the grey button |
 | Remove a shelved task or review | Remove, red | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
+| Stop a task the Operator drives | Stop Task, blue: its window and branch stay | Cancel |
+| End a broadcast, before its debrief | End Broadcast, blue: its started tasks stay, worktrees and MRs too | Cancel |
 | Import worktrees | Import | Skip |
 | An update is available | Update | Later |
 | Unsaved workspace on quit | Cancel Quit | Cancel Quit |

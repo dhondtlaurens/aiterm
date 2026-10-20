@@ -28,10 +28,13 @@ struct Destination: Equatable {
         Destination(place: "\(owner.kind == .review ? "review" : "task") “\(owner.title)”", branch: owner.branch)
     }
 
-    /// The New Task and New Review steps that end on the line: step 1, which names the checkout,
-    /// and step 3, which creates it. Step 2 is the agent's alone, so nothing works the line out there
-    /// — finding the unused worktree slug looks at the disk.
-    static func isShown(onStep step: Int) -> Bool { step != 2 }
+    /// A broadcast's: the Operator's own window. Its tasks open wherever the Operator plans them, so no
+    /// branch is named.
+    static let operatorWindow = Destination(place: "the Operator’s window", branch: "")
+
+    /// The New Task and New Review steps that end on the line: the first, which names the checkout,
+    /// and the last, which creates it (`CreationSteps.showsDestination`).
+    static func isShown(onStep step: Int, of steps: CreationSteps) -> Bool { steps.showsDestination(onStep: step) }
 
     var text: String {
         (["Opens in iTerm2", place] + (branch.isEmpty ? [] : [branch])).joined(separator: " · ")
@@ -39,7 +42,7 @@ struct Destination: Equatable {
 }
 
 /// The line that ends the content of every sheet that opens a window — New Task and New Review on
-/// steps 1 and 3, and New Terminal — saying where it opens. One `HelpText`, wrapping onto a second
+/// steps 1 and 3, New Broadcast on steps 1 and 4, and New Terminal — saying where it opens. One `HelpText`, wrapping onto a second
 /// line for a long worktree path and its branch; past that it is cut in the middle, so the branch
 /// at its end survives, and the tooltip has the whole line.
 struct DestinationLine: View {

@@ -26,6 +26,8 @@ final class Notices {
     private let isStale: @MainActor (OperationIssue) -> Bool
     /// Who hears that the banner about a task was dismissed, or replaced by one about something else.
     @ObservationIgnored private var withdrawnHooks: [@MainActor (UUID) -> Void] = []
+    /// Who hears the banner's issue change: the one it showed and the one it shows now, either nil.
+    @ObservationIgnored private var issueHooks: [@MainActor (_ old: OperationIssue?, _ new: OperationIssue?) -> Void] = []
     /// Makes the session for an issue's problem: nil when there is none to make — no pipeline for
     /// it, or the project it is about gone.
     @ObservationIgnored private var makeFix: @MainActor (FixRequest) -> FixSession?
@@ -47,6 +49,12 @@ final class Notices {
     /// about something else: whatever the task's row says in the banner's stead goes with it.
     func onWithdrawn(_ hook: @escaping @MainActor (UUID) -> Void) {
         withdrawnHooks.append(hook)
+    }
+
+    /// Adds `hook` to what hears the banner's issue change — shown, replaced, dismissed or answered —
+    /// with the one it showed and the one it shows now: a driven task's `problem` follows it.
+    func onIssueChanged(_ hook: @escaping @MainActor (_ old: OperationIssue?, _ new: OperationIssue?) -> Void) {
+        issueHooks.append(hook)
     }
 
     /// Completion feedback disappears on its own, after long enough to read a sentence — some say
@@ -75,7 +83,7 @@ final class Notices {
         if fixSession?.state.holdsSurface == true { return hold(issue, while: "a fix is at work") }
         if issue.actions.isEmpty, self.issue?.actions.isEmpty == false { return hold(issue, while: "a question is waiting") }
         if let shown = self.issue, shown.subject != issue.subject { withdraw(shown) }
-        self.issue = issue
+        show(issue)
         offerFix(for: issue)
     }
 
@@ -96,14 +104,22 @@ final class Notices {
     /// For an action that answered the banner's question. Its Fix goes with it: a Look stops and a
     /// proposal is declined; one being applied runs on to its end unseen.
     func clearIssue() {
-        issue = nil
+        show(nil)
         offerFix(for: nil)
         guard let held = deferredIssue else { return }
         deferredIssue = nil
         if !isStale(held) {
-            issue = held
+            show(held)
             offerFix(for: held)
         }
+    }
+
+    /// The one write to `issue`, telling `issueHooks` when it changed.
+    private func show(_ new: OperationIssue?) {
+        let old = issue
+        issue = new
+        guard old != new else { return }
+        for hook in issueHooks { hook(old, new) }
     }
 
     /// The banner's Cancel: stops the Look or declines the proposal — nothing while a fix is

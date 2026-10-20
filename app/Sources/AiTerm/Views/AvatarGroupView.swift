@@ -4,13 +4,13 @@ import AiTermCore
 
 /// Nuxt-UI style avatar group at the project tile's size: 18 px marks, 5 px overlap, a ring in the
 /// row's own background colour so the circles read as stacked, and "+n" in the last slot once
-/// there are more sessions than fit (design canvas, 17 Sep 2026).
+/// there are more sessions than fit (design canvas, 17 Sep 2026). A task the Operator drives draws its
+/// own agents too: the Operator speaks on the row's line (`OperatorBadge`), not here.
 struct AvatarGroupView: View {
     /// How far each mark overlaps the one before it, so the group reads as a stack rather than a row.
     private static let overlap: CGFloat = -5
-    /// The occluding ring every mark and the `+n` slot draw around themselves. A stroke, so it does
-    /// not scale.
-    private static let ringWidth: CGFloat = 2
+    /// The occluding ring every mark and the `+n` slot draw around themselves. A stroke, so it does not scale.
+    static let ringWidth: CGFloat = 2
     @Environment(\.interfaceScale) private var scale
     private var size: CGFloat { scale(Size.avatar) }
     /// The group's fixed width: two stacked marks, which is all `SidebarModel.avatarMax` lets a row

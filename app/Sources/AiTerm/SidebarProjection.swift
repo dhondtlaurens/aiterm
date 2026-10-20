@@ -21,6 +21,19 @@ final class SidebarProjection {
     /// Each task and terminal by id: the saved item a drawn row also reads.
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
+    /// The broadcast row under the OPERATOR heading, above the projects; nil while no broadcast exists.
+    private(set) var broadcast: BroadcastRow?
+    /// Each live or ended run by id: what the broadcast row's menu reads.
+    private(set) var runs: [UUID: OperatorRun] = [:]
+    /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists.
+    /// Derived with the rows and written only when it differs, so a change it draws nothing of (another
+    /// project's task, the sidebar's frame) redraws no board.
+    private(set) var board: BroadcastBoard?
+    /// What the Operator is doing now, to each task and each broadcast, as `actingSource` last said.
+    private(set) var acting: OperatorActs = .none
+    /// What the Operator is doing, read on every derivation. The app points it at its
+    /// `OperatorController`; a test or a snapshot at values of its own.
+    @ObservationIgnored var actingSource: @MainActor () -> OperatorActs = { .none }
 
     /// Whether the sidebar has a project, as `AppState.hasProjects` says: every project is a section.
     var hasProjects: Bool { !sections.isEmpty }
@@ -47,6 +60,7 @@ final class SidebarProjection {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
+        var runs: [OperatorRun], acting: OperatorActs
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
@@ -57,13 +71,26 @@ final class SidebarProjection {
         let state = workspace.state
         let next = Inputs(items: state.items, tasks: state.tasks, terminals: state.terminals, sessions: live.rowSessions,
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
-                          diffByTask: checkouts.diffByTask)
+                          diffByTask: checkouts.diffByTask,
+                          runs: state.runs, acting: actingSource())
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
         derivations += 1
+        if next.acting != acting { acting = next.acting }
+        if next.runs != previous?.runs {
+            let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            if runs != self.runs { self.runs = runs }
+        }
+        let broadcast = SidebarModel.broadcastRow(state: state, acting: next.acting)
+        if broadcast != self.broadcast { self.broadcast = broadcast }
+        let board = state.activeRun.map { run in
+            BroadcastBoard.make(run: run, state: state, acting: next.acting,
+                                requests: OperatorRequests.open(run: run, state: state, prompts: [:]))
+        }
+        if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
-                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask)
+                                           projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks)
         // Rebuilt only when their own list changed, since most derivations are for a status; and
         // written only when the lookup differs, which a reordered list leaves as it was.
         if next.tasks != previous?.tasks {
@@ -97,7 +124,7 @@ final class SidebarProjection {
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts,
                                                  tokens: live.tokens)
-        case .project, nil: return nil
+        case .project, .operation, nil: return nil
         }
     }
 }

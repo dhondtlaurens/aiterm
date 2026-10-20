@@ -1,0 +1,24 @@
+import Foundation
+
+public extension OperatorRun {
+    /// Ended, or being ended: stopped, or asked to stop.
+    var hasEnded: Bool { state == .stopped || intent == .stopped }
+}
+
+/// Finding an operation and its tasks in the workspace, for the engines and the app alike.
+public extension AppState {
+    func run(id: UUID) -> OperatorRun? { runs.first { $0.id == id } }
+
+    /// The one broadcast that has not ended (spec §3): its state and its intent both short of stopped, so a
+    /// broadcast being ended is gone at once. At most one; while there is one, no other starts. The
+    /// broadcast row, the selection and the Operator controller all read this.
+    var activeRun: OperatorRun? { runs.first { !$0.hasEnded } }
+
+    /// The run's tasks in sidebar order, which is the plan's order: the order they were created.
+    func tasks(inRun id: UUID) -> [TaskItem] { tasks.filter { $0.operated?.runId == id } }
+
+    mutating func updateRun(id: UUID, _ change: (inout OperatorRun) -> Void) {
+        guard let i = runs.firstIndex(where: { $0.id == id }) else { return }
+        change(&runs[i])
+    }
+}

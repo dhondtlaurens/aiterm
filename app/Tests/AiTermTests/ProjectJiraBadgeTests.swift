@@ -27,7 +27,7 @@ import AiTermCore
         #expect(badge.label == "SHOP")
         #expect(badge.url == URL(string: "https://example.atlassian.net/browse/SHOP")!)
         // The key is all the row shows, so the project's name only reaches the reader on hover.
-        #expect(badge.help == "Storefront — https://example.atlassian.net/browse/SHOP")
+        #expect(badge.help == "Storefront · https://example.atlassian.net/browse/SHOP")
         #expect(badge.overflow == nil)
     }
 
@@ -40,9 +40,9 @@ import AiTermCore
         #expect(overflow.label == "+2")
         // The menu offers every project, the first included, so it is the whole list in one place.
         #expect(overflow.items == [
-            .init(title: "SHOP — Storefront", url: URL(string: "https://example.atlassian.net/browse/SHOP")!),
-            .init(title: "PAY — Payments", url: URL(string: "https://example.atlassian.net/browse/PAY")!),
-            .init(title: "WEB — Website", url: URL(string: "https://example.atlassian.net/browse/WEB")!),
+            .init(title: "SHOP · Storefront", url: URL(string: "https://example.atlassian.net/browse/SHOP")!),
+            .init(title: "PAY · Payments", url: URL(string: "https://example.atlassian.net/browse/PAY")!),
+            .init(title: "WEB · Website", url: URL(string: "https://example.atlassian.net/browse/WEB")!),
         ])
         // A count says nothing on its own: the hover names every project, and VoiceOver the rest.
         #expect(overflow.help == "Jira · SHOP Storefront · PAY Payments · WEB Website")

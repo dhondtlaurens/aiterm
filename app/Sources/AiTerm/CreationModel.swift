@@ -101,6 +101,9 @@ protocol CreationKind {
     /// A last check between the press and the submit, run while `creating` holds off a second
     /// press. `false` stops the create; the kind says why with `model.refuse`.
     func confirmBeforeSubmit(_ model: CreationModel<Self>) async -> Bool
+    /// How many steps the sheet has, and which one picks the agent (`CreationSteps`).
+    static var stepCount: Int { get }
+    static var agentStep: Int? { get }
     /// The fix a failure offered (`CreationFailure.recovery`), run before the create is tried again.
     func recover(_ recovery: CreationFailure.Recovery) async throws
     /// Whether an agent's fix for `request` is still about `draft`: its branch is the draft's.
@@ -108,6 +111,12 @@ protocol CreationKind {
 }
 
 extension CreationKind {
+    /// New Task and New Review: three steps, the agent second.
+    static var stepCount: Int { 3 }
+    static var agentStep: Int? { 2 }
+    /// The frame's rules for this kind's steps.
+    static var steps: CreationSteps { CreationSteps(count: stepCount, agentStep: agentStep) }
+
     /// The person's text, trimmed. New Task appends its ticket.
     func composedPrompt(_ text: String, draft: Draft) -> String? {
         AgentCommand.composePrompt(userText: text, ticket: nil, appendTicket: false)
@@ -119,6 +128,33 @@ extension CreationKind {
     func recover(_ recovery: CreationFailure.Recovery) async throws {}
     /// Nor for an agent's.
     func fixApplies(_ request: FixRequest, to draft: Draft) -> Bool { false }
+}
+
+/// What a creation sheet's steps decide about its frame, in one place: the footer's buttons, where
+/// the destination line and the command preview are drawn, and which steps are prompt editors. New
+/// Task and New Review have three steps, the agent second (`CreationKind`'s defaults); New Broadcast
+/// has four and no agent step (`broadcast`). The last step creates; the first has Cancel, every
+/// other Back.
+struct CreationSteps: Equatable {
+    let count: Int
+    /// The step that picks the agent and its model; nil for a sheet that starts no agent of its own.
+    let agentStep: Int?
+
+    /// Broadcast · Prompt · Review · Done: the Operator chooses each task's agent, so no step does.
+    static let broadcast = CreationSteps(count: 4, agentStep: nil)
+
+    func creates(onStep step: Int) -> Bool { step == count }
+    func primaryTitle(onStep step: Int, createLabel: String) -> String { creates(onStep: step) ? createLabel : "Continue" }
+    func secondaryTitle(onStep step: Int) -> String { step == 1 ? "Cancel" : "Back" }
+    /// Step 1, which names where the window opens, and the last, which opens it. Never the agent's
+    /// step, so nothing works the line out there (finding the unused worktree slug looks at the disk).
+    func showsDestination(onStep step: Int) -> Bool { step == 1 || step == count }
+    /// The command preview, under every step past the first of a sheet that starts an agent.
+    func showsCommand(onStep step: Int) -> Bool { agentStep != nil && step > 1 }
+    /// Why no agent can run, on the create step of a sheet that starts one.
+    func saysNoAgentCanRun(onStep step: Int) -> Bool { agentStep != nil && creates(onStep: step) }
+    /// The steps past the first that are not the agent's: a prompt editor, whose completion popup ⎋ closes.
+    func hasPrompt(onStep step: Int) -> Bool { step > 1 && step != agentStep }
 }
 
 /// What the New Task and New Review sheets share: the draft, the chosen agent's model catalogue and
@@ -188,7 +224,7 @@ final class CreationModel<Kind: CreationKind> {
     let reservedSlugs: Set<String>
     /// Written while a body reads `worktreeSlug`, so it must not count as a change to the model.
     @ObservationIgnored private var unusedSlugMemo: (slug: String, unused: String)?
-    /// Settings › Agents' fixer, read as a failure is shown.
+    /// Settings › Agents' Help with problems, read as a failure is shown.
     private let fixer: @MainActor () -> FixerResolution
     /// What a Fix runs; nil makes no Fix — New Task's sheet has none.
     private let pipeline: FixPipeline?

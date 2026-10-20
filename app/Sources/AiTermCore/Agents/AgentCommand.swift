@@ -20,8 +20,40 @@ public enum AgentCommand {
     /// The invocation without its prompt argument — shared by `build` and `previewCommand` so the
     /// footer preview can never drift from the command that is actually run. Every word goes
     /// through `shellWord`: the model and reasoning come from catalogues the app does not write.
-    static func invocation(agent: AgentKind, model: String, reasoning: String?) -> [String] {
-        agent.harness.launchWords(model: model, reasoning: reasoning).map(shellWord)
+    static func invocation(agent: AgentKind, model: String, reasoning: String?, operated: Bool = false) -> [String] {
+        let words = operated ? workerWords(agent: agent, model: model, reasoning: reasoning)
+            : agent.harness.launchWords(model: model, reasoning: reasoning)
+        return words.map(shellWord)
+    }
+
+    /// The agents an operator may give a task (spec §4.0): the two whose limits AiTerm can set.
+    public static let operatedAgents: [AgentKind] = [.claude, .codex]
+
+    /// What Claude workers under an operator may never do themselves: ask through a menu, which the
+    /// operator cannot answer (spec §4.1), push — only AiTerm's `finish_task` pushes — or merge,
+    /// which `finish_task` does through the host when the plan's end says so (spec §4.3).
+    public static let operatedClaudeDenials = ["AskUserQuestion", "Bash(git push:*)", "Bash(gh pr merge:*)", "Bash(glab mr merge:*)", "Bash(gh pr create:*)", "Bash(glab mr create:*)", "Bash(gh pr ready:*)", "Bash(glab mr update:*)", "Bash(git -C * push:*)", "Bash(git * push:*)"]
+
+    /// A worker's launch words, unquoted, when the Operator drives its task: one profile for every
+    /// broadcast, whatever the slices (spec §12's worker launch profile):
+    ///
+    /// - Claude: its usual words, then `--disallowedTools` with `operatedClaudeDenials`, then
+    ///   `--permission-mode auto`. `--disallowedTools` takes any number of values, so it is never
+    ///   last: the prompt after `--permission-mode auto` would otherwise be read as one more tool.
+    /// - Codex: `-s workspace-write -a on-request` instead of
+    ///   `--dangerously-bypass-approvals-and-sandbox`, which a task you make keeps.
+    /// - Grok and PI are not offered to the Operator (`operatedAgents`) and launch as they always do.
+    public static func workerWords(agent: AgentKind, model: String, reasoning: String?) -> [String] {
+        let words = agent.harness.launchWords(model: model, reasoning: reasoning)
+        switch agent {
+        case .claude:
+            return words + ["--disallowedTools"] + operatedClaudeDenials + ["--permission-mode", "auto"]
+        case .codex:
+            let rest = words.dropFirst().filter { $0 != "--dangerously-bypass-approvals-and-sandbox" }
+            return [words[0], "-s", "workspace-write", "-a", "on-request", "-c", "sandbox_workspace_write.network_access=false"] + rest
+        case .grok, .pi:
+            return words
+        }
     }
 
     /// The command that resumes conversation `id` of `agent` in a reopened window: the CLI, its resume
@@ -36,17 +68,20 @@ public enum AgentCommand {
     /// The exact command a task would launch, built without touching the disk: a prompt that goes
     /// through the file shows the `$(cat …)` form the real build would produce, instead of
     /// pretending the prompt is inline. For the New Task footer (spec 4.4), where no worktree exists yet.
-    public static func previewCommand(agent: AgentKind, model: String, reasoning: String?, prompt: String?) -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning)
+    public static func previewCommand(agent: AgentKind, model: String, reasoning: String?, prompt: String?,
+                                      operated: Bool = false) -> String {
+        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             parts.append(readsFromFile(prompt, after: parts) ? "\"$(cat .aiterm/first-prompt.md)\"" : shellQuote(prompt))
         }
         return parts.joined(separator: " ")
     }
 
+    /// `operated`: the Operator drives the task, and its worker launches with `workerWords`; false for a
+    /// task you make yourself.
     public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
-                             git: any GitRunning) throws -> String {
-        var parts = invocation(agent: agent, model: model, reasoning: reasoning)
+                             git: any GitRunning, operated: Bool = false) throws -> String {
+        var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"

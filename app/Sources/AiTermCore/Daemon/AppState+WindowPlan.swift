@@ -36,6 +36,7 @@ public extension AppState {
     /// - A row in `waiting` (held, busy, asked about, restoring, failed, its checkout missing) is
     ///   neither asked about, dropped nor restored, though it may still adopt; a task in `lettingGo`,
     ///   whose removal let its window go, does nothing at all.
+    /// - A row with no checkout yet is not planned; an operated row is only adopted.
     func windowPlan(sessions: [SessionInfo], settled: Bool, due: Set<UUID>, waiting: Set<UUID>,
                     lettingGo: Set<UUID>) -> [WindowStep] {
         var tagged: [UUID: [String]] = [:]
@@ -44,7 +45,7 @@ public extension AppState {
             tagged[id, default: []].append(tab.windowId)
         }
         var steps: [WindowStep] = []
-        func plan(_ row: WindowRow, window: String?) {
+        func plan(_ row: WindowRow, window: String?, adoptOnly: Bool = false) {
             let id = row.id
             guard !lettingGo.contains(id) else { return }
             let windows = tagged[id] ?? []
@@ -52,7 +53,7 @@ public extension AppState {
                 steps.append(.adopt(row, windowId: found))
                 return
             }
-            guard window == nil, !waiting.contains(id) else { return }
+            guard !adoptOnly, window == nil, !waiting.contains(id) else { return }
             if due.contains(id) {
                 switch row {
                 case .task: steps.append(.ask(id))
@@ -62,7 +63,11 @@ public extension AppState {
                 steps.append(.restore(row))
             }
         }
-        for task in tasks { plan(.task(task.id), window: task.windowId) }
+        // A row with no worktree yet has no window to take or open. An operator's started task takes
+        // back a window its tag is in, but is reopened only by the operator controller on your click
+        // (`reopenWorker`), which resumes its worker with the Operator's worker flags rather than the
+        // resume a sheet's task gets.
+        for task in tasks where task.hasCheckout { plan(.task(task.id), window: task.windowId, adoptOnly: task.operated != nil) }
         for terminal in terminals { plan(.terminal(terminal.id), window: terminal.windowId) }
         return steps
     }

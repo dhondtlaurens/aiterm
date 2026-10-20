@@ -169,14 +169,34 @@ async def test_a_new_session_missing_from_the_snapshot_still_refreshes_the_regis
     assert svc.registry.get(other) is not None
 
 
+async def test_a_task_window_can_open_in_the_background(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME,
+                                                  "background": True}))["result"]["windowId"]
+    assert it.windows[wid]["background"] and not it.windows[wid]["active"]
+    assert it.windows[wid]["frame"].w == 1104, "snapped beside the sidebar all the same"
+
+
+async def test_a_task_window_comes_forward_unless_asked_not_to(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    assert not it.windows[wid]["background"] and it.windows[wid]["active"]
+
+
+async def test_background_must_be_a_bool(stack):
+    svc, it, files, r, w = stack
+    reply = await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "frame": FRAME, "background": "yes"})
+    assert reply["error"]["code"] == "bad_params" and it.windows == {}
+
+
 async def test_a_window_created_before_its_tick_fails_is_still_returned(stack, caplog):
     """The window exists whatever the tick after it finds. An error would make the app retry, and
     a retried window.createTerminal, which has no dedupe, opens a second window."""
     svc, it, files, r, w = stack
     create_window = it.create_window
 
-    async def created_then_unreadable(*args):
-        created = await create_window(*args)
+    async def created_then_unreadable(*args, **kwargs):
+        created = await create_window(*args, **kwargs)
         it.snapshot_error = ItermUnavailable("iTerm2 did not answer within 10s")
         return created
 
@@ -914,11 +934,11 @@ async def test_user_tab_in_other_window_is_redirected_during_unrelated_create(st
     real_create_window = it.create_window
     captured: dict[str, str] = {}
 
-    async def create_window_with_race(cwd, title, tags, frame):
+    async def create_window_with_race(cwd, title, tags, frame, background=False):
         # Fire the race before the second window exists at all, i.e. well
         # before its (still-unknown) window id could ever be recorded.
         captured["sid"] = await it.user_opens_tab(wid1, cwd="/Users/me")
-        return await real_create_window(cwd, title, tags, frame)
+        return await real_create_window(cwd, title, tags, frame, background=background)
 
     it.create_window = create_window_with_race
 
@@ -2030,3 +2050,87 @@ async def test_windows_iterm2_lost_while_away_are_announced_after_it_reconnects_
     assert {"event": "window.closed", "payload": {"windowId": wid}} in before_reply
     assert msg["result"]["connected"] is True and msg["result"]["sessions"] == []
     w.close()
+
+
+async def test_the_tick_reads_each_clis_version_from_its_own_files(stack):
+    svc, it, files, r, w = stack
+    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
+    first = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    second = (await call(r, w, "window.createTask", {"taskId": "t2", "cwd": "/wt2", "title": "y", "frame": FRAME},
+                         id_=2))["result"]["windowId"]
+    claude, codex = it.windows[first]["sessions"][0], it.windows[second]["sessions"][0]
+    files.root.mkdir(parents=True)
+    (files.root / "4242.json").write_text(json.dumps({"pid": 4242, "sessionId": "c1", "cwd": "/wt", "status": "idle",
+                                                      "version": "2.1.301"}))
+    await it.user_runs(claude, "claude", job_pid=4242)
+    await it.user_runs(codex, "codex", job_pid=4343, title="Codex")
+    await svc.tick()
+    await svc.hook_router.handle_hook("/hook/codex", {"hook_event_name": "SessionStart", "session_id": "thread-v",
+                                                      "cwd": "/wt2", "_aiterm_iterm_session_id": codex})
+    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-v.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(json.dumps({"type": "session_meta", "payload": {"id": "thread-v", "session_id": "thread-v",
+                                                                       "cli_version": "0.160.0"}}) + "\n")
+
+    await svc.tick()
+
+    assert svc.registry.get(claude).cli_version == "2.1.301"
+    assert svc.registry.get(codex).cli_version == "0.160.0"
+    await it.user_runs(claude, "claude", job_pid=4244)  # another Claude in the tab, its file not written yet
+    await svc.tick()
+    assert svc.registry.get(claude).cli_version is None
+
+
+async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypatch):
+    svc, it, files, r, w = stack
+    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    sid = it.windows[wid]["sessions"][0]
+    await it.user_runs(sid, "codex", job_pid=500, title="Codex")
+    await svc.tick()
+    svc.resolver.bind(sid, "codex", "old-thread", "SessionStart")
+
+    async def replaced_during_read(name, work, nothing):
+        svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
+        return {"old-thread": (90, TokenTally(999, 9, 99), "old-version")}
+
+    monkeypatch.setattr(svc, "_off_loop", replaced_during_read)
+    assert await svc._apply_codex_rollouts({sid: "old-thread"}) == []
+    session = svc.registry.get(sid)
+    assert (session.context_percent, session.tokens, session.cli_version) == (None, None, None)
+    assert svc._codex_threads.get(sid) != "old-thread"
+
+
+async def test_last_claude_transcript_owner_releases_cached_tallies(make_service, tmp_path):
+    from tests.test_claude_tokens import append, reply
+    svc = make_service()
+    transcript = tmp_path / "old.jsonl"
+    append(transcript, reply("m1", fresh=2, output=1))
+    svc.claude_tallies.tally(str(transcript))
+    assert svc.registry.all() == []
+    await svc._apply_claude_tallies()
+    assert svc.claude_tallies._conversations == {}
+
+
+async def test_service_stop_drains_the_shared_tick_started_by_an_unplaced_hook(make_service):
+    svc = make_service()
+    await svc.start()
+    entered, finished, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def gated_tick():
+        entered.set()
+        try:
+            await release.wait()
+        finally:
+            finished.set()
+
+    svc.hook_router._tick = gated_tick
+    try:
+        assert await post_hook(svc.hooks.port, "/hook/codex", {
+            "hook_event_name": "UserPromptSubmit", "session_id": "unplaced", "cwd": "/missing"}) == 200
+        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(svc.stop(), 1)
+        assert finished.is_set(), "the shielded tick must end before the service finishes stopping"
+    finally:
+        release.set()
+        await asyncio.wait_for(finished.wait(), 1)

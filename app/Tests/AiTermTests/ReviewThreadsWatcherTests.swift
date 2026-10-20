@@ -47,6 +47,16 @@ private final class GatedReader: ReviewThreadsReading, @unchecked Sendable {
     }
 }
 
+/// Ignores cancellation like a network response already being decoded; each request is released separately.
+private final class OrderedThreadsReader: ReviewThreadsReading, Sendable {
+    private let held = Mutex<[CheckedContinuation<ReviewThreads?, Never>]>([])
+    var reads: Int { held.withLock { $0.count } }
+    func threads(of mr: MergeRequestRef) async throws -> ReviewThreads? {
+        await withCheckedContinuation { continuation in held.withLock { $0.append(continuation) } }
+    }
+    func release(_ index: Int, resolved: Int) { held.withLock { $0[index] }.resume(returning: ReviewThreads(resolved: resolved, total: 5)) }
+}
+
 @MainActor
 struct ReviewThreadsWatcherTests {
     private let projectId = UUID()
@@ -220,4 +230,39 @@ struct ReviewThreadsWatcherTests {
         #expect(gitHubOnMain.withLock { $0 } == [false])
         #expect(controller.reviewThreads.threads(of: item.id) == nil)
     }
+    @Test func stoppingAfterOverlappingRefreshesDiscardsEveryResult() async {
+        let item = review(87), reader = OrderedThreadsReader()
+        let (watcher, _, _) = make([item], reader: reader)
+        let first = watcher.refresh()
+        await eventually { reader.reads == 1 }
+        let second = watcher.refresh()
+        await eventually { reader.reads == 2 }
+        watcher.stop()
+        reader.release(0, resolved: 1)
+        reader.release(1, resolved: 2)
+        await first.value
+        await second.value
+        #expect(watcher.threads(of: item.id) == nil)
+    }
+
+    @Test func anOlderPollCannotOverwriteTheSelectedRowsNewerCount() async {
+        let item = review(87), reader = OrderedThreadsReader()
+        let (watcher, _, focus) = make([item], reader: reader)
+        watcher.start()
+        defer { watcher.stop() }
+        await eventually { reader.reads == 1 }
+        reader.release(0, resolved: 0)
+        await eventually { watcher.threads(of: item.id)?.resolved == 0 }
+        let pass = watcher.refresh()
+        await eventually { reader.reads == 2 }
+        focus.browse(.task(item.id))
+        await eventually { reader.reads == 3 }
+        reader.release(2, resolved: 4)
+        await watcher.selectionRead?.value
+        #expect(watcher.threads(of: item.id)?.resolved == 4)
+        reader.release(1, resolved: 1)
+        await pass.value
+        #expect(watcher.threads(of: item.id)?.resolved == 4)
+    }
+
 }

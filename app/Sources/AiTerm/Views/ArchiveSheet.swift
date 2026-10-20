@@ -21,8 +21,8 @@ struct ArchiveSheet: View {
     }
 
     var body: some View {
-        // Each of the model's lists re-ranks the archive, so each is read once.
-        let rows = model.rows, highlighted = model.highlighted?.archived.id, total = model.total
+        let archive = model.projection
+        let rows = archive.rows, highlighted = archive.highlighted?.archived.id, total = archive.total
         let now = model.now(), calendar = clock?.calendar ?? .current
         SheetLayout(title: "Shelf", height: Sheet.height, contentVerticalPadding: rows.isEmpty ? Space.margin : Space.base) {
             HStack(spacing: Space.base) {
@@ -61,7 +61,7 @@ struct ArchiveSheet: View {
             // Nothing archived: no count, and no Restore — absent, not disabled.
             SheetFooter(secondary: "Close", primary: highlighted == nil ? nil : "Restore", closeList: model.clearQuery,
                         cancel: { dismiss.afterThisEvent() }, submit: restore) {
-                if total > 0 { HelpText(model.status) }
+                if total > 0 { HelpText(archive.status) }
             }
         }
     }

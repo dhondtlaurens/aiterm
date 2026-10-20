@@ -109,3 +109,8 @@ def test_grok_is_classified(command_line):
                                           "grok-1.0.44", "grok-macos-", "grok-v1-macos-aarch64"])
 def test_grok_lookalikes_stay_shell(command_line):
     assert classify_agent(command_line) == "shell"
+
+
+def test_frame_rejects_an_integer_too_large_for_a_coordinate():
+    with pytest.raises(ValueError):
+        Frame.from_json({"x": 10**1000, "y": 0, "w": 100, "h": 100})

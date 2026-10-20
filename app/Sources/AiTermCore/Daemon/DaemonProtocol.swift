@@ -32,6 +32,19 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     /// Not sent by the app: `aitermd ctl`'s.
     case usageGet = "usage.get"
     case interfaceSetMatchItermBackground = "interface.setMatchItermBackground"
+    /// Types text into a session by the daemon's delivery rules (bracketed paste, re-check, Enter).
+    case sessionDeliver = "session.deliver"
+    /// The prompt a session has open, if any: what an operator's `read_task(prompt)` reads.
+    case sessionPrompt = "session.prompt"
+    /// The ownership generation a delivery must carry to land: a takeover moves it on.
+    case sessionSetOwnership = "session.setOwnership"
+    /// Declines a startup dialog with Esc — only Codex's update offer: the daemon sends it only when the
+    /// open prompt is a startup one and the screen shows the update dialog. A trust question is the person's.
+    case sessionDismissStartup = "session.dismissStartup"
+    case operatorRegister = "operator.register"
+    case operatorRevoke = "operator.revoke"
+    /// AiTerm's answer to an `operator.request`.
+    case operatorReply = "operator.reply"
 }
 
 /// An event the daemon broadcasts. A name not among these is a newer helper's and arrives as
@@ -48,6 +61,8 @@ public enum DaemonEventName: String, CaseIterable, Sendable {
     case sessionChanged = "session.changed"
     case sessionClosed = "session.closed"
     case usageChanged = "usage.changed"
+    /// An operator's tool call, forwarded by the daemon's `/operator` route for AiTerm to answer.
+    case operatorRequest = "operator.request"
 }
 
 extension DaemonError {

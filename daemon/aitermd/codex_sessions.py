@@ -2,12 +2,15 @@ from __future__ import annotations
 import contextlib
 import json
 import math
+import os
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .jsonl import JsonlCursor
 from .models import TokenTally
 from .usage import finite_number, whole_count
 
@@ -22,6 +25,15 @@ CHILD_DAYS = 31
 
 # What every `token_count` record contains, so a line without it can be skipped unparsed.
 _TOKEN_COUNT = b'"token_count"'
+# The same for a `session_meta` record, the one that names the Codex version.
+_SESSION_META = b'"session_meta"'
+
+
+@dataclass(slots=True)
+class _MetaCursor(JsonlCursor):
+    """How far one rollout has been read for its `session_meta` records: the byte offset, the inode it
+    was read from, the start of a line Codex was still writing, and the version found so far."""
+    version: str | None = None
 
 Stamp = tuple[Path, int, int]  # path, st_mtime_ns, st_size
 
@@ -38,12 +50,17 @@ class CodexSessionFiles:
         # Thread id -> the rollout as last parsed, and the fill it gave.
         self._context: dict[str, tuple[Stamp, int | None]] = {}
         # Each rollout's (thread id, session id, parent thread id), from its first record, which
-        # never changes. One entry per file, so it is not pruned.
+        # never changes. Pruned to day directories still relevant to tracked threads.
         self._lineage: dict[Path, tuple[str | None, str | None, str | None]] = {}
         # Rollout -> its stamp as last read, and the total it gave.
         self._totals: dict[Path, tuple[Stamp, TokenTally | None]] = {}
+        # Directory contents change only when rollouts are added/removed, so overlapping
+        # parent searches can reuse one listing without delaying discovery of new children.
+        self._days: dict[Path, tuple[tuple[int, int], tuple[Path, ...]]] = {}
         # Thread id -> the rollouts of its subagents as last found, for `retain`.
         self._children: dict[str, list[Path]] = {}
+        # Rollout -> how far it has been read for the Codex version (cli_version).
+        self._versions: dict[Path, _MetaCursor] = {}
         # The rollouts `rate_limits()` last consulted, by (path, mtime), and what they said: the
         # tick asks every two seconds, and a file nobody has written to has nothing new to say.
         self._limits_seen: tuple[tuple[Path, int], ...] | None = None
@@ -57,6 +74,14 @@ class CodexSessionFiles:
         kept = {*self._paths.values(), *(p for paths in self._children.values() for p in paths)}
         for path in self._totals.keys() - kept:
             del self._totals[path]
+        for path in self._versions.keys() - set(self._paths.values()):
+            del self._versions[path]
+        days = {day for path in self._paths.values() for day in self._day_directories_since(path)}
+        for day in self._days.keys() - days:
+            del self._days[day]
+        for path in tuple(self._lineage):
+            if path.parent not in days:
+                del self._lineage[path]
 
     def context_percent(self, session_id: str) -> int | None:
         path = self._path_for(session_id)
@@ -70,9 +95,36 @@ class CodexSessionFiles:
         cached = self._context.get(session_id)
         if cached is not None and cached[0] == stamp:
             return cached[1]
-        percent = self._read_context(path)
+        try:
+            percent = self._read_context(path)
+        except OSError:
+            return None
         self._context[session_id] = (stamp, percent)
         return percent
+
+    def cli_version(self, thread_id: str) -> str | None:
+        """The Codex version that runs the thread: `cli_version` in the newest `session_meta` record
+        its rollout holds for it -- the record a session starts with; another one later in the file,
+        from a resume, wins. None before the rollout names one. A rollout only grows, so it is read on
+        from where the last read stopped, and one rewritten is read again from its start."""
+        path = self._path_for(thread_id)
+        if path is None:
+            return None
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        cursor = self._versions.get(path)
+        if cursor is None or cursor.rewritten(st.st_ino, st.st_size):
+            cursor = self._versions[path] = _MetaCursor(st.st_ino)
+        try:
+            lines = cursor.read_lines(path, st.st_size)
+        except OSError:
+            return cursor.version
+        for line in lines:
+            if _SESSION_META in line and (version := _meta_version(line, thread_id)) is not None:
+                cursor.version = version
+        return cursor.version
 
     def _read_context(self, path: Path) -> int | None:
         for _, payload in self._token_counts(path):
@@ -102,30 +154,54 @@ class CodexSessionFiles:
         """The rollouts started under `thread_id` at any depth: a child names its parent thread
         (`parent_thread_id`, or its spawn's) and its conversation's root (`session_id`). A child starts
         after its parent, so only the parent's day directory and the ones since are looked in."""
-        lineages = {p: self._lineage_of(p) for p in self._list_days_since(path) if p != path}
-        family, found = {thread_id}, set()
-        grew = True
-        while grew:
-            grew = False
-            for p, (own, root, parent) in lineages.items():
-                if p not in found and own != thread_id and (root in family or parent in family):
-                    found.add(p)
-                    grew = True
-                    if own:
-                        family.add(own)
+        by_parent: dict[str, list[tuple[Path, str | None]]] = {}
+        for candidate in self._list_days_since(path):
+            if candidate == path:
+                continue
+            own, root, parent = self._lineage_of(candidate)
+            if own == thread_id:
+                continue
+            for ancestor in {root, parent} - {None}:
+                if ancestor is not None:
+                    by_parent.setdefault(ancestor, []).append((candidate, own))
+        family, found, pending = {thread_id}, set(), [thread_id]
+        while pending:
+            for candidate, own in by_parent.get(pending.pop(), []):
+                found.add(candidate)
+                if own is not None and own not in family:
+                    family.add(own)
+                    pending.append(own)
         return sorted(found)
 
-    def _list_days_since(self, path: Path) -> list[Path]:
-        """The rollouts in `path`'s day directory and each one after it, up to today (local or UTC)."""
+    def _day_directories_since(self, path: Path) -> list[Path]:
+        """Day directories in the existing bounded child-search window."""
         try:
             first = date(*map(int, path.relative_to(self.root).parts[:3]))
         except (ValueError, TypeError):
             return []
         last = max(date.today(), datetime.now(UTC).date())
+        return [self.root / f"{first + timedelta(days=offset):%Y/%m/%d}"
+                for offset in range(min((last - first).days, CHILD_DAYS) + 1)]
+
+    def _list_days_since(self, path: Path) -> list[Path]:
+        """Rollouts in the parent's day and subsequent days, sharing unchanged listings."""
         found: list[Path] = []
-        for offset in range(min((last - first).days, CHILD_DAYS) + 1):
-            with contextlib.suppress(OSError):
-                found += (self.root / f"{first + timedelta(days=offset):%Y/%m/%d}").glob("rollout-*.jsonl")
+        for day in self._day_directories_since(path):
+            try:
+                st = day.stat()
+                stamp = (st.st_ino, st.st_mtime_ns)
+                cached = self._days.get(day)
+                if cached is None or cached[0] != stamp:
+                    # pathlib.glob suppresses scandir errors, which would cache a
+                    # failed listing as empty until the directory changes again.
+                    with os.scandir(day) as entries:
+                        paths = tuple(Path(entry.path) for entry in entries
+                                      if entry.name.startswith("rollout-") and entry.name.endswith(".jsonl"))
+                    cached = (stamp, paths)
+                    self._days[day] = cached
+                found.extend(cached[1])
+            except OSError:
+                self._days.pop(day, None)
         return found
 
     def _lineage_of(self, path: Path) -> tuple[str | None, str | None, str | None]:
@@ -145,7 +221,10 @@ class CodexSessionFiles:
         stamp = (path, st.st_mtime_ns, st.st_size)
         if (cached := self._totals.get(path)) is not None and cached[0] == stamp:
             return cached[1]
-        total = self._read_total(path)
+        try:
+            total = self._read_total(path)
+        except OSError:
+            return None
         self._totals[path] = (stamp, total)
         return total
 
@@ -174,7 +253,11 @@ class CodexSessionFiles:
         newest = self._newest_rollouts(3)
         if newest == self._limits_seen:
             return self._limits_answer
-        self._limits_seen, self._limits_answer = newest, self._read_rate_limits([path for path, _ in newest])
+        try:
+            answer = self._read_rate_limits([path for path, _ in newest])
+        except OSError:
+            return None
+        self._limits_seen, self._limits_answer = newest, answer
         return self._limits_answer
 
     def _read_rate_limits(self, paths: list[Path]) -> tuple[dict[str, Any], int | None] | None:
@@ -252,30 +335,27 @@ class CodexSessionFiles:
     def _lines_reverse(path: Path, containing: bytes = b"", block_size: int = 64 * 1024) -> Iterator[bytes]:
         """The lines of `path` that contain `containing`, last first. A block holding none is not
         even split into lines."""
-        try:
-            with path.open("rb") as stream:
-                stream.seek(0, 2)
-                position = stream.tell()
-                remainder = b""
-                while position > 0:
-                    size = min(block_size, position)
-                    position -= size
-                    stream.seek(position)
-                    block = stream.read(size) + remainder
-                    start = block.find(b"\n") + 1  # the first line may continue into the block before
-                    if start == 0:
-                        remainder = block
-                        continue
-                    remainder = block[:start - 1]
-                    if containing not in block[start:]:
-                        continue
-                    for line in reversed(block[start:].split(b"\n")):
-                        if line and containing in line:
-                            yield line
-                if remainder and containing in remainder:
-                    yield remainder
-        except OSError:
-            return
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            position = stream.tell()
+            remainder = b""
+            while position > 0:
+                size = min(block_size, position)
+                position -= size
+                stream.seek(position)
+                block = stream.read(size) + remainder
+                start = block.find(b"\n") + 1  # the first line may continue into the block before
+                if start == 0:
+                    remainder = block
+                    continue
+                remainder = block[:start - 1]
+                if containing not in block[start:]:
+                    continue
+                for line in reversed(block[start:].split(b"\n")):
+                    if line and containing in line:
+                        yield line
+            if remainder and containing in remainder:
+                yield remainder
 
 
 def _mtime(path: Path) -> int | None:
@@ -329,3 +409,15 @@ def _spawned_by(source: Any) -> str | None:
 
 def _string(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _meta_version(line: bytes, thread_id: str) -> str | None:
+    """The `cli_version` of a `session_meta` record for `thread_id`; None for any other line."""
+    try:
+        record = json.loads(line)
+    except (UnicodeDecodeError, ValueError):
+        return None
+    payload = record.get("payload") if isinstance(record, dict) and record.get("type") == "session_meta" else None
+    if not isinstance(payload, dict) or payload.get("id") != thread_id:
+        return None
+    return _string(payload.get("cli_version"))

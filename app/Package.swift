@@ -18,7 +18,7 @@ let package = Package(
         // needs `AiTerm` (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
         .target(name: "AiTermTestSupport", dependencies: ["AiTermCore"], path: "Tests/AiTermTestSupport"),
         .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests"),
-        .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI"], path: "Tests/AiTermUITests"),
+        .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI", "AiTermTestSupport"], path: "Tests/AiTermUITests"),
         .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests"),
     ],
     swiftLanguageModes: [.v6]

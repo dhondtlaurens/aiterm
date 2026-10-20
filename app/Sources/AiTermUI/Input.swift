@@ -33,7 +33,7 @@ public struct Input: View {
     }
 
     public var body: some View {
-        InputField(placeholder: placeholder, text: Self.edits(to: $text), focused: _focused.projectedValue,
+        InputField(placeholder: placeholder, text: $text, focused: _focused.projectedValue,
                    font: (monospaced ? Typography.monoCode : Typography.body).scaled(by: scale).nsFont,
                    secure: secure, caretAtEnd: caretAtEnd)
             .fieldChrome(focused: focused)
@@ -42,13 +42,6 @@ public struct Input: View {
     /// The insertion point after the last character, nothing selected. In UTF-16, as `NSText` counts.
     static func placeCaretAtEnd(of editor: NSText) {
         editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
-    }
-
-    /// `binding`, passing on only real edits. A setter can have a side effect on the other end —
-    /// open the ticket list, mark the branch hand-edited — that a value handed back unchanged, as
-    /// a field does when editing begins or ends, must not fire.
-    static func edits(to binding: Binding<String>) -> Binding<String> {
-        Binding(get: { binding.wrappedValue }, set: { if $0 != binding.wrappedValue { binding.wrappedValue = $0 } })
     }
 }
 
@@ -91,58 +84,40 @@ private struct InputField: NSViewRepresentable {
         field.font = font
         field.placeholderString = placeholder
         field.stringValue = text
-        context.coordinator.field = field
+        context.coordinator.editing.field = field
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
-        if field.stringValue != text { field.stringValue = text }
-        if field.placeholderString != placeholder { field.placeholderString = placeholder }
+        context.coordinator.editing.update(field, text: $text, focused: $focused, placeholder: placeholder)
         if field.font != font { field.font = font }
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: InputField
-        weak var field: NSTextField?
-        private var undoObservers: [NSObjectProtocol] = []
+        let editing: TextFieldEditing
 
         init(_ parent: InputField) {
             self.parent = parent
-            super.init()
-            // An undo or a redo changes the field editor's text without the change notification a
-            // keystroke sends, so the caller would go on holding the text the person just undid.
-            // The window's undo manager is shared, hence the check that the change was this field's.
-            undoObservers = [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange].map {
-                NotificationCenter.default.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.editorChanged() }
-                }
-            }
-        }
-
-        isolated deinit { undoObservers.forEach(NotificationCenter.default.removeObserver) }
-
-        private func editorChanged() {
-            guard let editor = field?.currentEditor() else { return }
-            parent.text = editor.string
+            editing = TextFieldEditing(text: parent.$text, focused: parent.$focused)
         }
 
         /// Focus arrives with the keyboard, not with the first edit: `controlTextDidBeginEditing`
         /// waits for a keystroke, which would leave a clicked field without its ring.
         func focusBegan() {
-            if !parent.focused { parent.focused = true }
+            editing.focusBegan()
             guard parent.caretAtEnd else { return }
             // A turn later: AppKit selects the field's text as it hands it the keyboard.
             Task { [weak self] in
-                if let editor = self?.field?.currentEditor() { Input.placeCaretAtEnd(of: editor) }
+                if let editor = self?.editing.field?.currentEditor() { Input.placeCaretAtEnd(of: editor) }
             }
         }
-        func controlTextDidEndEditing(_ notification: Notification) { if parent.focused { parent.focused = false } }
+        func controlTextDidEndEditing(_ notification: Notification) { editing.focusEnded() }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
+            editing.textChanged(notification)
         }
     }
 }

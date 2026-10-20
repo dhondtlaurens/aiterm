@@ -206,14 +206,19 @@ import Testing
         // Holds the connect's join only: the undo's join of "Home" runs straight through.
         fake.wifi.onJoin = { @Sendable in if entered.withLock({ let first = !$0; $0 = true; return first }) { release.wait() } }
         let backpack = BackpackController(ports: fake.ports, settings: fake.settings, tickInterval: .seconds(3600),
-                                          retryDelays: [.seconds(5)], toast: { _ in })
-        let run = Task { await backpack.connect(network: "Phone", password: nil) }
+                                          retryDelays: [.seconds(3600)], toast: { _ in })
+        var finished = false
+        let run = Task {
+            await backpack.connect(network: "Phone", password: nil)
+            finished = true
+        }
         await eventually { entered.withLock { $0 } }
         await backpack.cancelConnect()
-        let started = Date()
         release.signal()
+        // A mistaken retry would wait an hour; ordinary actor contention gets the helper's budget.
+        let completed = await eventually(describing: "cancelled join to finish without entering the retry wait", timeout: 5) { finished }
+        if !completed { await backpack.cancelConnect() } // Release a mistaken retry so a failure cannot hang the suite.
         await run.value
-        #expect(Date().timeIntervalSince(started) < 1, "no wait before the undo")
         #expect(backpack.phase == nil && !backpack.busy)
         #expect(fake.wifi.joins == ["Phone", "Home"], "no retry of the hotspot; the undo puts the dropped network back")
     }

@@ -31,7 +31,7 @@ import Testing
         let home = try home(withModels: false); defer { try? FileManager.default.removeItem(at: home) }
         _ = try await service(home: home).install(.grok)
         let snapshot = await service(home: home).probe(.grok)
-        #expect(snapshot.summary == "No Grok models — run grok once to sign in and fetch them.")
+        #expect(snapshot.summary == "No Grok models. Run grok once to sign in and fetch them.")
     }
 
     @Test func grokForeignHooksFileBlocksInstall() async throws {

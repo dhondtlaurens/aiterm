@@ -46,6 +46,20 @@ class Harness:
     # Text that marks the CLI's folder-trust dialog on its screen, any one of them enough: it opens
     # before the CLI loads its hooks, so the screen is the only sign of it (status.shows_trust_prompt).
     trust_prompt: tuple[str, ...] = ()
+    # Text that marks a prompt open on the CLI's screen, which delivery must not type into
+    # (delivery.open_prompt): an approval, a startup dialog -- folder trust, an update offer -- and
+    # any other menu. Any one enough, compared without whitespace. From the spike against Claude
+    # Code 2.1.301 and Codex 0.160.0; a harness without them gets no automated delivery.
+    permission_prompt: tuple[str, ...] = ()
+    startup_prompt: tuple[str, ...] = ()
+    menu_prompt: tuple[str, ...] = ()
+    # Text that marks the CLI's update offer, every one of them needed: the one startup dialog AiTerm
+    # answers itself, declining it with Esc (session.dismissStartup, spec §7.1). A folder's trust is
+    # yours to give: no harness marks it here.
+    update_prompt: tuple[str, ...] = ()
+    # What an idle or working CLI draws at the start of its input line (delivery.shows_input_box): the
+    # positive sign that the screen is the CLI's own and recognised, which no prompt marker proves.
+    input_box: tuple[str, ...] = ()
 
 
 HARNESSES: tuple[Harness, ...] = (
@@ -53,9 +67,19 @@ HARNESSES: tuple[Harness, ...] = (
     Harness("claude", "/hook/claude", placement="pid_file", corroboration="claude_file", end_of_turn_survives_cwd_loss=True,
             statusline_route="/statusline", reports_usage=True,
             # 2.1.299's option, and the dialog's question before it.
-            trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?")),
+            trust_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
+            permission_prompt=("Do you want to proceed?",), menu_prompt=("Enter to select", "Esc to cancel"),
+            # The trust dialog, by the same words as `trust_prompt`.
+            startup_prompt=("Yes, I trust this folder", "Do you trust the files in this folder?"),
+            input_box=("❯",)),
     # `Stop` over MCP; the other hooks are spawned curl.
-    Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True),
+    Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True,
+            permission_prompt=("Would you like to run the following command?",),
+            menu_prompt=("Press enter to confirm or esc to cancel",),
+            # The update dialog by its own options: the idle banner also says "Update available".
+            startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
+            update_prompt=("Update now", "Skip until next version"),
+            input_box=("›",)),
     # Spawned command hooks only. `~/.grok/bin/grok` is a symlink to the downloaded binary, and the
     # process may be titled with the resolved name: versioned since 1.0.44
     # (`grok-1.0.44-macos-aarch64`), and naming the architecture (`grok-macos-x86_64`).
@@ -127,9 +151,15 @@ def _coordinate(d: dict[str, Any], key: str) -> float:
     """A JSON number that can place a window. `float()` alone would take `true` as 1, a numeric
     string, and the NaN and Infinity that Python's JSON parser accepts."""
     value = d[key]
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{key} must be a finite number, not {value!r}")
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{key} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{key} must be a finite number, not {value!r}")
+    return number
 
 
 @dataclass
@@ -212,6 +242,10 @@ class SessionInfo:
     # Where a Claude conversation writes its transcript, which its tokens are summed from. Neither
     # sent nor compared: only the service's tally reads it.
     transcript: str | None = field(default=None, compare=False)
+    # The version of the agent CLI the tab runs, as the CLI's own files report it: Claude's session
+    # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).
+    # Neither sent nor compared; it goes with the agent's process, as the transcript does.
+    cli_version: str | None = field(default=None, compare=False)
 
     def to_json(self) -> dict[str, Any]:
         return {

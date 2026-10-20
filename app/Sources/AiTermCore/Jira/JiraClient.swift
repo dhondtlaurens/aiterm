@@ -26,6 +26,11 @@ public struct JiraConfig: Equatable, Sendable { public let siteURL: URL, email: 
 public enum JiraError: Error, Equatable, LocalizedError {
     case unauthorized, network(String), badResponse(Int), decoding
     case projectSiteMismatch(linked: URL, configured: URL)
+    case unconfinedQuery
+    /// `key` has no transition into `status` from where it is; `offered` are the statuses it can move to.
+    case noTransition(key: String, status: String, offered: [String])
+    /// A write Jira refused for what it asked (a 4xx other than a sign-in or a rate limit), with Jira's own words.
+    case refused(status: Int, detail: String)
 
     public var errorDescription: String? {
         switch self {
@@ -35,6 +40,11 @@ public enum JiraError: Error, Equatable, LocalizedError {
         case .decoding: return "Couldn’t read Jira’s response. Try again."
         case .projectSiteMismatch(let linked, let configured):
             return "This project is linked to Jira at \(linked.absoluteString), but Settings is connected to \(configured.absoluteString). Remove it in Jira Projects… and link it again."
+        case .unconfinedQuery: return "That JQL’s parentheses don’t pair up, so it can’t be kept to the operation’s projects."
+        case .refused(let status, let detail): return "Jira refused it (HTTP \(status))" + (detail.isEmpty ? "." : ": \(detail)")
+        case .noTransition(let key, let status, let offered):
+            return "\(key) can’t move to “\(status)” from where it is. "
+                + (offered.isEmpty ? "Jira offers no move from there." : "Jira offers: \(offered.joined(separator: ", ")).")
         }
     }
 }
@@ -42,11 +52,45 @@ public enum JiraError: Error, Equatable, LocalizedError {
 public struct JiraClient: Sendable {
     let config: JiraConfig, session: URLSession
     public init(config: JiraConfig, session: URLSession = .shared) { self.config = config; self.session = session }
+    public var siteURL: URL { config.siteURL }
 
     public static let openIssuesJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 
     public func myOpenIssues(projects: [JiraProjectRef] = []) async throws -> [JiraTicket] {
         try await search(jql: Self.scoped(Self.openIssuesJQL, in: try projectScope(projects)))
+    }
+
+    /// An operator's JQL, kept to `projects` (spec §6 `jira_search`).
+    public func search(jql: String, in projects: [JiraProjectRef]) async throws -> [JiraTicket] {
+        guard let confined = Self.confined(jql, to: try projectScope(projects)) else { throw JiraError.unconfinedQuery }
+        return try await search(jql: confined)
+    }
+
+    /// `jql`'s condition in parentheses after `scope`, so an `OR` in it cannot reach past the scope, and
+    /// its `ORDER BY` — the last one outside quoted text — kept last. Nil when its parentheses outside
+    /// quoted text do not pair up: one that closes early could close the scope's.
+    static func confined(_ jql: String, to scope: String) -> String? {
+        var depth = 0, quote: Character? = nil, escaped = false
+        var quoted: [Range<String.Index>] = [], opened = jql.startIndex
+        for index in jql.indices {
+            let character = jql[index]
+            if escaped { escaped = false; continue }
+            if character == "\\" { escaped = true; continue }
+            if let open = quote {
+                if character == open { quote = nil; quoted.append(opened..<jql.index(after: index)) }
+                continue
+            }
+            if character == "\"" || character == "'" { quote = character; opened = index; continue }
+            if character == "(" { depth += 1 }
+            if character == ")" { depth -= 1; if depth < 0 { return nil } }
+        }
+        guard depth == 0, quote == nil else { return nil }
+        // `.backwards` is ignored beside `.regularExpression`: the last match is found by listing them all.
+        let order = jql.ranges(of: /(?i)\border\s+by\b/).last { match in !quoted.contains { $0.contains(match.lowerBound) } }
+        let condition = String(order.map { jql[..<$0.lowerBound] } ?? jql[...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let ordering = order.map { " " + jql[$0.lowerBound...].trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        let scoped = condition.isEmpty ? scope : scope.isEmpty ? condition : "\(scope) AND (\(condition))"
+        return scoped + ordering
     }
 
     /// A key (`SHOP-12`, `shop-1`) finds that ticket in any status, then open tickets whose key starts
@@ -260,7 +304,7 @@ public struct JiraClient: Sendable {
         scope.isEmpty ? jql : scope + " AND " + jql
     }
 
-    private func request(path: String, queryItems: [URLQueryItem] = []) -> URLRequest {
+    func request(path: String, queryItems: [URLQueryItem] = []) -> URLRequest {
         let base = config.siteURL.appendingPathComponent(path)
         return HTTPJSON.request(HTTPJSON.url(base.absoluteString, query: queryItems) ?? base, headers: [
             "Authorization": "Basic " + Data("\(config.email):\(config.token)".utf8).base64EncodedString(),
@@ -269,15 +313,17 @@ public struct JiraClient: Sendable {
     }
 
     /// Jira's own keys are camelCase, and an ADF description holds keys of its own, so no key strategy.
-    private func decode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
-        try await HTTPJSON.decode(type, request, session: session, decoder: JSONDecoder()) { failure in
-            switch failure {
-            case .transport(let error): return JiraError.network(error.localizedDescription)
-            case .undecodable: return .decoding
-            case .status(401), .status(403): return .unauthorized
-            case .status(let status): return .badResponse(status)
-            }
-        }.value
+    func decode<Response: Decodable>(_ type: Response.Type, _ request: URLRequest) async throws -> Response {
+        try await HTTPJSON.decode(type, request, session: session, decoder: JSONDecoder(), mapping: Self.error(for:)).value
+    }
+
+    static func error(for failure: HTTPJSON.Failure) -> JiraError {
+        switch failure {
+        case .transport(let error): return .network(error.localizedDescription)
+        case .undecodable: return .decoding
+        case .status(401), .status(403): return .unauthorized
+        case .status(let status): return .badResponse(status)
+        }
     }
 }
 

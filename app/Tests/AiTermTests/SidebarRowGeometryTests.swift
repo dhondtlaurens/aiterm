@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AiTermUI
 import Testing
+import AiTermTestSupport
 @testable import AiTermCore
 @testable import AiTerm
 
@@ -52,7 +53,7 @@ struct SidebarRowGeometryTests {
 
         let host = NSHostingView(rootView: SidebarView(controller: controller).environment(\.hoveredRow, tasks[1].id))
         host.frame = NSRect(x: 0, y: 0, width: size.scale(340), height: 800)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -66,18 +67,18 @@ struct SidebarRowGeometryTests {
             return view.subviews.lazy.compactMap { table(in: $0) }.first
         }
         let list = try #require(table(in: host))
-        // The header and the project row come first; the three task rows follow in order.
-        #expect(list.numberOfRows == 5)
-        let selectedRow = host.convert(list.rect(ofRow: 2), from: list)
-        let hoveredRow = host.convert(list.rect(ofRow: 3), from: list)
-        #expect(list.selectedRow == 2)
+        // The OPERATORS heading, the PROJECTS heading and the project row come first; the three task rows follow in order.
+        #expect(list.numberOfRows == 6)
+        let selectedRow = host.convert(list.rect(ofRow: 3), from: list)
+        let hoveredRow = host.convert(list.rect(ofRow: 4), from: list)
+        #expect(list.selectedRow == 3)
         #expect(selectedRow.size == hoveredRow.size)
 
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
         // Empty list, below the last row: the backdrop every pill is measured against.
-        let backdrop = try #require(bitmap.colorAt(x: 1, y: Int((host.convert(list.rect(ofRow: 4), from: list).maxY + 20) * scale)))
+        let backdrop = try #require(bitmap.colorAt(x: 1, y: Int((host.convert(list.rect(ofRow: 5), from: list).maxY + 20) * scale)))
         let selected = try #require(paintedBox(bitmap: bitmap, scale: scale, row: selectedRow, backdrop: backdrop))
         let hovered = try #require(paintedBox(bitmap: bitmap, scale: scale, row: hoveredRow, backdrop: backdrop))
         return (selected, hovered)
@@ -125,7 +126,7 @@ struct SidebarContextMenuHighlightTests {
 
         let host = NSHostingView(rootView: SidebarView(controller: controller))
         host.frame = NSRect(x: 0, y: 0, width: 340, height: 300)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
@@ -167,9 +168,9 @@ struct SidebarContextMenuHighlightTests {
     @Test func aRowsContextMenuPaintsNothingOutsideItsPill() throws {
         let (host, table, window) = try hostedSidebar()
         defer { window.orderOut(nil) }
-        // Header, project row, then the one task.
-        #expect(table.numberOfRows == 3)
-        let pill = try paintedBox(host: host, table: table, row: 2)
+        // OPERATORS, PROJECTS, the project row, then the one task.
+        #expect(table.numberOfRows == 4)
+        let pill = try paintedBox(host: host, table: table, row: 3)
 
         // What AppKit does when the row's context menu opens.
         #expect(ContextMenuHighlight.silence(),
@@ -177,10 +178,10 @@ struct SidebarContextMenuHighlightTests {
         let setUp = NSSelectorFromString("_setupContextMenuHighlightingForRow:column:")
         #expect(table.responds(to: setUp), "AppKit no longer highlights the clicked row this way — recheck the fix")
         typealias SetUpFn = @convention(c) (AnyObject, Selector, Int, Int) -> Void
-        unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 2, 0)
+        unsafeBitCast(table.method(for: setUp)!, to: SetUpFn.self)(table, setUp, 3, 0)
         host.display()
 
-        let highlighted = try paintedBox(host: host, table: table, row: 2)
+        let highlighted = try paintedBox(host: host, table: table, row: 3)
         #expect(highlighted == pill, "the context menu ring \(highlighted) grew the row past its pill \(pill)")
     }
 }

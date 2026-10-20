@@ -87,3 +87,33 @@ def test_pid_lookup_parses_a_file_again_only_once_it_changes(tmp_path, monkeypat
 
     (tmp_path / "1.json").unlink()
     assert files.pid_for_session("sid-1") is None
+
+
+def test_read_names_the_version_claude_wrote_into_its_file(tmp_path):
+    write(tmp_path, 42, version="2.1.301")
+    write(tmp_path, 43)
+    write(tmp_path, 44, version=7)
+    write(tmp_path, 45, version="")
+    files = ClaudeSessionFiles(tmp_path)
+    assert [files.read(pid).version for pid in (42, 43, 44, 45)] == ["2.1.301", None, None, None]
+
+
+def test_non_object_session_file_does_not_break_other_sessions(tmp_path):
+    (tmp_path / "7.json").write_text("[]")
+    write(tmp_path, 8)
+    files = ClaudeSessionFiles(tmp_path)
+    assert files.read(7) is None
+    assert files.pid_for_session("sid-8") == 8
+
+
+def test_unreadable_session_file_is_retried_without_a_file_change(tmp_path, monkeypatch):
+    write(tmp_path, 42)
+    files = ClaudeSessionFiles(tmp_path)
+
+    def unreadable(path, *args, **kwargs):
+        raise OSError("temporarily unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(tmp_path), "read_text", unreadable)
+        assert files.read(42) is None
+    assert files.read(42).session_id == "sid-42"

@@ -34,10 +34,12 @@ public extension View {
     }
 
     /// The box a group of controls is drawn in: the surface fill inside the one hairline, at the
-    /// group radius — a Settings card, each of the Interface tab's groups, a segmented track.
-    func groupChrome() -> some View {
-        background(RoundedRectangle(cornerRadius: Radius.group).fill(Palette.surface))
-            .overlay(RoundedRectangle(cornerRadius: Radius.group).strokeBorder(Palette.border, lineWidth: 1))
+    /// group radius — a Settings card, each of the Interface tab's groups, a segmented track, a card on
+    /// the broadcast's board. A board card washes its `fill` with `Palette.rowHoverSolid` under the
+    /// pointer, and edges itself in `Palette.statusChipAttentionStroke` while it needs you.
+    func groupChrome(fill: Color = Palette.surface, edge: Color = Palette.border) -> some View {
+        background(RoundedRectangle(cornerRadius: Radius.group).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: Radius.group).strokeBorder(edge, lineWidth: 1))
     }
 
     /// A dropdown row's highlight — the accent behind the row the keyboard or the pointer is on,

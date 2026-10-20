@@ -1,0 +1,183 @@
+import Foundation
+import CryptoKit
+import AiTermCore
+
+/// The Jira slice (spec §5): `jira_create`, `jira_move` and `jira_link`, and the filing of off-brief finds. A
+/// write is refused unless the broadcast's frozen slice allows it, and is kept to the broadcast's Jira
+/// projects. Each is read fresh right before it is sent, after any read that came first: none goes while the
+/// operation is paused, offline or ended. Comments are not here: a comment messages people.
+extension OperatorToolHandler {
+    private static let sliceOff = "The Jira slice is off for this broadcast."
+    private static let notConnected = "Jira isn’t connected in AiTerm’s Settings › Integrations."
+
+    func jiraCreate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let callKey = try call.string("key")
+        // The same key again is the same ticket: what the first call made, and nothing more.
+        if let made = run.jiraCreated[callKey] { return ["key": .string(made), "created": false] }
+        let project = try call.string("project"), type = try call.string("type")
+        let summary = try call.string("summary"), description = try call.string("description")
+        let projectKey = try inScope(project: project, of: run)
+        let parent = try call.optionalString("parent").map { try inScope(ticket: $0, of: run) }
+        try requireSlice(in: run, otherwise: "Create the Jira ticket “\(summary)” in \(projectKey)")
+        try jiraWritable(run.id)
+        let jira = try connectedJira()
+        // Another call with this key is creating now: this one would make the ticket twice.
+        let flight = "\(run.id.uuidString)/create/\(callKey)"
+        guard filingFinds.insert(flight).inserted else { throw ToolRefusal("jira_create with this key is still running: call it again for its ticket.") }
+        defer { filingFinds.remove(flight) }
+        // The ticket carries the call's label: a create whose answer was lost is found by it, not made again.
+        let label = Self.createLabel(run: run.id, key: callKey), pending = "jira_create_v2/\(callKey)"
+        if state.run(id: run.id)?.pendingWrites.contains("jira_create/\(callKey)") == true {
+            throw ToolRefusal("This pending create used an older Jira label that cannot identify its ticket safely. Reconcile it manually in Jira and the saved broadcast before continuing; AiTerm kept the pending marker and sent nothing.")
+        }
+        if state.run(id: run.id)?.pendingWrites.contains(pending) == true {
+            // The key still identifies the original write if retry arguments name another allowed project.
+            let projects = run.jiraProjectKeys.map { JiraProjectRef(id: $0, key: $0, name: $0, siteURL: jira.siteURL) }
+            let matches = try await jira.search(jql: "labels = \"\(label)\"", in: projects)
+            guard matches.count <= 1 else {
+                throw ToolRefusal("More than one Jira ticket has this create's label. Reconcile them manually before continuing; AiTerm kept the pending marker and sent nothing.")
+            }
+            if let made = matches.first {
+                settle(pending, in: run.id) { $0.jiraCreated[callKey] = made.key }
+                return ["key": .string(made.key), "created": false, "note": "The first call made it; its answer was lost."]
+            }
+        }
+        // Read fresh after the look, right before the write.
+        try jiraWritable(run.id)
+        try markPending(pending, in: run.id)
+        let key: String
+        do { key = try await jira.createIssue(project: projectKey, type: type, summary: summary, description: description, parent: parent, labels: [label]) }
+        catch {
+            if !Self.mayHaveLanded(error) { settle(pending, in: run.id) }
+            throw error
+        }
+        settle(pending, in: run.id) { $0.jiraCreated[callKey] = key }
+        return ["key": .string(key), "created": true]
+    }
+
+    /// Bounded, Jira-safe identity for the complete run and key. NFC matches Swift String equality,
+    /// so a canonically equivalent retry searches the same label as its persisted pending marker.
+    static func createLabel(run: UUID, key: String) -> String {
+        let digest = SHA256.hash(data: Data(key.precomposedStringWithCanonicalMapping.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return "aiterm-v2-\(run.uuidString.lowercased())-\(digest)"
+    }
+
+    /// Jira writes go while the operation plans (its tickets for planned work) or runs, read fresh: never while you
+    /// paused or ended it, its Operator is offline, or its slice is off.
+    func jiraWritable(_ runId: UUID) throws(ToolRefusal) {
+        guard let run = state.run(id: runId) else { throw ToolRefusal("This broadcast is no longer in AiTerm.") }
+        guard run.profile.slices.jira else { throw ToolRefusal(Self.sliceOff) }
+        if run.state == .planning, run.intent == nil { return }
+        try acceptsWork(run)
+    }
+
+    func jiraMove(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let key = try inScope(ticket: try call.string("key"), of: run), status = try call.string("status")
+        try requireSlice(in: run, otherwise: "Move \(key) to \(status)")
+        try jiraWritable(run.id)
+        let runId = run.id
+        // Jira's status and transitions are read first: the move is checked again after them.
+        let moved = try await connectedJira().transition(key: key, to: status, beforeWrite: { @MainActor [weak self] in
+            guard let self else { throw ToolRefusal("AiTerm is closing; nothing more is written.") }
+            try self.jiraWritable(runId)
+        })
+        return moved ? ["key": .string(key), "status": .string(status), "moved": true]
+                     : ["key": .string(key), "status": .string(status), "moved": false, "note": .string("\(key) is already in \(status).")]
+    }
+
+    func jiraLink(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
+        let key = try inScope(ticket: try call.string("key"), of: run), other = try inScope(ticket: try call.string("to"), of: run)
+        let type = try call.string("type")
+        try requireSlice(in: run, otherwise: "Link \(key) to \(other) (\(type))")
+        let jira = try connectedJira()
+        try jiraWritable(run.id)
+        try await jira.link(key: key, to: other, type: type)
+        return ["key": .string(key), "to": .string(other), "type": .string(type), "linked": true]
+    }
+
+    /// Refuses a write the Jira slice does not allow, and leaves `otherwise` (what was not done) for the person once.
+    private func requireSlice(in run: OperatorRun, otherwise left: String) throws(ToolRefusal) {
+        guard !run.profile.slices.jira else { return }
+        let sentence = "\(left): the Jira slice is off."
+        mutate(in: run.id) { state in
+            state.updateRun(id: run.id) { if !$0.leftForYou.contains(sentence) { $0.leftForYou.append(sentence) } }
+        }
+        throw ToolRefusal(Self.sliceOff)
+    }
+
+    private func connectedJira() throws(ToolRefusal) -> any OperatorJira {
+        guard let jira = ports.jira() else { throw ToolRefusal(Self.notConnected) }
+        return jira
+    }
+
+    private func inScope(project: String, of run: OperatorRun) throws(ToolRefusal) -> String {
+        let key = project.uppercased()
+        guard run.jiraProjectKeys.contains(where: { $0.uppercased() == key }) else { throw outOfScope(key, of: run) }
+        return key
+    }
+
+    /// `ticket` as an upper-case key, when its project is one of the broadcast's.
+    private func inScope(ticket: String, of run: OperatorRun) throws(ToolRefusal) -> String {
+        let key = ticket.uppercased()
+        guard key.range(of: #"^[A-Z][A-Z0-9_]+-[0-9]+$"#, options: .regularExpression) != nil, let dash = key.lastIndex(of: "-") else {
+            throw ToolRefusal("\(ticket) isn’t a Jira ticket key like PLUTO-231.")
+        }
+        guard run.jiraProjectKeys.contains(where: { $0.uppercased() == String(key[..<dash]) }) else { throw outOfScope(key, of: run) }
+        return key
+    }
+
+    private func outOfScope(_ what: String, of run: OperatorRun) -> ToolRefusal {
+        run.jiraProjectKeys.isEmpty
+            ? ToolRefusal("This broadcast has no Jira projects.")
+            : ToolRefusal("\(what) isn’t in this broadcast’s Jira projects: \(run.jiraProjectKeys.joined(separator: ", ")).")
+    }
+
+    // -- finds ----------------------------------------------------------------------------------
+
+    /// What filing a find came to.
+    enum Filing: Equatable {
+        case filed(String), notFiled(String), notAttempted
+    }
+
+    /// With the Jira slice on, files the find `key` as a Task in the broadcast's first Jira project (its title the
+    /// summary, why the description) and keeps the ticket on the find. A find already filed is not filed again;
+    /// one whose filing failed is tried again. A failed filing leaves the find as it was.
+    func fileFind(key: String, in runId: UUID) async -> Filing {
+        guard let run = state.run(id: runId), run.profile.slices.jira, let find = run.finds.first(where: { $0.key == key }) else { return .notAttempted }
+        if let ticket = find.ticket { return .filed(ticket) }
+        guard let project = run.jiraProjectKeys.first else { return .notFiled("This broadcast has no Jira project to file it in.") }
+        guard ports.jira() != nil else { return .notFiled(Self.notConnected) }
+        // Another call is filing this find now: it is that call's to say.
+        guard filingFinds.insert("\(runId.uuidString)/\(key)").inserted else { return .notAttempted }
+        defer { filingFinds.remove("\(runId.uuidString)/\(key)") }
+        do {
+            try jiraWritable(runId)
+            // Finds and explicit jira_create calls have separate idempotency keys.
+            let call = ToolCall(tool: "jira_create", arguments: ["key": .string("find/" + key), "project": .string(project),
+                "type": "Task", "summary": .string(find.title), "description": .string(find.why)])
+            let answer = try await jiraCreate(call, in: run)
+            guard let ticket = answer["key"]?.stringValue else { return .notFiled("Jira returned no ticket key.") }
+            mutate(in: runId) { state in
+                state.updateRun(id: runId) { run in
+                    if let index = run.finds.firstIndex(where: { $0.key == key }) { run.finds[index].ticket = ticket }
+                }
+            }
+            _ = workspace.flush()
+            return .filed(ticket)
+        } catch let refusal as ToolRefusal {
+            return .notFiled(refusal.message)
+        } catch {
+            return .notFiled(error.localizedDescription)
+        }
+    }
+
+    /// How a refusal that says "AiTerm noted it for the debrief" ends once the find was filed, or was not.
+    static func ending(_ filing: Filing) -> String {
+        switch filing {
+        case .filed(let ticket): return " and filed it as \(ticket)."
+        case .notFiled(let reason): return ". It could not be filed: \(reason)"
+        case .notAttempted: return "."
+        }
+    }
+}

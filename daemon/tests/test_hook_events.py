@@ -514,3 +514,8 @@ def test_a_subagents_start_and_stop_name_no_conversation():
         assert ev is not None and ev.conversation_id is None, name
         ev = parse_claude_hook({**BASE, "hook_event_name": name, "agent_id": "child-1"})
         assert ev is not None and ev.conversation_id is None, name
+
+
+def test_claude_stop_with_unhashable_task_type_cannot_prove_subagents_finished():
+    event = parse_claude_hook({"hook_event_name": "Stop", "background_tasks": [{"type": []}]})
+    assert event.running_subagents is None

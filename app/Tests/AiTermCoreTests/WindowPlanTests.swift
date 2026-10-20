@@ -31,6 +31,30 @@ import Testing
         return state
     }
 
+    func operated(_ task: TaskItem, state: OperatedState) -> TaskItem {
+        var task = task
+        task.operated = OperatedTask(runId: UUID(), key: "k", state: state, brief: "b", revision: 1)
+        return task
+    }
+
+    /// An operator's task before AiTerm starts it has no worktree: nothing to restore it into, and no
+    /// window the person can have closed.
+    @Test func aTaskWithNoWorktreeYetIsNeitherRestoredNorAskedAbout() {
+        var planned = operated(task(window: nil), state: .planned)
+        planned.worktreePath = ""
+        #expect(state(tasks: [planned]).windowPlan(sessions: [], settled: true, due: [planned.id], waiting: [], lettingGo: []).isEmpty)
+    }
+
+    /// A started one takes back the window its tag is in, but a closed one comes back only through the
+    /// operator controller (`reopenWorker`, on your click), with the Operator's worker flags.
+    @Test func anOperatorsStartedTaskTakesItsTaggedWindowButIsNeverRestoredHere() {
+        let working = operated(task(window: nil), state: .working)
+        #expect(state(tasks: [working]).windowPlan(sessions: [], settled: true, due: [working.id], waiting: [], lettingGo: []).isEmpty)
+        let adopted = state(tasks: [working]).windowPlan(sessions: [tab("a", window: "w9", task: working)], settled: true, due: [],
+                                                         waiting: [], lettingGo: [])
+        #expect(adopted == [.adopt(.task(working.id), windowId: "w9")])
+    }
+
     @Test func aRowWithItsWindowNeedsNothing() {
         let open = task(window: "w1"), shell = terminal(window: "w2")
         let plan = state(tasks: [open], terminals: [shell]).windowPlan(

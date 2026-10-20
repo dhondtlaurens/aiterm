@@ -92,6 +92,10 @@ public enum Size {
     /// A vendor mark in an avatar group, and the provider tile beside a project name. Also an
     /// icon-only `Badge`'s width.
     public static let avatar: CGFloat = 18
+    /// A mark that leads a line of text and stands no taller than it: the Notice's amber
+    /// exclamation mark beside its `Typography.label` title, and the Operator's mark leading Find a
+    /// Fix (the Operator's greenfield design, 19 Oct 2026).
+    public static let inlineMark: CGFloat = 12
     /// A vendor mark outside an avatar group: the sidebar footer, the agent picker.
     public static let vendorMark: CGFloat = 16
     /// A status mark on a row, and the sidebar footer's ring drawn to its recipe. A row's mark sits in
@@ -225,4 +229,7 @@ public enum Sheet {
     public static let height: CGFloat = 560
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
+    /// The broadcast's board: wider than a form sheet, for its columns of cards (the Operator's
+    /// greenfield design, 19 Oct 2026).
+    public static let boardWidth: CGFloat = 820
 }

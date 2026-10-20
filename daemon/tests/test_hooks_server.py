@@ -1,9 +1,11 @@
 import asyncio
+import contextlib
 import json
 import pytest
 import pytest_asyncio
 from aitermd import hooks_server
 from aitermd.hooks_server import HookServer
+from tests.conftest import operator_post
 
 
 async def http(port, method, path, body=None, header=True, iterm_session_id=None):
@@ -379,4 +381,146 @@ async def test_pi_oversized_body_is_rejected_with_413():
         assert int((await asyncio.wait_for(r.readline(), 2)).split()[1]) == 413
         w.close()
     finally:
+        await srv.stop()
+
+
+class StubRoute:
+    """Answers /operator with what a test set, and records what reached it."""
+
+    def __init__(self, status=200, text='{"ok":true}'):
+        self.status, self.text, self.seen = status, text, []
+
+    async def serve(self, method, headers, body):
+        self.seen.append((method, headers.get("authorization"), body))
+        if self.status == 500:
+            raise RuntimeError("the route failed")
+        return self.status, self.text
+
+
+async def test_the_operator_route_reaches_its_own_handler_not_the_hooks(server):
+    srv, received = server
+    srv.operator_route = route = StubRoute()
+    status, body = await operator_post(srv.port, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, token="t" * 40)
+    assert (status, body) == (200, {"ok": True})
+    assert route.seen == [("POST", "Bearer " + "t" * 40, b'{"jsonrpc": "2.0", "id": 1, "method": "ping"}')]
+    assert received == []
+
+
+@pytest.mark.parametrize("status", [401, 405])
+async def test_the_operator_routes_refusals_are_its_own(server, status):
+    srv, _ = server
+    srv.operator_route = StubRoute(status=status, text="")
+    assert await operator_post(srv.port, None, method="GET") == (status, None)
+
+
+async def test_the_operator_route_hides_behind_the_hook_header_like_every_route(server):
+    srv, _ = server
+    srv.operator_route = route = StubRoute()
+    assert (await operator_post(srv.port, {}, token="t" * 40, hook=False))[0] == 404
+    assert route.seen == []
+
+
+async def test_without_an_operator_route_there_is_none(server):
+    srv, _ = server
+    assert (await operator_post(srv.port, {}, token="t" * 40))[0] == 404
+
+
+async def test_an_operator_route_that_fails_is_a_500_not_a_dropped_connection(server, caplog):
+    srv, _ = server
+    srv.operator_route = StubRoute(status=500)
+    assert (await operator_post(srv.port, {}, token="t" * 40))[0] == 500
+    assert "operator route failed" in caplog.text
+
+
+async def test_stop_closes_an_incomplete_request(server):
+    srv, _ = server
+    reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+    writer.write(b"POST /hook/claude HTTP/1.1\r\n")
+    await writer.drain()
+    try:
+        await asyncio.wait_for(srv.stop(), 0.2)
+        with contextlib.suppress(ConnectionResetError):
+            assert await asyncio.wait_for(reader.read(), 0.2) == b""
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError):
+            await writer.wait_closed()
+
+
+async def test_stop_cancels_an_active_hook_delivery():
+    entered, finished, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def deliver(path, body):
+        entered.set()
+        try:
+            await release.wait()
+        finally:
+            finished.set()
+
+    srv = HookServer(port=0, on_post=deliver)
+    await srv.start()
+    try:
+        assert await http(srv.port, "POST", "/hook/claude", {}) == 200
+        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(srv.stop(), 0.2)
+        assert finished.is_set()
+    finally:
+        release.set()
+        await srv.stop()
+
+
+async def test_stop_is_bounded_when_a_client_does_not_read_its_response():
+    entered = asyncio.Event()
+
+    class LargeResponse:
+        async def serve(self, method, headers, body):
+            entered.set()
+            return 200, "x" * (8 << 20)
+
+    srv = HookServer(port=0)
+    srv.operator_route = LargeResponse()
+    await srv.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+    writer.write(b"POST /operator HTTP/1.1\r\nX-AiTerm-Hook: 1\r\nContent-Length: 0\r\n\r\n")
+    await writer.drain()
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        # Leave the large response unread so the server's drain remains backpressured.
+        await asyncio.wait_for(srv.stop(), 0.2)
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError):
+            await writer.wait_closed()
+        await srv.stop()
+
+
+async def test_stop_owns_a_finished_request_until_its_buffered_transport_closes():
+    completed = asyncio.Event()
+    accepted = []
+
+    class BufferedResponseServer(HookServer):
+        async def _serve(self, reader, writer):
+            # drain() legitimately returns with pending output below the low watermark.
+            writer.transport.set_write_buffer_limits(high=16 << 20, low=8 << 20)
+            accepted.append((asyncio.current_task(), writer))
+            await super()._serve(reader, writer)
+            completed.set()
+
+    srv = BufferedResponseServer(port=0)
+    srv.operator_route = StubRoute(text="x" * (8 << 20))
+    await srv.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+    writer.write(b"POST /operator HTTP/1.1\r\nX-AiTerm-Hook: 1\r\nContent-Length: 0\r\n\r\n")
+    await writer.drain()
+    try:
+        await asyncio.wait_for(completed.wait(), 1)
+        _, response_writer = accepted[0]
+        await asyncio.sleep(0)  # Let the completed request's ownership callback run.
+        assert response_writer.is_closing()
+        assert response_writer.transport.get_write_buffer_size() > 0
+        await asyncio.wait_for(srv.stop(), 0.2)
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError):
+            await writer.wait_closed()
         await srv.stop()

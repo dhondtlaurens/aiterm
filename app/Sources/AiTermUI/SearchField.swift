@@ -28,13 +28,13 @@ public struct SearchField: NSViewRepresentable {
         field.textColor = NSColor(Palette.text)
         field.placeholderString = placeholder
         field.stringValue = text
+        context.coordinator.editing.field = field
         return field
     }
 
     public func updateNSView(_ field: FocusableTextField, context: Context) {
         context.coordinator.parent = self
-        if field.stringValue != text { field.stringValue = text }
-        if field.placeholderString != placeholder { field.placeholderString = placeholder }
+        context.coordinator.editing.update(field, text: $text, focused: $focused, placeholder: placeholder)
         field.wantsFocus = focused
         field.focusIfNeeded()
     }
@@ -42,17 +42,20 @@ public struct SearchField: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchField
-        init(_ parent: SearchField) { self.parent = parent }
+        let editing: TextFieldEditing
+        init(_ parent: SearchField) {
+            self.parent = parent
+            editing = TextFieldEditing(text: parent.$text, focused: parent.$focused)
+        }
 
         /// Focus arrives with the keyboard, not with the first edit: `controlTextDidBeginEditing`
         /// waits for a keystroke, which left a clicked field without its ring. Written only on a
         /// change, since taking focus from `updateNSView` lands here too.
-        func focusBegan() { if !parent.focused { parent.focused = true } }
-        public func controlTextDidEndEditing(_ notification: Notification) { if parent.focused { parent.focused = false } }
+        func focusBegan() { editing.focusBegan() }
+        public func controlTextDidEndEditing(_ notification: Notification) { editing.focusEnded() }
 
         public func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
+            editing.textChanged(notification)
         }
 
         public func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

@@ -253,3 +253,18 @@ def test_a_conversation_survives_a_snapshot_and_goes_with_its_process():
     # Another process in the tab is another conversation, as it is another model.
     diff = reg.apply_snapshot([raw(cmd="claude", pid=5151)])
     assert diff.replaced == ["s1"] and reg.get("s1").conversation_id is None
+
+
+def test_the_cli_version_goes_with_the_agents_process():
+    reg = SessionRegistry()
+    reg.apply_snapshot([raw(cmd="claude", pid=7)])
+    assert reg.set_cli_version("s1", "2.1.301") is True
+    assert reg.set_cli_version("s1", "2.1.301") is False
+    assert reg.set_cli_version("s1", None) is False and reg.set_cli_version("s1", "") is False
+    assert reg.apply_snapshot([raw(cmd="claude", pid=7)]).changed == [], "never compared, never announced"
+    reg.apply_snapshot([raw(cmd="claude", pid=7, cwd="/elsewhere")])
+    assert reg.get("s1").cli_version == "2.1.301", "the same process, its tab changed"
+    assert "cliVersion" not in reg.get("s1").to_json() and "cli_version" not in reg.get("s1").to_json()
+    reg.apply_snapshot([raw(cmd="claude", pid=8, cwd="/elsewhere")])
+    assert reg.get("s1").cli_version is None, "another process reports its own"
+    assert reg.set_cli_version("s404", "2.1.301") is False

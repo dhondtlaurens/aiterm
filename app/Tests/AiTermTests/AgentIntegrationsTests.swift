@@ -149,3 +149,17 @@ private struct InstallingService: HarnessServicing {
     func install(_ agent: AgentKind) async throws -> HarnessSnapshot { try install(); return ready(agent) }
     func test(_ snapshot: HarnessSnapshot) async -> HarnessSnapshot { snapshot }
 }
+
+extension AgentIntegrationsTests {
+    @Test func aProfilePortSeesAgentsDiscoveredAfterItWasCreated() async throws {
+        let (controller, root) = try controller()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let read = controller.agents.operatorProfile
+        controller.agents.availableAgents = [.claude]
+        let missing = await BackgroundWork.run { read() }
+        #expect(!missing.oracle.isOn)
+        controller.agents.availableAgents = [.claude, .codex]
+        let installed = await BackgroundWork.run { read() }
+        #expect(installed.oracle.isOn)
+    }
+}

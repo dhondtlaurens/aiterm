@@ -4,11 +4,12 @@ import AiTermCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case agents = "Agents"
+    case `operator` = "Operator"
     case integrations = "Integrations"
     case interface = "Interface"
     var id: Self { self }
 
-    /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
+    /// ⌘1–⌘4 pick the tabs in the order the tab bar draws them.
     var key: KeyEquivalent {
         KeyEquivalent(Character(String(Self.allCases.firstIndex(of: self)! + 1)))
     }
@@ -56,7 +57,8 @@ struct SettingsView: View {
     /// Handed to the Agents tab, which is its one observer: this view only starts its load and
     /// its save, so a probe landing redraws that tab and not the whole sheet.
     let harnessModel: HarnessSettingsModel
-    /// The Agents tab's fixer choice and the CLIs it can choose from.
+    /// The Agents tab's fixer choice and the CLIs it can choose from, and where the Operator tab's
+    /// profile is kept.
     let agents: AgentIntegrations
     /// The live state of the chain to iTerm2. A closure rather than a value so this view's own body
     /// reads the controller, and the card follows a reconnect while Settings is open.
@@ -70,6 +72,14 @@ struct SettingsView: View {
     /// made from the connections Settings was opened with.
     private var _integrations: State<IntegrationSettingsModel>
     private var integrations: IntegrationSettingsModel { _integrations.wrappedValue }
+    /// Settings › Operator's edits, staged until Save and handed to the Operator tab, its one
+    /// observer. Made once per presentation, as the sheet's task starts, not in `init`, which SwiftUI
+    /// runs again on every redraw of the view that presents it; a test or a snapshot hands one in.
+    var _operatorSettings: State<OperatorSettingsModel?>
+    var operatorSettings: OperatorSettingsModel? {
+        get { _operatorSettings.wrappedValue }
+        nonmutating set { _operatorSettings.wrappedValue = newValue }
+    }
     var _tab = State<SettingsTab>(initialValue: .agents)
     private var tab: SettingsTab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
     var _matchItermBackground: State<Bool>
@@ -97,11 +107,13 @@ struct SettingsView: View {
          setInterfaceSize: @escaping (InterfaceSize) -> Void,
          initialTab: SettingsTab? = nil,
          testRecord: ServiceTestRecord = .shared,
-         backpack: BackpackController = .inert()) {
+         backpack: BackpackController = .inert(),
+         operatorSettings: OperatorSettingsModel? = nil) {
         _tab = State(initialValue: initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
         self.agents = agents
+        _operatorSettings = State(initialValue: operatorSettings)
         _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
                                                                      record: testRecord))
         self.itermConnection = itermConnection
@@ -122,12 +134,12 @@ struct SettingsView: View {
         } content: {
             settingsContent
         } footer: {
-            SheetFooter(primary: "Save", cancel: { cancel(); dismiss.afterThisEvent() },
+            SheetFooter(primary: "Save", closeList: closeOpenList, cancel: { cancel(); dismiss.afterThisEvent() },
                         submit: { if save() { dismiss.afterThisEvent() } }) {
                 if let result { Text(result).font(Typography.caption).foregroundStyle(Palette.muted).lineLimit(2) }
             }
         }
-        // ⌘1–⌘3, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
+        // ⌘1–⌘4, on hidden buttons: a view carries one shortcut, and the tab bar's segments are
         // not buttons of their own.
         .background {
             ForEach(SettingsTab.allCases) { item in
@@ -136,19 +148,33 @@ struct SettingsView: View {
             .hidden()
         }
         // A result is only true for the moment it was taken, so every opening checks again rather
-        // than showing a remembered answer: iTerm2, each saved service, then every harness.
+        // than showing a remembered answer: iTerm2, each saved service, every harness and the Mac.
+        // The Operator's profile is read beside them, so a slow catalogue holds none of them up.
         .task {
             testIterm()
             integrations.testConfigured()
-            await harnessModel.load()
-            await backpack.refreshSetup()
+            let operatorSettings = self.operatorSettings ?? agents.operatorSettings()
+            if self.operatorSettings == nil { self.operatorSettings = operatorSettings }
+            async let profile: Void = operatorSettings.loadIfNeeded()
+            async let harnesses: Void = harnessModel.load()
+            async let mac: Void = backpack.refreshSetup()
+            _ = await (profile, harnesses, mac)
         }
+    }
+
+    /// ⎋ closes Instructions' `/` popup while it is open, and only then Settings: the popup is the
+    /// footer's to close, not the text view's, because the footer's hidden ⎋ button hears the key first.
+    private func closeOpenList() -> Bool {
+        guard let completions = operatorSettings?.completions, completions.isOpen else { return false }
+        completions.close()
+        return true
     }
 
     private var settingsContent: some View {
         Group {
             switch tab {
             case .agents: HarnessSettingsPane(model: harnessModel, agents: agents)
+            case .operator: if let operatorSettings { OperatorSettingsPane(model: operatorSettings) }
             case .integrations: integrationSettings
             case .interface:
                 InterfaceSettingsPane(matchItermBackground: _matchItermBackground.projectedValue,
@@ -201,6 +227,7 @@ struct SettingsView: View {
                             FormField("Access token") { Input(placeholder: "Personal access token", text: fields.token, secure: true) }
                                 .frame(maxWidth: .infinity)
                         }
+                        HelpText("Reading needs read_api. An operator that opens or merges merge requests needs api.")
                         if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
                 }
@@ -209,7 +236,7 @@ struct SettingsView: View {
                         FormField("Access token") {
                             Input(placeholder: "Fine-grained or classic personal access token", text: fields.token, secure: true)
                         }
-                        HelpText("Needs read access to pull requests.")
+                        HelpText("Needs read access to pull requests. An operator that opens or merges them needs write access to pull requests and contents, and read access to administration to see branch protection.")
                         if !fields.wrappedValue.token.isEmpty { HelpText("Save stores your token in Keychain.") }
                     }
                 }
@@ -223,11 +250,13 @@ struct SettingsView: View {
         result = nil
     }
 
-    /// Jira, GitLab and GitHub are optional. Validate them before committing harness defaults so a failed
-    /// save can still be cancelled without changing the models used by new tasks.
+    /// Jira, GitLab and GitHub are optional. Validate them before committing the Operator's profile and
+    /// harness defaults so a failed save can still be cancelled without changing the models used by
+    /// new tasks or the next broadcast.
     private func save() -> Bool {
         if let failure = integrations.save() { tab = .integrations; result = failure; return false }
         saveInterface()
+        operatorSettings?.save()
         harnessModel.save()
         return true
     }

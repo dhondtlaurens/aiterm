@@ -3,10 +3,12 @@ import AiTermUI
 import AiTermCore
 
 /// What New Task and New Review share around their steps: the step bar, the command preview under
-/// every step past the first, the destination line that ends steps 1 and 3, the footer and its
-/// keys, and the loads the sheet starts when it appears. Each sheet keeps what is its own — its
-/// first step, where it opens, what its create button says, when it may advance, and its pickers —
-/// and hands those in as values.
+/// every step past the first, the destination line that ends the first step and the last, the footer
+/// and its keys, and the loads the sheet starts when it appears. How many steps there are, and which
+/// one picks the agent, is the kind's (`CreationKind.steps`); New Broadcast, which starts no agent of
+/// its own, draws the same parts from `CreationSteps.broadcast` (`NewBroadcastSheet`). Each sheet
+/// keeps what is its own — its first step, where it opens, what its create button says, when it may
+/// advance, and its pickers — and hands those in as values.
 ///
 /// `pickers` are the sheet's open-list flags in the order ⎋ closes them: ⎋ belongs to an open list
 /// first — in every other app that list is a window of its own, and closing the whole sheet is not
@@ -16,8 +18,8 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     @Binding var step: Int
     let title: String
     let stepNames: [String]
-    /// Where the window opens, drawn last on steps 1 and 3; `nil` while it isn't known yet. Step 2
-    /// never draws one, so the sheet need not work it out there.
+    /// Where the window opens, drawn last on the first step and the last; `nil` while it isn't known
+    /// yet. The agent's step never draws one, so the sheet need not work it out there.
     let destination: Destination?
     let createLabel: String
     let canAdvance: Bool
@@ -42,11 +44,11 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
             // command preview below it.
             FrontToBackStack(spacing: Space.block) {
                 content
-                if step > 1 { CommandPreview(model: model) }
-                if Destination.isShown(onStep: step), let destination { DestinationLine(destination) }
+                if Kind.steps.showsCommand(onStep: step) { CommandPreview(model: model) }
+                if Kind.steps.showsDestination(onStep: step), let destination { DestinationLine(destination) }
             }
         } footer: {
-            CreationFooter(step: step, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
+            CreationFooter(step: step, steps: Kind.steps, error: model.error, availableAgents: model.availableAgents, createLabel: createLabel,
                            creating: model.creating, canAdvance: canAdvance && model.canChangeWorkspace(),
                            closeList: closeOpenList, back: back, advance: advance, recover: recover,
                            fix: model.fixSession, canApply: model.canChangeWorkspace(), applyFix: model.applyFix)
@@ -66,11 +68,11 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     }
 
     /// The list ⎋ closes, if one is open where it can be seen: the pickers on step 1, the prompt's
-    /// completion popup on step 3. A picker list left open on a later step is out of sight, so the
+    /// completion popup on the prompt's step. A picker list left open on a later step is out of sight, so the
     /// key goes straight to Back there. The popup is the footer's to close, not the text view's:
     /// the footer's hidden ⎋ button hears the key first.
     private func closeOpenList() -> Bool {
-        if step == 3, model.completions.isOpen {
+        if Kind.steps.hasPrompt(onStep: step), model.completions.isOpen {
             model.completions.close()
             return true
         }
@@ -88,7 +90,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     private func advance() {
         // A backstop only: the footer owns the routing, and sends a proposal's ⌘↩ to Apply itself.
         if model.primaryAction() == .applyFix { model.applyFix(); return }
-        if step == 3 { create(); return }
+        if Kind.steps.creates(onStep: step) { create(); return }
         for picker in pickers { picker.wrappedValue = false }
         step += 1
     }
@@ -100,7 +102,7 @@ struct CreationSheet<Kind: CreationKind, Content: View>: View {
     private func recover() { Task { if await model.recoverAndCreate() { dismiss() } } }
 }
 
-/// The command preview under steps 2 and 3: the one part of the frame that reads the prompt, so a
+/// The command preview under every step past the first: the one part of the frame that reads the prompt, so a
 /// keystroke in the prompt redraws this line and not the sheet around it.
 struct CommandPreview<Kind: CreationKind>: View {
     let model: CreationModel<Kind>

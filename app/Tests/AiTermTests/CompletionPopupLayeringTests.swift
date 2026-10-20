@@ -21,7 +21,7 @@ import Testing
         let model = controller.sheets.makeCreationModel(project: project, draft: draft, jira: nil)
         let host = NSHostingView(rootView: NewTaskSheet(model: model).seeded(step: 3))
         host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.orderFront(nil)

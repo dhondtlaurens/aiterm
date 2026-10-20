@@ -19,10 +19,10 @@ enum SidebarRowLayout {
     static func chevronWidth(_ scale: InterfaceScale) -> CGFloat { scale(Size.chevron) }
 }
 
-/// The add glyph, drawn identically wherever it appears. `.borderlessButton` hands the label to
+/// The add glyph of the OPERATOR and PROJECTS headings and a project's header, drawn identically wherever it appears. `.borderlessButton` hands the label to
 /// an AppKit pop-up button, which draws the same `Image` a point larger than a `Button` does;
 /// `.button` + `.plain` keeps the menu's click and gives back the button's own rendering.
-private struct AddMenu<Items: View>: View {
+struct AddMenu<Items: View>: View {
     let help: String?
     let enabled: Bool
     @ViewBuilder let items: () -> Items
@@ -257,7 +257,7 @@ struct RowPill: ViewModifier {
 }
 
 /// A project header's disclosure chevron, in its surface's secondary ink.
-private struct HeaderChevron: View {
+struct HeaderChevron: View {
     let collapsed: Bool
     @Environment(\.surface) private var surface
 
@@ -268,7 +268,7 @@ private struct HeaderChevron: View {
 }
 
 /// A project header's name, in its surface's ink — white on the selection.
-private struct HeaderTitle: View {
+struct HeaderTitle: View {
     let text: String
     @Environment(\.surface) private var surface
 
@@ -319,8 +319,10 @@ struct RowCaption: View {
     }
 }
 
-/// One task or review: its agents, title, badges and branch, and — when there is something to say —
-/// why its window could not come back.
+/// One task or review: its agents, title, badges and branch, and, when there is something to say, why
+/// its window could not come back, or, on a task the Operator drives, its status line as the operator
+/// badge. A driven task's menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
+/// of an ended broadcast is yours, and its menu is any task's.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
@@ -382,7 +384,13 @@ struct TaskRowView: View {
                             BranchLabelView(label: row.branch).layoutPriority(1)
                         }
                     }
-                    if let note = caption.note { RowCaption(note.text, warns: note.warns).lineLimit(1) }
+                    // Why a removal stopped, or what the task is missing, comes first; else what the
+                    // Operator says of it: `queued · after PAY-232`, `answering Claude`, `done · 4f2a91c`.
+                    if let note = caption.note {
+                        RowCaption(note.text, warns: note.warns).lineLimit(1)
+                    } else if let line = row.operatorLine {
+                        OperatorBadge(line: line)
+                    }
                 }
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window.
@@ -394,7 +402,7 @@ struct TaskRowView: View {
         .environment(\.rowHovered, hoveredRow == row.id)
         #endif
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.status.label)
+        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip ?? row.status.label)
         .accessibilityActions {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
@@ -411,6 +419,13 @@ struct TaskRowView: View {
         .selectionDisabled(removing)
         .contextMenu {
             if let task {
+                let operatorItems = OperatorMenus.task(task.operated, broadcastLive: row.broadcastLive)
+                if !operatorItems.isEmpty {
+                    OperatorMenuButtons(items: operatorItems, enabled: { _ in controller.canChangeWorkspace && !removing }) {
+                        controller.perform($0, on: task)
+                    }
+                    Divider()
+                }
                 Button("Rename…") { controller.presentRename(task: task) }
                     .disabled(!controller.canChangeWorkspace || removing)
                 Divider()
@@ -601,7 +616,7 @@ struct ProjectJiraBadge: Equatable {
         // The row shows the key only; the project's full name is worth a hover, and the URL beside
         // it is what every other badge in the sidebar puts there. A badge without its key names it
         // there too.
-        help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") — \(jira.browseURL.absoluteString)"
+        help = "\(showsKey ? jira.name : "\(jira.name) (\(jira.key))") · \(jira.browseURL.absoluteString)"
         self.overflow = overflow
     }
 }
@@ -612,7 +627,7 @@ extension ProjectJiraBadge.Overflow {
         let rest = Array(jira.dropFirst())
         guard !rest.isEmpty else { return nil }
         label = "+\(rest.count)"
-        items = jira.map { .init(title: "\($0.key) — \($0.name)", url: $0.browseURL) }
+        items = jira.map { .init(title: "\($0.key) · \($0.name)", url: $0.browseURL) }
         // A count says nothing on its own: the hover names every project, and VoiceOver the rest.
         help = (["Jira"] + jira.map { "\($0.key) \($0.name)" }).joined(separator: " · ")
         accessibilityLabel = "\(rest.count) more Jira \(rest.count == 1 ? "project" : "projects"): \(rest.keyList)"
@@ -760,12 +775,12 @@ struct TaskRowBadges: Equatable {
         ticket = row.jiraKey.map { key in
             details.jiraTicket
                 ? Link(label: key, help: row.jiraUrl ?? key, url: row.jiraUrl)
-                : Link(label: nil, help: row.jiraUrl.map { "\(key) — \($0)" } ?? key, url: row.jiraUrl)
+                : Link(label: nil, help: row.jiraUrl.map { "\(key) · \($0)" } ?? key, url: row.jiraUrl)
         }
         mergeRequest = row.mr.map { mr in
             var link = details.mergeRequest
                 ? Link(label: mr.reference, help: mr.title, url: mr.url, host: mr.host)
-                : Link(label: nil, help: "\(mr.reference) — \(mr.title)", url: mr.url, host: mr.host)
+                : Link(label: nil, help: "\(mr.reference) · \(mr.title)", url: mr.url, host: mr.host)
             // Nothing until there is a thread to count; then it stays, all resolved included.
             if let threads, threads.total > 0 {
                 let words = Self.words(threads)

@@ -296,6 +296,7 @@ public final class DaemonClient: Sendable {
         case .sessionChanged: return .sessionChanged(try payload(SessionInfo.self))
         case .sessionClosed: return .sessionClosed(try payload(SessionId.self).sessionId)
         case .usageChanged: return .usageChanged(try payload(UsageSnapshot.self))
+        case .operatorRequest: return .operatorRequest(try payload(OperatorRequest.self))
         }
     }
 
@@ -479,7 +480,25 @@ public final class DaemonClient: Sendable {
     struct WindowResult: Decodable { var windowId: String }
     struct SessionResult: Decodable { var sessionId: String }
     struct ChangedResult: Decodable { var changed: Int }
-    struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame }
+    struct CreateTaskParams: Encodable { var taskId, cwd, title: String; var agentCommand: String?; var frame: Frame; var background: Bool? }
+    struct DeliverParams: Encodable { var sessionId, text: String; var ownership: Int; var wake: Bool; var worktree: String? }
+    struct SessionParams: Encodable { var sessionId: String }
+    struct OwnershipParams: Encodable { var sessionId: String; var ownership: Int }
+    struct RegisterParams: Encodable { var runId, token: String }
+    struct RunParams: Encodable { var runId: String }
+    struct PromptResult: Decodable { var kind: PromptKind? }
+    struct DismissResult: Decodable { var dismissed: Bool }
+    /// `result` and `error` are both always sent, `null` when absent, as the daemon reads them.
+    struct OperatorReplyParams: Encodable {
+        var requestId: String, result: JSONValue?, error: String?
+        private enum CodingKeys: String, CodingKey { case requestId, result, error }
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(requestId, forKey: .requestId)
+            try c.encode(result ?? .null, forKey: .result)
+            try c.encode(error, forKey: .error)
+        }
+    }
     struct CreateTerminalParams: Encodable { var projectId, terminalId, cwd, title: String; var frame: Frame }
     struct WindowParams: Encodable { var windowId: String; var frame: Frame? }
     struct CreateTabParams: Encodable { var windowId, cwd: String; var agentCommand: String? }
@@ -511,8 +530,14 @@ public final class DaemonClient: Sendable {
         }
         return snapshot
     }
-    public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
-        try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame), as: WindowResult.self).windowId }
+    /// `background` opens the window behind the person's work: iTerm2 is not activated and the
+    /// window not raised. Left out of the request when false, as every window before operators.
+    public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame,
+                                 background: Bool) async throws -> String {
+        try await request(.windowCreateTask, params: CreateTaskParams(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand,
+                                                                      frame: frame, background: background ? true : nil),
+                          as: WindowResult.self).windowId
+    }
     public func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String {
         try await request(.windowCreateTerminal, params: CreateTerminalParams(projectId: projectId, terminalId: terminalId, cwd: cwd, title: title, frame: frame), as: WindowResult.self).windowId }
     /// A tab in an existing window, carrying that window's task or project tag.
@@ -534,5 +559,29 @@ public final class DaemonClient: Sendable {
     /// this session-scoped, so no iTerm2 profile is edited.
     public func setMatchItermBackground(_ enabled: Bool) async throws {
         _ = try await request(.interfaceSetMatchItermBackground, params: InterfaceParams(matchItermBackground: enabled), as: Empty.self)
+    }
+    public func deliver(sessionId: String, text: String, ownership: Int, wake: Bool, worktree: String?) async throws -> Delivery {
+        try await request(.sessionDeliver, params: DeliverParams(sessionId: sessionId, text: text, ownership: ownership, wake: wake,
+                                                                 worktree: worktree), as: Delivery.self)
+    }
+    public func prompt(sessionId: String) async throws -> PromptKind? {
+        try await request(.sessionPrompt, params: SessionParams(sessionId: sessionId), as: PromptResult.self).kind
+    }
+    /// True when the daemon found Codex's update offer open and declined it with Esc; false for any
+    /// other screen, a trust question included, which it leaves for the person.
+    public func dismissStartup(sessionId: String) async throws -> Bool {
+        try await request(.sessionDismissStartup, params: SessionParams(sessionId: sessionId), as: DismissResult.self).dismissed
+    }
+    public func setOwnership(sessionId: String, ownership: Int) async throws {
+        _ = try await request(.sessionSetOwnership, params: OwnershipParams(sessionId: sessionId, ownership: ownership), as: Empty.self)
+    }
+    public func registerOperator(runId: String, token: String) async throws {
+        _ = try await request(.operatorRegister, params: RegisterParams(runId: runId, token: token), as: Empty.self)
+    }
+    public func revokeOperator(runId: String) async throws {
+        _ = try await request(.operatorRevoke, params: RunParams(runId: runId), as: Empty.self)
+    }
+    public func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {
+        _ = try await request(.operatorReply, params: OperatorReplyParams(requestId: requestId, result: result, error: error), as: Empty.self)
     }
 }

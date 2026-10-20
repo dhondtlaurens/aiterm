@@ -16,7 +16,8 @@ enum SettingsSnapshots {
                                         loadProjects: { jiraProjects }, submit: { _ in })
                     .seeded(projects: jiraProjects, open: true)
             },
-        ] + SettingsTab.allCases.map { tab in
+        // Settings › Operator came after these images; it is drawn with the Operator's (`OperatorSnapshots`).
+        ] + SettingsTab.allCases.filter { $0 != .operator }.map { tab in
             // A Jira site and email typed in, no token yet.
             Snapshot("settings-\(tab.rawValue.lowercased()).png") {
                 let jira = JiraConfig(siteURL: URL(string: "https://example.atlassian.net")!, email: "you@example.com", token: "")
@@ -39,20 +40,8 @@ enum SettingsSnapshots {
                 return settings(jira: nil, iterm: .waitingForIterm, environment: apiOff, tab: .integrations)
                     .seeded(itermEnvironment: apiOff)
             },
-            // “Fix with AI” on its own, in its four shapes: on with Claude, Codex installed beside
-            // it; off, the select dimmed and still on Codex; nothing installed that can fix, so the
-            // switch is off and disabled; and a chosen agent that is gone. Drawn last: an added
-            // image goes after the ones before it (`Snapshots.regressionSet`).
-            Snapshot("settings-fixer-claude.png") { fixerGroup(.agent(.claude), installed: [.claude, .codex]) },
-            Snapshot("settings-fixer-off.png") { fixerGroup(.off(keeping: .codex), installed: [.claude, .codex, .grok]) },
-            Snapshot("settings-fixer-none.png") { fixerGroup(.agent(.claude), installed: [.pi]) },
-            // Codex chosen and since uninstalled: it stays chosen, not swapped for Claude, and says so.
-            Snapshot("settings-fixer-missing.png") { fixerGroup(.agent(.codex), installed: [.claude]) },
+            // “Help with problems” is drawn with the Operator's images (`OperatorSnapshots`).
         ]
-    }
-
-    private static func fixerGroup(_ choice: FixerChoice, installed: Set<AgentKind>) -> some View {
-        FixerSettingsGroup(choice: .constant(choice), installed: installed).frame(width: Sheet.width - 2 * Space.margin)
     }
 
     private static let site = URL(string: "https://example.atlassian.net")!

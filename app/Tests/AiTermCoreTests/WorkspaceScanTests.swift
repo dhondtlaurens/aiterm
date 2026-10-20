@@ -27,6 +27,19 @@ import Testing
     /// A pass whose git calls time out has found nothing out about the project, which is not the
     /// same as finding it has no remote: `AppState.adoptRemotes` clears and saves the stored remote of
     /// every project the scan reports, so the project is left out of it.
+    /// A row with no worktree yet is not a worktree gone: read as missing, the checkout cleanup would remove it.
+    @Test func aTaskWithNoWorktreeYetIsNeverReadMissing() throws {
+        let repo = try GitFixture.makeRepo(prefix: "ws-")
+        let project = Project(id: UUID(), name: "p", path: repo, provider: .git, remoteUrl: nil, addedAt: Date(), collapsed: false)
+        let planned = TaskItem(id: UUID(), projectId: project.id, title: "t", branch: "feat/t", worktreePath: "", baseBranch: "", jira: nil,
+                               agent: .claude, model: "m", reasoning: nil, firstPrompt: nil, appendTicket: false, createdAt: Date(), windowId: nil)
+        let git = GitRunner.hermetic(), resolvers = Resolvers(git: git)
+        let scan = WorkspaceScan.run(cwds: [], projects: [project], tasks: [planned], branches: resolvers.branches, remotes: resolvers.remotes,
+                                     diffs: DiffStatResolver(git: git), defaultBranches: resolvers.defaultBranches)
+        #expect(scan.missingCheckouts.isEmpty)
+        #expect(scan.removedTasks.isEmpty)
+    }
+
     @Test func aProjectGitCouldNotBeAskedAboutReportsNoRemote() throws {
         let url = "git@gitlab.example.com:group/app.git"
         let repo = try makeRepo(remote: url)
