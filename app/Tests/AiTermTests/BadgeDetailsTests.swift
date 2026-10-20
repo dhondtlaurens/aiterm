@@ -22,7 +22,7 @@ import AiTermUI
     @Test func aProjectKeyTurnedOffLeavesTheMarkAndMovesTheKeyIntoTheTooltip() {
         let full = ProjectJiraBadge(jira: jira)
         #expect(full.label == "SHOP")
-        #expect(full.help == "Storefront — https://example.atlassian.net/browse/SHOP")
+        #expect(full.help == "Storefront · https://example.atlassian.net/browse/SHOP")
 
         let compact = ProjectJiraBadge(jira: jira, showsKey: false)
         #expect(compact.label == nil)
@@ -44,19 +44,19 @@ import AiTermUI
         let badges = TaskRowBadges(row: row(mr: pull), details: BadgeDetails())
         #expect(badges.mergeRequest?.label == "#87")
         #expect(badges.mergeRequest?.host == .gitHub)
-        #expect(TaskRowBadges(row: row(mr: pull), details: BadgeDetails(mergeRequest: false)).mergeRequest?.help == "#87 — Add diff setting")
+        #expect(TaskRowBadges(row: row(mr: pull), details: BadgeDetails(mergeRequest: false)).mergeRequest?.help == "#87 · Add diff setting")
     }
 
     @Test func eachDetailTurnsOffOnItsOwn() {
         let all = row(jiraKey: "SHOP-12", jiraUrl: "https://j/SHOP-12", mr: mr, diff: diff)
 
         let noTicket = TaskRowBadges(row: all, details: BadgeDetails(jiraTicket: false))
-        #expect(noTicket.ticket == .init(label: nil, help: "SHOP-12 — https://j/SHOP-12", url: "https://j/SHOP-12"))
+        #expect(noTicket.ticket == .init(label: nil, help: "SHOP-12 · https://j/SHOP-12", url: "https://j/SHOP-12"))
         #expect(noTicket.mergeRequest?.label == "!87")
         #expect(noTicket.diff != nil)
 
         let noMR = TaskRowBadges(row: all, details: BadgeDetails(mergeRequest: false))
-        #expect(noMR.mergeRequest == .init(label: nil, help: "!87 — Add diff setting", url: mr.url, host: .gitLab))
+        #expect(noMR.mergeRequest == .init(label: nil, help: "!87 · Add diff setting", url: mr.url, host: .gitLab))
         #expect(noMR.ticket?.label == "SHOP-12")
 
         // The counts leave the badge but not its tooltip, which already spells them out.
