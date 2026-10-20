@@ -29,9 +29,6 @@ fi
 if [[ "$SUITE" != daemon ]]; then
     # Validate first, before spending time on daemon tests with an unusable Swift compiler.
     TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE=1 "$ROOT/scripts/test-swift-toolchain.sh"
-    # The guard checks Swiftly's own toolchain; this checks the one the suites will run, a `SWIFT`
-    # override included.
-    "$ROOT/scripts/swift.sh" --version >/dev/null
 fi
 
 # The daemon's tests, then its lint.
@@ -73,8 +70,8 @@ TEST_LOGS="$(mktemp -d -t aiterm-test)"
 # printed what swift-testing prints when a run reaches its end -- one
 # "Test run with N tests ... passed" line per test host that got there.
 swift_test() {
-    local label="$1" expect_runs="$2" expect_tests="$3"
-    shift 3
+    local label="$1" expect_runs="$2"
+    shift 2
     local log rc runs passed tests
     log="$TEST_LOGS/$label.log"
 
@@ -96,13 +93,12 @@ swift_test() {
         print -u2 "  A host that dies before its run ends still exits 0. See $log."
         return 1
     fi
-    if [[ -n "$expect_tests" && "$tests" -ne "$expect_tests" ]]; then
-        print -u2 "$label pass: ran $tests tests, expected $expect_tests."
-        print -u2 "  A truncated run, or a filter that no longer matches, still exits 0. See $log."
-        return 1
-    fi
     if [[ "$runs" -eq 0 ]]; then
         print -u2 "$label pass: no test host finished a run. A filter that matches nothing still exits 0. See $log."
+        return 1
+    fi
+    if [[ "$tests" -eq 0 ]]; then
+        print -u2 "$label pass: no tests ran. A filter that matches nothing still exits 0. See $log."
         return 1
     fi
     if [[ "$passed" -ne "$runs" ]]; then
@@ -119,9 +115,9 @@ swift_test() {
 # known beforehand, so it is green when at least one finished and every one that did passed.
 swift_suite() {
     if (( ${#SWIFT_ARGS} )); then
-        swift_test main '' '' "${SWIFT_ARGS[@]}"
+        swift_test main '' "${SWIFT_ARGS[@]}"
     else
-        swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")" ''
+        swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")"
     fi
 }
 
