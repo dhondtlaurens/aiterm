@@ -176,6 +176,7 @@ class Service:
         r("operator.reply", self.operators.reply)
         r("usage.get", self._h_usage_get)
         r("interface.setMatchItermBackground", self.windows.set_match_iterm_background)
+        r("companion.notify", self._h_companion_notify)
 
     async def _h_snapshot(self, _p: Any) -> dict[str, Any]:
         try:
@@ -222,6 +223,18 @@ class Service:
 
     async def _h_usage_get(self, _p: Any) -> dict[str, Any]:
         return self.usage.snapshot()
+
+    async def _h_companion_notify(self, p: Any) -> dict[str, Any]:
+        """A push to the iPhone paired with iTerm2, for Backpack Mode: sent, or iTerm2's reason it was
+        not. The app words it to carry nothing private, so the log may name it."""
+        title, body = param(p, "title", str), param(p, "body", str)
+        require_iterm(self.iterm)
+        reason = await guard(self.iterm.send_companion_notification(title, body))
+        if reason is None:
+            log.info("pushed to the paired iPhone: %s", body)
+        else:
+            log.warning("iTerm2 did not push to the paired iPhone: %s", reason)
+        return {"sent": reason is None, "reason": reason}
 
     async def _h_deliver(self, p: Any) -> dict[str, Any]:
         session_id, text, ownership = param(p, "sessionId", str), param(p, "text", str), param(p, "ownership", int)

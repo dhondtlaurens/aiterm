@@ -43,6 +43,10 @@
       "window.closed": "event.window.closed.json"
     },
     "replies": {
+      "companion.notify": [
+        "reply.companion.notify.json",
+        "reply.companion.notify.refused.json"
+      ],
       "interface.setMatchItermBackground": [
         "reply.interface.setMatchItermBackground.json"
       ],
@@ -111,6 +115,7 @@
   },
   "maxFrameBytes": 1048576,
   "methods": [
+    "companion.notify",
     "interface.setMatchItermBackground",
     "iterm.provideCookie",
     "iterm.status",
