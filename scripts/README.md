@@ -89,6 +89,15 @@ Runs the daemon and app suites through the supported toolchain:
 Arguments after `--` with no suite named (`scripts/test.sh -- --filter X`) run `all`, the daemon's
 suite included.
 
+Only one run goes at a time on the machine, whichever worktree it starts in. Agents test in parallel,
+and tests with timeouts fail under the load of several builds and test hosts at once, so a run that
+finds another under way prints `Waiting for another test run to finish (pid …, <suite> in
+<worktree> since …)` and starts when that one ends, building included. The lock is
+`/tmp/aiterm-test.lock` (`AITERM_TEST_LOCK` overrides it), held by the script's own shell, so the
+kernel releases it however the run ends, a killed one included. Runs the script starts itself inherit
+it (`AITERM_TEST_LOCK_HELD`) rather than waiting for themselves. A waiting run can outlast a tool's
+command timeout, so an agent should start the suite in the background.
+
 The command runs the portable toolchain guard, and checks the toolchain the suites will build with
 (a `SWIFT` override included), before the Swift suites — and, unless it runs only `daemon`, before
 the daemon's — so a toolchain of the wrong version fails fast instead of producing opaque compiler

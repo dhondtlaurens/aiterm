@@ -77,6 +77,28 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
                 exit 1
             fi
         done
+
+        # A run waits while another holds the test lock, and gets it once that one ends; a run
+        # started inside one that holds it (as these fixture runs are) does not wait at all.
+        zmodload zsh/system
+        lock="$runner_logs/test.lock"
+        : >"$lock"
+        zsh -c "zmodload zsh/system; zsystem flock -f fd '$lock'; print -n >'$runner_logs/held'; sleep 1" &
+        until [[ -e "$runner_logs/held" ]]; do sleep 0.05; done
+        for held in '' 1; do
+            runner_status=0
+            AITERM_TEST_LOCK="$lock" AITERM_TEST_LOCK_HELD="$held" TMPDIR="$runner_logs/" \
+                TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" \
+                "$ROOT/scripts/test.sh" swift -- --filter fixture >"$bad_output" 2>&1 || runner_status=$?
+            waited=0
+            grep -Fq "Waiting for another test run to finish" "$bad_output" && waited=1
+            if [[ "$runner_status" -ne 0 || "$waited" -ne $(( ${#held} == 0 )) ]]; then
+                print -u2 "unexpected test-lock behaviour (status $runner_status, waited $waited, inherited '${held}')"
+                sed -n '1,30p' "$bad_output" >&2
+                exit 1
+            fi
+        done
+        wait
     )
 fi
 
