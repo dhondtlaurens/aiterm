@@ -71,6 +71,17 @@ import Testing
         #expect(await world.call(run.id, "report_find", ["key": "x", "title": "t"]).message == "report_find needs `why`.")
     }
 
+    /// The Operator says why in a sentence, and the debrief shows it under the decision.
+    @Test func aDecisionCarriesItsWhy() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "log_decision", ["key": "d1", "text": "Added Retry failed payments (PAY-240)",
+                                                      "why": "The provider switch left failed payments with no retry."])
+        _ = await world.call(run.id, "log_decision", ["key": "d2", "text": "Kept the old endpoint."])
+        let decisions = try #require(world.run(run.id)?.decisions)
+        #expect(decisions.map(\.why) == ["The provider switch left failed payments with no retry.", nil])
+    }
+
     /// The Operator decided against the Oracle: the decision keeps the objection.
     @Test func aDecisionCarriesTheObjectionItOverruled() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])

@@ -67,7 +67,8 @@ import Testing
         #expect(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String == expected)
         let logged = try #require(world.run(run.id)?.decisions)
         #expect(logged.map(\.key) == ["switch-\(task.id.uuidString)"])
-        #expect(logged.first?.text == "Started Task PLUTO-7 on Codex: Claude’s weekly limit is at 84 %.")
+        #expect(logged.first?.text == "Started Task PLUTO-7 on Codex")
+        #expect(logged.first?.why == "Claude’s weekly limit is at 84 %.")
         #expect(logged.first?.task == task.id)
     }
 

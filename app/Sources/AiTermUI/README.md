@@ -275,7 +275,7 @@ mark at `Size.pickerRowLogo`, the name in `Typography.caption`, the ✕ in `Typo
 picking a Jira project picks the projects linked to it. The Jira field offers the connection's Jira projects,
 fetched as the Jira projects sheet fetches them, the linked ones first; under its help a plain line says while
 they load ("Loading Jira projects…", with a small `ProgressView`), when there are none ("No Jira projects
-found.") and when Jira couldn't be reached, which leaves the linked ones on offer and holds nothing up. Prompt, Review and Done are one `PromptStep` each, the
+found.") and when the fetch failed, which says why as the Jira projects sheet does ("Connect Jira in Settings › Integrations to choose a Jira project.") and, while any are linked, that only the Jira projects the projects link are offered; it holds nothing up. Prompt, Review and Done are one `PromptStep` each, the
 same editor at `PromptStep.editorHeight`, whose `/` lists Claude's and Codex's skills and `@` the files of the
 one picked project; under each its help in place of `CompletionHint`. Review's and Done's help say what the
 slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
@@ -312,7 +312,7 @@ between its two columns: Delivered on the left, full height and scrolling, each 
 `Size.menuRow` the agent's `VendorMark` at `Size.vendorMark`, the title in `Typography.caption`, the quiet
 `Badge`s and the result in `Typography.mono` (`merged · 9b3e07d`), its tooltip the model and its reason,
 its click the task's window; on the right, stacked `Space.section` apart and scrolling, Decided on its own
-(with the Oracle's objection under a decision it made against it), Found along the way (a filed find's
+(with its why in a sentence under it, then the Oracle's objection when it made the decision against it), Found along the way (a filed find's
 ticket as a quiet Jira `Badge`) and Left for you, each a `BoardHeading` over items in `Typography.caption`
 with their why in `Typography.help` and `Palette.muted`; a list with nothing in it is left out. Its footer
 is Close and End Broadcast on ⌘↩, which asks nothing. A broadcast whose last task waits on a person keeps

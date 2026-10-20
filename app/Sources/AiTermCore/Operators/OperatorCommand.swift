@@ -260,6 +260,7 @@ public enum OperatorCommand {
             "Ask first with ask_you, and wait for the answer, before steering a worker into: " + askFirst.joined(separator: "; ") + ".",
             "Anything that messages a person (email, Teams, Jira comments) and that no slice allows is never done and never asked for. "
                 + "Leave it for the person.",
+            "Log each choice you take on your own with `log_decision`, and say why in one sentence.",
             "Every tool that changes something is safe to repeat with the same key; if a reply is lost, call it again.",
             "If a tool answers that AiTerm isn't open, wait and try again later; do nothing else meanwhile.",
             "When a worker waits on a permission prompt, tell the person in one line; never try to answer it.",

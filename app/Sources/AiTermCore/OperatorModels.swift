@@ -356,17 +356,31 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// One line of the decisions log; `challenge` is the Oracle's critique and the reply, and `objection`
-/// the Oracle's, when it disagreed and the Operator decided anyway.
+/// One line of the decisions log; `why` is its reason in a sentence, `challenge` the Oracle's critique and
+/// the reply, and `objection` the Oracle's, when it disagreed and the Operator decided anyway.
 public struct OperatorDecision: Codable, Equatable, Sendable {
     public var key: String
     public var text: String
     public var task: UUID?
     public var at: Date
     public var challenge: String?
+    public var why: String?
     public var objection: String?
-    public init(key: String, text: String, task: UUID?, at: Date, challenge: String? = nil, objection: String? = nil) {
-        self.key = key; self.text = text; self.task = task; self.at = at; self.challenge = challenge; self.objection = objection
+    public init(key: String, text: String, task: UUID?, at: Date, challenge: String? = nil, why: String? = nil,
+                objection: String? = nil) {
+        self.key = key; self.text = text; self.task = task; self.at = at; self.challenge = challenge
+        self.why = why; self.objection = objection
+    }
+
+    /// The debrief's muted line under the decision: why, then the Oracle's objection when there is one.
+    public var reason: String? {
+        let parts = [why.flatMap(Self.said), objection.flatMap(Self.said).map { "The Oracle objected: “\($0)”" }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private static func said(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

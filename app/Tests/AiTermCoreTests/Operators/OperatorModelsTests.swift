@@ -63,7 +63,7 @@ import Foundation
             state: .paused, intent: .paused, planRevision: 3, firstPlanSize: 5,
             questions: [OperatorQuestion(id: "q1", text: "Which API?", task: task, askedAt: Date(timeIntervalSince1970: 10), resolution: "v2")],
             decisions: [OperatorDecision(key: "d1", text: "Split it", task: nil, at: Date(timeIntervalSince1970: 20), challenge: "Why?",
-                                         objection: "One MR reads better.")],
+                                         why: "Two changes.", objection: "One MR reads better.")],
             finds: [OffBriefFind(key: "f1", title: "A token in the logs", why: "It leaks a secret.", ticket: "PLUTO-240")],
             leftForYou: ["Marking !412 ready is yours."],
             operatorConversation: "c-1", operatorWindowId: "w1", operatorSessionId: "s1",
@@ -81,6 +81,14 @@ import Foundation
             #expect(keys.contains(key), "\(key) is not written")
         }
         for key in ["persona", "brief", "doneWhen", "lessons"] { #expect(!keys.contains(key), "\(key) is still written") }
+    }
+
+    /// A decision saved before decisions said why has none.
+    @Test func aDecisionSavedWithoutAWhyHasNone() throws {
+        let json = #"{"key":"d1","text":"Split it","at":"1970-01-01T00:00:20Z"}"#
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decision = try decoder.decode(OperatorDecision.self, from: Data(json.utf8))
+        #expect(decision.why == nil && decision.objection == nil && decision.reason == nil)
     }
 
     /// A run made without a scope, a review or a done has none; its lists are empty.

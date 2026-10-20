@@ -142,7 +142,7 @@ struct OperatorScene {
 
     /// Reopening the Operator's window failed: the board as it ran, its window closed.
     static func windowClosed(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
-        scene.show(scene.run(.operatorOffline, questions: [scene.npmInstall]), scene.checkout(), acting: scene.answeringTheDrawer)
+        scene.show(scene.run(.operatorOffline), scene.checkout(), acting: scene.answeringTheDrawer)
         return scene
     }
 
@@ -169,11 +169,12 @@ struct OperatorScene {
             return item
         }
         let run = scene.run(.complete, decisions: [
-            OperatorDecision(key: "retry", text: "Added Retry failed payments (PAY-240)", task: scene.retry, at: Snapshots.clock.now),
+            OperatorDecision(key: "retry", text: "Added Retry failed payments (PAY-240)", task: scene.retry, at: Snapshots.clock.now,
+                             why: "The provider switch left failed payments with no retry. In the brief’s scope; the Oracle agreed."),
             OperatorDecision(key: "flag", text: "Kept the old button behind a flag", task: scene.drawer, at: Snapshots.clock.now,
-                             objection: "PAY-231’s ticket didn’t say; the flag can go in one line."),
+                             why: "PAY-231’s ticket didn’t say.", objection: "the flag can go in one line."),
             OperatorDecision(key: "currency", text: "Answered “which currency format?” with the shop’s locale", task: scene.price,
-                             at: Snapshots.clock.now),
+                             at: Snapshots.clock.now, why: "From the code: every price already uses it."),
         ], finds: [
             OffBriefFind(key: "key", title: "An API key in payments-api’s test fixtures", why: "A live-looking Adyen key in a committed fixture. Off-brief."),
             OffBriefFind(key: "flaky", title: "A flaky cart test on main", why: "Fails one run in five, unrelated to this work."),

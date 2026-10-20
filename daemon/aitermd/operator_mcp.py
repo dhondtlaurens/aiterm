@@ -310,7 +310,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           ("key", "title", "why")),
     _tool("log_decision", "Writes a decision you took on your own to the operation's log, for the debrief. The same key is "
           "written once.",
-          {"key": _KEY, "text": _text("The decision, and why."), "task": _TASK,
+          {"key": _KEY, "text": _text("The decision, in a few words."), "task": _TASK,
+           "why": _text("Why you decided it, in one sentence."),
            "objection": _text("The Oracle's objection, when you decided against it.")}, ("key", "text")),
 )
 TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)

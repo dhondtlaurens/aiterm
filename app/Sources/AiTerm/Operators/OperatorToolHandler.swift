@@ -330,13 +330,14 @@ final class OperatorToolHandler {
         return Self.questionAnswer(question)
     }
 
-    /// `objection` is the Oracle's, when the Operator decided against it: the debrief lists the two together.
+    /// `why` is the reason in a sentence, and `objection` the Oracle's, when the Operator decided against it: the
+    /// debrief lists them under the decision.
     private func logDecision(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("text")
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
         if !run.decisions.contains(where: { $0.key == key }) {
             let decision = OperatorDecision(key: key, text: text, task: taskId, at: ports.now(), challenge: nil,
-                                            objection: call.optionalString("objection"))
+                                            why: call.optionalString("why"), objection: call.optionalString("objection"))
             mutate(in: run.id) { $0.updateRun(id: run.id) { $0.decisions.append(decision) } }
         }
         return ["decision": .string(key), "logged": true]

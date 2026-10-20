@@ -213,7 +213,8 @@ final class WorkerStarter {
     private func recordSwitch(of id: UUID, to choice: (agent: AgentKind, model: String, reasoning: String?, switchedFrom: AgentKind?, percent: Int),
                               from planned: AgentKind) {
         guard let task = state.task(id: id), let runId = task.operated?.runId else { return }
-        let text = "Started \(task.title) on \(SidebarModel.agentName(choice.agent)): \(SidebarModel.agentName(planned))’s weekly limit is at \(choice.percent) %."
+        let why = "\(SidebarModel.agentName(planned))’s weekly limit is at \(choice.percent) %."
+        let text = "Started \(task.title) on \(SidebarModel.agentName(choice.agent)): \(why)"
         let key = "switch-\(id.uuidString)", now = ports.now()
         workspace.mutate { state in
             guard let i = state.tasks.firstIndex(where: { $0.id == id }) else { return }
@@ -223,7 +224,8 @@ final class WorkerStarter {
             state.tasks[i].operated?.modelReason = text
             state.updateRun(id: runId) { run in
                 if !run.decisions.contains(where: { $0.key == key }) {
-                    run.decisions.append(OperatorDecision(key: key, text: text, task: id, at: now))
+                    run.decisions.append(OperatorDecision(key: key, text: "Started \(task.title) on \(SidebarModel.agentName(choice.agent))",
+                                                          task: id, at: now, why: why))
                 }
             }
         }

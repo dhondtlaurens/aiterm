@@ -350,7 +350,7 @@ struct BroadcastDebriefView: View {
             case .decided:
                 BoardHeading(title: "Decided on its own", count: debrief.decided.count)
                 ForEach(Array(debrief.decided.enumerated()), id: \.offset) { _, decision in
-                    item(decision.text, why: decision.objection.map { "The Oracle objected: “\($0)”" })
+                    item(decision.text, why: decision.reason)
                 }
             case .finds:
                 BoardHeading(title: "Found along the way", count: debrief.finds.count)

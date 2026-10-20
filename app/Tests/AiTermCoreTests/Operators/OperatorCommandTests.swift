@@ -180,6 +180,14 @@ import Foundation
         #expect(!off.contains("may answer pending"))
     }
 
+    /// A choice the brief did not spell out is logged for the debrief, with its reason.
+    @Test func theBriefAsksForEachDecisionsWhy() {
+        for oracle in [true, false] {
+            let brief = OperatorCommand.brief(run: F.run(oracle: oracle), projects: [])
+            #expect(brief.contains("Log each choice you take on your own with `log_decision`, and say why in one sentence."))
+        }
+    }
+
     /// Spec §15: the person's words win; otherwise defaults, the allowed models, and the weekly limit.
     @Test func theBriefStatesHowToChooseAgentAndModel() {
         let brief = OperatorCommand.brief(run: F.run(), projects: [])

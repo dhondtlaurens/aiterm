@@ -210,9 +210,12 @@ import Testing
 
     @Test func theDebriefListsEveryDeliveredTask() throws {
         var run = run(.complete)
-        run.decisions = [OperatorDecision(key: "d1", text: "Added Retry failed payments (PAY-240)", task: nil, at: OperatorUIFixtures.epoch),
+        run.decisions = [OperatorDecision(key: "d1", text: "Added Retry failed payments (PAY-240)", task: nil, at: OperatorUIFixtures.epoch,
+                                          why: "The provider switch left failed payments with no retry."),
                          OperatorDecision(key: "d2", text: "Kept the old button behind a flag", task: nil, at: OperatorUIFixtures.epoch,
-                                          objection: "The flag is dead code.")]
+                                          why: "PAY-231’s ticket didn’t say.", objection: "The flag is dead code."),
+                         OperatorDecision(key: "d3", text: "Kept the subtitle", task: nil, at: OperatorUIFixtures.epoch,
+                                          objection: "It repeats the title.")]
         run.finds = [OffBriefFind(key: "f1", title: "An API key in payments-api's test fixtures", why: "A live-looking key.", ticket: "PAY-250")]
         run.leftForYou = ["Marking !412 ready is yours."]
         var layout = task("Checkout layout", jira: "PAY-230", run: run.id, .published, end: .merge)
@@ -233,6 +236,11 @@ import Testing
         #expect(debrief.delivered.first?.modelTooltip == "Claude · opus\nLayout work.")
         #expect(debrief.delivered.first?.opens == .taskWindow(layout.id), "a row opens its task's window, as a card does")
         #expect(debrief.decided == run.decisions)
+        #expect(debrief.decided.first?.why == "The provider switch left failed payments with no retry.")
+        #expect(debrief.decided.map(\.reason) == ["The provider switch left failed payments with no retry.",
+                                                  "PAY-231’s ticket didn’t say. The Oracle objected: “The flag is dead code.”",
+                                                  "The Oracle objected: “It repeats the title.”"])
+        #expect(OperatorDecision(key: "k", text: "t", task: nil, at: OperatorUIFixtures.epoch).reason == nil)
         #expect(debrief.finds == run.finds)
         #expect(debrief.leftForYou == ["Marking !412 ready is yours."])
         #expect(debrief.sections == [.decided, .finds, .leftForYou])
