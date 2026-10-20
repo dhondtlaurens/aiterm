@@ -23,5 +23,6 @@ Swift is written.
 - **Always work in a git worktree.** Other sessions may be editing the main checkout in parallel.
   Check `git status` on `main` before branching.
 - Build and test through `scripts/swift.sh` and `scripts/test.sh`, which pin swiftly's Swift 6.4.
-  Never invoke `swift` directly.
+  Never invoke `swift` directly. `scripts/test.sh` runs one at a time machine-wide and queues
+  behind any other worktree's run, so start it in the background rather than under a short timeout.
 - The app is dark-only.
