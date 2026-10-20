@@ -196,5 +196,5 @@ class SessionRegistry:
         insertion order, i.e. first-seen order, since Python 3.7."""
         if not sessions:
             return None
-        order = list(self._sessions)
-        return max(sessions, key=lambda s: order.index(s.session_id))
+        order = {sid: index for index, sid in enumerate(self._sessions)}
+        return max(sessions, key=lambda s: order[s.session_id])

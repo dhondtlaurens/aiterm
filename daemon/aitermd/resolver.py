@@ -32,13 +32,19 @@ class SessionResolver:
         conversation was pinned to earlier, while it still runs the same agent; then, as a
         heuristic, the directory. The pin is what survives an agent chdir'ing into a worktree:
         from then on the post's cwd matches no tab's shell directory."""
+        return self.resolve_with_evidence(agent, session_id, cwd, iterm_session_id)[0]
+
+    def resolve_with_evidence(self, agent: AgentKind, session_id: str | None, cwd: str | None,
+                              iterm_session_id: str | None = None) -> tuple[str | None, str | None]:
+        """The placed tab and the directly evidenced tab, from one lookup. Hooks use the
+        latter to decide whether conversation resets can safely affect the placed tab."""
         if (direct := self.resolve_directly(agent, session_id, iterm_session_id)) is not None:
-            return direct
+            return direct, direct
         if session_id and (pinned := self._pins.get((agent, session_id))):
             s = self.registry.get(pinned)
             if s is not None and s.agent == agent:
-                return pinned
-        return self._by_cwd(cwd, agent)
+                return pinned, None
+        return self._by_cwd(cwd, agent), None
 
     def resolve_directly(self, agent: AgentKind, session_id: str | None,
                          iterm_session_id: str | None = None) -> str | None:

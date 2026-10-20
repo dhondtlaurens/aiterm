@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .jsonl import JsonlCursor
 from .models import TokenTally
 from .usage import whole_count
 
@@ -18,17 +19,8 @@ Stamp = tuple[Path, int, int]  # path, st_ino, st_size
 
 
 @dataclass(slots=True)
-class _Cursor:
-    """How far one transcript has been read: the byte offset, the inode it was read from, and the
-    start of a line Claude was still writing."""
-    inode: int
-    offset: int = 0
-    partial: bytes = b""
-
-
-@dataclass(slots=True)
 class _Conversation:
-    cursors: dict[Path, _Cursor] = field(default_factory=dict)
+    cursors: dict[Path, JsonlCursor] = field(default_factory=dict)
     # Each reply's (input, cached, output) by `message.id`. Claude writes a reply as one line per
     # content block, each repeating its usage and the last with the final output count, so each field
     # keeps the most any of its lines said. Kept across the whole tree: a forked subagent copies its
@@ -93,24 +85,18 @@ class ClaudeTranscriptTallies:
         return tuple(stamps)
 
     @staticmethod
-    def _rewritten(cursor: _Cursor | None, inode: int, size: int) -> bool:
-        return cursor is not None and (cursor.inode != inode or size < cursor.offset)
+    def _rewritten(cursor: JsonlCursor | None, inode: int, size: int) -> bool:
+        return cursor is not None and cursor.rewritten(inode, size)
 
     @classmethod
     def _read(cls, path: Path, inode: int, size: int, conversation: _Conversation) -> bool:
         """Reads `path` on from its cursor to `size`, the length it was stamped at, and keeps an
         unfinished last line for the next read."""
-        cursor = conversation.cursors.setdefault(path, _Cursor(inode))
-        if size <= cursor.offset:
-            return True
+        cursor = conversation.cursors.setdefault(path, JsonlCursor(inode))
         try:
-            with path.open("rb") as stream:
-                stream.seek(cursor.offset)
-                chunk = stream.read(size - cursor.offset)
+            lines = cursor.read_lines(path, size)
         except OSError:
             return False
-        cursor.offset += len(chunk)
-        *lines, cursor.partial = (cursor.partial + chunk).split(b"\n")
         for line in lines:
             if _USAGE in line and (reply := cls._reply(line)) is not None:
                 reply_id, spent = reply

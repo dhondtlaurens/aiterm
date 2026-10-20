@@ -104,3 +104,16 @@ def test_non_object_session_file_does_not_break_other_sessions(tmp_path):
     files = ClaudeSessionFiles(tmp_path)
     assert files.read(7) is None
     assert files.pid_for_session("sid-8") == 8
+
+
+def test_unreadable_session_file_is_retried_without_a_file_change(tmp_path, monkeypatch):
+    write(tmp_path, 42)
+    files = ClaudeSessionFiles(tmp_path)
+
+    def unreadable(path, *args, **kwargs):
+        raise OSError("temporarily unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(tmp_path), "read_text", unreadable)
+        assert files.read(42) is None
+    assert files.read(42).session_id == "sid-42"

@@ -52,7 +52,13 @@ class ClaudeSessionFiles:
             return None
         stamp = (st.st_mtime_ns, st.st_size)
         cached = self._index.get(path)
-        return cached if cached is not None and cached[0] == stamp else (stamp, self._parse(path, st.st_mtime))
+        if cached is not None and cached[0] == stamp:
+            return cached
+        try:
+            return stamp, self._parse(path, st.st_mtime)
+        except OSError:
+            # A failed read is not a parsed empty file; retry it on the next lookup.
+            return None
 
     @staticmethod
     def _parse(path: Path, written_at: float) -> ClaudeSessionFile | None:
@@ -63,5 +69,5 @@ class ClaudeSessionFiles:
             version = d.get("version")
             return ClaudeSessionFile(int(d["pid"]), str(d["sessionId"]), str(d.get("cwd", "")), str(d.get("status", "")),
                                      written_at, version if isinstance(version, str) and version else None)
-        except (OSError, ValueError, KeyError, TypeError, OverflowError):
+        except (ValueError, KeyError, TypeError, OverflowError):
             return None

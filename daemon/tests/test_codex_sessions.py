@@ -339,3 +339,58 @@ def test_a_rewritten_rollout_is_read_again_from_its_start(tmp_path):
     assert files.cli_version("thread-4") == "0.160.0"
     files.retain(set())
     assert files._versions == {}
+
+
+@pytest.mark.parametrize("reading", ["context", "total", "limits"])
+def test_unreadable_rollout_is_retried_without_a_file_change(tmp_path, monkeypatch, reading):
+    root = tmp_path / "sessions"
+    path = write_rollout(root, "t1", [meta("t1"), totals(10, 2, 1), limits(30)])
+    files = CodexSessionFiles(root)
+    read = {"context": lambda: files.context_percent("t1"), "total": lambda: files.tally("t1"),
+            "limits": files.rate_limits}[reading]
+    original = type(path).open
+
+    def unreadable(candidate, *args, **kwargs):
+        if candidate == path:
+            raise OSError("temporarily unavailable")
+        return original(candidate, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(path), "open", unreadable)
+        assert read() is None
+    expected = {"context": 10, "total": TokenTally(10, 2, 1),
+                "limits": ({"limit_id": "codex", "primary": {"used_percent": 30, "window_minutes": 10080, "resets_at": 1},
+                            "secondary": None, "plan_type": "team"}, 1790087469)}[reading]
+    assert read() == expected
+
+
+def test_tallies_share_unchanged_day_directory_listings(tmp_path, monkeypatch):
+    root = tmp_path / "sessions"
+    first = write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
+    write_rollout(root, "t2", [meta("t2"), totals(20, 0, 2)])
+    original, scans = type(root).glob, []
+
+    def counted(path, pattern, **kwargs):
+        if path == first.parent:
+            scans.append(path)
+        return original(path, pattern, **kwargs)
+
+    monkeypatch.setattr(type(root), "glob", counted)
+    files = CodexSessionFiles(root)
+    assert files.tally("t1") == TokenTally(10, 0, 1)
+    assert files.tally("t2") == TokenTally(20, 0, 2)
+    assert len(scans) == 1
+    # A child added after that listing must still be found immediately.
+    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 0, 1)])
+    assert files.tally("t1") == TokenTally(15, 0, 2)
+    assert len(scans) == 2
+
+
+def test_lineage_cache_is_released_after_its_last_owner(tmp_path):
+    root = tmp_path / "sessions"
+    write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
+    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 0, 1)])
+    files = CodexSessionFiles(root)
+    assert files.tally("t1") == TokenTally(15, 0, 2)
+    files.retain(set())
+    assert files._lineage == {}
