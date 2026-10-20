@@ -22,12 +22,16 @@ public enum BackpackPushes: String, CaseIterable, Sendable {
 /// A task or terminal row as a push reads it: which row, its status as the sidebar draws it, and
 /// the agent a push names it by.
 public struct PushRow: Equatable, Sendable {
-    public var id: RowID
+    /// A sidebar row a push can be about: a task's or a terminal's, as `RowID` names them, or the
+    /// broadcast's, by its run.
+    public enum ID: Hashable, Sendable { case task(UUID), terminal(UUID), broadcast(UUID) }
+
+    public var id: ID
     public var status: TaskStatus
     /// The agent of the row's first tab, by tab order, in `status`; nil when none is known.
     public var agent: AgentKind?
 
-    public init(id: RowID, status: TaskStatus, agent: AgentKind?) {
+    public init(id: ID, status: TaskStatus, agent: AgentKind?) {
         self.id = id
         self.status = status
         self.agent = agent
@@ -46,7 +50,7 @@ public struct PushRow: Equatable, Sendable {
         }
     }
 
-    private static func row(_ id: RowID, _ status: TaskStatus, _ tabs: [SessionInfo]) -> PushRow {
+    private static func row(_ id: ID, _ status: TaskStatus, _ tabs: [SessionInfo]) -> PushRow {
         PushRow(id: id, status: status, agent: tabs.filter { $0.state == status }.min { $0.tabIndex < $1.tabIndex }?.agent.agentKind)
     }
 }
@@ -101,10 +105,10 @@ public struct BackpackPushQueue: Sendable {
 
     /// Each row's status at the last check; nil until a check has seen the rows, so the first one
     /// only takes them in.
-    private var seen: [RowID: TaskStatus]?
-    private var waiting: [RowID: Waiting] = [:]
+    private var seen: [PushRow.ID: TaskStatus]?
+    private var waiting: [PushRow.ID: Waiting] = [:]
     /// When each row was last pushed, by status.
-    private var pushed: [RowID: [TaskStatus: Date]] = [:]
+    private var pushed: [PushRow.ID: [TaskStatus: Date]] = [:]
     private var lastPush: Date?
 
     public init() {}
@@ -154,19 +158,19 @@ public struct BackpackPushQueue: Sendable {
     }
 
     /// Held long enough, and past its repeat.
-    private func readyAt(_ id: RowID, _ waiting: Waiting) -> Date {
+    private func readyAt(_ id: PushRow.ID, _ waiting: Waiting) -> Date {
         max(waiting.since.addingTimeInterval(Self.hold), repeatEnds(id, waiting.status) ?? .distantPast)
     }
 
-    private func isRepeat(_ id: RowID, _ status: TaskStatus, at now: Date) -> Bool {
+    private func isRepeat(_ id: PushRow.ID, _ status: TaskStatus, at now: Date) -> Bool {
         repeatEnds(id, status).map { $0 > now } ?? false
     }
 
-    private func repeatEnds(_ id: RowID, _ status: TaskStatus) -> Date? {
+    private func repeatEnds(_ id: PushRow.ID, _ status: TaskStatus) -> Date? {
         pushed[id]?[status]?.addingTimeInterval(Self.rowRepeat)
     }
 
-    private mutating func send(_ due: [RowID: Waiting], rows: [PushRow], at now: Date) -> BackpackPush? {
+    private mutating func send(_ due: [PushRow.ID: Waiting], rows: [PushRow], at now: Date) -> BackpackPush? {
         guard !due.isEmpty else { return nil }
         let agentOf = Dictionary(rows.map { ($0.id, $0.agent) }, uniquingKeysWith: { first, _ in first })
         func agents(in status: TaskStatus) -> [AgentKind?] {
@@ -181,7 +185,7 @@ public struct BackpackPushQueue: Sendable {
         return push
     }
 
-    private static func statuses(of rows: [PushRow]) -> [RowID: TaskStatus] {
+    private static func statuses(of rows: [PushRow]) -> [PushRow.ID: TaskStatus] {
         Dictionary(rows.map { ($0.id, $0.status) }, uniquingKeysWith: { first, _ in first })
     }
 }
