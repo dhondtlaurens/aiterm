@@ -172,7 +172,8 @@ struct PickChip: View {
         let removeHelp = "Remove \(label)"
         return HStack(spacing: Space.tight) {
             Icon(mark, size: Size.pickerRowLogo)
-            Text(label).font(Typography.caption).foregroundStyle(Palette.text).lineLimit(1)
+            // The label gives way when the chip is narrower than it wants to be: the mark and the ✕ keep their size.
+            Text(label).font(Typography.caption).foregroundStyle(Palette.text).lineLimit(1).truncationMode(.tail)
             Button(action: remove) {
                 Image(systemName: "xmark").font(Typography.micro).foregroundStyle(Palette.muted)
             }
@@ -180,7 +181,7 @@ struct PickChip: View {
         }
         .padding(.horizontal, Space.snug).frame(height: Self.lineHeight)
         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(Palette.badge))
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -265,7 +266,7 @@ struct ChipsPicker<Item: Identifiable, Row: View>: View {
     }
 }
 
-/// Lays chips out in lines `spacing` apart, wrapping as a line fills; the last subview, the search
+/// Lays chips out in lines `spacing` apart, wrapping as a line fills, a chip never wider than a line; the last subview, the search
 /// field, takes the rest of its line, and starts a line of its own when less than `fieldMinWidth` is left.
 struct ChipFlow: Layout {
     let spacing: CGFloat
@@ -291,7 +292,8 @@ struct ChipFlow: Layout {
                 size = subview.sizeThatFits(ProposedViewSize(width: max(rest, Self.fieldMinWidth), height: nil))
                 size.width = max(rest, Self.fieldMinWidth)
             } else {
-                size = subview.sizeThatFits(.unspecified)
+                // Never wider than the field: a long label truncates inside its chip, the ✕ stays in view.
+                size = subview.sizeThatFits(ProposedViewSize(width: width.isFinite ? width : nil, height: nil))
                 if x > 0, x + size.width > width { endLine() }
             }
             placements.append(Placement(origin: CGPoint(x: x, y: 0), size: size))

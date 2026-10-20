@@ -71,6 +71,31 @@ struct NewBroadcastSheetTests {
         #expect(h.model.projects == [webshop], "its linked project comes with it")
     }
 
+    /// A Jira project name too long for the field truncates inside its chip: the chip stays within the
+    /// field's width, so its ✕ is still on the sheet.
+    @Test func aVeryLongChipLabelTruncatesAndKeepsItsRemoveButtonInTheField() {
+        final class Measured { var chip: CGSize?; var remove: CGSize? }
+        let measured = Measured()
+        let fieldWidth: CGFloat = 240
+        let name = String(repeating: "Customer Self-Service Platform Modernisation ", count: 6)
+        let chip = PickChip(mark: .symbol("circle"), label: name, remove: {})
+            .background(GeometryReader { proxy in Color.clear.onAppear { measured.chip = proxy.size } })
+        let flow = ChipFlow(spacing: Space.tight) {
+            chip
+            Color.clear.frame(height: PickChip.lineHeight)
+        }
+        .frame(width: fieldWidth)
+        let host = NSHostingView(rootView: flow)
+        host.frame = NSRect(x: 0, y: 0, width: fieldWidth, height: 80)
+        let window = testWindow(contentRect: host.frame, styleMask: [])
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        settle(host) { measured.chip != nil }
+        #expect((measured.chip?.width ?? .infinity) <= fieldWidth, "the chip is \(measured.chip?.width ?? 0) wide in a \(fieldWidth) field")
+    }
+
     private func descendants<T: NSView>(of type: T.Type, in view: NSView) -> [T] {
         var matches = view.subviews.compactMap { $0 as? T }
         for subview in view.subviews { matches += descendants(of: type, in: subview) }
