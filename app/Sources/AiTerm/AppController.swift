@@ -253,8 +253,8 @@ final class AppController {
         refreshRows()
         // A chosen broadcast without a window — closed, or its Operator offline — is the operator
         // controller's to reopen.
-        focus.onChoosingOperationWithoutWindow { [weak operators] id in
-            Task { await operators?.reopenOperator(run: id) }
+        focus.onChoosingOperationWithoutWindow { [weak operators] id, behind in
+            Task { await operators?.reopenOperator(run: id, background: behind) }
         }
         // A driven task whose window you closed: its conversation resumed by the operator controller,
         // never a second worker beside a live one (integration decision 7). The row raises the window

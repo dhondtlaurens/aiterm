@@ -58,19 +58,19 @@ extension AppController {
 }
 
 extension AppController {
-    /// The broadcast row's click or ↩ (`openBroadcast`), or a notification's click: its overview, over
+    /// The broadcast row's click or ↩ (`openBroadcast`), or a notification's click: its board, over
     /// whatever sheet is up.
     func presentOverview(run id: UUID) {
         guard state.activeRun?.id == id else { return }
-        sheets.present(operatorSheet: .operationOverview(id))
+        sheets.present(operatorSheet: .broadcastBoard(id))
     }
 
-    /// The overview a notification's click asked for (D7 sets `OperatorController.presentOverview`),
+    /// The board a notification's click asked for (D7 sets `OperatorController.presentOverview`),
     /// held behind an editing sheet, then presented and cleared so it opens once.
     func presentRequestedOverview() {
         guard let id = operatorController.presentOverview else { return }
         if let sheet {
-            guard case .operationOverview = sheet else { return }
+            guard case .broadcastBoard = sheet else { return }
         }
         operatorController.presentOverview = nil
         presentOverview(run: id)
@@ -108,21 +108,19 @@ extension AppController {
         }
     }
 
-    /// A click or ↩ on the broadcast row (spec §3, §9): its overview opens over the sidebar. With the
-    /// Operator's window closed the row is chosen as a click chooses it, so the window is asked back from
-    /// the operator controller (`RowFocus.onChoosingOperationWithoutWindow`), reopening behind the sheet and
-    /// resuming the broadcast; with it open the row is only selected, as the sheet is what comes forward.
-    /// Returns the reopening, if one started.
+    /// A click or ↩ on the broadcast row (spec §3, §9): its board opens over the sidebar and the row is
+    /// selected; the sheet is what comes forward. With the Operator's window closed — no tab of it listed,
+    /// whatever window id was recorded — the window is asked back from the operator controller behind the
+    /// board (`RowFocus.reopenOperatorBehind`), resuming the broadcast. Until iTerm2's tabs are known (a
+    /// launch, a reconnect) the recorded window id is all there is to go by. Returns the reopening, if one
+    /// started.
     @discardableResult
     func openBroadcast(_ id: UUID) -> Task<Void, Never>? {
         guard let run = state.activeRun, run.id == id else { return nil }
-        let reopening: Task<Void, Never>?
-        if run.operatorWindowId == nil {
-            reopening = focus.select(.operation(id))
-        } else {
-            focus.browse(.operation(id))
-            reopening = nil
-        }
+        let operators = operatorController
+        let closed = operators.tabsKnown ? operators.operatorTab(of: id) == nil : run.operatorWindowId == nil
+        focus.browse(.operation(id))
+        let reopening = closed ? focus.reopenOperatorBehind(id) : nil
         presentOverview(run: id)
         return reopening
     }
@@ -167,18 +165,34 @@ extension AppController {
         focus.select(.operation(run.id))
     }
 
-    /// The overview's buttons, each closing the sheet when it sends you elsewhere. Give It More is the
-    /// operator's chat: a finished operation's operator is still there to be given more to do.
-    func overviewActions(for run: OperatorRun, dismiss: @escaping @MainActor () -> Void) -> OverviewActions {
-        OverviewActions(
+    /// The board's buttons. End Broadcast… asks first and closes the board once it ended; the debrief's End
+    /// Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
+    func boardActions(for run: OperatorRun, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
+        BoardActions(
+            open: { [weak self] opens in self?.open(opens, run: run) },
             pause: { [weak self] in self?.pause(run) },
             resume: { [weak self] in self?.resume(run) },
             end: { [weak self] confirming in
                 guard let self else { return }
                 if confirming { Task { if await self.confirmEnd(run) { dismiss() } } } else { self.end(run); dismiss() }
             },
-            giveItMore: { [weak self] in self?.openOperatorWindow(run); dismiss() },
-            openTask: { [weak self] id in dismiss(); self?.focus.select(.task(id)) },
-            answerInWindow: { [weak self] in self?.openOperatorWindow(run); dismiss() })
+            startFresh: { [weak self] in self?.startFresh(run) })
+    }
+
+    /// What a card's click opens, the board already closed (spec §4, §13): the task's window, or the
+    /// Operator's — raised when it is open, reopened in front when it is closed. A problem AiTerm hit is the
+    /// sidebar banner's, which already shows it with its recovery: nothing else comes forward.
+    func open(_ opens: BroadcastBoard.Opens, run: OperatorRun) {
+        switch opens {
+        case .taskWindow(let id): focus.select(.task(id))
+        case .operatorWindow: openOperatorWindow(run)
+        case .sidebarBanner, .nothing: break
+        }
+    }
+
+    /// Start Fresh, from the board's footer when the Operator's conversation can't be resumed.
+    func startFresh(_ run: OperatorRun) {
+        let controller = operatorController
+        attempt("Couldn’t start a fresh Operator for “\(run.name)”") { try await controller.startFresh(run: run.id) }
     }
 }

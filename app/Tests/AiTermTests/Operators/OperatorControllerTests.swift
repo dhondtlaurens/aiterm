@@ -246,7 +246,7 @@ import Testing
         #expect(controller.sheet?.id == "rename-\(run.id)")
         #expect(controller.operatorController.presentOverview == run.id)
         controller.sheets.sheet = nil
-        guard case .operationOverview(let id)? = controller.sheet else { Issue.record("No deferred overview"); return }
+        guard case .broadcastBoard(let id)? = controller.sheet else { Issue.record("No deferred board"); return }
         #expect(id == run.id)
         #expect(controller.operatorController.presentOverview == nil)
         controller.sheet = nil

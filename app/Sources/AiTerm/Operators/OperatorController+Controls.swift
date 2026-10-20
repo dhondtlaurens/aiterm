@@ -128,12 +128,13 @@ extension OperatorController {
     /// Resume (spec §9), from paused or offline: an operator still there is kept and woken; one gone is
     /// reopened — its conversation resumed, or a fresh operator briefed from the run — before anything
     /// changes, so a reopening that fails leaves the operation as it was. Then whatever was held back starts.
-    func resume(run id: UUID) async throws {
+    /// `background`: the window reopens behind the board the broadcast row's click opened.
+    func resume(run id: UUID, background: Bool = false) async throws {
         guard let run = self.run(id: id), run.state == .paused || run.state == .operatorOffline else { return }
         // A reopening already under way (a second click) is the first one's to finish: it sets the state and wakes.
-        if operatorTab(of: id) == nil, try await reopenOperatorWindow(id) == .underway { return }
+        if operatorTab(of: id) == nil, try await reopenOperatorWindow(id, background: background) == .underway { return }
         // The reopening took a while: it may have been ended meanwhile.
-        guard let current = self.run(id: id), current.state != .stopped, current.intent != .stopped else { return }
+        guard let current = self.run(id: id), !current.hasEnded else { return }
         if current.state == .paused || current.state == .operatorOffline {
             mutateRun(id) { $0.intent = nil; $0.state = RunReconciler.resumedState(of: $0) }
         }
@@ -274,14 +275,19 @@ extension OperatorController {
     // -- the Operator's window --------------------------------------------------------------------
     /// The broadcast's row chosen with the Operator's window closed (spec §3, §9): the window reopens and a
     /// broadcast that went offline resumes; a pause of yours stays paused. An ended broadcast is never
-    /// reopened. A reopening that fails is said in the banner, and Start Fresh (`startFresh`) is what's left.
-    func reopenOperator(run id: UUID) async {
+    /// reopened. `background`: behind the board the broadcast row's click opened, which then says a
+    /// conversation that can't be resumed (`reopenFailed`) and offers Start Fresh (`startFresh`); any other
+    /// failure, and one with no board in front, is said in the banner.
+    func reopenOperator(run id: UUID, background: Bool = false) async {
         guard let run = self.run(id: id), !hasEnded(id), operatorTab(of: id) == nil else { return }
         do {
-            if run.state == .operatorOffline { try await resume(run: id) }
-            else { _ = try await reopenOperatorWindow(id) }
+            if run.state == .operatorOffline { try await resume(run: id, background: background) }
+            else { _ = try await reopenOperatorWindow(id, background: background) }
         } catch {
-            notices.report(OperationIssue(title: "Couldn’t reopen the Operator’s window.", error: error))
+            if (error as? ActionUnavailable)?.message == Self.cannotResume { reopenFailed.insert(id) }
+            if !background || !reopenFailed.contains(id) {
+                notices.report(OperationIssue(title: "Couldn’t reopen the Operator’s window.", error: error))
+            }
         }
     }
 
@@ -294,6 +300,7 @@ extension OperatorController {
         guard let run = self.run(id: id), !hasEnded(id) else { throw ActionUnavailable("This broadcast has ended.") }
         guard operatorTab(of: id) == nil else { throw ActionUnavailable("The Operator’s window is still open. Close it first.") }
         if run.operatorConversation != nil { mutateRun(id) { $0.operatorConversation = nil } }
+        reopenFailed.remove(id)
         if run.state == .operatorOffline { try await resume(run: id) }
         else { _ = try await reopenOperatorWindow(id) }
     }
@@ -310,9 +317,10 @@ extension OperatorController {
     /// while iTerm2's tabs are not known, as a tab not listed then is not a tab closed. An operation ended
     /// meanwhile (an await passed) is left ended: the token registered is revoked and the window opened is
     /// closed. Says whether it opened one, or left it to a reopening already under way (or within its
-    /// wait): a caller that goes on to change the operation waits for that one instead.
+    /// wait): a caller that goes on to change the operation waits for that one instead. `background`
+    /// opens it behind what is in front: the board the broadcast row's click opened.
     @discardableResult
-    func reopenOperatorWindow(_ id: UUID) async throws -> OperatorReopening {
+    func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {
         guard let run = self.run(id: id) else { throw ActionUnavailable("This operation is no longer in AiTerm.") }
         guard !hasEnded(id) else { throw ActionUnavailable("This operation has ended.") }
         guard operatorTab(of: id) == nil else { return .open }
@@ -352,7 +360,7 @@ extension OperatorController {
         let window: String
         do {
             window = try await daemon.createTaskWindow(taskId: id.uuidString, cwd: prepared.folder.path, title: run.name,
-                                                       agentCommand: prepared.command, frame: taskFrame(), background: false)
+                                                       agentCommand: prepared.command, frame: taskFrame(), background: background)
         } catch {
             if hasEnded(id) { await revokeAfterEnd(id, window: nil, daemon: daemon) }
             throw error
@@ -362,14 +370,12 @@ extension OperatorController {
             return .ended
         }
         reopenedOperator[id] = ports.now()
+        reopenFailed.remove(id)
         mutateRun(id) { $0.operatorWindowId = window }
         return .opened
     }
 
-    func hasEnded(_ id: UUID) -> Bool {
-        guard let run = run(id: id) else { return true }
-        return run.state == .stopped || run.intent == .stopped
-    }
+    func hasEnded(_ id: UUID) -> Bool { run(id: id)?.hasEnded ?? true }
 
     /// What an end that came while the operator opened or reopened could not undo itself: the token
     /// registered after its revoke goes again, and the window opened after its close is closed.

@@ -693,6 +693,31 @@ import Testing
         #expect(world.controller.notices.issue == nil)
     }
 
+    /// The broadcast row's click reopens the Operator's window behind the board it opens (spec §9).
+    @Test func aClickBehindTheBoardReopensTheWindowInTheBackground() async throws {
+        let (world, run, _) = try makeWorld(runState: .operatorOffline)
+        world.show([])
+        await world.controller.reopenOperator(run: run.id, background: true)
+        #expect(world.daemon.requests("window.createTask").first?.params["background"] as? Bool == true, "behind the sheet")
+        #expect(world.run(run.id)?.state == .active)
+    }
+
+    /// A conversation that can't be resumed is said on the board (spec §13), not in the banner: its footer's
+    /// Notice offers Start Fresh, which lets it go.
+    @Test func aConversationThatCannotResumeIsSaidOnTheBoard() async throws {
+        let (world, run, _) = try makeWorld()
+        world.workspace.mutate { $0.runs[0].operatorConversation = "c-gone" }
+        world.show([])
+        #expect(world.run(run.id)?.state == .operatorOffline)
+        await world.controller.reopenOperator(run: run.id, background: true)
+        #expect(world.controller.reopenFailed.contains(run.id))
+        #expect(world.controller.notices.issue == nil, "the board says it")
+        #expect(world.daemon.requests("window.createTask").isEmpty)
+        try await world.controller.startFresh(run: run.id)
+        #expect(world.controller.reopenFailed.isEmpty)
+        #expect(world.daemon.requests("window.createTask").count == 1)
+    }
+
     @Test func resumingStartsATaskThatQueuedWhileItWasPaused() async throws {
         let (world, _, task) = try makeWorld(runState: .paused, taskState: .queued, tab: true)
         world.controller.reconcileTick()

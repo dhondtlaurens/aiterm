@@ -169,8 +169,9 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 `InterfaceScale`, `IconSource`, and the view modifiers in `ControlChrome.swift`: `focusRing`,
 `fieldChrome` (a single-line field: padding, height and `fieldBox`), `fieldBox` (the field's fill,
 hairline and focus ring alone, for the prompt editor), `menuChrome` (the panel a dropdown hangs in), `menuRowHighlight` (a dropdown row on
-the accent, declaring `.surface(.accent)`) and `groupChrome` (a Settings card's or a segmented
-track's box).
+the accent, declaring `.surface(.accent)`) and `groupChrome` (a Settings card's, a segmented
+track's or a board card's box; a board card passes its hover `fill`, `Palette.rowHoverSolid`, and its
+needs-you `edge`, `Palette.statusChipAttentionStroke`).
 `Logos` (the bundled SVG data and its image cache) and `LogoGlyph` are internal to this module.
 `TypeStyle` is the type `Typography`'s members are declared as and the `View.font(_:)` overload
 takes; `Brand` is what `Icon(.brand(…))` and `Badge(icon: .brand(…))` consume. An agent adding a text size or a
@@ -192,7 +193,8 @@ vendor needs both.
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
-`NewOperationSheet`, `OperationOverviewSheet`, `OperationOverviewHost`, `ArchiveSheet`, `ArchiveRow`.
+`NewOperationSheet`, `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
+`TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -241,7 +243,7 @@ plan is in Todo), the first project as a quiet `Badge` led by its host's mark an
 status line, `OperatorBadge(line: OperatorLine.broadcast(...))`, and its `StatusMark` trailing: amber
 while any request is open, spinning while something works, the idle ring while paused or only waiting
 on people, the accent dot once the debrief is ready. ↑ ↓ peek at the Operator's window, as on a task
-row; a click or ↩ opens the overview, and with the Operator's window closed reopens it behind the
+row; a click or ↩ opens the board, and with the Operator's window closed reopens it behind the
 sheet. Its menu is Rename… (`NameSheet`), Pause Broadcast or Resume Broadcast, and End Broadcast…,
 which is not red: it asks with a blue default, since nothing is deleted; the same items are its
 VoiceOver actions. No Overview…, no ⌘I, no Interrupt Agents. Menus and buttons are Title Case, as everywhere. A driven task's avatars are its own
@@ -259,9 +261,44 @@ standing still in the surface's ink under Reduce Motion and in the snapshots; ne
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
-broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`). The sheets — `NewOperationSheet` and `OperationOverviewSheet`
-(a board on its side, decided by `OperationOverview`) — use `SheetLayout`, `SheetSubtitle` and `SheetFooter` like
-every other. No new `Palette` member.
+broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`). `NewOperationSheet` uses
+`SheetLayout`, `SheetSubtitle` and `SheetFooter` like every other sheet.
+
+The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
+`BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
+two lines (`bandHeight: nil`, `Space.base` under the title) and its content not scrolling as one
+(`scrolls: false`). The band is the broadcast's `OperatorBadge`, then `2 of 8 done · webshop, payments-api`
+in `Typography.caption` and `Palette.muted` (no progress until the first plan); under it one Asked line in
+`Typography.help`, `Asked …  · Review …  · Done …` with each label in `Palette.text` at medium weight, cut
+to one line, the whole in its tooltip. The columns are Todo · In progress · Review · Done, `Space.gap`
+apart, Review only when the broadcast has a review; each is a `BoardHeading` (a `SidebarHeading` and its
+count in `Typography.monoChip`, `Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its
+own (`BoardScroll`), an empty one saying so in one `Typography.help` line ("Nothing started yet."). A card
+(`BoardCardView`) is a `groupChrome` box, `Space.inset` inside, `Space.tight` between its lines: the
+agent's `VendorMark` at `Size.avatar` once the task has started, and the title in `Typography.body`, two
+lines at most; then the quiet Jira and merge-request `Badge`s (`TaskBadges`) and, only when the broadcast
+spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
+task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
+edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
+Its tooltip is the model the Operator chose and its one-line reason. A card's click closes the sheet
+first, then opens what resolves it (`BroadcastBoard.Opens`): a permission prompt or a started task, the
+task's window; a question or a blocked task, the Operator's window; a problem AiTerm hit, nothing more
+than the sidebar banner already showing it. A Todo card is no button. The footer is Pause Broadcast or
+Resume Broadcast, End Broadcast… (the blue alert), and Close (⎋). With the Operator's window closed the
+row's click reopens it behind the board, decided by the listed tabs, not the recorded window id; if its
+conversation can't be resumed the board stays, a `Notice` in the footer ("Couldn’t reopen the
+Operator’s window") with Close and Start Fresh on ⌘↩ (`OperatorController.reopenFailed`).
+
+Once every task is done the debrief takes the columns' place (`BroadcastDebriefView`), `Space.margin`
+between its two columns: Delivered on the left, full height and scrolling, each row at least
+`Size.menuRow` the agent's `VendorMark` at `Size.vendorMark`, the title in `Typography.caption`, the quiet
+`Badge`s and the result in `Typography.mono` (`merged · 9b3e07d`), its tooltip the model and its reason,
+its click the task's window; on the right, stacked `Space.section` apart and scrolling, Decided on its own
+(with the Oracle's objection under a decision it made against it), Found along the way (a filed find's
+ticket as a quiet Jira `Badge`) and Left for you, each a `BoardHeading` over items in `Typography.caption`
+with their why in `Typography.help` and `Palette.muted`; a list with nothing in it is left out. Its footer
+is Close and End Broadcast on ⌘↩, which asks nothing. A broadcast whose last task waits on a person keeps
+the board. No new `Palette` or `Metrics` member.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
@@ -299,7 +336,7 @@ alone. Not Notices: the grey line while AiTerm connects (`SidebarBannerText`), f
 and toasts. `SidebarBanner` is only the banners' margins now: their text starts where `PROJECTS`
 does. The Operator's greenfield design added two Metrics members: `Size.inlineMark` (12), a mark that
 leads a line of text — the Notice's, Find a Fix's — and `Sheet.boardWidth` (820), the broadcast
-board's width, which no sheet draws yet.
+board's width. The board's footer carries a Notice too, when the Operator's window could not be reopened.
 
 **Find a Fix.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
 Pull main's — offers **Find a Fix**, after the failure's own recovery and before Dismiss: led by the

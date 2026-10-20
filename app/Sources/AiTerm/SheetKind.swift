@@ -70,8 +70,9 @@ extension AppController {
         case archive(ArchiveSheetModel)
         /// New Operation…: the prompt and when it is done, started on Settings › Operator's profile.
         case newOperation(NewOperationModel)
-        /// An operation's overview: read live from the workspace, so it carries only the run's id.
-        case operationOverview(UUID)
+        /// The broadcast's board, and its debrief once every task is done: read live from the workspace,
+        /// so it carries only the run's id.
+        case broadcastBoard(UUID)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -84,7 +85,7 @@ extension AppController {
             case .backpack: return "backpack"
             case .archive: return "archive"
             case .newOperation(let model): return "operation-new-\(model.id)"
-            case .operationOverview(let id): return "overview-\(id)"
+            case .broadcastBoard(let id): return "board-\(id)"
             }
         }
     }

@@ -44,7 +44,7 @@ final class RunReconciler {
         let sessions = live.sessions, now = ports.now()
         firstSynced = firstSynced ?? now
         var changed: Set<UUID> = []
-        for run in state.runs where run.state != .stopped && run.intent != .stopped {
+        for run in state.runs where !run.hasEnded {
             if reconcileOperator(run, sessions: sessions) { changed.insert(run.id) }
             let active = state.run(id: run.id)?.state == .active
             for task in state.tasks(inRun: run.id) {

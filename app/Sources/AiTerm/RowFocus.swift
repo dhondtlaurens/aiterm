@@ -64,8 +64,9 @@ final class RowFocus {
     /// itself as it is built. Its answer is the restore under way, or nil when nothing opens now.
     @ObservationIgnored private var restoreOwed: (@MainActor (RowSelection) -> Task<Void, Never>?)?
     /// Who brings back an operation's chat when its row is chosen without a window — one you closed,
-    /// an operator gone offline: the operator controller, which the app adds as it is built.
-    @ObservationIgnored private var operatorWindowOwed: (@MainActor (UUID) -> Task<Void, Never>?)?
+    /// an operator gone offline: the operator controller, which the app adds as it is built. `behind`: the
+    /// broadcast's board is coming forward, and the window reopens behind it.
+    @ObservationIgnored private var operatorWindowOwed: (@MainActor (UUID, _ behind: Bool) -> Task<Void, Never>?)?
     /// Who brings back the window of a task an operator drives when its row is chosen without one: the
     /// operator controller, resuming its conversation — never the reconciler, which would plan a fresh
     /// agent beside one that may still be alive.
@@ -115,9 +116,18 @@ final class RowFocus {
         restoreOwed = restore
     }
 
-    /// Sets who reopens an operation's window when its row is chosen — a click or Return — without one.
-    func onChoosingOperationWithoutWindow(_ open: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
+    /// Sets who reopens an operation's window when its row is chosen — a click or Return — without one,
+    /// in front, or behind the board the broadcast row's click opens (`reopenOperatorBehind`).
+    func onChoosingOperationWithoutWindow(_ open: @escaping @MainActor (UUID, _ behind: Bool) -> Task<Void, Never>?) {
         operatorWindowOwed = open
+    }
+
+    /// The broadcast row's click with the Operator's window closed (spec §9): the window is asked back
+    /// behind the board the click opens, and nothing is raised. The row is only selected.
+    @discardableResult
+    func reopenOperatorBehind(_ id: UUID) -> Task<Void, Never>? {
+        browse(.operation(id))
+        return operatorWindowOwed?(id, true)
     }
 
     /// Sets who reopens a driven task's window when its row is chosen — a click or Return — without one.
@@ -200,7 +210,7 @@ final class RowFocus {
         }
         if case .operation(let id) = row, window(for: row) == nil {
             browse(row)
-            return operatorWindowOwed?(id)
+            return operatorWindowOwed?(id, false)
         }
         if window(for: row) == nil {
             let restoring = owedRestore(row)
@@ -279,7 +289,7 @@ final class RowFocus {
                     for hook in windowGoneHooks { hook(window) }
                     // An operator's window closed before the app heard: on a click — not a peek — its
                     // chat is asked back, as a missing one is.
-                    if case .operation(let id) = row, focus, isCurrent() { _ = operatorWindowOwed?(id) }
+                    if case .operation(let id) = row, focus, isCurrent() { _ = operatorWindowOwed?(id, false) }
                 } catch is CancellationError { return }
                 catch {
                     if selfRaised == window { selfRaised = nil }

@@ -226,8 +226,9 @@ enum OperatorSnapshots {
     private static func overview(_ scene: OperatorScene) -> some View {
         let state = scene.controller.state
         let run = scene.signup ?? scene.run(scene.signupId, "Newsletter signup", .active)
-        return OperationOverviewSheet(overview: .make(run: run, state: state, acting: Set(scene.controller.rows.acting.tasks.keys)),
-                                      actions: OverviewActions())
+        return BroadcastBoardSheet(board: .make(run: run, state: state, acting: scene.controller.rows.acting,
+                                                requests: OperatorRequests.open(run: run, state: state, prompts: [:])),
+                                   reopenFailed: false, actions: BoardActions())
     }
 }
 #endif

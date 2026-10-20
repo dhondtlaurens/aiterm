@@ -1,0 +1,192 @@
+import AppKit
+import SwiftUI
+import Testing
+import AiTermUI
+@testable import AiTermCore
+@testable import AiTerm
+@testable import AiTermTestSupport
+
+/// The broadcast's board as the sidebar presents it (spec §4, §4.2, §9, §13): a card's click, the footer at
+/// each moment, the sheet slot it opens in, and what its buttons ask of the app.
+@MainActor
+struct BroadcastBoardSheetTests {
+    private func board(_ run: OperatorRun, _ tasks: [TaskItem] = []) -> BroadcastBoard {
+        var state = AppState()
+        state.runs = [run]
+        state.tasks = tasks
+        return BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
+    }
+
+    /// The sheet closes first, then what the card opens comes forward; a Todo card is not a button.
+    @Test func clickingACardDismissesFirst() {
+        var moments: [String] = []
+        let task = UUID()
+        let actions = BoardActions(open: { opens in
+            switch opens {
+            case .taskWindow(let id): moments.append(id == task ? "open the task's window" : "open another window")
+            case .operatorWindow: moments.append("open the Operator's window")
+            case .sidebarBanner(let issue): moments.append("show the banner's \(issue)")
+            case .nothing: moments.append("open nothing")
+            }
+        })
+        for opens: BroadcastBoard.Opens in [.taskWindow(task), .operatorWindow, .sidebarBanner(issue: "issue-7"), .nothing] {
+            BroadcastBoardSheet.choose(opens, dismiss: { moments.append("dismiss") }, actions: actions)
+        }
+        #expect(moments == ["dismiss", "open the task's window", "dismiss", "open the Operator's window",
+                            "dismiss", "show the banner's issue-7"], "a Todo card does nothing, not even close the sheet")
+        #expect(!BroadcastBoardSheet.isButton(.nothing) && BroadcastBoardSheet.isButton(.operatorWindow))
+    }
+
+    @Test func theFooterOffersWhatTheMomentAllows() {
+        func shown(_ footer: BoardFooter) -> ([String], String?, String?) {
+            (footer.leading.map(\.title), footer.primary?.title, footer.notice?.title)
+        }
+        let running = BoardFooter(board(OperatorUIFixtures.run()), reopenFailed: false)
+        #expect(shown(running) == (["Pause Broadcast", "End Broadcast…"], nil, nil))
+        #expect(running.secondary == "Close")
+        #expect(shown(BoardFooter(board(OperatorUIFixtures.run(state: .paused)), reopenFailed: false))
+                == (["Resume Broadcast", "End Broadcast…"], nil, nil))
+        #expect(shown(BoardFooter(board(OperatorUIFixtures.run(state: .operatorOffline)), reopenFailed: false))
+                == (["Resume Broadcast", "End Broadcast…"], nil, nil))
+
+        let complete = OperatorUIFixtures.run(state: .complete)
+        let done = OperatorUIFixtures.task("Footer", project: UUID(),
+                                           operated: OperatorUIFixtures.operated(run: complete.id, key: "a", state: .accepted, sha: "4f2a91c"))
+        let debrief = BoardFooter(board(complete, [done]), reopenFailed: false)
+        #expect(shown(debrief) == ([], "End Broadcast", nil), "the debrief's End asks nothing")
+        #expect(debrief.secondary == "Close")
+
+        let failed = BoardFooter(board(OperatorUIFixtures.run(state: .operatorOffline)), reopenFailed: true)
+        #expect(shown(failed) == ([], "Start Fresh", "Couldn’t reopen the Operator’s window"))
+        #expect(failed.notice?.description == "Its conversation couldn’t be resumed. A fresh one starts from the board and what it decided so far.")
+        #expect(failed.secondary == "Close")
+    }
+
+    @Test func eachButtonDoesItsOneThing() {
+        var moments: [String] = []
+        let actions = BoardActions(pause: { moments.append("pause") }, resume: { moments.append("resume") },
+                                   end: { moments.append($0 ? "end…" : "end") }, startFresh: { moments.append("fresh") })
+        for button: BoardFooter.Button in [.pause, .resume, .endConfirm, .end, .startFresh] { button.perform(actions) }
+        #expect(moments == ["pause", "resume", "end…", "end", "fresh"])
+    }
+
+    @Test func theSheetIsTheBoardsWidth() {
+        let sheet = BroadcastBoardSheet(board: board(OperatorUIFixtures.run()), reopenFailed: false, actions: BoardActions())
+        let host = NSHostingView(rootView: sheet)
+        #expect(host.fittingSize.width == Sheet.boardWidth)
+    }
+
+    @Test func theBoardOpensInTheSheetSlotForALiveBroadcastOnly() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        controller.presentOverview(run: run.id)
+        #expect(controller.sheet == nil, "no such broadcast")
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.presentOverview(run: run.id)
+        guard case .broadcastBoard(let id) = controller.sheet else { Issue.record("no board"); return }
+        #expect(id == run.id)
+        #expect(controller.sheet?.id == "board-\(run.id)")
+    }
+
+    /// What a card opens, as the app performs it: a task's window, the Operator's window, or nothing more
+    /// than the banner already showing the problem.
+    @Test func eachCardOpensItsPlace() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        let project = OperatorUIFixtures.project("pluto-web")
+        let task = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
+        controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
+        var chosen: [UUID] = []
+        controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
+        controller.open(.taskWindow(task.id), run: run)
+        #expect(controller.focus.selection == .task(task.id))
+        controller.open(.sidebarBanner(issue: "issue-7"), run: run)
+        #expect(controller.focus.selection == .task(task.id), "the banner is already up: nothing else moves")
+        controller.workspace.mutate { $0.runs[0].operatorWindowId = nil }
+        controller.open(.operatorWindow, run: run)
+        #expect(controller.focus.selection == .operation(run.id))
+        #expect(chosen == [run.id], "its window is asked back when it is closed")
+    }
+
+    @Test func endingAsksFirstWithCancelOnEscape() {
+        let end = OperatorAlerts.endBroadcast(OperatorUIFixtures.run(), unstarted: 0, running: 2)
+        #expect(end.message == "End “Newsletter signup”?")
+        #expect(end.detail == "2 running tasks finish their turn and become yours. Worktrees and MRs stay.")
+        #expect(end.buttons == ["End Broadcast", "Cancel"] && end.escapeButton == 1 && !end.defaultDeletes)
+    }
+
+    @Test func cancellingEndLeavesTheBroadcastRunning() async throws {
+        let prompter = ScriptedPrompter(answering: "⎋")
+        let controller = AppController(preferences: .scratch(), prompter: prompter)
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        #expect(await !controller.confirmEnd(run))
+        #expect(prompter.asked == [controller.operatorController.endPrompt(run: run)])
+        #expect(controller.state.runs.first?.state == .active)
+    }
+
+    /// A notification's click (spec §13): the debrief is ready, so the board opens, once.
+    @Test func aNotificationsClickOpensTheBoard() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run(state: .complete)
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.openNote(.overview(run.id))
+        await eventually(describing: "the board in the sheet slot") {
+            if case .broadcastBoard(run.id) = controller.sheet { true } else { false }
+        }
+        #expect(controller.operatorController.presentOverview == nil, "presented once, then cleared")
+    }
+
+    /// A request already there when the app starts watching — a click that launched it — is presented too.
+    @Test func aRequestMadeBeforeTheWatchIsPresented() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.operatorController.presentOverview = run.id
+        controller.presentRequestedOverview()
+        guard case .broadcastBoard(let id) = controller.sheet else { Issue.record("no board"); return }
+        #expect(id == run.id)
+        #expect(controller.operatorController.presentOverview == nil)
+    }
+
+    /// Rename… is the `NameSheet` every other rename is, with the broadcast's own copy.
+    @Test func renamingABroadcastOpensTheNameSheet() throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        controller.perform(.rename, on: run)
+        guard case .rename(let target) = controller.sheet else { Issue.record("no rename sheet"); return }
+        #expect(target == .broadcast(run))
+        #expect(target.title == "Rename broadcast" && target.fieldLabel == "Broadcast name" && target.name == "Newsletter signup")
+        #expect(target.subtitle == "Renames its row and its overview; the Operator’s window and its tasks keep theirs.")
+    }
+
+    /// What the operator controller refuses reaches the banner, named after what it was for, and is never dropped.
+    @Test func whatTheOperatorControllerRefusesLandsInTheBanner() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let run = OperatorUIFixtures.run()
+        controller.rename(run: run, to: "Other")
+        await eventually(describing: "the rename's banner") { controller.notices.issue != nil }
+        #expect(controller.notices.issue?.title == "Couldn’t rename “Newsletter signup”.")
+        #expect(controller.notices.issue?.reason == "This operation is no longer in AiTerm.")
+        controller.notices.dismissIssue()
+        controller.pause(run)
+        await eventually(describing: "the pause's banner") { controller.notices.issue != nil }
+        #expect(controller.notices.issue?.title == "Couldn’t pause “Newsletter signup”.")
+    }
+}

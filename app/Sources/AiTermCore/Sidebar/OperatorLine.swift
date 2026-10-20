@@ -102,7 +102,6 @@ public struct OperatorLine: Equatable, Sendable {
         if operated.state == .working, let review = operated.agentReview, review.isRunning {
             return act(.reviewingWith, task: task, named: nil, oracle: oracle)
         }
-        let sha = String((operated.publication?.mergedSHA ?? operated.acceptance?.resultSHA ?? "").prefix(7))
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text, oracleAgent: oracle) }
         func quiet(_ state: String, _ detail: String) -> OperatorLine { OperatorLine.quiet(state, detail, oracle: oracle) }
         switch operated.state {
@@ -126,21 +125,34 @@ public struct OperatorLine: Equatable, Sendable {
             return needsYou("blocked", reason(operated.blockedReason) ?? "it needs you", tooltip: nil, oracle: oracle)
         case .stopped:
             return nil
+        case .accepted, .noChange, .published:
+            return ending(of: operated).map(quiet)
+        }
+    }
+
+    /// What a finished task ended at, as its line and the debrief's Delivered row say it: `done · 4f2a91c`,
+    /// `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`. Nil for a task
+    /// that has not finished.
+    public static func ending(of operated: OperatedTask) -> String? {
+        let sha = String((operated.publication?.mergedSHA ?? operated.acceptance?.resultSHA ?? "").prefix(7))
+        switch operated.state {
         case .accepted:
-            return quiet("done · " + sha)
+            return "done · " + sha
         case .noChange:
-            return quiet("done · no change")
+            return "done · no change"
         case .published:
             switch operated.end {
-            case .commit: return quiet("done · " + sha)
-            case .merge: return quiet("merged · " + sha)
-            case .mergeLocal: return quiet("merged locally · " + sha)
+            case .commit: return "done · " + sha
+            case .merge: return "merged · " + sha
+            case .mergeLocal: return "merged locally · " + sha
             case .draftMR:
                 if let publication = operated.publication, let number = publication.mergeRequestNumber {
-                    return quiet("draft MR · " + CodeHost(webURL: publication.mergeRequestURL ?? "").reference(number))
+                    return "draft MR · " + CodeHost(webURL: publication.mergeRequestURL ?? "").reference(number)
                 }
-                return quiet("draft MR · " + sha)
+                return "draft MR · " + sha
             }
+        default:
+            return nil
         }
     }
 
@@ -205,7 +217,8 @@ public struct OperatorLine: Equatable, Sendable {
     }
 
     /// The request a line says, of several: an agent's prompt first, then a question, then what blocks.
-    private static func first(_ requests: [BroadcastRequest]) -> BroadcastRequest? {
+    /// The board's card opens the place of the same one.
+    static func first(_ requests: [BroadcastRequest]) -> BroadcastRequest? {
         let order: [BroadcastRequest.Kind] = [.permission, .question, .blocked, .problem]
         return requests.min { order.firstIndex(of: $0.kind)! < order.firstIndex(of: $1.kind)! }
     }

@@ -15,6 +15,13 @@ extension DismissAction {
 struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
+    /// `Sheet.width`, or `Sheet.boardWidth` for the broadcast's board.
+    let width: CGFloat
+    /// The band's height: `Size.control` for a step bar, a tab bar or a subtitle; nil for a band of lines
+    /// that sizes itself (the board's badge line and Asked line), `Space.base` under the title.
+    let bandHeight: CGFloat?
+    /// Whether the content scrolls as one; the board's columns scroll on their own instead.
+    let scrolls: Bool
     /// The content's inset from the rules above and below it: a sheet's margin, or less for a list of
     /// rows whose own pills already pad them (the Archive sheet's).
     let contentVerticalPadding: CGFloat
@@ -26,12 +33,16 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let content: Content
     let footer: Footer
 
-    init(title: String, height: CGFloat, contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
+    init(title: String, height: CGFloat, width: CGFloat = Sheet.width, bandHeight: CGFloat? = Size.control, scrolls: Bool = true,
+         contentVerticalPadding: CGFloat = Space.margin, onBackgroundTap: (() -> Void)? = nil,
          @ViewBuilder navigation: () -> Navigation,
          @ViewBuilder content: () -> Content,
          @ViewBuilder footer: () -> Footer) {
         self.title = title
         self.height = height
+        self.width = width
+        self.bandHeight = bandHeight
+        self.scrolls = scrolls
         self.contentVerticalPadding = contentVerticalPadding
         self.onBackgroundTap = onBackgroundTap
         self.navigation = navigation()
@@ -41,23 +52,25 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.block) {
+            VStack(alignment: .leading, spacing: bandHeight == nil ? Space.base : Space.block) {
                 Text(title).font(Typography.title).foregroundStyle(Palette.text)
                     .lineLimit(1).truncationMode(.middle).help(title)
-                navigation.frame(height: Size.control)
+                if let bandHeight { navigation.frame(height: bandHeight) } else { navigation }
             }
             .padding(.horizontal, Space.margin).padding(.top, Space.section).padding(.bottom, Space.block)
             Hairline()
             Group {
                 #if DEBUG
                 // The snapshots' `ImageRenderer` cannot materialise a ScrollView's contents.
-                if isSnapshot {
+                if isSnapshot || !scrolls {
                     paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
                 } else {
                     ScrollView { paddedContent }
                 }
                 #else
-                ScrollView { paddedContent }
+                if scrolls { ScrollView { paddedContent } } else {
+                    paddedContent.frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading).clipped()
+                }
                 #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -67,7 +80,7 @@ struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surfaceRaised)
         }
-        .frame(width: Sheet.width, height: Sheet.fittingHeight(height))
+        .frame(width: width, height: Sheet.fittingHeight(height))
         .background {
             if let onBackgroundTap {
                 Color.clear.contentShape(Rectangle()).onTapGesture(perform: onBackgroundTap)

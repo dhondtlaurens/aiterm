@@ -42,12 +42,10 @@ public extension SidebarModel {
         let requests = OperatorRequests.open(run: run, state: state, prompts: [:])
         let act = acting.broadcast(run.id)
         let line = OperatorLine.broadcast(run, tasks: tasks, acting: act, requests: requests)
-        let counted = tasks.filter { $0.operated?.state != .stopped }
-        let done = counted.filter { ($0.operated?.state).map(isFinished) ?? false }.count
         let projects = run.projectIds.compactMap(state.project(id:))
         let paused = run.state == .paused || run.state == .operatorOffline || run.intent == .paused
         return BroadcastRow(id: run.id, title: run.name, agent: AgentKind.claude.session,
-                            progress: run.firstPlanSize == nil ? nil : "\(done) of \(counted.count) done",
+                            progress: BroadcastBoard.progress(of: run, tasks: tasks),
                             firstProject: projects.first.map { BroadcastRow.ProjectMark(name: $0.name, provider: $0.provider) },
                             moreProjects: max(projects.count - 1, 0), projectsHelp: OperatorLine.list(projects.map(\.name)),
                             line: line, status: broadcastStatus(run, tasks: tasks, line: line, acting: act != nil, paused: paused),

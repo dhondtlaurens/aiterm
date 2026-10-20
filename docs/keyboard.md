@@ -44,7 +44,7 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 | Keys | Action | Notes |
 |---|---|---|
 | ↑ ↓ | Peek | Moves the selection through the project headers and every open project's rows, in list order, stepping over dividers and a task being removed, and shows the row's window beside the sidebar, raised in iTerm2. The keyboard stays in the sidebar, and a finished task stays blue. Arrowing past rows shows only the one the arrows stop on. A folded project's rows are stepped over; ⌘L opens them all. A selected header is drawn in the same pill as a row, shows no window and raises nothing. A row whose window is still coming back is only selected. The broadcast row peeks at the Operator's window, as a task row peeks at its own; the OPERATOR heading is stepped over, as a divider is. |
-| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a row whose window is still coming back waits for it, and one that could not be reopened is tried again. On the broadcast row, ↩ — or a click — opens the broadcast's overview instead; with the Operator's window closed it also reopens that window behind the sheet, resuming its conversation and the broadcast. On a task the Operator drives whose window you closed, ↩ or a click brings it back with its conversation resumed — never a second agent. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
+| ↩ | Go to the window | The selected row's window, with iTerm2 brought forward to type in — a row whose window is still coming back waits for it, and one that could not be reopened is tried again. On the broadcast row, ↩ — or a click — opens the broadcast's board instead; with the Operator's window closed (no tab of it listed) it also reopens that window behind the board, resuming its conversation and the broadcast. On a task the Operator drives whose window you closed, ↩ or a click brings it back with its conversation resumed — never a second agent. A click does the same, and so does creating a terminal; a new task or review is selected and its window opened, but the keyboard stays here — its agent is already at work. On a header, ↩ folds or opens the project. An empty project has nothing to fold, so ↩ opens its context menu instead, below the header with the first item highlighted: ↑ ↓ move, ↩ picks, ⎋ closes it (`RowMenuAnchor`). |
 | ⌘⌫ | Remove the task, review or terminal | The row's own Remove, as its context menu has it: a task or a review asks first, a terminal just closes. Nothing on a header. On the list, not a menu command — a menu's key equivalent would beat a text field's own ⌘⌫. |
 | ⌘F | Focus View | Opens the projects with a row that needs attention, folds the rest, and peeks at the first row waiting on you — its window shown even when it was already selected — with the keyboard left in the sidebar. The rows waiting on you are those needing input or done and unseen, terminals included; the Dock badge counts the same rows (`SidebarModel.needingAttention`). |
 | ⌘L | List View | Opens every project that has rows. |
@@ -118,16 +118,16 @@ finds none (`ArchiveSearch`).
 ## Every other sheet
 
 New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings, Jira projects, New operator, Edit operator,
-New operation and an operation's overview.
+New operation and a broadcast's board.
 Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · Start Operation · End Operation | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
+| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · Start Operation · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
 
-The overview's ⌘↩ is the moment's: End Operation once it is done, nothing while it works — Pause and End Operation… are plain buttons. ⎋ is Close.
+The board's ⌘↩ is the moment's: End Broadcast once it is the debrief, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. A card's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a question or a blocked task, the sidebar's banner for a problem AiTerm hit. A Todo card is not a button. ⎋ is Close.
 
 ## Settings
 
@@ -150,7 +150,7 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 | Remove a shelved task or review | Remove, red | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
 | Stop an operator's task | Stop Task, blue: its window and branch stay | Cancel |
-| End an operation | End Operation, blue: its tasks stay | Cancel |
+| End a broadcast | End Broadcast, blue: its tasks stay | Cancel |
 | Move an operator to the Trash | Move to Trash, blue: the file can be put back | Cancel |
 | Import worktrees | Import | Skip |
 | An update is available | Update | Later |

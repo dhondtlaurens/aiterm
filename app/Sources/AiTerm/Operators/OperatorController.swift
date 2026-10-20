@@ -95,6 +95,10 @@ final class OperatorController {
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentOverview: UUID?
+    /// The broadcasts whose Operator's window could not be reopened behind the board, its conversation
+    /// gone (spec §13): the board's footer says so and offers Start Fresh. Cleared by a reopening that
+    /// opens one, and by Start Fresh. Observed, so the board open in front of it changes at once.
+    var reopenFailed: Set<UUID> = []
     /// The operations whose operator window is being opened now (`reopenOperatorWindow`, D16): a second
     /// click on the row meanwhile opens no second operator.
     @ObservationIgnored var reopeningOperator: Set<UUID> = []
@@ -459,7 +463,7 @@ final class OperatorController {
         reconciler.synced = false
         guard let daemon = daemon() else { return }
         reattached = true
-        let open = runs.filter { $0.state != .stopped && $0.intent != .stopped }.map { ($0.id, folder(of: $0.id)) }
+        let open = runs.filter { !$0.hasEnded }.map { ($0.id, folder(of: $0.id)) }
         // Runs you ended: a revocation that failed before is tried again while their token file is there.
         let ended = runs.filter { $0.intent == .stopped }.map { ($0.id, folder(of: $0.id)) }
         registering = Task {
@@ -708,7 +712,7 @@ final class OperatorController {
 
     /// What each open run's `run_status` would show now, for the waker.
     private func observeRuns() {
-        for run in runs where run.state != .stopped && run.intent != .stopped {
+        for run in runs where !run.hasEnded {
             if let status = status(of: run) { waker.observe(status, of: run.id) }
         }
     }
