@@ -62,18 +62,22 @@ fi
 # must fail even when the compiler process reports success. Avoid recursing through this guard.
 if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
     "$ROOT/scripts/fixtures/check-bundle-verifier.sh"
-    for result in passed zero incomplete failed nonzero; do
-        runner_status=0
-        TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 AITERM_FIXTURE_TEST_RUN="$result" \
-            SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" "$ROOT/scripts/test.sh" swift -- --filter fixture \
-            >"$bad_output" 2>&1 || runner_status=$?
-        if [[ "$result" == passed && "$runner_status" -ne 0 ]] || \
-           [[ "$result" != passed && "$runner_status" -eq 0 ]]; then
-            print -u2 "unexpected test-runner status $runner_status for $result fixture"
-            sed -n '1,30p' "$bad_output" >&2
-            exit 1
-        fi
-    done
+    (
+        runner_logs="$(mktemp -d -t aiterm-runner-fixture)"
+        trap 'rm -rf "$runner_logs"' EXIT
+        for result in passed zero incomplete failed nonzero; do
+            runner_status=0
+            TMPDIR="$runner_logs/" TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 AITERM_FIXTURE_TEST_RUN="$result" \
+                SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" "$ROOT/scripts/test.sh" swift -- --filter fixture \
+                >"$bad_output" 2>&1 || runner_status=$?
+            if [[ "$result" == passed && "$runner_status" -ne 0 ]] || \
+               [[ "$result" != passed && "$runner_status" -eq 0 ]]; then
+                print -u2 "unexpected test-runner status $runner_status for $result fixture"
+                sed -n '1,30p' "$bad_output" >&2
+                exit 1
+            fi
+        done
+    )
 fi
 
 if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE:-0}" == "1" ]]; then
