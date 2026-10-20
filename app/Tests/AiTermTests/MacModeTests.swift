@@ -58,6 +58,8 @@ struct MacModeTests {
         #expect(help(.desk, wifi: "Laurens’s iPhone") == "desk mode · still on Laurens’s iPhone · ⌘B turns on backpack mode")
         #expect(help(.turningOn) == "Turning on backpack mode · joining Laurens’s iPhone")
         #expect(help(.on) == "Backpack mode on · Laurens’s iPhone · ends when your agents stop, or at 10 %")
+        #expect(MacModePresentation.line(mode: .on, hotspot: "Laurens’s iPhone", wifi: nil, until: .turnedOff).help
+                == "Backpack mode on · Laurens’s iPhone · stays on until you turn it off, or at 10 %")
         #expect(help(.needsYou(.lostHotspot)) == "Backpack mode needs you · lost Laurens’s iPhone, open Personal Hotspot on the iPhone")
         #expect(help(.needsYou(.lowBattery(level: 13))) == "Backpack mode needs you · battery at 13 %, turns off at 10 %")
         #expect(help(.turningOff) == "Turning off backpack mode · rejoining Wi-Fi")

@@ -218,14 +218,18 @@ Then Hotspot, a `Select` of the networks one scan finds now — the remembered h
 once it shows up, scanned again every 5 s while no connect runs — beside a secure `Input` for the
 password, filled with the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty
 for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
-while nothing is chosen. “On the iPhone” follows as their help: three `NumberedSteps`, `receded`
-(text in `Palette.muted`) once a hotspot is chosen, full again while a connect waits for it.
+while nothing is chosen. Under them “Turns off”, a `Select` in the Hotspot's column — “When agents
+stop” (the 2-minute idle grace) or “When I turn it off” — with “Either way, at 10 % battery.” as its
+`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. “On the
+iPhone” follows as the hotspot's help: three `NumberedSteps`, `receded` (text in `Palette.muted`)
+once a hotspot is chosen, full again while a connect waits for it.
 Connect (⌘↩) is disabled until both permissions are granted and a hotspot is chosen; it runs in
 place, the fields disabled, Cancel the only action, and two live checks appear under the steps — a
 `StatusMark` in a `Size.slot` column beside a `Typography.caption` line, amber on the one that
 failed. A failure leaves the fields live and Connect retries; there is no Back. Once the Mac has
 joined and is held awake the body becomes a `Size.control` accent disc with a checkmark, “Safe to
-close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
+close the lid.”, a `HelpText` saying what will end it — the work or the person, and the cutoff —
+the checks, and Done on ⌘↩; the mode stays on. Closing the lid dismisses the sheet.
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
 

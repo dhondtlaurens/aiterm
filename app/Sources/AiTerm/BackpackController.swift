@@ -110,8 +110,8 @@ final class BackpackController {
 
     /// The sheet's Connect: saves the hotspot (and a typed password), then turns on, retrying a
     /// hotspot that isn't showing on `retryDelays` until it shows, a final refusal, Cancel, quit or
-    /// the sheet closing (`finishWithoutSheet()`).
-    func connect(network: String, password: String?) async {
+    /// the sheet closing (`finishWithoutSheet()`). `until` is the sheet's Turns off.
+    func connect(network: String, password: String?, until: BackpackUntil = .agentsStop) async {
         guard !busy, !isOn else { return }
         self.network = network
         if let password, !password.isEmpty, !setPassword(password) { phase = .keychainRefused; return }
@@ -134,7 +134,7 @@ final class BackpackController {
                     if self?.phase == .joining { self?.phase = .keepingAwake }
                 }
             }
-            let result = await worker.run { mode.turnOn(onJoined: joined) }
+            let result = await worker.run { mode.turnOn(until: until, onJoined: joined) }
             state = mode.state
             switch result {
             case .success(let status):

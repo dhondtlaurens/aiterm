@@ -58,9 +58,23 @@ enum BackpackSheetPresentation {
         }
     }
 
-    static func safeHelp(hotspot: String) -> String {
-        "On \(hotspot). Backpack mode ends when your agents stop, or at \(BackpackSettings.cutoff) % battery."
+    static func safeHelp(hotspot: String, until: BackpackUntil) -> String {
+        let ends = until == .turnedOff ? "stays on until you turn it off" : "ends when your agents stop"
+        return "On \(hotspot). Backpack mode \(ends), or at \(BackpackSettings.cutoff) % battery."
     }
+
+    /// Turns off's choices, ending with the work first: every sheet opens on it.
+    static let untilChoices: [BackpackUntil] = [.agentsStop, .turnedOff]
+
+    static func untilLabel(_ until: BackpackUntil) -> String {
+        switch until {
+        case .agentsStop: "When agents stop"
+        case .turnedOff: "When I turn it off"
+        }
+    }
+
+    /// Under Turns off: the cutoff is no choice.
+    static let untilHelp = "Either way, at \(BackpackSettings.cutoff) % battery."
 
     /// "None", then the remembered hotspot when it is in range, then the rest of what is in range
     /// by name. A chosen network that dropped out of range stays listed, so the menu still holds it.
@@ -88,6 +102,9 @@ final class BackpackSheetModel: Identifiable {
     /// The field's text: the remembered hotspot's saved password, filled in as if typed, or what the
     /// person types. Empty sends none, and the saved one is used.
     var password = ""
+    /// Turns off: what ends the mode this trip. Never remembered — every sheet starts on
+    /// `.agentsStop`, so a Mac is never left on in a bag by a choice made trips ago.
+    var until: BackpackUntil = .agentsStop
     /// The Keychain's password, read once: it belongs to the remembered hotspot only.
     private var saved: String?
     private(set) var inRange: [String] = []
@@ -149,11 +166,11 @@ final class BackpackSheetModel: Identifiable {
     func connect() {
         guard canConnect, let network else { return }
         started = true
-        let typed = password.isEmpty ? nil : password
+        let typed = password.isEmpty ? nil : password, until = self.until
         connecting = true
         let backpack = self.backpack
         Task {
-            await backpack.connect(network: network, password: typed)
+            await backpack.connect(network: network, password: typed, until: until)
             connecting = false
         }
     }
@@ -182,7 +199,7 @@ final class BackpackSheetModel: Identifiable {
 
 /// Backpack Mode's sheet, opened by every turn-on: one sheet, in the order it is used. "This Mac"'s
 /// permissions while one is missing, then the Hotspot and Password — the remembered one filled in —
-/// with the iPhone's steps under them as their help, receding once a hotspot is chosen. Connect
+/// and Turns off, then the iPhone's steps as the hotspot's help, receding once one is chosen. Connect
 /// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid." with
 /// Done; a failure leaves the fields live and Connect retries. Closing the lid closes it: with
 /// nothing running that is a cancel; during a connect the attempt under way keeps going, but no
@@ -252,6 +269,19 @@ struct BackpackSheet: View {
                     HelpText(model.hotspotHelp)
                 }
             }
+            VStack(alignment: .leading, spacing: Space.block) {
+                HStack(alignment: .top, spacing: Space.gap) {
+                    FormField("Turns off") {
+                        Select(values: BackpackSheetPresentation.untilChoices,
+                               selection: Binding(get: { model.until }, set: { model.until = $0 }),
+                               label: BackpackSheetPresentation.untilLabel)
+                    }
+                    .frame(maxWidth: .infinity)
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                }
+                .disabled(model.isConnecting)
+                HelpText(BackpackSheetPresentation.untilHelp)
+            }
             FormField(BackpackSheetPresentation.onTheIPhone) {
                 NumberedSteps(BackpackSheetPresentation.phoneSteps, receded: model.phoneStepsRecede)
             }
@@ -269,7 +299,7 @@ struct BackpackSheet: View {
                 .frame(width: Size.control, height: Size.control)
                 VStack(alignment: .leading, spacing: Space.tight) {
                     Text("Safe to close the lid.").font(Typography.title).foregroundStyle(Palette.text)
-                    HelpText(BackpackSheetPresentation.safeHelp(hotspot: model.network ?? ""))
+                    HelpText(BackpackSheetPresentation.safeHelp(hotspot: model.network ?? "", until: model.backpack.state.until))
                 }
             }
             checks

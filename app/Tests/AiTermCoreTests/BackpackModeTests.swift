@@ -322,6 +322,34 @@ import Synchronization
         #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
     }
 
+    /// Turned on until turned off, the idle grace never runs: no work, the lid shut, for hours.
+    @Test func untilTurnedOffItOutlastsTheGrace() throws {
+        let fake = FakeBackpack(), clock = TestClock()
+        fake.lidSensor.closed = true
+        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
+        let status = try mode.turnOn(until: .turnedOff).get()
+        #expect(status.until == .turnedOff)
+        clock.advance(by: 3600)
+        #expect(mode.tick(agentsWorking: false) == .unchanged)
+        #expect(mode.state.isOn)
+        #expect(fake.lid.calls == [true])
+    }
+
+    /// The cutoff is no choice: turned on until turned off, it still ends the mode at 10 %.
+    @Test func untilTurnedOffItStillEndsAtTheCutoff() throws {
+        let fake = FakeBackpack()
+        let mode = mode(fake)
+        _ = try mode.turnOn(until: .turnedOff).get()
+        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        #expect(mode.tick(agentsWorking: false) == .ended(.batteryLow(level: BackpackSettings.cutoff)))
+    }
+
+    /// A turn-on that names nothing ends with the work, as it always has.
+    @Test func aTurnOnEndsWithTheWorkByDefault() throws {
+        let fake = FakeBackpack()
+        #expect(try mode(fake).turnOn().get().until == .agentsStop)
+    }
+
     /// The battery cutoff is not the person's to hold: it ends the mode with the lid open too.
     @Test func anOpenLidStillEndsAtTheCutoff() throws {
         let fake = FakeBackpack()
