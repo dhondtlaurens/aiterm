@@ -18,7 +18,9 @@ struct OperatorMenusTests {
         func menu(_ state: OperatorRunState, intent: OperatorRunState? = nil) -> [String] {
             var run = OperatorUIFixtures.run(state: state)
             run.intent = intent
-            return titles(OperatorMenus.broadcast(run))
+            var workspace = AppState()
+            workspace.runs = [run]
+            return SidebarModel.broadcastRow(state: workspace).map { titles(OperatorMenus.broadcast($0)) } ?? []
         }
         #expect(menu(.active) == ["Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
         #expect(menu(.planning) == ["Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
@@ -26,7 +28,9 @@ struct OperatorMenusTests {
         #expect(menu(.active, intent: .paused) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
         #expect(menu(.operatorOffline) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
         #expect(menu(.complete) == ["Rename…", "—", "End Broadcast…"])
-        #expect(OperatorMenus.broadcast(OperatorUIFixtures.run()).filter(\.isDestructive).isEmpty,
+        var workspace = AppState()
+        workspace.runs = [OperatorUIFixtures.run()]
+        #expect(SidebarModel.broadcastRow(state: workspace).map { OperatorMenus.broadcast($0).filter(\.isDestructive) } == [],
                 "End Broadcast… is not red: nothing is deleted, and it asks with a blue default")
     }
 

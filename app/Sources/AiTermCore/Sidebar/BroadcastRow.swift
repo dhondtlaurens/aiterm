@@ -34,10 +34,10 @@ public struct BroadcastRow: Equatable, Identifiable, Sendable {
 }
 
 public extension SidebarModel {
-    /// The broadcast's row: the one broadcast not ended (spec §3), or nil while there is none. `acting` is
+    /// The broadcast's row: `AppState.activeRun`'s, or nil while there is none. `acting` is
     /// what the Operator is doing now, as `OperatorController.acting` says it.
     static func broadcastRow(state: AppState, acting: OperatorActs = .none) -> BroadcastRow? {
-        guard let run = state.runs.first(where: { $0.state != .stopped && $0.intent != .stopped }) else { return nil }
+        guard let run = state.activeRun else { return nil }
         let tasks = state.tasks.filter { $0.operated?.runId == run.id }
         let requests = OperatorRequests.open(run: run, state: state, prompts: [:])
         let act = acting.broadcast(run.id)

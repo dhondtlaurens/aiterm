@@ -149,6 +149,26 @@ struct BroadcastRowFocusTests {
         #expect(controller.focus.selection == .operation(run.id))
     }
 
+    /// One definition of the broadcast that has not ended (`AppState.activeRun`): a broadcast being ended —
+    /// its intent stopped before its state — has no row, so the list's selection, ↑ ↓, a click and its
+    /// window coming forward never resolve to it.
+    @Test func aBroadcastBeingEndedIsNoLongerARow() throws {
+        let run = OperatorUIFixtures.run(windowId: "operator-window")
+        let (controller, _) = try controller(run)
+        defer { controller.shutdown() }
+        controller.focus.browse(.operation(run.id))
+        controller.workspace.mutate { $0.runs[0].intent = .stopped }
+        #expect(controller.state.activeRun == nil)
+        #expect(controller.operatorController.activeRun == nil)
+        #expect(controller.rows.broadcast == nil)
+        #expect(controller.focus.row(id: run.id) == nil, "↑ ↓ cannot reach it")
+        #expect(controller.focus.selection == nil, "the selection goes with the row")
+        controller.focus.windowActivated("operator-window")
+        #expect(controller.focus.selection == nil, "its window coming forward selects nothing")
+        #expect(controller.openBroadcast(run.id) == nil)
+        #expect(controller.sheet == nil, "nor does a click open its overview")
+    }
+
     @Test func anEndedOperationIsNoLongerARow() throws {
         let run = OperatorUIFixtures.run()
         let (controller, _) = try controller(run)

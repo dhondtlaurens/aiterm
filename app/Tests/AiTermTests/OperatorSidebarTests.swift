@@ -50,4 +50,22 @@ struct OperatorSidebarTests {
         #expect(BroadcastRowView.label(row) == "Broadcast Checkout redesign")
         #expect(BroadcastRowView.spoken(row) == "0 of 0 done, pluto-web and pluto-cms, The Operator asks: retry policy?")
     }
+
+    /// VoiceOver offers the row's menu as its actions, as a task's and a terminal's row do: the items'
+    /// titles without the menu's ellipsis, and none over a locked workspace, where the menu greys them.
+    @Test func theRowsMenuIsItsAccessibilityActions() throws {
+        var run = OperatorUIFixtures.run()
+        func actions(_ run: OperatorRun, locked: Bool = false) throws -> [String] {
+            var state = AppState()
+            state.runs = [run]
+            let row = try #require(SidebarModel.broadcastRow(state: state))
+            return BroadcastRowView.voiceOverActions(row, canChangeWorkspace: !locked).map(\.actionTitle)
+        }
+        #expect(try actions(run) == ["Rename", "Pause Broadcast", "End Broadcast"])
+        run.state = .paused
+        #expect(try actions(run) == ["Rename", "Resume Broadcast", "End Broadcast"])
+        run.state = .complete
+        #expect(try actions(run) == ["Rename", "End Broadcast"])
+        #expect(try actions(run, locked: true).isEmpty)
+    }
 }

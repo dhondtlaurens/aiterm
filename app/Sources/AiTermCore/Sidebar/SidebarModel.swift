@@ -414,7 +414,7 @@ public enum SidebarModel {
                            branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                            avatars: avatars(for: own), status: aggregate(own.map(\.state)),
                            diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                           broadcastLive: run.map { $0.state != .stopped && $0.intent != .stopped } ?? false)
+                           broadcastLive: run.map { !$0.hasEnded } ?? false)
         }
         let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the

@@ -215,7 +215,7 @@ final class OperatorController {
 
     var runs: [OperatorRun] { workspace.state.runs }
     /// The one broadcast not ended (spec §3): there is at most one, and while there is, no other starts.
-    var activeRun: OperatorRun? { runs.first { $0.state != .stopped && $0.intent != .stopped } }
+    var activeRun: OperatorRun? { workspace.state.activeRun }
     func run(id: UUID) -> OperatorRun? { workspace.state.run(id: id) }
     func folder(of run: UUID) -> URL { OperatorCommand.runFolder(run, home: ports.home) }
     func operatorTab(of run: UUID) -> SessionInfo? { Self.operatorTab(of: run, in: live.sessions) }

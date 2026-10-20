@@ -61,7 +61,7 @@ struct SidebarView: View {
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         OperatorHeading(controller: controller).selectionDisabled()
         if let broadcast = rows.broadcast {
-            BroadcastRowView(row: broadcast, run: rows.runs[broadcast.id], controller: controller).tag(broadcast.id)
+            BroadcastRowView(row: broadcast, controller: controller).tag(broadcast.id)
         }
     }
 

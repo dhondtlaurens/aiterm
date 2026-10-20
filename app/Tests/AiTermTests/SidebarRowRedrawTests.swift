@@ -102,6 +102,35 @@ import Testing
         }
     }
 
+    /// A change to the broadcast redraws its row alone: a request appearing or its progress showing
+    /// changes what the row draws; a change it draws nothing of, a decision recorded, redraws nothing.
+    @Test func aBroadcastChangeRedrawsOnlyItsRow() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil) }
+        let run = OperatorUIFixtures.run(windowId: nil)
+        sidebar.controller.workspace.mutate { $0.runs = [run] }
+        sidebar.settleRows { sidebar.list.numberOfRows == 14 && sidebar.counter.counts[run.id] != nil }
+
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.runs[0].questions = [OperatorUIFixtures.question("retry policy?")] }
+        sidebar.settleRows { sidebar.counter.counts[run.id] != nil }
+        #expect(sidebar.controller.rows.broadcast?.status == .needsInput)
+        #expect(Set(sidebar.counter.counts.keys) == [run.id], "a request: redrawn \(sidebar.counter.counts.count) rows")
+
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { $0.runs[0].firstPlanSize = 4 }
+        sidebar.settleRows { sidebar.counter.counts[run.id] != nil }
+        #expect(sidebar.controller.rows.broadcast?.progress == "0 of 0 done")
+        #expect(Set(sidebar.counter.counts.keys) == [run.id], "progress: redrawn \(sidebar.counter.counts.count) rows")
+
+        sidebar.counter.reset()
+        sidebar.controller.workspace.mutate { state in
+            state.runs[0].decisions = [OperatorDecision(key: "k", text: "Kept the subtitle.", task: nil, at: Date(), challenge: nil)]
+        }
+        sidebar.settleRows()
+        #expect(sidebar.counter.counts.isEmpty, "nothing the row draws: redrawn \(sidebar.counter.counts.count) rows")
+    }
+
     @Test func aMissingCheckoutRedrawsOnlyItsRow() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }

@@ -9,8 +9,9 @@ import AiTermCore
 /// closed reopens it behind the sheet (`AppController.openBroadcast`). Its menu: Rename…, Pause Broadcast
 /// or Resume Broadcast, End Broadcast….
 struct BroadcastRowView: View {
+    /// Everything the row draws, its menu included: an equatable value, so a change to the run it draws
+    /// nothing of (a decision recorded, a token) does not re-run this body.
     let row: BroadcastRow
-    let run: OperatorRun?
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
     #if DEBUG
@@ -51,13 +52,23 @@ struct BroadcastRowView: View {
         .accessibilityLabel(Self.label(row))
         .accessibilityValue(Self.spoken(row))
         .accessibilityHint(Text("Press Return to open the broadcast’s overview."))
-        .contextMenu {
-            if let run {
-                OperatorMenuButtons(items: OperatorMenus.broadcast(run), enabled: { _ in controller.canChangeWorkspace }) {
-                    controller.perform($0, on: run)
-                }
+        // The menu's items as VoiceOver actions, as a task's and a terminal's row offer theirs.
+        .accessibilityActions {
+            ForEach(Self.voiceOverActions(row, canChangeWorkspace: controller.canChangeWorkspace), id: \.self) { item in
+                Button(item.actionTitle) { controller.perform(item, onBroadcast: row.id) }
             }
         }
+        .contextMenu {
+            OperatorMenuButtons(items: OperatorMenus.broadcast(row), enabled: { _ in controller.canChangeWorkspace }) {
+                controller.perform($0, onBroadcast: row.id)
+            }
+        }
+    }
+
+    /// What VoiceOver offers: the menu's items, none while the workspace is locked, where the menu greys
+    /// them: an action cannot be greyed, only left out.
+    static func voiceOverActions(_ row: BroadcastRow, canChangeWorkspace: Bool) -> [OperatorMenuItem] {
+        canChangeWorkspace ? OperatorMenus.broadcast(row).filter { $0 != .separator } : []
     }
 
     /// What VoiceOver calls the row.

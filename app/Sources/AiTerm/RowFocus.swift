@@ -163,7 +163,7 @@ final class RowFocus {
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
         if state.project(id: id) != nil { return .project(id) }
-        if state.runs.contains(where: { $0.id == id && $0.state != .stopped }) { return .operation(id) }
+        if state.activeRun?.id == id { return .operation(id) }
         return nil
     }
 
@@ -305,7 +305,7 @@ final class RowFocus {
             browse(.task(task.id))
         } else if let terminal = state.terminals.first(where: { $0.windowId == windowId }) {
             browse(.terminal(terminal.id))
-        } else if let run = state.runs.first(where: { $0.operatorWindowId == windowId && $0.state != .stopped }) {
+        } else if let run = state.activeRun, run.operatorWindowId == windowId {
             browse(.operation(run.id))
         }
     }

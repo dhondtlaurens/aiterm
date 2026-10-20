@@ -243,8 +243,8 @@ while any request is open, spinning while something works, the idle ring while p
 on people, the accent dot once the debrief is ready. ↑ ↓ peek at the Operator's window, as on a task
 row; a click or ↩ opens the overview, and with the Operator's window closed reopens it behind the
 sheet. Its menu is Rename… (`NameSheet`), Pause Broadcast or Resume Broadcast, and End Broadcast…,
-which is not red: it asks with a blue default, since nothing is deleted. No Overview…, no ⌘I, no
-Interrupt Agents. Menus and buttons are Title Case, as everywhere. A driven task's avatars are its own
+which is not red: it asks with a blue default, since nothing is deleted; the same items are its
+VoiceOver actions. No Overview…, no ⌘I, no Interrupt Agents. Menus and buttons are Title Case, as everywhere. A driven task's avatars are its own
 agents, as any task's are; its third line is the Operator's status line, `OperatorBadge(line:)`, and
 its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
 task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a

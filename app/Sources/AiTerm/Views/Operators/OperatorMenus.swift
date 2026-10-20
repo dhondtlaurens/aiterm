@@ -25,6 +25,9 @@ enum OperatorMenuItem: Hashable {
         }
     }
 
+    /// The item as a VoiceOver action names it: its title without the menu's ellipsis.
+    var actionTitle: String { title.hasSuffix("…") ? String(title.dropLast()) : title }
+
     /// Drawn in the menu's destructive red: Stop Task…, which ends the task for its Operator. End
     /// Broadcast… is not: nothing is deleted, and its alert's default is blue (spec §13).
     var isDestructive: Bool { self == .stopTask }
@@ -38,10 +41,10 @@ enum OperatorMenus {
     /// The broadcast row's menu: Rename…; Pause Broadcast while it can run, Resume Broadcast while it is
     /// paused or its Operator's window is closed, neither once the debrief is ready; End Broadcast…. No
     /// Overview… (a click opens it) and no Interrupt Agents: an agent always finishes its turn (spec §9).
-    static func broadcast(_ run: OperatorRun) -> [OperatorMenuItem] {
-        if run.state == .complete { return [.rename, .separator, .endBroadcast] }
-        let paused = run.state == .paused || run.state == .operatorOffline || run.intent == .paused
-        return [.rename, .separator, paused ? .resume : .pause, .separator, .endBroadcast]
+    /// Read from the row (`BroadcastRow.isPaused`, `isComplete`), so the menu changes only with it.
+    static func broadcast(_ row: BroadcastRow) -> [OperatorMenuItem] {
+        if row.isComplete { return [.rename, .separator, .endBroadcast] }
+        return [.rename, .separator, row.isPaused ? .resume : .pause, .separator, .endBroadcast]
     }
 
     /// What a task row's menu leads with while the Operator drives the task: Take Over, or Hand Back

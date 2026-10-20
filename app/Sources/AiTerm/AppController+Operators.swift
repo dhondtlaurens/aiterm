@@ -61,7 +61,7 @@ extension AppController {
     /// The broadcast row's click or ↩ (`openBroadcast`), or a notification's click: its overview, over
     /// whatever sheet is up.
     func presentOverview(run id: UUID) {
-        guard state.runs.contains(where: { $0.id == id && $0.state != .stopped }) else { return }
+        guard state.activeRun?.id == id else { return }
         sheets.present(operatorSheet: .operationOverview(id))
     }
 
@@ -91,6 +91,12 @@ extension AppController {
         }
     }
 
+    /// The broadcast row's menu and its VoiceOver actions, on the broadcast as it is now.
+    func perform(_ item: OperatorMenuItem, onBroadcast id: UUID) {
+        guard let run = state.activeRun, run.id == id else { return }
+        perform(item, on: run)
+    }
+
     /// The broadcast row's menu.
     func perform(_ item: OperatorMenuItem, on run: OperatorRun) {
         switch item {
@@ -109,7 +115,7 @@ extension AppController {
     /// Returns the reopening, if one started.
     @discardableResult
     func openBroadcast(_ id: UUID) -> Task<Void, Never>? {
-        guard let run = state.runs.first(where: { $0.id == id && $0.state != .stopped }) else { return nil }
+        guard let run = state.activeRun, run.id == id else { return nil }
         let reopening: Task<Void, Never>?
         if run.operatorWindowId == nil {
             reopening = focus.select(.operation(id))
