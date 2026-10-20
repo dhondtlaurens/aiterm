@@ -95,10 +95,12 @@ import Testing
     }
 
     @Test func aSlowCritiqueIsPendingThenReadThenActedOn() async throws {
-        let (world, run) = try await makeWorld(runner: .answering("Too broad.", after: .milliseconds(300)), budget: .milliseconds(20))
+        let gate = OracleGate()
+        let (world, run) = try await makeWorld(runner: .answering("Too broad.", gate: gate), budget: .milliseconds(20))
         let first = await world.call(run.id, "submit_plan", ["revision": 1])
         #expect(first.value?["pending"] == true && first.value?["critique"] == .null)
         let id = try #require(first.value?["challengeId"]?.stringValue)
+        await gate.open()
         await world.controller.tools.lastChallenge?.value
         let read = await world.call(run.id, "submit_plan", ["revision": 1, "challengeId": .string(id)])
         #expect(read.value?["critique"] == "Too broad." && world.run(run.id)?.planRevision == 0)
@@ -109,13 +111,15 @@ import Testing
     /// The broadcast's line says `consulting the Oracle` while the Oracle runs, however long it outlasts the
     /// call that asked it, and the act ends when it answers.
     @Test func theOracleIsConsultedUntilItAnswers() async throws {
-        let (world, run) = try await makeWorld(runner: .answering("Too broad.", after: .milliseconds(300)), budget: .milliseconds(20))
+        let gate = OracleGate()
+        let (world, run) = try await makeWorld(runner: .answering("Too broad.", gate: gate), budget: .milliseconds(20))
         let first = await world.call(run.id, "submit_plan", ["revision": 1])
         #expect(first.value?["pending"] == true)
         #expect(world.controller.acting.broadcast(run.id)?.0 == .consultingTheOracle, "the call has ended; the Oracle has not")
         let line = OperatorLine.broadcast(try #require(world.run(run.id)), tasks: world.workspace.state.tasks(inRun: run.id),
                                           acting: world.controller.acting.broadcast(run.id), requests: [])
         #expect(line.text == "consulting the Oracle" && line.look == .acting && line.oracle && line.oracleAgent == .claude)
+        await gate.open()
         await world.controller.tools.lastChallenge?.value
         #expect(world.controller.acting == .none)
     }

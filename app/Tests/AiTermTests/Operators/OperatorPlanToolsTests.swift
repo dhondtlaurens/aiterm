@@ -133,11 +133,13 @@ import Testing
 
     /// The veto is not held to the reply budget: it answers pending, and the call again with its id acts on a yes.
     @Test func aPendingVetoThenAYesAppends() async throws {
-        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("YES", after: .milliseconds(300)), budget: .milliseconds(20))
+        let gate = OracleGate()
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("YES", gate: gate), budget: .milliseconds(20))
         _ = await create(world, run, "FREE")
         let first = await create(world, run, "PAST")
         #expect(first.value?["pending"] == true && operated(world, "PAST") == nil)
         let id = try #require(first.value?["challengeId"]?.stringValue)
+        await gate.open()
         await world.controller.tools.lastChallenge?.value
         let acted = await create(world, run, "PAST", challengeId: id)
         #expect(acted.value?["created"] == true && operated(world, "PAST")?.state == .planned)
@@ -146,11 +148,12 @@ import Testing
     }
 
     @Test func aPendingVetoThenANoRefuses() async throws {
-        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("NO\nNot in the brief.", after: .milliseconds(300)),
-                                                budget: .milliseconds(20))
+        let gate = OracleGate()
+        let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("NO\nNot in the brief.", gate: gate), budget: .milliseconds(20))
         _ = await create(world, run, "FREE")
         let id = try #require(await create(world, run, "PAST").value?["challengeId"]?.stringValue)
         #expect(await create(world, run, "PAST", challengeId: id).value?["pending"] == true, "still judging")
+        await gate.open()
         await world.controller.tools.lastChallenge?.value
         #expect(await create(world, run, "PAST", challengeId: id).message == "The Oracle judged this off-brief. AiTerm noted it for the debrief.")
         #expect(operated(world, "PAST") == nil && finds(world, run).map(\.why) == ["Not in the brief."])

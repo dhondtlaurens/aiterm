@@ -20,18 +20,9 @@ import Synchronization
         func append(_ prompt: String) { all.withLock { $0.append(prompt) } }
     }
 
-    /// A latch the test opens: an Oracle held by it is still judging until then, however long the test takes, and
-    /// one opened before it asks is not held at all.
-    actor Gate {
-        private var isOpen = false
-        private var held: [CheckedContinuation<Void, Never>] = []
-        func wait() async { if !isOpen { await withCheckedContinuation { held.append($0) } } }
-        func open() { isOpen = true; held.forEach { $0.resume() }; held = [] }
-    }
-
     /// An Oracle that answers `answer` once `gate` is open (at once with none), or fails when `answer` is nil,
     /// keeping each prompt.
-    static func oracle(_ answer: String?, gate: Gate? = nil, prompts: Prompts) -> SecondOpinionRunner {
+    static func oracle(_ answer: String?, gate: OracleGate? = nil, prompts: Prompts) -> SecondOpinionRunner {
         SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, _, _ in
             if let at = arguments.firstIndex(of: "-p"), at + 1 < arguments.count { prompts.append(arguments[at + 1]) }
             await gate?.wait()
@@ -44,7 +35,7 @@ import Synchronization
     /// A broadcast with the Oracle on and `slices` frozen, its Review and Done written, and one accepted task `A`
     /// ending in `end` on the branch of a repository with an origin.
     func merging(end: TaskEnd = .merge, slices: Slices = Slices(merge: true), review: String? = "Merge after Jan approves.",
-                 answer: String?, gate: Gate? = nil, budget: Duration = .seconds(60)) throws -> Merging {
+                 answer: String?, gate: OracleGate? = nil, budget: Duration = .seconds(60)) throws -> Merging {
         let fixture = try GitFixture.withOrigin(branch: "feat/a")
         let project = OperatorServiceFixtures.project(path: fixture.path)
         var profile = OperatorServiceFixtures.profile(oracle: true, oracleAgent: .claude)
@@ -103,7 +94,7 @@ import Synchronization
 
     /// An Oracle still judging when the reply is due answers pending; the call again with its id acts on the yes.
     @Test func aPendingVerdictIsCalledAgainWithItsId() async throws {
-        let gate = Gate()
+        let gate = OracleGate()
         let m = try merging(answer: "YES.", gate: gate, budget: .milliseconds(10))
         let first = await m.world.call(m.run.id, "finish_task", ["task": "A"])
         #expect(first.value?["pending"] == true)
@@ -149,7 +140,7 @@ import Synchronization
     static let acceptedAgain = "A was accepted again on another commit while the Oracle judged its merge: call finish_task again without challengeId."
 
     @Test func aReacceptWhileTheOracleJudgesWithinTheReplyIsRefused() async throws {
-        let gate = Gate()
+        let gate = OracleGate()
         let m = try merging(answer: "YES.", gate: gate)
         let call = Task { await m.world.call(m.run.id, "finish_task", ["task": "A"]) }
         #expect(await eventually(describing: "the Oracle asked") { m.prompts.list.count == 1 })
@@ -162,7 +153,7 @@ import Synchronization
     }
 
     @Test func aReacceptWhileTheOracleIsPendingIsRefused() async throws {
-        let gate = Gate()
+        let gate = OracleGate()
         let m = try merging(answer: "YES.", gate: gate, budget: .milliseconds(10))
         let first = await m.world.call(m.run.id, "finish_task", ["task": "A"])
         let id = try #require(first.value?["challengeId"]?.stringValue)

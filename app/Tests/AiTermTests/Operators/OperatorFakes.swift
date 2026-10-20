@@ -244,10 +244,20 @@ extension OperatorWorld {
     }
 }
 
+/// A latch the test opens: an Oracle held by it is still judging until then, however long the test takes, and one
+/// opened before it asks is not held at all. Use it, not a delay, to make an answer pending against the reply budget.
+actor OracleGate {
+    private var isOpen = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+    func wait() async { if !isOpen { await withCheckedContinuation { held.append($0) } } }
+    func open() { isOpen = true; held.forEach { $0.resume() }; held = [] }
+}
+
 extension SecondOpinionRunner {
-    /// A second opinion that answers `critique` after `delay`, as Claude's JSON result.
-    static func answering(_ critique: String, after delay: Duration = .zero) -> SecondOpinionRunner {
+    /// A second opinion that answers `critique` once `gate` is open (at once with none) and after `delay`, as Claude's JSON result.
+    static func answering(_ critique: String, after delay: Duration = .zero, gate: OracleGate? = nil) -> SecondOpinionRunner {
         SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, _, _, _, _ in
+            await gate?.wait()
             try? await Task.sleep(for: delay)
             let json = String(decoding: try JSONEncoder().encode(["result": critique]), as: UTF8.self)
             return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
