@@ -125,7 +125,7 @@ struct NewTaskSheet: View {
     /// Where the task opens: its new worktree, on steps 1 and 3 only — finding the unused slug
     /// looks at the disk. Nothing until the task has a name to make a worktree of.
     private var destination: Destination? {
-        guard Destination.isShown(onStep: step) else { return nil }
+        guard Destination.isShown(onStep: step, of: TaskCreation.steps) else { return nil }
         let slug = model.worktreeSlug
         guard !slug.isEmpty else { return nil }
         return .worktree(project: model.project, slug: slug, branch: model.draft.branchName.isEmpty ? "" : model.draft.branch)

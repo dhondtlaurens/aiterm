@@ -64,18 +64,20 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 | ⌘A | — | Edit › Select All claims it even on the list, where it is disabled, so Show Shelf took ⌘S. |
 | — | Shelve a task | Shelve Task is in the row's menu and Shelve is in the window-close question. |
 
-## New Task and New Review sheets
+## New Task, New Review and New Broadcast sheets
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. |
+| ⌘↩ | Whatever the primary button says | Continue on steps 1 and 2; on step 3 Create Task, Create Review, or Open in Task / Open in Review for a branch a task already has — the promise the keycaps on the button make. Before this it fired *create* from any step: a shortcut nothing on screen mentioned. New Broadcast has four steps: Continue on Broadcast (once it has a project), Prompt (once it says something) and Review, Start Broadcast on Done. |
 | ↩ | Nothing sheet-wide | It picks the highlighted result in an open dropdown, and inserts a newline in the prompt editor. It does not press the primary button. |
-| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; on the prompt step, the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
+| ⎋ | Close the open list, then go back | While a list is open, ⎋ belongs to it — in every other app that list is a window of its own, and closing the whole sheet is not what the key means there. New Review closes its merge-request list before its branch list; New Broadcast its Jira projects list before its projects list; on a prompt step (New Broadcast's Prompt, Review and Done), the completion popup is the list. It sits on a hidden button rather than on Cancel, so *clicking* Cancel still cancels. |
 
 ## A picker's list
 
-Every `SearchPicker` — the ticket, merge request, branch and Jira project fields — answers the
-same keys while its list is open (`DropdownKeys`), and hands every key back once it is closed.
+Every `SearchPicker` — the ticket, merge request, branch and Jira project fields — and New Broadcast's
+two `ChipsPicker`s, whose list opens as the field takes the keyboard, answer the same keys while the list is
+open (`DropdownKeys`), and hand every key back once it is closed. A pick in a `ChipsPicker` joins its chips,
+and the field stays for the next.
 
 | Keys | Action | Notes |
 |---|---|---|
@@ -87,8 +89,8 @@ same keys while its list is open (`DropdownKeys`), and hands every key back once
 
 | Keys | Action | Notes |
 |---|---|---|
-| / | Open | At the start of a word, for every agent. The list is the commands and skills that agent actually has installed, for this project. `$` opens nothing, so a price or `$HOME` in a prompt stays plain text. |
-| @ | Open | At the start of a word, so an address stays plain text. The list is the files git tracks in the project — what the task's worktree will have — and the folders that hold them; a folder that is not a checkout is walked instead (`ProjectFiles`). `@../`, `@~/` or `@/` lists that folder on disk instead, `@./` is the project's root. |
+| / | Open | At the start of a word, for every agent. The list is the commands and skills that agent actually has installed, for this project; in New Broadcast, Claude's and Codex's skills, from the home and each picked project. `$` opens nothing, so a price or `$HOME` in a prompt stays plain text. |
+| @ | Open | At the start of a word, so an address stays plain text. The list is the files git tracks in the project (in New Broadcast, the one picked project; across several it lists none) — what the task's worktree will have — and the folders that hold them; a folder that is not a checkout is walked instead (`ProjectFiles`). `@../`, `@~/` or `@/` lists that folder on disk instead, `@./` is the project's root. |
 | ↑ ↓ | Move | Wraps at both ends. |
 | ↩ | Accept | Replaces the typed token with the item as its agent runs it: `/bra` → `/brainstorming`. Codex runs a skill as a `$` mention, so for Codex `/imag` → `$imagegen`; its commands, `/prompts:<name>` among them, keep the `/` (`SkillCatalog.invocation`). A file is written as its `@` mention from the project's root, `@rea` → `@README.md`, the form Claude Code, Grok and PI attach a file by. A folder is written without the trailing space, `@ap` → `@app/`, and the list stays open on what is inside it. A pick outside the project is written as its absolute path, since `../` means somewhere else in the task's worktree under `.worktrees/`; one back inside it is written from the project's root. |
 | ⎋ | Close | Only the popup. Every other key, and every key when it is closed, reaches the text view as usual. |
@@ -117,13 +119,13 @@ finds none (`ArchiveSearch`).
 
 ## Every other sheet
 
-New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings, Jira projects, New operator, Edit operator,
-New operation and a broadcast's board.
+New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings, Jira projects, New operator, Edit operator
+and a broadcast's board.
 Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · Start Operation · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
+| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
 

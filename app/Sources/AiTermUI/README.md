@@ -193,7 +193,7 @@ vendor needs both.
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
-`NewOperationSheet`, `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
+`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
 `TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
@@ -261,8 +261,23 @@ standing still in the surface's ink under Reduce Motion and in the snapshots; ne
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
-broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`). `NewOperationSheet` uses
-`SheetLayout`, `SheetSubtitle` and `SheetFooter` like every other sheet.
+broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
+
+The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation
+frame's parts on four steps, Broadcast · Prompt · Review · Done, and no agent step (`CreationSteps.broadcast`):
+the shipped `StepBar`, its names not buttons; Continue on ⌘↩ through step 3, Back from step 2, Cancel on step 1,
+Start Broadcast on step 4, and a failed start the footer's `Notice` (`CreationFooter`). Step 1 is Name (an
+`Input`, optional), Jira projects and Projects, each a `ChipsPicker`: the picks as `PickChip`s (the service's
+mark at `Size.pickerRowLogo`, the name in `Typography.caption`, the ✕ in `Typography.micro` and
+`Palette.muted`, on `Palette.badge` at `Radius.chip`, `Size.chip` plus `Space.tight` tall), wrapping by
+`ChipFlow` `Space.tight` apart, then a search field taking the rest of the line, all in one `fieldBox` at least
+`Size.control` tall, its results a `DropdownList` hanging `Space.tight` under it. It needs one project, and
+picking a Jira project picks the projects linked to it. Prompt, Review and Done are one `PromptStep` each, the
+same editor at `PromptStep.editorHeight`, whose `/` lists Claude's and Codex's skills and `@` the files of the
+one picked project; under each its help in place of `CompletionHint`. Review's and Done's help say what the
+slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
+linked, and nothing is amber. No command preview: the Operator chooses each task's agent. The
+`DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 4. No new `Palette` or `Metrics` member.
 
 The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
 `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
@@ -300,13 +315,14 @@ with their why in `Typography.help` and `Palette.muted`; a list with nothing in 
 is Close and End Broadcast on ⌘↩, which asks nothing. A broadcast whose last task waits on a person keeps
 the board. No new `Palette` or `Metrics` member.
 
-**A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review), a
+**A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review, New Broadcast), a
 tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
 sheet does, never a path. Every sheet that opens a window ends its content with one
 `DestinationLine`, in one format: `Opens in iTerm2 · <project>/<worktree path in it> · <branch>` —
 the project alone for New terminal, `task “<title>”` in place of the path for a review that opens in
-the task that has its branch. New Task and New Review draw it on steps 1 and 3 (`Destination`),
-New terminal under its field; nothing else writes where a window opens.
+the task that has its branch, `the Operator’s window` alone for New Broadcast. New Task and New Review draw it
+on steps 1 and 3, New Broadcast on steps 1 and 4 (`CreationSteps.showsDestination`), New terminal under its
+field; nothing else writes where a window opens.
 Above it, on step 1 of New Task and New Review, the step's last field is `WorktreeIncludeToggle`
 when the project's `.worktreeinclude` selects files and a worktree will be made: “Copy files
 listed in .worktreeinclude”, a `.checkbox` `Toggle` in `Typography.body` as step 3's “Include Jira
@@ -315,7 +331,13 @@ disabled, otherwise — and for a review that opens in the task that has its bra
 
 `CreationSheet` is the frame New Task and New Review share — step bar, command preview, destination
 line, footer and its keys, the loads on appear — generic over the sheet's `CreationKind`; each
-sheet hands it values and keeps its own first step. A failed create shows its error as a sentence in
+sheet hands it values and keeps its own first step. A kind says how many steps it has and which one
+picks the agent (`stepCount`, 3, and `agentStep`, 2, by default), and `CreationSteps` decides the rest
+from those two in one place: the last step creates, the first has Cancel and every other Back, the
+destination line ends the first step and the last, the command preview and the missing-agent note
+belong to a sheet with an agent step, and every step past the first but the agent's is a prompt editor
+whose popup ⎋ closes. New Broadcast, which starts no agent of its own, draws the same parts from
+`CreationSteps.broadcast` around its own model, `CreationFooter` included. A failed create shows its error as a sentence in
 the footer — git's failure lines through `GitError.sentence`, as the banner has them — with git's
 whole output in the tooltip (`CreationFailure`). A review's branch git refused offers its fix at the
 footer's leading edge, in `SheetFooter`'s `status` slot: **Switch to main** when the branch is checked
@@ -423,8 +445,8 @@ again when chosen — a click or ↩, never the arrows; its hint and tooltip say
 except while the workspace cannot change, when choosing the row retries nothing. A row whose window is
 still coming back is drawn as it was.
 
-`CompletionHint` is the line `PromptStep` draws under the prompt editor, saying what `/` and `@`
-open — `/` the one trigger for every agent's commands and skills, a Codex skill picked there written
+`CompletionHint` is the line `PromptStep` draws under the prompt editor (unless the step hands its own
+help, as New Broadcast's three do), saying what `/` and `@` open — `/` the one trigger for every agent's commands and skills, a Codex skill picked there written
 as its `$` mention; `@` the project's files and folders, each row a `doc` or `folder` glyph and its
 path, truncated in the middle, with no source beside it.
 `SheetFooter` is the foot of every sheet — Cancel (or Back), a `SheetPrimaryButton` and optional

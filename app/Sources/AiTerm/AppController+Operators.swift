@@ -39,18 +39,17 @@ extension AppController {
 }
 
 extension AppController {
-    /// The OPERATOR heading's "+": New Broadcast…, on the New Operation sheet until New Broadcast (Task 16)
-    /// replaces it, started on Settings ›
-    /// Operator's profile, in the projects its prompt's tickets belong to and their Jira projects (New
-    /// Broadcast, Task 16, picks both). Started, the broadcast's row is selected; its window comes forward by
-    /// the operator controller's own start.
-    func presentNewOperation() {
+    /// The OPERATOR heading's "+": New Broadcast…, its help following Settings › Operator's slices as
+    /// they are now, the profile the broadcast freezes as it starts. Started, the broadcast's row is
+    /// selected; its window comes forward by the operator controller's own start.
+    func presentNewBroadcast() {
         guard canChangeWorkspace else { return }
-        let controller = operatorController, workspace = workspace
-        sheets.presentNewOperation { [weak self] prompt, done in
-            let projects = OperatorController.projects(for: prompt, in: workspace.state)
-            let id = try await controller.startBroadcast(name: nil, jiraProjectKeys: OperatorController.jiraKeys(of: projects, in: workspace.state),
-                                                         projectIds: projects, prompt: prompt, review: nil, done: done)
+        let controller = operatorController
+        let slices = controller.ports.profile?().slices ?? .none
+        sheets.presentNewBroadcast(slices: slices) { [weak self] request in
+            let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
+                                                         projectIds: request.projectIds, prompt: request.prompt,
+                                                         review: request.review, done: request.done)
             self?.focus.browse(.operation(id))
             return id
         }

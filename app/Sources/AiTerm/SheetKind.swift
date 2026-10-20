@@ -68,8 +68,8 @@ extension AppController {
         case backpack(BackpackSheetModel)
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.
         case archive(ArchiveSheetModel)
-        /// New Operation…: the prompt and when it is done, started on Settings › Operator's profile.
-        case newOperation(NewOperationModel)
+        /// New Broadcast…: its projects, prompt, review and done, started on Settings › Operator's profile.
+        case newBroadcast(NewBroadcastModel)
         /// The broadcast's board, and its debrief once every task is done: read live from the workspace,
         /// so it carries only the run's id.
         case broadcastBoard(UUID)
@@ -84,7 +84,7 @@ extension AppController {
             case .settings: return "settings"
             case .backpack: return "backpack"
             case .archive: return "archive"
-            case .newOperation(let model): return "operation-new-\(model.id)"
+            case .newBroadcast(let model): return "broadcast-new-\(model.id)"
             case .broadcastBoard(let id): return "board-\(id)"
             }
         }

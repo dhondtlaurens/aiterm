@@ -193,8 +193,9 @@ struct SheetFooter<Status: View>: View {
     }
 }
 
-/// The footer New Task and New Review share: the last failure, why no agent can run, and a
-/// `SheetFooter` — Back, or Cancel on the first step, and Continue or the create button. A failure
+/// The footer every creation sheet shares (New Task, New Review, New Broadcast): the last failure,
+/// why no agent can run, and a `SheetFooter` — Back, or Cancel on the first step, and Continue or
+/// the create button on the last (`CreationSteps`). A failure
 /// with a fix (`CreationFailure.recovery`) offers it at the leading edge, in the footer's `status`
 /// slot: a plain button with no key, since it moves a branch — ⌘↩ stays the create.
 ///
@@ -211,6 +212,8 @@ struct SheetFooter<Status: View>: View {
 /// it failed as the description.
 struct CreationFooter: View {
     let step: Int
+    /// How many steps there are and which picks the agent: New Task's and New Review's three unless told.
+    var steps = CreationSteps(count: 3, agentStep: 2)
     let error: CreationFailure?
     let availableAgents: Set<AgentKind>
     let createLabel: String
@@ -241,10 +244,10 @@ struct CreationFooter: View {
             case .proposal(let agent, let proposal)?: FixProposalBlock(agent: agent, proposal: proposal)
             case nil: EmptyView()
             }
-            if step == 3, availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
+            if steps.saysNoAgentCanRun(onStep: step), availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
                 Notice(title: note)
             }
-            SheetFooter(secondary: shown.buttons == .sheet ? (step == 1 ? "Cancel" : "Back") : "Cancel",
+            SheetFooter(secondary: shown.buttons == .sheet ? steps.secondaryTitle(onStep: step) : "Cancel",
                         primary: primaryTitle(shown.buttons),
                         canCancel: shown.buttons == .applying ? false : !creating,
                         canSubmit: canSubmit(shown.buttons),
@@ -293,17 +296,18 @@ struct CreationFooter: View {
     private func primaryTitle(_ buttons: FixFooterPresentation.Buttons) -> String {
         switch buttons {
         case .proposal, .applying: "Apply"
-        case .sheet, .looking: step == 3 ? createLabel : "Continue"
+        case .sheet, .looking: steps.primaryTitle(onStep: step, createLabel: createLabel)
         }
     }
 }
 
 /// 1 Task —— 2 Agent —— 3 Prompt, spread across the full width of the header: the connectors
-/// stretch, so the three steps sit at the left, middle and right rather than bunching up.
+/// stretch, so the steps sit evenly from the left edge to the right rather than bunching up. New
+/// Broadcast's four (Broadcast · Prompt · Review · Done) are drawn the same; no step name is a button.
 struct StepBar: View {
     let step: Int
-    /// New Task's first step names a ticket; New Review's names a branch. Everything else about
-    /// the bar is identical, so the names are the only thing that varies.
+    /// New Task's first step names a ticket; New Review's names a branch; New Broadcast has four.
+    /// Everything else about the bar is identical, so the names are the only thing that varies.
     let names: [String]
 
     var body: some View {

@@ -405,7 +405,7 @@ struct SidebarSheet: View {
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)
-                case .newOperation(let model): NewOperationSheet(model: model)
+                case .newBroadcast(let model): NewBroadcastSheet(model: model)
                 case .broadcastBoard(let id): BroadcastBoardHost(runId: id, controller: controller)
             }
         }

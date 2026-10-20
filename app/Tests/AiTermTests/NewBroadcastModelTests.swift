@@ -1,0 +1,187 @@
+import Foundation
+import Testing
+@testable import AiTermCore
+@testable import AiTerm
+@testable import AiTermTestSupport
+
+/// New Broadcast as a model (spec §3.1): the name, the Jira projects and the projects on step 1, the
+/// prompt, review and done on the next three, the help the slices decide, and Start Broadcast
+/// handing them to `OperatorController.startBroadcast`.
+@MainActor
+struct NewBroadcastModelTests {
+    private static let site = URL(string: "https://pauwels.atlassian.net")!
+    private let pay = JiraProjectRef(id: "10001", key: "PAY", name: "Payments", siteURL: Self.site)
+    private let shop = JiraProjectRef(id: "10002", key: "SHOP", name: "Webshop", siteURL: Self.site)
+
+    private func project(_ name: String, jira: [JiraProjectRef] = []) -> Project {
+        Project(id: UUID(), name: name, path: "/tmp/\(name)", provider: .gitlab, remoteUrl: nil, addedAt: Date(),
+                collapsed: false, jiraProjects: jira)
+    }
+
+    private func model(projects: [Project] = [], slices: Slices = .none,
+                       start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID = { _ in UUID() }) -> NewBroadcastModel {
+        NewBroadcastModel(projects: projects, slices: slices, start: start)
+    }
+
+    @Test func itNamesItsStepsAndWhereItOpens() {
+        #expect(NewBroadcastModel.title == "New broadcast")
+        #expect(NewBroadcastModel.stepNames == ["Broadcast", "Prompt", "Review", "Done"])
+        #expect(NewBroadcastModel.destination.text == "Opens in iTerm2 · the Operator’s window")
+        #expect(NewBroadcastModel.namePlaceholder == "Named by the Operator from the prompt")
+        #expect(NewBroadcastModel.nameHelp == "Optional.")
+        #expect(NewBroadcastModel.jiraProjectsHelp == "Where it reads tickets, and files them with the Jira slice on.")
+        #expect(NewBroadcastModel.projectsHelp == "The repositories it may work in. Picking a Jira project adds its linked projects.")
+        #expect(NewBroadcastModel.promptHelp == "What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files.")
+        #expect(NewBroadcastModel.reviewPlaceholder == "An adversarial review with /code-review, then fix what it finds")
+        #expect(NewBroadcastModel.donePlaceholder == "A draft MR per ticket")
+    }
+
+    @Test func needsAProjectAndAPrompt() async {
+        var started = 0
+        let webshop = project("webshop")
+        let sheet = model(projects: [webshop]) { _ in started += 1; return UUID() }
+        #expect(!sheet.canAdvance(step: 1), "no project yet")
+        sheet.add(project: webshop)
+        #expect(sheet.canAdvance(step: 1))
+        #expect(!sheet.canAdvance(step: 2), "no prompt yet")
+        sheet.prompt = "  \n "
+        #expect(!sheet.canAdvance(step: 2), "whitespace is no prompt")
+        #expect(!sheet.canStart)
+        #expect(await sheet.start() == nil)
+        #expect(started == 0)
+        sheet.prompt = "Implement PAY-230 to PAY-236"
+        #expect(sheet.canAdvance(step: 2) && sheet.canAdvance(step: 3) && sheet.canAdvance(step: 4))
+        #expect(sheet.canStart)
+        sheet.remove(project: webshop)
+        #expect(!sheet.canAdvance(step: 1) && !sheet.canStart, "the last project removed")
+    }
+
+    @Test func jiraProjectAddsItsLinkedProjects() {
+        let webshop = project("webshop", jira: [shop, pay]), api = project("payments-api", jira: [pay]), blog = project("blog")
+        let sheet = model(projects: [webshop, api, blog])
+        #expect(sheet.offeredJiraProjects == [shop, pay], "every linked Jira project, each once")
+        sheet.add(jiraProject: pay)
+        #expect(sheet.jiraProjects == [pay])
+        #expect(sheet.projects == [webshop, api], "in the sidebar's order")
+        sheet.add(jiraProject: shop)
+        #expect(sheet.jiraProjects == [pay, shop])
+        #expect(sheet.projects == [webshop, api], "a project already picked is not picked twice")
+        sheet.add(jiraProject: pay)
+        #expect(sheet.jiraProjects == [pay, shop])
+        sheet.remove(jiraProject: pay)
+        #expect(sheet.jiraProjects == [shop])
+        #expect(sheet.projects == [webshop, api], "removing a Jira project keeps the projects it added")
+        sheet.add(project: blog)
+        sheet.add(project: blog)
+        #expect(sheet.projects == [webshop, api, blog])
+        #expect(sheet.matchingProjects(query: "") == [], "nothing left to add")
+        sheet.remove(project: api)
+        #expect(sheet.matchingProjects(query: "pay") == [api])
+        #expect(sheet.matchingJiraProjects(query: "pay") == [pay])
+    }
+
+    @Test func helpFollowsTheSlices() {
+        let off = model(slices: .none), on = model(slices: Slices(jira: false, review: true, merge: true))
+        #expect(on.reviewHelp == "Who reviews each task and how. Optional. An agent review (“an adversarial review with /code-review”) needs no switch; involving people needs Review, which is on in Settings › Operator.")
+        #expect(off.reviewHelp == "Who reviews each task and how. Optional. An agent review needs no switch. Review is off in Settings › Operator, so the Operator won’t involve people: those tasks stop at their draft MR.")
+        #expect(on.doneHelp == "Where each task ends: a commit, a draft MR, or merged and when. Optional: left empty, each task ends at a draft MR.")
+        #expect(off.doneHelp == "Where each task ends. Optional: left empty, each task ends at a draft MR. Merge is off in Settings › Operator: each task ends at a commit or a draft MR, and a merge you ask for is left for you.")
+        let reviewOnly = model(slices: Slices(review: true))
+        #expect(reviewOnly.reviewHelp == on.reviewHelp && reviewOnly.doneHelp == off.doneHelp, "each help reads its own slice")
+        let copy = [on.reviewHelp, off.reviewHelp, on.doneHelp, off.doneHelp, NewBroadcastModel.promptHelp,
+                    NewBroadcastModel.projectsHelp, NewBroadcastModel.jiraProjectsHelp, NewBroadcastModel.destination.text]
+        for text in copy {
+            #expect(!text.contains("—"), "no em dash in \(text)")
+            #expect(!text.contains("'"), "the app's curly apostrophe in \(text)")
+        }
+    }
+
+    @Test func startHandsTheBroadcastToTheController() async {
+        var requests: [NewBroadcastModel.Request] = []
+        let id = UUID()
+        let webshop = project("webshop", jira: [pay]), api = project("payments-api")
+        let sheet = model(projects: [webshop, api]) { requests.append($0); return id }
+        sheet.add(jiraProject: pay)
+        sheet.add(project: api)
+        sheet.name = "   "
+        sheet.prompt = "  Implement PAY-230 to PAY-236\n"
+        sheet.review = "Assign Jan. "
+        sheet.done = " \n"
+        #expect(await sheet.start() == id)
+        #expect(requests == [NewBroadcastModel.Request(name: nil, jiraProjectKeys: ["PAY"], projectIds: [webshop.id, api.id],
+                                                         prompt: "Implement PAY-230 to PAY-236", review: "Assign Jan.", done: nil)])
+        sheet.name = " Checkout redesign "
+        _ = await sheet.start()
+        #expect(requests.last?.name == "Checkout redesign")
+    }
+
+    @Test func aStartThatFailsSaysWhyInTheFooterAndCanBeTriedAgain() async {
+        struct Refused: LocalizedError { var errorDescription: String? { "One broadcast at a time." } }
+        let webshop = project("webshop")
+        let sheet = model(projects: [webshop]) { _ in throw Refused() }
+        sheet.add(project: webshop)
+        sheet.prompt = "PAY-230"
+        #expect(await sheet.start() == nil)
+        #expect(sheet.error?.reason == "One broadcast at a time.")
+        #expect(!sheet.starting && sheet.canStart)
+    }
+
+    /// A start held open: a second press, or ⌘↩ while it is in flight, must not start a second broadcast.
+    @Test func aSecondPressWhileAStartIsInFlightStartsNothingMore() async {
+        var calls = 0
+        var release: CheckedContinuation<Void, Never>?
+        let (entered, signal) = AsyncStream<Void>.makeStream()
+        var enteredStarts = entered.makeAsyncIterator()
+        let id = UUID(), webshop = project("webshop")
+        let sheet = model(projects: [webshop]) { _ in
+            calls += 1
+            signal.yield()
+            await withCheckedContinuation { release = $0 }
+            return id
+        }
+        sheet.add(project: webshop)
+        sheet.prompt = "PAY-230"
+        let first = Task { await sheet.start() }
+        await enteredStarts.next()
+        #expect(sheet.starting && !sheet.canStart && !sheet.canAdvance(step: 4))
+        #expect(await sheet.start() == nil, "pressed again while the first is in flight")
+        #expect(calls == 1)
+        release?.resume()
+        #expect(await first.value == id)
+        #expect(calls == 1 && !sheet.starting)
+    }
+
+    /// The OPERATOR heading's "+" opens it on the sidebar's projects, and on nothing while the workspace can't change.
+    @Test func theHeadingsPlusOpensIt() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let controller = AppController(store: StateStore(url: dir.appendingPathComponent("state.json")), preferences: .scratch())
+        try controller.loadWorkspace()
+        let webshop = project("webshop", jira: [pay])
+        controller.workspace.mutate { $0.items = [.project(webshop)] }
+        controller.presentNewBroadcast()
+        guard case .newBroadcast(let sheet)? = controller.sheet else { Issue.record("no New Broadcast sheet"); return }
+        #expect(sheet.offeredProjects == [webshop])
+        #expect(sheet.offeredJiraProjects == [pay])
+        #expect(controller.sheet?.id == "broadcast-new-\(sheet.id)")
+    }
+
+    /// `/` lists both agents' skills, each once, from the picked projects as well as the home.
+    @Test func slashListsBothAgentsSkills() async {
+        let webshop = project("webshop")
+        let path = webshop.path
+        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, skills: { agent, at in
+            @Sendable func skill(_ name: String) -> AgentCompletion { AgentCompletion(name: name, kind: .skill, detail: nil, source: .user) }
+            return switch agent {
+            case .claude: [skill("superpowers:brainstorming"), skill("code-review")] + (at == path ? [skill("deploy")] : [])
+            case .codex: [skill("code-review"), skill("imagegen")]
+            default: [skill("never")]
+            }
+        }, start: { _ in UUID() })
+        await sheet.loadCompletions()
+        #expect(sheet.completions.all.map(\.name) == ["superpowers:brainstorming", "code-review", "imagegen"])
+        sheet.add(project: webshop)
+        await sheet.loadCompletions()
+        #expect(sheet.completions.all.map(\.name) == ["superpowers:brainstorming", "code-review", "deploy", "imagegen"])
+    }
+}

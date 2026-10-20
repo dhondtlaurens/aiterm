@@ -135,11 +135,12 @@ enum OperatorSnapshots {
             Snapshot("operators-done.png") { sidebar(OperatorScene.done()) },
             Snapshot("operator-task-rows.png") { taskRows() },
             Snapshot("operator-marks.png") { marks() },
+            // New Broadcast's first step, under the name Task 18 renames with the rest of the set.
             Snapshot("new-operation.png") {
-                let model = NewOperationModel { _, _ in UUID() }
-                model.prompt = "PLUTO-231 newsletter signup block in Storyblok\nPLUTO-232 show it on the homepage, needs 231\nthe footer link to /privacy is broken\nbump nuxt to the latest patch"
-                model.done = OperatorScene.done
-                return NewOperationSheet(model: model)
+                let scene = OperatorScene()
+                let model = NewBroadcastModel(projects: [scene.cms, scene.web], slices: .none, skills: { _, _ in [] }) { _ in UUID() }
+                model.add(project: scene.cms)
+                return NewBroadcastSheet(model: model)
             },
             Snapshot("overview-plan.png") { overview(OperatorScene.planWaiting()) },
             Snapshot("overview-working.png") { overview(OperatorScene.atWork()) },

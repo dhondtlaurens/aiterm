@@ -18,7 +18,7 @@ struct OperatorHeading: View {
             Spacer()
             if Self.offersNewBroadcast(controller.rows.broadcast) {
                 AddMenu(help: "New broadcast", enabled: controller.canChangeWorkspace) {
-                    OperatorMenuButtons(items: OperatorMenus.headingPlus) { _ in controller.presentNewOperation() }
+                    OperatorMenuButtons(items: OperatorMenus.headingPlus) { _ in controller.presentNewBroadcast() }
                 }
             }
         }

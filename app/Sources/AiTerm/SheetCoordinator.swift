@@ -142,15 +142,20 @@ final class SheetCoordinator {
         }
     }
 
-    /// New Operation…: the broadcast starts on Settings › Operator's profile, which the operator
-    /// controller reads as it starts (`startBroadcast`). Not over another sheet.
-    func presentNewOperation(start: @escaping @MainActor (String, String?) async throws -> UUID) {
+    /// New Broadcast…, on the sidebar's projects, its Review and Done help following `slices`: Settings ›
+    /// Operator's as the sheet opens, the profile the operator controller freezes as it starts the
+    /// broadcast (`startBroadcast`). `/` lists both agents' skills from the person's home; `@` the files
+    /// git tracks in the one picked project. Not over another sheet.
+    func presentNewBroadcast(slices: Slices, start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
-        sheet = .newOperation(NewOperationModel(start: start))
+        let home = harnessHome, git = self.git
+        sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, slices: slices,
+                                                skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home) },
+                                                files: { ProjectFiles.list(in: $0, git: git) }, start: start))
     }
 
-    /// An operation's overview, built by its caller, put in the slot at once (New Operation is built here, `presentNewOperation`).
+    /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).
     func present(operatorSheet kind: SheetKind) {
         present(kind)
     }
