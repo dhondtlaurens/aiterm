@@ -383,7 +383,8 @@ final class BackpackController {
     #if DEBUG
     /// Snapshots draw a state without turning anything on.
     func preview(state: BackpackState, setup: BackpackSetup, transition: BackpackTransition? = nil,
-                 phase: ConnectPhase? = nil, busy: Bool = false) {
+                 phase: ConnectPhase? = nil, busy: Bool = false, pushFailure: String? = nil) {
+        self.pushFailure = pushFailure
         self.state = state
         self.busy = busy
         self.setup = setup

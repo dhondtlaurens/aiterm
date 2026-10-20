@@ -290,6 +290,22 @@ failed join dropped; during one the attempt under way finishes, but no retry fol
 `disablesleep 0` succeeds: a failed restore is retried on every check, a launch that finds the
 marker puts sleep back, and quit closes the mode first, so no turn-on can follow it.
 
+While on, the check also pushes to the iPhone paired with iTerm2 (iTerm2 Buddy) through the helper's
+`companion.notify` — iTerm2 3.7.5's `iterm2.send_companion_notification` builtin, which `it2 notify`
+calls too. The sheet's Notifies chooses what: a row moving to needs input, to needs input or done, or
+never (`backpack.pushes`, remembered). Only with the lid shut and the Mac on the hotspot, and only for
+a row that *moves* into a chosen status: a task or terminal row as the sidebar draws it, or the
+broadcast's row for what moves no task row — the Operator's question, a blocked task, a problem — and
+its debrief. `BackpackPushQueue` holds the first waiting row 30 s, then sends every row still waiting
+in one push; it sends at most one push per 5 minutes, and never the same row and status twice within
+15 minutes (one asking again sooner goes once they have passed). The mode ending itself sends what
+still waits before the Mac sleeps; opening the lid or turning the mode off starts it over. A push is
+titled "AiTerm" and names the agent, or counts the rows: never a project, a task, a branch, a path or
+what an agent asks, as iTerm2 hands it to its push relay and to Apple as plain text and it lands on a
+lock screen. One that does not go out is not retried; the next sheet's Notifies says why. The push
+signals "come back": a tab waiting on input is not work, so with "When agents stop" the mode still
+ends 2 minutes after the last working tab.
+
 Every request the app makes goes through `DaemonCommands`. `DaemonClient` sends it over the
 socket; the app's tests record it in process instead.
 
@@ -332,6 +348,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
 | `operator.register` / `operator.revoke` | open and close `/operator` to a broadcast's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
+| `companion.notify` | Backpack Mode's push to the iPhone paired with iTerm2: iTerm2 3.7.5's `iterm2.send_companion_notification` builtin in app context, as `it2 notify` calls it, each argument a JSON string, iTerm2 given 8 s. `{sent, reason}`: the reason in iTerm2's words (no paired phone, notifications off in Buddy, the relay refusing), or "Pushes need iTerm2 3.7.5 or later." |
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
 Malformed parameters are answered with `bad_params`, an iTerm2 call that fails or runs out of
@@ -409,8 +426,8 @@ each move into it the first time it is missing. Settings' Save still checks ever
 writes and puts back what it wrote when the Keychain refuses one.
 
 **Backpack Mode** — `/etc/sudoers.d/aiterm`, only once the Mac card's Allow… is pressed, and
-removed by its Remove; the hotspot's name and the crash marker in UserDefaults
-(`backpack.network`, `backpack.engaged`).
+removed by its Remove; the hotspot's name, Notifies' choice and the crash marker in UserDefaults
+(`backpack.network`, `backpack.pushes`, `backpack.engaged`).
 
 **Its own state** — `~/Library/Application Support/AiTerm/state.json` — projects, tasks,
 terminals, the Shelf (`AppState.archive`: each shelved task or review with when it went, written
