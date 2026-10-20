@@ -93,6 +93,10 @@ import Testing
             case .windowCreateTask, .windowCreateTerminal: #expect(try read(DaemonClient.WindowResult.self).windowId == field("windowId") as? String)
             case .tabCreate: #expect(try read(DaemonClient.SessionResult.self).sessionId == field("sessionId") as? String)
             case .sessionsSetTitles, .sessionsMarkSeen: #expect(try read(DaemonClient.ChangedResult.self).changed == field("changed") as? Int)
+            case .companionNotify:
+                let push = try read(CompanionPushResult.self)
+                #expect(try push.sent == field("sent") as? Bool)
+                #expect(try push.reason == field("reason") as? String)
             case .workspaceSnapshot: try Self.expectSame(read(DaemonSnapshot.self), #require(result["result"] as? [String: Any]))
             // ctl's: read as the models the app shares with it.
             case .sessionsList: try Self.expectSame(read([SessionInfo].self), #require(result["result"]))

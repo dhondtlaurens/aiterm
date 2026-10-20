@@ -45,6 +45,8 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     case operatorRevoke = "operator.revoke"
     /// AiTerm's answer to an `operator.request`.
     case operatorReply = "operator.reply"
+    /// A push to the iPhone paired with iTerm2, through iTerm2's own builtin: Backpack Mode's.
+    case companionNotify = "companion.notify"
 }
 
 /// An event the daemon broadcasts. A name not among these is a newer helper's and arrives as

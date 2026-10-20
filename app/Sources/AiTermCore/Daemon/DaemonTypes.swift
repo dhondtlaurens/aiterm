@@ -158,6 +158,14 @@ public struct Delivery: Codable, Equatable, Sendable {
     public init(result: DeliveryOutcome, reason: String?) { self.result = result; self.reason = reason }
 }
 
+/// A push to the paired iPhone (`companion.notify`): sent — handed to iTerm2's push relay — or, when
+/// not, why, in iTerm2's words where it gave them.
+public struct CompanionPushResult: Codable, Equatable, Sendable {
+    public var sent: Bool
+    public var reason: String?
+    public init(sent: Bool, reason: String?) { self.sent = sent; self.reason = reason }
+}
+
 /// The prompt a session has open, as the daemon's screen markers classify it.
 /// A kind a newer daemon names that this app does not decodes as `.menu`: a prompt is open, never
 /// "none", which would read as safe to type. (A JSON null kind is still nil, at `DaemonClient.PromptResult`.)
