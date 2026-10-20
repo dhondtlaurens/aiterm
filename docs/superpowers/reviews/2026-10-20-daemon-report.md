@@ -21,7 +21,7 @@ For pure refactors, reuse direct resolution within a hook, rank registry session
 
 ## Decisions and validation
 
-Pending implementation and test results.
+Implementation and observed test results follow.
 
 ### Increment 1: lifecycle and malformed input
 

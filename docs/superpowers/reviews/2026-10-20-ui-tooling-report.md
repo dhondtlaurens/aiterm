@@ -14,7 +14,7 @@ Tooling evidence: toolchain guard ignores SWIFT for the good compiler; test.sh's
 
 ## Validation
 
-Pending regression red/green evidence and focused UI suite.
+Regression evidence and focused UI verification follow.
 
 ### Tooling regression evidence
 

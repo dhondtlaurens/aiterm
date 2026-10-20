@@ -22,35 +22,35 @@ Stay in this worktree. No push, merge, publishing or live-service mutation. Use 
 ### Task 1: Daemon lifecycle and parsing
 **Files:** `daemon/aitermd/{service,claude_tokens,claude_sessions,hook_events,models,connection,sessions,resolver,hook_router,hooks_server,codex_sessions}.py`, corresponding tests; new internal JSONL helper only if extraction preserves reader semantics.
 **Interfaces:** Preserve RPC and hook schemas, ItermPort, SessionRegistry public behavior. No Swift changes.
-- [ ] Record audit evidence and a focused task design before implementation.
-- [ ] Add regressions for stale Codex thread reads, unreadable transcript retry, no-owner cache release, invalid metadata shapes, long auth failure streak and HTTP shutdown.
-- [ ] Run `scripts/test.sh daemon`; confirm new regressions fail for the diagnosed reasons.
-- [ ] Fix ownership/parsing at their boundaries; replace repeated ranking/scanning with indexed or reused results. Share incremental reading mechanics where semantics agree; do not unify differing shim lifetimes.
-- [ ] Run `scripts/test.sh daemon` to green, inspect diff, commit coherent increments.
-- [ ] Report exact commands, counts, decisions and any residual findings for independent review.
+- [x] Record audit evidence and a focused task design before implementation.
+- [x] Add regressions for stale Codex thread reads, unreadable transcript retry, no-owner cache release, invalid metadata shapes, long auth failure streak and HTTP shutdown.
+- [x] Run `scripts/test.sh daemon`; confirm new regressions fail for the diagnosed reasons.
+- [x] Fix ownership/parsing at their boundaries; replace repeated ranking/scanning with indexed or reused results. Share incremental reading mechanics where semantics agree; do not unify differing shim lifetimes.
+- [x] Run `scripts/test.sh daemon` to green, inspect diff, commit coherent increments.
+- [x] Report exact commands, counts, decisions and any residual findings for independent review.
 
 ### Task 2: Swift lifecycle, scheduling and dead code
 **Files:** `app/Sources/AiTerm/ReviewThreadsWatcher.swift`, `Operators/OperatorWaker.swift`; `app/Sources/AiTermCore/{Fix/AgentProcess.swift,Operators/RunScheduler.swift,Sidebar/SidebarModel.swift,Daemon/JSONValue.swift}` and corresponding tests. Other core findings require evidence and a recorded task-design addition.
 **Interfaces:** Preserve watcher accessors, operator delivery semantics, scheduler results and process cancellation result types. No UI primitive or script edits.
-- [ ] Record detailed audit and chosen implementation design.
-- [ ] Add gated regressions for overlapping watcher reads/stop, acknowledgment during operator delivery, and cancelled process cleanup.
-- [ ] Run filtered tests with `scripts/test.sh swift -- --filter ...`; confirm diagnosed failures.
-- [ ] Give reads and wake deliveries explicit generation ownership; prevent cancelled sleeps from spinning; build scheduler indexes once per pass; delete helpers only after source/test reference checks.
-- [ ] Run affected Swift tests, commit coherent increments, report validation and decisions.
+- [x] Record detailed audit and chosen implementation design.
+- [x] Add gated regressions for overlapping watcher reads/stop, acknowledgment during operator delivery, and cancelled process cleanup.
+- [x] Run filtered tests with `scripts/test.sh swift -- --filter ...`; confirm diagnosed failures.
+- [x] Give reads and wake deliveries explicit generation ownership; prevent cancelled sleeps from spinning; build scheduler indexes once per pass; delete helpers only after source/test reference checks.
+- [x] Run affected Swift tests, commit coherent increments, report validation and decisions.
 
 ### Task 3: UI and tooling consolidation
 **Files:** `app/Sources/AiTermUI/{Input,SearchField,Logos}.swift`, UI test files and shared test support; `scripts/{test,test-swift-toolchain,test-app-bundle}.sh`, `scripts/README.md`.
 **Interfaces:** Keep public UI initializers/appearance. Shared editing behavior must cover both Input and SearchField without obscuring secure-field differences. Tool wrappers retain CLI compatibility.
-- [ ] Record focused design and audit coverage.
-- [ ] Add SearchField undo-binding and logo winding identity regressions, verify failure through scripts/test.sh.
-- [ ] Extract shared field synchronization and correct image identity; remove demonstrated duplicated utilities without broad test churn.
-- [ ] Make toolchain/interpreter validation respect configured executables; remove dead exact-count argument and reject zero tests with a fixture-based guard test.
-- [ ] Read dependency pins from pyproject for bundle checks and compare bundled hook resources; update inaccurate tooling documentation.
-- [ ] Run affected tests, commit coherent increments, report decisions and validation. Design-system sync stays local under user's no-publish constraint.
+- [x] Record focused design and audit coverage.
+- [x] Add SearchField undo-binding and logo winding identity regressions, verify failure through scripts/test.sh.
+- [x] Extract shared field synchronization and correct image identity; remove demonstrated duplicated utilities without broad test churn.
+- [x] Make toolchain/interpreter validation respect configured executables; remove dead exact-count argument and reject zero tests with a fixture-based guard test.
+- [x] Read dependency pins from pyproject for bundle checks and compare bundled hook resources; update inaccurate tooling documentation.
+- [x] Run affected tests, commit coherent increments, report decisions and validation. Design-system sync stays local under user's no-publish constraint.
 
 ### Task 4: Integration, review and handoff
 **Files:** audit record under `docs/superpowers/`, this plan and ledger.
-- [ ] Account for every production source area in audit coverage; distinguish inspected code from tests only inventoried.
+- [x] Account for every production source area in audit coverage; distinguish inspected code from tests only inventoried.
 - [ ] Run `scripts/test.sh all` and release build via `scripts/swift.sh build --package-path app -c release`; inspect output.
 - [ ] Independent whole-branch review against `bb5fafd`, resolve material findings with focused regression tests and rerun affected suites.
 - [ ] Use finishing-a-development-branch, choose already-authorized keep-as-is, commit audit results and leave a clean worktree.
