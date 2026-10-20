@@ -1,5 +1,6 @@
 import Foundation
 import AiTermCore
+import os
 
 /// A turn-on or turn-off under way, which the header draws as a spinner.
 enum BackpackTransition: Equatable { case turningOn, turningOff }
@@ -39,6 +40,16 @@ final class BackpackController {
     private(set) var phase: ConnectPhase?
     /// The Wi-Fi network the Mac is on, as last read: for the desk tooltip.
     private(set) var currentNetwork: String?
+    /// Why the last push to the iPhone did not go out, as a person reads it, until one does: the
+    /// Backpack sheet's Notifies says so on the next trip. Not kept across launches.
+    private(set) var pushFailure: String?
+    /// Every row as a push reads it, read on each check: the app's rows (`AppController.pushRows`).
+    @ObservationIgnored var pushRows: @MainActor () -> [PushRow] = { [] }
+    /// Sends a push to the iPhone paired with iTerm2: nil once it is out, else why not.
+    @ObservationIgnored var sendPush: @MainActor (BackpackPush) async -> String? = { _ in nil }
+    /// When a push goes: fed each check while the mode is on, and started over with every trip.
+    @ObservationIgnored private var pushQueue = BackpackPushQueue()
+    @ObservationIgnored private let now: @Sendable () -> Date
 
     @ObservationIgnored private let mode: BackpackMode
     @ObservationIgnored private let ports: BackpackPorts
@@ -70,6 +81,7 @@ final class BackpackController {
          toast: @escaping @MainActor (String) -> Void) {
         self.openLocationSettings = openLocationSettings
         self.ports = ports
+        self.now = now
         mode = BackpackMode(ports: ports, settings: settings, now: now)
         self.tickInterval = tickInterval
         self.retryDelays = retryDelays
@@ -99,6 +111,12 @@ final class BackpackController {
     /// Writes the password to the Keychain; false when it refused.
     func setPassword(_ value: String) -> Bool { mode.settings.setPassword(value) }
 
+    /// Notifies: what reaches the iPhone while the lid is shut, as last saved.
+    var pushes: BackpackPushes {
+        get { mode.settings.pushes }
+        set { mode.settings.pushes = newValue }
+    }
+
     /// The saved password, read off the main actor: the sheet fills its field with it, as if typed.
     func savedPassword() async -> String? {
         let settings = mode.settings
@@ -110,10 +128,12 @@ final class BackpackController {
 
     /// The sheet's Connect: saves the hotspot (and a typed password), then turns on, retrying a
     /// hotspot that isn't showing on `retryDelays` until it shows, a final refusal, Cancel, quit or
-    /// the sheet closing (`finishWithoutSheet()`). `until` is the sheet's Turns off.
-    func connect(network: String, password: String?, until: BackpackUntil = .agentsStop) async {
+    /// the sheet closing (`finishWithoutSheet()`). `until` is the sheet's Turns off; `pushes`, its
+    /// Notifies, saved with the hotspot when given.
+    func connect(network: String, password: String?, until: BackpackUntil = .agentsStop, pushes: BackpackPushes? = nil) async {
         guard !busy, !isOn else { return }
         self.network = network
+        if let pushes { self.pushes = pushes }
         if let password, !password.isEmpty, !setPassword(password) { phase = .keychainRefused; return }
         busy = true
         transition = .turningOn
@@ -142,6 +162,7 @@ final class BackpackController {
                 setup = BackpackSetup(sleepRule: true, location: true, network: status.network)
                 currentNetwork = status.network
                 phase = .safe
+                pushQueue.reset()
                 startTicking()
                 return
             case .failure(.notInRange):
@@ -198,6 +219,7 @@ final class BackpackController {
         transition = .turningOff
         defer { busy = false; transition = nil }
         ticking?.cancel()
+        pushQueue.reset()
         let mode = self.mode, wifi = ports.wifi, hotspot = network ?? ""
         joinedHotspot = false
         let (restored, current) = await worker.run { () -> (Bool, String?) in
@@ -219,6 +241,7 @@ final class BackpackController {
     /// `turnOff()`.
     private func undoWhileBusy(leaving hotspot: String) async {
         transition = .turningOff
+        pushQueue.reset()
         let mode = self.mode, wifi = ports.wifi, leave = joinedHotspot
         joinedHotspot = false
         let (restored, current) = await worker.run { () -> (Bool, String?) in
@@ -278,13 +301,18 @@ final class BackpackController {
         return await ThreadWork.run { wifi.networksInRange().filter { !$0.isEmpty } }
     }
 
-    /// The 5 s check: the cutoff, the work, and the network.
+    /// The 5 s check: the cutoff, the work, the network, then the pushes.
     func tick() async {
         let mode = self.mode, working = agentsWorking()
         let outcome: BackpackTick? = await worker.run { mode.tick(agentsWorking: working) }
         state = mode.state
         if case .on(let status) = state { power = status.power }
-        guard case .ended? = outcome else { return }
+        guard case .ended? = outcome else {
+            await checkPushes()
+            return
+        }
+        // Ended itself: a push still waiting goes now, before the Mac is put to sleep.
+        if let push = pushQueue.flush(pushRows(), at: now()) { await send(push) }
         let restored = !mode.settings.engaged
         if !restored { toast(Self.restoreFailed) }
         phase = nil
@@ -343,6 +371,7 @@ final class BackpackController {
     /// still on its way finds the mode closed, so AiTerm never exits leaving lid sleep disabled.
     func shutdown() {
         ticking?.cancel()
+        pushQueue.reset()
         cancelled = true
         retryWait?.cancel()
         let mode = self.mode
@@ -370,6 +399,31 @@ final class BackpackController {
         setup = fresh.0
         power = fresh.1
         currentNetwork = fresh.2
+    }
+
+    /// The pushes' part of a check, while the mode is on and the Mac on the hotspot: off it a push
+    /// could not go out, and none is retried, so what moves meanwhile is noticed once it is back. The
+    /// lid not open is the person away.
+    private func checkPushes() async {
+        guard case .on(let status) = state else {
+            pushQueue.reset()
+            return
+        }
+        guard status.joined,
+              let push = pushQueue.check(pushRows(), away: ports.lidSensor.isClosed() != false, pushes: pushes, at: now())
+        else { return }
+        await send(push)
+    }
+
+    /// Sends one push and keeps how it went. Its words name an agent at most, so the log may hold them.
+    private func send(_ push: BackpackPush) async {
+        let failure = await sendPush(push)
+        pushFailure = failure
+        if let failure {
+            Log.backpack.error("Couldn’t push “\(push.body, privacy: .public)” to the iPhone: \(failure, privacy: .public)")
+        } else {
+            Log.backpack.info("Pushed “\(push.body, privacy: .public)” to the iPhone")
+        }
     }
 
     private func startTicking() {

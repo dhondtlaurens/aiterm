@@ -534,4 +534,174 @@ import Testing
         fake.settings.password = "saved"
         #expect(await controller(fake).savedPassword() == "saved")
     }
+
+    // MARK: Pushes to the iPhone
+
+    /// The rows the pushes read, what was sent and what the sends answer: nil sent, else why not.
+    final class Pushes {
+        var rows: [PushRow] = []
+        var sent: [BackpackPush] = []
+        var failure: String?
+        /// Whether any agent works: the mode's reason to stay on.
+        var working = true
+        /// How many times the Mac had been asked to sleep as each push went.
+        var sleepsAtSend: [Int] = []
+    }
+
+    /// A clock the test moves, from `start`.
+    final class Clock: Sendable {
+        let start = Date(timeIntervalSince1970: 1_000)
+        private let current = Mutex(Date(timeIntervalSince1970: 1_000))
+        var now: Date { current.withLock { $0 } }
+        func at(_ seconds: TimeInterval) { current.withLock { $0 = start.addingTimeInterval(seconds) } }
+    }
+
+    private func pushing(_ fake: FakeBackpack, _ pushes: Pushes, clock: Clock) -> BackpackController {
+        let backpack = controller(fake, working: { pushes.working }, now: { clock.now })
+        let lid = fake.lid
+        backpack.pushRows = { pushes.rows }
+        backpack.sendPush = { push in
+            pushes.sleepsAtSend.append(lid.sleeps)
+            pushes.sent.append(push)
+            return pushes.failure
+        }
+        return backpack
+    }
+
+    private static func row(_ id: UUID, _ status: TaskStatus, _ agent: AgentKind = .claude) -> PushRow {
+        PushRow(id: .task(id), status: status, agent: agent)
+    }
+
+    /// On, the lid shut: a row that starts waiting is pushed once it has held 30 s.
+    @Test func aRowThatStartsWaitingWithTheLidShutIsPushed() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        #expect(pushes.sent.isEmpty, "it holds first")
+        clock.at(BackpackPushQueue.hold)
+        await backpack.tick()
+        #expect(pushes.sent == [BackpackPush(needsInput: [.claude], done: [])])
+        #expect(backpack.pushFailure == nil)
+    }
+
+    /// The person is at the Mac.
+    @Test func nothingIsPushedWithTheLidOpen() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        clock.at(BackpackPushQueue.hold)
+        await backpack.tick()
+        #expect(pushes.sent.isEmpty)
+    }
+
+    /// The sheet says why the last push did not go out, until one does.
+    @Test func aFailedPushIsKeptUntilOneGoesThrough() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), a = UUID(), b = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(a, .working), Self.row(b, .working, .codex)]
+        await backpack.tick()
+        pushes.rows = [Self.row(a, .needsInput), Self.row(b, .working, .codex)]
+        await backpack.tick()
+        pushes.failure = "No paired companion device is registered for notifications."
+        clock.at(BackpackPushQueue.hold)
+        await backpack.tick()
+        #expect(backpack.pushFailure == "No paired companion device is registered for notifications.")
+        pushes.rows = [Self.row(a, .needsInput), Self.row(b, .needsInput, .codex)]
+        clock.at(40)
+        await backpack.tick()
+        pushes.failure = nil
+        clock.at(BackpackPushQueue.hold + BackpackPushQueue.spacing)
+        await backpack.tick()
+        #expect(pushes.sent.map(\.body) == ["Claude Code needs your input.", "Codex needs your input."])
+        #expect(backpack.pushFailure == nil)
+    }
+
+    /// The mode ending itself: a finish the spacing held back still goes, before the Mac sleeps.
+    @Test func aDoneStillWaitingIsPushedBeforeTheMacSleeps() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), a = UUID(), b = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil, pushes: .needsInputOrDone)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(a, .working), Self.row(b, .working, .codex)]
+        await backpack.tick()
+        pushes.rows = [Self.row(a, .working), Self.row(b, .needsInput, .codex)]
+        await backpack.tick()
+        clock.at(BackpackPushQueue.hold)
+        await backpack.tick()
+        #expect(pushes.sent.map(\.body) == ["Codex needs your input."])
+        pushes.working = false
+        pushes.rows = [Self.row(a, .done), Self.row(b, .needsInput, .codex)]
+        clock.at(40)
+        await backpack.tick()
+        clock.at(BackpackPushQueue.hold + BackpackMode.idleGrace)
+        await backpack.tick()
+        #expect(!backpack.isOn)
+        #expect(pushes.sent.map(\.body) == ["Codex needs your input.", "Claude Code finished."])
+        #expect(pushes.sleepsAtSend == [0, 0], "sent before the Mac was asked to sleep")
+        #expect(fake.lid.sleeps == 1)
+    }
+
+    /// Off by hand: nothing that waited is pushed on the next trip.
+    @Test func turningOffForgetsWhatWaits() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        await backpack.turnOff()
+        await backpack.connect(network: "Phone", password: nil)
+        await backpack.tick()
+        clock.at(BackpackPushQueue.hold)
+        await backpack.tick()
+        #expect(pushes.sent.isEmpty)
+    }
+
+    /// Notifies is the sheet's, saved by Connect as the hotspot is.
+    @Test func connectSavesTheChosenPushes() async {
+        let fake = FakeBackpack()
+        let backpack = controller(fake)
+        #expect(backpack.pushes == .needsInput)
+        await backpack.connect(network: "Phone", password: nil, pushes: .never)
+        #expect(fake.settings.pushes == .never)
+        #expect(backpack.pushes == .never)
+    }
+
+    /// Off the hotspot a push could not go out, and none is retried: nothing is checked until the
+    /// Mac is back on it, and what moved meanwhile is pushed then.
+    @Test func nothingIsCheckedOffTheHotspot() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        fake.wifi.current = nil
+        fake.wifi.joinSucceeds = false
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        clock.at(60)
+        await backpack.tick()
+        #expect(pushes.sent.isEmpty)
+        // Back on the hotspot, as macOS rejoins it on its own: the move is noticed now, and held.
+        fake.wifi.current = "Phone"
+        await backpack.tick()
+        #expect(pushes.sent.isEmpty)
+        clock.at(60 + BackpackPushQueue.hold)
+        await backpack.tick()
+        #expect(pushes.sent == [BackpackPush(needsInput: [.claude], done: [])])
+    }
 }
