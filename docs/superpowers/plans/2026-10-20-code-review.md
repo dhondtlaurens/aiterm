@@ -58,3 +58,15 @@ Stay in this worktree. No push, merge, publishing or live-service mutation. Use 
 ## Autonomous process decisions
 
 Approve this plan without waiting, as requested. Use three disjoint implementation lanes with independent review after integration; avoid concurrent Swift builds. Keep audit artifacts tracked despite the repository's ignored docs/superpowers default so decisions remain reviewable in commits. Cost: additional documentation in branch history. No new dependencies or external research are needed to diagnose the local behavior; consult primary documentation only if an API question cannot be resolved from source/tests.
+
+### Task 5: Findings from the remaining-flow audit
+
+**Files:** `app/Sources/AiTerm/Operators/OperatorToolHandler{,+Review,+Jira}.swift`, related operator/Jira state if migration tracking is needed; `app/Sources/AiTermCore/GitLab/GitLabClient.swift`; corresponding operator Jira/review, GitLab payload and creation-model tests.
+**Interfaces:** Preserve tool result schemas and saved-state decoding. New Jira idempotency identity must distinguish raw keys and runs; preserve or explicitly refuse ambiguous legacy pending recovery rather than silently linking another ticket. Review assignment must serialize the host's read/replace mutation per published request. Existing fork-review refusal must cover GitLab source/target project differences.
+- [ ] Verify concurrent request_review calls can interleave through the real tool dispatch; add gated regression showing reviewers lost in host/local state. Add per-request ownership for the full host mutation and re-read local state at commit.
+- [ ] Reproduce Jira label collision (`a/b` vs `a_b`) after ambiguous create failure/retry. Choose collision-resistant labels and record compatibility strategy before implementation; add pending-state upgrade/recovery tests. Do not duplicate tickets or silently reuse an unrelated key's ticket.
+- [ ] Reproduce GitLab fork payload with different source_project_id/target_project_id accepted as an origin branch. Populate existing fork metadata/refusal signal, preserving nonfork behavior and existing view behavior.
+- [ ] Run failing focused tests through scripts/test.sh swift, implement smallest cohesive changes, verify affected suites and commit.
+- [ ] Independent review and final full integration verification follow this additional task.
+
+Ruling: extend implementation with these confirmed remaining-flow findings — they can lose reviewer assignments, attach the wrong Jira ticket, or select the wrong code for review — cost: additional internal identity/serialization logic and tests. No live host writes are needed; all regressions use existing fake clients.
