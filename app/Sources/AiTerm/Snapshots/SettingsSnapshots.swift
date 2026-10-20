@@ -16,7 +16,7 @@ enum SettingsSnapshots {
                                         loadProjects: { jiraProjects }, submit: { _ in })
                     .seeded(projects: jiraProjects, open: true)
             },
-        // Settings › Operator came after these images; it is drawn after them, as an added image is.
+        // Settings › Operator came after these images; it is drawn with the Operator's (`OperatorSnapshots`).
         ] + SettingsTab.allCases.filter { $0 != .operator }.map { tab in
             // A Jira site and email typed in, no token yet.
             Snapshot("settings-\(tab.rawValue.lowercased()).png") {
@@ -40,16 +40,8 @@ enum SettingsSnapshots {
                 return settings(jira: nil, iterm: .waitingForIterm, environment: apiOff, tab: .integrations)
                     .seeded(itermEnvironment: apiOff)
             },
-            // “Help with problems” on its own: on with Claude Code installed, and off and disabled
-            // without it. Drawn last: an added image goes after the ones before it
-            // (`Snapshots.regressionSet`).
-            Snapshot("settings-help-with-problems.png") { fixerGroup(HelpWithProblems(isOn: true), installed: [.claude, .codex]) },
-            Snapshot("settings-help-with-problems-no-claude.png") { fixerGroup(HelpWithProblems(isOn: true), installed: [.codex, .pi]) },
+            // “Help with problems” is drawn with the Operator's images (`OperatorSnapshots`).
         ]
-    }
-
-    private static func fixerGroup(_ choice: HelpWithProblems, installed: Set<AgentKind>) -> some View {
-        HelpWithProblemsGroup(choice: .constant(choice), installed: installed).frame(width: Sheet.width - 2 * Space.margin)
     }
 
     private static let site = URL(string: "https://example.atlassian.net")!

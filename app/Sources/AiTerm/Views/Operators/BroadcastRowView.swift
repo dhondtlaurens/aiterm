@@ -44,6 +44,9 @@ struct BroadcastRowView: View {
                     .frame(height: scale(Size.chip))
                     OperatorBadge(line: row.line)
                 }
+                // Laid out before the spacer, so the status line takes the row's width before it is cut:
+                // as an equal share with the spacer, a line wider than the row's second was cut short.
+                .layoutPriority(1)
                 Spacer(minLength: scale(Space.tight))
                 StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))

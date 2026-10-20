@@ -119,23 +119,17 @@ enum SidebarSnapshots {
             // Reviews and their merge requests' threads: none yet, some resolved, all resolved, and a
             // GitHub pull request selected, where the count turns white with the badge.
             reviewThreads("sidebar-review-threads.png"),
-            // Pull main's Fix in the banner (banner states 1–5 of the picked design): offered alone
-            // for a conflict and beside Rebase for a diverged branch, looking, the proposal, applying,
-            // no fix, and a fix that failed.
-            Snapshot("banner-fix-offered.png") { fixBanner(.offered, issue: mainConflict) },
-            Snapshot("banner-fix-offered-beside-rebase.png") {
+            // Pull main's Find a Fix in the banner, in the states the Operator's images leave out (offered,
+            // looking, the proposal and a failed fix are `OperatorSnapshots`'): offered beside Rebase for a
+            // diverged branch, applying, and no fix.
+            Snapshot("banner-find-a-fix-offered-beside-rebase.png") {
                 fixBanner(.offered, issue: .pullRefused(WorktreeError.branchDiverged("main", local: 1, remote: 3), in: UUID(),
                                                         projectPath: "/Users/me/Sites/jvs-platform"))
             },
-            Snapshot("banner-fix-looking.png") { fixBanner(.looking, issue: mainConflict) },
-            Snapshot("banner-fix-proposal.png") { fixBanner(.proposal(mainProposal), issue: mainConflict) },
-            Snapshot("banner-fix-applying.png") { fixBanner(.applying, issue: mainConflict) },
-            Snapshot("banner-fix-nofix.png") {
+            Snapshot("banner-find-a-fix-applying.png") { fixBanner(.applying, issue: mainConflict) },
+            Snapshot("banner-find-a-fix-nofix.png") {
                 fixBanner(.noFix("Claude found no fix it can stand behind: your commit and origin’s change the same release version."),
                           issue: mainConflict)
-            },
-            Snapshot("banner-fix-failed.png") {
-                fixBanner(.failed("Claude’s fix left a conflict in package.json, so nothing was changed."), issue: mainConflict)
             },
         ]
     }

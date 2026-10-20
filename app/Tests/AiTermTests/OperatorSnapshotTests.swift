@@ -2,27 +2,35 @@ import Foundation
 import Testing
 @testable import AiTerm
 
-/// Every operator image draws, and draws the same twice: the sidebar with none, at work and done, a
-/// driven task row in each workflow state, the marks, New operation,
-/// and the overview at each of its moments.
+/// Every Operator image draws, and draws the same twice: the OPERATOR heading with no broadcast, the
+/// broadcast row in each state, driven task rows, the board at each moment and the debrief, New Broadcast's
+/// steps, Settings › Operator, Help with problems, Find a Fix's Notices and a Notice in a sheet's footer.
 @MainActor
 struct OperatorSnapshotTests {
     static let files = [
-        "operators-none.png", "operators-working.png", "operators-paused.png", "operators-done.png",
-        "operator-task-rows.png", "operator-marks.png",
-        "new-operation.png",
-        "overview-plan.png", "overview-working.png", "overview-paused.png", "overview-done.png",
+        "operator-heading-empty.png", "broadcast-row-states.png",
+        "driven-task-rows.png",
+        "board-running.png", "board-planning.png", "board-paused.png", "board-reopen-failed.png",
+        "debrief.png",
+        "new-broadcast-1.png", "new-broadcast-2.png", "new-broadcast-3.png", "new-broadcast-4.png",
+        "new-broadcast-3-review-off.png", "new-broadcast-4-merge-off.png",
+        "settings-operator.png", "settings-operator-oracle-off.png",
+        "settings-help-with-problems.png",
+        "banner-find-a-fix-offered.png", "banner-find-a-fix-looking.png", "banner-find-a-fix-proposal.png",
+        "banner-find-a-fix-failed.png",
+        "notice-footer.png",
     ]
 
     @Test func everyOperatorStateHasItsImage() {
         #expect(OperatorSnapshots.all.map(\.file) == Self.files)
-        // Every image drawn before Operators keeps its place, so none of their antialiasing moves; the
-        // operators follow them, together. An image a later part adds goes after these, so this holds.
+        // Every image drawn before the Operator's keeps its place, so none of their antialiasing moves; the
+        // Operator's follow them, together. An image a later part adds goes after these, so this holds.
         let files = Snapshots.regressionSet.map(\.file)
         let before = (SidebarSnapshots.rows + SheetSnapshots.all + SettingsSnapshots.all + [SidebarSnapshots.marks]
                       + SidebarSnapshots.states).map(\.file)
-        #expect(Array(files.prefix(before.count)) == before, "the images before Operators keep their places")
-        #expect(Array(files.dropFirst(before.count).prefix(Self.files.count)) == Self.files, "the operators come next, together")
+        #expect(Array(files.prefix(before.count)) == before, "the images before the Operator's keep their places")
+        #expect(Array(files.dropFirst(before.count).prefix(Self.files.count)) == Self.files, "the Operator's come next, together")
+        #expect(Set(files).count == files.count, "no two images share a file")
     }
 
     @Test func eachImageIsDrawnTheSameTwice() throws {

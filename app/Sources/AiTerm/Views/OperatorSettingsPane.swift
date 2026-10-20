@@ -119,8 +119,9 @@ private struct OperatorAutonomyGroup: View {
     }
 }
 
-/// The Oracle's switch in the heading, over its Agent, Model and Reasoning.
-private struct OracleGroup: View {
+/// The Oracle's switch in the heading, over its Agent, Model and Reasoning. Not private: the snapshots
+/// draw it alone, off.
+struct OracleGroup: View {
     let model: OperatorSettingsModel
     /// The Oracle's fields while it is off: the drawing's `.dim`, and the opacity `SegmentedControl`
     /// gives a segment that cannot be picked. One view reads it, so it stays here.
