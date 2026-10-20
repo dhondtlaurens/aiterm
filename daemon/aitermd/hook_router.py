@@ -33,6 +33,17 @@ class HookRouter:
         # The tick the next unplaced hook will wait for, until it starts reading; and when the last began.
         self._pending_tick: asyncio.Task[bool] | None = None
         self._last_tick_start = float("-inf")
+        self._ticks: set[asyncio.Task[bool]] = set()
+        self._stopped = False
+
+    async def stop(self) -> None:
+        """End shared retry ticks, including those shielded from a cancelled HTTP caller."""
+        self._stopped = True
+        pending = tuple(self._ticks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._pending_tick = None
 
     async def handle_hook(self, path: str, body: dict[str, Any]) -> dict[str, Any] | None:
         if (statusline := STATUSLINE_PARSERS.get(path)) is not None:
@@ -89,10 +100,12 @@ class HookRouter:
         arrives while it runs shares the next, which waits out `retick_seconds` since this one began:
         at most one running and one waiting, however many posts come. False if there is no tick to
         wait for or it failed, and the post is then dropped as before."""
-        if self._tick is None:
+        if self._stopped or self._tick is None:
             return False
         if (task := self._pending_tick) is None:
             task = self._pending_tick = asyncio.get_running_loop().create_task(self._paced_tick(self._tick))
+            self._ticks.add(task)
+            task.add_done_callback(self._ticks.discard)
         return await asyncio.shield(task)
 
     async def _paced_tick(self, tick: Callable[[], Awaitable[None]]) -> bool:

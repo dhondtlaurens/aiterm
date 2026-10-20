@@ -467,3 +467,28 @@ async def test_stop_cancels_an_active_hook_delivery():
     finally:
         release.set()
         await srv.stop()
+
+
+async def test_stop_is_bounded_when_a_client_does_not_read_its_response():
+    entered = asyncio.Event()
+
+    class LargeResponse:
+        async def serve(self, method, headers, body):
+            entered.set()
+            return 200, "x" * (8 << 20)
+
+    srv = HookServer(port=0)
+    srv.operator_route = LargeResponse()
+    await srv.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+    writer.write(b"POST /operator HTTP/1.1\r\nX-AiTerm-Hook: 1\r\nContent-Length: 0\r\n\r\n")
+    await writer.drain()
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        # Leave the large response unread so the server's drain remains backpressured.
+        await asyncio.wait_for(srv.stop(), 0.2)
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError):
+            await writer.wait_closed()
+        await srv.stop()

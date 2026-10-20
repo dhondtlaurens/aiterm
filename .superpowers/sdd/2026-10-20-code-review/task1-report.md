@@ -37,4 +37,33 @@ A shared `JsonlCursor` now owns offset/inode/partial-line mechanics for Claude t
 
 Codex child discovery shares directory listings by inode/mtime, so new files invalidate a listing immediately. Descendant traversal builds an adjacency index once and visits reachable entries without repeated whole-list scans. Retain removes directory and lineage entries outside tracked parents' existing 31-day search windows. A hook now carries direct-placement evidence from its first resolution into conversation-reset decisions; it no longer scans Claude session files twice. Registry first-seen ranking builds one index.
 
-`script/test.sh` is not used; exact verification command was `scripts/test.sh daemon`: **1125 passed, 1 skipped in 17.27s**, mypy **66 source files clean**, ruff **all checks passed**. The deliberately different Claude fire-and-forget and Grok waited statusline shim lifetimes were inspected and preserved.
+Verification command: `scripts/test.sh daemon`: **1125 passed, 1 skipped in 17.27s**, mypy **66 source files clean**, ruff **all checks passed**. The deliberately different Claude fire-and-forget and Grok waited statusline shim lifetimes were inspected and preserved.
+
+### Increment 3: bounded shutdown and shared tick ownership
+
+A real client leaving an 8 MiB operator response unread demonstrated that `writer.close()` alone could keep `Server.wait_closed()` waiting for buffered output. `PYTEST_ADDOPTS='-k "stop_is_bounded_when_a_client"' scripts/test.sh daemon` failed with the expected shutdown timeout. Shutdown now aborts owned transports after closing them, before waiting for request tasks/listener closure. Full suite afterward: **1126 passed, 1 skipped in 16.58s**, mypy **66 source files clean**, ruff **all checks passed**.
+
+Final lifecycle tracing found another owned task behind HTTP delivery: unplaced hooks shield a shared retry tick from per-request cancellation. `PYTEST_ADDOPTS='-k "service_stop_drains_the_shared_tick or cancelling_a_hook_wait"' scripts/test.sh daemon` produced **1 failed, 1 passed, 1127 deselected**: stopping the service left the shared tick running, while the characterization confirmed ordinary request cancellation must preserve it. HookRouter now tracks both pending and running retry ticks and cancels/drains them when Service stops. Service stops accepting/delivering hooks and drains shared ticks before closing iTerm2; per-request shield semantics remain intact.
+
+Final command `scripts/test.sh daemon`: **1128 passed, 1 skipped in 16.59s**, mypy **66 source files clean**, ruff **all checks passed**. `git diff --check -- daemon hooks` is clean. An unrelated concurrent Swift EOF whitespace finding was passed to the parent rather than edited across ownership boundaries.
+
+## Audit coverage and retained limits
+
+All task production modules were read: `service`, `claude_tokens`, `claude_sessions`, `hook_events`, `models`, `connection`, `sessions`, `resolver`, `hook_router`, `hooks_server`, `codex_sessions`, and the new `jsonl` helper. Supporting modules read for ownership/contracts: `claude_subagents`, `protocol`, `rpc_params`, `publisher`, `offload`, and `usage`. All three hook resources were read (`claude-statusline-shim.sh`, `grok-statusline-shim.sh`, `pi-aiterm-status.ts`). Broader daemon modules outside this task's production list remain covered by the parent codebase audit; this report does not claim a second complete review of those files.
+
+Tests: manually read complete token/session parser, Codex rollout, model and resolver test modules; examined relevant portions of service, HTTP, connection, router and registry tests plus shared conftest/fake interfaces. Other daemon tests were inventoried/executed by the full suite, not all manually reviewed line by line. The one skipped test is the opt-in live iTerm integration test; no live-service action was performed.
+
+Decisions/deferred candidates:
+
+- Keep Codex reverse token-count reader separate from the forward complete-line cursor: reverse lookup intentionally supports newest records and different final-line semantics. Only equivalent offset/inode/partial-line mechanics were shared.
+- Preserve the existing 31-day Codex descendant search window, local/UTC day handling, and 30-second full-tree discovery interval. Changing those product/performance tradeoffs was unnecessary for the evidenced repeated scans and retained lineage fixes.
+- Keep independently installed shell shims with their established lifetime differences. An extraction would introduce a shared deployment dependency for a very small amount of shell code.
+- Keep existing worker gates and detached-thread semantics; shutdown cannot interrupt filesystem calls inside Python threads, but those threads are daemon threads and cannot hold process exit open. No second cache reader races a still-running worker.
+- Directory listing reuse depends on filesystem directory inode/mtime changing when entries change, as normal local macOS filesystems do. New-child regression confirms immediate refresh on the tested filesystem; no live network-mount benchmark was attempted.
+- No known confirmed task finding remains deferred after the shared-tick fix. Public wire formats, harness behavior, ItermPort and SessionRegistry interfaces remain unchanged.
+
+## Commit record
+
+- `eee310a` — lifecycle ownership, malformed input and retry regression fixes.
+- `1c9d774` — shared incremental reads, retryable telemetry boundaries, hook placement evidence and indexed descendant/ranking lookups.
+- Final bounded-transport/shared-tick ownership commit is supplied in the implementation handoff (a commit cannot contain its own resulting SHA).

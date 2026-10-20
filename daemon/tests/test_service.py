@@ -2110,3 +2110,27 @@ async def test_last_claude_transcript_owner_releases_cached_tallies(make_service
     assert svc.registry.all() == []
     await svc._apply_claude_tallies()
     assert svc.claude_tallies._conversations == {}
+
+
+async def test_service_stop_drains_the_shared_tick_started_by_an_unplaced_hook(make_service):
+    svc = make_service()
+    await svc.start()
+    entered, finished, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def gated_tick():
+        entered.set()
+        try:
+            await release.wait()
+        finally:
+            finished.set()
+
+    svc.hook_router._tick = gated_tick
+    try:
+        assert await post_hook(svc.hooks.port, "/hook/codex", {
+            "hook_event_name": "UserPromptSubmit", "session_id": "unplaced", "cwd": "/missing"}) == 200
+        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(svc.stop(), 1)
+        assert finished.is_set(), "the shielded tick must end before the service finishes stopping"
+    finally:
+        release.set()
+        await asyncio.wait_for(finished.wait(), 1)

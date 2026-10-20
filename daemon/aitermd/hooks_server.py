@@ -61,6 +61,9 @@ class HookServer:
         pending = [task for task in self._connections if task is not current]
         for task, writer in tuple(self._connections.items()):
             writer.close()
+            # close() flushes buffered output; a peer that stops reading must not
+            # hold shutdown open through the listener's transport wait.
+            writer.transport.abort()
             if task is not current:
                 task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)

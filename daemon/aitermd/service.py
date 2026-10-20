@@ -139,8 +139,9 @@ class Service:
         if (task := self._poll_task) is not None and task is not asyncio.current_task():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        await self.supervisor.stop()
         await self.hooks.stop()
+        await self.hook_router.stop()
+        await self.supervisor.stop()
         await self.rpc.stop()
 
     async def _poll_forever(self) -> None:
