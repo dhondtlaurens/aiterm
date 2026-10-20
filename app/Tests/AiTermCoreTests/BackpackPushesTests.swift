@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AiTermCore
+@testable import AiTermTestSupport
 
 /// When Backpack Mode pushes to the iPhone, and what a push says (spec 2026-10-20). The queue is fed
 /// one check at a time, as the 5 s tick feeds it, against a clock the test sets.
@@ -216,5 +217,39 @@ import Foundation
         #expect(rows == [PushRow(id: .terminal(c), status: .done, agent: .pi),
                          PushRow(id: .task(a), status: .needsInput, agent: .codex),
                          PushRow(id: .task(idle), status: .idle, agent: nil)])
+    }
+
+    // MARK: The broadcast
+
+    private func broadcasting(_ run: OperatorRun, _ tasks: [TaskItem] = []) -> AppState {
+        var state = AppState()
+        state.append(project: web)
+        state.runs = [run]
+        state.tasks = tasks
+        return state
+    }
+
+    private var web: Project { OperatorUIFixtures.project("pluto-web") }
+
+    /// A worker's prompt is its task's row's to push: the broadcast's row needs you only for what moves
+    /// no task row — the Operator's own question, a blocked task — and is named by the Operator's agent.
+    @Test func theBroadcastNeedsYouOnlyForWhatNoTaskRowCarries() {
+        var run = OperatorUIFixtures.run()
+        let worker = OperatorUIFixtures.task("Fix the footer", agent: .codex, project: web.id,
+                                             operated: OperatorUIFixtures.operated(run: run.id, key: "t", state: .working))
+        run.questions = [OperatorQuestion(id: "prompt-1", text: "Codex asks to run npm install", task: worker.id, askedAt: t0)]
+        #expect(PushRow.broadcast(state: broadcasting(run, [worker])) == PushRow(id: .broadcast(run.id), status: .idle, agent: .claude))
+        run.questions.append(OperatorUIFixtures.question("Which footer copy should it use?"))
+        #expect(PushRow.broadcast(state: broadcasting(run, [worker])) == PushRow(id: .broadcast(run.id), status: .needsInput, agent: .claude))
+        let blocked = OperatorUIFixtures.task("Fix the header", project: web.id,
+                                              operated: OperatorUIFixtures.operated(run: run.id, key: "h", state: .blocked,
+                                                                                    blockedReason: "it needs a decision"))
+        #expect(PushRow.broadcast(state: broadcasting(OperatorUIFixtures.run(id: run.id), [blocked]))?.status == .needsInput)
+    }
+
+    @Test func theBroadcastIsDoneOnceItsDebriefIsReady() {
+        #expect(PushRow.broadcast(state: broadcasting(OperatorUIFixtures.run(state: .complete)))?.status == .done)
+        #expect(PushRow.broadcast(state: broadcasting(OperatorUIFixtures.run(state: .stopped))) == nil, "ended: no row")
+        #expect(PushRow.broadcast(state: AppState()) == nil)
     }
 }

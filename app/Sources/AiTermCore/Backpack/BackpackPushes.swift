@@ -50,6 +50,16 @@ public struct PushRow: Equatable, Sendable {
         }
     }
 
+    /// The broadcast's row, nil while none runs. It needs you only for what moves no task row — the
+    /// Operator's own question, a blocked task, a task with a problem — as a worker's prompt is its task
+    /// row's to push; it is done once its debrief is ready, and named by the Operator's agent.
+    public static func broadcast(state: AppState) -> PushRow? {
+        guard let run = state.activeRun else { return nil }
+        let asks = OperatorRequests.open(run: run, state: state, prompts: [:]).contains { $0.kind != .permission }
+        return PushRow(id: .broadcast(run.id), status: asks ? .needsInput : run.state == .complete ? .done : .idle,
+                       agent: .claude)
+    }
+
     private static func row(_ id: ID, _ status: TaskStatus, _ tabs: [SessionInfo]) -> PushRow {
         PushRow(id: id, status: status, agent: tabs.filter { $0.state == status }.min { $0.tabIndex < $1.tabIndex }?.agent.agentKind)
     }
