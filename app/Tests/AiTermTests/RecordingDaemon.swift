@@ -22,6 +22,8 @@ final class RecordingDaemon: DaemonCommands {
     var prompts: [String: PromptKind] = [:]
     /// The sessions whose startup dialog `session.dismissStartup` declines (an update offer); others answer false.
     var dismissible: Set<String> = []
+    /// Why `companion.notify` is not sent, in iTerm2's words; sent when nil.
+    var pushRefusal: String?
     private let holding: String?
     private var released = false
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -141,5 +143,11 @@ final class RecordingDaemon: DaemonCommands {
         params["result"] = result
         params["error"] = error
         try await answer("operator.reply", params)
+    }
+
+    /// Refused with `pushRefusal` when it is set, as iTerm2 refuses with no phone paired.
+    func notifyCompanion(title: String, body: String) async throws -> CompanionPushResult {
+        try await answer("companion.notify", ["title": title, "body": body])
+        return CompanionPushResult(sent: pushRefusal == nil, reason: pushRefusal)
     }
 }

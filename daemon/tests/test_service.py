@@ -1112,6 +1112,8 @@ async def test_a_new_claude_process_in_the_tab_is_not_held_working_by_the_old_on
     ("tab.create", {"windowId": "w1", "cwd": 5}),
     ("sessions.markSeen", {"taskId": None}),
     ("sessions.setTitles", {"titles": "main"}),
+    ("companion.notify", {"title": "AiTerm"}),
+    ("companion.notify", {"title": "AiTerm", "body": 7}),
 ])
 async def test_malformed_params_are_bad_params_not_internal_errors(stack, method, params):
     svc, it, files, r, w = stack
@@ -2134,3 +2136,25 @@ async def test_service_stop_drains_the_shared_tick_started_by_an_unplaced_hook(m
     finally:
         release.set()
         await asyncio.wait_for(finished.wait(), 1)
+
+
+async def test_companion_notify_pushes_through_iterm(stack):
+    svc, it, files, r, w = stack
+    reply = await call(r, w, "companion.notify", {"title": "AiTerm", "body": "Codex needs your input."})
+    assert reply["result"] == {"sent": True, "reason": None}
+    assert it.pushes == [("AiTerm", "Codex needs your input.")]
+
+
+async def test_companion_notify_reports_itermss_refusal(stack):
+    svc, it, files, r, w = stack
+    it.push_refusal = "Notifications are turned off for iTerm2 Buddy. Enable them in iOS Settings on the paired phone."
+    reply = await call(r, w, "companion.notify", {"title": "AiTerm", "body": "Codex needs your input."})
+    assert reply["result"] == {"sent": False, "reason": it.push_refusal}
+
+
+async def test_companion_notify_without_iterm_is_unavailable(stack):
+    svc, it, files, r, w = stack
+    await it.disconnect()
+    reply = await call(r, w, "companion.notify", {"title": "AiTerm", "body": "Codex needs your input."})
+    assert reply["error"]["code"] == "iterm_unavailable"
+    assert it.pushes == []

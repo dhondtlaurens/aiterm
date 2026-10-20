@@ -83,6 +83,26 @@ enum BackpackSheetPresentation {
     /// Under Turns off: the cutoff is no choice.
     static let untilHelp = "Either way, at \(BackpackSettings.cutoff) % battery."
 
+    /// Beside Turns off: what reaches the iPhone paired with iTerm2 while the lid is shut (spec 2026-10-20).
+    static let notifies = "Notifies"
+    static let pushChoices: [BackpackPushes] = [.needsInput, .needsInputOrDone, .never]
+
+    /// Each fits the column's select: "When agents need you or finish" would be cut.
+    static func pushLabel(_ pushes: BackpackPushes) -> String {
+        switch pushes {
+        case .needsInput: "When agents need you"
+        case .needsInputOrDone: "Also when they finish"
+        case .never: "Never"
+        }
+    }
+
+    /// Under Notifies: how a push travels, and that it says no more than which agent.
+    static let pushHelp = "Through iTerm2 Buddy, naming only the agent."
+
+    /// In its place, in the warning tone: why the last push did not go out — iTerm2's sentence, or the
+    /// helper's.
+    static func pushFailed(_ reason: String) -> String { "Last push failed. \(reason)" }
+
     /// "None", then the remembered hotspot when it is in range, then the rest of what is in range
     /// by name. A chosen network that dropped out of range stays listed, so the menu still holds it.
     static func choices(inRange: [String], remembered: String?, chosen: String?) -> [String?] {
@@ -112,6 +132,9 @@ final class BackpackSheetModel: Identifiable {
     /// Turns off: what ends the mode this trip. Never remembered — every sheet starts on
     /// `.agentsStop`, so a Mac is never left on in a bag by a choice made trips ago.
     var until: BackpackUntil = .agentsStop
+    /// Notifies: what reaches the iPhone while the lid is shut. Remembered, unlike `until` — it can
+    /// keep no Mac awake — so the sheet opens on the saved choice, and Connect saves this one.
+    var pushes: BackpackPushes
     /// The Keychain's password, read once: it belongs to the remembered hotspot only.
     private var saved: String?
     private(set) var inRange: [String] = []
@@ -120,6 +143,7 @@ final class BackpackSheetModel: Identifiable {
 
     init(backpack: BackpackController) {
         self.backpack = backpack
+        pushes = backpack.pushes
     }
 
     /// Setup, the saved password and one scan — off the main actor where they block. The remembered
@@ -155,6 +179,12 @@ final class BackpackSheetModel: Identifiable {
     }
     /// Nothing chosen: the help line spins.
     var isLooking: Bool { network == nil }
+    /// The line under Notifies: what a push carries, or, while pushes are on, why the last one did
+    /// not go out.
+    var notifiesHelp: (text: String, warns: Bool) {
+        if pushes != .never, let failure = backpack.pushFailure { return (BackpackSheetPresentation.pushFailed(failure), true) }
+        return (BackpackSheetPresentation.pushHelp, false)
+    }
     /// The iPhone steps step back once a hotspot is chosen — the iPhone has done its part — but not
     /// while a connect waits for a hotspot that isn't showing, when they are the help again.
     var phoneStepsRecede: Bool { network != nil && backpack.phase != .notInRange }
@@ -173,11 +203,11 @@ final class BackpackSheetModel: Identifiable {
     func connect() {
         guard canConnect, let network else { return }
         started = true
-        let typed = password.isEmpty ? nil : password, until = self.until
+        let typed = password.isEmpty ? nil : password, until = self.until, pushes = self.pushes
         connecting = true
         let backpack = self.backpack
         Task {
-            await backpack.connect(network: network, password: typed, until: until)
+            await backpack.connect(network: network, password: typed, until: until, pushes: pushes)
             connecting = false
         }
     }
@@ -206,7 +236,7 @@ final class BackpackSheetModel: Identifiable {
 
 /// Backpack Mode's sheet, opened by every turn-on: one sheet, in the order it is used. A `Notice`
 /// asking for the Mac's permissions while one is missing, then the Hotspot and Password — the
-/// remembered one filled in — and Turns off, then the iPhone's steps as the hotspot's help,
+/// remembered one filled in — Turns off and Notifies, then the iPhone's steps as the hotspot's help,
 /// receding once one is chosen. Connect
 /// (⌘↩) runs in place with its checks under the fields, and ends on "Safe to close the lid." with
 /// Done; a failure leaves the fields live and Connect retries. Closing the lid closes it: with
@@ -271,19 +301,28 @@ struct BackpackSheet: View {
                     HelpText(model.hotspotHelp)
                 }
             }
-            VStack(alignment: .leading, spacing: Space.block) {
-                HStack(alignment: .top, spacing: Space.gap) {
+            // Turns off and Notifies, each over its own help, in the Hotspot's and the Password's columns.
+            HStack(alignment: .top, spacing: Space.gap) {
+                VStack(alignment: .leading, spacing: Space.block) {
                     FormField("Turns off") {
                         Select(values: BackpackSheetPresentation.untilChoices,
                                selection: Binding(get: { model.until }, set: { model.until = $0 }),
                                label: BackpackSheetPresentation.untilLabel)
                     }
-                    .frame(maxWidth: .infinity)
-                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                    HelpText(BackpackSheetPresentation.untilHelp)
                 }
-                .disabled(model.isConnecting)
-                HelpText(BackpackSheetPresentation.untilHelp)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: Space.block) {
+                    FormField(BackpackSheetPresentation.notifies) {
+                        Select(values: BackpackSheetPresentation.pushChoices,
+                               selection: Binding(get: { model.pushes }, set: { model.pushes = $0 }),
+                               label: BackpackSheetPresentation.pushLabel)
+                    }
+                    HelpText(model.notifiesHelp.text, tone: model.notifiesHelp.warns ? .warning : .secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .disabled(model.isConnecting)
             FormField(BackpackSheetPresentation.onTheIPhone) {
                 NumberedSteps(BackpackSheetPresentation.phoneSteps, receded: model.phoneStepsRecede)
             }

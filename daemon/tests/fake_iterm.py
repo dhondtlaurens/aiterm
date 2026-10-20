@@ -41,6 +41,9 @@ class FakeIterm:
         # Set to make every snapshot, or every send_text, fail as iTerm2 can mid-call.
         self.snapshot_error: Exception | None = None
         self.send_error: Exception | None = None
+        # Every push to the paired iPhone, as (title, body), and the reason to refuse the next ones with.
+        self.pushes: list[tuple[str, str]] = []
+        self.push_refusal: str | None = None
         self._ids = itertools.count(1)
         self._new_cbs: list[Callable[[str], Awaitable[None]]] = []
         self._closed_cbs: list[Callable[[str], Awaitable[None]]] = []
@@ -131,6 +134,11 @@ class FakeIterm:
         if self.screen_error is not None:
             raise self.screen_error
         return self.screens.get(session_id, "") if session_id in self.sessions else None
+
+    async def send_companion_notification(self, title: str, body: str) -> str | None:
+        if self.push_refusal is None:
+            self.pushes.append((title, body))
+        return self.push_refusal
 
     async def snapshot(self) -> list[RawSession]:
         if self.snapshot_error is not None:

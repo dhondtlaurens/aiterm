@@ -505,6 +505,7 @@ public final class DaemonClient: Sendable {
     struct SessionTitlesParams: Encodable { var titles: [SessionTitle] }
     struct TaskParams: Encodable { var taskId: String }
     struct InterfaceParams: Encodable { var matchItermBackground: Bool }
+    struct NotifyParams: Encodable { var title, body: String }
     struct CookieParams: Encodable {
         var requestId: Int; var cookie, key, error: String?; var notRunning: Bool?
         init(requestId: Int, answer: ItermCookieAnswer) {
@@ -583,5 +584,8 @@ public final class DaemonClient: Sendable {
     }
     public func replyToOperator(requestId: String, result: JSONValue?, error: String?) async throws {
         _ = try await request(.operatorReply, params: OperatorReplyParams(requestId: requestId, result: result, error: error), as: Empty.self)
+    }
+    public func notifyCompanion(title: String, body: String) async throws -> CompanionPushResult {
+        try await request(.companionNotify, params: NotifyParams(title: title, body: body), as: CompanionPushResult.self)
     }
 }
