@@ -36,7 +36,7 @@ final class NewBroadcastModel: Identifiable {
     let completions = PromptCompletions()
     /// Where the connection's Jira projects are: being fetched as the sheet opens, in hand, or not
     /// reached (Jira away, or not connected), which leaves the linked ones and holds nothing up.
-    enum JiraLoad: Equatable { case loading, loaded, failed }
+    enum JiraLoad: Equatable { case loading, loaded, failed(String) }
 
     /// The sidebar's projects, which step 1 offers.
     let offeredProjects: [Project]
@@ -63,7 +63,7 @@ final class NewBroadcastModel: Identifiable {
     static let jiraProjectsHelp = "Where it reads tickets, and files them with the Jira slice on."
     static let jiraLoading = "Loading Jira projects…"
     static let noJiraProjects = "No Jira projects found."
-    static let jiraUnreachable = "Jira couldn’t be reached, so only the Jira projects your projects link are offered."
+    static let jiraLinkedOnly = "Only the Jira projects your projects link are offered."
     static let projectsPlaceholder = "Add a project"
     static let projectsHelp = "The repositories it may work in. Picking a Jira project adds its linked projects."
     static let promptHelp = "What to work on, as you’d tell a colleague. A Jira key brings in its ticket. Type / for skills, @ for files."
@@ -115,9 +115,18 @@ final class NewBroadcastModel: Identifiable {
     var jiraStatus: String? {
         switch jiraLoad {
         case .loading: Self.jiraLoading
-        case .failed: Self.jiraUnreachable
+        case .failed(let reason): Self.jiraFailure(reason, linkedOffered: !linkedJiraProjects.isEmpty)
         case .loaded: offeredJiraProjects.isEmpty ? Self.noJiraProjects : nil
         }
+    }
+
+    /// Why Jira's projects couldn't be had, as the fetch said it ("Connect Jira in Settings › Integrations to choose a
+    /// Jira project."), then that the linked ones are what is offered, when there are any.
+    private static func jiraFailure(_ reason: String, linkedOffered: Bool) -> String {
+        var said = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        if said.isEmpty { said = "Jira couldn’t be reached." }
+        if !".!?…".contains(said.last!) { said += "." }
+        return linkedOffered ? said + " " + jiraLinkedOnly : said
     }
 
     /// Fetches the connection's Jira projects once, as the sheet opens.
@@ -129,7 +138,7 @@ final class NewBroadcastModel: Identifiable {
             received(found)
         } catch {
             guard !Task.isCancelled else { return }
-            jiraLoad = .failed
+            jiraLoad = .failed(error.localizedDescription)
         }
     }
 

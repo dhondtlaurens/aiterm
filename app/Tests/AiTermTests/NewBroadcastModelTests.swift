@@ -113,17 +113,30 @@ struct NewBroadcastModelTests {
 
     /// Jira away, or not connected: the linked ones stay on offer, the help says so, and Start isn't held up.
     @Test func aJiraThatCantBeReachedKeepsTheLinkedOnesAndDoesNotBlockStart() async {
-        struct Offline: Error {}
         let webshop = project("webshop", jira: [pay])
-        let sheet = NewBroadcastModel(projects: [webshop], slices: .none, loadJiraProjects: { throw Offline() }, start: { _ in UUID() })
+        let sheet = NewBroadcastModel(projects: [webshop], slices: .none,
+                                      loadJiraProjects: { throw ActionUnavailable("The connection dropped.") }, start: { _ in UUID() })
         await sheet.loadJiraProjects()
-        #expect(sheet.jiraLoad == .failed)
+        #expect(sheet.jiraLoad == .failed("The connection dropped."))
         #expect(sheet.offeredJiraProjects == [pay])
-        #expect(sheet.jiraStatus == "Jira couldn’t be reached, so only the Jira projects your projects link are offered.")
+        #expect(sheet.jiraStatus == "The connection dropped. Only the Jira projects your projects link are offered.")
         sheet.add(jiraProject: pay)
         sheet.prompt = "PAY-230"
         #expect(sheet.canStart)
         #expect(await sheet.start() != nil)
+    }
+
+    /// Jira not connected says why, in the words the Jira projects sheet shows, not that Jira couldn’t be reached.
+    @Test func jiraNotConnectedSaysToConnectIt() async {
+        let reason = "Connect Jira in Settings › Integrations to choose a Jira project."
+        let linked = NewBroadcastModel(projects: [project("webshop", jira: [pay])], slices: .none,
+                                       loadJiraProjects: { throw ActionUnavailable(reason) }, start: { _ in UUID() })
+        await linked.loadJiraProjects()
+        #expect(linked.jiraStatus == reason + " Only the Jira projects your projects link are offered.")
+        let none = NewBroadcastModel(projects: [project("blog")], slices: .none,
+                                     loadJiraProjects: { throw ActionUnavailable(reason) }, start: { _ in UUID() })
+        await none.loadJiraProjects()
+        #expect(none.jiraStatus == reason, "with no linked project there is nothing to offer, so nothing to add")
     }
 
     /// As New Task's: nothing moves on while the workspace can't change.
