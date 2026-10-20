@@ -201,6 +201,34 @@ struct BroadcastBoardSheetTests {
         #expect(controller.state.runs.first?.state == .active)
     }
 
+    /// The board closes once the broadcast ended, from either End; a failed end keeps it up, the failure
+    /// reported and the broadcast as it was.
+    @Test(arguments: [true, false]) func theBoardClosesOnlyOnceTheEndSucceeded(confirming: Bool) async throws {
+        for failing in [false, true] {
+            let controller = AppController(preferences: .scratch(), prompter: ScriptedPrompter(answering: "End Broadcast"))
+            defer { controller.shutdown() }
+            try controller.loadWorkspace()
+            let run = OperatorUIFixtures.run()
+            controller.workspace.mutate { $0.runs = [run] }
+            #expect(controller.workspace.flush())
+            if failing {
+                // Saving fails from now on: the backup's place is a folder.
+                try FileManager.default.createDirectory(at: controller.workspace.file.backupURL, withIntermediateDirectories: false)
+            }
+            var dismissed = false
+            controller.boardActions(for: run.id, dismiss: { dismissed = true }).end(confirming)
+            if failing {
+                await eventually(describing: "the failure to be reported") { controller.notices.issue != nil }
+                try await Task.sleep(for: .milliseconds(50))
+                #expect(!dismissed, "the end failed: the board stays up")
+                #expect(controller.state.runs.first?.state == .active, "the broadcast is as it was")
+            } else {
+                await eventually(describing: "the board to close") { dismissed }
+                #expect(controller.state.runs.first?.state == .stopped)
+            }
+        }
+    }
+
     /// A notification's click (spec §13): the debrief is ready, so the board opens, once.
     @Test func aNotificationsClickOpensTheBoard() async throws {
         let controller = AppController(preferences: .scratch())

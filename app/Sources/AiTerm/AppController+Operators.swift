@@ -32,9 +32,13 @@ extension AppController {
 
     /// Runs `work` and reports what it threw as `title`.
     func attempt(_ title: String, _ work: @escaping @MainActor () async throws -> Void) {
-        Task { @MainActor in
-            do { try await work() } catch { report(OperationIssue(title: title + ".", error: error)) }
-        }
+        Task { @MainActor in await attemptNow(title, work) }
+    }
+
+    /// Runs `work` here and now, reports what it threw as `title`, and says whether it went through.
+    @discardableResult
+    func attemptNow(_ title: String, _ work: @MainActor () async throws -> Void) async -> Bool {
+        do { try await work(); return true } catch { report(OperationIssue(title: title + ".", error: error)); return false }
     }
 }
 
@@ -135,12 +139,12 @@ extension AppController {
     }
 
     /// End Broadcast…: asks first, saying what happens to its tasks (`OperatorController.endPrompt`), then
-    /// ends it. Says whether it ended.
+    /// ends it. Says whether it ended: false when it was declined, and false when the end failed (it is
+    /// reported, and the broadcast is as it was).
     @discardableResult
     func confirmEnd(_ run: OperatorRun) async -> Bool {
         guard await prompter.ask(operatorController.endPrompt(run: run)).confirmed else { return false }
-        end(run)
-        return true
+        return await endNow(run)
     }
 
     func pause(_ run: OperatorRun) {
@@ -153,9 +157,11 @@ extension AppController {
         attempt("Couldn’t resume “\(run.name)”") { try await controller.resume(run: run.id) }
     }
 
-    func end(_ run: OperatorRun) {
+    /// The end, awaited: whether it went through, which is when a board may close.
+    @discardableResult
+    func endNow(_ run: OperatorRun) async -> Bool {
         let controller = operatorController
-        attempt("Couldn’t end “\(run.name)”") { try await controller.end(run: run.id) }
+        return await attemptNow("Couldn’t end “\(run.name)”") { try await controller.end(run: run.id) }
     }
 
     /// The broadcast's chat — its Operator's window — brought forward as its row's click brings it: raised
@@ -165,7 +171,7 @@ extension AppController {
     }
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer
-    /// the active one. End Broadcast… asks first and closes the board once it ended; the debrief's End
+    /// the active one. End Broadcast… asks first and closes the board once it ended, and only then: a failed end keeps it up. The debrief's End
     /// Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
     func boardActions(for id: UUID, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
         BoardActions(
@@ -175,7 +181,7 @@ extension AppController {
             end: { [weak self] confirming in
                 self?.onActiveRun(id) { run in
                     guard let self else { return }
-                    if confirming { Task { if await self.confirmEnd(run) { dismiss() } } } else { self.end(run); dismiss() }
+                    Task { if await (confirming ? self.confirmEnd(run) : self.endNow(run)) { dismiss() } }
                 }
             },
             startFresh: { [weak self] in self?.onActiveRun(id) { self?.startFresh($0) } })
