@@ -161,14 +161,42 @@ import Foundation
         #expect(queue.check([row(a, .working), row(b, .needsInput, .codex)], away: true, pushes: .needsInputOrDone, at: at(-10)) != nil)
         let finished = [row(a, .done), row(b, .needsInput, .codex)]
         #expect(queue.check(finished, away: true, pushes: .needsInputOrDone, at: t0) == nil)
-        #expect(queue.flush(finished, at: at(5))?.body == "Claude Code finished.")
+        #expect(queue.flush(finished, pushes: .needsInputOrDone, at: at(5))?.body == "Claude Code finished.")
         #expect(queue.check([row(a, .done), row(b, .done, .codex)], away: true, pushes: .needsInputOrDone, at: at(10)) == nil,
                 "a fresh baseline")
     }
 
     @Test func flushWithNothingWaitingPushesNothing() {
         var queue = queue([row(a, .needsInput)])
-        #expect(queue.flush([row(a, .needsInput)], at: t0) == nil)
+        #expect(queue.flush([row(a, .needsInput)], pushes: .needsInput, at: t0) == nil)
+    }
+
+    /// The ending's check may be the first to see a row move: the flush takes the rows as they stand
+    /// now, under what was chosen, before it pushes.
+    @Test func flushFoldsInWhatMovedSinceTheLastCheck() {
+        var queue = queue([row(a, .working), row(b, .working, .codex)])
+        let moved = [row(a, .needsInput), row(b, .done, .codex)]
+        #expect(queue.flush(moved, pushes: .needsInput, at: t0)?.body == "Claude Code needs your input.", "done was not chosen")
+        var both = self.queue([row(a, .working), row(b, .working, .codex)], pushes: .needsInputOrDone)
+        #expect(both.flush(moved, pushes: .needsInputOrDone, at: t0)?.body == "Claude Code needs your input. Codex finished.")
+    }
+
+    /// Off the hotspot a push could not go out: rows are still followed, and what came due goes with
+    /// the first check back on it.
+    @Test func offlineChecksFollowTheRowsButSendNothing() {
+        var queue = queue([row(a, .working)])
+        #expect(queue.check([row(a, .needsInput)], away: true, pushes: .needsInput, online: false, at: t0) == nil)
+        #expect(queue.check([row(a, .needsInput)], away: true, pushes: .needsInput, online: false, at: at(60)) == nil)
+        #expect(queue.check([row(a, .needsInput)], away: true, pushes: .needsInput, online: true, at: at(65))?.body
+                == "Claude Code needs your input.")
+    }
+
+    /// An open lid starts over whether or not the Mac is on the hotspot.
+    @Test func anOpenLidOfflineStillStartsOver() {
+        var queue = queue([row(a, .working)])
+        #expect(queue.check([row(a, .needsInput)], away: true, pushes: .needsInput, online: false, at: t0) == nil)
+        #expect(queue.check([row(a, .needsInput)], away: false, pushes: .needsInput, online: false, at: at(10)) == nil)
+        #expect(queue.check([row(a, .needsInput)], away: true, pushes: .needsInput, online: true, at: at(60)) == nil)
     }
 
     /// A row the sidebar no longer has — removed, its project gone — is not pushed.

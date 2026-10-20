@@ -102,7 +102,9 @@ public struct BackpackPush: Equatable, Sendable {
 ///
 /// Not away — the lid open, or Never chosen — it pushes nothing and starts over, keeping only the
 /// rows' statuses: what was waiting when the person looked is theirs, so a row already waiting when
-/// the lid shuts is never pushed. A row the sidebar no longer has is forgotten.
+/// the lid shuts is never pushed. Offline — the Mac off the hotspot — it follows the rows but sends
+/// nothing: what comes due meanwhile goes with the first check back online. A row the sidebar no
+/// longer has is forgotten.
 public struct BackpackPushQueue: Sendable {
     public static let hold: TimeInterval = 30
     public static let spacing: TimeInterval = 300
@@ -123,26 +125,27 @@ public struct BackpackPushQueue: Sendable {
 
     public init() {}
 
-    /// One check: the push to send now, if one is due.
-    public mutating func check(_ rows: [PushRow], away: Bool, pushes: BackpackPushes, at now: Date) -> BackpackPush? {
+    /// One check: the push to send now, if one is due. `online` is whether one could go out.
+    public mutating func check(_ rows: [PushRow], away: Bool, pushes: BackpackPushes, online: Bool = true,
+                               at now: Date) -> BackpackPush? {
         guard away, pushes != .never else {
             reset()
             seen = Self.statuses(of: rows)
             return nil
         }
         note(rows, pushing: pushes.statuses, at: now)
-        guard waiting.contains(where: { readyAt($0.key, $0.value) <= now }),
+        guard online, waiting.contains(where: { readyAt($0.key, $0.value) <= now }),
               lastPush.map({ $0.addingTimeInterval(Self.spacing) <= now }) ?? true else { return nil }
         return send(waiting.filter { !isRepeat($0.key, $0.value.status, at: now) }, rows: rows, at: now)
     }
 
-    /// The mode ended itself and the Mac is about to sleep: every row still waiting goes now, hold
-    /// and spacing aside, and the queue starts over.
-    public mutating func flush(_ rows: [PushRow], at now: Date) -> BackpackPush? {
+    /// The mode ended itself and the Mac is about to sleep: the rows as they stand now, what moved
+    /// since the last check among them, and every row still waiting goes at once, hold and spacing
+    /// aside. The queue starts over. Only for a person away, with the Mac online: the caller decides.
+    public mutating func flush(_ rows: [PushRow], pushes: BackpackPushes, at now: Date) -> BackpackPush? {
         defer { reset() }
-        let current = Self.statuses(of: rows)
-        return send(waiting.filter { current[$0.key] == $0.value.status && !isRepeat($0.key, $0.value.status, at: now) },
-                    rows: rows, at: now)
+        note(rows, pushing: pushes.statuses, at: now)
+        return send(waiting.filter { !isRepeat($0.key, $0.value.status, at: now) }, rows: rows, at: now)
     }
 
     /// The mode is off: nothing waits, nothing was pushed, and the next check only takes the rows in.

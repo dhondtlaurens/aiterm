@@ -293,13 +293,16 @@ marker puts sleep back, and quit closes the mode first, so no turn-on can follow
 While on, the check also pushes to the iPhone paired with iTerm2 (iTerm2 Buddy) through the helper's
 `companion.notify` — iTerm2 3.7.5's `iterm2.send_companion_notification` builtin, which `it2 notify`
 calls too. The sheet's Notifies chooses what: a row moving to needs input, to needs input or done, or
-never (`backpack.pushes`, remembered). Only with the lid shut and the Mac on the hotspot, and only for
-a row that *moves* into a chosen status: a task or terminal row as the sidebar draws it, or the
-broadcast's row for what moves no task row — the Operator's question, a blocked task, a problem — and
-its debrief. `BackpackPushQueue` holds the first waiting row 30 s, then sends every row still waiting
-in one push; it sends at most one push per 5 minutes, and never the same row and status twice within
-15 minutes (one asking again sooner goes once they have passed). The mode ending itself sends what
-still waits before the Mac sleeps; opening the lid or turning the mode off starts it over. A push is
+never (`backpack.pushes`, remembered). Only to a person away — the lid shut — and only for a row that
+*moves* into a chosen status after Connect, whose rows the person has seen: a task or terminal row as
+the sidebar draws it, or the broadcast's row for what moves no task row — the Operator's question, a
+blocked task, a problem — and its debrief. `BackpackPushQueue` holds the first waiting row 30 s, then
+sends every row still waiting in one push; it sends at most one push per 5 minutes, and never the same
+row and status twice within 15 minutes (one asking again sooner goes once they have passed). Off the
+hotspot the rows are still followed, and an open lid still starts the queue over, but what comes due
+waits for the Mac to be back on it. The mode ending itself, with the lid shut and the Mac on the
+hotspot, sends at once what still waits and what moved since the last check, before the Mac sleeps;
+otherwise, and on opening the lid or turning the mode off, the queue starts over. A push is
 titled "AiTerm" and names the agent, or counts the rows: never a project, a task, a branch, a path or
 what an agent asks, as iTerm2 hands it to its push relay and to Apple as plain text and it lands on a
 lock screen. One that does not go out is not retried; the next sheet's Notifies says why. The push

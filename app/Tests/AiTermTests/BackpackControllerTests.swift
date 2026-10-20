@@ -752,9 +752,9 @@ import Testing
         #expect(fake.lid.sleeps == 0)
     }
 
-    /// Off the hotspot a push could not go out, and none is retried: nothing is checked until the
-    /// Mac is back on it, and what moved meanwhile is pushed then.
-    @Test func nothingIsCheckedOffTheHotspot() async {
+    /// Off the hotspot a push could not go out, and none is retried: the rows are still followed, and
+    /// what came due goes as soon as the Mac is back on it.
+    @Test func aRowThatAsksOffTheHotspotIsPushedOnceBackOnIt() async {
         let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
         let backpack = pushing(fake, pushes, clock: clock)
         await backpack.connect(network: "Phone", password: nil)
@@ -767,13 +767,109 @@ import Testing
         await backpack.tick()
         clock.at(60)
         await backpack.tick()
-        #expect(pushes.sent.isEmpty)
-        // Back on the hotspot, as macOS rejoins it on its own: the move is noticed now, and held.
+        #expect(pushes.sent.isEmpty, "off the hotspot")
+        // Back on the hotspot, as macOS rejoins it on its own: the row has waited a minute already.
         fake.wifi.current = "Phone"
         await backpack.tick()
-        #expect(pushes.sent.isEmpty)
-        clock.at(60 + BackpackPushQueue.hold)
+        #expect(pushes.sent == [BackpackPush(needsInput: [.claude], done: [])])
+    }
+
+    /// Off the hotspot, the person opens the lid and looks: what waited is theirs, as it is on the
+    /// hotspot, and nothing of it is pushed once they leave and the Mac is back on it.
+    @Test func openingTheLidOffTheHotspotStartsOver() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        fake.wifi.current = nil
+        fake.wifi.joinSucceeds = false
+        fake.lidSensor.closed = false
+        clock.at(10)
+        await backpack.tick()
+        fake.lidSensor.closed = true
+        fake.wifi.current = "Phone"
+        clock.at(60)
+        await backpack.tick()
+        clock.at(120)
+        await backpack.tick()
+        #expect(pushes.sent.isEmpty, "what waited when they looked is theirs")
+    }
+
+    /// The trip starts with what the rows show at Connect: one that asks before the first check,
+    /// the lid already shut, is news.
+    @Test func aRowThatAsksBeforeTheFirstCheckIsPushed() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        clock.at(BackpackPushQueue.hold)
         await backpack.tick()
         #expect(pushes.sent == [BackpackPush(needsInput: [.claude], done: [])])
+    }
+
+    /// The person is back — the lid open — when the battery cutoff ends the trip: what waited is
+    /// theirs to see, and no push goes.
+    @Test func aCutoffWithTheLidOpenPushesNothing() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        fake.lidSensor.closed = false
+        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        clock.at(10)
+        await backpack.tick()
+        #expect(!backpack.isOn)
+        #expect(pushes.sent.isEmpty)
+    }
+
+    /// The battery cutoff lands on the check that first sees a row asking: it is pushed before the
+    /// Mac sleeps, as one already waiting would be.
+    @Test func aRowFirstSeenAskingOnTheEndingCheckIsPushed() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        clock.at(5)
+        await backpack.tick()
+        #expect(!backpack.isOn)
+        #expect(pushes.sent == [BackpackPush(needsInput: [.claude], done: [])])
+        #expect(pushes.sleepsAtSend == [0], "before the Mac was asked to sleep")
+        #expect(fake.lid.sleeps == 1)
+    }
+
+    /// Off the hotspot when the battery cutoff ends the trip: a push could not go out, so none is
+    /// tried, and no failure is left for the next sheet.
+    @Test func aCutoffOffTheHotspotTriesNoPush() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        fake.wifi.current = nil
+        fake.wifi.joinSucceeds = false
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
+        clock.at(60)
+        await backpack.tick()
+        #expect(!backpack.isOn)
+        #expect(pushes.sent.isEmpty)
+        #expect(backpack.pushFailure == nil)
     }
 }

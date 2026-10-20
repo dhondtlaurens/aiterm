@@ -162,7 +162,9 @@ final class BackpackController {
                 setup = BackpackSetup(sleepRule: true, location: true, network: status.network)
                 currentNetwork = status.network
                 phase = .safe
-                pushQueue.reset()
+                // The trip starts with what the rows show now, which the person at the Mac has seen:
+                // a row that moves before the first check is news.
+                _ = pushQueue.check(pushRows(), away: false, pushes: self.pushes, at: now())
                 startTicking()
                 return
             case .failure(.notInRange):
@@ -304,6 +306,8 @@ final class BackpackController {
     /// The 5 s check: the cutoff, the work, the network, then the pushes.
     func tick() async {
         let mode = self.mode, working = agentsWorking()
+        // Whether the Mac was on the hotspot as of the last check: an ending reads the network no more.
+        let wasOnline = if case .on(let status) = state { status.joined } else { false }
         let outcome: BackpackTick? = await worker.run { mode.tick(agentsWorking: working) }
         state = mode.state
         if case .on(let status) = state { power = status.power }
@@ -315,12 +319,14 @@ final class BackpackController {
         if !restored { toast(Self.restoreFailed) }
         phase = nil
         joinedHotspot = false
-        // Ended itself: a push still waiting goes now, before the Mac is put to sleep. A connect the
-        // person started while it went is a new trip, which the ending leaves alone.
-        if let push = pushQueue.flush(pushRows(), at: now()) {
+        // Ended itself: the rows as they stand go now, before the Mac is put to sleep — to a person
+        // away, over the hotspot. One back at the Mac, the lid open, has what waited before them. A
+        // connect the person started while the push went is a new trip, which the ending leaves alone.
+        if ports.lidSensor.isClosed() != false, wasOnline, let push = pushQueue.flush(pushRows(), pushes: pushes, at: now()) {
             await send(push)
             if busy || isOn { return }
         }
+        pushQueue.reset()
         // Sleep is back, but macOS sleeps on the lid's close, not its state: with the lid already
         // shut — the Mac in a bag — it would stay awake. Ask for sleep; the Wi-Fi rejoins on wake.
         let lidSleep = ports.lidSleep
@@ -406,16 +412,16 @@ final class BackpackController {
         currentNetwork = fresh.2
     }
 
-    /// The pushes' part of a check, while the mode is on and the Mac on the hotspot: off it a push
-    /// could not go out, and none is retried, so what moves meanwhile is noticed once it is back. The
-    /// lid not open is the person away.
+    /// The pushes' part of a check, while the mode is on. The lid not open is the person away. Off the
+    /// hotspot a push could not go out, and none is retried, so the rows are followed — an open lid
+    /// still starts over — and what comes due goes with the first check back on it.
     private func checkPushes() async {
         guard case .on(let status) = state else {
             pushQueue.reset()
             return
         }
-        guard status.joined,
-              let push = pushQueue.check(pushRows(), away: ports.lidSensor.isClosed() != false, pushes: pushes, at: now())
+        guard let push = pushQueue.check(pushRows(), away: ports.lidSensor.isClosed() != false, pushes: pushes,
+                                         online: status.joined, at: now())
         else { return }
         await send(push)
     }
