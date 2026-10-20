@@ -240,6 +240,18 @@ import Foundation
         #expect(OperatedTransitions.limitReason(for: working) == nil)
     }
 
+    /// A worker that finished and waits for review or acceptance is never blocked for its time: only a
+    /// worker still at work runs out of it.
+    @Test func aTaskReadyForAcceptanceIsNeverBlockedForItsRuntime() {
+        var working = F.operated("A", .working)
+        working.runtimeUsed = 120 * 60
+        #expect(OperatedTransitions.limitReason(for: working, readyForAcceptance: true) == nil)
+        #expect(OperatedTransitions.limitReason(for: working, readyForAcceptance: false) != nil)
+        var failed = F.operated("B", .failed)
+        failed.retriesUsed = 2
+        #expect(OperatedTransitions.limitReason(for: failed, readyForAcceptance: true) != nil, "retries are a limit of their own")
+    }
+
     // MARK: run state and takeover
 
     /// Spec §9: a paused, offline or stopped run refuses the operator's mutations; a complete one

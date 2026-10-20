@@ -206,13 +206,14 @@ public enum OperatedTransitions {
     }
 
     /// A task over its limits, and why — what AiTerm blocks it with (spec §8): a failure with no
-    /// retry left, or a working task past its runtime. Nil while it is within both.
-    public static func limitReason(for task: OperatedTask, retries: Int = OperatorTiming.retries,
+    /// retry left, or a working task past its runtime. Nil while it is within both, and never for its
+    /// runtime while it is `readyForAcceptance`: its worker finished, and the work waits for review.
+    public static func limitReason(for task: OperatedTask, readyForAcceptance: Bool = false, retries: Int = OperatorTiming.retries,
                                    runtimeMinutes: Int = OperatorTiming.runtimeMinutes) -> String? {
         if task.state == .failed, task.retriesUsed >= retries {
             return "Failed with no retries left (\(retries) allowed)."
         }
-        if task.state == .working, task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
+        if task.state == .working, !readyForAcceptance, task.runtimeUsed >= TimeInterval(runtimeMinutes * 60) {
             return "Worked its \(runtimeMinutes) minutes without finishing."
         }
         return nil

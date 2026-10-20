@@ -238,7 +238,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var ownership: Int
     public var launch: LaunchAttempt?
     public var retriesUsed: Int
-    /// Seconds worked, not counting time waiting on you.
+    /// Seconds its worker was busy, not counting time idle at its prompt or waiting on you.
     public var runtimeUsed: TimeInterval
     public var blockedReason: String?
     /// The state it was blocked from (`working` or `queued`), which resume returns it to; nil for a

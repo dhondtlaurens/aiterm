@@ -174,7 +174,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
                 agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init)))
             if facts.waitingPrompt != nil || o.flags.contains(.waitingOnYou) { prompts.append(o.key) }
-            else if o.state == .working, !o.takenOver, facts.status == .idle || facts.status == .done { ready.append(o.key) }
+            else if isReadyForAcceptance(o, live: facts.status) { ready.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) { uncertain.append(o.key) }
         }
@@ -191,6 +191,12 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt)
                 },
                 promptsWaitingOnYou: prompts, readyForAcceptance: ready, possiblyStalled: stalled, uncertain: uncertain))
+    }
+
+    /// A working task whose worker ended its turn, idle at its prompt or done, and not yours: its result
+    /// waits for the Operator's check. A prompt waiting on you is told apart by the caller.
+    public static func isReadyForAcceptance(_ task: OperatedTask, live status: SessionState?) -> Bool {
+        task.state == .working && !task.takenOver && (status == .idle || status == .done)
     }
 
     /// The snapshot as the tool returns it: JSON with sorted keys and ISO 8601 dates.

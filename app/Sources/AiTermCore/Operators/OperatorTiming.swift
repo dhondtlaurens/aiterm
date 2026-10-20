@@ -31,7 +31,7 @@ public enum OperatorTiming {
     public static let mergeWait: TimeInterval = 60 * 60
     /// App only: relaunches of a failed task before AiTerm blocks it (spec §4.1's fixed caps).
     public static let retries = 2
-    /// App only: minutes a task may work, not counting time waiting on you, before AiTerm blocks it.
+    /// App only: minutes a task's worker may be busy, not counting time idle or waiting on you, before AiTerm blocks it.
     public static let runtimeMinutes = 90
 }
 

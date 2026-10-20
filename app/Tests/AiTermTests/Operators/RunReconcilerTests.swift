@@ -378,6 +378,37 @@ import Testing
         #expect(kept.state == .working && kept.runtimeUsed == 30 * 60 + 30)
     }
 
+    /// Only a busy worker's time counts: one idle at its prompt, its turn over, waits for review or acceptance, and
+    /// is never blocked for its runtime, even one already past it. Once it works again the limit holds.
+    @Test func anIdleWorkerCountsNoRuntimeAndIsNeverBlockedWhileItWaitsForAcceptance() throws {
+        let project = OperatorServiceFixtures.project()
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        var fresh = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-23", state: .working, worktree: "/tmp/aiterm-wt")
+        fresh.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        fresh.operated?.runtimeUsed = 10 * 60
+        var spent = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-24", state: .working, worktree: "/tmp/aiterm-wt2")
+        spent.operated?.launch = LaunchAttempt(number: 1, requestedAt: clock.now, openedAt: clock.now)
+        spent.operated?.runtimeUsed = 95 * 60
+        let world = try makeWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [fresh, spent]))
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: fresh.id, state: .idle),
+                    OperatorServiceFixtures.session("w2", window: "w8", tag: spent.id, state: .done)])
+        world.controller.reconcileTick()
+        clock.advance(by: 50)
+        world.controller.reconcileTick()
+        #expect(world.task(fresh.id)?.operated?.runtimeUsed == 10 * 60.0, "an idle worker is not at work")
+        let waiting = try #require(world.task(spent.id)?.operated)
+        #expect(waiting.state == .working && waiting.runtimeUsed == 95 * 60.0, "finished work waits for acceptance, unblocked")
+        // It is told to fix something and works again: past its limit, it is blocked.
+        world.show([OperatorServiceFixtures.session("op", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: fresh.id, state: .working),
+                    OperatorServiceFixtures.session("w2", window: "w8", tag: spent.id, state: .working)])
+        clock.advance(by: 30)
+        world.controller.reconcileTick()
+        #expect(world.task(fresh.id)?.operated?.runtimeUsed == 10 * 60 + 30.0)
+        #expect(world.task(spent.id)?.operated?.state == .blocked)
+    }
+
     /// Only time with a worker at work counts: a task with no tab (its window closed, a relaunch pending) uses none.
     @Test func aWorkingTaskWithNoWorkerTabCountsNoRuntime() throws {
         let project = OperatorServiceFixtures.project()
