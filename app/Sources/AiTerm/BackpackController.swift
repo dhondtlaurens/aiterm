@@ -311,12 +311,16 @@ final class BackpackController {
             await checkPushes()
             return
         }
-        // Ended itself: a push still waiting goes now, before the Mac is put to sleep.
-        if let push = pushQueue.flush(pushRows(), at: now()) { await send(push) }
         let restored = !mode.settings.engaged
         if !restored { toast(Self.restoreFailed) }
         phase = nil
         joinedHotspot = false
+        // Ended itself: a push still waiting goes now, before the Mac is put to sleep. A connect the
+        // person started while it went is a new trip, which the ending leaves alone.
+        if let push = pushQueue.flush(pushRows(), at: now()) {
+            await send(push)
+            if busy || isOn { return }
+        }
         // Sleep is back, but macOS sleeps on the lid's close, not its state: with the lid already
         // shut — the Mac in a bag — it would stay awake. Ask for sleep; the Wi-Fi rejoins on wake.
         let lidSleep = ports.lidSleep
@@ -419,6 +423,8 @@ final class BackpackController {
     /// Sends one push and keeps how it went. Its words name an agent at most, so the log may hold them.
     private func send(_ push: BackpackPush) async {
         let failure = await sendPush(push)
+        // Turned off under it: the cancelled request says nothing about the phone, so nothing is kept.
+        guard !Task.isCancelled else { return }
         pushFailure = failure
         if let failure {
             Log.backpack.error("Couldn’t push “\(push.body, privacy: .public)” to the iPhone: \(failure, privacy: .public)")

@@ -680,6 +680,78 @@ import Testing
         #expect(backpack.pushes == .never)
     }
 
+    /// Holds a push on its way until the test lets it go.
+    @MainActor final class Gate {
+        private var waiting: CheckedContinuation<Void, Never>?
+        private var isOpen = false
+        func wait() async {
+            if isOpen { return }
+            await withCheckedContinuation { waiting = $0 }
+        }
+        func open() {
+            isOpen = true
+            waiting?.resume()
+            waiting = nil
+        }
+    }
+
+    /// Turned off by hand while a push is on its way: the tick under way is cancelled, and the
+    /// helper's request with it, which says nothing about the phone — so no failure is kept.
+    @Test func aPushCutShortByTurningOffKeepsNoFailure() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID()
+        let backpack = pushing(fake, pushes, clock: clock)
+        backpack.sendPush = { push in
+            pushes.sent.append(push)
+            // As the helper's request answers a cancelled task: at once, as a failure.
+            try? await Task.sleep(for: .seconds(3600))
+            return "AiTerm’s helper ran into a problem."
+        }
+        await backpack.connect(network: "Phone", password: nil)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.rows = [Self.row(task, .needsInput)]
+        await backpack.tick()
+        clock.at(BackpackPushQueue.hold)
+        let check = Task { await backpack.tick() }
+        await eventually(describing: "the push to be on its way") { pushes.sent.count == 1 }
+        check.cancel()
+        await check.value
+        #expect(backpack.pushFailure == nil)
+    }
+
+    /// The mode ended itself and its last push is on its way when the person, back at the Mac, connects
+    /// again: the ending leaves the new trip alone — its phase, and the hotspot it is on.
+    @Test func aConnectDuringTheEndingsPushIsLeftAlone() async {
+        let fake = FakeBackpack(), pushes = Pushes(), clock = Clock(), task = UUID(), gate = Gate()
+        let backpack = pushing(fake, pushes, clock: clock)
+        backpack.sendPush = { push in
+            pushes.sent.append(push)
+            await gate.wait()
+            return nil
+        }
+        await backpack.connect(network: "Phone", password: nil, pushes: .needsInputOrDone)
+        fake.lidSensor.closed = true
+        pushes.rows = [Self.row(task, .working)]
+        await backpack.tick()
+        pushes.working = false
+        pushes.rows = [Self.row(task, .done)]
+        await backpack.tick()
+        clock.at(BackpackMode.idleGrace)
+        let ending = Task { await backpack.tick() }
+        await eventually(describing: "the ending's push to be on its way") { pushes.sent.count == 1 }
+        #expect(!backpack.isOn)
+        fake.lidSensor.closed = false
+        await backpack.connect(network: "Phone", password: nil)
+        #expect(backpack.isOn && backpack.phase == .safe)
+        gate.open()
+        await ending.value
+        #expect(backpack.isOn)
+        #expect(backpack.phase == .safe, "the new trip's phase stands")
+        #expect(fake.wifi.current == "Phone", "the Mac stays on the hotspot")
+        #expect(fake.lid.sleeps == 0)
+    }
+
     /// Off the hotspot a push could not go out, and none is retried: nothing is checked until the
     /// Mac is back on it, and what moved meanwhile is pushed then.
     @Test func nothingIsCheckedOffTheHotspot() async {

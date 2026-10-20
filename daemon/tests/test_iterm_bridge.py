@@ -1450,9 +1450,15 @@ async def test_itermss_refusal_is_its_own_reason(monkeypatch):
     assert await bridge.send_companion_notification("AiTerm", "Codex needs your input.") == reason
 
 
-async def test_an_iterm_without_the_builtin_says_which_version_it_needs(monkeypatch):
-    bridge, _ = _pushing_bridge(monkeypatch, _invoke_reply(
-        "FAILED", "Undefined function with signature “iterm2.send_companion_notification(body,title)”"))
+@pytest.mark.parametrize("refusal", [
+    # What an iTerm2 before 3.7.5 answers the daemon, whose connection means its Python API is on.
+    "No function registered for invocation “iterm2.send_companion_notification(body,title)”. "
+    "Ensure the script is running and the function name and argument names are correct.",
+    # The same call's answer with the API off.
+    "Undefined function with signature “iterm2.send_companion_notification(body,title)”",
+])
+async def test_an_iterm_without_the_builtin_says_which_version_it_needs(monkeypatch, refusal):
+    bridge, _ = _pushing_bridge(monkeypatch, _invoke_reply("FAILED", refusal))
     assert await bridge.send_companion_notification("AiTerm", "Codex needs your input.") == "Pushes need iTerm2 3.7.5 or later."
 
 

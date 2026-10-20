@@ -739,9 +739,13 @@ class ItermBridge:
         status = iterm2.api_pb2.InvokeFunctionResponse.Status.Name(reply.error.status)
         if status == "TIMEOUT":
             return f"iTerm2 did not send it within {COMPANION_PUSH_SECONDS:g} s."
-        if reply.error.error_reason.startswith("Undefined function"):
+        reason = reply.error.error_reason
+        # An iTerm2 without the builtin names it: "No function registered for invocation “iterm2.
+        # send_companion_notification(body,title)”…" with its Python API on, as it is while the daemon
+        # is connected through it, and "Undefined function with signature …" with it off.
+        if "send_companion_notification" in reason and reason.startswith(("No function registered", "Undefined function")):
             return "Pushes need iTerm2 3.7.5 or later."
-        return reply.error.error_reason or f"iTerm2 answered {status}."
+        return reason or f"iTerm2 answered {status}."
 
     @_bounded
     async def session_info(self, session_id: str) -> RawSession | None:

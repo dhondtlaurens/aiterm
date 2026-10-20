@@ -203,7 +203,7 @@ import Testing
         await model.load()
         model.pushes = .never
         model.connect()
-        #expect(await until { model.backpack.phase == .safe })
+        await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
         #expect(fake.settings.pushes == .never)
         #expect(BackpackSheetModel(backpack: backpack).pushes == .never, "the next sheet starts on it")
     }

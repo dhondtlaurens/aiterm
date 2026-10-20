@@ -356,7 +356,9 @@ final class AppController {
             let reason = (result.reason ?? "iTerm2 didn’t send it").trimmingCharacters(in: .whitespacesAndNewlines)
             return reason.hasSuffix(".") ? reason : reason + "."
         } catch let error as DaemonError {
-            return error.userMessage
+            // A helper an updated AiTerm adopted from before `companion.notify`: say how to mend it, as
+            // the banner does for a mismatched helper — this line may be the only place it shows.
+            return error.isMismatch ? "AiTerm’s helper is from another version. Quit and reopen AiTerm.app." : error.userMessage
         } catch {
             return "AiTerm’s helper ran into a problem."
         }

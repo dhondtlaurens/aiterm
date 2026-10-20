@@ -65,12 +65,13 @@ import Testing
         #expect(await controller.sendPush(push) == "Notification delivery failed: The request timed out.", "a sentence, for the sheet")
     }
 
-    /// A helper from before `companion.notify` answers unknown_method: a reason, never a crash.
+    /// A helper from before `companion.notify` — one an updated AiTerm adopted — answers
+    /// unknown_method: a reason that says what to do, as the banner for a mismatched helper does.
     @Test func aHelperWithoutTheMethodIsAFailureNotACrash() async throws {
         let (controller, dir) = try loaded()
         defer { try? FileManager.default.removeItem(at: dir) }
         controller.helper.setDaemonClient(RecordingDaemon(failing: ["companion.notify": .unknownMethod]))
-        #expect(await controller.sendPush(push) == "AiTerm’s helper is from another version.")
+        #expect(await controller.sendPush(push) == "AiTerm’s helper is from another version. Quit and reopen AiTerm.app.")
     }
 
     @Test func noHelperIsAFailure() async throws {
