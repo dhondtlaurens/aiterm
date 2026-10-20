@@ -51,9 +51,9 @@ Stay in this worktree. No push, merge, publishing or live-service mutation. Use 
 ### Task 4: Integration, review and handoff
 **Files:** audit record under `docs/superpowers/`, this plan and ledger.
 - [x] Account for every production source area in audit coverage; distinguish inspected code from tests only inventoried.
-- [ ] Run `scripts/test.sh all` and release build via `scripts/swift.sh build --package-path app -c release`; inspect output.
-- [ ] Independent whole-branch review against `bb5fafd`, resolve material findings with focused regression tests and rerun affected suites.
-- [ ] Use finishing-a-development-branch, choose already-authorized keep-as-is, commit audit results and leave a clean worktree.
+- [x] Run `scripts/test.sh all` and release build via `scripts/swift.sh build --package-path app -c release`; inspect output.
+- [x] Independent whole-branch review against `bb5fafd`, resolve material findings with focused regression tests and rerun affected suites.
+- [x] Use finishing-a-development-branch, choose already-authorized keep-as-is, commit audit results and leave a clean worktree.
 
 ## Autonomous process decisions
 
@@ -63,10 +63,14 @@ Approve this plan without waiting, as requested. Use three disjoint implementati
 
 **Files:** `app/Sources/AiTerm/Operators/OperatorToolHandler{,+Review,+Jira}.swift`, related operator/Jira state if migration tracking is needed; `app/Sources/AiTermCore/GitLab/GitLabClient.swift`; corresponding operator Jira/review, GitLab payload and creation-model tests.
 **Interfaces:** Preserve tool result schemas and saved-state decoding. New Jira idempotency identity must distinguish raw keys and runs; preserve or explicitly refuse ambiguous legacy pending recovery rather than silently linking another ticket. Review assignment must serialize the host's read/replace mutation per published request. Existing fork-review refusal must cover GitLab source/target project differences.
-- [ ] Verify concurrent request_review calls can interleave through the real tool dispatch; add gated regression showing reviewers lost in host/local state. Add per-request ownership for the full host mutation and re-read local state at commit.
-- [ ] Reproduce Jira label collision (`a/b` vs `a_b`) after ambiguous create failure/retry. Choose collision-resistant labels and record compatibility strategy before implementation; add pending-state upgrade/recovery tests. Do not duplicate tickets or silently reuse an unrelated key's ticket.
-- [ ] Reproduce GitLab fork payload with different source_project_id/target_project_id accepted as an origin branch. Populate existing fork metadata/refusal signal, preserving nonfork behavior and existing view behavior.
-- [ ] Run failing focused tests through scripts/test.sh swift, implement smallest cohesive changes, verify affected suites and commit.
-- [ ] Independent review and final full integration verification follow this additional task.
+- [x] Verify concurrent request_review calls can interleave through the real tool dispatch; add gated regression showing reviewers lost in host/local state. Add per-request ownership for the full host mutation and re-read local state at commit.
+- [x] Reproduce Jira label collision (`a/b` vs `a_b`) after ambiguous create failure/retry. Choose collision-resistant labels and record compatibility strategy before implementation; add pending-state upgrade/recovery tests. Do not duplicate tickets or silently reuse an unrelated key's ticket.
+- [x] Reproduce GitLab fork payload with different source_project_id/target_project_id accepted as an origin branch. Populate existing fork metadata/refusal signal, preserving nonfork behavior and existing view behavior.
+- [x] Run failing focused tests through scripts/test.sh swift, implement smallest cohesive changes, verify affected suites and commit.
+- [x] Independent review and final full integration verification follow this additional task.
 
 Ruling: extend implementation with these confirmed remaining-flow findings — they can lose reviewer assignments, attach the wrong Jira ticket, or select the wrong code for review — cost: additional internal identity/serialization logic and tests. No live host writes are needed; all regressions use existing fake clients.
+
+## Completion
+
+Reviewed code/test HEAD: `42570ce`. Full suite: Python 1,130 passed / 1 live test skipped; mypy 66 files and ruff clean; Swift 3,021 passed. Release build passed. Independent whole-branch review approved with no unresolved findings. The first integrated run's existing tight cancellation timing assertion was replaced with a mutation-verified completion check. Details and all autonomous decisions are in `docs/superpowers/reviews/2026-10-20-codebase-audit.md`. Keep the branch/worktree locally; no push or merge.

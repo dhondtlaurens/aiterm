@@ -42,7 +42,7 @@ The recurring weakness is asynchronous ownership: a result can remain structural
 - Verify performance changes using deterministic work-count/ownership checks and code-path complexity where possible. No live iTerm/account workload benchmark or hardware interaction is authorized or needed for these refactors; no measured end-user speedup is claimed.
 - Keep the branch and worktree, with no pushes, merges or publishing.
 
-Subsystem reports and final verification will record implemented findings, exact commands and further decisions.
+Subsystem reports and final verification below record implemented findings, exact commands and further decisions.
 
 ## Remaining-flow coverage pass
 
@@ -85,3 +85,29 @@ The spec and subsystem reports retain the implementation reasoning and regressio
 - [Daemon implementation and review](2026-10-20-daemon-report.md)
 - [Swift lifecycle and scheduling](2026-10-20-swift-report.md)
 - [UI and tooling](2026-10-20-ui-tooling-report.md)
+- [Operator writes and GitLab fork identity](2026-10-20-operator-report.md)
+
+## Independent review record
+
+Each initial subsystem received a separate independent review. Daemon review found two additional ownership/cache defects; both were reproduced, fixed and approved on re-review. Swift and UI/tooling were approved with no material outstanding issue. The Swift review's two minor characterization gaps were subsequently closed with focused passing tests in `e7bfbca`.
+
+The whole-branch review against `bb5fafd` covered the combined production changes and final operator/fork fixes through `e7bfbca`. It found no critical or important issue. One minor compatibility regression was accepted for correction: a repeat of an already-recorded reviewer request should return its no-op result without host access, as it did before serialization. Preserve that early path and retain fresh deduplication after acquiring the assignment gate. Cost: a deliberate small additional guard protects the established no-op contract.
+
+## Integration verification
+
+First combined run at `e7bfbca`, `scripts/test.sh all`, exited 1. Daemon passed 1,130 tests (one opt-in live test skipped), mypy checked 66 files and ruff passed. UI passed 86 tests; core passed 1,740 tests with its two intentional known-issue assertions. Application ran 1,194 tests with one unexpected failure: `cancelDuringAJoinSkipsTheRetryWait` measured 1.495 seconds against its one-second wall-clock assertion. Its forbidden retry is five seconds; baseline already took 0.718 seconds and full-suite actor contention is included in the measured interval. The production cancellation-before-retry guard was intact. Rather than ignore the failure or widen the elapsed threshold, replace this test with a bounded completion check against a deliberately long retry, cancel that wait for cleanup on failure, and verify removing the guard makes the test fail. This is a test robustness decision, not a product performance change. Final verification below supersedes this attempt.
+
+The no-op reviewer replay regression was reproduced and fixed in `16a3cfe`; 33 OperatorReviewTests passed. Independent scoped re-review confirmed the early eligibility guards and no-op return preserve the original contract while fresh ownership/subset checks remain under the assignment gate. No production review finding remains outstanding.
+
+Final whole-branch review approved `bb5fafd..42570ce` with no unresolved finding. The reviewer confirmed the test-only Backpack correction retains the cancellation assertion and production was restored. The explicit external-path completion limitation remains a documented follow-up rather than an implementation/review defect claimed fixed here.
+
+Final combined verification on reviewed code/test commit `42570ce`:
+
+- `scripts/test.sh all` exited **0**. Python: **1,130 passed, 1 skipped**; mypy: **66 source files clean**; ruff: **all checks passed**. Swift: **86 UI + 1,195 application + 1,740 core = 3,021 tests passed**. The three known-issue assertions intentionally exercise test-helper failure recording, as at baseline. Log: `/tmp/aiterm-review-final-green.log`.
+- The skipped Python test requires an explicitly enabled live iTerm session. No real account or hardware writes, live-workload benchmark, or assembled signed-bundle verification was performed.
+- `scripts/swift.sh build --package-path app -c release` exited **0**; release build completed in **82.05 seconds**. Log: `/tmp/aiterm-review-release.log`.
+- `git diff --check` passed. Final edits after the reviewed/tested code are documentation only.
+
+## Handoff
+
+All five implementation-plan tasks are complete. Keep `chore/code-review-and-refactor` and its existing worktree. Nothing was pushed, merged or published. The full source audit does not establish that every dormant path is absent; deleted code had concrete reference evidence. The remaining external-path completion risk and live/signing/benchmark limits are explicit above. Subsystem reports preserve the reasoning and verification that previously lived in this plan's temporary SDD workspace.

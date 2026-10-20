@@ -66,7 +66,8 @@ Decisions/deferred candidates:
 
 - `eee310a` — lifecycle ownership, malformed input and retry regression fixes.
 - `1c9d774` — shared incremental reads, retryable telemetry boundaries, hook placement evidence and indexed descendant/ranking lookups.
-- Final bounded-transport/shared-tick ownership commit is supplied in the implementation handoff (a commit cannot contain its own resulting SHA).
+- `b2b0493` — bounded HTTP transport and shared retry-tick shutdown.
+- `f2359e5` — retain closing transports and retry failed directory scans after independent review.
 
 ## Independent task review: round 1
 
