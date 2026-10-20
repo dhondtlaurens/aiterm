@@ -64,6 +64,9 @@ import Foundation
         try Data("version two".utf8).write(to: codex)
         #expect(versions.current([.codex]) == [.codex: "0.2.0"], "an update rewrote it")
         #expect(AgentVersions(executables: { nil }, shell: { _ in "codex\t0.1.0" }).current([.codex]).isEmpty, "no login shell")
+        let failing = Counter()
+        let broken = AgentVersions(executables: { ["codex": codex.path] }, shell: { _ in failing.add(); return nil })
+        #expect(broken.current([.codex]).isEmpty && broken.current([.codex]).isEmpty && failing.count == 1, "a failed shell isn't asked again")
     }
 
     private final class Counter: @unchecked Sendable {

@@ -66,6 +66,19 @@ import Testing
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
     }
 
+    /// A rebase detaches HEAD until it ends, back on its branch: that is no drift.
+    @Test func aDetachedHeadMidRebaseIsNotFlaggedButOneLeftDetachedIs() async throws {
+        let (world, _, task, worktree) = try makeWorld()
+        try git.run(["checkout", "-q", "--detach"], in: worktree)
+        let state = try git.run(["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge"], in: worktree)
+        try FileManager.default.createDirectory(atPath: state, withIntermediateDirectories: true)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+        try FileManager.default.removeItem(atPath: state)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift?.found.hasPrefix("Its worktree's HEAD is detached at ") == true)
+    }
+
     /// The broadcast's case: told to make a new worktree and branch, the worker committed there, and its last
     /// message named the commit. Its task branch is empty, but the commit is found, and the branch it is on.
     @Test func aCommitTheIdleWorkersLastMessageNamesOffItsBranchIsFlaggedWithTheBranchItIsOn() async throws {

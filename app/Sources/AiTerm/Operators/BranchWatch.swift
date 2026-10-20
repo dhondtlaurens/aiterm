@@ -69,12 +69,22 @@ final class BranchWatch {
         if found != nil, fresh.branchDrift == nil { waker.say("\(fresh.key) committed off its task branch", to: fresh.runId) }
     }
 
-    /// The worktree's HEAD: its branch, nil when detached, and its commit. Nil when git can't read it.
+    /// The worktree's HEAD: its branch, nil when detached, and its commit. Nil when git can't read it, and
+    /// while a rebase runs there: it detaches HEAD until it ends, back on the branch it started from.
     nonisolated static func head(in worktree: String, git: any GitRunning) -> BranchDrift.Head? {
         guard let sha = try? git.run(["rev-parse", "HEAD"], in: worktree),
               case .answered(let branch) = ask(["symbolic-ref", "--quiet", "--short", "HEAD"], in: worktree, none: [1], git: git)
         else { return nil }
+        if branch == nil, rebasing(worktree, git: git) { return nil }
         return BranchDrift.Head(branch: branch, sha: sha)
+    }
+
+    /// Whether a rebase is under way in the worktree: its own git folder holds git's rebase state.
+    nonisolated private static func rebasing(_ worktree: String, git: any GitRunning) -> Bool {
+        ["rebase-merge", "rebase-apply"].contains { name in
+            guard let path = try? git.run(["rev-parse", "--path-format=absolute", "--git-path", name], in: worktree) else { return true }
+            return FileManager.default.fileExists(atPath: path)
+        }
     }
 
     /// The SHAs `message` names, each looked up: the commit it is, whether `branch` holds it, and which other

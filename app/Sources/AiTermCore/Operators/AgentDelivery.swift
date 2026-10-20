@@ -72,8 +72,8 @@ public final class AgentVersions: Sendable {
         let query = paths.map { agent, path in
             "printf '%s\\t' \(agent.rawValue); \(AgentCommand.shellQuote(path)) --version 2>/dev/null | head -n 1; echo"
         }.joined(separator: "; ") + "; true"
-        guard let output = shell(query) else { return [:] }
-        let versions = Self.versions(in: output)
+        // A shell that failed is kept as none read too: run_status asks often, and a login shell costs a second.
+        let versions = shell(query).map(Self.versions(in:)) ?? [:]
         known.withLock { $0 = Known(stamps: stamps, versions: versions) }
         return versions
     }
