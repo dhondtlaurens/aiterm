@@ -97,7 +97,8 @@ import Testing
 
     @Test func anOperationIsNamedFromItsBriefsFirstLine() {
         #expect(OperatorController.operationName(from: "\n  Fix the login bug  \nmore") == "Fix the login bug")
-        #expect(OperatorController.operationName(from: String(repeating: "a", count: 80)) == String(repeating: "a", count: 47) + "…")
+        #expect(OperatorController.operationName(from: String(repeating: "a", count: 80)) == String(repeating: "a", count: 80),
+                "whole: the views cut it at their width")
     }
 
     /// The operator's window closed (spec §9): the run forgets the window and session, and a broadcast under

@@ -55,31 +55,30 @@ public struct OperatorActs: Equatable, Sendable {
 /// A status line the Operator says (spec §7, §13, §14), drawn by the app's `OperatorBadge`: plain words in
 /// AiTerm's caption grammar, `state` or `state · detail`, lowercase, no full stop, from a closed list.
 ///
-/// - `quiet`: the Operator watches (`queued · after PAY-232`, `working`, `in review · waiting on Jan`,
-///   `done · 4f2a91c`, `paused`).
-/// - `acting`: AiTerm carries out one of its acts (`OperatorAct`); `oracle` while the Oracle is consulted.
-/// - `needsYou`: a request (`waiting on you · npm install?`, `waiting on you · 2 tasks`,
-///   `blocked · the tests fail on main`).
+/// - `quiet`: the Operator watches and nothing moves (`queued · after PAY-232`, `in review · waiting on
+///   Jan`, `done · 4f2a91c`, `paused`).
+/// - `acting`: something moves, as the row's `StatusMark` turns: the task's agent works (`working`), or
+///   AiTerm carries out one of the Operator's acts (`OperatorAct`).
+/// - `needsYou`: yours to act on: a request (`waiting on you`, `waiting on you · 2 tasks`, `blocked · the
+///   tests fail on main`), or a publication left for you (`left for you · 4f2a91c`).
 ///
-/// A request outranks an act. A detail is cut to fit the sidebar's third line, the whole of it in
-/// `tooltip`. Nothing here says progress: the broadcast row's `2 of 8 done` is the row's.
+/// A request outranks an act. What a prompt or a question asks is in `tooltip`, not on the line: the
+/// task's window, a click away, shows it whole. A blocked task's reason stays, cut to fit the sidebar's
+/// status line, since no window says it. Nothing here says progress: the broadcast's `2 of 8 done` follows
+/// its line.
 public struct OperatorLine: Equatable, Sendable {
     public enum Look: Equatable, Sendable { case quiet, acting, needsYou }
     public var text: String
     public var look: Look
-    /// The Oracle's mark joins the Operator's.
-    public var oracle: Bool
     /// The whole of what the line says: the request's sentence, or the words before they were cut.
     public var tooltip: String
-    /// The Oracle's agent, from the broadcast's profile: the mark drawn beside the Operator's.
-    public var oracleAgent: AgentKind
 
-    public init(_ text: String, look: Look = .quiet, oracle: Bool = false, tooltip: String? = nil, oracleAgent: AgentKind = .codex) {
-        self.text = text; self.look = look; self.oracle = oracle; self.tooltip = tooltip ?? text; self.oracleAgent = oracleAgent
+    public init(_ text: String, look: Look = .quiet, tooltip: String? = nil) {
+        self.text = text; self.look = look; self.tooltip = tooltip ?? text
     }
 
-    /// The most characters a line says before its detail is cut: what the sidebar's third line holds, in
-    /// `Typography.monoChip` after the badge's mark, at the sidebar's narrowest.
+    /// The most characters a line says before its detail is cut: what the sidebar's status line holds, in
+    /// `Typography.monoChip`, at the sidebar's narrowest.
     public static let maxLength = 40
 
     // MARK: - A driven task's line
@@ -91,19 +90,18 @@ public struct OperatorLine: Equatable, Sendable {
                             tasks: [UUID: TaskItem] = [:]) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               run.state != .stopped, run.intent != .stopped else { return nil }
-        let oracle = run.profile.oracle.agent
         // A finished task's leftover asks nothing.
         if !operated.isFinished {
             if let request = first(requests.filter { $0.runId == run.id && $0.taskId == task.id }) {
-                return line(for: request, task: task, oracle: oracle)
+                return line(for: request, task: task)
             }
         }
-        if let acting, operated.state != .blocked { return act(acting, task: task, named: nil, oracle: oracle) }
+        if let acting, operated.state != .blocked { return act(acting, task: task, named: nil) }
         if operated.state == .working, let review = operated.agentReview, review.isRunning {
-            return act(.reviewingWith, task: task, named: nil, oracle: oracle)
+            return act(.reviewingWith, task: task, named: nil)
         }
-        func quiet(_ text: String) -> OperatorLine { OperatorLine(text, oracleAgent: oracle) }
-        func quiet(_ state: String, _ detail: String) -> OperatorLine { OperatorLine.quiet(state, detail, oracle: oracle) }
+        func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
+        func quiet(_ state: String, _ detail: String) -> OperatorLine { OperatorLine.quiet(state, detail) }
         switch operated.state {
         case .planned, .queued:
             if let parent = operated.stackedOn ?? operated.dependsOn.first?.task {
@@ -112,7 +110,8 @@ public struct OperatorLine: Equatable, Sendable {
             // Added to the backlog after the first plan (spec §4.1).
             return quiet(operated.firstRevision > 1 ? "added by the Operator" : "queued")
         case .working:
-            return quiet("working")
+            // The agent works: the line moves with the row's mark.
+            return OperatorLine("working", look: .acting)
         case .inReview:
             if let people = operated.peopleReview, !people.reviewers.isEmpty, !people.ended {
                 return quiet("in review", "waiting on " + list(people.reviewers))
@@ -122,12 +121,15 @@ public struct OperatorLine: Equatable, Sendable {
         case .failed:
             return reason(operated.blockedReason).map { quiet("failed", $0) } ?? quiet("failed")
         case .blocked:
-            return needsYou("blocked", reason(operated.blockedReason) ?? "it needs you", tooltip: nil, oracle: oracle)
+            return needsYou("blocked", reason(operated.blockedReason) ?? "it needs you", tooltip: nil)
         case .stopped:
             return nil
         case .accepted:
-            if let ending = ending(of: operated) { return quiet(ending) }
-            if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil, oracle: oracle) }
+            if let ending = ending(of: operated) {
+                // Its publication handed back: the one finished state that is yours to act on.
+                return operated.publication?.leftForYou == true ? OperatorLine(ending, look: .needsYou) : quiet(ending)
+            }
+            if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil) }
             if let publication = operated.publication, publication.waitingSince != nil { return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready") }
             return quiet(operated.end == .draftMR ? "opening the MR" : "merging")
         case .noChange, .published:
@@ -169,7 +171,6 @@ public struct OperatorLine: Equatable, Sendable {
     /// task's `key` (or its id); `tasks` are the broadcast's.
     public static func broadcast(_ run: OperatorRun, tasks: [TaskItem], acting: (OperatorAct, task: String?)?,
                                  requests: [BroadcastRequest]) -> OperatorLine {
-        let oracle = run.profile.oracle.agent
         let driven = tasks.filter { $0.operated?.runId == run.id }
         // A finished task's leftover asks nothing, as on its own line.
         let finished = Set(driven.filter { $0.operated.map(\.isFinished) ?? false }.map(\.id))
@@ -177,30 +178,31 @@ public struct OperatorLine: Equatable, Sendable {
         // A request outranks everything: one is said, several are counted by what asks.
         if let top = first(asked) {
             let subjects = Set(asked.map { $0.taskId?.uuidString ?? "run" })
-            guard subjects.count > 1 else { return line(for: top, task: driven.first { $0.id == top.taskId }, oracle: oracle) }
+            guard subjects.count > 1 else { return line(for: top, task: driven.first { $0.id == top.taskId }) }
             return OperatorLine("waiting on you · \(subjects.count) tasks", look: .needsYou,
-                                tooltip: asked.map(\.text).joined(separator: "\n"), oracleAgent: oracle)
+                                tooltip: asked.map(\.text).joined(separator: "\n"))
         }
-        func quiet(_ text: String) -> OperatorLine { OperatorLine(text, oracleAgent: oracle) }
+        func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
         if run.state == .operatorOffline { return quiet("paused · the Operator’s window is closed") }
         if run.state == .paused || run.intent == .paused { return quiet("paused") }
         if run.state == .complete { return quiet("done · debrief ready") }
         if run.state == .stopped || run.intent == .stopped { return quiet("ended") }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in driven.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
-            return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil, oracle: oracle)
+            return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
         }
-        if run.state == .planning { return OperatorLine("loading the construct", look: .acting, oracleAgent: oracle) }
+        if run.state == .planning { return OperatorLine("loading the construct", look: .acting) }
         let open = driven.filter { ($0.operated).map { !$0.takenOver && $0.state.isOpen } ?? false }
         let working = open.filter { $0.operated?.state == .working }.count
-        if working > 0 { return quiet("working · \(working) \(working == 1 ? "task" : "tasks")") }
+        // Its tasks work: the line moves with the row's mark.
+        if working > 0 { return OperatorLine("working · \(working) \(working == 1 ? "task" : "tasks")", look: .acting) }
         // Waiting only on people: the names its reviews wait on, each once.
         var names: [String] = []
         for task in open {
             guard let operated = task.operated, operated.state == .inReview, let people = operated.peopleReview, !people.ended else { continue }
             for name in people.reviewers where !names.contains(name) { names.append(name) }
         }
-        if !names.isEmpty { return OperatorLine.quiet("in review", "waiting on " + list(names), oracle: oracle) }
+        if !names.isEmpty { return OperatorLine.quiet("in review", "waiting on " + list(names)) }
         return quiet("working")
     }
 
@@ -208,7 +210,7 @@ public struct OperatorLine: Equatable, Sendable {
 
     /// An act's line: the words in the task's agent (a review's in its reviewer's), and on the broadcast's
     /// line the task it is about after them.
-    private static func act(_ act: OperatorAct, task: TaskItem?, named label: String?, oracle: AgentKind) -> OperatorLine {
+    private static func act(_ act: OperatorAct, task: TaskItem?, named label: String?) -> OperatorLine {
         let agent: AgentKind
         if act == .reviewingWith {
             // The reviewer is the other family unless the review says which (`review_task`).
@@ -218,8 +220,7 @@ public struct OperatorLine: Equatable, Sendable {
         }
         let words = act.words(agent: agent, names: task?.operated?.peopleReview?.reviewers ?? [])
         let whole = label.map { words + " · " + $0 } ?? words
-        return OperatorLine(label.map { fit(words, $0) } ?? cut(words), look: .acting, oracle: act == .consultingTheOracle,
-                            tooltip: whole, oracleAgent: oracle)
+        return OperatorLine(label.map { fit(words, $0) } ?? cut(words), look: .acting, tooltip: whole)
     }
 
     /// The request a line says, of several: an agent's prompt first, then a question, then what blocks.
@@ -229,41 +230,26 @@ public struct OperatorLine: Equatable, Sendable {
         return requests.min { order.firstIndex(of: $0.kind)! < order.firstIndex(of: $1.kind)! }
     }
 
-    /// A request as a line: `waiting on you · npm install?`, `waiting on you · retry policy?`,
-    /// `blocked · the tests fail on main`; the request's sentence its tooltip.
-    private static func line(for request: BroadcastRequest, task: TaskItem?, oracle: AgentKind) -> OperatorLine {
+    /// A request as a line: `waiting on you` for a prompt or a question, its sentence the tooltip;
+    /// `blocked · the tests fail on main` for what blocks, the reason kept.
+    private static func line(for request: BroadcastRequest, task: TaskItem?) -> OperatorLine {
         switch request.kind {
-        case .permission:
-            return needsYou("waiting on you", permission(request.text, task: task), tooltip: request.text, oracle: oracle)
-        case .question:
-            let prefix = "The Operator asks: "
-            let asked = request.text.hasPrefix(prefix) ? String(request.text.dropFirst(prefix.count)) : request.text
-            return needsYou("waiting on you", asked.trimmingCharacters(in: .whitespacesAndNewlines), tooltip: request.text, oracle: oracle)
+        case .permission, .question:
+            return OperatorLine("waiting on you", look: .needsYou, tooltip: request.text)
         case .blocked:
-            return needsYou("blocked", reason(task?.operated?.blockedReason) ?? "it needs you", tooltip: request.text, oracle: oracle)
+            return needsYou("blocked", reason(task?.operated?.blockedReason) ?? "it needs you", tooltip: request.text)
         case .problem:
-            return needsYou("blocked", reason(task?.operated?.publication?.problem ?? task?.operated?.blockedReason) ?? "a problem in AiTerm", tooltip: request.text, oracle: oracle)
+            return needsYou("blocked", reason(task?.operated?.publication?.problem ?? task?.operated?.blockedReason) ?? "a problem in AiTerm", tooltip: request.text)
         }
     }
 
-    /// What a prompt asks, as a short question: `npm install?` from "Codex asks to run npm install in …",
-    /// and `permission?` while AiTerm knows no more of it than that it is one.
-    private static func permission(_ text: String, task: TaskItem?) -> String {
-        guard let asks = text.range(of: " asks to ") else { return "permission?" }
-        var phrase = String(text[asks.upperBound...])
-        if let task, let place = phrase.range(of: " in \(task.title)", options: .backwards) { phrase = String(phrase[..<place.lowerBound]) }
-        phrase = phrase.trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
-        if phrase.hasPrefix("run ") { phrase = String(phrase.dropFirst(4)) }
-        return phrase.isEmpty ? "permission?" : phrase + "?"
-    }
-
     /// A quiet `state · detail`, cut to fit, the whole of it in the tooltip.
-    private static func quiet(_ state: String, _ detail: String, oracle: AgentKind) -> OperatorLine {
-        OperatorLine(fit(state, detail), tooltip: state + " · " + detail, oracleAgent: oracle)
+    private static func quiet(_ state: String, _ detail: String) -> OperatorLine {
+        OperatorLine(fit(state, detail), tooltip: state + " · " + detail)
     }
 
-    private static func needsYou(_ state: String, _ detail: String, tooltip: String?, oracle: AgentKind) -> OperatorLine {
-        OperatorLine(fit(state, detail), look: .needsYou, tooltip: tooltip ?? state + " · " + detail, oracleAgent: oracle)
+    private static func needsYou(_ state: String, _ detail: String, tooltip: String?) -> OperatorLine {
+        OperatorLine(fit(state, detail), look: .needsYou, tooltip: tooltip ?? state + " · " + detail)
     }
 
     /// A reason as a detail: trimmed, its full stop dropped.

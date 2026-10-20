@@ -51,10 +51,8 @@ import Testing
             + (0..<6).map { task("Later \($0)", run: run.id, .queued) }
         let board = BroadcastBoard.make(run: run, state: state(run, tasks), acting: .none, requests: [])
         #expect(board.title == "Checkout redesign")
-        #expect(board.band == OperatorLine("working · 1 task"))
-        #expect(board.progress == "1 of 8 done")
-        #expect(board.projects == ["webshop", "payments-api"])
-        #expect(board.bandDetail == "1 of 8 done · webshop, payments-api")
+        #expect(board.band == OperatorLine("working · 1 task", look: .acting))
+        #expect(board.progress == "1 of 8 done", "the band's progress, and no projects")
         #expect(board.clauses == [BroadcastBoard.Clause(label: "Asked", text: "implement PAY-230 to PAY-236, the new checkout"),
                                   BroadcastBoard.Clause(label: "Review", text: "assign Jan, fix his feedback"),
                                   BroadcastBoard.Clause(label: "Done", text: "merged after Jan's approval")])
@@ -64,7 +62,7 @@ import Testing
         var planning = self.run(.planning, review: nil)
         planning.firstPlanSize = nil
         let early = BroadcastBoard.make(run: planning, state: state(planning), acting: .none, requests: [])
-        #expect(early.progress == nil && early.bandDetail == "webshop, payments-api")
+        #expect(early.progress == nil)
         #expect(early.band.text == "loading the construct")
         #expect(early.clauses.map(\.label) == ["Asked", "Done"], "no Review clause without a review")
     }
@@ -160,9 +158,9 @@ import Testing
         let cards = Dictionary(uniqueKeysWithValues: board.columns.flatMap(\.cards).map { ($0.title, $0) })
 
         #expect(cards["Payment provider switch"]?.opens == .taskWindow(permission.id), "a permission prompt: the task's window")
-        #expect(cards["Payment provider switch"]?.line?.text == "waiting on you · npm install?")
+        #expect(cards["Payment provider switch"]?.line?.text == "waiting on you")
         #expect(cards["Retry failed payments"]?.opens == .operatorWindow, "a question: the Operator's window")
-        #expect(cards["Retry failed payments"]?.line?.text == "waiting on you · retry policy?")
+        #expect(cards["Retry failed payments"]?.line?.text == "waiting on you")
         #expect(cards["Address autocomplete"]?.opens == .operatorWindow, "blocked: the Operator's window")
         #expect(cards["Shipping step"]?.opens == .sidebarBanner(issue: "issue-7"), "AiTerm's problem: the banner's Notice")
         #expect(cards["Shipping step"]?.line?.text == "blocked · The rebase conflicted")

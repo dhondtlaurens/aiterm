@@ -1,29 +1,19 @@
 import Foundation
 
 /// The broadcast under the OPERATOR heading, ready to draw on a task row's grid (spec §3, §13): the
-/// Operator's agent as its avatar, the title, then `2 of 8 done`, the first project and `+n`, then its
-/// status line, and its `StatusMark` trailing. The mark is the broadcast's, never the Operator session's:
+/// Operator's agent as its avatar, the title over its status line with `· 2 of 8 done` after it, as its
+/// board's band reads, its projects in the tooltip, and its `StatusMark` trailing. The mark is the broadcast's, never the Operator session's:
 /// amber while any request is open, spinning while something works, the idle ring while paused or only
 /// waiting on people, and the accent dot once the debrief is ready.
 public struct BroadcastRow: Equatable, Identifiable, Sendable {
-    /// A project as the row's second line names it: its name after its host's mark.
-    public struct ProjectMark: Equatable, Sendable {
-        public var name: String
-        public var provider: Provider
-        public init(name: String, provider: Provider) { self.name = name; self.provider = provider }
-    }
-
     /// The run's id.
     public var id: UUID
     public var title: String
     /// The Operator's agent: Claude Code, the only one it runs on (spec §13).
     public var agent: SessionAgent
-    /// `2 of 8 done`; nil until the first plan is in Todo.
+    /// `2 of 8 done`, after the status line; nil until the first plan is in Todo.
     public var progress: String?
-    public var firstProject: ProjectMark?
-    /// The projects after the first: the `+n`.
-    public var moreProjects: Int
-    /// Every project, as a sentence lists them: the project's tooltip.
+    /// Every project, as a sentence lists them: the row's tooltip.
     public var projectsHelp: String
     public var line: OperatorLine
     public var status: TaskStatus
@@ -46,8 +36,7 @@ public extension SidebarModel {
         let paused = run.state == .paused || run.state == .operatorOffline || run.intent == .paused
         return BroadcastRow(id: run.id, title: run.name, agent: AgentKind.claude.session,
                             progress: BroadcastBoard.progress(of: run, tasks: tasks),
-                            firstProject: projects.first.map { BroadcastRow.ProjectMark(name: $0.name, provider: $0.provider) },
-                            moreProjects: max(projects.count - 1, 0), projectsHelp: OperatorLine.list(projects.map(\.name)),
+                            projectsHelp: OperatorLine.list(projects.map(\.name)),
                             line: line, status: broadcastStatus(run, tasks: tasks, line: line, acting: act != nil, paused: paused),
                             isPaused: paused, isComplete: run.state == .complete)
     }

@@ -69,8 +69,8 @@ struct BoardFooter: Equatable {
 }
 
 /// The broadcast's board (spec §4, §13), `Sheet.boardWidth` by `Sheet.height` in `SheetLayout`'s
-/// anatomy: the title; a band line, the broadcast's `OperatorBadge` then `2 of 8 done · projects` in
-/// `Typography.caption`; then the Asked line, the whole of it in its tooltip. Under them the columns, each
+/// anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; then the
+/// Asked line, two lines at most, the whole of it in its tooltip. Under them the columns, each
 /// a `SidebarHeading` and its count over its cards, scrolling on its own; once every task is done, the
 /// debrief in their place (`BroadcastDebriefView`). A card's click closes the sheet first, then opens what
 /// resolves it (`choose`). Equatable by what it draws, its actions left out (they act on the broadcast
@@ -111,16 +111,9 @@ struct BroadcastBoardSheet: View, Equatable {
         SheetLayout(title: board.title, height: Sheet.height, width: Sheet.boardWidth, bandHeight: nil, scrolls: false,
                     contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.base) {
-                HStack(spacing: Space.base) {
-                    OperatorBadge(line: board.band).layoutPriority(1)
-                    if !board.bandDetail.isEmpty {
-                        Text(board.bandDetail).font(Typography.caption).foregroundStyle(Palette.muted)
-                            .lineLimit(1).truncationMode(.tail).help(board.bandDetail)
-                    }
-                }
-                .frame(height: Size.chip)
+                BroadcastStatusLine(line: board.band, progress: board.progress)
                 Self.asked(board.clauses).font(Typography.help).foregroundStyle(Palette.muted)
-                    .lineLimit(1).truncationMode(.tail).help(board.asked)
+                    .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true).help(board.asked)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } content: {
@@ -153,7 +146,8 @@ struct BroadcastBoardSheet: View, Equatable {
             BoardScroll {
                 VStack(alignment: .leading, spacing: Space.base) {
                     if lane.cards.isEmpty {
-                        Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.base)
+                        // At the card's own inset, so it reads on the line of the cards' titles beside it.
+                        Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.inset)
                     }
                     ForEach(lane.cards) { card in BoardCardView(card: card, choose: { choose(card.opens) }).equatable() }
                 }
@@ -209,9 +203,10 @@ struct BoardScroll<Content: View>: View {
 }
 
 /// A task on the board (spec §4, §13): a `groupChrome` box, `Space.inset` inside. Its agent's
-/// `VendorMark` on every card, started or not (spec §15.4), and the title, two lines at most; then the quiet Jira and merge-request
-/// `Badge`s a task row wears, and the project when the broadcast spans several, never the branch; then its
-/// status line, one `Size.chip` line: the task's `OperatorBadge`, or `taken over` with no badge. A card
+/// `VendorMark` on every card, started or not (spec §15.4), and beside it, on the title's leading edge as
+/// on a task row, the title, two lines at most; then the quiet Jira and merge-request `Badge`s a task row
+/// wears, and the project when the broadcast spans several, never the branch; then its status line, one
+/// `Size.chip` line: the task's `OperatorBadge`, or `taken over` with no badge. A card
 /// that needs you has its edge in `Palette.statusChipAttentionStroke` and the needs-you badge, nothing more:
 /// the card is the action. Its tooltip is the model the Operator chose and why. Equatable by its card
 /// alone, so a change to another card redraws this one not at all.
@@ -240,12 +235,22 @@ struct BoardCardView: View, Equatable {
     }
 
     private var box: some View {
+        HStack(alignment: .top, spacing: Space.base) {
+            if let agent = card.agent { VendorMark(agent: agent.session, size: Size.avatar) }
+            lines
+        }
+        .padding(Space.inset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
+                     edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
+        .contentShape(Rectangle())
+        .help(card.modelTooltip ?? "")
+    }
+
+    private var lines: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            HStack(alignment: .top, spacing: Space.base) {
-                if let agent = card.agent { VendorMark(agent: agent.session, size: Size.avatar) }
-                Text(card.title).font(Typography.body).foregroundStyle(Palette.text)
-                    .lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-            }
+            Text(card.title).font(Typography.body).foregroundStyle(Palette.text)
+                .lineLimit(2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             if card.ticket != nil || card.mr != nil || card.project != nil {
                 HStack(spacing: Space.gap) {
                     TaskBadges(ticket: card.ticket, ticketSummary: card.ticketSummary, mr: card.mr, mrHost: card.mrHost, mrTitle: card.mrTitle)
@@ -261,12 +266,6 @@ struct BoardCardView: View, Equatable {
                 OperatorBadge(line: line)
             }
         }
-        .padding(Space.inset)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
-                     edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
-        .contentShape(Rectangle())
-        .help(card.modelTooltip ?? "")
     }
 
     /// What VoiceOver says a card's click does.

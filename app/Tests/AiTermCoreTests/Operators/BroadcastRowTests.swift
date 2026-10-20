@@ -3,8 +3,8 @@ import Testing
 @testable import AiTermCore
 @testable import AiTermTestSupport
 
-/// The broadcast row under the OPERATOR heading, as a value: it reads like a task row — the title, then
-/// `2 of 8 done`, the first project and `+n`, then its status line — and its `StatusMark` follows the
+/// The broadcast row under the OPERATOR heading, as a value: it reads like a folded task row — the title
+/// over its status line and `2 of 8 done`, its projects in the tooltip — and its `StatusMark` follows the
 /// broadcast, a request outranking everything (spec §3, §13).
 @Suite struct BroadcastRowTests {
     private let web = OperatorUIFixtures.project("pluto-web"), cms = OperatorUIFixtures.project("pluto-cms")
@@ -43,10 +43,8 @@ import Testing
         #expect(row.title == "Checkout redesign")
         #expect(row.agent == .claude, "the Operator's agent is its avatar")
         #expect(row.progress == "2 of 8 done", "a stopped task is not counted")
-        #expect(row.firstProject == BroadcastRow.ProjectMark(name: "pluto-web", provider: .gitlab))
-        #expect(row.moreProjects == 2)
         #expect(row.projectsHelp == "pluto-web, pluto-cms and pluto-docs")
-        #expect(row.line == OperatorLine("working · 3 tasks"))
+        #expect(row.line == OperatorLine("working · 3 tasks", look: .acting), "its tasks work: the line moves")
     }
 
     @Test func thereIsNoProgressUntilTheFirstPlanIsInTodo() throws {
@@ -59,11 +57,11 @@ import Testing
         #expect(SidebarModel.broadcastRow(state: state(planned, tasks))?.progress == "0 of 7 done")
     }
 
-    @Test func oneProjectHasNoCountAndNoBroadcastHasNoRow() throws {
+    @Test func oneProjectIsNamedAloneAndNoBroadcastHasNoRow() throws {
         var single = run()
         single.projectIds = [cms.id]
         let row = try #require(SidebarModel.broadcastRow(state: state(single)))
-        #expect(row.firstProject?.name == "pluto-cms" && row.moreProjects == 0)
+        #expect(row.projectsHelp == "pluto-cms")
         #expect(SidebarModel.broadcastRow(state: AppState()) == nil)
         #expect(SidebarModel.broadcastRow(state: state(run(.stopped))) == nil, "an ended broadcast has no row")
         var ending = run()
@@ -78,7 +76,7 @@ import Testing
         let working = [task("a", run: asking.id, .working)]
         let acting = OperatorActs(runs: [asking.id: .init(act: .answering, task: "a")])
         let asked = try #require(SidebarModel.broadcastRow(state: state(asking, working), acting: acting))
-        #expect(asked.line.look == .needsYou && asked.line.text == "waiting on you · retry policy?")
+        #expect(asked.line.look == .needsYou && asked.line.text == "waiting on you")
         #expect(asked.status == .needsInput)
 
         // Spinning while something works: its tasks, an act, or the plan being drawn up.

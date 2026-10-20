@@ -118,7 +118,7 @@ import Testing
         #expect(world.controller.acting.broadcast(run.id)?.0 == .consultingTheOracle, "the call has ended; the Oracle has not")
         let line = OperatorLine.broadcast(try #require(world.run(run.id)), tasks: world.workspace.state.tasks(inRun: run.id),
                                           acting: world.controller.acting.broadcast(run.id), requests: [])
-        #expect(line.text == "consulting the Oracle" && line.look == .acting && line.oracle && line.oracleAgent == .claude)
+        #expect(line == OperatorLine("consulting the Oracle", look: .acting))
         await gate.open()
         await world.controller.tools.lastChallenge?.value
         #expect(world.controller.acting == .none)

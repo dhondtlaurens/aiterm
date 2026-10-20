@@ -256,11 +256,11 @@ final class OperatorController {
         return facts
     }
 
-    /// The first line of the brief, as the run's row names it until the person renames it.
+    /// The first line of the brief, whole, as the run's row names it until the person renames it: each
+    /// place that shows it cuts it at its own width, the board's title wider than the sidebar's row.
     static func operationName(from brief: String) -> String {
-        let line = brief.split(whereSeparator: \.isNewline).lazy
+        brief.split(whereSeparator: \.isNewline).lazy
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? "Operation"
-        return line.count > 48 ? String(line.prefix(47)) + "…" : line
     }
 
     /// Changes one run, saved like every workspace change. Nothing for a run that has gone.

@@ -4,7 +4,7 @@ import Foundation
 /// from the app's `BroadcastBoardSheet`, so each moment is tested without drawing it.
 ///
 /// The header restates the brief: the title, a band line with the broadcast's own status line
-/// (`OperatorLine.broadcast`) and `2 of 8 done · webshop, payments-api`, then one Asked line. The board is
+/// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then the Asked line. The board is
 /// the plan: Todo · In progress · Review · Done, Review only when the broadcast has a review, each task's
 /// card in the column its state puts it in, in the plan's order. Once every task is done (the run is
 /// complete) the debrief takes the board's place.
@@ -102,10 +102,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var title: String
     /// The broadcast's status line, the band's first part.
     public var band: OperatorLine
-    /// `2 of 8 done`; nil until the first plan is in Todo.
+    /// `2 of 8 done`, after the band's status line; nil until the first plan is in Todo.
     public var progress: String?
-    /// Every project the broadcast works in, by name.
-    public var projects: [String]
     /// The Asked line's parts: the prompt, then the Review and the Done when it has them.
     public var clauses: [Clause]
     /// The board's columns, Review left out without a review.
@@ -114,11 +112,6 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var debrief: Debrief?
     /// Paused by you, or its Operator's window closed: the footer offers Resume Broadcast.
     public var isPaused: Bool
-
-    /// The band's words after the badge: `2 of 8 done · webshop, payments-api`.
-    public var bandDetail: String {
-        [progress, projects.isEmpty ? nil : projects.joined(separator: ", ")].compactMap { $0 }.joined(separator: " · ")
-    }
 
     /// The Asked line whole, as its tooltip says it.
     public var asked: String { clauses.map { "\($0.label) \($0.text)" }.joined(separator: " · ") }
@@ -156,7 +149,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         return BroadcastBoard(
             runId: run.id, title: run.name,
             band: OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests),
-            progress: progress(of: run, tasks: tasks), projects: projects.map(\.name),
+            progress: progress(of: run, tasks: tasks),
             clauses: [Clause(label: "Asked", text: oneLine(run.prompt))]
                 + [("Review", run.review), ("Done", run.done)].compactMap { label, text in
                     text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }

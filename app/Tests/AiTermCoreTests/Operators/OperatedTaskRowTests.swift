@@ -29,7 +29,7 @@ import Testing
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         let drawn = row(task, run: run, tabs: [tab(task, .claude)])
         #expect(drawn.avatars == AvatarGroup(marks: [.claude], overflow: 0))
-        #expect(drawn.operatorLine == OperatorLine("working"))
+        #expect(drawn.operatorLine == OperatorLine("working", look: .acting))
         let acting = row(task, run: run, tabs: [tab(task, .claude)], acting: [task.id: .answering])
         #expect(acting.operatorLine == OperatorLine("answering Claude", look: .acting))
     }
@@ -74,7 +74,7 @@ import Testing
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "footer", state: .working,
                                                                                   flags: [.waitingOnYou]))
         let line = row(task, run: run).operatorLine
-        #expect(line?.text == "waiting on you · retry policy?" && line?.look == .needsYou)
+        #expect(line?.text == "waiting on you" && line?.look == .needsYou)
         #expect(line?.tooltip == "The Operator asks: retry policy?")
         let parent = OperatorUIFixtures.task("The signup block schema", jira: "PLUTO-231", project: web.id,
                                              operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-231", state: .accepted, sha: "4f2a91c"))

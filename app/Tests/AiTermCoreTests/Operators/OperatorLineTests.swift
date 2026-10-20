@@ -31,12 +31,12 @@ import Testing
         let asks = request(.permission, run, footer, "Codex asks to run npm install in Fix the /privacy footer link.")
         // The broadcast: the Operator answering one agent while another waits on you reads the request.
         let line = OperatorLine.broadcast(run, tasks: [footer, homepage], acting: (.answering, task: "pluto-232"), requests: [asks])
-        #expect(line.text == "waiting on you · npm install?")
+        #expect(line.text == "waiting on you", "what it asks is the tooltip's: the task's window shows it whole")
         #expect(line.look == .needsYou)
         #expect(line.tooltip == "Codex asks to run npm install in Fix the /privacy footer link.")
         // And a task: its own request outranks what the Operator is doing to it.
         let row = try #require(OperatorLine.task(footer, run: run, acting: .answering, requests: [asks]))
-        #expect(row.text == "waiting on you · npm install?" && row.look == .needsYou)
+        #expect(row.text == "waiting on you" && row.look == .needsYou)
         // With no request, the act is what the line says, the task it is about named on the broadcast's.
         let acting = OperatorLine.broadcast(run, tasks: [footer, homepage], acting: (.answering, task: "pluto-232"), requests: [])
         #expect(acting == OperatorLine("answering Claude · The homepage section", look: .acting))
@@ -53,7 +53,7 @@ import Testing
         #expect(line.tooltip.contains("Claude Code asks for permission") && line.tooltip.contains("Bump nuxt is blocked"))
         // Two things one task asks are that task's one line, not a count.
         let both = [requests[0], request(.question, run, footer, "The Operator asks: Which retry policy?")]
-        #expect(OperatorLine.broadcast(run, tasks: [footer], acting: nil, requests: both).text == "waiting on you · permission?")
+        #expect(OperatorLine.broadcast(run, tasks: [footer], acting: nil, requests: both).text == "waiting on you")
     }
 
     @Test func noProgressWhilePlanning() {
@@ -62,8 +62,7 @@ import Testing
         let line = OperatorLine.broadcast(run, tasks: planned, acting: nil, requests: [])
         #expect(line == OperatorLine("loading the construct", look: .acting), "planning is the Operator acting, and says nothing of progress")
         let checking = OperatorLine.broadcast(run, tasks: planned, acting: (.consultingTheOracle, task: nil), requests: [])
-        #expect(checking.text == "consulting the Oracle" && checking.look == .acting && checking.oracle)
-        #expect(checking.oracleAgent == .codex)
+        #expect(checking == OperatorLine("consulting the Oracle", look: .acting))
         for line in [line, checking] { #expect(!line.text.contains(" of "), "\(line.text)") }
     }
 
@@ -77,7 +76,8 @@ import Testing
         #expect(OperatorLine.task(reviewed, run: run, acting: nil, requests: []) == OperatorLine("in review · waiting on Jan"))
         // With an agent at work it is working, by count.
         let working = [task(run: run, .working), task(run: run, .working), task(run: run, .working), reviewed]
-        #expect(OperatorLine.broadcast(run, tasks: working, acting: nil, requests: []) == OperatorLine("working · 3 tasks"))
+        #expect(OperatorLine.broadcast(run, tasks: working, acting: nil, requests: []) == OperatorLine("working · 3 tasks", look: .acting),
+                "its tasks work: the line moves")
     }
 
     @Test func everyActHasItsWords() {
@@ -92,12 +92,11 @@ import Testing
         for act in OperatorAct.allCases { #expect(act.words(agent: .codex, names: ["Jan"]) == words[act], "\(act)") }
         #expect(OperatorAct.assigning.words(agent: .claude, names: ["Jan", "Piet"]) == "assigning Jan and Piet")
         #expect(OperatorAct.assigning.words(agent: .claude) == "assigning reviewers")
-        // On a task's line the act is the task's: its agent, the Oracle's mark only while it is consulted.
+        // On a task's line the act is the task's: its agent.
         let run = OperatorUIFixtures.run()
         let codex = task(agent: .codex, run: run, .working)
         #expect(OperatorLine.task(codex, run: run, acting: .starting, requests: []) == OperatorLine("starting Codex", look: .acting))
-        #expect(OperatorLine.task(codex, run: run, acting: .consultingTheOracle, requests: [])?.oracle == true)
-        #expect(OperatorLine.task(codex, run: run, acting: .merging, requests: [])?.oracle == false)
+        #expect(OperatorLine.task(codex, run: run, acting: .consultingTheOracle, requests: []) == OperatorLine("consulting the Oracle", look: .acting))
     }
 
     @Test func takenOverHasNoLine() {
@@ -122,7 +121,8 @@ import Testing
         #expect(line(task(run: run, .planned)) == "queued")
         #expect(line(task(run: run, .queued, dependsOn: [TaskDependency(task: parent.id, kind: .order)])) == "queued · after another task",
                 "with no lookup the parent is named generically")
-        #expect(line(task(run: run, .working)) == "working")
+        #expect(OperatorLine.task(task(run: run, .working), run: run, acting: nil, requests: []) == OperatorLine("working", look: .acting),
+                "the agent works: the line moves with the row's mark")
         #expect(line(task(run: run, .queued, revision: 3)) == "added by the Operator")
         #expect(line(task(run: run, .blocked, reason: "the tests fail on main")) == "blocked · the tests fail on main")
         #expect(OperatorLine.task(task(run: run, .blocked, reason: "the tests fail on main"), run: run, acting: nil, requests: [])?.look == .needsYou)
@@ -133,6 +133,12 @@ import Testing
         #expect(line(task(run: run, .published, end: .merge, sha: "9b3e07d1234")) == "merged · 9b3e07d")
         #expect(line(task(run: run, .published, end: .mergeLocal, sha: "9b3e07d1234")) == "merged locally · 9b3e07d")
         #expect(line(task(run: run, .published, end: .commit, sha: "9b3e07d1234")) == "done · 9b3e07d")
+        #expect(OperatorLine.task(task(run: run, .accepted, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])?.look == .quiet,
+                "done is the Operator's: nothing left for you")
+        // A publication handed back is the one finished state that is yours.
+        var left = task(run: run, .accepted, sha: "4f2a91cdeadbeef")
+        left.operated?.publication = TaskPublication(leftForYou: true)
+        #expect(OperatorLine.task(left, run: run, acting: nil, requests: []) == OperatorLine("left for you · 4f2a91c", look: .needsYou))
     }
 
     @Test func aTaskWaitingItsTurnNamesWhatItWaitsFor() {
@@ -142,16 +148,17 @@ import Testing
         #expect(OperatorLine.task(byKey, run: run, acting: nil, requests: [], tasks: [parent.id: parent])?.text == "queued · after PAY-232")
     }
 
-    @Test func aDetailIsCutToFitAndTheTooltipKeepsTheWhole() throws {
+    @Test func aQuestionIsInTheTooltipAndABlockedReasonIsCutToFit() throws {
         let run = OperatorUIFixtures.run()
         let asked = task(run: run, .working)
         let question = "The Operator asks: Should the signup block keep its subtitle on mobile, where the design leaves it out?"
         let line = try #require(OperatorLine.task(asked, run: run, acting: nil, requests: [request(.question, run, asked, question)]))
-        #expect(line.text.hasPrefix("waiting on you · Should the signup"))
-        #expect(line.text.count <= OperatorLine.maxLength && line.text.hasSuffix("…"), "\(line.text)")
-        #expect(line.tooltip == question)
-        let short = request(.question, run, asked, "The Operator asks: retry policy?")
-        #expect(OperatorLine.task(asked, run: run, acting: nil, requests: [short])?.text == "waiting on you · retry policy?")
+        #expect(line == OperatorLine("waiting on you", look: .needsYou, tooltip: question))
+        // No window says why a task is blocked, so its line keeps the reason, cut to fit.
+        let because = "npm ci failed with a lockfile that no longer matches package.json"
+        let blocked = try #require(OperatorLine.task(task(run: run, .blocked, reason: because), run: run, acting: nil, requests: []))
+        #expect(blocked.text.hasPrefix("blocked · npm ci failed") && blocked.text.hasSuffix("…"), "\(blocked.text)")
+        #expect(blocked.text.count <= OperatorLine.maxLength && blocked.tooltip == "blocked · " + because)
     }
 
     @Test func theBroadcastSaysItsOwnState() {
@@ -188,9 +195,9 @@ import Testing
         let done = task(run: run, .accepted, sha: "4f2a91cdeadbeef"), working = task("Bump nuxt", run: run, .working)
         let leftover = request(.question, run, done, "The Operator asks: retry policy?")
         #expect(OperatorLine.task(done, run: run, acting: nil, requests: [leftover])?.text == "done · 4f2a91c")
-        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover]) == OperatorLine("working · 1 task"))
+        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover]) == OperatorLine("working · 1 task", look: .acting))
         // Beside another task's request it is not counted either.
         let asks = request(.permission, run, working, "Claude Code asks for permission in Bump nuxt.")
-        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover, asks]).text == "waiting on you · permission?")
+        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover, asks]).text == "waiting on you")
     }
 }

@@ -3,11 +3,11 @@ import SwiftUI
 import AiTermUI
 import AiTermCore
 
-/// Everything the Operator says on a status line (spec §7, §13, §14): its agent's mark (Claude's), the
-/// Oracle's joining it while the Oracle is consulted, then the words of an `OperatorLine` in
-/// `Typography.monoChip`. Always one `Size.chip` line: the words cut with an ellipsis rather than wrap,
-/// the whole of them in the tooltip and VoiceOver's label. The third line of a driven task's row and of
-/// the broadcast row, a card's last line on the board, the band under the board's title.
+/// Everything the Operator says on a status line (spec §7, §13, §14): the words of an `OperatorLine` in
+/// `Typography.monoChip`, no mark: where the line sits says whose it is. Always one `Size.chip` line: the
+/// words cut with an ellipsis rather than wrap, the whole of them in the tooltip and VoiceOver's label. The
+/// last line of a driven task's row and of the broadcast row, a card's last line on the board, the band
+/// under the board's title.
 ///
 /// It reads its ground (`Surface`), as `RowCaption(warns:)` does:
 /// - quiet: no box, the words in the surface's secondary ink;
@@ -17,9 +17,6 @@ import AiTermCore
 /// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
 ///   in `Palette.text`, never amber; on `Surface.accent` the surface's `badgeWash` and ink, the amber left
 ///   to the row's `StatusMark`, since an amber wash on the selection's blue reads as mud.
-///
-/// The marks are `VendorMark`s at `Size.inlineMark`, the Oracle's overlapping the Operator's by
-/// `Space.tight`, ringed in the surface's occluding colour as `AvatarGroupView` rings its marks.
 struct OperatorBadge: View {
     let line: OperatorLine
     @Environment(\.surface) private var surface
@@ -33,8 +30,6 @@ struct OperatorBadge: View {
 
     /// One sweep of the shimmer, in seconds: about 1.6 s, as picked (19 Oct 2026).
     static let shimmerPeriod = 1.6
-    /// The ring that sets the Oracle's mark off the Operator's under it: a stroke, so it does not scale.
-    private static let markRing: CGFloat = 1
 
     /// The box a look draws, when it draws one.
     struct Box: Equatable { var fill: Color; var stroke: Color? }
@@ -60,37 +55,21 @@ struct OperatorBadge: View {
             : Box(fill: Palette.statusChipAttentionFill, stroke: Palette.statusChipAttentionStroke)
     }
 
-    /// The marks it leads with: the Operator's, and the Oracle's beside it while consulted.
-    static func marks(_ line: OperatorLine) -> [SessionAgent] {
-        [.claude] + (line.oracle ? [line.oracleAgent.session] : [])
-    }
-
     var body: some View {
         let shimmering = Self.shimmers(line.look, reduceMotion: reduceMotion, still: still)
         let box = Self.box(line.look, surface: surface)
-        HStack(spacing: scale(Space.tight)) {
-            HStack(spacing: -scale(Space.tight)) {
-                ForEach(Array(Self.marks(line).enumerated()), id: \.offset) { index, agent in
-                    VendorMark(agent: agent, size: scale(Size.inlineMark))
-                        .overlay {
-                            if index > 0 { Circle().stroke(surface.occludingBackground, lineWidth: Self.markRing) }
-                        }
+        words(shimmering: shimmering)
+            .padding(.horizontal, box == nil ? 0 : scale(Space.tight))
+            .frame(height: scale(Size.chip))
+            .background {
+                if let box {
+                    RoundedRectangle(cornerRadius: scale(Radius.chip)).fill(box.fill)
+                        .overlay { if let stroke = box.stroke { RoundedRectangle(cornerRadius: scale(Radius.chip)).strokeBorder(stroke) } }
                 }
             }
-            .fixedSize()
-            words(shimmering: shimmering)
-        }
-        .padding(.horizontal, box == nil ? 0 : scale(Space.tight))
-        .frame(height: scale(Size.chip))
-        .background {
-            if let box {
-                RoundedRectangle(cornerRadius: scale(Radius.chip)).fill(box.fill)
-                    .overlay { if let stroke = box.stroke { RoundedRectangle(cornerRadius: scale(Radius.chip)).strokeBorder(stroke) } }
-            }
-        }
-        .help(line.tooltip)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(line.tooltip)
+            .help(line.tooltip)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(line.tooltip)
     }
 
     @ViewBuilder
@@ -105,6 +84,27 @@ struct OperatorBadge: View {
         } else {
             text.foregroundStyle(Self.ink(line.look, surface: surface, shimmering: false))
         }
+    }
+}
+
+/// A broadcast's status line as its row and its board's band say it: the `OperatorBadge`, then
+/// `· 2 of 8 done` in `Typography.monoChip` and the surface's secondary ink, outside the needs-you box.
+/// The progress keeps its width; the badge's words are what is cut.
+struct BroadcastStatusLine: View {
+    let line: OperatorLine
+    let progress: String?
+    @Environment(\.surface) private var surface
+    @Environment(\.interfaceScale) private var scale
+
+    var body: some View {
+        HStack(spacing: 0) {
+            OperatorBadge(line: line)
+            if let progress {
+                Text(verbatim: " · " + progress).font(Typography.monoChip).foregroundStyle(surface.secondaryInk)
+                    .lineLimit(1).fixedSize()
+            }
+        }
+        .frame(height: scale(Size.chip))
     }
 }
 

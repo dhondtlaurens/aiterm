@@ -321,13 +321,16 @@ struct RowCaption: View {
 
 /// One task or review: its agents, title, badges and branch, and, when there is something to say, why
 /// its window could not come back, or, on a task the Operator drives, its status line as the operator
-/// badge. A driven task's menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
+/// badge. While the Operator holds the task and nothing on it is yours, the badge line folds away
+/// (`TaskRowCaption.folds`), so the row is its title over that line; it unfolds, over 0.2 s as the toast
+/// moves and at once under Reduce Motion, when it is. A driven task's menu leads with Take Over or Hand Back, and Stop Task… while it is open; a task
 /// of an ended broadcast is yours, and its menu is any task's.
 struct TaskRowView: View {
     let row: TaskRow
     let task: TaskItem?
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     @Environment(\.hoveredRow) private var hoveredRow
@@ -346,6 +349,7 @@ struct TaskRowView: View {
         let awaitsRetry = removal?.awaitsRetry == true
         let failed = controller.hasFailedRestore(row.id)
         let caption = TaskRowCaption(removal: removal, missing: missing, failed: failed)
+        let folded = caption.folds(under: row.operatorLine)
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
@@ -359,7 +363,7 @@ struct TaskRowView: View {
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
                         RowCaption(progress).frame(height: scale(Size.chip))
-                    } else {
+                    } else if !folded {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
                         // Quiet badges carry no box, so `Space.gap` is what keeps them apart.
@@ -383,6 +387,7 @@ struct TaskRowView: View {
                             }
                             BranchLabelView(label: row.branch).layoutPriority(1)
                         }
+                        .transition(.opacity)
                     }
                     // Why a removal stopped, or what the task is missing, comes first; else what the
                     // Operator says of it: `queued · after PAY-232`, `answering Claude`, `done · 4f2a91c`.
@@ -392,6 +397,7 @@ struct TaskRowView: View {
                         OperatorBadge(line: line)
                     }
                 }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window.
                 StatusMark(status: removing ? .working : row.status, size: SidebarRowLayout.trailingGlyph(scale))
@@ -705,6 +711,15 @@ struct TaskRowCaption: Equatable {
     /// In place of the badge line, while the row is being removed.
     var progress: String?
     var note: Note?
+
+    /// Whether the badge line folds away under a driven task's status line `line`: while the Operator
+    /// holds the task and nothing on it is yours to act on, the row is its title over that line, as tall
+    /// as one of your own. A request or a publication left for you (`needsYou`) unfolds it, and so does
+    /// anything this caption says, which takes the status line's place.
+    func folds(under line: OperatorLine?) -> Bool {
+        guard let line, progress == nil, note == nil else { return false }
+        return line.look != .needsYou
+    }
 
     init(progress: String?, note: Note?) {
         self.progress = progress

@@ -3,8 +3,9 @@ import AiTermUI
 import AiTermCore
 
 /// The broadcast under the OPERATOR heading, on a task row's grid (spec §3, §13): the Operator's agent as
-/// its avatar, the title, then `2 of 8 done` (once there is a plan), the first project after its host's
-/// mark and `+n`, then its status line as the operator badge, and its `StatusMark` trailing. ↑ ↓ peek at
+/// its avatar, the title over its status line (`BroadcastStatusLine`: the operator badge, then
+/// `· 2 of 8 done` once there is a plan), a folded task row's height, its projects in the tooltip, and
+/// its `StatusMark` trailing. ↑ ↓ peek at
 /// the Operator's window, as on a task row; a click or ↩ opens the overview, and with the Operator's window
 /// closed reopens it behind the sheet (`AppController.openBroadcast`). Its menu: Rename…, Pause Broadcast
 /// or Resume Broadcast, End Broadcast….
@@ -28,21 +29,7 @@ struct BroadcastRowView: View {
                 AvatarGroupView(group: AvatarGroup(marks: [row.agent], overflow: 0))
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
                     RowTitle(row.title)
-                    // Quiet badges carry no box, so `Space.gap` keeps them apart, as on a task row; the
-                    // project's name is what truncates.
-                    HStack(spacing: scale(Space.gap)) {
-                        if let progress = row.progress {
-                            Badge(progress, style: .quiet).fixedSize().layoutPriority(2)
-                        }
-                        if let project = row.firstProject {
-                            Badge(project.name, icon: Self.hostIcon(project.provider), help: row.projectsHelp, style: .quiet)
-                        }
-                        if row.moreProjects > 0 {
-                            Badge("+\(row.moreProjects)", help: row.projectsHelp).fixedSize().layoutPriority(1)
-                        }
-                    }
-                    .frame(height: scale(Size.chip))
-                    OperatorBadge(line: row.line)
+                    BroadcastStatusLine(line: row.line, progress: row.progress)
                 }
                 // Laid out before the spacer, so the status line takes the row's width before it is cut:
                 // as an equal share with the spacer, a line wider than the row's second was cut short.
@@ -52,6 +39,7 @@ struct BroadcastRowView: View {
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }
+        .help(row.projectsHelp)
         .accessibilityLabel(Self.label(row))
         .accessibilityValue(Self.spoken(row))
         .accessibilityHint(Text("Press Return to open the broadcast’s overview."))
@@ -74,15 +62,7 @@ struct BroadcastRowView: View {
         canChangeWorkspace ? OperatorMenus.broadcast(row).filter { $0 != .separator } : []
     }
 
-    /// What VoiceOver calls the row.
-    static func label(_ row: BroadcastRow) -> String { "Broadcast \(row.title)" }
-
-    /// The row's lines as VoiceOver reads them: the progress, every project, and the whole status line.
-    static func spoken(_ row: BroadcastRow) -> String {
-        [row.progress, row.projectsHelp.isEmpty ? nil : row.projectsHelp, row.line.tooltip].compactMap { $0 }.joined(separator: ", ")
-    }
-
-    /// A project's host as the row's second line marks it: the mark its header's `ProviderIcon` draws.
+    /// A project's host as New Broadcast marks it: the mark its header's `ProviderIcon` draws.
     static func hostIcon(_ provider: Provider) -> IconSource {
         switch provider {
         case .gitlab: .gitlabTanuki
@@ -90,5 +70,13 @@ struct BroadcastRowView: View {
         case .git: .symbol("arrow.triangle.branch")
         case .none: .symbol("folder.fill")
         }
+    }
+
+    /// What VoiceOver calls the row.
+    static func label(_ row: BroadcastRow) -> String { "Broadcast \(row.title)" }
+
+    /// The row's lines as VoiceOver reads them: the progress, every project, and the whole status line.
+    static func spoken(_ row: BroadcastRow) -> String {
+        [row.progress, row.projectsHelp.isEmpty ? nil : row.projectsHelp, row.line.tooltip].compactMap { $0 }.joined(separator: ", ")
     }
 }

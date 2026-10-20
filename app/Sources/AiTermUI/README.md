@@ -189,7 +189,7 @@ vendor needs both.
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
-`OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
+`OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `BroadcastStatusLine`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
@@ -243,39 +243,45 @@ wear `BackpackController.symbol`, `iphone`.
 start a broadcast, so with none it is the heading and its "+" and nothing else; there is no File menu
 item. One broadcast at a time: while one exists the "+" is absent and the broadcast row sits under the
 heading on a task row's grid (`BroadcastRowView`, on `SelectableRow`): the Operator's agent's
-`VendorMark` as its avatar, the title, then `2 of 8 done` as a quiet `Badge` (absent until the first
-plan is in Todo), the first project as a quiet `Badge` led by its host's mark and a boxed `+n`, then its
-status line, `OperatorBadge(line: OperatorLine.broadcast(...))`, and its `StatusMark` trailing: amber
+`VendorMark` as its avatar, the title over its status line (`BroadcastStatusLine`: `OperatorBadge(line:
+OperatorLine.broadcast(...))`, then `· 2 of 8 done` in `Typography.monoChip` and the surface's secondary
+ink, outside the needs-you box and absent until the first plan is in Todo), a folded task row's height, its
+projects in its tooltip, and its `StatusMark` trailing: amber
 while any request is open, spinning while something works, the idle ring while paused or only waiting
 on people, the accent dot once the debrief is ready. ↑ ↓ peek at the Operator's window, as on a task
 row; a click or ↩ opens the board, and with the Operator's window closed reopens it behind the
 sheet. Its menu is Rename… (`NameSheet`), Pause Broadcast or Resume Broadcast, and End Broadcast…,
 which is not red: it asks with a blue default, since nothing is deleted; the same items are its
 VoiceOver actions. No Overview…, no ⌘I, no Interrupt Agents. Menus and buttons are Title Case, as everywhere. A driven task's avatars are its own
-agents, as any task's are; its third line is the Operator's status line, `OperatorBadge(line:)`, and
-its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
+agents, as any task's are; its last line is the Operator's status line, `OperatorBadge(line:)`. While
+the Operator holds the task and nothing on it is yours (`TaskRowCaption.folds(under:)`: no needs-you line,
+no caption) the badge line folds away, so the row is its title over that line, a `Size.row` like your own
+tasks'; a request, a publication left for you, a removal's progress or a caption unfolds it. The fold is the
+badge line's opacity and the row's height, 0.2 s ease-out (the toast's curve), at once under Reduce
+Motion. Its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
 task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
-status line is that badge: Claude's `VendorMark` at `Size.inlineMark`, the Oracle's beside it
-(overlapping by `Space.tight`, ringed in the surface's occluding colour) while the Oracle is consulted,
-then the words in `Typography.monoChip`, always one `Size.chip` line cut with an ellipsis, the whole in
-its tooltip. Quiet has no box and the surface's secondary ink; acting has no box and its words shimmer,
+status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
+says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet has no
+box and the surface's secondary ink; acting has no box and its words shimmer,
 a band of the surface's ink sweeping over its secondary ink every 1.6 s on Core Animation's clock
 (`ShimmerWordsView`: a `CAGradientLayer` masking the ink's `CATextLayer`, nothing updated per frame),
 standing still in the surface's ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
 `Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
-by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
-acts, shimmering: `loading the construct`, `consulting the Oracle` (the Oracle's mark joining),
+by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. A line
+shimmers exactly when its row's `StatusMark` turns. Acting: `working` (the task's agent works), the
+broadcast's `working · 3 tasks`, and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
 a ticket` and `reopening its window`. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
-`working`, `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
+`in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
 `done · 4f2a91c`, `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`,
-and on the broadcast's line `working · 3 tasks`, `paused`, `paused · the Operator’s window is closed`,
-`done · debrief ready` and `ended`. Needs you: `waiting on you · npm install?`, `waiting on you · retry
-policy?`, `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the tests fail on
-main` and `blocked · the rebase conflicted`. A line is at most `OperatorLine.maxLength` (40) characters,
+and on the broadcast's line `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
+and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
+window shows it whole), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
+tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
+`left for you · 4f2a91c`, a publication handed back. A line is at most `OperatorLine.maxLength` (40) characters,
 its detail cut at a word. The broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
 
 The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation
@@ -300,16 +306,17 @@ linked, and nothing is amber. No command preview: the Operator chooses each task
 The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
 `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
 two lines (`bandHeight: nil`, `Space.base` under the title) and its content not scrolling as one
-(`scrolls: false`). The band is the broadcast's `OperatorBadge`, then `2 of 8 done · webshop, payments-api`
-in `Typography.caption` and `Palette.muted` (no progress until the first plan); under it one Asked line in
-`Typography.help`, `Asked …  · Review …  · Done …` with each label in `Palette.text` at medium weight, cut
-to one line, the whole in its tooltip. The columns are Todo · In progress · Review · Done, `Space.gap`
+(`scrolls: false`). The title is the broadcast's name, whole until the sheet's width cuts it (a name made
+from the brief is its first line, uncut). The band is the broadcast's `BroadcastStatusLine`, as its row
+says it, no projects; under it the Asked line in `Typography.help`, `Asked …  · Review …  · Done …` with
+each label in `Palette.text` at medium weight, cut at two lines, the whole in its tooltip. The columns are Todo · In progress · Review · Done, `Space.gap`
 apart, Review only when the broadcast has a review; each is a `BoardHeading` (a `SidebarHeading` and its
 count in `Typography.monoChip`, `Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its
-own (`BoardScroll`), an empty one saying so in one `Typography.help` line ("Nothing started yet."). A card
-(`BoardCardView`) is a `groupChrome` box, `Space.inset` inside, `Space.tight` between its lines: the
-agent's `VendorMark` at `Size.avatar` on every card, started or not, and the title in `Typography.body`, two
-lines at most; then the quiet Jira and merge-request `Badge`s (`TaskBadges`) and, only when the broadcast
+own (`BoardScroll`), an empty one saying so in one `Typography.help` line ("Nothing started yet.") at
+`Space.inset` above and below, the card's own inset, so it reads on the line of the cards' titles beside it. A card
+(`BoardCardView`) is a `groupChrome` box, `Space.inset` inside: the agent's `VendorMark` at `Size.avatar`
+on every card, started or not, and `Space.base` beside it every line on the title's leading edge, as on a
+task row, `Space.tight` apart: the title in `Typography.body`, two lines at most; then the quiet Jira and merge-request `Badge`s (`TaskBadges`) and, only when the broadcast
 spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.

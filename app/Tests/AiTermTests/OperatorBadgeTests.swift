@@ -6,8 +6,8 @@ import AiTermUI
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The operator badge draws an `OperatorLine` (spec §7, §13, §14): one `Size.chip` line whatever it says,
-/// quiet with no box, acting with no box and its words shimmering, needs-you in the attention chip's
+/// The operator badge draws an `OperatorLine` (spec §7, §13, §14): its words alone, no mark, one
+/// `Size.chip` line whatever it says, quiet with no box, acting with no box and its words shimmering, needs-you in the attention chip's
 /// pair, and on the selection the surface's wash and ink. The shimmer stands still under Reduce Motion and
 /// in the snapshots.
 @MainActor
@@ -19,8 +19,8 @@ struct OperatorBadgeTests {
     }
 
     @Test func oneLineAlways() {
-        let long = OperatorLine(String(repeating: "waiting on you · a very long question ", count: 4), look: .needsYou, oracle: true)
-        for line in [long, OperatorLine("working"), OperatorLine("consulting the Oracle", look: .acting, oracle: true)] {
+        let long = OperatorLine(String(repeating: "blocked · a very long reason ", count: 4), look: .needsYou)
+        for line in [long, OperatorLine("queued"), OperatorLine("consulting the Oracle", look: .acting)] {
             #expect(fitting(line).height == Size.chip, "\(line.text)")
         }
         // Squeezed into a narrow column it cuts its words rather than wrap.
@@ -57,12 +57,13 @@ struct OperatorBadgeTests {
         }
     }
 
-    @Test func theOracleJoinsTheOperatorsMarkOnlyWhileItIsConsulted() {
-        #expect(OperatorBadge.marks(OperatorLine("merging", look: .acting)) == [.claude])
-        #expect(OperatorBadge.marks(OperatorLine("consulting the Oracle", look: .acting, oracle: true)) == [.claude, .codex])
-        #expect(OperatorBadge.marks(OperatorLine("consulting the Oracle", look: .acting, oracle: true, oracleAgent: .claude)) == [.claude, .claude])
-        let one = fitting(OperatorLine("x")).width, two = fitting(OperatorLine("x", oracle: true)).width
-        #expect(two - one == Size.inlineMark - Space.tight, "the Oracle's mark overlaps the Operator's by Space.tight")
+    @Test func theWordsStandAloneWithNoMark() {
+        // Quiet and acting draw no box, so the badge is as wide as its words: no mark leads them.
+        let words = NSHostingView(rootView: Text("merging").font(Typography.monoChip).fixedSize()).fittingSize.width
+        #expect(fitting(OperatorLine("merging")).width == words)
+        #expect(fitting(OperatorLine("merging", look: .acting)).width == words)
+        // Needs you adds only its box's inset either side.
+        #expect(fitting(OperatorLine("merging", look: .needsYou)).width == words + 2 * Space.tight)
     }
 
     /// The shimmer is Core Animation's: a gradient band swept across the words' mask on the layer, so over
@@ -77,7 +78,7 @@ struct OperatorBadgeTests {
             window.orderFrontRegardless()
             return (window, host)
         }
-        let (window, host) = hosted(OperatorBadge(line: OperatorLine("consulting the Oracle", look: .acting, oracle: true)))
+        let (window, host) = hosted(OperatorBadge(line: OperatorLine("consulting the Oracle", look: .acting)))
         defer { window.close() }
         settle(host) { host.firstDescendant(ShimmerWordsView.self) != nil }
         let words = try #require(host.firstDescendant(ShimmerWordsView.self))
