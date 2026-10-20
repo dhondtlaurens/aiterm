@@ -217,8 +217,9 @@ the backpack; a right-click offers Mac Settings…; ⌘B does what the click doe
 VoiceOver sentence come from `MacModePresentation.line`, decided by `MacMode` apart from the view.
 
 Turning on is `BackpackSheet`, one `SheetLayout` with a `SheetSubtitle`, laid out in the order it
-is used. While a permission is missing, “This Mac” leads with `NumberedSteps` and an Allow… button.
-Then Hotspot, a `Select` of the networks one scan finds now — the remembered hotspot first and chosen
+is used. While a permission is missing it opens with a `Notice`: its title what the Mac card's status
+says is missing, its description the card's steps and where else to find them, and Allow… its one link
+(`BackpackSheetPresentation.permissionNotice`). Then Hotspot, a `Select` of the networks one scan finds now — the remembered hotspot first and chosen
 once it shows up, scanned again every 5 s while no connect runs — beside a secure `Input` for the
 password, filled with the saved one as if typed (`caretAtEnd`) for the remembered hotspot and empty
 for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
@@ -233,7 +234,7 @@ close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing th
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
 
-**Operators.** The OPERATOR heading leads the list, above PROJECTS (`OperatorHeading`): a
+**The Operator.** The OPERATOR heading leads the list, above PROJECTS (`OperatorHeading`): a
 `SidebarHeading` on PROJECTS' anatomy whose "+", an `AddMenu` with New Broadcast…, is the one way to
 start a broadcast, so with none it is the heading and its "+" and nothing else; there is no File menu
 item. One broadcast at a time: while one exists the "+" is absent and the broadcast row sits under the
@@ -261,7 +262,17 @@ standing still in the surface's ink under Reduce Motion and in the snapshots; ne
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
-broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
+acts, shimmering: `loading the construct`, `consulting the Oracle` (the Oracle's mark joining),
+`starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
+`assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
+a ticket` and `reopening its window`. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
+`working`, `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
+`done · 4f2a91c`, `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`,
+and on the broadcast's line `working · 3 tasks`, `paused`, `paused · the Operator’s window is closed`,
+`done · debrief ready` and `ended`. Needs you: `waiting on you · npm install?`, `waiting on you · retry
+policy?`, `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the tests fail on
+main` and `blocked · the rebase conflicted`. A line is at most `OperatorLine.maxLength` (40) characters,
+its detail cut at a word. The broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
 
 The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation
 frame's parts on four steps, Broadcast · Prompt · Review · Done, and no agent step (`CreationSteps.broadcast`):

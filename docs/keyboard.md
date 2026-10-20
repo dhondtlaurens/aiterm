@@ -29,7 +29,7 @@ project's "+" and its context menu all list them in this order: Add Project…, 
 New Task…, New Review…, New Terminal…. None clashes with a sheet: ⌘P, ⌘D, ⌘R and ⌘T mean nothing
 to a text field, and the File menu is off while a sheet is up anyway.
 
-There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself.
+There is no Window menu, so no ⌘M or ⌘W (see Not bound). Row actions — Rename, Open in…, Pull, Shelve Task, Remove — stay in the rows' context menus; a row's window comes back by itself. So do the broadcast row's — Rename…, Pause Broadcast (Resume Broadcast while paused) and End Broadcast… — and a driven task's Take Over or Hand Back and Stop Task…; the OPERATOR heading's "+" (New Broadcast…) has no key, and there is no File menu item for it.
 
 The Keyboard shortcuts section of Settings › Interface lists every key AiTerm answers to
 (`KeyBindings.all`), a row that mirrors a menu item under that item's exact title, and
@@ -62,6 +62,7 @@ plain ↩; ⌘↩ is the sheets' commit key and does nothing here.
 | ⌘W | Close a task window | Removal is ⌘⌫ on the list, which asks first because it deletes a worktree. A window-closing key in iTerm2 closes the window first; AiTerm then asks Remove's question a second later, Shelve puts the task away instead, and Cancel brings the window back. |
 | ← → | Fold and open a project, Finder-style | Dropped: ↩ on a header folds or opens it, as a click on its label does. ⌘L opens every project. |
 | ⌘A | — | Edit › Select All claims it even on the list, where it is disabled, so Show Shelf took ⌘S. |
+| ⌘I | Open the broadcast's board | Dropped: a click or ↩ on the broadcast row opens it, and the row's menu has no Overview…. |
 | — | Shelve a task | Shelve Task is in the row's menu and Shelve is in the window-close question. |
 
 ## New Task, New Review and New Broadcast sheets
@@ -119,13 +120,13 @@ finds none (`ArchiveSearch`).
 
 ## Every other sheet
 
-New terminal, Add divider, Rename divider, Rename task, Rename terminal, Settings, Jira projects, New operator, Edit operator
+New terminal, Add divider, Rename divider, Rename task, Rename terminal, Rename broadcast, Settings, Jira projects
 and a broadcast's board.
 Add Project… has no sheet: the folder chooser adds the project at once.
 
 | Keys | Action | Notes |
 |---|---|---|
-| ⌘↩ | Create Terminal · Add Divider · Rename · Save · Create Operator · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
+| ⌘↩ | Create Terminal · Add Divider · Rename · Save · End Broadcast · Start Fresh | The same `SheetPrimaryButton` and keycaps. A plain ↩ in a name field does nothing. |
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
 
@@ -151,9 +152,8 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 | Uncommitted changes | Keep Task / Keep Review, blue | Keep Task / Keep Review — Delete Changes and Remove, or Delete Changes and Shelve, is the grey button |
 | Remove a shelved task or review | Remove, red | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
-| Stop an operator's task | Stop Task, blue: its window and branch stay | Cancel |
-| End a broadcast | End Broadcast, blue: its tasks stay | Cancel |
-| Move an operator to the Trash | Move to Trash, blue: the file can be put back | Cancel |
+| Stop a task the Operator drives | Stop Task, blue: its window and branch stay | Cancel |
+| End a broadcast, before its debrief | End Broadcast, blue: its started tasks stay, worktrees and MRs too | Cancel |
 | Import worktrees | Import | Skip |
 | An update is available | Update | Later |
 | Unsaved workspace on quit | Cancel Quit | Cancel Quit |

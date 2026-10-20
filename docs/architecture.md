@@ -88,6 +88,7 @@ turning Backpack Mode off and asking `sheets` for its sheet.
 | `SidebarProjection` | `rows` | the sidebar's rows, derived from the workspace, `live.rowSessions` and the checkouts only when one of them changes what a row draws; the list, the Dock badge, Focus View and List View all read them |
 | `HelperLink` | `helper` | the daemon process, the socket to it, how far the chain to iTerm2 reaches, and the tab titles it sends after each checkout pass |
 | `BackpackController` | `backpack` | Backpack Mode: its state, setup and battery reading, its blocking work run on a thread of its own (`SerialThread`) |
+| `OperatorController` | `operatorController` | the one broadcast and the tasks it drives: its start, pause, end and Start Fresh, the Operator's window and token, the tool handler that answers the Operator, the workers it starts, the acts it is carrying out (`acting`), and the notifications it posts |
 
 A change to the workspace runs its hooks once, in this order: the owners' own, added as each was
 built — `RowFocus`'s, which drops a selection whose row went, each `PerRow`'s, which drops only
@@ -102,7 +103,111 @@ shelf before git removes its worktree — stopping there if that save fails. A n
 before its window opens, a new project before its worktrees are offered, a restored row before it
 is chosen, and the workspace at quit.
 
-### Find a Fix
+### Operator
+
+One Operator, one broadcast at a time (`docs/superpowers/specs/2026-10-19-operator-greenfield-design.md`).
+`OperatorController` owns it; the run is kept in the workspace (`AppState.runs`, `OperatorRun`) and
+changed only through the controller, so it is saved like every other change and a pause or an end
+survives a restart.
+
+**The profile.** Settings › Operator is one `OperatorProfile`: Claude's model and reasoning (the
+Operator always runs on Claude Code), the three `Slices` (Jira, Review, Merge, each off by default),
+the Oracle (`OracleSetting`: on or off, its agent, model and reasoning) and house-rule instructions.
+`OperatorProfileStore` keeps it as JSON in UserDefaults under `operator.profile`;
+`OperatorSettingsModel` stages the pane's edits until Save. A broadcast copies it into
+`OperatorRun.profile` as it starts and reads only that copy from then on, so a change in Settings
+applies to the next broadcast. Help with problems is kept apart, under `operator.helpWithProblems`.
+
+**A broadcast's life.**
+- **Start.** New Broadcast hands its name, Jira projects, projects, prompt, Review and Done to
+  `startBroadcast`, which is refused while another broadcast has not ended. The run is saved first,
+  state `planning`, its profile frozen. Then its folder, `operators/runs/<run-id>/` in the support
+  folder: `brief.md` (the system prompt: the base, the frozen slices, the Never list, the tools),
+  `mcp.json` (one HTTP server, `aiterm`, at the daemon's `/operator` route with the run's Bearer token),
+  `token` (0600) and `first-message.md` (the broadcast). The token is registered with the daemon
+  (`operator.register`) and the Operator's window opens in front: a task window tagged with the run's
+  id, which no row has, so the window lock never plans it. It runs `claude` with
+  `--append-system-prompt-file brief.md --tools Read,Grep,Glob`, an `--add-dir` per project, and
+  `--mcp-config mcp.json --allowedTools mcp__aiterm__* --strict-mcp-config` last: it can read code and
+  call AiTerm, and nothing else (`OperatorCommand`).
+- **Planning and starting are one step.** The Operator's `create_task` calls fill the open plan
+  revision and `submit_plan` closes it: its tasks are queued at once, with nothing to approve. The
+  start pass (`startReadyTasks`) claims every queued task whose dependencies are met, with no cap,
+  saves the claims, then `WorkerStarter` opens each worker's window behind your work. A worker runs
+  `AgentCommand.workerWords`: Claude with `--disallowedTools` for asking through a menu, pushing and
+  merging, then `--permission-mode auto`; Codex with `-s workspace-write -a on-request`. The agent and
+  model are the Operator's choice within limits (`ModelChoice`): an installed agent, a model from that
+  agent's list in Settings › Agents, and the other agent once one's weekly use reaches 80 %.
+- **Running.** Everything the Operator does goes through its tools (below). `OperatorWaker` wakes an
+  idle Operator with one short fixed line when `run_status` would show it something new, gathered over
+  a burst; `ReviewWatcher` reads the requests people review; `reconcileTick` looks at the real tabs every
+  `OperatorTiming.reconcileInterval` (60 s), and `StallWatch` flags a task quiet for
+  `OperatorTiming.stallAfter` (20 min), probing it for an open prompt first. Additions after the first
+  plan are budgeted (`BacklogBudget`): a quarter of the first plan's size, at least one, go in on the
+  Operator's word; past that each needs the Oracle's yes, a veto run headless and read-only
+  (`ChallengeLaunch`, `SecondOpinionRunner`) for up to `OperatorTiming.challengeTimeout`. On the first
+  plan and on verdicts the Oracle only critiques.
+- **Pause and Resume.** Pause is your intent, persisted: nothing starts and nothing is delivered;
+  agents finish their turn. Resume wakes the Operator, or reopens its window first.
+- **The window closed.** It ends nothing: a broadcast under way goes `operatorOffline` and reads
+  `paused · the Operator’s window is closed`. A click on its row opens the board and reopens the window
+  behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
+  same frozen profile. When that conversation is gone from `~/.claude`, the board keeps a `Notice` in its
+  footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
+  message the broadcast, where it stands as `run_status` shows it, and the decisions so far
+  (`OperatorCommand.freshStartMessage`).
+- **Complete.** Once every task has ended and no question is open, `settle` makes the run `complete`:
+  the board becomes the debrief (Delivered; Decided on its own, from `log_decision`; Found along the
+  way, from `report_find` and the Oracle's vetoes; Left for you, from the slices' refusals) and the
+  debrief's notification goes out. A later `submit_plan` makes it active again.
+- **End.** `end(run:)` saves your stop first; one that cannot be saved is taken back and nothing else
+  happens. Tasks that never started are dropped, rows and all: they have no worktree and no window.
+  Started tasks still open end `stopped` and become yours, as after a Take Over: their ownership
+  generation moves on, so nothing the Operator queued lands, and an agent mid-turn finishes it. The
+  Oracle's runs are cancelled, the token is revoked (`operator.revoke`, which deletes the file too) and
+  the Operator's window closed when it holds only the run's tabs. Every task that started stays, its
+  worktree and MR untouched, and the heading's "+" returns. End Broadcast… asks first (`OperatorAlerts.endBroadcast`);
+  the debrief's End Broadcast does not.
+
+**The slices are gates in AiTerm, never in the brief.** The Operator cannot write to Jira or a code
+host itself; AiTerm does each write on its tool call, and checks the run's frozen `profile.slices`
+first. The tool handler refuses `jira_create`, `jira_move` and `jira_link` with the Jira slice off
+(`OperatorToolHandler+Jira`), and `request_review` and `reply_thread` with the Review slice off
+(`OperatorToolHandler+Review`); `review_task`, an agent review, needs none. A merge, through the
+request or local, is refused by `PublicationGuard` with the Merge slice off, checked when `finish_task`
+starts and read again in `TaskPublisher` right before the host merges. Each refusal also appends one
+sentence to the run's `leftForYou` (`Merge !418: the Merge slice is off.`), which the debrief lists.
+The base needs no slice: a commit on the task's branch, its push, a draft MR, an agent review. Under
+every slice AiTerm's floor holds: only the commit the Operator accepted, a green pipeline, every
+review thread resolved, never a push to a default or protected branch, and a local merge never pushed.
+
+**The board.** `SidebarProjection.refresh` derives the broadcast's row (`SidebarModel.broadcastRow`,
+a `BroadcastRow`) and its board (`BroadcastBoard.make(run:state:acting:requests:)`) with the sidebar's
+rows, from the workspace and `OperatorController.acting` (`rows.actingSource`), and writes each only when
+it differs, so a change the board draws nothing of redraws no board. `BroadcastBoard` is a value in
+`AiTermCore/Sidebar/`: the band (`OperatorLine.broadcast`, where a request outranks everything), the
+columns and their cards, what each card's click opens (`BroadcastBoard.Opens`) and, once complete, the
+debrief. `BroadcastBoardHost` presents it; `OperatorRequests.open` says what needs you, and
+`OperatorLine` every status line's words.
+
+**Notifications** follow the state, never the events that led to it. After any change to a run or its
+tasks, `OperatorController.notifyRequests(of:)` hands the run to `OperatorNotifier.requestsChanged(run:)`,
+which works out what should be showing: one note per open request (`OperatorRequests.open`, each with
+a stable id, `request-<run>-<task or run>-<kind>`, a question one per key) and, once complete, the
+debrief's (`debrief-<run>`), each titled with the broadcast's name. It posts what is new or reworded
+and withdraws from Notification Center what no longer stands; an ended broadcast withdraws everything.
+At launch it reads what is still delivered and withdraws what an earlier run left that nothing asks any
+more. A permission prompt's note opens its task's window; every other note opens the board.
+
+**The tools.** The daemon's `/operator` route (`operator_mcp.py`) serves the Operator's MCP tools to a
+registered token and forwards each call to the app as `operator.request`; `OperatorToolHandler`
+answers with `operator.reply`. Every mutating tool is safe to repeat (a `key`, or a recorded step):
+`run_status`; `jira_search`, `jira_create`, `jira_move`, `jira_link`; `create_task`, `update_task`,
+`submit_plan`; `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`; `message_task`,
+`mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`
+and `log_decision`.
+
+### Help with problems
 
 A failure an agent can fix — a diverged branch or a rebase's conflict, in New Review's footer and
 Pull main's banner — offers Find a Fix while Settings › Agents' Help with problems is on. The fix
@@ -201,7 +306,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
 | `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
-| `operator_mcp.py` · `OperatorRoute` | the operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request` |
+| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `log_decision` |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 
@@ -210,7 +315,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | Command | What it does |
 |---|---|
 | `workspace.snapshot` | the bootstrap: protocol version, whether iTerm2 is connected, `itermVersion`, `itermAuthError`, `itermCookieRequest` (a cookie request made before the app attached), every session, usage — written before any later event |
-| `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task an operator starts opens behind your work |
+| `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task the Operator starts opens behind your work |
 | `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |
 | `window.setFrame` | re-snap beside the sidebar |
@@ -224,7 +329,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `session.prompt` | the prompt the tab's screen shows open: `permission`, `startup`, `menu` or none |
 | `session.dismissStartup` | declines the CLI's update offer with Esc when the screen shows one — Codex's, by its own options; any other startup dialog, a folder's trust above all, is left for you: `{dismissed: false}` |
 | `session.setOwnership` | a task's ownership generation, which a takeover increments: a send begun under an older one is refused, and a generation is never lowered. In memory only; the app sets each again after a daemon restart |
-| `operator.register` / `operator.revoke` | open and close `/operator` to a run's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
+| `operator.register` / `operator.revoke` | open and close `/operator` to a broadcast's token. The app also writes each run's `operators/runs/<run-id>/token` (0600), which the daemon loads at start and rereads for a token it does not know, so a daemon restart costs the operator nothing; revoke also deletes that file |
 | `operator.reply` | the app's answer to an `operator.request`: its result, or the error the operator is told. One the daemon no longer waits for is dropped |
 
 `iterm.status`, `sessions.list` and `usage.get` are still served, for `python -m aitermd ctl`.
@@ -250,7 +355,7 @@ effect in the order it was sent.
 | `session.opened` / `.changed` | a new tab, a new agent, a new state, a new model, a new conversation (`conversationId`, which the task saves for its restore); a tab tagged with a row's id in a window the row lacks hands the row that window |
 | `session.closed` | drops one avatar from the group |
 | `usage.changed` | a status-line tick landed, or Codex wrote a new rate-limit record |
-| `operator.request` | an operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
+| `operator.request` | the Operator's tool call, for the app to answer with `operator.reply` within 30 s; past that the operator is told "AiTerm isn't answering", and with no app attached the daemon answers "AiTerm isn't open" without sending it |
 
 An event the app does not know is a newer daemon's, and is ignored. One it knows but cannot read
 is logged and drops the connection, so the app reconnects to a fresh snapshot rather than keep a
