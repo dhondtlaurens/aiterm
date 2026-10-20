@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, ParamSpec, Protocol, TypeVar
 
 import iterm2
+from websockets.legacy.exceptions import InvalidStatusCode
 
 from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
@@ -61,6 +62,11 @@ class ItermAuthFailed(ItermUnavailable):
     """iTerm2 is running but would not let the daemon in: the cookie request was refused, or the
     cookie presented was rejected. Retrying at the normal rate cannot fix it -- a person has to --
     so the service backs off and tells the app, instead of treating it as iTerm2 still starting."""
+
+
+class ItermApiIncompatible(ItermUnavailable):
+    """iTerm2 refused the Python API version. Like a cookie refusal, this needs a person to fix
+    it, so the supervisor reports the reason to the app and backs off between attempts."""
 
 
 class ItermNotRunning(ItermUnavailable):
@@ -342,12 +348,25 @@ class ItermBridge:
 
     # -- connection -------------------------------------------------------
     async def connect(self) -> str | None:
+        """Connect without letting the library's version refusal stop the daemon. In iterm2 2.30
+        (pinned), `Connection.async_create` calls `sys.exit(1)` inside its `InvalidStatusCode`
+        handler for HTTP 406. Python preserves that refusal as SystemExit's `__context__`, so
+        checking both it and the exit code catches only this case, without patching process-wide
+        `sys.exit` or swallowing unrelated exits and KeyboardInterrupt."""
         # Asked for here, not by the library, so a refusal comes back with its reason. With a
         # cookie already in the environment the library then makes no AppleScript request itself.
         # osascript can take seconds, or wait on a permission dialog: keep it off the event loop.
         await run_detached(request_cookie)
         try:
             conn = await iterm2.Connection.async_create()
+        except SystemExit as exc:
+            refusal = exc.__context__
+            if exc.code != 1 or not isinstance(refusal, InvalidStatusCode) or refusal.status_code != 406:
+                raise
+            raise ItermApiIncompatible(
+                "iTerm2 refused the connection (HTTP 406): AiTerm's Python API library is "
+                "incompatible with this version of iTerm2. Update AiTerm and iTerm2, then try again."
+            ) from exc
         except Exception as exc:  # the library raises several types here
             if _is_auth_rejection(exc):
                 # The library drops a rejected cookie only on its own retry, which

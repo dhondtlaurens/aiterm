@@ -717,6 +717,55 @@ async def test_a_refused_connection_is_plain_unavailability(monkeypatch):
     assert not isinstance(err.value, ItermAuthFailed)
 
 
+async def test_a_406_exit_is_unavailability_and_the_event_loop_keeps_running(monkeypatch):
+    from websockets.legacy.exceptions import InvalidStatusCode
+
+    monkeypatch.setattr(iterm_bridge, "request_cookie", lambda: None)
+
+    async def rejected(_self):
+        raise InvalidStatusCode(406, Headers())
+
+    # Keep async_create real: it raises SystemExit(1) while handling this handshake failure.
+    monkeypatch.setattr(iterm2.Connection, "_get_connect_coro", rejected)
+    bridge = ItermBridge()
+    with pytest.raises(ItermUnavailable) as err:
+        await bridge.connect()
+
+    reason = str(err.value)
+    assert "406" in reason and "Python API library" in reason
+    assert "Update AiTerm and iTerm2" in reason
+    assert not bridge.is_connected()
+    # Another attempt on the same loop still gets an ordinary, recoverable failure.
+    await asyncio.sleep(0)
+    with pytest.raises(ItermUnavailable, match="406"):
+        await bridge.connect()
+
+
+@pytest.mark.parametrize("failure,status", [
+    (SystemExit(1), None),
+    (SystemExit(1), 401),
+    (SystemExit(2), 406),
+    (KeyboardInterrupt(), 406),
+])
+async def test_connect_does_not_swallow_unrelated_exits_or_interrupts(monkeypatch, failure, status):
+    from websockets.legacy.exceptions import InvalidStatusCode
+
+    monkeypatch.setattr(iterm_bridge, "request_cookie", lambda: None)
+
+    async def interrupted():
+        if status is None:
+            raise failure
+        try:
+            raise InvalidStatusCode(status, Headers())
+        except InvalidStatusCode:
+            raise failure from None
+
+    monkeypatch.setattr(iterm2.Connection, "async_create", staticmethod(interrupted))
+    with pytest.raises(type(failure)) as err:
+        await ItermBridge().connect()
+    assert err.value is failure
+
+
 async def test_the_cookie_request_runs_off_the_event_loop(patched_connect, monkeypatch):
     # osascript can take seconds (or wait on a permission dialog); the loop must keep serving.
     import threading
