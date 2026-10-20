@@ -225,4 +225,24 @@ import Testing
         #expect(held.requests("session.deliver").count == 2)
     }
 
+    @Test func aReasonArrivingDuringDeliveryGetsItsOwnWake() async throws {
+        let held = RecordingDaemon(holding: "session.deliver"), hand = HandSleeper()
+        let waker = OperatorWaker(daemon: { held }, session: { [op] _ in op.tab }, awake: { _ in true },
+                                  coalesce: .zero, sleep: { await hand.sleep($0) })
+        waker.say("reconnected", to: run.id)
+        await hand.release(1)
+        try await held.received("session.deliver")
+        let first = waker.lastSend
+        waker.say("operation complete", to: run.id)
+        await hand.release(2)
+        await waker.lastCoalesce?.value
+        held.release()
+        await first?.value
+        await eventually { held.requests("session.deliver").count == 2 }
+        await waker.lastSend?.value
+        #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
+            "[AiTerm] reconnected, call run_status", "[AiTerm] operation complete, call run_status"
+        ])
+    }
+
 }
