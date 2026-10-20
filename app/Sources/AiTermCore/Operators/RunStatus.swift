@@ -106,18 +106,20 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var flags: [OperatedFlag]
         public var takenOver: Bool, retriesUsed: Int
         public var agentReview: AgentReviewLine?, peopleReview: PeopleReviewLine?
+        /// Its worker committed off its task branch: what AiTerm found, and the branch and SHA it found it on.
+        public var branchDrift: BranchDrift?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: SessionState? = nil, branch: String,
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
-                    peopleReview: PeopleReviewLine? = nil) {
+                    peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.lastCommit = lastCommit; self.summary = summary; self.dependsOn = dependsOn
             self.acceptedSHA = acceptedSHA; self.blockedReason = blockedReason; self.flags = flags
             self.takenOver = takenOver; self.retriesUsed = retriesUsed
-            self.agentReview = agentReview; self.peopleReview = peopleReview
+            self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
         }
     }
 
@@ -136,11 +138,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var readyForAcceptance: [String]
         public var possiblyStalled: [String]
         public var uncertain: [String]
+        /// Tasks whose worker committed off its task branch (`TaskLine.branchDrift`): its work isn't where AiTerm reads it.
+        public var branchDrift: [String]
         public init(questionsWaiting: [Question] = [], promptsWaitingOnYou: [String] = [], readyForAcceptance: [String] = [],
-                    possiblyStalled: [String] = [], uncertain: [String] = []) {
+                    possiblyStalled: [String] = [], uncertain: [String] = [], branchDrift: [String] = []) {
             self.questionsWaiting = questionsWaiting; self.promptsWaitingOnYou = promptsWaitingOnYou
             self.readyForAcceptance = readyForAcceptance; self.possiblyStalled = possiblyStalled
-            self.uncertain = uncertain
+            self.uncertain = uncertain; self.branchDrift = branchDrift
         }
     }
 
@@ -161,7 +165,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         let items = state.tasks(inRun: id)
         let keys = Dictionary(items.compactMap { item in item.operated.map { (item.id, $0.key) } }, uniquingKeysWith: { first, _ in first })
         var lines: [TaskLine] = []
-        var prompts: [String] = [], ready: [String] = [], stalled: [String] = [], uncertain: [String] = []
+        var prompts: [String] = [], ready: [String] = [], stalled: [String] = [], uncertain: [String] = [], drift: [String] = []
         for item in items {
             guard let o = item.operated else { continue }
             let facts = live[item.id] ?? TaskLiveFacts()
@@ -172,11 +176,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 dependsOn: o.dependsOn.map { Dependency(key: keys[$0.task] ?? $0.task.uuidString, kind: $0.kind) },
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
-                agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init)))
+                agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init),
+                branchDrift: o.branchDrift))
             if facts.waitingPrompt != nil || o.flags.contains(.waitingOnYou) { prompts.append(o.key) }
             else if isReadyForAcceptance(o, live: facts.status) { ready.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) { uncertain.append(o.key) }
+            if o.branchDrift != nil { drift.append(o.key) }
         }
         return RunStatus(
             revision: revision,
@@ -190,7 +196,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {
                     Question(key: $0.id, text: $0.text, task: $0.task.flatMap { keys[$0] }, askedAt: $0.askedAt)
                 },
-                promptsWaitingOnYou: prompts, readyForAcceptance: ready, possiblyStalled: stalled, uncertain: uncertain))
+                promptsWaitingOnYou: prompts, readyForAcceptance: ready, possiblyStalled: stalled, uncertain: uncertain,
+                branchDrift: drift))
     }
 
     /// A working task whose worker ended its turn, idle at its prompt or done, and not yours: its result

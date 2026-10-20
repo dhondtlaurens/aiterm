@@ -318,10 +318,20 @@ final class WorkerStarter {
         }
     }
 
-    /// The worker's first prompt: its brief, and after a failure what failed (spec §6 `retry_task`).
+    /// The worker's first prompt: AiTerm's own line on where it works (`worktreeLine`), then its brief, and
+    /// after a failure what failed (spec §6 `retry_task`).
     static func prompt(for task: TaskItem, operated: OperatedTask) -> String {
-        guard operated.retriesUsed > 0, let failure = operated.lastFailure else { return operated.brief }
-        return "The last attempt failed: \(failure). Try again from the worktree as it is.\n\n\(operated.brief)"
+        let brief = operated.retriesUsed > 0 && operated.lastFailure != nil
+            ? "The last attempt failed: \(operated.lastFailure ?? ""). Try again from the worktree as it is.\n\n\(operated.brief)"
+            : operated.brief
+        return worktreeLine(branch: task.branch) + "\n\n" + brief
+    }
+
+    /// The fixed line every worker's first prompt starts with, from AiTerm and never the Operator: AiTerm reads
+    /// the task branch alone, so work committed anywhere else goes unseen (`BranchWatch` flags it).
+    static func worktreeLine(branch: String) -> String {
+        "[AiTerm] You are already in this task's worktree, on branch \(branch). Commit only here, on \(branch). "
+            + "Do not create another worktree or branch."
     }
 
     /// Whether the task has a code parent and no accepted commit of its parent's to start from.

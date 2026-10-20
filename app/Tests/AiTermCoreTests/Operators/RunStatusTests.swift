@@ -50,6 +50,20 @@ import Foundation
         #expect(o.possiblyStalled == ["C"] && o.uncertain == ["C"])
     }
 
+    /// A worker that committed off its task branch is named with what AiTerm found, the branch and the SHA,
+    /// and listed among the obligations, so the Operator looks before the runtime runs out.
+    @Test func aTaskOffItsBranchSaysWhatWasFound() throws {
+        var (s, live, _) = scene()
+        let drift = BranchDrift(source: .lastMessage, branch: "feat/mine", sha: "c0ffee1",
+                                found: "Its last message names c0ffee1, which isn't on its task branch feat/b: it is on feat/mine.")
+        s.tasks[1].operated?.branchDrift = drift
+        let status = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live))
+        #expect(status.tasks[1].branchDrift == drift && status.tasks[0].branchDrift == nil)
+        #expect(status.obligations.branchDrift == ["B"])
+        let json = String(decoding: try status.json(), as: UTF8.self)
+        #expect(json.contains(#""branchDrift":{"branch":"feat\/mine","found":"#) && json.contains(#""sha":"c0ffee1","source":"lastMessage"}"#))
+    }
+
     /// What the Operator needs to judge the backlog and its own reach: the first plan's size, the finds,
     /// the slices and the Oracle as the run froze them, and each agent's weekly usage.
     @Test func theRunSaysItsFirstPlanSizeFindsSlicesOracleAndUsage() throws {

@@ -119,7 +119,8 @@ import Foundation
             publication: TaskPublication(pushedSHA: "4f2a91c", mergeRequestURL: "https://example.net/mr/1"),
             takenOver: true, ownership: 3, launch: LaunchAttempt(number: 2, requestedAt: Date(timeIntervalSince1970: 40)),
             retriesUsed: 1, runtimeUsed: 600, blockedReason: "waiting", blockedFrom: .working, flags: [.uncertain, .possiblyStalled],
-            lastFailure: "tests red", modelReason: "A schema change: the strongest model.", agentPinned: true, problem: "issue-7")
+            lastFailure: "tests red", modelReason: "A schema change: the strongest model.", agentPinned: true, problem: "issue-7",
+            branchDrift: BranchDrift(source: .head, branch: "fix/mine", sha: "b0b0b0b", found: "Its worktree is on branch fix/mine."))
         #expect(try roundTrip(task) == task)
         #expect(task.started)
     }
@@ -130,7 +131,7 @@ import Foundation
         {"runId":"1EB4C0DE-0000-0000-0000-000000000001","key":"K","state":"queued","end":"commit","brief":"b","revision":1}
         """
         let task = try JSONDecoder().decode(OperatedTask.self, from: Data(json.utf8))
-        #expect(task.modelReason == nil && !task.agentPinned && task.problem == nil)
+        #expect(task.modelReason == nil && !task.agentPinned && task.problem == nil && task.branchDrift == nil)
     }
 
     /// `lastFailure` is read when present, and none is not written.

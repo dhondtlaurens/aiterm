@@ -258,6 +258,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var agentReview: AgentReviewResult?
     /// People's review of its request, once the Review slice involved them or it went into review.
     public var peopleReview: PeopleReview?
+    /// Its worker committed off its task branch, as AiTerm last found it (`BranchDrift`).
+    public var branchDrift: BranchDrift?
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -265,7 +267,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
                 ownership: Int = 0, launch: LaunchAttempt? = nil, retriesUsed: Int = 0, runtimeUsed: TimeInterval = 0,
                 blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
                 lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil,
-                agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil) {
+                agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil, branchDrift: BranchDrift? = nil) {
         self.runId = runId; self.key = key; self.state = state; self.end = end; self.brief = brief
         self.dependsOn = dependsOn; self.stackedOn = stackedOn; self.revision = revision
         self.firstRevision = firstRevision ?? revision
@@ -274,7 +276,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.blockedReason = blockedReason; self.blockedFrom = blockedFrom; self.flags = flags
         self.lastFailure = lastFailure
         self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
-        self.agentReview = agentReview; self.peopleReview = peopleReview
+        self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
     }
 
     /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
@@ -284,7 +286,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
-        case modelReason, agentPinned, problem, agentReview, peopleReview
+        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -317,6 +319,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         // A review an older or newer build wrote that does not read is dropped, not a failed task.
         agentReview = (try? c.decodeIfPresent(AgentReviewResult.self, forKey: .agentReview)) ?? nil
         peopleReview = (try? c.decodeIfPresent(PeopleReview.self, forKey: .peopleReview)) ?? nil
+        branchDrift = (try? c.decodeIfPresent(BranchDrift.self, forKey: .branchDrift)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -348,6 +351,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(problem, forKey: .problem)
         try c.encodeIfPresent(agentReview, forKey: .agentReview)
         try c.encodeIfPresent(peopleReview, forKey: .peopleReview)
+        try c.encodeIfPresent(branchDrift, forKey: .branchDrift)
     }
 }
 

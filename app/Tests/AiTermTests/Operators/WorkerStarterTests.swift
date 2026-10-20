@@ -15,6 +15,9 @@ import Testing
         return (try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]), daemon: daemon), run, project)
     }
 
+    /// A worker's first prompt: AiTerm's line about its worktree and branch, then `text`.
+    func brief(_ branch: String, _ text: String) -> String { WorkerStarter.worktreeLine(branch: branch) + "\n\n" + text }
+
     func head(_ path: String) throws -> String {
         try git.run(["rev-parse", "HEAD"], in: path).trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -38,7 +41,10 @@ import Testing
         #expect(window.params["background"] as? Bool == true)
         #expect(window.params["taskId"] as? String == task.id.uuidString)
         #expect(window.params["cwd"] as? String == started.worktreePath)
-        let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: "Do PLUTO-1.",
+        // AiTerm's own first line, not the Operator's: where the worker is, and where alone it commits.
+        let prompt = "[AiTerm] You are already in this task's worktree, on branch feat/pluto-1. Commit only here, on feat/pluto-1. "
+            + "Do not create another worktree or branch.\n\nDo PLUTO-1."
+        let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)
         #expect(started.windowId == "reopened")
@@ -62,7 +68,7 @@ import Testing
         let started = try #require(world.task(task.id))
         #expect(started.agent == .codex && started.model == fallback.model && started.reasoning == fallback.reasoning)
         #expect(started.operated?.modelReason == "Started Task PLUTO-7 on Codex: Claude’s weekly limit is at 84 %.")
-        let expected = try AgentCommand.build(agent: .codex, model: fallback.model, reasoning: fallback.reasoning, prompt: "Do PLUTO-7.",
+        let expected = try AgentCommand.build(agent: .codex, model: fallback.model, reasoning: fallback.reasoning, prompt: brief("feat/pluto-7", "Do PLUTO-7."),
                                               worktreePath: started.worktreePath, git: git, operated: true)
         #expect(world.daemon.requests("window.createTask").first?.params["agentCommand"] as? String == expected)
         let logged = try #require(world.run(run.id)?.decisions)
@@ -165,7 +171,7 @@ import Testing
         let sent = try #require(world.daemon.requests("session.deliver").first)
         #expect(sent.params["sessionId"] as? String == "w4")
         #expect(sent.params["ownership"] as? Int == 2)
-        #expect(sent.params["text"] as? String == "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-4.")
+        #expect(sent.params["text"] as? String == brief("feat/pluto-4", "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-4."))
         #expect(world.daemon.requests("window.createTask").isEmpty)
         let after = try #require(world.task(task.id))
         #expect(after.operated?.state == .working)
@@ -180,7 +186,7 @@ import Testing
         await world.controller.lastStart?.value
         let started = try #require(world.task(task.id))
         let window = try #require(world.daemon.requests("window.createTask").first)
-        let prompt = "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-5."
+        let prompt = brief("feat/pluto-5", "The last attempt failed: the tests failed. Try again from the worktree as it is.\n\nDo PLUTO-5.")
         let expected = try AgentCommand.build(agent: .claude, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)

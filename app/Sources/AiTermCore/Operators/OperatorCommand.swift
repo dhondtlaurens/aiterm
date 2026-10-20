@@ -265,6 +265,8 @@ public enum OperatorCommand {
             "Every tool that changes something is safe to repeat with the same key; if a reply is lost, call it again.",
             "If a tool answers that AiTerm isn't open, wait and try again later; do nothing else meanwhile.",
             "When a worker waits on a permission prompt, tell the person in one line; never try to answer it.",
+            "A task listed under branchDrift in run_status committed off its task branch, and AiTerm reads only that branch. "
+                + "Have its worker bring the work onto the task branch with message_task before you accept, or block the task.",
         ]
         if oracle.isOn {
             rules.append("Some of your calls are challenged by the Oracle, a second opinion. A challenged call may first return a critique, "

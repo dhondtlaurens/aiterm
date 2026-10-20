@@ -255,10 +255,12 @@ public enum OperatedTransitions {
         }
     }
 
-    /// A task that reached an end no longer waits on you or looks stalled.
+    /// A task that reached an end no longer waits on you, looks stalled or reads as off its branch: the
+    /// Operator checked its result.
     static func settle(_ task: inout OperatedTask) {
         task.blockedReason = nil
         task.lastFailure = nil
+        task.branchDrift = nil
         task.flags.subtract([.possiblyStalled, .waitingOnYou])
     }
 

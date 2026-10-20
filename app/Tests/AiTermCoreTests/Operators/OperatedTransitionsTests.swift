@@ -135,6 +135,14 @@ import Foundation
         }
     }
 
+    /// The Operator's outcome is its look at the result: a drift AiTerm flagged is done with.
+    @Test func anEndClearsABranchDrift() throws {
+        var drifted = F.operated("A", .working)
+        drifted.branchDrift = BranchDrift(source: .head, branch: "fix/mine", sha: nil, found: "Its worktree is on branch fix/mine.")
+        #expect(try apply(.noChange(note: nil), drifted).branchDrift == nil)
+        #expect(try apply(.block(reason: "it drifted"), drifted).branchDrift != nil, "a block leaves it for the resume")
+    }
+
     // MARK: blocked, failed, retries
 
     @Test func blockingAndResumingKeepTheSameWorker() throws {

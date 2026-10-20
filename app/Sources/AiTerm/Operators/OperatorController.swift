@@ -80,6 +80,8 @@ final class OperatorController {
     @ObservationIgnored let reconciler: RunReconciler
     /// The requests people review (spec §5, the Review slice), read on every reconcile tick.
     @ObservationIgnored let reviewWatcher: ReviewWatcher
+    /// That each worker commits on its task branch, read on every reconcile tick.
+    @ObservationIgnored let branchWatch: BranchWatch
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
@@ -161,6 +163,7 @@ final class OperatorController {
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
         reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, ports: ports)
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
+        branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })
         workspace.onChange { [weak self] in
             self?.observeRuns()
@@ -523,6 +526,7 @@ final class OperatorController {
         guard reconciler.synced else { return }
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()
+        branchWatch.poll()
         // A prompt whose tab left it without an event, or one an event raced.
         probePrompts()
         startReadyTasks()
