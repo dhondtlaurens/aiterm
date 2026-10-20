@@ -60,6 +60,43 @@ import Synchronization
 
     func publication(_ m: Merging) -> TaskPublication? { m.world.task(m.task.id)?.operated?.publication }
 
+    @Test(arguments: [true, false]) func mergeEndConditionsJudgeTheAcceptedCommitBeforePublication(approved: Bool) async throws {
+        let prompts = Prompts()
+        let runner = SecondOpinionRunner.answering(approved ? "YES\nJan approved it." : "NO\nJan has not approved it.",
+                                                    receivePrompt: { prompts.append($0) })
+        let m = try merging(answer: nil, runner: runner)
+        m.world.workspace.mutate { state in
+            state.updateRun(id: m.run.id) { $0.done = "Pushed, request opened, merged to main, pipeline green." }
+        }
+        m.host.update { $0.readiness = [.ready(head: m.sha)] }
+        let answer = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+        let prompt = try #require(prompts.list.first)
+        #expect(prompt.contains("The act: merge the accepted commit \(m.sha) for task A."))
+        #expect(prompt.contains("The merge, push and request described as end states in Done are effects of this act, not missing prerequisites."))
+        #expect(prompt.contains("Judge the remaining conditions the person wrote, including tests, pipeline health and required reviews."))
+        #expect(prompt.contains("An accepted or inReview state, or merged false, describes the state before this act and is not a reason to answer NO."))
+        #expect(!prompt.contains("hold now"))
+        #expect(prompt.contains("Merge after Jan approves.") && prompt.contains("Pushed, request opened, merged to main, pipeline green."))
+        #expect(prompt.contains("Answer YES or NO alone on the first line"))
+        if approved {
+            #expect(answer.value?["result"] == "waitingToMerge")
+            m.world.workspace.mutate { state in
+                state.updateOperated(m.task.id) {
+                    let since = $0.publication?.readySince
+                    $0.publication?.readySince = since?.addingTimeInterval(-OperatorTiming.mergePoll - 1)
+                }
+            }
+            let merged = await m.world.call(m.run.id, "finish_task", ["task": "A"])
+            #expect(merged.value?["result"] == "published")
+            #expect(publication(m)?.merged == true && publication(m)?.conditionsHeld == m.sha)
+            #expect(m.host.log.contains("merge 12 at \(m.sha)"))
+        } else {
+            #expect(answer.message?.contains("Jan has not approved it.") == true)
+            #expect(publication(m)?.conditionsHeld == nil && publication(m)?.merged != true)
+            #expect(m.host.log.isEmpty)
+        }
+    }
+
     @Test func theOraclesNoRefusesTheMergeAndSaysWhyOnTheTask() async throws {
         let m = try merging(answer: "NO. Jan hasn't approved it yet.")
         let answer = await m.world.call(m.run.id, "finish_task", ["task": "A"])
