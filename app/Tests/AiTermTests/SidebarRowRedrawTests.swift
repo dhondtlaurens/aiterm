@@ -130,4 +130,25 @@ import Testing
                     "\(String(describing: threads)): redrawn \(sidebar.counter.counts.count) of \(sidebar.allRows.count) rows")
         }
     }
+
+    /// A driven task the Operator acts on shimmers on Core Animation's clock: its row's body is not run
+    /// again frame by frame while its words sweep.
+    @Test func anActingRowIsNotRedrawnPerFrame() throws {
+        let sidebar = try hostedSidebar()
+        defer { sidebar.window.orderOut(nil) }
+        let acted = sidebar.tasks[2]
+        let run = OperatorUIFixtures.run(projectIds: [sidebar.project.id])
+        sidebar.controller.rows.actingSource = { OperatorActs(tasks: [acted.id: .answering]) }
+        sidebar.controller.workspace.mutate { state in
+            state.runs = [run]
+            if let i = state.tasks.firstIndex(where: { $0.id == acted.id }) {
+                state.tasks[i].operated = OperatorUIFixtures.operated(run: run.id, key: "t2", state: .working)
+            }
+        }
+        sidebar.settleRows { sidebar.host.firstDescendant(ShimmerWordsView.self) != nil }
+        #expect(sidebar.host.firstDescendant(ShimmerWordsView.self) != nil, "the acting row shimmers")
+        sidebar.counter.reset()
+        settle(sidebar.host, for: 0.5)
+        #expect(sidebar.counter.counts[acted.id] == nil, "the acting row was redrawn \(sidebar.counter.counts[acted.id] ?? 0) times in 0.5 s")
+    }
 }

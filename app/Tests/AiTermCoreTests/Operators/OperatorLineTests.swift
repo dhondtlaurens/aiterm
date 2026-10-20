@@ -162,4 +162,35 @@ import Testing
         #expect(line(.operatorOffline) == "paused · the Operator’s window is closed")
         #expect(line(.complete) == "done · debrief ready")
     }
+
+    /// A quiet line cut to fit keeps the whole of it in the tooltip, as needs-you does.
+    @Test func aCutQuietLineKeepsTheWholeInItsTooltip() throws {
+        let run = OperatorUIFixtures.run()
+        let because = "npm ci failed with a lockfile that no longer matches package.json"
+        let failed = try #require(OperatorLine.task(task(run: run, .failed, reason: because), run: run, acting: nil, requests: []))
+        #expect(failed.text.hasSuffix("…") && failed.text.count <= OperatorLine.maxLength, "\(failed.text)")
+        #expect(failed.tooltip == "failed · " + because)
+        let parent = task("Show the newsletter signup block on the homepage and the blog", run: run, .working)
+        let child = task(run: run, .queued, dependsOn: [TaskDependency(task: parent.id, kind: .order)])
+        let queued = try #require(OperatorLine.task(child, run: run, acting: nil, requests: [], tasks: [parent.id: parent]))
+        #expect(queued.text.hasSuffix("…"), "\(queued.text)")
+        #expect(queued.tooltip == "queued · after Show the newsletter signup block on the homepage and the blog")
+        var reviewed = task(run: run, .inReview)
+        reviewed.operated?.peopleReview = PeopleReview(reviewers: ["Jan Peeters", "An Vermeulen", "Piet Janssens"])
+        let waiting = OperatorLine.broadcast(run, tasks: [reviewed], acting: nil, requests: [])
+        #expect(waiting.text.hasSuffix("…"))
+        #expect(waiting.tooltip == "in review · waiting on Jan Peeters, An Vermeulen and Piet Janssens")
+    }
+
+    /// A finished task's leftover request asks nothing on the broadcast's line either, as on its own.
+    @Test func aFinishedTasksLeftoverRequestIsNotTheBroadcasts() {
+        let run = OperatorUIFixtures.run()
+        let done = task(run: run, .accepted, sha: "4f2a91cdeadbeef"), working = task("Bump nuxt", run: run, .working)
+        let leftover = request(.question, run, done, "The Operator asks: retry policy?")
+        #expect(OperatorLine.task(done, run: run, acting: nil, requests: [leftover])?.text == "done · 4f2a91c")
+        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover]) == OperatorLine("working · 1 task"))
+        // Beside another task's request it is not counted either.
+        let asks = request(.permission, run, working, "Claude Code asks for permission in Bump nuxt.")
+        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover, asks]).text == "waiting on you · permission?")
+    }
 }

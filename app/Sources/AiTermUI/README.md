@@ -247,8 +247,9 @@ status line is that badge: Claude's `VendorMark` at `Size.inlineMark`, the Oracl
 (overlapping by `Space.tight`, ringed in the surface's occluding colour) while the Oracle is consulted,
 then the words in `Typography.monoChip`, always one `Size.chip` line cut with an ellipsis, the whole in
 its tooltip. Quiet has no box and the surface's secondary ink; acting has no box and its words shimmer,
-a band of the surface's ink sweeping over its secondary ink every 1.6 s, standing still in the surface's
-ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
+a band of the surface's ink sweeping over its secondary ink every 1.6 s on Core Animation's clock
+(`ShimmerWordsView`: a `CAGradientLayer` masking the ink's `CATextLayer`, nothing updated per frame),
+standing still in the surface's ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
 `Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published

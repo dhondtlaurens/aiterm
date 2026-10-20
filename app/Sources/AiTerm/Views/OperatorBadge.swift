@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import AiTermUI
 import AiTermCore
@@ -11,8 +12,8 @@ import AiTermCore
 /// It reads its ground (`Surface`), as `RowCaption(warns:)` does:
 /// - quiet: no box, the words in the surface's secondary ink;
 /// - acting: no box, the words shimmering, a light band sweeping from the surface's secondary ink through
-///   its ink every `shimmerPeriod`; standing still in the surface's ink under Reduce Motion and in the
-///   snapshots;
+///   its ink every `shimmerPeriod` on Core Animation's clock (`ShimmerWordsView`), nothing updated per
+///   frame; standing still in the surface's ink under Reduce Motion and in the snapshots;
 /// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
 ///   in `Palette.text`, never amber; on `Surface.accent` the surface's `badgeWash` and ink, the amber left
 ///   to the row's `StatusMark`, since an amber wash on the selection's blue reads as mud.
@@ -92,48 +93,153 @@ struct OperatorBadge: View {
         .accessibilityLabel(line.tooltip)
     }
 
+    @ViewBuilder
     private func words(shimmering: Bool) -> some View {
-        Text(line.text)
-            .font(Typography.monoChip)
-            .foregroundStyle(Self.ink(line.look, surface: surface, shimmering: shimmering))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .overlay {
-                if shimmering {
-                    ShimmerBand(ink: surface.ink, period: Self.shimmerPeriod)
-                        .mask(Text(line.text).font(Typography.monoChip).lineLimit(1).truncationMode(.tail))
-                }
+        let text = Text(line.text).font(Typography.monoChip).lineLimit(1).truncationMode(.tail)
+        if shimmering {
+            // Laid out by the text, drawn by Core Animation: nothing here is updated per frame.
+            text.opacity(0).overlay {
+                ShimmerWords(text: line.text, font: Typography.monoChip.scaled(by: scale).nsFont,
+                             base: Self.ink(.acting, surface: surface, shimmering: true), ink: surface.ink, period: Self.shimmerPeriod)
             }
+        } else {
+            text.foregroundStyle(Self.ink(line.look, surface: surface, shimmering: false))
+        }
     }
 }
 
-/// The shimmer's light: a band of `ink`, fading in and out at its edges, swept across its width and off
-/// it again every `period`. Its own view, so each time the words start acting the sweep starts afresh.
-private struct ShimmerBand: View {
+#if DEBUG
+extension OperatorBadge {
+    /// How many times a shimmering line's words view has been updated, which a test reads to show the
+    /// sweep is Core Animation's rather than an update per frame. Debug builds only.
+    @MainActor static var shimmerUpdates = 0
+}
+#endif
+
+/// The shimmering words: drawn by `ShimmerWordsView`, so the sweep runs on Core Animation's clock in the
+/// window server, as `StatusMark`'s turn does.
+private struct ShimmerWords: NSViewRepresentable {
+    let text: String
+    let font: NSFont
+    let base: Color
     let ink: Color
     let period: Double
+
+    func makeNSView(context: Context) -> ShimmerWordsView { ShimmerWordsView() }
+
+    func updateNSView(_ view: ShimmerWordsView, context: Context) {
+        #if DEBUG
+        OperatorBadge.shimmerUpdates += 1
+        #endif
+        view.configure(text: text, font: font, base: NSColor(base), ink: NSColor(ink), period: period)
+    }
+}
+
+/// The words twice, in the surface's secondary ink and over them in its ink, the ink masked by a band
+/// that fades in and out at its edges and is swept across the words and off them every `period`: a
+/// `CABasicAnimation` on the band's position, added once and running for as long as the layer lives.
+/// Layer-hosting, so AppKit leaves its layers to it; it passes every click through to its row.
+final class ShimmerWordsView: NSView {
+    static let sweepKey = "sweep"
     /// The band's width, as a share of the words'.
     private static let bandShare: CGFloat = 0.4
-    // `@State` is a macro in the macOS 26 SDK and its plugin ships only with Xcode; this is the storage
-    // the macro would generate.
-    private var _swept = State(initialValue: false)
-    private var swept: Bool {
-        get { _swept.wrappedValue }
-        nonmutating set { _swept.wrappedValue = newValue }
+    let base = CATextLayer(), lit = CATextLayer(), band = CAGradientLayer()
+    private var text = "", font: NSFont?, baseColor = NSColor.clear, inkColor = NSColor.clear
+    private var period: CFTimeInterval = OperatorBadge.shimmerPeriod
+    /// The width the running sweep was made for: one for another width is made again.
+    private var sweptWidth: CGFloat = 0
+
+    init() {
+        super.init(frame: .zero)
+        layer = CALayer()
+        wantsLayer = true
+        for words in [base, lit] {
+            words.isWrapped = false
+            words.truncationMode = .end
+            words.alignmentMode = .left
+            layer?.addSublayer(words)
+        }
+        band.startPoint = CGPoint(x: 0, y: 0.5)
+        band.endPoint = CGPoint(x: 1, y: 0.5)
+        lit.mask = band
     }
 
-    init(ink: Color, period: Double) { self.ink = ink; self.period = period }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    var body: some View {
-        GeometryReader { geometry in
-            let band = geometry.size.width * Self.bandShare
-            LinearGradient(colors: [.clear, ink, .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(width: band)
-                .offset(x: swept ? geometry.size.width : -band)
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func configure(text: String, font: NSFont, base: NSColor, ink: NSColor, period: Double) {
+        guard text != self.text || font != self.font || base != baseColor || ink != inkColor || period != self.period else { return }
+        let restart = period != self.period
+        self.text = text; self.font = font; baseColor = base; inkColor = ink; self.period = period
+        paint()
+        if restart { sweptWidth = 0; sweep() }
+    }
+
+    override func layout() {
+        super.layout()
+        unanimated {
+            base.frame = bounds
+            lit.frame = bounds
+            band.frame = CGRect(x: 0, y: 0, width: bounds.width * Self.bandShare, height: bounds.height)
         }
-        .allowsHitTesting(false)
-        .onAppear {
-            withAnimation(.linear(duration: period).repeatForever(autoreverses: false)) { swept = true }
+        sweep()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        rescale()
+        sweep()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        rescale()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    private func rescale() {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        unanimated { for words in [base, lit] { words.contentsScale = scale } }
+    }
+
+    private func paint() {
+        guard let font else { return }
+        unanimated {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                base.string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: baseColor])
+                lit.string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: inkColor])
+                // A mask reads only alpha: the ink, faded out at the band's edges.
+                let ink = inkColor.cgColor
+                band.colors = [ink.copy(alpha: 0) ?? ink, ink, ink.copy(alpha: 0) ?? ink]
+            }
         }
+    }
+
+    /// Starts the sweep if the band has none for this width: from just before the words to just past them.
+    private func sweep() {
+        guard bounds.width > 0, window != nil else { return }
+        guard band.animation(forKey: Self.sweepKey) == nil || sweptWidth != bounds.width else { return }
+        let half = band.bounds.width / 2
+        let pass = CABasicAnimation(keyPath: "position.x")
+        pass.fromValue = -half
+        pass.toValue = bounds.width + half
+        pass.duration = period
+        pass.repeatCount = .infinity
+        pass.isRemovedOnCompletion = false
+        band.add(pass, forKey: Self.sweepKey)
+        sweptWidth = bounds.width
+    }
+
+    private func unanimated(_ change: () -> Void) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        change()
+        CATransaction.commit()
     }
 }

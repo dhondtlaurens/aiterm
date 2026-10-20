@@ -104,10 +104,11 @@ public struct OperatorLine: Equatable, Sendable {
         }
         let sha = String((operated.publication?.mergedSHA ?? operated.acceptance?.resultSHA ?? "").prefix(7))
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text, oracleAgent: oracle) }
+        func quiet(_ state: String, _ detail: String) -> OperatorLine { OperatorLine.quiet(state, detail, oracle: oracle) }
         switch operated.state {
         case .planned, .queued:
             if let parent = operated.stackedOn ?? operated.dependsOn.first?.task {
-                return quiet(fit("queued", "after " + (label(of: tasks[parent]) ?? "another task")))
+                return quiet("queued", "after " + (label(of: tasks[parent]) ?? "another task"))
             }
             // Added to the backlog after the first plan (spec §4.1).
             return quiet(operated.firstRevision > 1 ? "added by the Operator" : "queued")
@@ -115,12 +116,12 @@ public struct OperatorLine: Equatable, Sendable {
             return quiet("working")
         case .inReview:
             if let people = operated.peopleReview, !people.reviewers.isEmpty, !people.ended {
-                return quiet(fit("in review", "waiting on " + list(people.reviewers)))
+                return quiet("in review", "waiting on " + list(people.reviewers))
             }
             if let review = operated.agentReview { return quiet("in review · " + SidebarModel.agentName(review.agent)) }
             return quiet("in review")
         case .failed:
-            return quiet(reason(operated.blockedReason).map { fit("failed", $0) } ?? "failed")
+            return reason(operated.blockedReason).map { quiet("failed", $0) } ?? quiet("failed")
         case .blocked:
             return needsYou("blocked", reason(operated.blockedReason) ?? "it needs you", tooltip: nil, oracle: oracle)
         case .stopped:
@@ -152,7 +153,9 @@ public struct OperatorLine: Equatable, Sendable {
                                  requests: [BroadcastRequest]) -> OperatorLine {
         let oracle = run.profile.oracle.agent
         let driven = tasks.filter { $0.operated?.runId == run.id }
-        let asked = requests.filter { $0.runId == run.id }
+        // A finished task's leftover asks nothing, as on its own line.
+        let finished = Set(driven.filter { ($0.operated?.state).map(SidebarModel.isFinished) ?? false }.map(\.id))
+        let asked = requests.filter { $0.runId == run.id && !($0.taskId.map(finished.contains) ?? false) }
         // A request outranks everything: one is said, several are counted by what asks.
         if let top = first(asked) {
             let subjects = Set(asked.map { $0.taskId?.uuidString ?? "run" })
@@ -179,7 +182,7 @@ public struct OperatorLine: Equatable, Sendable {
             guard let operated = task.operated, operated.state == .inReview, let people = operated.peopleReview, !people.ended else { continue }
             for name in people.reviewers where !names.contains(name) { names.append(name) }
         }
-        if !names.isEmpty { return quiet(fit("in review", "waiting on " + list(names))) }
+        if !names.isEmpty { return OperatorLine.quiet("in review", "waiting on " + list(names), oracle: oracle) }
         return quiet("working")
     }
 
@@ -233,6 +236,11 @@ public struct OperatorLine: Equatable, Sendable {
         phrase = phrase.trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
         if phrase.hasPrefix("run ") { phrase = String(phrase.dropFirst(4)) }
         return phrase.isEmpty ? "permission?" : phrase + "?"
+    }
+
+    /// A quiet `state · detail`, cut to fit, the whole of it in the tooltip.
+    private static func quiet(_ state: String, _ detail: String, oracle: AgentKind) -> OperatorLine {
+        OperatorLine(fit(state, detail), tooltip: state + " · " + detail, oracleAgent: oracle)
     }
 
     private static func needsYou(_ state: String, _ detail: String, tooltip: String?, oracle: AgentKind) -> OperatorLine {

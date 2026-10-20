@@ -4,6 +4,7 @@ import Testing
 import AiTermUI
 @testable import AiTermCore
 @testable import AiTerm
+@testable import AiTermTestSupport
 
 /// The operator badge draws an `OperatorLine` (spec §7, §13, §14): one `Size.chip` line whatever it says,
 /// quiet with no box, acting with no box and its words shimmering, needs-you in the attention chip's
@@ -62,5 +63,35 @@ struct OperatorBadgeTests {
         #expect(OperatorBadge.marks(OperatorLine("consulting the Oracle", look: .acting, oracle: true, oracleAgent: .claude)) == [.claude, .claude])
         let one = fitting(OperatorLine("x")).width, two = fitting(OperatorLine("x", oracle: true)).width
         #expect(two - one == Size.inlineMark - Space.tight, "the Oracle's mark overlaps the Operator's by Space.tight")
+    }
+
+    /// The shimmer is Core Animation's: a gradient band swept across the words' mask on the layer, so over
+    /// half a second (some thirty frames) the words' view is not updated once, and nothing shimmers when
+    /// the badge stands still.
+    @Test func theShimmerSweepsOnALayerWithoutAnUpdatePerFrame() throws {
+        func hosted(_ view: some View) -> (NSWindow, NSView) {
+            let host = NSHostingView(rootView: view.padding(Space.base).background(Palette.sidebar).surface(.sidebar))
+            host.appearance = NSAppearance(named: .darkAqua)
+            let window = testWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 40), styleMask: [.borderless])
+            window.contentView = host
+            window.orderFrontRegardless()
+            return (window, host)
+        }
+        let (window, host) = hosted(OperatorBadge(line: OperatorLine("consulting the Oracle", look: .acting, oracle: true)))
+        defer { window.close() }
+        settle(host) { host.firstDescendant(ShimmerWordsView.self) != nil }
+        let words = try #require(host.firstDescendant(ShimmerWordsView.self))
+        settle(host, for: 0.1)
+        #expect(words.band.animation(forKey: ShimmerWordsView.sweepKey) != nil, "the band sweeps on Core Animation's clock")
+        #expect(words.lit.mask === words.band)
+        let before = OperatorBadge.shimmerUpdates
+        settle(host, for: 0.5)
+        #expect(OperatorBadge.shimmerUpdates - before == 0, "the words were updated \(OperatorBadge.shimmerUpdates - before) times in 0.5 s")
+
+        // Standing still (a snapshot here; Reduce Motion takes the same path, `shimmers` above) there is no layer.
+        let (still, stillHost) = hosted(OperatorBadge(line: OperatorLine("merging", look: .acting)).environment(\.stillSpinners, true))
+        defer { still.close() }
+        settle(stillHost, for: 0.1)
+        #expect(stillHost.firstDescendant(ShimmerWordsView.self) == nil, "standing still, the words are SwiftUI's text")
     }
 }
