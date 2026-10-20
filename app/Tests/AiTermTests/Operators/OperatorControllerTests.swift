@@ -240,7 +240,7 @@ import Testing
         try controller.loadWorkspace()
         let run = OperatorServiceFixtures.run(projects: [project])
         controller.workspace.mutate { $0.runs = [run] }
-        controller.sheet = .rename(.operation(run))
+        controller.sheet = .rename(.broadcast(run))
         controller.openNote(.overview(run.id))
         controller.presentRequestedOverview()
         #expect(controller.sheet?.id == "rename-\(run.id)")

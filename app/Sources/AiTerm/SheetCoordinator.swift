@@ -101,7 +101,7 @@ final class SheetCoordinator {
 
     func presentRename(run: OperatorRun) {
         guard canChangeWorkspace, let current = state.runs.first(where: { $0.id == run.id }) else { return }
-        present(.rename(.operation(current)))
+        present(.rename(.broadcast(current)))
     }
 
     /// Backpack Mode's sheet, built once here as New Task's model is (see `SheetKind`). Not over

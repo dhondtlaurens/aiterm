@@ -245,7 +245,7 @@ final class AppController {
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
         // A notification's click: an overview opens over the sidebar, a task's window comes forward.
         operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
-        // The OPERATORS group and the driven task rows read what the Operator is acting on, which the
+        // The broadcast row and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
         let operators = operatorController
         rows.actingSource = { [weak operators] in operators?.acting ?? .none }
@@ -547,9 +547,9 @@ final class AppController {
         }
     }
 
-    /// ↩ on the list: a header folds or opens its project; any other row goes to its window. An
-    /// empty project has nothing to fold, so its header opens its context menu — its first items
-    /// are the ones that give it a row.
+    /// ↩ on the list: a header folds or opens its project; the broadcast row opens its overview; any
+    /// other row goes to its window. An empty project has nothing to fold, so its header opens its
+    /// context menu — its first items are the ones that give it a row.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
@@ -562,6 +562,8 @@ final class AppController {
             }
             return nil
         }
+        // The broadcast row's ↩ is its click: the overview.
+        if let id = focus.selectedOperationId { return openBroadcast(id) }
         return focus.activateSelection()
     }
 

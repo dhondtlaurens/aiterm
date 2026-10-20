@@ -160,7 +160,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 | `Kbd` | keycaps for a shortcut, inked for the surface it sits on: on `.accent` — `SheetPrimaryButton`'s label declares it — white on the keycap washes; anywhere else the surface's ink on its badge wash, edged in the hairline (Settings › Interface's keyboard section). It takes no style: the ground decides |
 | `SearchField` | a single-line field that hands navigation keys to an open popup first |
 | `SidebarHeading` | `PROJECTS` and a divider's name: micro, uppercase, tracked, secondary ink |
-| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)`; the Operator header's mark is `.paper` with `headphones` (`OperatorHeaderRow`, until the plan's Task 14) |
+| `SymbolMark` | a round mark for what is not a vendor: an SF Symbol at half the disc's size, in one of two styles — `.quiet` (the default) in `Palette.text` on a `Palette.controlActive` disc, `IntegrationMark`'s family, with `tint` for a muted glyph; `.paper` in `Palette.markInk` on a `Palette.markPaper` disc, the vendor discs' recipe, so a mark beside Claude's and Codex's reads as one of them. `size` is points on screen — the Mac card passes `Size.control`, the footer's Mac readings row `scale(Size.vendorMark)` |
 | `Hairline` | every 1 pt rule, in one weight: `border` on a filled rectangle, the same stroke as a control's outline — the sidebar's rules, the step bar, a sheet's header and footer edges, under a card's header, between the Interface tab's rows. Never a bare `Divider()` |
 
 ### Foundations — not components, no card
@@ -188,7 +188,7 @@ vendor needs both.
 `PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
-`OperatorsHeader`, `OperatorHeaderRow`, `OperationRowView`, `OperationCaptionLine`, `OperatorBadge`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
+`OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `FixerSettingsGroup`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
@@ -231,18 +231,23 @@ close the lid.”, the checks, and Done on ⌘↩; the mode stays on. Closing th
 Its words are `BackpackSheetPresentation`'s, its state `BackpackSheetModel`'s. The Backpack toasts
 wear `BackpackController.symbol`, `iphone`.
 
-**Operators.** An OPERATORS group leads the list, above PROJECTS, drawn with no broadcast at all:
-its "+" is New Operation…, the one way to the first (`OperatorsHeader`). While a broadcast runs, the
-one Operator is a header on a project's anatomy (`OperatorHeaderRow`) — the chevron, its mark where a
-provider sits, its name, a "+" for New Operation… — off the arrow path, folded in memory only. Its operations sit under it on a
-task row's grid (`OperationRowView`): the agents at work, the name, `OperationCaptionLine` — the
-progress as a quiet `Badge` and an attention `StatusCountChips`, both opening the overview, or the
-operation's state when that says more — and the operation's own `StatusMark`. A click or ↩ brings the
-operator's window forward; ⌘I opens the overview; its menu adds Rename… (`NameSheet`), Pause or
-Resume and End Operation…. Menus and buttons are Title Case, as everywhere. The header's mark is a
-`.paper` `SymbolMark` with `headphones`. A driven task's avatars are its own agents, as any task's are;
-its third line is the Operator's status line, `OperatorBadge(line:)`, and its menu leads with Take Over
-or Hand Back, and Stop Task… (it asks first) while the task is open. Everything the Operator says on a
+**Operators.** The OPERATOR heading leads the list, above PROJECTS (`OperatorHeading`): a
+`SidebarHeading` on PROJECTS' anatomy whose "+", an `AddMenu` with New Broadcast…, is the one way to
+start a broadcast, so with none it is the heading and its "+" and nothing else; there is no File menu
+item. One broadcast at a time: while one exists the "+" is absent and the broadcast row sits under the
+heading on a task row's grid (`BroadcastRowView`, on `SelectableRow`): the Operator's agent's
+`VendorMark` as its avatar, the title, then `2 of 8 done` as a quiet `Badge` (absent until the first
+plan is in Todo), the first project as a quiet `Badge` led by its host's mark and a boxed `+n`, then its
+status line, `OperatorBadge(line: OperatorLine.broadcast(...))`, and its `StatusMark` trailing: amber
+while any request is open, spinning while something works, the idle ring while paused or only waiting
+on people, the accent dot once the debrief is ready. ↑ ↓ peek at the Operator's window, as on a task
+row; a click or ↩ opens the overview, and with the Operator's window closed reopens it behind the
+sheet. Its menu is Rename… (`NameSheet`), Pause Broadcast or Resume Broadcast, and End Broadcast…,
+which is not red: it asks with a blue default, since nothing is deleted. No Overview…, no ⌘I, no
+Interrupt Agents. Menus and buttons are Title Case, as everywhere. A driven task's avatars are its own
+agents, as any task's are; its third line is the Operator's status line, `OperatorBadge(line:)`, and
+its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
+task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
 status line is that badge: Claude's `VendorMark` at `Size.inlineMark`, the Oracle's beside it
 (overlapping by `Space.tight`, ringed in the surface's occluding colour) while the Oracle is consulted,
 then the words in `Typography.monoChip`, always one `Size.chip` line cut with an ellipsis, the whole in
@@ -254,7 +259,7 @@ standing still in the surface's ink under Reduce Motion and in the snapshots; ne
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. The
-operation rows are values in `AiTermCore/Sidebar/OperatorRows.swift`. The sheets — `NewOperationSheet` and `OperationOverviewSheet`
+broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`). The sheets — `NewOperationSheet` and `OperationOverviewSheet`
 (a board on its side, decided by `OperationOverview`) — use `SheetLayout`, `SheetSubtitle` and `SheetFooter` like
 every other. No new `Palette` member.
 
@@ -320,7 +325,7 @@ fails, or finds nothing, keeps the problem's title with what it said as the desc
 
 `NameSheet` is every sheet whose one question is a name: New terminal (`NameSheet.newTerminal`), Add divider, and Rename for a
 task or review, a terminal (from its row's context menu or VoiceOver actions: "Rename terminal",
-"Terminal name"), an operation (its row's Rename…) and a divider — each rename's title, field and sentence from `RenameTarget`. A
+"Terminal name"), a broadcast (its row's Rename…) and a divider — each rename's title, field and sentence from `RenameTarget`. A
 terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraProjectSheet` is
 reached only from a project's context menu: Add Project… has no sheet, the folder chooser adds the
 project at once, and a folder inside a repository adds that repository with a toast saying so.

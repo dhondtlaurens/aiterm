@@ -39,7 +39,8 @@ extension AppController {
 }
 
 extension AppController {
-    /// OPERATORS' "+", or the Operator header's: New Operation…, started as a broadcast on Settings ›
+    /// The OPERATOR heading's "+": New Broadcast…, on the New Operation sheet until New Broadcast (Task 16)
+    /// replaces it, started on Settings ›
     /// Operator's profile, in the projects its prompt's tickets belong to and their Jira projects (New
     /// Broadcast, Task 16, picks both). Started, the broadcast's row is selected; its window comes forward by
     /// the operator controller's own start.
@@ -57,7 +58,7 @@ extension AppController {
 }
 
 extension AppController {
-    /// An operation's caption chips, its Overview…, ⌘I, or a notification's click: its overview, over
+    /// The broadcast row's click or ↩ (`openBroadcast`), or a notification's click: its overview, over
     /// whatever sheet is up.
     func presentOverview(run id: UUID) {
         guard state.runs.contains(where: { $0.id == id && $0.state != .stopped }) else { return }
@@ -90,19 +91,37 @@ extension AppController {
         }
     }
 
-    /// An operation row's menu.
+    /// The broadcast row's menu.
     func perform(_ item: OperatorMenuItem, on run: OperatorRun) {
         switch item {
-        case .overview: presentOverview(run: run.id)
         case .rename: presentRename(run: run)
         case .pause: pause(run)
         case .resume: resume(run)
-        case .endOperation: Task { await confirmEnd(run) }
+        case .endBroadcast: Task { await confirmEnd(run) }
         default: break
         }
     }
 
-    /// Rename…: the `NameSheet`, on the operation's name.
+    /// A click or ↩ on the broadcast row (spec §3, §9): its overview opens over the sidebar. With the
+    /// Operator's window closed the row is chosen as a click chooses it, so the window is asked back from
+    /// the operator controller (`RowFocus.onChoosingOperationWithoutWindow`), reopening behind the sheet and
+    /// resuming the broadcast; with it open the row is only selected, as the sheet is what comes forward.
+    /// Returns the reopening, if one started.
+    @discardableResult
+    func openBroadcast(_ id: UUID) -> Task<Void, Never>? {
+        guard let run = state.runs.first(where: { $0.id == id && $0.state != .stopped }) else { return nil }
+        let reopening: Task<Void, Never>?
+        if run.operatorWindowId == nil {
+            reopening = focus.select(.operation(id))
+        } else {
+            focus.browse(.operation(id))
+            reopening = nil
+        }
+        presentOverview(run: id)
+        return reopening
+    }
+
+    /// Rename…: the `NameSheet`, on the broadcast's name.
     func presentRename(run: OperatorRun) { sheets.presentRename(run: run) }
 
     /// The name sheet's answer. An emptied field keeps the name, as a renamed task's does.
@@ -155,20 +174,5 @@ extension AppController {
             giveItMore: { [weak self] in self?.openOperatorWindow(run); dismiss() },
             openTask: { [weak self] id in dismiss(); self?.focus.select(.task(id)) },
             answerInWindow: { [weak self] in self?.openOperatorWindow(run); dismiss() })
-    }
-}
-
-extension AppController {
-    /// An operator header's chevron.
-    func toggleCollapsed(operator handle: String) { rows.toggleCollapsed(operator: handle) }
-}
-
-extension AppController {
-    /// ⌘I on the list: the selected operation's overview. Says whether there was one.
-    @discardableResult
-    func showOverviewOfSelection() -> Bool {
-        guard let id = focus.selectedOperationId else { return false }
-        presentOverview(run: id)
-        return sheet != nil
     }
 }

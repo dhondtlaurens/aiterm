@@ -5,9 +5,8 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The list with the Operator in it: OPERATORS first, always, as its "+" is the only way to the first
-/// broadcast; then the Operator's header while a broadcast runs, its broadcasts when it is open, and
-/// PROJECTS after.
+/// The list with the Operator in it: the OPERATOR heading first, always, as its "+" is the only way to
+/// start a broadcast; the broadcast row under it while one exists, the "+" gone; then PROJECTS.
 @MainActor
 struct OperatorSidebarTests {
     private func hosted(_ controller: AppController) -> (NSHostingView<SidebarView>, NSWindow) {
@@ -18,29 +17,37 @@ struct OperatorSidebarTests {
         return (host, window)
     }
 
-    @Test func theListLeadsWithTheOperatorsAndTheirOperations() throws {
+    @Test func theListLeadsWithTheOperatorHeadingAndItsBroadcast() throws {
         let controller = AppController(preferences: .scratch())
         try controller.loadWorkspace()
         let (host, window) = hosted(controller)
         defer { window.orderOut(nil) }
         settle(host) { host.firstDescendant(NSTableView.self).map { $0.numberOfRows > 0 } ?? false }
         let list = try #require(host.firstDescendant(NSTableView.self))
-        // OPERATORS, PROJECTS, the empty block.
+        // OPERATOR, PROJECTS, the empty block.
         #expect(list.numberOfRows == 3)
+        #expect(OperatorHeading.offersNewBroadcast(controller.rows.broadcast))
 
-        controller.workspace.mutate { $0.runs = [OperatorUIFixtures.run()] }
-        // OPERATORS, Operator, Newsletter signup, PROJECTS, the empty block.
-        settle(host, describing: "the operation's row") { list.numberOfRows == 5 }
+        let run = OperatorUIFixtures.run()
+        controller.workspace.mutate { $0.runs = [run] }
+        // OPERATOR, Newsletter signup, PROJECTS, the empty block.
+        settle(host, describing: "the broadcast's row") { list.numberOfRows == 4 }
+        #expect(!OperatorHeading.offersNewBroadcast(controller.rows.broadcast), "one broadcast at a time: the \"+\" goes")
 
-        controller.toggleCollapsed(operator: OperatorSection.key)
-        settle(host, describing: "the operator folded") { list.numberOfRows == 4 }
+        controller.workspace.mutate { $0.runs[0].state = .stopped }
+        settle(host, describing: "the row gone with the broadcast") { list.numberOfRows == 3 }
+        #expect(OperatorHeading.offersNewBroadcast(controller.rows.broadcast), "and the \"+\" returns")
     }
 
-    @Test func anOperationsCaptionSaysItsCountInWords() {
-        var row = SidebarModel.operationRow(run: OperatorUIFixtures.run(), tasks: [])
-        row.attention = 2
-        #expect(OperationCaptionLine.spoken(row) == "0 of 0 done, 2 waiting on you")
-        row.showsProgress = false; row.caption = "operator offline"
-        #expect(OperationCaptionLine.spoken(row) == "operator offline")
+    @Test func theRowIsReadOutAsItIsDrawn() throws {
+        let web = OperatorUIFixtures.project("pluto-web"), cms = OperatorUIFixtures.project("pluto-cms")
+        var run = OperatorUIFixtures.run(name: "Checkout redesign", questions: [OperatorUIFixtures.question("retry policy?")],
+                                         projectIds: [web.id, cms.id])
+        run.firstPlanSize = 0
+        var state = AppState()
+        state.append(project: web); state.append(project: cms); state.runs = [run]
+        let row = try #require(SidebarModel.broadcastRow(state: state))
+        #expect(BroadcastRowView.label(row) == "Broadcast Checkout redesign")
+        #expect(BroadcastRowView.spoken(row) == "0 of 0 done, pluto-web and pluto-cms, The Operator asks: retry policy?")
     }
 }

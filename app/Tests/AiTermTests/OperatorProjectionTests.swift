@@ -4,8 +4,8 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The OPERATORS group is derived with the rest of the rows: from the runs and what the Operator is
-/// acting on, again whenever one of them changes, and folded by the sidebar alone.
+/// The broadcast row is derived with the rest of the rows: from the runs, their tasks and what the
+/// Operator is acting on, again whenever one of them changes.
 @MainActor
 struct OperatorProjectionTests {
     /// A source's value a test moves between derivations, which a captured `var` cannot be.
@@ -20,27 +20,31 @@ struct OperatorProjectionTests {
         return controller
     }
 
-    @Test func theGroupFollowsTheBroadcasts() throws {
+    @Test func theRowFollowsTheBroadcast() throws {
         let controller = try controller(), rows = controller.rows
         rows.refresh()
-        #expect(rows.operatorSections.isEmpty, "no broadcast yet")
+        #expect(rows.broadcast == nil, "no broadcast yet")
 
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
-        #expect(rows.operatorSections.map(\.id) == [OperatorSection.key])
-        #expect(rows.operatorSections[0].operations.map(\.id) == [run.id], "a workspace change derives the group again")
+        #expect(rows.broadcast?.id == run.id, "a workspace change derives the row again")
+        #expect(rows.broadcast?.title == run.name)
         #expect(rows.runs[run.id] == run)
     }
 
-    @Test func foldingAnOperatorIsTheSidebarsAndSavesNothing() throws {
+    @Test func whatTheOperatorDoesIsTheBroadcastsLine() throws {
         let controller = try controller(), rows = controller.rows
-        controller.workspace.mutate { $0.runs = [OperatorUIFixtures.run()] }
-        let saved = controller.state
-        rows.toggleCollapsed(operator: OperatorSection.key)
-        #expect(rows.operatorSections[0].collapsed)
-        #expect(controller.state == saved)
-        rows.toggleCollapsed(operator: OperatorSection.key)
-        #expect(!rows.operatorSections[0].collapsed)
+        let project = OperatorUIFixtures.project("pluto-web"), run = OperatorUIFixtures.run()
+        let task = OperatorUIFixtures.task("The homepage section", project: project.id,
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .queued))
+        let acting = Box<OperatorActs>(.none)
+        rows.actingSource = { acting.value }
+        controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
+        #expect(rows.broadcast?.status == .idle)
+        acting.value = OperatorActs(runs: [run.id: .init(act: .starting, task: "pluto-232")])
+        rows.refresh()
+        #expect(rows.broadcast?.line.text == "starting Claude · The homepage section")
+        #expect(rows.broadcast?.status == .working)
     }
 
     @Test func whatTheOperatorActsOnRedrawsTheTaskItDrives() throws {
@@ -66,7 +70,7 @@ struct OperatorProjectionTests {
         let task = OperatorUIFixtures.task("The homepage section", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.operatorSections[0].operations.map(\.id) == [run.id])
+        #expect(rows.broadcast?.id == run.id)
         #expect(rows.sections[0].tasks[0].operatorLine != nil)
 
         // The tasks, the items and the sessions stay as they were: only the run's state moves.
@@ -76,7 +80,7 @@ struct OperatorProjectionTests {
         controller.workspace.mutate { $0.runs = [stopped] }
         #expect(rows.derivations == before + 1, "a runs-only change is a change to the rows")
         #expect(rows.runs[run.id]?.state == .stopped)
-        #expect(rows.operatorSections.isEmpty, "an ended broadcast leaves the group, and with none running so does its header")
+        #expect(rows.broadcast == nil, "an ended broadcast has no row")
         #expect(rows.sections[0].tasks[0].operatorLine == nil, "and the task it drove loses the Operator's line")
     }
 

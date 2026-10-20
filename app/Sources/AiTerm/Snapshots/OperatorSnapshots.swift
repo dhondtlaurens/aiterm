@@ -3,11 +3,11 @@ import AiTermUI
 import AiTermCore
 
 #if DEBUG
-/// The design's operation as the images draw it: the Operator running "Newsletter signup" over
+/// The design's broadcast as the images draw it: the Operator running "Newsletter signup" over
 /// pluto-cms and pluto-web (PLUTO-231's schema, PLUTO-232's homepage section building on it, the
-/// /privacy footer link, the nuxt bump) beside a second operation, "Nuxt upgrade", still planning.
-/// Each scene is a controller of its own, at the snapshot clock; the sidebar draws the Operator only
-/// once `show` has put a broadcast in, so a bare scene is the OPERATORS heading with none beneath it.
+/// /privacy footer link, the nuxt bump). Each scene is a controller of its own, at the snapshot clock;
+/// the sidebar draws the broadcast row only once `show` has put a broadcast in, so a bare scene is the
+/// OPERATOR heading and its "+" with nothing beneath it.
 @MainActor
 struct OperatorScene {
     let controller = Fixture.emptyController()
@@ -15,8 +15,8 @@ struct OperatorScene {
                       addedAt: Snapshots.clock.now, collapsed: false)
     let web = Project(id: UUID(), name: "pluto-web", path: "/r/pluto-web", provider: .gitlab, remoteUrl: nil,
                       addedAt: Snapshots.clock.now, collapsed: false)
-    let schema = UUID(), homepage = UUID(), footer = UUID(), bump = UUID(), upgrade = UUID()
-    let signupId = UUID(), nuxtId = UUID()
+    let schema = UUID(), homepage = UUID(), footer = UUID(), bump = UUID()
+    let signupId = UUID()
 
     static let profile = OperatorProfile(
         model: "claude-opus-5-5", reasoning: "high",
@@ -29,9 +29,11 @@ struct OperatorScene {
 
     func run(_ id: UUID, _ name: String, _ state: OperatorRunState, planRevision: Int = 1,
              questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = []) -> OperatorRun {
+        // The four tasks are in Todo once a plan is submitted: the row's progress starts then.
         OperatorRun(id: id, name: name, profile: Self.profile, projectIds: [cms.id, web.id],
                     prompt: "PLUTO-231 newsletter signup block in Storyblok",
                     done: Self.done, state: state, intent: nil, planRevision: planRevision,
+                    firstPlanSize: planRevision > 0 ? 4 : nil,
                     questions: questions, decisions: decisions, operatorConversation: nil,
                     operatorWindowId: "operator-\(name)", operatorSessionId: nil, createdAt: Snapshots.clock.now)
     }
@@ -81,18 +83,16 @@ struct OperatorScene {
         controller.rows.refresh()
     }
 
-    /// The design's step 6: Newsletter signup at work — one done, the homepage answered by the operator,
-    /// Codex asking about npm install — and Nuxt upgrade still planning.
+    /// The design's step 6: Newsletter signup at work — one done, the homepage answered by the Operator,
+    /// Codex asking about npm install.
     static func atWork(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
         let signup = scene.run(scene.signupId, "Newsletter signup", .active,
                                questions: [OperatorQuestion(id: "prompt-\(scene.footer.uuidString)-1", text: "Codex asks to run npm install", task: scene.footer,
                                                             askedAt: Snapshots.clock.now, resolution: nil)],
                                decisions: [OperatorDecision(key: "subtitle", text: "Gave the block an optional subtitle field: the design shows one, the ticket doesn’t mention it.",
                                                             task: scene.schema, at: Snapshots.clock.now, challenge: nil)])
-        let nuxt = scene.run(scene.nuxtId, "Nuxt upgrade", .planning, planRevision: 0)
-        let upgrade = scene.task(scene.upgrade, "Upgrade Nuxt to 3.20", in: scene.web, run: scene.nuxtId, .planned)
-        scene.show([signup, nuxt], scene.signupTasks([.accepted, .working, .working, .working], shas: ["4f2a91c", nil, nil, nil],
-                                                     footerFlags: [.waitingOnYou]) + [upgrade],
+        scene.show([signup], scene.signupTasks([.accepted, .working, .working, .working], shas: ["4f2a91c", nil, nil, nil],
+                                               footerFlags: [.waitingOnYou]),
                    acting: [scene.homepage: .answering])
         return scene
     }
@@ -148,12 +148,11 @@ enum OperatorSnapshots {
         ]
     }
 
-    /// The list's rows as the sidebar stacks them: OPERATORS, its sections, then PROJECTS and the projects.
+    /// The list's rows as the sidebar stacks them: OPERATOR and the broadcast's row, then PROJECTS and the projects.
     private static func sidebar(_ scene: OperatorScene) -> some View {
         let controller = scene.controller, rows = controller.rows
         return VStack(alignment: .leading, spacing: Space.hairline) {
-            OperatorsHeader(controller: controller)
-            ForEach(rows.operatorSections) { SidebarView.operatorRows(of: $0, in: rows, controller: controller) }
+            SidebarView.operatorRows(in: rows, controller: controller)
             SidebarHeader(controller: controller)
             ForEach(rows.entries) { SidebarView.rows(of: $0, in: rows, controller: controller) }
         }

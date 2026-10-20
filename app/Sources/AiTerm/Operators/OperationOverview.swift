@@ -77,7 +77,7 @@ struct OperationOverview: Equatable {
         let challenger = SidebarModel.agentName(run.profile.oracle.agent)
         let open = run.questions.filter { $0.resolution == nil }
 
-        // Waiting on you is what the operation's row counts as its attention (`SidebarModel.operationRow`):
+        // Waiting on you is each request once (`OperatorRequests`, as the broadcast row's line counts them):
         // every open question, and each open task waiting on you or blocked that no question names. A
         // question about a task is that task's item; one about the whole operation, or about a task that
         // is no longer on the board, is answered in the operator's window.

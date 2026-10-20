@@ -4,11 +4,11 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// An operation's row opens its chat — the operator's window — by the rules a task row follows: a
-/// click or ↩ brings it forward with iTerm2, ↑ ↓ peek with the keyboard left in the sidebar, and a
-/// window you closed comes back on the click (spec §10.3).
+/// The broadcast row: ↑ ↓ peek at the Operator's window as a task row's arrows do; a click or ↩ opens
+/// the overview, and with the Operator's window closed reopens it behind the sheet (spec §3, §9). Its
+/// selection reaches the Operator's window by the rules a task row's follows.
 @MainActor
-struct OperationRowFocusTests {
+struct BroadcastRowFocusTests {
     private func controller(_ run: OperatorRun, failing: [String: DaemonError.Code] = [:]) throws -> (AppController, RecordingDaemon) {
         let controller = AppController(preferences: .scratch())
         try controller.loadWorkspace()
@@ -16,6 +16,49 @@ struct OperationRowFocusTests {
         let daemon = RecordingDaemon(failing: failing)
         controller.helper.setDaemonClient(daemon)
         return (controller, daemon)
+    }
+
+    @Test func clickOpensTheBoardAndArrowsPeek() async throws {
+        let run = OperatorUIFixtures.run(windowId: "operator-window")
+        let (controller, daemon) = try controller(run)
+        defer { controller.shutdown() }
+        var activated = 0
+        controller.focus.onChoosingOperationWithoutWindow { _ in Issue.record("its window is open"); return nil }
+        // ↓ onto the row: the Operator's window comes forward beside the sidebar; nothing opens.
+        await controller.focus.peek(id: run.id)?.value
+        #expect(daemon.requests("window.activate").map { $0.params["windowId"] as? String } == ["operator-window"])
+        #expect(controller.sheet == nil, "a peek only looks")
+        activated = daemon.requests("window.activate").count
+
+        // A click: the overview, over the sidebar; the window it peeked at stays where it is.
+        await controller.openBroadcast(run.id)?.value
+        guard case .operationOverview(let clicked)? = controller.sheet else { Issue.record("no overview on a click"); return }
+        #expect(clicked == run.id)
+        #expect(controller.focus.selection == .operation(run.id))
+        #expect(daemon.requests("window.activate").count == activated, "the sheet is what comes forward")
+
+        // ↩ on the selected row does what the click does.
+        controller.sheets.sheet = nil
+        await controller.activateSelection()?.value
+        guard case .operationOverview(let returned)? = controller.sheet else { Issue.record("no overview on ↩"); return }
+        #expect(returned == run.id)
+        #expect(daemon.requests("window.activate").count == activated)
+    }
+
+    /// With the Operator's window closed the click also asks it back from the operator controller, which
+    /// reopens it behind the sheet and resumes the broadcast.
+    @Test func aClickWithTheWindowClosedReopensItBehindTheBoard() async throws {
+        let run = OperatorUIFixtures.run(windowId: nil)
+        let (controller, daemon) = try controller(run)
+        defer { controller.shutdown() }
+        var asked: [UUID] = []
+        controller.focus.onChoosingOperationWithoutWindow { asked.append($0); return nil }
+        controller.openBroadcast(run.id)
+        #expect(asked == [run.id])
+        guard case .operationOverview(let id)? = controller.sheet else { Issue.record("no overview"); return }
+        #expect(id == run.id)
+        #expect(controller.focus.selection == .operation(run.id))
+        #expect(daemon.requests("window.activate").isEmpty)
     }
 
     @Test func choosingAnOperationBringsItsOperatorsWindowForward() async throws {

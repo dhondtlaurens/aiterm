@@ -113,16 +113,17 @@ struct OperationOverviewTests {
         let overview = OperationOverview.make(run: run, state: state(run, all))
         #expect(overview.groups.map(\.title) == ["Working", "Done"])
         #expect(overview.groups[0].items.map(\.detail) == ["failed", "", ""])
-        #expect(SidebarModel.operationRow(run: run, tasks: all).attention == 0)
+        #expect(overview.groups.allSatisfy { ($0.attention ?? 0) == 0 }, "nothing waits on you")
     }
 
-    @Test func theWaitingCountIsTheSidebarRowsAttentionCount() {
+    @Test func theWaitingCountIsEachRequestOnce() {
         let run = OperatorUIFixtures.run(questions: [OperatorUIFixtures.question("Codex asks to run npm install", task: footerId),
                                                      OperatorUIFixtures.question("Which brand?", id: "brand")])
         let all = tasks(run.id, [.working, .blocked, .working, .working], flags: [[.waitingOnYou], [], [], []])
         let overview = OperationOverview.make(run: run, state: state(run, all))
         #expect(overview.groups[0].title == "Waiting on you")
-        #expect(overview.groups[0].attention == SidebarModel.operationRow(run: run, tasks: all).attention)
+        // Both questions, the schema waiting on you and the blocked homepage, each once.
+        #expect(overview.groups[0].attention == 4)
         #expect(overview.groups[0].attention == overview.groups[0].items.count)
         #expect(Set(overview.groups[0].items.map(\.id)).count == overview.groups[0].items.count)
     }

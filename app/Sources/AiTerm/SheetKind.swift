@@ -6,13 +6,13 @@ extension AppController {
     /// What a rename sheet is pointed at. Each case carries its own copy so the sheet keeps showing
     /// the name it opened with while the workspace changes underneath it.
     enum RenameTarget: Identifiable, Equatable {
-        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem), operation(OperatorRun)
+        case divider(SidebarDivider), task(TaskItem), terminal(TerminalItem), broadcast(OperatorRun)
         var id: UUID {
             switch self {
             case .divider(let d): return d.id
             case .task(let t): return t.id
             case .terminal(let t): return t.id
-            case .operation(let r): return r.id
+            case .broadcast(let r): return r.id
             }
         }
         var name: String {
@@ -20,7 +20,7 @@ extension AppController {
             case .divider(let d): return d.name
             case .task(let t): return t.title
             case .terminal(let t): return t.name
-            case .operation(let r): return r.name
+            case .broadcast(let r): return r.name
             }
         }
         var title: String {
@@ -28,7 +28,7 @@ extension AppController {
             case .divider: return "Rename divider"
             case .task: return "Rename task"
             case .terminal: return "Rename terminal"
-            case .operation: return "Rename operation"
+            case .broadcast: return "Rename broadcast"
             }
         }
         var fieldLabel: String {
@@ -36,7 +36,7 @@ extension AppController {
             case .divider: return "Divider name"
             case .task: return "Task name"
             case .terminal: return "Terminal name"
-            case .operation: return "Operation name"
+            case .broadcast: return "Broadcast name"
             }
         }
         /// The band's one sentence: what the new name changes, and what keeps its own.
@@ -47,8 +47,8 @@ extension AppController {
             // The row's name only: a tab is titled with its branch (`sessions.setTitles`), and
             // the window's profile name is set once, when it opens.
             case .terminal: return "Renames the row in the sidebar; its iTerm2 tabs keep their branch titles."
-            // The row and the overview only; the operator's window was titled when it opened.
-            case .operation: return "Renames its row and its overview; its operator’s window and its tasks keep theirs."
+            // The row and the overview only; the Operator's window was titled when it opened.
+            case .broadcast: return "Renames its row and its overview; the Operator’s window and its tasks keep theirs."
             }
         }
     }

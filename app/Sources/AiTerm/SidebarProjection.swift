@@ -21,15 +21,12 @@ final class SidebarProjection {
     /// Each task and terminal by id: the saved item a drawn row also reads.
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
-    /// The OPERATORS group, above the projects: each operator and its operations.
-    private(set) var operatorSections: [OperatorSection] = []
-    /// Each live or ended run by id: what an operation's row and its overview read.
+    /// The broadcast row under the OPERATOR heading, above the projects; nil while no broadcast exists.
+    private(set) var broadcast: BroadcastRow?
+    /// Each live or ended run by id: what the broadcast row's menu and its overview read.
     private(set) var runs: [UUID: OperatorRun] = [:]
     /// What the Operator is doing now, to each task and each broadcast, as `actingSource` last said.
     private(set) var acting: OperatorActs = .none
-    /// The operators folded to their header, by handle. Not saved: an operator's file holds who it is,
-    /// not how the sidebar shows it, and the group opens unfolded at launch.
-    private(set) var foldedOperators: Set<String> = []
     /// What the Operator is doing, read on every derivation. The app points it at its
     /// `OperatorController`; a test or a snapshot at values of its own.
     @ObservationIgnored var actingSource: @MainActor () -> OperatorActs = { .none }
@@ -59,7 +56,7 @@ final class SidebarProjection {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
-        var runs: [OperatorRun], acting: OperatorActs, folded: Set<String>
+        var runs: [OperatorRun], acting: OperatorActs
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
@@ -71,7 +68,7 @@ final class SidebarProjection {
         let next = Inputs(items: state.items, tasks: state.tasks, terminals: state.terminals, sessions: live.rowSessions,
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
-                          runs: state.runs, acting: actingSource(), folded: foldedOperators)
+                          runs: state.runs, acting: actingSource())
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
@@ -81,9 +78,8 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
-        let operatorSections = SidebarModel.operatorSections(state: state, acting: Set(next.acting.tasks.keys),
-                                                             folded: next.folded)
-        if operatorSections != self.operatorSections { self.operatorSections = operatorSections }
+        let broadcast = SidebarModel.broadcastRow(state: state, acting: next.acting)
+        if broadcast != self.broadcast { self.broadcast = broadcast }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
                                            projectBranch: next.projectBranch, diffByTask: next.diffByTask, acting: next.acting.tasks)
         // Rebuilt only when their own list changed, since most derivations are for a status; and
@@ -102,13 +98,6 @@ final class SidebarProjection {
         guard sections != self.sections else { return false }
         self.sections = sections
         return true
-    }
-
-    /// Folds an operator to its header, or opens it. An operator with no operation draws folded
-    /// whatever this says, as an empty project does.
-    func toggleCollapsed(operator handle: String) {
-        if foldedOperators.contains(handle) { foldedOperators.remove(handle) } else { foldedOperators.insert(handle) }
-        refresh()
     }
 
     /// The footer's context row, under SYSTEM, for `row`: what runs in the task's or terminal's

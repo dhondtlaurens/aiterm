@@ -4,50 +4,75 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The operator items of the sidebar's menus, in the picked design's words and order: OPERATORS' "+",
-/// the Operator's "+" and its menu, an operation's menu and a driven task's.
+/// The operator items of the sidebar's menus, in the picked design's words and order: the OPERATOR
+/// heading's "+", the broadcast row's menu and a driven task's (spec §3, §9, §13).
 struct OperatorMenusTests {
     private func titles(_ items: [OperatorMenuItem]) -> [String] { items.map { $0 == .separator ? "—" : $0.title } }
 
-    @Test func theOperatorsMenusSayWhatTheDesignSays() {
-        #expect(titles(OperatorMenus.operatorsGroup) == ["New Operation…"])
-        #expect(titles(OperatorMenus.headerPlus) == ["New Operation…"])
-        #expect(titles(OperatorMenus.header) == ["New Operation…"], "no persona to edit, duplicate or trash")
-        #expect(OperatorMenus.header.filter(\.isDestructive).isEmpty)
+    @Test func theHeadingsPlusStartsABroadcast() {
+        #expect(titles(OperatorMenus.headingPlus) == ["New Broadcast…"])
     }
 
-    @Test func anOperationsMenuOffersWhatItsStateAllows() {
-        #expect(titles(OperatorMenus.operation(.active)) == ["Overview…", "Rename…", "—", "Pause", "—", "End Operation…"])
-        #expect(titles(OperatorMenus.operation(.planning)) == ["Overview…", "Rename…", "—", "Pause", "—", "End Operation…"])
-        #expect(titles(OperatorMenus.operation(.paused)) == ["Overview…", "Rename…", "—", "Resume", "—", "End Operation…"],
-                "no Interrupt Agents: an agent always finishes its turn")
-        #expect(titles(OperatorMenus.operation(.operatorOffline)) == ["Overview…", "Rename…", "—", "Resume", "—", "End Operation…"])
-        #expect(titles(OperatorMenus.operation(.complete)) == ["Overview…", "Rename…", "—", "End Operation…"])
-        #expect(OperatorMenus.operation(.active).filter(\.isDestructive) == [.endOperation])
+    /// No Overview…, no Interrupt Agents: a click opens the overview and an agent always finishes its turn.
+    @Test func theBroadcastsMenuOffersWhatItsStateAllows() {
+        func menu(_ state: OperatorRunState, intent: OperatorRunState? = nil) -> [String] {
+            var run = OperatorUIFixtures.run(state: state)
+            run.intent = intent
+            return titles(OperatorMenus.broadcast(run))
+        }
+        #expect(menu(.active) == ["Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.planning) == ["Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.paused) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.active, intent: .paused) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.operatorOffline) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.complete) == ["Rename…", "—", "End Broadcast…"])
+        #expect(OperatorMenus.broadcast(OperatorUIFixtures.run()).filter(\.isDestructive).isEmpty,
+                "End Broadcast… is not red: nothing is deleted, and it asks with a blue default")
     }
 
     @Test func aDrivenTaskCanBeTakenOverHandedBackAndStopped() {
-        let run = UUID()
-        #expect(OperatorMenus.task(nil).isEmpty, "a task you made yourself")
-        #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .working)))
-                == ["Take Over", "—", "Stop Task…"])
-        #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .working, takenOver: true)))
-                == ["Hand Back", "—", "Stop Task…"], "taken over, it is still the operator's to stop")
-        #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .blocked)))
-                == ["Take Over", "—", "Stop Task…"])
-        #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .failed)))
-                == ["Take Over", "—", "Stop Task…"], "failed is still open")
+        let run = OperatorUIFixtures.run()
+        func menu(_ operated: OperatedTask?) -> [String] { titles(OperatorMenus.task(operated, broadcastLive: true)) }
+        #expect(menu(nil).isEmpty, "a task you made yourself")
+        #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .working)) == ["Take Over", "—", "Stop Task…"])
+        #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .working, takenOver: true))
+                == ["Hand Back", "—", "Stop Task…"], "taken over, it is still the Operator's to stop")
+        #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .blocked)) == ["Take Over", "—", "Stop Task…"])
+        #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: .failed)) == ["Take Over", "—", "Stop Task…"],
+                "failed is still open")
         for ended in [OperatedState.accepted, .noChange, .published, .stopped] {
-            #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: ended, sha: "4f2a91c")))
-                    == ["Take Over"], "\(ended): ended, there is nothing left to stop")
-            #expect(titles(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: ended, takenOver: true)))
-                    == ["Hand Back"], "\(ended), taken over: ownership is never stranded with you")
+            #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: ended, sha: "4f2a91c")) == ["Take Over"],
+                    "\(ended): ended, there is nothing left to stop")
+            #expect(menu(OperatorUIFixtures.operated(run: run.id, key: "a", state: ended, takenOver: true)) == ["Hand Back"],
+                    "\(ended), taken over: ownership is never stranded with you")
         }
-        #expect(OperatorMenus.task(OperatorUIFixtures.operated(run: run, key: "a", state: .working)).filter(\.isDestructive)
-                == [.stopTask])
+        #expect(OperatorMenus.task(OperatorUIFixtures.operated(run: run.id, key: "a", state: .working), broadcastLive: true)
+                    .filter(\.isDestructive) == [.stopTask])
     }
 
-    /// Stop Task… asks first, as End Operation… does: ⎋ is Cancel and changes nothing; Stop Task ends the
+    /// An ended broadcast handed its tasks to you: there is no one to hand one back to, nor anything of the
+    /// Operator's to take over or stop. Its row says whether its broadcast is live.
+    @Test func aTaskOfAnEndedBroadcastHasNoOperatorItems() throws {
+        var run = OperatorUIFixtures.run()
+        let project = OperatorUIFixtures.project("pluto-web")
+        let task = OperatorUIFixtures.task("Schema", project: project.id,
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working, takenOver: true))
+        func row(_ run: OperatorRun?) throws -> TaskRow {
+            var state = AppState()
+            state.append(project: project); state.tasks = [task]; state.runs = run.map { [$0] } ?? []
+            return try #require(SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:]).first?.tasks.first)
+        }
+        #expect(try row(run).broadcastLive)
+        #expect(titles(OperatorMenus.task(task.operated, broadcastLive: try row(run).broadcastLive)) == ["Hand Back", "—", "Stop Task…"])
+        run.intent = .stopped
+        #expect(try !row(run).broadcastLive, "being ended")
+        run.state = .stopped
+        #expect(try !row(run).broadcastLive, "ended")
+        #expect(try !row(nil).broadcastLive, "its broadcast gone")
+        #expect(OperatorMenus.task(task.operated, broadcastLive: false).isEmpty)
+    }
+
+    /// Stop Task… asks first, as End Broadcast… does: ⎋ is Cancel and changes nothing; Stop Task ends the
     /// task `stopped` for its operator.
     @MainActor @Test func stoppingATaskAsksFirst() async throws {
         let prompter = ScriptedPrompter(answering: "⎋", "↩")

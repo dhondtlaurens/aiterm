@@ -58,6 +58,9 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// The status line of a task the Operator drives (`OperatorLine.task`), its row's third line; nil for a
     /// task you made yourself or took over.
     public var operatorLine: OperatorLine? = nil
+    /// The task is driven by a broadcast that has not ended: its menu leads with the Operator's items.
+    /// False for a task you made yourself, and for every task of an ended broadcast, handed to you.
+    public var broadcastLive = false
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
 /// merge-request target. The VS Code badge draws only the counts, `+12 −3`; the base it measures
@@ -402,14 +405,16 @@ public enum SidebarModel {
             + projectTasks.filter { $0.kind == .review }
         let tasks = orderedTasks.map { task -> TaskRow in
             let own = tabs.byTask[task.id] ?? []
-            let line = task.operated.flatMap { operated.runs[$0.runId] }.flatMap { run in
+            let run = task.operated.flatMap { operated.runs[$0.runId] }
+            let line = run.flatMap { run in
                 OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
                                   tasks: operated.tasks)
             }
             return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
                            branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
                            avatars: avatars(for: own), status: aggregate(own.map(\.state)),
-                           diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line)
+                           diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
+                           broadcastLive: run.map { $0.state != .stopped && $0.intent != .stopped } ?? false)
         }
         let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the
@@ -534,5 +539,28 @@ public enum SidebarModel {
             cache[key] = f
             return f.string(from: date)
         }
+    }
+}
+
+public extension SidebarModel {
+    /// The ends a task reaches by being done: accepted, no change needed, or published (M3).
+    static func isFinished(_ state: OperatedState) -> Bool {
+        state == .accepted || state == .noChange || state == .published
+    }
+
+    /// An agent as a caption names it: its vendor's short name, not its CLI's display name.
+    static func agentName(_ agent: AgentKind) -> String {
+        switch agent {
+        case .claude: "Claude"
+        case .codex: "Codex"
+        case .grok: "Grok"
+        case .pi: "PI"
+        }
+    }
+
+    /// How a caption names the task another depends on: its ticket's key, or its title.
+    static func dependencyLabel(_ id: UUID, tasks: [UUID: TaskItem]) -> String {
+        guard let task = tasks[id] else { return "another task" }
+        return task.jira?.key ?? task.title
     }
 }

@@ -78,17 +78,17 @@ struct OperationOverviewSheetTests {
         #expect(controller.operatorController.presentOverview == nil)
     }
 
-    /// Rename… is the `NameSheet` every other rename is, with the operation's own copy.
-    @Test func renamingAnOperationOpensTheNameSheet() throws {
+    /// Rename… is the `NameSheet` every other rename is, with the broadcast's own copy.
+    @Test func renamingABroadcastOpensTheNameSheet() throws {
         let controller = AppController(preferences: .scratch())
         try controller.loadWorkspace()
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         controller.perform(.rename, on: run)
         guard case .rename(let target) = controller.sheet else { Issue.record("no rename sheet"); return }
-        #expect(target == .operation(run))
-        #expect(target.title == "Rename operation" && target.fieldLabel == "Operation name" && target.name == "Newsletter signup")
-        #expect(target.subtitle == "Renames its row and its overview; its operator’s window and its tasks keep theirs.")
+        #expect(target == .broadcast(run))
+        #expect(target.title == "Rename broadcast" && target.fieldLabel == "Broadcast name" && target.name == "Newsletter signup")
+        #expect(target.subtitle == "Renames its row and its overview; the Operator’s window and its tasks keep theirs.")
     }
 
     @Test func theSheetIsASheetsWidth() {
