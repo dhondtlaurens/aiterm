@@ -121,6 +121,8 @@ public struct DaemonError: Error, Equatable, LocalizedError, CustomStringConvert
 
 public struct DaemonSnapshot: Decodable, Equatable, Sendable {
     public let protocolVersion: Int
+    /// Acknowledges the app-resolved Claude folder. Older helpers omit it.
+    public var claudeConfigDirectory: String? = nil
     public let connected: Bool
     public let sessions: [SessionInfo]
     public let usage: UsageSnapshot

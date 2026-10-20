@@ -30,12 +30,18 @@ final class HelperLink {
     /// Where a request that failed with no caller waiting to say so is reported.
     private let notices: Notices
     private let findPython: @Sendable () -> URL?
+    private let claudeConfig: ClaudeConfig
+    private let harnessHome: URL
+    private var claudeDirectory: String?
 
     init(socketPath: String = AiTermPaths.socketPath, bundledResourcesURL: URL?, preferences: InterfacePreferences,
          findPython: @escaping @Sendable () -> URL? = { PythonLocator.find() },
+         claudeConfig: ClaudeConfig = ClaudeConfig(), harnessHome: URL = FileManager.default.homeDirectoryForCurrentUser,
          notices: Notices) {
         self.socketPath = socketPath
         self.findPython = findPython
+        self.claudeConfig = claudeConfig
+        self.harnessHome = harnessHome
         self.bundledResourcesURL = bundledResourcesURL
         self.preferences = preferences
         self.notices = notices
@@ -61,9 +67,10 @@ final class HelperLink {
             itermConnection = .helperMissing
             return
         }
-        let findPython = self.findPython
+        let findPython = self.findPython, config = claudeConfig, home = harnessHome
         startup = Task {
-            let found = await BackgroundWork.run { findPython() }
+            let (found, directory) = await BackgroundWork.run { (findPython(), config.directory(home: home).path) }
+            claudeDirectory = directory
             guard !Task.isCancelled, running else { return }
             guard let python = found else {
                 itermConnection = .pythonMissing
@@ -108,7 +115,7 @@ final class HelperLink {
         // is spawned: until then there is no socket to reach.
         case .listening, .adopted:
             if connection == nil {
-                connection = DaemonConnection(socketPath: socketPath,
+                connection = DaemonConnection(socketPath: socketPath, claudeConfigDirectory: claudeDirectory,
                     onClient: { [weak self] in self?.setDaemonClient($0) },
                     onStatus: { [weak self] in self?.itermConnection = $0 },
                     onEvent: { [weak self] in self?.handle($0) })

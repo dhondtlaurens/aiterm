@@ -4,11 +4,11 @@ import Foundation
 /// its usage, merged into `~/.claude/settings.json` beside whatever else is there (Emdash's hooks,
 /// the user's own status line).
 struct ClaudeDriver: HarnessDriver {
-    static let settingsPath = ".claude/settings.json"
 
     let home: URL, daemonPort: Int, shimPath: String
+    var claudeConfig = ClaudeConfig()
 
-    var settings: UserConfigFile { UserConfigFile(home: home, Self.settingsPath) }
+    var settings: UserConfigFile { UserConfigFile(home: home, url: claudeConfig.directory(home: home).appendingPathComponent("settings.json")) }
 
     func probe() -> DriverProbe {
         let file = settings

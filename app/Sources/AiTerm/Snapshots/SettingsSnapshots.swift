@@ -60,6 +60,7 @@ enum SettingsSnapshots {
     private static func settings(jira: JiraConfig?, iterm: ItermConnection, environment: ItermEnvironment,
                                  tab: SettingsTab) -> SettingsView {
         SettingsView(jiraConfig: jira, gitLabConfig: nil, harnessModel: .preview(),
+                     agents: .inert(claudeConfigPath: "/Users/you/.config/claude"),
                      itermConnection: { iterm }, checkIterm: { environment },
                      preferences: Fixture.preferences, setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
                      initialTab: tab)

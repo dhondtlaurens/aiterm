@@ -44,6 +44,12 @@ struct UserConfigFile: Sendable {
         displayPath = "~/" + path
     }
 
+    init(home: URL, url: URL) {
+        self.url = url
+        let prefix = home.path + "/"
+        displayPath = url.path.hasPrefix(prefix) ? "~/" + url.path.dropFirst(prefix.count) : url.path
+    }
+
     /// The file the path names: the link's target when it is one.
     var target: URL { url.resolvingSymlinksInPath() }
 

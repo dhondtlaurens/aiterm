@@ -74,6 +74,9 @@ struct HarnessSettingsPane: View {
         } actions: {
             actions(snapshot)
         } content: {
+            if snapshot.agent == .claude, let path = agents.claudeConfigPath {
+                HelpText("Configuration: \(path)")
+            }
             defaults(snapshot)
         }
     }

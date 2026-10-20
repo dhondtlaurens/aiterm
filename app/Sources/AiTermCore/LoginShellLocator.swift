@@ -23,6 +23,7 @@ public final class LoginShellLocator: Sendable {
     public struct Answers: Equatable, Sendable {
         public let executables: [String: String]
         public let pythonOutput: String
+        public var claudeConfigDirectory: String? = nil
     }
 
     private let names: [String]
@@ -45,9 +46,12 @@ public final class LoginShellLocator: Sendable {
     /// Both questions in one command. The Python half is printed after a marker line, so neither
     /// half's reader ever sees the other's lines; an rc file's banner comes before both.
     var query: String {
-        LoginShell.locateQuery(names) + "; print -r -- \(Self.pythonMarker); " + PythonLocator.candidateQuery
+        LoginShell.locateQuery(names) + "; print -r -- \(Self.claudeMarker); "
+            + #"print -r -- "${CLAUDE_CONFIG_DIR-}"; "#
+            + "print -r -- \(Self.pythonMarker); " + PythonLocator.candidateQuery
     }
 
+    static let claudeMarker = "--aiterm-claude-config-dir--"
     static let pythonMarker = "--aiterm-python-candidates--"
 
     /// Where `name` runs from, or `nil` when the login shell does not find it — or could not be
@@ -91,7 +95,10 @@ public final class LoginShellLocator: Sendable {
         let located = marker.map { lines[..<$0] } ?? lines[...]
         let python = marker.map { lines[($0 + 1)...] } ?? []
         return Answers(executables: LoginShell.located(names, in: located.joined(separator: "\n"), isExecutable: isExecutable),
-                       pythonOutput: python.joined(separator: "\n"))
+                       pythonOutput: python.joined(separator: "\n"),
+                       claudeConfigDirectory: lines.lastIndex(of: claudeMarker).flatMap { index in
+                           index + 1 < lines.count ? lines[index + 1] : nil
+                       })
     }
 }
 

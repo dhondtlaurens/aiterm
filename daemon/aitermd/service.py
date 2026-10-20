@@ -178,6 +178,9 @@ class Service:
         r("interface.setMatchItermBackground", self.windows.set_match_iterm_background)
 
     async def _h_snapshot(self, _p: Any) -> dict[str, Any]:
+        if isinstance(_p, dict) and "claudeConfigDirectory" in _p:
+            directory = param(_p, "claudeConfigDirectory", str)
+            self.claude_files.configure(Path(directory))
         try:
             await self.tick()
         except Exception:  # noqa: BLE001 - the last known registry beats no bootstrap at all
@@ -185,6 +188,7 @@ class Service:
         # No await between reading state and returning it. RpcServer writes the reply
         # before yielding, making it a barrier between earlier and later events.
         return {"protocolVersion": protocol.VERSION, **self.supervisor.snapshot_fields(),
+                "claudeConfigDirectory": str(self.claude_files.root.parent),
                 "sessions": [s.to_json() for s in self.registry.all()],
                 "usage": self.usage.snapshot()}
 

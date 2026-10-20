@@ -247,7 +247,7 @@ final class SheetCoordinator {
     func makeCreationModel(project: Project, draft: TaskDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                            jira: JiraConfig?) -> TaskCreationModel {
         let models = agents.catalogue, launcher = self.launcher
-        return TaskCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: { [agents] in agents.availableAgents },
+        return TaskCreationModel(project: project, draft: draft, home: harnessHome, claudeConfig: agents.claudeConfig, availableAgents: { [agents] in agents.availableAgents },
                           rememberedModels: state.lastModelByAgent,
                           catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
                           initialCatalogueFailure: catalogueFailure, git: git,
@@ -260,7 +260,7 @@ final class SheetCoordinator {
     private func makeReviewModel(project: Project, draft: ReviewDraft, catalogue: [AgentModel]? = nil, catalogueFailure: String? = nil,
                                  gitLab: GitLabConfig?, gitHub: GitHubConfig?, remote: RemoteInfo) -> ReviewCreationModel {
         let models = agents.catalogue, launcher = self.launcher
-        return ReviewCreationModel(project: project, draft: draft, home: harnessHome, availableAgents: { [agents] in agents.availableAgents },
+        return ReviewCreationModel(project: project, draft: draft, home: harnessHome, claudeConfig: agents.claudeConfig, availableAgents: { [agents] in agents.availableAgents },
                             rememberedModels: state.lastModelByAgent,
                             catalogue: { try models.models(for: $0) }, initialCatalogue: catalogue,
                             initialCatalogueFailure: catalogueFailure, git: git,

@@ -48,12 +48,12 @@ public enum SkillCatalog {
     /// path it found missing — which a `stat` of each tells.
     private static let discoveries = KeyedStates<Discovery?>(nil)
 
-    public static func discover(agent: AgentKind, projectPath: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [AgentCompletion] {
-        let key = [agent.rawValue, home.path, projectPath ?? ""].joined(separator: "\u{0}")
+    public static func discover(agent: AgentKind, projectPath: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser, claudeConfig: ClaudeConfig = ClaudeConfig()) -> [AgentCompletion] {
+        let key = [agent.rawValue, home.path, projectPath ?? "", agent == .claude ? claudeConfig.directory(home: home).path : ""].joined(separator: "\u{0}")
         return discoveries.withState(for: key) { known in
             if let known, known.stamps.areCurrent { return known.found }
             let walk = Walk()
-            let found = discover(agent: agent, projectPath: projectPath, home: home, walk: walk)
+            let found = discover(agent: agent, projectPath: projectPath, home: home, claudeConfig: claudeConfig, walk: walk)
             known = Discovery(stamps: walk.stamps, found: found)
             return found
         }
@@ -74,9 +74,9 @@ public enum SkillCatalog {
         var stamps: FileStamps { FileStamps(files: paths, stamps: taken) }
     }
 
-    private static func discover(agent: AgentKind, projectPath: String?, home: URL, walk: Walk) -> [AgentCompletion] {
+    private static func discover(agent: AgentKind, projectPath: String?, home: URL, claudeConfig: ClaudeConfig, walk: Walk) -> [AgentCompletion] {
         var found: [AgentCompletion] = []
-        for root in agent.harness.skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
+        for root in agent.harness(claudeConfig: claudeConfig).skillRoots(home, projectPath.map(URL.init(fileURLWithPath:))) {
             switch root.kind {
             case .skills(let namespace, let hidingNonInvocable):
                 found += skills(in: root.url, namespace: namespace, source: root.source, hidingNonInvocable: hidingNonInvocable, walk: walk)

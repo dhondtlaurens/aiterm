@@ -114,6 +114,7 @@ final class AppController {
     init(store: StateStore,
          preferences: InterfacePreferences,
          harnessHome: URL,
+         claudeConfig: ClaudeConfig = ClaudeConfig(),
          bundledResourcesURL: URL?,
          locateAgents: @escaping @Sendable () -> Set<AgentKind>?,
          findPython: @escaping @Sendable () -> URL?,
@@ -142,7 +143,7 @@ final class AppController {
         let workspace = WorkspaceStore(file: store), work = WorkInFlight(), workflow = TaskWorkflow(git: git)
         let notices = Notices(toastLifetime: toastLifetime,
                               isStale: { [weak workspace] issue in workspace.map { issue.isStale(in: $0.state) } ?? false })
-        let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython,
+        let helper = HelperLink(bundledResourcesURL: bundledResourcesURL, preferences: preferences, findPython: findPython, claudeConfig: claudeConfig, harnessHome: harnessHome,
                                 notices: notices)
         let daemon: @MainActor () -> (any DaemonCommands)? = { helper.daemon }
         let live = LiveSessions(workspace: workspace)
@@ -156,7 +157,7 @@ final class AppController {
                              activateIterm: activateIterm, isRemoving: { remover.isRemoving($0) }, notices: notices)
         let agents = AgentIntegrations(harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL, locateAgents: locateAgents,
                                        rememberedModels: { workspace.state.lastModelByAgent },
-                                       defaults: preferences.defaults)
+                                       defaults: preferences.defaults, claudeConfig: claudeConfig)
         let launcher = TaskLauncher(workspace: workspace, work: work, notices: notices, checkouts: checkouts, focus: focus,
                                     tiling: tiling, workflow: workflow, git: git, daemon: daemon)
         let archiver = TaskArchiver(workspace: workspace, work: work, workflow: workflow, notices: notices, prompter: prompter,
@@ -586,6 +587,7 @@ extension AppController {
     static func live(store: StateStore = StateStore(url: StateStore.defaultURL),
                      preferences: InterfacePreferences = InterfacePreferences(defaults: .standard),
                      harnessHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                     claudeConfig: ClaudeConfig = .loginShell,
                      bundledResourcesURL: URL? = Bundle.main.resourceURL,
                      locateAgents: @escaping @Sendable () -> Set<AgentKind>? = { AgentAvailability.installed() },
                      setBadge: @escaping @MainActor (String?) -> Void = { NSApplication.shared.dockTile.badgeLabel = $0 },
@@ -608,7 +610,7 @@ extension AppController {
                      scan: @escaping CheckoutMonitor.Scanner = {
                          WorkspaceScan.run(cwds: $0, projects: $1, tasks: $2, branches: $3, remotes: $4, diffs: $5, defaultBranches: $6)
                      }) -> AppController {
-        AppController(store: store, preferences: preferences, harnessHome: harnessHome, bundledResourcesURL: bundledResourcesURL,
+        AppController(store: store, preferences: preferences, harnessHome: harnessHome, claudeConfig: claudeConfig, bundledResourcesURL: bundledResourcesURL,
                       locateAgents: locateAgents, findPython: { PythonLocator.find() },
                       jiraSettings: { JiraSettings.load() }, gitLabSettings: { GitLabSettings.load() },
                       gitHubSettings: { GitHubSettings.load() }, prompter: ModalPrompter(), setBadge: setBadge,

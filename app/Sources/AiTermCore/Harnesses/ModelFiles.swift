@@ -46,20 +46,20 @@ public enum ModelFiles {
     }
 
     /// Claude's models as `home` keeps them, read now.
-    static func claudeModels(home: URL) -> [AgentModel] {
-        claudeModels(catalogJSON: claudeCatalogURL(home: home).flatMap { try? Data(contentsOf: $0) },
-                     settingsJSON: try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
-                     claudeJSON: try? Data(contentsOf: home.appendingPathComponent(".claude.json")))
+    static func claudeModels(home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> [AgentModel] {
+        claudeModels(catalogJSON: claudeCatalogURL(home: home, claudeConfig: claudeConfig).flatMap { try? Data(contentsOf: $0) },
+                     settingsJSON: try? Data(contentsOf: claudeConfig.directory(home: home).appendingPathComponent("settings.json")),
+                     claudeJSON: try? Data(contentsOf: claudeConfig.globalJSON(home: home)))
     }
 
     /// The files `claudeModels(home:)` reads. The catalogue directory is listed with every
     /// catalogue in it, because which one is read depends on all their dates.
-    static func claudeSources(home: URL) -> [String] {
-        let directory = home.appendingPathComponent(".claude/cache/model-catalog").path
+    static func claudeSources(home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> [String] {
+        let directory = claudeConfig.directory(home: home).appendingPathComponent("cache/model-catalog").path
         let catalogues = ((try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? [])
             .filter { $0.hasSuffix("-cc.json") }.sorted().map { directory + "/" + $0 }
-        return [directory] + catalogues + [home.appendingPathComponent(".claude/settings.json").path,
-                                           home.appendingPathComponent(".claude.json").path]
+        return [directory] + catalogues + [claudeConfig.directory(home: home).appendingPathComponent("settings.json").path,
+                                           claudeConfig.globalJSON(home: home).path]
     }
 
     /// `catalog.config.models[]` of the cached model catalogue, in the order `/model` shows them.
@@ -83,8 +83,8 @@ public enum ModelFiles {
 
     /// The cache file is named `<org id>-<hash>-<surface>.json`; `cc` is Claude Code's own surface.
     /// Neither part is knowable in advance, so the newest `-cc.json` in the directory is the one.
-    static func claudeCatalogURL(home: URL) -> URL? {
-        let dir = home.appendingPathComponent(".claude/cache/model-catalog")
+    static func claudeCatalogURL(home: URL, claudeConfig: ClaudeConfig = ClaudeConfig()) -> URL? {
+        let dir = claudeConfig.directory(home: home).appendingPathComponent("cache/model-catalog")
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return nil }
         return names.filter { $0.hasSuffix("-cc.json") }.map(dir.appendingPathComponent)
             .max { a, b in modified(a) < modified(b) }

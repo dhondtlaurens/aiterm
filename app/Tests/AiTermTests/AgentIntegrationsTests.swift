@@ -163,3 +163,26 @@ extension AgentIntegrationsTests {
         #expect(installed.oracle.isOn)
     }
 }
+
+extension AgentIntegrationsTests {
+    @Test func movedSettingsDriveTheUsageProbeAndDisplayedFolder() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home"), resources = root.appendingPathComponent("resources")
+        let hooks = resources.appendingPathComponent("hooks")
+        try FileManager.default.createDirectory(at: hooks, withIntermediateDirectories: true)
+        let shim = hooks.appendingPathComponent("claude-statusline-shim.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: shim)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        let directory = root.appendingPathComponent("Claude Profile")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: ["statusLine": ["type": "command", "command": shim.path]])
+        try data.write(to: directory.appendingPathComponent("settings.json"))
+        let agents = AgentIntegrations(harnessHome: home, bundledResourcesURL: resources,
+                                       locateAgents: { nil }, rememberedModels: { [:] }, defaults: InterfacePreferences.scratch().defaults,
+                                       claudeConfig: ClaudeConfig(directory.path))
+        await agents.refreshStatusLineState()
+        #expect(agents.claudeStatusLineInstalled)
+        #expect(agents.claudeConfigPath == directory.path)
+    }
+}
