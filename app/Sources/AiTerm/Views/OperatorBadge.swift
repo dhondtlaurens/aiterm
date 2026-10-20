@@ -10,7 +10,8 @@ import AiTermCore
 /// under the board's title.
 ///
 /// It reads its ground (`Surface`), as `RowCaption(warns:)` does:
-/// - quiet: no box, the words in the surface's secondary ink;
+/// - quiet, and ended: no box, the words in the surface's secondary ink (an ended row's check is its
+///   trailing mark's, `TaskRowMark`, never the line's);
 /// - acting: no box, the words shimmering, a light band sweeping from the surface's secondary ink through
 ///   its ink every `shimmerPeriod` on Core Animation's clock (`ShimmerWordsView`), nothing updated per
 ///   frame; standing still in the surface's ink under Reduce Motion and in the snapshots;
@@ -42,7 +43,7 @@ struct OperatorBadge: View {
     /// The words' ink. Shimmering, the band of the surface's ink sweeps over the secondary ink.
     static func ink(_ look: OperatorLine.Look, surface: Surface, shimmering: Bool) -> Color {
         switch look {
-        case .quiet: surface.secondaryInk
+        case .quiet, .ended: surface.secondaryInk
         case .acting: shimmering ? surface.secondaryInk : surface.ink
         case .needsYou: surface.isOnAccent ? surface.ink : Palette.text
         }

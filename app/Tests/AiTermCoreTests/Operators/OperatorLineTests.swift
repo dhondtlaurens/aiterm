@@ -133,8 +133,18 @@ import Testing
         #expect(line(task(run: run, .published, end: .merge, sha: "9b3e07d1234")) == "merged · 9b3e07d")
         #expect(line(task(run: run, .published, end: .mergeLocal, sha: "9b3e07d1234")) == "merged locally · 9b3e07d")
         #expect(line(task(run: run, .published, end: .commit, sha: "9b3e07d1234")) == "done · 9b3e07d")
-        #expect(OperatorLine.task(task(run: run, .accepted, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])?.look == .quiet,
-                "done is the Operator's: nothing left for you")
+        #expect(OperatorLine.task(task(run: run, .accepted, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])?.look == .ended,
+                "done is the Operator's: nothing left for you, and the row says it ended")
+        // Every end the line names is ended (1A, 21 Oct 2026): the row draws its check for it.
+        for ended in [task(run: run, .noChange), draft, task(run: run, .published, end: .merge, sha: "9b3e07d1234"),
+                      task(run: run, .published, end: .mergeLocal, sha: "9b3e07d1234"), task(run: run, .published, end: .commit, sha: "9b3e07d1234")] {
+            #expect(OperatorLine.task(ended, run: run, acting: nil, requests: [])?.look == .ended, "\(ended.operated?.state.rawValue ?? "")")
+        }
+        // An accepted task AiTerm is publishing: something moves, so the line acts, as every act does.
+        #expect(OperatorLine.task(task(run: run, .accepted, end: .draftMR, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])
+                == OperatorLine("opening the MR", look: .acting))
+        #expect(OperatorLine.task(task(run: run, .accepted, end: .merge, sha: "4f2a91cdeadbeef"), run: run, acting: nil, requests: [])
+                == OperatorLine("merging", look: .acting))
         // A publication handed back is the one finished state that is yours.
         var left = task(run: run, .accepted, sha: "4f2a91cdeadbeef")
         left.operated?.publication = TaskPublication(leftForYou: true)

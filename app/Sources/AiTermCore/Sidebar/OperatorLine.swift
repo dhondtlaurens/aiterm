@@ -56,7 +56,9 @@ public struct OperatorActs: Equatable, Sendable {
 /// AiTerm's caption grammar, `state` or `state · detail`, lowercase, no full stop, from a closed list.
 ///
 /// - `quiet`: the Operator watches and nothing moves (`queued · after PAY-232`, `in review · waiting on
-///   Jan`, `done · 4f2a91c`, `paused`).
+///   Jan`, `paused`).
+/// - `ended`: drawn as quiet, the Operator's work on the task is over (`done · 4f2a91c`, `merged · 9b3e07d`,
+///   `draft MR · !412`): the row's trailing mark is the check (1A, 21 Oct 2026).
 /// - `acting`: something moves, as the row's `StatusMark` turns: the task's agent works (`working`), or
 ///   AiTerm carries out one of the Operator's acts (`OperatorAct`).
 /// - `needsYou`: yours to act on: a request (`waiting on you`, `waiting on you · 2 tasks`, `blocked · the
@@ -67,7 +69,7 @@ public struct OperatorActs: Equatable, Sendable {
 /// status line, since no window says it. Nothing here says progress: the broadcast's `2 of 8 done` follows
 /// its line.
 public struct OperatorLine: Equatable, Sendable {
-    public enum Look: Equatable, Sendable { case quiet, acting, needsYou }
+    public enum Look: Equatable, Sendable { case quiet, ended, acting, needsYou }
     public var text: String
     public var look: Look
     /// The whole of what the line says: the request's sentence, or the words before they were cut.
@@ -127,13 +129,14 @@ public struct OperatorLine: Equatable, Sendable {
         case .accepted:
             if let ending = ending(of: operated) {
                 // Its publication handed back: the one finished state that is yours to act on.
-                return operated.publication?.leftForYou == true ? OperatorLine(ending, look: .needsYou) : quiet(ending)
+                return OperatorLine(ending, look: operated.publication?.leftForYou == true ? .needsYou : .ended)
             }
             if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil) }
             if let publication = operated.publication, publication.waitingSince != nil { return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready") }
-            return quiet(operated.end == .draftMR ? "opening the MR" : "merging")
+            // AiTerm publishes it now: something moves, as with any act.
+            return OperatorLine(operated.end == .draftMR ? "opening the MR" : "merging", look: .acting)
         case .noChange, .published:
-            return ending(of: operated).map(quiet)
+            return ending(of: operated).map { OperatorLine($0, look: .ended) }
         }
     }
 

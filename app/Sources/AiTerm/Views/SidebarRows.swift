@@ -399,8 +399,9 @@ struct TaskRowView: View {
                 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
                 Spacer(minLength: scale(Space.tight))
-                // The status mark's spinner: the row's agents went with its window.
-                StatusMark(status: removing ? .working : row.status, size: SidebarRowLayout.trailingGlyph(scale))
+                // The status mark's spinner: the row's agents went with its window. An ended driven task's is the check.
+                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.operatorLine, removing: removing),
+                                size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
         }
@@ -689,6 +690,37 @@ struct TaskRowAccessibility: Equatable {
 /// while the row is being removed, and the caption under it — why a removal stopped, else what the
 /// task is missing — its worktree, or a window that could not be reopened. While a removal runs
 /// neither shows: its window closing first, and its checkout going, are the removal, not news.
+
+/// A task row's trailing mark: its sessions' `StatusMark`, or once the Operator's work on the task is over
+/// (its line's look `ended`) the check (1A, 21 Oct 2026). The check stands in for an idle session and for an
+/// unseen turn, whose last words are the Operator's to read; a session at work or waiting on input is yours
+/// again and keeps its own mark, and a removal or shelving in progress spins.
+enum TaskRowMark: Equatable {
+    case status(TaskStatus), ended
+
+    init(status: TaskStatus, line: OperatorLine?, removing: Bool) {
+        if removing { self = .status(.working) }
+        else if line?.look == .ended, status != .working, status != .needsInput { self = .ended }
+        else { self = .status(status) }
+    }
+}
+
+/// `TaskRowMark` drawn: the `StatusMark`, or `checkmark` at the mark's size in `Palette.green`, and on the
+/// accent in `Palette.onAccent`, as the working arc turns there. Decorative: the row's value reads the line.
+struct TaskRowMarkView: View {
+    let mark: TaskRowMark
+    let size: CGFloat
+    @Environment(\.surface) private var surface
+
+    var body: some View {
+        switch mark {
+        case .status(let status): StatusMark(status: status, size: size)
+        case .ended:
+            Icon(.symbol("checkmark"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.green)
+                .frame(width: size, height: size).accessibilityHidden(true)
+        }
+    }
+}
 struct TaskRowCaption: Equatable {
     enum Note: Equatable {
         /// What the task is missing — its worktree, or a window that could not be reopened — in the

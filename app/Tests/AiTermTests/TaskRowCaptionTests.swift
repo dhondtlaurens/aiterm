@@ -31,7 +31,7 @@ import Testing
     /// status line; what is yours to act on unfolds it, and so does anything the caption says.
     @Test func theBadgeLineFoldsUnderTheOperatorUntilItIsYours() {
         let plain = TaskRowCaption(removal: nil, missing: false, failed: false)
-        for line in [OperatorLine("working", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c")] {
+        for line in [OperatorLine("working", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c", look: .ended)] {
             #expect(plain.folds(under: line), "\(line.text)")
         }
         #expect(!plain.folds(under: OperatorLine("waiting on you", look: .needsYou)))
@@ -40,5 +40,25 @@ import Testing
         let working = OperatorLine("working", look: .acting)
         #expect(!TaskRowCaption(removal: .removing, missing: false, failed: false).folds(under: working), "Removing… is the badge line's")
         #expect(!TaskRowCaption(removal: nil, missing: true, failed: false).folds(under: working), "the note takes the status line's place")
+    }
+}
+
+/// A task row's trailing mark: its sessions' `StatusMark`, or the green check once the Operator's work on the
+/// task is over (1A, 21 Oct 2026).
+@Suite struct TaskRowMarkTests {
+    let ended = OperatorLine("merged · 9b3e07d", look: .ended)
+
+    @Test func anEndedTaskShowsTheCheckInPlaceOfItsIdleSessionOrItsUnseenTurn() {
+        #expect(TaskRowMark(status: .idle, line: ended, removing: false) == .ended)
+        #expect(TaskRowMark(status: .done, line: ended, removing: false) == .ended, "the last turn is the Operator's to read")
+    }
+
+    @Test func aSessionInUseARemovalAndEveryOtherLineKeepTheirOwnMark() {
+        #expect(TaskRowMark(status: .working, line: ended, removing: false) == .status(.working))
+        #expect(TaskRowMark(status: .needsInput, line: ended, removing: false) == .status(.needsInput))
+        #expect(TaskRowMark(status: .idle, line: ended, removing: true) == .status(.working), "removing or shelving spins")
+        #expect(TaskRowMark(status: .idle, line: OperatorLine("failed · the tests fail"), removing: false) == .status(.idle))
+        #expect(TaskRowMark(status: .done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou), removing: false) == .status(.done))
+        #expect(TaskRowMark(status: .done, line: nil, removing: false) == .status(.done), "a task of your own")
     }
 }

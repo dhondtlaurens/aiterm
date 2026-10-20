@@ -267,8 +267,8 @@ badge line's opacity and the row's height, 0.2 s ease-out (the toast's curve), a
 Motion. Its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
 task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
 status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
-says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet has no
-box and the surface's secondary ink; acting has no box and its words shimmer,
+says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet, and
+ended, have no box and the surface's secondary ink; acting has no box and its words shimmer,
 a band of the surface's ink sweeping over its secondary ink every 1.6 s on Core Animation's clock
 (`ShimmerWordsView`: a `CAGradientLayer` masking the ink's `CATextLayer`, nothing updated per frame),
 standing still in the surface's ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
@@ -276,13 +276,18 @@ standing still in the surface's ink under Reduce Motion and in the snapshots; ne
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. A line
-shimmers exactly when its row's `StatusMark` turns. Acting: `working` (the task's agent works), the
+shimmers exactly when its row's `StatusMark` turns. Ended is every end a task's line names, `done · 4f2a91c`,
+`done · no change`, `draft MR · !412`, `merged · 9b3e07d` and `merged locally · 1c84e20`: the Operator's work
+on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
+`Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
+and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
+removal or shelving spins. No other state has a mark of its own. Acting: `working` (the task's agent works), the
 broadcast's `working · 3 tasks`, and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
-a ticket` and `reopening its window`. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
+a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
+task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-`done · 4f2a91c`, `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`,
 and on the broadcast's line `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
 and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
 window shows it whole), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the

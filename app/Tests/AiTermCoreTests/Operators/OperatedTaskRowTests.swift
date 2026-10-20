@@ -52,7 +52,7 @@ import Testing
         }
         let done = OperatorUIFixtures.task("t", project: web.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "done", state: .accepted, sha: "4f2a91c0"))
-        #expect(row(done, run: run).operatorLine == OperatorLine("done · 4f2a91c"), "a done task keeps its line while the broadcast runs")
+        #expect(row(done, run: run).operatorLine == OperatorLine("done · 4f2a91c", look: .ended), "a done task keeps its line while the broadcast runs")
         let ended = OperatorUIFixtures.run(state: .stopped)
         let task = OperatorUIFixtures.task("t", project: web.id,
                                            operated: OperatorUIFixtures.operated(run: ended.id, key: "t", state: .working))
