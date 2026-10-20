@@ -492,3 +492,35 @@ async def test_stop_is_bounded_when_a_client_does_not_read_its_response():
         with contextlib.suppress(ConnectionResetError):
             await writer.wait_closed()
         await srv.stop()
+
+
+async def test_stop_owns_a_finished_request_until_its_buffered_transport_closes():
+    completed = asyncio.Event()
+    accepted = []
+
+    class BufferedResponseServer(HookServer):
+        async def _serve(self, reader, writer):
+            # drain() legitimately returns with pending output below the low watermark.
+            writer.transport.set_write_buffer_limits(high=16 << 20, low=8 << 20)
+            accepted.append((asyncio.current_task(), writer))
+            await super()._serve(reader, writer)
+            completed.set()
+
+    srv = BufferedResponseServer(port=0)
+    srv.operator_route = StubRoute(text="x" * (8 << 20))
+    await srv.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", srv.port)
+    writer.write(b"POST /operator HTTP/1.1\r\nX-AiTerm-Hook: 1\r\nContent-Length: 0\r\n\r\n")
+    await writer.drain()
+    try:
+        await asyncio.wait_for(completed.wait(), 1)
+        _, response_writer = accepted[0]
+        await asyncio.sleep(0)  # Let the completed request's ownership callback run.
+        assert response_writer.is_closing()
+        assert response_writer.transport.get_write_buffer_size() > 0
+        await asyncio.wait_for(srv.stop(), 0.2)
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError):
+            await writer.wait_closed()
+        await srv.stop()

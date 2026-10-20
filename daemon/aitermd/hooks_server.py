@@ -75,7 +75,7 @@ class HookServer:
         if self._stopping:
             writer.close()
             return
-        task = asyncio.create_task(self._serve(reader, writer))
+        task = asyncio.create_task(self._connection(reader, writer))
         self._connections[task] = writer
 
         def finished(done: asyncio.Task[None]) -> None:
@@ -84,6 +84,19 @@ class HookServer:
                 log.error("hook request failed", exc_info=done.exception())
 
         task.add_done_callback(finished)
+
+    async def _connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await self._serve(reader, writer)
+        finally:
+            writer.close()
+            try:
+                # drain() can finish below its watermark with output still buffered.
+                # Keep this writer owned until its transport really closes; stop() can
+                # then abort it even after request handling has completed.
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -163,8 +176,6 @@ class HookServer:
             await self._deliver(path, payload)
         except (TimeoutError, asyncio.IncompleteReadError, ConnectionError, ValueError):
             pass
-        finally:
-            writer.close()
 
     @staticmethod
     def _probe_reply(payload: dict[str, Any]) -> str | None:

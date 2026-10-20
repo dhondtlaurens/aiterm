@@ -67,3 +67,13 @@ Decisions/deferred candidates:
 - `eee310a` — lifecycle ownership, malformed input and retry regression fixes.
 - `1c9d774` — shared incremental reads, retryable telemetry boundaries, hook placement evidence and indexed descendant/ranking lookups.
 - Final bounded-transport/shared-tick ownership commit is supplied in the implementation handoff (a commit cannot contain its own resulting SHA).
+
+## Independent task review: round 1
+
+Two important findings were reproduced and fixed within the requested review scope:
+
+1. `Path.glob` suppresses scandir failures, so an unsuccessful child-directory listing was cached as a successful empty tuple under unchanged directory metadata. The new regression injects a temporary `os.scandir` PermissionError while stat succeeds, then recovers with unchanged files; it failed because the recovered tally stayed at **10 input / 1 output** instead of including the child (**15 / 2**). The failure injector normalizes pathlib's trailing directory separator before matching the target. `PYTEST_ADDOPTS='-k "failed_day_listing_is_retried"' scripts/test.sh daemon`: **1 failed, 1130 deselected** before the fix. The directory cache now uses `os.scandir` directly and stores only a fully enumerated successful listing. Existing shared-listing coverage counts actual scandir operations, with parent path resolution performed before counting.
+
+2. An HTTP request task could finish while `writer.close()` still had buffered output below the `drain()` low watermark. Its done callback released the writer before the transport closed, so shutdown could no longer abort it. A real socket regression raises the write-buffer watermarks, lets the handler finish with a buffered 8 MiB response, and leaves the client unread. `PYTEST_ADDOPTS='-k "owns_a_finished_request"' scripts/test.sh daemon`: **1 failed, 1130 deselected** with the expected stop timeout. A connection wrapper now owns request handling plus writer close/wait_closed; the writer stays registered until its transport closes. Stop still aborts transports before cancelling/draining owned connection tasks, so a slow peer cannot hold shutdown open.
+
+After both fixes, `scripts/test.sh daemon`: **1130 passed, 1 skipped in 17.37s**, mypy **66 source files clean**, ruff **all checks passed**. `git diff --check -- daemon` is clean. Only these two production findings and their regression/characterization tests were changed in this review round.

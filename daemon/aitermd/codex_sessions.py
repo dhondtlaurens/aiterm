@@ -2,6 +2,7 @@ from __future__ import annotations
 import contextlib
 import json
 import math
+import os
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -191,7 +192,12 @@ class CodexSessionFiles:
                 stamp = (st.st_ino, st.st_mtime_ns)
                 cached = self._days.get(day)
                 if cached is None or cached[0] != stamp:
-                    cached = (stamp, tuple(day.glob("rollout-*.jsonl")))
+                    # pathlib.glob suppresses scandir errors, which would cache a
+                    # failed listing as empty until the directory changes again.
+                    with os.scandir(day) as entries:
+                        paths = tuple(Path(entry.path) for entry in entries
+                                      if entry.name.startswith("rollout-") and entry.name.endswith(".jsonl"))
+                    cached = (stamp, paths)
                     self._days[day] = cached
                 found.extend(cached[1])
             except OSError:

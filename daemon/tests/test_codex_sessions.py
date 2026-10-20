@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -368,15 +369,17 @@ def test_tallies_share_unchanged_day_directory_listings(tmp_path, monkeypatch):
     root = tmp_path / "sessions"
     first = write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
     write_rollout(root, "t2", [meta("t2"), totals(20, 0, 2)])
-    original, scans = type(root).glob, []
-
-    def counted(path, pattern, **kwargs):
-        if path == first.parent:
-            scans.append(path)
-        return original(path, pattern, **kwargs)
-
-    monkeypatch.setattr(type(root), "glob", counted)
     files = CodexSessionFiles(root)
+    files.context_percent("t1")
+    files.context_percent("t2")
+    original, scans = os.scandir, []
+
+    def counted(path):
+        if Path(path) == first.parent:
+            scans.append(path)
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", counted)
     assert files.tally("t1") == TokenTally(10, 0, 1)
     assert files.tally("t2") == TokenTally(20, 0, 2)
     assert len(scans) == 1
@@ -394,3 +397,22 @@ def test_lineage_cache_is_released_after_its_last_owner(tmp_path):
     assert files.tally("t1") == TokenTally(15, 0, 2)
     files.retain(set())
     assert files._lineage == {}
+
+
+def test_a_failed_day_listing_is_retried_without_directory_changes(tmp_path, monkeypatch):
+    root = tmp_path / "sessions"
+    parent = write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
+    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 0, 1)])
+    files = CodexSessionFiles(root)
+    files.context_percent("t1")  # Resolve the parent before simulating a child-listing failure.
+    original = os.scandir
+
+    def unavailable(path):
+        if Path(path) == parent.parent:
+            raise PermissionError("temporarily unavailable")
+        return original(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "scandir", unavailable)
+        assert files.tally("t1") == TokenTally(10, 0, 1)
+    assert files.tally("t1") == TokenTally(15, 0, 2)
