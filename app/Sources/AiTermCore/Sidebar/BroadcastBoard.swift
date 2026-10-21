@@ -130,7 +130,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         // A task you stopped is no longer the broadcast's work: it is on no column.
         let cards = tasks.compactMap { task -> (Column, Card, AgentKind)? in
             guard let operated = task.operated, operated.state != .stopped else { return nil }
-            let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId,
+            let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
             return (Self.column(of: operated, hasReview: hasReview), card, task.agent)
         }
@@ -173,8 +173,8 @@ public struct BroadcastBoard: Equatable, Sendable {
     // MARK: - A card
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
-                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], project: String?) -> Card {
-        let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks)
+                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], project: String?) -> Card {
+        let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions)
         let takenOver = operated.takenOver
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
             ?? operated.publication.flatMap { publication in

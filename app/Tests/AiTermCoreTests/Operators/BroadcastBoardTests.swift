@@ -51,7 +51,7 @@ import Testing
             + (0..<6).map { task("Later \($0)", run: run.id, .queued) }
         let board = BroadcastBoard.make(run: run, state: state(run, tasks), acting: .none, requests: [])
         #expect(board.title == "Checkout redesign")
-        #expect(board.band == OperatorLine("working · 1 task", look: .acting))
+        #expect(board.band == OperatorLine("monitoring 1 task", look: .acting))
         #expect(board.progress == "1 of 8 done", "the band's progress, and no projects")
         #expect(board.clauses == [BroadcastBoard.Clause(label: "Asked", text: "implement PAY-230 to PAY-236, the new checkout"),
                                   BroadcastBoard.Clause(label: "Review", text: "assign Jan, fix his feedback"),

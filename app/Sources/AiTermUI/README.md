@@ -275,19 +275,24 @@ shimmers exactly when its row's `StatusMark` turns. Ended is every end a task's 
 on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
 and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
-removal or shelving spins. No other state has a mark of its own. Acting: `working` (the task's agent works), the
-broadcast's `working · 3 tasks` (`working · 2 tasks · 1 ready to accept` while some wait to be accepted, their
-workers done; the words are `OperatorLine.Count`'s), and the acts: `loading the construct`, `consulting the Oracle`,
+removal or shelving spins. No other state has a mark of its own. The Operator's words are its own plain verbs:
+accepting is its job, so only what you must do is amber. Acting: `monitoring Claude` (the task's agent works;
+`monitoring 2 tabs` with several worker tabs open), `checking next` (every worker ended its turn: the Operator
+checks it next), the broadcast's `monitoring 3 tasks` (`monitoring 2 tasks · checking 1 next` while some wait
+for the Operator; the words are `OperatorLine.Count`'s), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
 a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
 task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-and on the broadcast's line `ready to accept · 2 tasks` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
+and on the broadcast's line `checking 2 next` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
 and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
-window shows it whole), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
+window shows it whole), `waiting on you · docs` (one of several worker tabs asks: the first by
+`OperatorLine.first`'s order, then by tab order, `main` first), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
-`left for you · 4f2a91c`, a publication handed back. A line is at most `OperatorLine.maxLength` (40) characters,
+`left for you · 4f2a91c`, a publication handed back. The Operator's own session says its own line
+(`OperatorLine.session`), nothing of its tasks: its act, `working`, `waiting for its tasks` between turns,
+`paused`, `asks you in its window` (needs you) and `window closed`. A line is at most `OperatorLine.maxLength` (40) characters,
 its detail cut at a word. The broadcast row is a value, `BroadcastRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
 
 The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation

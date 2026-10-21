@@ -1,5 +1,5 @@
 import Foundation
-import AiTermCore
+@testable import AiTermCore
 
 /// The Operator's broadcasts and the tasks they drive, for the sidebar's, the sheets' and the overview's
 /// tests — built here, in one place, so a change to the operator types' initialisers is one edit.
@@ -57,7 +57,20 @@ enum OperatorUIFixtures {
         Project(id: UUID(), name: name, path: "/r/\(name)", provider: .gitlab, remoteUrl: nil, addedAt: epoch, collapsed: false)
     }
 
-    static func question(_ text: String, id: String = UUID().uuidString, task: UUID? = nil) -> OperatorQuestion {
-        OperatorQuestion(id: id, text: text, task: task, askedAt: epoch, resolution: nil)
+    static func question(_ text: String, id: String = UUID().uuidString, task: UUID? = nil, tab: String? = nil) -> OperatorQuestion {
+        OperatorQuestion(id: id, text: text, task: task, askedAt: epoch, resolution: nil, tab: tab)
+    }
+
+    /// An extra worker tab the Operator opened (`open_tab`), seen once unless `opened` is false.
+    static func extraTab(_ key: String, agent: AgentKind = .codex, opened: Bool = true) -> ExtraTab {
+        ExtraTab(key: key, agent: agent, model: "m", reasoning: nil, modelReason: "Tests.", brief: "Do \(key).",
+                 launch: LaunchAttempt(number: 1, requestedAt: epoch, openedAt: opened ? epoch : nil))
+    }
+
+    /// One of `task`'s tabs as iTerm2 lists it: its first worker with no `key`, an extra tab with one.
+    static func tab(_ id: String, of task: TaskItem, _ state: SessionState, index: Int = 0, key: String? = nil,
+                    agent: SessionAgent = .claude, active: Bool = false) -> SessionInfo {
+        SessionInfo(sessionId: id, windowId: "w-\(task.id)", tabIndex: index, taskId: task.id.uuidString, projectId: nil,
+                    agent: agent, model: nil, state: state, title: "", cwd: "/", active: active, tabKey: key)
     }
 }

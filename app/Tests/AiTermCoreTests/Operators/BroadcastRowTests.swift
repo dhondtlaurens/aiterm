@@ -44,7 +44,7 @@ import Testing
         #expect(row.agent == .claude, "the Operator's agent is its avatar")
         #expect(row.progress == "2 of 8 done", "a stopped task is not counted")
         #expect(row.projectsHelp == "pluto-web, pluto-cms and pluto-docs")
-        #expect(row.line == OperatorLine("working · 3 tasks", look: .acting), "its tasks work: the line moves")
+        #expect(row.line == OperatorLine("monitoring 3 tasks", look: .acting), "its tasks work: the line moves")
     }
 
     @Test func thereIsNoProgressUntilTheFirstPlanIsInTodo() throws {
@@ -121,17 +121,17 @@ import Testing
                                                                                                 openedAt: .distantPast), sessionId: "s")]
         let sessions = tabs(of: done, first: .idle) + tabs(of: atWork, first: .working) + tabs(of: tabbed, first: .done, extra: .working)
         let row = try #require(SidebarModel.broadcastRow(state: state(busy, [done, atWork, tabbed]), sessions: sessions))
-        #expect(row.line == OperatorLine("working · 2 tasks · 1 ready to accept", look: .acting), "a tab still at work keeps its task working")
+        #expect(row.line == OperatorLine("monitoring 2 tasks · checking 1 next", look: .acting), "a tab still at work keeps its task working")
         #expect(row.status == .working)
 
         let waiting = try #require(SidebarModel.broadcastRow(state: state(busy, [done]), sessions: tabs(of: done, first: .done)))
-        #expect(waiting.line == OperatorLine("ready to accept · 1 task"))
+        #expect(waiting.line == OperatorLine("checking 1 next"))
         #expect(waiting.status == .idle)
         // Without its tabs listed nothing says it is done: it is working, as before.
-        #expect(SidebarModel.broadcastRow(state: state(busy, [done]))?.line == OperatorLine("working · 1 task", look: .acting))
+        #expect(SidebarModel.broadcastRow(state: state(busy, [done]))?.line == OperatorLine("monitoring 1 task", look: .acting))
         // The board's band says what the row says.
         let board = BroadcastBoard.make(run: busy, state: state(busy, [done]), acting: .none, requests: [], sessions: tabs(of: done, first: .idle))
-        #expect(board.band == OperatorLine("ready to accept · 1 task"))
+        #expect(board.band == OperatorLine("checking 1 next"))
     }
 
     @Test func aPauseIsReadFromTheIntentToo() throws {

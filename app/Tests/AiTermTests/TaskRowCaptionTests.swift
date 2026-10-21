@@ -31,13 +31,13 @@ import Testing
     /// status line; what is yours to act on unfolds it, and so does anything the caption says.
     @Test func theBadgeLineFoldsUnderTheOperatorUntilItIsYours() {
         let plain = TaskRowCaption(removal: nil, missing: false, failed: false)
-        for line in [OperatorLine("working", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c", look: .ended)] {
+        for line in [OperatorLine("monitoring Claude", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c", look: .ended)] {
             #expect(plain.folds(under: line), "\(line.text)")
         }
         #expect(!plain.folds(under: OperatorLine("waiting on you", look: .needsYou)))
         #expect(!plain.folds(under: OperatorLine("left for you · 4f2a91c", look: .needsYou)))
         #expect(!plain.folds(under: nil), "a task of your own keeps its badges")
-        let working = OperatorLine("working", look: .acting)
+        let working = OperatorLine("monitoring Claude", look: .acting)
         #expect(!TaskRowCaption(removal: .removing, missing: false, failed: false).folds(under: working), "Removing… is the badge line's")
         #expect(!TaskRowCaption(removal: nil, missing: true, failed: false).folds(under: working), "the note takes the status line's place")
     }

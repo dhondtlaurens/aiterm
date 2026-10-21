@@ -13,6 +13,9 @@ public struct BroadcastRequest: Equatable, Sendable, Identifiable {
     public var text: String
     /// A question's key: each open question is its own request.
     public var key: String?
+    /// The worker tab whose prompt it is, by key (`WorkerTab.firstKey` for the first worker); nil for a request
+    /// no one tab makes.
+    public var tab: String?
 
     /// What a notification is posted and withdrawn by: `request-<runId>-<taskId|run>-<kind>`, and for a
     /// question `request-<runId>-question-<questionKey>`.
@@ -21,8 +24,8 @@ public struct BroadcastRequest: Equatable, Sendable, Identifiable {
         return "request-\(runId.uuidString)-\(taskId?.uuidString ?? "run")-\(kind.rawValue)"
     }
 
-    public init(kind: Kind, runId: UUID, taskId: UUID?, text: String, key: String? = nil) {
-        self.kind = kind; self.runId = runId; self.taskId = taskId; self.text = text; self.key = key
+    public init(kind: Kind, runId: UUID, taskId: UUID?, text: String, key: String? = nil, tab: String? = nil) {
+        self.kind = kind; self.runId = runId; self.taskId = taskId; self.text = text; self.key = key; self.tab = tab
     }
 }
 
@@ -40,10 +43,15 @@ public enum OperatorRequests {
         for task in tasks where !takenOver.contains(task.id) {
             guard let operated = task.operated else { continue }
             let agent = task.agent.harness.displayName
-            let recorded = run.questions.first { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+            // Of several tabs' prompts, the first by tab order: the first worker's, then the extra tabs' as they opened.
+            let order = [nil] + operated.extraTabs.map(\.key)
+            let rank = { (tab: String?) in order.firstIndex(of: tab) ?? order.count }
+            let recorded = run.questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+                .min { rank($0.tab) < rank($1.tab) }
             if recorded != nil || prompts[task.id] != nil {
                 let said = prompts[task.id].map { "\(agent) asks to \($0)" } ?? recorded?.text ?? "\(agent) waits for input"
-                requests.append(BroadcastRequest(kind: .permission, runId: run.id, taskId: task.id, text: sentence("\(said) in \(task.title)")))
+                requests.append(BroadcastRequest(kind: .permission, runId: run.id, taskId: task.id, text: sentence("\(said) in \(task.title)"),
+                                                 tab: recorded?.tab ?? WorkerTab.firstKey))
             }
             if operated.problem != nil || operated.publication?.problem != nil {
                 // The banner's sentence is the reason a blocked task keeps; one that kept its state has only the issue.
