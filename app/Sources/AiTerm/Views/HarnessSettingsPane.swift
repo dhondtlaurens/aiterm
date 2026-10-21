@@ -115,6 +115,10 @@ struct HarnessSettingsPane: View {
             if snapshot.agent == .claude, let path = agents.claudeConfigPath {
                 HelpText("Configuration: \(path)")
             }
+            if !messaging.isRunning(snapshot.agent), let failure = messaging.failure(of: snapshot.agent) {
+                CheckFailureDetails(failure: failure)
+                    .accessibilityIdentifier("check-failure-\(snapshot.agent.rawValue)")
+            }
             defaults(snapshot)
         }
     }
@@ -176,6 +180,47 @@ struct HarnessSettingsPane: View {
                 } else if preference != nil && !snapshot.models.contains(where: { $0.id == preference?.model }) {
                     HelpText("Choose a current model to replace the unavailable default.")
                 }
+            }
+        }
+    }
+}
+
+/// Why the delivery check's last run failed, on the card whose Messaging it failed: folded, a chevron
+/// and “Why it failed” in muted ink, as a project header folds; unfolded, the reason and the end of
+/// the screen it read, as the check's window said them, in `Typography.mono`, selectable to copy.
+struct CheckFailureDetails: View {
+    static let title = "Why it failed"
+
+    let failure: String
+    // `@State` is a macro shipping only with Xcode; this is the storage it would generate.
+    private var _open: State<Bool>
+
+    private var open: Bool {
+        get { _open.wrappedValue }
+        nonmutating set { _open.wrappedValue = newValue }
+    }
+
+    init(failure: String, open: Bool = false) {
+        self.failure = failure
+        _open = State(initialValue: open)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.snug) {
+            Button { open.toggle() } label: {
+                HStack(spacing: Space.tight) {
+                    Image(systemName: open ? "chevron.down" : "chevron.right").font(Typography.micro)
+                    Text(Self.title).font(Typography.caption)
+                }
+                .foregroundStyle(Palette.muted)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open {
+                Text(failure).font(Typography.mono).foregroundStyle(Palette.text)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

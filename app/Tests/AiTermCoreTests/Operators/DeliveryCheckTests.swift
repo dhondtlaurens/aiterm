@@ -97,6 +97,19 @@ import Foundation
         #expect(DeliveryCheck.messaging(.codex, file: three, installed: "0.160.0") == .needsAttention("Messaging failed: menuPaste and 2 more"))
     }
 
+    /// A run stops at its first failure: the card names that one, not the scenarios it never reached,
+    /// and keeps its reason for the card's details.
+    @Test func aRunThatStoppedNamesWhereAndWhy() {
+        var entry = Self.agent("0.163.0", paste: false, submit: false, failed: ["menuPaste", "approvalRace", "permissionPaste"])
+        entry["failedAt"] = "menuPaste"
+        entry["failure"] = "Expected menu prompt. The /model menu did not open."
+        let file = Self.file(["codex": entry])
+        #expect(DeliveryCheck.messaging(.codex, file: file, installed: "0.163.2") == .needsAttention("Messaging failed: menuPaste"))
+        #expect(DeliveryCheck.failure(.codex, file: file, installed: "0.163.2") == "Expected menu prompt. The /model menu did not open.")
+        #expect(DeliveryCheck.failure(.codex, file: file, installed: "0.164.0") == nil, "a verdict for another version says nothing")
+        #expect(DeliveryCheck.failure(.claude, file: Self.file(["claude": Self.agent("2.1.301")]), installed: "2.1.301") == nil)
+    }
+
     /// A scenario the check did not reach counts as failed, as `delivery_check._passed` counts it.
     @Test func aScenarioNotRunCountsAsFailed() {
         var entry = Self.agent("2.1.301", submit: false)
@@ -144,12 +157,12 @@ import Foundation
         let daemon = URL(fileURLWithPath: "/Applications/AiTerm.app/Contents/Resources/daemon")
         let env = "env PYTHONPATH='/Applications/AiTerm.app/Contents/Resources/daemon' PYTHONDONTWRITEBYTECODE=1 '/opt/homebrew/bin/python3'"
         #expect(DeliveryCheck.command(agent: .claude, file: .missing, python: python, daemonDir: daemon)
-                == "\(env) -m tools.delivery_check --agents claude --write")
+                == "\(env) -m tools.delivery_check --agents claude --write && exit")
         let passed = Self.file(["iterm": Self.iterm])
         #expect(DeliveryCheck.command(agent: .claude, file: passed, python: python, daemonDir: daemon)
-                == "\(env) -m tools.delivery_check --agents claude --write --skip-iterm")
+                == "\(env) -m tools.delivery_check --agents claude --write --skip-iterm && exit")
         #expect(DeliveryCheck.command(agent: .codex, file: passed, python: python, daemonDir: daemon)
-                == "\(env) -m tools.delivery_check --agents codex --write --skip-iterm")
+                == "\(env) -m tools.delivery_check --agents codex --write --skip-iterm && exit")
     }
 
     @Test func theFileLivesBesideTheHelpersOthers() {

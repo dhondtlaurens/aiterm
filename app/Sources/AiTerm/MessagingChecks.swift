@@ -67,6 +67,11 @@ final class MessagingChecks {
         opening.contains(agent) || started[agent].map { $0 == (file ?? .missing) } ?? false
     }
 
+    /// Why `agent`'s last run failed, while its verdict is the card's (`DeliveryCheck.failure`).
+    func failure(of agent: AgentKind) -> String? {
+        file.flatMap { DeliveryCheck.failure(agent, file: $0, installed: versions[agent]) }
+    }
+
     /// iTerm2's own checks; nil until the file is read.
     var iterm: DeliveryReadiness? { file.map(DeliveryCheck.iterm) }
 

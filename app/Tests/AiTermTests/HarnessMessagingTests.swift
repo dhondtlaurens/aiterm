@@ -127,7 +127,7 @@ import AiTermCore
         #expect(created["cwd"] as? String == runtime.daemonDir.path)
         let command = created["agentCommand"] as? String
         #expect(command == DeliveryCheck.command(agent: .codex, file: .missing, python: runtime.python, daemonDir: runtime.daemonDir))
-        #expect(command?.hasSuffix("--agents codex --write") == true, "iTerm2's own checks too: none passed yet")
+        #expect(command?.hasSuffix("--agents codex --write && exit") == true, "iTerm2's own checks too: none passed yet")
         #expect(created["background"] == nil, "in front")
         #expect((created["taskId"] as? String)?.hasPrefix("delivery-check-codex-") == true, "a tag no row takes")
         #expect(daemon.requests("window.activate").map { $0.params["windowId"] as? String } == ["reopened"])
@@ -158,6 +158,17 @@ import AiTermCore
         try write(failed.replacingOccurrences(of: "%@", with: "2026-10-21T08:12:00Z"), to: url)
         await checks.refresh(force: true)
         #expect(!checks.isRunning(.claude), "written, though it failed the same way")
+    }
+
+    /// Why the last run failed, for the card's details, while that run's verdict is the card's.
+    @Test func theCardKeepsWhyTheLastRunFailed() async throws {
+        let url = try scratchPolicy()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try write(#"{"codex": {"version": "0.163.0", "pasteSafe": false, "submitSafe": false, "failedAt": "menuPaste", "failure": "The /model menu did not open.", "scenarios": {}}}"#, to: url)
+        let checks = MessagingChecks(policyURL: url, versions: { _ in [.codex: "0.163.0", .claude: "2.1.301"] })
+        await checks.refresh()
+        #expect(checks.failure(of: .codex) == "The /model menu did not open.")
+        #expect(checks.failure(of: .claude) == nil)
     }
 
     @Test func aClosedWindowRunsNoMore() async throws {
