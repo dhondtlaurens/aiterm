@@ -7,9 +7,10 @@ import functools
 import json
 import os
 import re
+import string
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
@@ -88,11 +89,27 @@ POLICY_PATH = Path.home() / "Library" / "Application Support" / "AiTerm" / "deli
 
 class Verdict(NamedTuple):
     """What the delivery check found for one CLI: the policy, and the version it was checked against.
-    It vouches for that version alone: the Deliverer types into a session only while the CLI there
-    reports the same version (SessionInfo.cli_version), so an update the CLI installed since gets
-    nothing until it is checked again."""
+    It vouches for that version's patch releases alone (`verdict_covers`): the Deliverer types into a
+    session only while the CLI there reports one of them (SessionInfo.cli_version), so a new minor or
+    major version the CLI installed since gets nothing until it is checked again."""
     policy: DeliveryPolicy
     version: str | None
+
+
+_RELEASE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
+
+def verdict_covers(checked: str | None, installed: str | None) -> bool:
+    """Whether a verdict written for version `checked` holds for the `installed` one. Both must be
+    plain `major.minor.patch` numbers, as the delivery check writes them (`2.1.301`); a verdict for
+    X.Y.Z then holds for every X.Y.W, a later patch or an earlier one, since a patch release does not
+    redraw the screens the check read. Another major or minor version gets nothing until it is
+    checked again, and so does a version missing on either side or written any other way
+    (`2.1`, `2.1.301-beta`, `v2.1.301`). The app's Settings holds a CLI's version to the same rule."""
+    if checked is None or installed is None:
+        return False
+    a, b = _RELEASE.fullmatch(checked), _RELEASE.fullmatch(installed)
+    return a is not None and b is not None and (int(a[1]), int(a[2])) == (int(b[1]), int(b[2]))
 
 
 # A CLI the delivery check has not passed, or passed for no version it named.
@@ -187,34 +204,85 @@ def write_message_file(worktree: str, text: str) -> str:
         return f"Read .aiterm/messages/{number}.md and act on it."
 
 
+# Why a delivery was refused, or its Enter held back, in one word the app can tell apart and say in its
+# own words (the Operator's wake Notice); the reason says it in the daemon's.
+RefusalCode = Literal[
+    "ownership",           # the task changed hands
+    "itermDisconnected",   # iTerm2 is not connected
+    "sessionClosed",       # the session has closed
+    "replaced",            # another process now runs in the session
+    "notChecked",          # the CLI's version has no pass from the delivery check
+    "unsupported",         # prompts cannot be read off this CLI's screen
+    "typing",              # you are typing (a wake line only)
+    "unsentInput",         # unsent text waits in the input (a wake line only)
+    "screenUnread",        # the screen could not be read, or came back empty
+    "prompt",              # a prompt is open: it waits on the person
+    "unrecognisedScreen",  # the screen shows no input box
+    "nothing",             # nothing left to paste
+    "messageFile",         # too long to paste, and no message file could be left
+    "wakeText",            # a wake line that is not plain enough to type
+    "itermRefused",        # iTerm2 did not take the text, or the Enter
+    "pasteOnly",           # pasted, the Enter left to the person
+]
+
+
+@dataclass(frozen=True, slots=True)
+class Refusal:
+    """Why a session cannot take text now, or why its Enter was held back."""
+    code: RefusalCode
+    reason: str
+
+
 @dataclass(frozen=True, slots=True)
 class DeliveryResult:
     """`delivered`: pasted and entered. `partial`: pasted, and the Enter held back -- the text waits
-    visibly in the input, and `reason` says why. `refused`: nothing was typed. Neither is retried."""
+    visibly in the input, and `reason` says why. `refused`: nothing was typed. Neither is retried.
+    `code` names the reason (RefusalCode); tests compare the words, so it is left out of equality."""
     result: Literal["delivered", "partial", "refused"]
     reason: str | None = None
+    code: RefusalCode | None = field(default=None, compare=False)
 
     def to_json(self) -> dict[str, Any]:
-        return {"result": self.result, "reason": self.reason}
+        return {"result": self.result, "reason": self.reason, "code": self.code}
 
 
-def _refused(reason: str) -> DeliveryResult:
-    return DeliveryResult("refused", reason)
+def _refused(why: Refusal) -> DeliveryResult:
+    return DeliveryResult("refused", why.reason, why.code)
 
 
-def _partial(reason: str) -> DeliveryResult:
-    return DeliveryResult("partial", reason)
+def _partial(why: Refusal) -> DeliveryResult:
+    return DeliveryResult("partial", why.reason, why.code)
+
+
+# Quotes a word may be wrapped in, besides ASCII punctuation, when a wake line's words are counted.
+_QUOTES = "‘’“”"
+
+
+def wake_text_problem(text: str) -> str | None:
+    """Why `text` may not be typed as a wake line, or None when it may. A wake line is fixed and plain
+    (the app's OperatorWaker): no digit and no one-letter word, which a menu opening as it arrives could
+    take for its answer (`1`, `y`, `a`), and short enough to paste, since a wake line never goes
+    through a message file."""
+    if any(ch.isdigit() for ch in text):
+        return "a wake line may not carry a digit"
+    words = (word.strip(string.punctuation + _QUOTES) for word in text.split())
+    if any(len(word) == 1 and word.isalpha() for word in words):
+        return "a wake line may not carry a one-letter word"
+    if len(text) > MESSAGE_FILE_THRESHOLD:
+        return "a wake line is too long to paste"
+    return None
 
 
 class Deliverer:
     """The delivery adapter (spec §7.1): types into an agent's session the one way the spike found
     safe. It checks the session can take text -- iTerm2 connected, the session open, its CLI checked
-    paste-safe for the very version it runs (`load_policy`, SessionInfo.cli_version), its screen
-    read and no prompt open -- pastes the text bracketed, waits SUBMIT_DELAY, checks again, and only
-    then presses Enter. Anything that changed in between holds the Enter back: the result is
-    `partial`, and the text waits in the input for whoever looks next. Deliveries to one session
-    take turns, so two pastes never interleave with their Enters. Which run and task a session
-    belongs to, and whether that run is active, is the app's to check before it asks."""
+    paste-safe for the version it runs (`load_policy`, `verdict_covers`, SessionInfo.cli_version), its
+    screen read and no prompt open -- pastes the text bracketed, waits SUBMIT_DELAY, checks again, and
+    only then presses Enter. Anything that changed in between holds the Enter back: the result is
+    `partial`, and the text waits in the input for whoever looks next. An operator's wake line is held
+    to every check but the delivery check's pass (`_ready`). Deliveries to one session take turns, so
+    two pastes never interleave with their Enters. Which run and task a session belongs to, and whether
+    that run is active, is the app's to check before it asks."""
 
     def __init__(self, iterm: ItermPort, registry: SessionRegistry, policy: Callable[[], Mapping[AgentKind, Verdict]],
                  typing: TypingGuard, *, monotonic: Callable[[], float] = time.monotonic,
@@ -242,8 +310,8 @@ class Deliverer:
     async def deliver(self, session_id: str, text: str, ownership: int, *, wake: bool = False,
                       worktree: str | None = None) -> DeliveryResult:
         """Types `text` into the session. `ownership` is the task's generation as the caller knew it;
-        `wake` marks an operator's wake line, which waits while you type; `worktree` is where a
-        message too long to paste is left."""
+        `wake` marks an operator's wake line, which waits while you type and needs no pass from the
+        delivery check; `worktree` is where a message too long to paste is left."""
         async with self._turn(session_id):
             result = await self._deliver(session_id, text, ownership, wake, worktree)
             if result.result == "partial":
@@ -255,52 +323,55 @@ class Deliverer:
         # A session no generation was set for takes the first send's: until the app sets one, a
         # send is as current as anything known. A newer one becomes the session's.
         if ownership < self._ownership.setdefault(session_id, ownership):
-            return _refused("the task changed hands after this message was written")
+            return _refused(Refusal("ownership", "the task changed hands after this message was written"))
         self._ownership[session_id] = ownership
-        if isinstance(ready := await self._check(session_id, ownership, wake), str):
+        if isinstance(ready := await self._check(session_id, ownership, wake), Refusal):
             return _refused(ready)
         session, policy = ready
         if not (body := pasteable(text)).strip():
-            return _refused("there is nothing to deliver")
+            return _refused(Refusal("nothing", "there is nothing to deliver"))
+        if wake and (problem := wake_text_problem(body)) is not None:
+            return _refused(Refusal("wakeText", problem))
         if len(body) > MESSAGE_FILE_THRESHOLD:
             if worktree is None:
-                return _refused("the message is too long to paste and has no worktree to be left in")
+                return _refused(Refusal("messageFile", "the message is too long to paste and has no worktree to be left in"))
             try:
                 # Another repository's disk: written on a worker thread, as the tick reads one.
                 body = await run_detached(functools.partial(write_message_file, worktree, body))
             except ValueError as exc:
-                return _refused(str(exc))
+                return _refused(Refusal("messageFile", str(exc)))
             except OSError as exc:
-                return _refused(f"the message file could not be written: {exc}")
+                return _refused(Refusal("messageFile", f"the message file could not be written: {exc}"))
             # The write took a worker thread's while: everything checked before it is checked again,
             # right before the paste. A refusal now leaves the file behind, unread and out of git.
-            if isinstance(again := await self._check(session_id, ownership, wake, process=session), str):
+            if isinstance(again := await self._check(session_id, ownership, wake, process=session), Refusal):
                 return _refused(again)
             session, policy = again  # a verdict that changed to paste-only meanwhile keeps the Enter back
         try:
             await self.iterm.send_text(session_id, PASTE_START + body + PASTE_END)
         except KeyError:
-            return _refused("the session has closed")
+            return _refused(Refusal("sessionClosed", "the session has closed"))
         except ItermUnavailable as exc:
-            return _refused(f"iTerm2 did not take the text: {exc}")
+            return _refused(Refusal("itermRefused", f"iTerm2 did not take the text: {exc}"))
         if policy == "pasteOnly":
-            return _partial(f"pasted without Enter: this {session.agent} version is checked paste-safe only, so you press Enter")
+            return _partial(Refusal("pasteOnly", f"pasted without Enter: this {session.agent} version is checked paste-safe only, "
+                                                 "so you press Enter"))
         await self._sleep(SUBMIT_DELAY)
         if (why := await self._changed(session, ownership, wake)) is not None:
             return _partial(why)
         try:
             await self.iterm.send_text(session_id, SUBMIT)
         except (KeyError, ItermUnavailable) as exc:
-            return _partial(f"the Enter could not be sent ({exc}); the text waits unsent in the input")
+            return _partial(Refusal("itermRefused", f"the Enter could not be sent ({exc}); the text waits unsent in the input"))
         return DeliveryResult("delivered")
 
     async def _check(self, session_id: str, ownership: int, wake: bool, *,
-                     process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | str:
+                     process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
         """Why the session cannot take text now -- or, when it can, the session and how its CLI may be
         typed into. Made before anything is typed, and again right before the paste when a message
         file was written in between, `process` then the session as the first check found it."""
         ready = self._ready(session_id, ownership, wake, process=process)
-        if isinstance(ready, str):
+        if isinstance(ready, Refusal):
             return ready
         session, _policy = ready
         if (why := await self._ineligible(session_id, session.agent)) is not None:
@@ -308,68 +379,79 @@ class Deliverer:
         return self._ready(session_id, ownership, wake, process=session)
 
     def _ready(self, session_id: str, ownership: int, wake: bool, *,
-               process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | str:
+               process: SessionInfo | None = None) -> tuple[SessionInfo, DeliveryPolicy] | Refusal:
         if self._ownership.get(session_id) != ownership:
-            return "the task changed hands after this message was written"
+            return Refusal("ownership", "the task changed hands after this message was written")
         if not self.iterm.is_connected():
-            return "iTerm2 is not connected"
+            return Refusal("itermDisconnected", "iTerm2 is not connected")
         if process is not None and (why := self._replaced(process)) is not None:
             return why
         if (session := self.registry.get(session_id)) is None:
-            return "the session has closed"
-        policy, version = self.policy().get(session.agent, NOT_CHECKED)
-        if policy == "off":
-            return f"AiTerm has not checked that it can type into this {session.agent} version safely"
-        if session.cli_version is None or session.cli_version != version:
-            # The check vouches for the version it ran against: one updated since, or one whose files
-            # have not named their version yet, gets nothing until it is checked.
-            return f"{session.agent} {session.cli_version or '(version unknown)'} has not passed the delivery check"
+            return Refusal("sessionClosed", "the session has closed")
+        policy: DeliveryPolicy
+        if wake:
+            # The operator's own tab, which only the app's OperatorWaker types into, with a fixed plain
+            # line (`wake_text_problem`): held to every check of its screen and of you, and not to the
+            # delivery check's pass, so the operator is woken whatever version runs it. Its screen must
+            # still be one whose prompts can be read: a harness without markers shows none.
+            if session.agent not in HARNESS_BY_AGENT or not _screen_is_readable(session.agent):
+                return Refusal("unsupported", f"AiTerm cannot read whether a prompt is open in {session.agent}")
+            policy = "auto"
+        else:
+            policy, version = self.policy().get(session.agent, NOT_CHECKED)
+            if policy == "off":
+                return Refusal("notChecked", f"AiTerm has not checked that it can type into this {session.agent} version safely")
+            if not verdict_covers(version, session.cli_version):
+                # The check vouches for its version's patch releases: another minor or major version, or
+                # one whose files have not named their version yet, gets nothing until it is checked.
+                return Refusal("notChecked",
+                               f"{session.agent} {session.cli_version or '(version unknown)'} has not passed the delivery check")
         if wake and self.typing.is_typing(session_id, self._monotonic()):
             # Not lost: the operator sees the news at its next run_status (spec §7.4).
-            return "you are typing"
+            return Refusal("typing", "you are typing")
         if wake and self.typing.has_unsent_input(session_id):
             # Pasted after words not yet sent, the wake line's Enter would send them with it.
-            return "unsent text waits in its input"
+            return Refusal("unsentInput", "unsent text waits in its input")
         return session, policy
 
-    def _replaced(self, session: SessionInfo) -> str | None:
+    def _replaced(self, session: SessionInfo) -> Refusal | None:
         """Why `session`, as a delivery began with it, is no longer the one open: closed, or another
         process -- another conversation, maybe another CLI -- in its tab."""
         if (now := self.registry.get(session.session_id)) is None:
-            return "the session has closed"
+            return Refusal("sessionClosed", "the session has closed")
         if now.job_pid != session.job_pid or now.agent != session.agent:
-            return "another process now runs in the session"
+            return Refusal("replaced", "another process now runs in the session")
         return None
 
-    async def _ineligible(self, session_id: str, agent: AgentKind) -> str | None:
+    async def _ineligible(self, session_id: str, agent: AgentKind) -> Refusal | None:
         """Why the session cannot take text now, as its screen shows it; None when it can."""
         try:
             screen = await self.iterm.screen_text(session_id)
         except ItermUnavailable as exc:
-            return f"its screen could not be read: {exc}"
+            return Refusal("screenUnread", f"its screen could not be read: {exc}")
         if screen is None:
-            return "the session has closed"
+            return Refusal("sessionClosed", "the session has closed")
         if not screen.strip():
             # The spike saw a read come back empty: nothing then shows that no prompt is open.
-            return "the screen came back empty, so whether a prompt is open is unknown"
+            return Refusal("screenUnread", "the screen came back empty, so whether a prompt is open is unknown")
         if (prompt := open_prompt(agent, screen)) is not None:
-            return f"a {prompt} prompt is open"
+            return Refusal("prompt", f"a {prompt} prompt is open")
         if not shows_input_box(agent, screen):
             # Prompts are checked first: an approval's menu draws `❯` on its selected option too.
-            return "unrecognised screen"
+            return Refusal("unrecognisedScreen", "unrecognised screen")
         return None
 
-    async def _changed(self, session: SessionInfo, ownership: int, wake: bool) -> str | None:
+    async def _changed(self, session: SessionInfo, ownership: int, wake: bool) -> Refusal | None:
         """What holds the Enter back: anything that changed while the paste settled."""
         ready = await self._check(session.session_id, ownership, wake, process=session)
-        if isinstance(ready, str):
-            if ready == "the task changed hands after this message was written":
-                return "you took the task over before Enter; the text waits unsent in the input"
-            if ready == "you are typing":
-                return "you started typing before Enter; the wake line waits unsent in the input"
-            return f"before Enter, {ready}; the text waits unsent in the input"
+        if isinstance(ready, Refusal):
+            if ready.code == "ownership":
+                return Refusal("ownership", "you took the task over before Enter; the text waits unsent in the input")
+            if ready.code == "typing":
+                return Refusal("typing", "you started typing before Enter; the wake line waits unsent in the input")
+            return Refusal(ready.code, f"before Enter, {ready.reason}; the text waits unsent in the input")
         if ready[1] != "auto":
-            return "before Enter, automatic submission is no longer checked safe"
+            return Refusal("pasteOnly", "before Enter, automatic submission is no longer checked safe")
         return None
 
     async def prompt(self, session_id: str) -> PromptKind | None:

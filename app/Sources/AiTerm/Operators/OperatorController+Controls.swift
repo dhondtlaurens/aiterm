@@ -25,7 +25,7 @@ extension OperatorController {
                 $0.agentReview?.at = at
             } }
         }
-        waker.say("the person took over \(operated.key)", to: operated.runId)
+        waker.say("the person took over one task", to: operated.runId)
         try await setOwnership(ownership, on: id)
     }
 
@@ -35,7 +35,7 @@ extension OperatorController {
     func handBack(task id: UUID) async throws {
         guard let operated = workspace.state.task(id: id)?.operated, operated.takenOver else { return }
         workspace.mutate { $0.updateOperated(id) { $0.takenOver = false } }
-        waker.say("\(operated.key) is handed back", to: operated.runId)
+        waker.say("one task is handed back", to: operated.runId)
         runChanged(operated.runId)
         try await setOwnership(operated.ownership, on: id)
     }

@@ -101,6 +101,39 @@ import Testing
         #expect(done.status == .done)
     }
 
+    /// A task's workers as iTerm2 lists them: its first worker in `first`, and an extra tab in `extra`.
+    private func tabs(of task: TaskItem, first: SessionState, extra: SessionState? = nil) -> [SessionInfo] {
+        func tab(_ id: String, _ state: SessionState, index: Int, key: String?) -> SessionInfo {
+            SessionInfo(sessionId: id, windowId: "w-\(task.id)", tabIndex: index, taskId: task.id.uuidString, projectId: nil,
+                        agent: .claude, model: nil, state: state, title: "", cwd: "/", tabKey: key)
+        }
+        return [tab("\(task.id)-1", first, index: 0, key: nil)] + (extra.map { [tab("\(task.id)-2", $0, index: 1, key: "tests")] } ?? [])
+    }
+
+    /// The row reads which tasks wait to be accepted from their workers' tabs: every worker ended its turn. With
+    /// none at work its mark is the idle ring, as while it waits on people: the Operator checks the work next.
+    @Test func aTaskWhoseWorkersAreDoneIsReadyToAccept() throws {
+        let busy = run()
+        let done = task("a", run: busy.id, .working), atWork = task("b", run: busy.id, .working)
+        var tabbed = task("c", run: busy.id, .working)
+        tabbed.operated?.extraTabs = [ExtraTab(key: "tests", agent: .claude, model: "m", reasoning: nil, modelReason: "Tests.",
+                                               brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: .distantPast,
+                                                                                                openedAt: .distantPast), sessionId: "s")]
+        let sessions = tabs(of: done, first: .idle) + tabs(of: atWork, first: .working) + tabs(of: tabbed, first: .done, extra: .working)
+        let row = try #require(SidebarModel.broadcastRow(state: state(busy, [done, atWork, tabbed]), sessions: sessions))
+        #expect(row.line == OperatorLine("working · 2 tasks · 1 ready to accept", look: .acting), "a tab still at work keeps its task working")
+        #expect(row.status == .working)
+
+        let waiting = try #require(SidebarModel.broadcastRow(state: state(busy, [done]), sessions: tabs(of: done, first: .done)))
+        #expect(waiting.line == OperatorLine("ready to accept · 1 task"))
+        #expect(waiting.status == .idle)
+        // Without its tabs listed nothing says it is done: it is working, as before.
+        #expect(SidebarModel.broadcastRow(state: state(busy, [done]))?.line == OperatorLine("working · 1 task", look: .acting))
+        // The board's band says what the row says.
+        let board = BroadcastBoard.make(run: busy, state: state(busy, [done]), acting: .none, requests: [], sessions: tabs(of: done, first: .idle))
+        #expect(board.band == OperatorLine("ready to accept · 1 task"))
+    }
+
     @Test func aPauseIsReadFromTheIntentToo() throws {
         var pausing = run()
         pausing.intent = .paused

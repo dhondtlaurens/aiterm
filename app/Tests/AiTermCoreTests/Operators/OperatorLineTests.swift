@@ -80,6 +80,28 @@ import Testing
                 "its tasks work: the line moves")
     }
 
+    /// A task whose workers all ended their turn waits for the Operator to accept it: the line counts it apart
+    /// from the tasks still at work, and once none works it says what it waits on, quiet.
+    @Test func tasksReadyToAcceptAreCountedApartFromThoseAtWork() {
+        let run = OperatorUIFixtures.run()
+        let working = [task(run: run, .working), task(run: run, .working)]
+        let ready = [task(run: run, .working), task(run: run, .working)]
+        func line(_ tasks: [TaskItem], ready: [TaskItem]) -> OperatorLine {
+            OperatorLine.broadcast(run, tasks: tasks, acting: nil, requests: [], ready: Set(ready.map(\.id)))
+        }
+        #expect(line(working + ready.prefix(1), ready: Array(ready.prefix(1)))
+                == OperatorLine("working · 2 tasks · 1 ready to accept", look: .acting), "both, each counted once")
+        #expect(line(working, ready: []) == OperatorLine("working · 2 tasks", look: .acting))
+        #expect(line(ready, ready: ready) == OperatorLine("ready to accept · 2 tasks"), "nothing works: it waits, quiet")
+        #expect(line(Array(ready.prefix(1)), ready: ready) == OperatorLine("ready to accept · 1 task"))
+        // Only a working task waits to be accepted: one accepted already is done, whatever its tabs say.
+        let accepted = task("The schema", run: run, .accepted, sha: "4f2a91cdeadbeef")
+        #expect(line(working + [accepted], ready: [accepted]) == OperatorLine("working · 2 tasks", look: .acting))
+        // An act outranks the count, as it outranks the tasks at work.
+        #expect(OperatorLine.broadcast(run, tasks: ready, acting: (.checkingTheWork, task: nil), requests: [], ready: Set(ready.map(\.id)))
+                == OperatorLine("checking the work", look: .acting))
+    }
+
     @Test func everyActHasItsWords() {
         let words: [OperatorAct: String] = [
             .loadingTheConstruct: "loading the construct", .consultingTheOracle: "consulting the Oracle",

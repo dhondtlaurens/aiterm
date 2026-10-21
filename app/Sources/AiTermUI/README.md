@@ -186,7 +186,7 @@ vendor needs both.
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
-`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
+`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `OperatorWakeBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
 `OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `BroadcastStatusLine`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
@@ -225,13 +225,7 @@ password, filled with the saved one as if typed (`caretAtEnd`) for the remembere
 for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
 while nothing is chosen. Under them “Turns off”, a `Select` in the Hotspot's column — “When agents
 stop” (the 2-minute idle grace) or “When I turn it off” — with “Either way, at 10 % battery.” as its
-`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. Beside
-it, in the Password's column, “Notifies”: what reaches the iPhone paired with iTerm2 (iTerm2 Buddy)
-while the lid is shut — “When agents need you”, “Also when they finish” or “Never” — over its own
-`HelpText`, “Through iTerm2 Buddy, naming only the agent.”, or, while it is not Never and the last push
-did not go out, “Last push failed.” and why, in the `.warning` tone. Each column's help sits under its
-own select. Unlike Turns off, Notifies is remembered: every sheet opens on the saved choice, and
-Connect saves it with the hotspot. “On the
+`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. “On the
 iPhone” follows as the hotspot's help: three `NumberedSteps`, `receded` (text in `Palette.muted`)
 once a hotspot is chosen, full again while a connect waits for it.
 Connect (⌘↩) is disabled until both permissions are granted and a hotspot is chosen; it runs in
@@ -282,13 +276,14 @@ on it is over, and the row's trailing mark is a `checkmark` at the mark's size i
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
 and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
 removal or shelving spins. No other state has a mark of its own. Acting: `working` (the task's agent works), the
-broadcast's `working · 3 tasks`, and the acts: `loading the construct`, `consulting the Oracle`,
+broadcast's `working · 3 tasks` (`working · 2 tasks · 1 ready to accept` while some wait to be accepted, their
+workers done; the words are `OperatorLine.Count`'s), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
 a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
 task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-and on the broadcast's line `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
+and on the broadcast's line `ready to accept · 2 tasks` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
 and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
 window shows it whole), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
@@ -313,6 +308,10 @@ one picked project; under each its help in place of `CompletionHint`. Review's a
 slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
 linked, and nothing is amber. No command preview: the Operator chooses each task's agent. The
 `DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 4. No new `Palette` or `Metrics` member.
+Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on,
+Claude Code and Codex where installed, Ready on its Settings card, Messaging included, and iTerm2's own delivery
+checks passed. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
+its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
 
 The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
 `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
@@ -386,7 +385,10 @@ fix and then the create it stopped (`CreationFailure.Recovery`).
 `Typography.label` and `Palette.text` on one row; the description under it in `Typography.help` and
 `Palette.muted`; then the actions as links `Space.gap` apart; `Space.tight` between the rows and nothing
 indented. No amber text: the mark carries the tone. It is the sidebar's banner about a failed save
-or a failed operation (`IssueBanner`) and iTerm2 refusing the connection (`SidebarConnectionBanner`:
+or a failed operation (`IssueBanner`), the Operator's wake line refused (`OperatorWakeBanner`: "The
+Operator can’t be woken", what waits on it and why as its description from `OperatorWakeNotice`, Open the
+Operator and Fix in Settings its links; not for a prompt that already waits on you, and gone once the
+Operator calls `run_status` or a later wake line lands) and iTerm2 refusing the connection (`SidebarConnectionBanner`:
 the status its title, what to do its description), a failed create in `CreationFooter`, and the
 Backpack sheet's permission ask (Allow… its one link). In a sheet's footer the caller passes no
 actions and keeps its buttons, and a failure with one sentence (`GitError.sentence`) is the title
@@ -516,7 +518,13 @@ the answer replaces that card's status line rather than landing in the sheet foo
 card's one action is named by the card's state and runs the same code whatever it says: Install
 while the CLI or the driver is missing, Repair while a check is amber, Reinstall when the card is
 Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
-is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the
+is the built-in or one AiTerm must not edit) shows no action at all. Claude Code's and Codex's cards
+carry a third chip, Messaging: the delivery check's verdict held against the version installed
+(`DeliveryCheck.messaging`; a pass covers every patch of its major and minor). Passing, its sentence
+(“Messaging ready for 2.1”) is the chip's tooltip; needing attention, it is the status line
+(“Messaging not checked for 2.2”, “Messaging failed: approvalRace”) and, once nothing Install can fix
+is amber, the action is **Run check**, which opens an iTerm2 window in front running the check for
+that agent; the card follows the policy file while Settings is open. Over a missing CLI it runs the
 vendor's own installer and then the driver; over a present one it writes the driver whether or not
 it is already installed, so it can be overwritten. Claude Code's card leads its fields with one
 `HelpText` line, `Configuration:` and the full path of the folder its settings, models and skills are

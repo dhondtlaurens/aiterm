@@ -217,9 +217,9 @@ struct SidebarSheetPresenter: View {
     }
 }
 
-/// What sits above the list: a failed save, a failed operation, and the helper's connection state.
-/// The first two, and iTerm2 refusing the connection, are `Notice`s; the grey line while AiTerm
-/// connects is not a request, and stays a line of muted text.
+/// What sits above the list: a failed save, a failed operation, the Operator's refused wake line, and the
+/// helper's connection state. The first three, and iTerm2 refusing the connection, are `Notice`s; the grey
+/// line while AiTerm connects is not a request, and stays a line of muted text.
 struct SidebarBanners: View {
     let controller: AppController
 
@@ -235,6 +235,10 @@ struct SidebarBanners: View {
             IssueBanner(issue: issue, fix: controller.notices.fixSession,
                         perform: { action in Task { await controller.perform(action) } },
                         cancelFix: { controller.notices.cancelFix() }, dismiss: { controller.dismissIssue() })
+        }
+        if let wake = controller.operatorController.wakeNotice {
+            OperatorWakeBanner(notice: wake, open: { controller.openOperatorWindow(of: wake.run) },
+                               fix: { controller.presentAgentSettings(for: .claude) })
         }
         if let banner = controller.helper.itermConnection.banner {
             SidebarConnectionBanner(banner: banner, status: controller.helper.itermConnection.status)
@@ -264,6 +268,23 @@ struct SidebarConnectionBanner: View {
             SidebarBanner(trailing: Space.block) { Notice(title: notice.title, description: notice.description) }
         case .info:
             SidebarBanner(trailing: Space.block) { SidebarBannerText(text: banner.text) }
+        }
+    }
+}
+
+/// The Operator's wake line refused (`OperatorWakeNotice`): what waits on it and why, with Open the Operator
+/// and Fix in Settings as its links. The Operator runs on Claude Code, whose card Fix in Settings is for.
+struct OperatorWakeBanner: View {
+    let notice: OperatorWakeNotice
+    let open: () -> Void
+    let fix: () -> Void
+
+    var body: some View {
+        SidebarBanner(vertical: Space.base) {
+            Notice(title: OperatorWakeNotice.title, description: notice.description) {
+                Button("Open the Operator", action: open)
+                Button("Fix in Settings", action: fix)
+            }
         }
     }
 }
@@ -393,16 +414,18 @@ struct SidebarSheet: View {
                         case .broadcast(let run): controller.rename(run: run, to: name)
                         }
                     })
-                case .settings(let jira, let gitLab, let gitHub, let tab):
+                case .settings(let jira, let gitLab, let gitHub, let tab, let agent):
                     SettingsView(jiraConfig: jira, gitLabConfig: gitLab, gitHubConfig: gitHub,
                                  harnessModel: controller.agents.harnessSettingsModel(),
                                  agents: controller.agents,
+                                 messaging: controller.messaging,
                                  itermConnection: { controller.helper.itermConnection },
                                  checkIterm: controller.helper.checkIterm,
                                  preferences: controller.preferences,
                                  setMatchItermBackground: { controller.helper.setMatchItermBackground($0) },
                                  setInterfaceSize: { controller.tiling.setInterfaceSize($0) },
                                  initialTab: tab,
+                                 initialAgent: agent,
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)

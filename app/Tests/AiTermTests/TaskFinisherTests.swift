@@ -490,11 +490,13 @@ final class MergeClock: Sendable {
         let projectId = try #require(world.task(task)?.projectId)
         let path = try #require(world.state.project(id: projectId)?.path)
         try git.run(["commit", "--allow-empty", "-q", "-m", "one more"], in: path)
+        await world.controller.waker.lastSend?.value
+        let before = world.daemon.requests("session.deliver").count
         await ticker.tick()
         #expect(await eventually(describing: "the watch to stop") { world.controller.finisher.watching.isEmpty })
-        let stopped = { world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("merge watch stopped") } }
-        #expect(await eventually(describing: "the operator told") { stopped().count == 1 })
-        #expect(stopped().first?.contains("PLUTO-231: the merge watch stopped, feat/pluto-231 moved past the accepted commit") == true)
+        // The line names no task: run_status shows which, and the problem.
+        let stopped = { world.daemon.requests("session.deliver").dropFirst(before).compactMap { $0.params["text"] as? String } }
+        #expect(await eventually(describing: "the operator told") { stopped() == ["[AiTerm] one task’s merge watch stopped: call run_status"] })
         #expect(world.task(task)?.operated?.publication?.problem?.hasPrefix("feat/pluto-231 moved past") == true)
         world.controller.runChanged(run)
         world.controller.start()

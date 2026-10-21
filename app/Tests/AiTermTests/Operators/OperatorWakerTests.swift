@@ -69,7 +69,7 @@ import Testing
         await hand.release(1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] 2 updates, call run_status"])
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
         let sent = try #require(daemon.requests("session.deliver").first)
         #expect(sent.params["sessionId"] as? String == "op")
         #expect(sent.params["wake"] as? Bool == true)
@@ -92,7 +92,7 @@ import Testing
         op.tab?.state = .idle
         waker.operatorSessionChanged(run.id)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] 1 update, call run_status"])
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
     }
 
     @Test func whatTheOperatorHasSeenWakesNothing() async throws {
@@ -116,7 +116,7 @@ import Testing
         waker.observe(status(questions: 2), of: run.id)
         await hand.release(1)
         try await daemon.received("session.deliver")
-        #expect(lines == ["[AiTerm] 1 update, call run_status"])
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
     }
 
     @Test func anOwnChangeAfterNewsTheOperatorHasNotSeenStillWakesIt() async throws {
@@ -130,7 +130,7 @@ import Testing
         await hand.release(1)
         try await daemon.received("session.deliver")
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] 2 updates, call run_status"])
+        #expect(lines == ["[AiTerm] updates waiting, call run_status"])
     }
 
     @Test func anOperationThatMayNotBeWokenIsNot() async throws {
@@ -174,7 +174,7 @@ import Testing
         await hand.release(2)
         try await daemon.received("session.deliver", count: 2)
         await waker.lastSend?.value
-        #expect(lines == ["[AiTerm] 1 update, call run_status", "[AiTerm] 1 update, call run_status"])
+        #expect(lines == ["[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"])
         // It landed: no third wait is started.
         try await Task.sleep(for: .milliseconds(50))
         #expect(hand.requested == 2)
@@ -219,7 +219,7 @@ import Testing
         await eventually { held.requests("session.deliver").count == 2 }
         await waker.lastSend?.value
         #expect(held.requests("session.deliver").compactMap { $0.params["text"] as? String } == [
-            "[AiTerm] 1 update, call run_status", "[AiTerm] 1 update, call run_status"
+            "[AiTerm] updates waiting, call run_status", "[AiTerm] updates waiting, call run_status"
         ])
         waker.operatorSessionChanged(run.id)
         #expect(held.requests("session.deliver").count == 2)
@@ -274,4 +274,93 @@ import Testing
         #expect(held.requests("session.deliver").count == 2)
     }
 
+    // -- what a wake line may carry ----------------------------------------------------------------
+
+    /// Every reason the app says, the ones that name a task by its key among them, and a few no prompt may read.
+    nonisolated static let reasons = [
+        "reconnected", "resumed", "broadcast complete", "operation complete", "the person took over PAY-2", "PAY-2 is handed back",
+        "PAY-2 committed off its task branch", "PAY-2 is uncertain: its window has only a shell; no worker is confirmed",
+        "PAY-2 merged", "PAY-2 can’t merge: the host gave no reason", "QUIET-1, LOUD-7 may be stalled", "review feedback on A",
+        "Claude reviewed A", "Codex’s review of PAY-2 failed", "PAY-3 needs a rebase: PAY-2 was accepted again",
+        "PAY-2: the merge watch stopped, the branch moved; call finish_task again when it can go on", "y", "a task", "1",
+    ]
+
+    /// No line carries a digit or a one-letter word a prompt opening as it lands could take for its answer.
+    @Test(arguments: reasons) func noLineCarriesADigitOrAOneLetterWord(_ reason: String) {
+        for count in 0...12 {
+            for line in [OperatorWaker.line(updates: count, reason: nil),
+                         OperatorWaker.line(updates: count, reason: .init(text: reason, colon: false)),
+                         OperatorWaker.line(updates: count, reason: .init(text: reason, colon: true))] {
+                let digits = line.filter(\.isNumber)
+                #expect(digits.isEmpty, "\(line)")
+                #expect(OperatorWaker.isPlain(line), "\(line)")
+            }
+        }
+    }
+
+    @Test func aPlainReasonIsTheLineAndAKeyedOneSaysUpdatesWait() {
+        #expect(OperatorWaker.line(updates: 1, reason: .init(text: "reconnected", colon: false)) == "[AiTerm] reconnected, call run_status")
+        #expect(OperatorWaker.line(updates: 1, reason: .init(text: "Codex’s review failed", colon: true))
+                == "[AiTerm] Codex’s review failed: call run_status")
+        #expect(OperatorWaker.line(updates: 1, reason: .init(text: "PAY-2 merged", colon: false)) == "[AiTerm] updates waiting, call run_status")
+        #expect(OperatorWaker.line(updates: 3, reason: nil) == "[AiTerm] updates waiting, call run_status")
+    }
+
+    // -- a refused wake line, for the sidebar's Notice -----------------------------------------------
+
+    /// What the waker reported: each refusal, and each time the Notice may come down.
+    @MainActor final class Reports { var refused: [Delivery] = []; var cleared = 0 }
+
+    func reporting(_ waker: OperatorWaker) -> Reports {
+        let reports = Reports()
+        waker.refused = { _, delivery in reports.refused.append(delivery) }
+        waker.cleared = { _ in reports.cleared += 1 }
+        return reports
+    }
+
+    @Test func aRefusalIsReportedAndADeliveredLineClearsIt() async throws {
+        let unread = Delivery(result: .refused, reason: "unrecognised screen", code: .unrecognisedScreen)
+        daemon.deliveries = [unread, Delivery(result: .delivered, reason: nil)]
+        let waker = makeWaker()
+        waker.acknowledged(status(questions: 0), of: run.id)
+        let reports = reporting(waker)
+        waker.observe(status(questions: 1), of: run.id)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(reports.refused == [unread] && reports.cleared == 0)
+        waker.operatorSessionChanged(run.id)
+        try await daemon.received("session.deliver", count: 2)
+        await waker.lastSend?.value
+        #expect(reports.refused.count == 1 && reports.cleared == 1)
+    }
+
+    @Test func aPromptWaitingOnThePersonIsNotReported() async throws {
+        daemon.deliveries = [Delivery(result: .refused, reason: "a permission prompt is open", code: .prompt)]
+        let waker = makeWaker()
+        waker.acknowledged(status(questions: 0), of: run.id)
+        let reports = reporting(waker)
+        waker.observe(status(questions: 1), of: run.id)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(reports.refused.isEmpty)
+    }
+
+    @Test func aLineLeftUnsentClearsNothing() async throws {
+        daemon.deliveries = [Delivery(result: .partial, reason: "before Enter, a permission prompt is open", code: .prompt)]
+        let waker = makeWaker()
+        waker.acknowledged(status(questions: 0), of: run.id)
+        let reports = reporting(waker)
+        waker.observe(status(questions: 1), of: run.id)
+        try await daemon.received("session.deliver")
+        await waker.lastSend?.value
+        #expect(reports.refused.isEmpty && reports.cleared == 0)
+    }
+
+    @Test func runStatusAndForgettingTheRunClearIt() {
+        let waker = makeWaker(), reports = reporting(waker)
+        waker.acknowledged(status(questions: 0), of: run.id)
+        #expect(reports.cleared == 1)
+        waker.forget(run.id)
+        #expect(reports.cleared == 2)
+    }
 }

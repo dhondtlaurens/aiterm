@@ -29,7 +29,7 @@ import Testing
             return [OperatorServiceFixtures.session("op", window: "wo", tag: run.id), a, b]
         }
         func stalledLines() -> [String] {
-            world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("may be stalled") }
+            world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.hasSuffix("call run_status") }
         }
 
         world.show(tabs(busy: "reading", quiet: "reading"))
@@ -39,7 +39,7 @@ import Testing
         world.controller.reconcileTick()
         #expect(world.task(quiet.id)?.operated?.flags.contains(.possiblyStalled) == true)
         #expect(world.task(busy.id)?.operated?.flags.contains(.possiblyStalled) == false)
-        #expect(await eventually(describing: "the operator told") { stalledLines() == ["[AiTerm] QUIET-1 may be stalled, call run_status"] })
+        #expect(await eventually(describing: "the operator told") { stalledLines() == ["[AiTerm] one task may be stalled, call run_status"] })
 
         world.controller.reconcileTick()
         // A second line would be armed with no coalescing delay and typed within a few turns of the main actor.

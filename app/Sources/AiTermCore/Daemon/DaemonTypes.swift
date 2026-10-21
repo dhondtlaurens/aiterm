@@ -158,11 +158,27 @@ public enum DeliveryOutcome: String, Codable, Sendable {
     }
 }
 
-/// A delivery's result and, unless it was delivered, why.
+/// Why a delivery was refused, or its Enter held back, in one word (the daemon's `delivery.RefusalCode`):
+/// what the app tells apart and says in its own words, where `Delivery.reason` says it in the daemon's. A
+/// code a newer daemon names that this app does not know decodes as `.unknown`.
+public enum DeliveryCode: String, Codable, CaseIterable, Sendable {
+    case ownership, itermDisconnected, sessionClosed, replaced, notChecked, unsupported, typing, unsentInput
+    case screenUnread, prompt, unrecognisedScreen, nothing, messageFile, wakeText, itermRefused, pasteOnly
+    case unknown
+    public init(from decoder: Decoder) throws {
+        self = DeliveryCode(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// A delivery's result and, unless it was delivered, why: in the daemon's words, and as a code.
 public struct Delivery: Codable, Equatable, Sendable {
     public var result: DeliveryOutcome
     public var reason: String?
-    public init(result: DeliveryOutcome, reason: String?) { self.result = result; self.reason = reason }
+    /// Nil when delivered, and from a daemon that names no code.
+    public var code: DeliveryCode?
+    public init(result: DeliveryOutcome, reason: String?, code: DeliveryCode? = nil) {
+        self.result = result; self.reason = reason; self.code = code
+    }
 }
 
 /// How AiTerm may type into one agent CLI, from the delivery check it last passed (the daemon's
@@ -181,14 +197,6 @@ public struct DeliveryVerdict: Codable, Equatable, Sendable {
     public var policy: DeliveryPolicy
     public var version: String?
     public init(policy: DeliveryPolicy, version: String?) { self.policy = policy; self.version = version }
-}
-
-/// A push to the paired iPhone (`companion.notify`): sent — handed to iTerm2's push relay — or, when
-/// not, why, in iTerm2's words where it gave them.
-public struct CompanionPushResult: Codable, Equatable, Sendable {
-    public var sent: Bool
-    public var reason: String?
-    public init(sent: Bool, reason: String?) { self.sent = sent; self.reason = reason }
 }
 
 /// The prompt a session has open, as the daemon's screen markers classify it.

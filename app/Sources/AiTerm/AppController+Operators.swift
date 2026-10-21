@@ -53,7 +53,9 @@ extension AppController {
         Task { [weak self] in
             let slices = await BackgroundWork.run { profile?().slices ?? .none }
             guard let self, self.canChangeWorkspace else { return }
-            self.sheets.presentNewBroadcast(slices: slices, loadJiraProjects: { [weak self] in try await self?.loadJiraProjects() ?? [] }) { [weak self] request in
+            self.sheets.presentNewBroadcast(slices: slices, loadJiraProjects: { [weak self] in try await self?.loadJiraProjects() ?? [] },
+                                            readiness: { [weak self] in self?.broadcastReadiness ?? .checking },
+                                            checkReadiness: { [weak self] in await self?.checkBroadcastReadiness() }) { [weak self] request in
                 let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              review: request.review, done: request.done)
@@ -61,6 +63,25 @@ extension AppController {
                 return id
             }
         }
+    }
+}
+
+extension AppController {
+    /// What New Broadcast's Start waits for, from the Agents cards' probes and the delivery check's file
+    /// as they stand: the same words the cards say.
+    var broadcastReadiness: BroadcastReadiness {
+        let messaging = self.messaging
+        return .of(installed: agents.availableAgents, snapshots: agents.harnessSettingsModel().snapshots,
+                   messaging: { messaging.readiness(of: $0) }, iterm: messaging.iterm)
+    }
+
+    /// Probes the cards of the agents the Operator may plan on, as Settings does when it opens, and reads
+    /// the delivery check's file until the task is cancelled: the sheet's, for as long as it is open.
+    func checkBroadcastReadiness() async {
+        let planned = ModelChoice.pair.filter(agents.availableAgents.contains), harness = agents.harnessSettingsModel()
+        async let probes: Void = harness.load(planned)
+        async let watch: Void = messaging.watch()
+        _ = await (probes, watch)
     }
 }
 
@@ -172,6 +193,16 @@ extension AppController {
     /// when it is open, reopened when it is closed (`OperatorController.reopenOperator`, which reports a refusal).
     func openOperatorWindow(_ run: OperatorRun) {
         focus.select(.operation(run.id))
+    }
+
+    /// The wake Notice's Open the Operator: the broadcast's Operator window brought forward, while it has one.
+    func openOperatorWindow(of id: UUID) {
+        if let run = state.run(id: id) { openOperatorWindow(run) }
+    }
+
+    /// Fix in Settings, from a Notice about an agent AiTerm can't type into: Settings at that agent's card.
+    func presentAgentSettings(for agent: AgentKind) {
+        presentSettings(tab: .agents, agent: agent)
     }
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer

@@ -22,6 +22,9 @@ public enum HarnessIntegrationState: Equatable, Sendable {
 public enum HarnessCheckID: String, Sendable {
     case cli, integration, models, daemon, delivery, context, operation
     case selectedModel = "selected-model"
+    /// Whether AiTerm may type into the CLI: the delivery check's verdict on the version installed
+    /// (`DeliveryCheck.messaging`), which the app adds to Claude Code's and Codex's cards.
+    case messaging
 
     /// The name the card gives the check. The UI calls every harness's integration a driver:
     /// hooks for Claude, Codex and Grok, an extension for PI — the same job, so one word.
@@ -35,6 +38,7 @@ public enum HarnessCheckID: String, Sendable {
         case .context: return "Context"
         case .operation: return "Setup"
         case .selectedModel: return "Default model"
+        case .messaging: return "Messaging"
         }
     }
 }

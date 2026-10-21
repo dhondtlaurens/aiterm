@@ -144,7 +144,7 @@ import Testing
         #expect(world.daemon.requests("session.deliver").isEmpty, "a paused run's operator is not woken")
         world.controller.mutateRun(run.id) { $0.state = .active }
         try await world.daemon.received("session.deliver")
-        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] 2 updates, call run_status")  // the task, and the resuming itself
+        #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] updates waiting, call run_status")  // the task, and the resuming itself
     }
 
     // -- a start that fails leaves nothing behind -----------------------------------------------

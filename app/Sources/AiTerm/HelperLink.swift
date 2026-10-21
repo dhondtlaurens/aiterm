@@ -19,6 +19,15 @@ final class HelperLink {
     /// Set when a client attaches, cleared by the first snapshot it delivers — the bootstrap one.
     @ObservationIgnored private var awaitingAttachSnapshot = false
 
+    /// The Python the helper runs on and the folder its package is in: what the delivery check runs
+    /// with too (`MessagingChecks.run`).
+    struct Runtime: Equatable {
+        let python: URL
+        let daemonDir: URL
+    }
+    /// Known once Python is found; nil before, and without one.
+    @ObservationIgnored private(set) var runtime: Runtime?
+
     private let socketPath: String
     /// The bundle's resources, where the daemon's package is.
     private let bundledResourcesURL: URL?
@@ -77,6 +86,7 @@ final class HelperLink {
                 return
             }
             let daemonDir = resources.appendingPathComponent("daemon"), link = self
+            runtime = Runtime(python: python, daemonDir: daemonDir)
             supervisor = DaemonSupervisor(python: python, daemonDir: daemonDir, socketPath: socketPath) { [weak link] status in
                 Task { @MainActor in link?.supervisorChanged(status) }
             }

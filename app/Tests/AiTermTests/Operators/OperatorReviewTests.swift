@@ -390,7 +390,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(r.world.task(r.task.id)?.operated?.state == .working, "the review changes nothing of its state")
         let read = await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"])
         #expect(read.value?["agentReview"]?["findings"] == "Line 3 leaks the token.")
-        #expect(await wakes(r.world) == ["[AiTerm] Claude reviewed A: call run_status"])
+        #expect(await wakes(r.world) == ["[AiTerm] Claude reviewed one task: call run_status"])
         #expect(r.world.run(r.run.id)?.leftForYou == [] && r.host.log.isEmpty, "nobody was notified")
     }
 
@@ -444,7 +444,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(await wakes(r.world) == [], "nothing new, no wake")
         r.host.update { $0.threads = [ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Rename this")] }
         await poll()
-        #expect(await wakes(r.world) == ["[AiTerm] review feedback on A: call run_status"])
+        #expect(await wakes(r.world) == ["[AiTerm] review feedback on one task: call run_status"])
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads == ["d1": false])
         await poll()
         #expect(await wakes(r.world).count == 1, "the same thread is no news")
@@ -522,7 +522,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         // Jan answers in the same thread: news.
         r.host.update { $0.threads[0] = ReviewThread(id: "d1", resolved: false, lastAuthor: "jan", lastBody: "Not quite, also the test.") }
         await poll()
-        #expect(await wakes(r.world) == ["[AiTerm] review feedback on A: call run_status", "[AiTerm] review feedback on A: call run_status"])
+        #expect(await wakes(r.world) == Array(repeating: "[AiTerm] review feedback on one task: call run_status", count: 2))
         // The same body again, and a stable signature across launches.
         #expect(ReviewWatcher.signature(ReviewThread(id: "x", resolved: false, lastAuthor: "jan", lastBody: "a")) == "jan:af63dc4c8601ec8c")
     }

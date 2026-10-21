@@ -130,15 +130,16 @@ final class SheetCoordinator {
     /// Not through `present`, which replaces whatever is up: Settings is the one sheet the app menu
     /// (⌘,) reaches while another is up, so it refuses rather than take that sheet's place, and it
     /// is put in the slot only once its connections are read — if the slot is still empty then.
-    /// `tab` is the tab it opens on; nil is the one it opened on last.
-    func presentSettings(tab: SettingsTab? = nil) {
+    /// `tab` is the tab it opens on; nil is the one it opened on last. `agent` opens Agents, scrolled to
+    /// that agent's card.
+    func presentSettings(tab: SettingsTab? = nil, agent: AgentKind? = nil) {
         guard canPresentSettings else { return }
         preparingSheet?.cancel()
         let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
         preparingSheet = Task {
             let saved = await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
             guard !Task.isCancelled, canPresentSettings else { return }
-            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: tab)
+            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: agent == nil ? tab : .agents, agent: agent)
         }
     }
 
@@ -146,8 +147,11 @@ final class SheetCoordinator {
     /// Operator's as the sheet opens, the profile the operator controller freezes as it starts the
     /// broadcast (`startBroadcast`). `/` lists both agents' skills from the person's home; `@` the files
     /// git tracks in the one picked project; the Jira picker the connection's Jira projects, fetched as
-    /// the Jira projects sheet fetches them. Not over another sheet.
+    /// the Jira projects sheet fetches them; Start waits for `readiness`, which `checkReadiness` reads
+    /// while the sheet is open. Not over another sheet.
     func presentNewBroadcast(slices: Slices, loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef],
+                             readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
+                             checkReadiness: @escaping @MainActor () async -> Void = {},
                              start: @escaping @MainActor (NewBroadcastModel.Request) async throws -> UUID) {
         guard canChangeWorkspace, sheet == nil else { return }
         preparingSheet?.cancel()
@@ -155,7 +159,8 @@ final class SheetCoordinator {
         sheet = .newBroadcast(NewBroadcastModel(projects: state.projects, slices: slices,
                                                 skills: { SkillCatalog.discover(agent: $0, projectPath: $1, home: home, claudeConfig: claudeConfig) },
                                                 files: { ProjectFiles.list(in: $0, git: git) }, loadJiraProjects: loadJiraProjects,
-                                                canChangeWorkspace: { workspace.canChangeWorkspace }, start: start))
+                                                canChangeWorkspace: { workspace.canChangeWorkspace },
+                                                readiness: readiness, checkReadiness: checkReadiness, start: start))
     }
 
     /// The broadcast's board, built by its caller, put in the slot at once (New Broadcast is built here, `presentNewBroadcast`).

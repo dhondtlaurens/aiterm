@@ -34,14 +34,18 @@ struct NewBroadcastSheet: View {
                 if Self.steps.showsDestination(onStep: step) { DestinationLine(NewBroadcastModel.destination) }
             }
         } footer: {
+            // What Start waits for is said on every step, so it can be put right before the prompt is written.
             CreationFooter(step: step, steps: Self.steps, error: model.error, availableAgents: [],
                            createLabel: NewBroadcastModel.createLabel, creating: model.starting,
                            canAdvance: model.canAdvance(step: step), closeList: closeOpenList,
-                           back: back, advance: advance, recover: {})
+                           back: back, advance: advance, recover: {},
+                           waiting: (BroadcastReadiness.title, model.notReadyLines))
         }
         // Both agents' skills, from the home and the picked projects: read again as the picks change.
         .task(id: model.projects.map(\.id)) { await model.loadCompletions() }
         .task { await model.loadJiraProjects() }
+        // The agents' cards and the delivery check's file, read for as long as the sheet is open.
+        .task { await model.checkReadiness() }
     }
 
     @ViewBuilder private var content: some View {

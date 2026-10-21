@@ -25,18 +25,19 @@ public struct BranchDrift: Codable, Equatable, Sendable {
         public init(branch: String?, sha: String?) { self.branch = branch; self.sha = sha }
     }
 
-    /// A SHA the worker's last message names: the commit it is in the repository, if it is one there,
-    /// whether the task branch holds it, and the branches that do.
+    /// A SHA the worker's last message names that is a commit in the repository: the commit it is, whether
+    /// the task branch holds it, and the branches that do. One that is no commit there is never named.
     public struct Named: Equatable, Sendable {
-        public var text: String, commit: String?, onTaskBranch: Bool, branches: [String]
-        public init(text: String, commit: String?, onTaskBranch: Bool, branches: [String] = []) {
+        public var text: String, commit: String, onTaskBranch: Bool, branches: [String]
+        public init(text: String, commit: String, onTaskBranch: Bool, branches: [String] = []) {
             self.text = text; self.commit = commit; self.onTaskBranch = onTaskBranch; self.branches = branches
         }
     }
 
     /// The words of `message` that may be a commit's SHA: 7 to 40 lowercase hex characters, at least one a
     /// digit, standing alone. A word of letters alone (`defaced`) or a piece of a UUID or a hyphenated id is
-    /// not one. One of digits alone may be a number: it counts only once git finds the commit (`isNumber`).
+    /// not one. Each counts only once git finds the commit: digits alone are a number, and another hex string
+    /// a session id or a hash quoted as evidence, until then.
     public static func shaCandidates(in message: String) -> [String] {
         let words = message.split { !($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
         var seen: Set<String> = []
@@ -45,9 +46,6 @@ public struct BranchDrift: Codable, Equatable, Sendable {
                 && word.contains(where: \.isNumber) && seen.insert(word).inserted
         }
     }
-
-    /// A candidate of digits alone, which reads as a number as well as a SHA.
-    public static func isNumber(_ candidate: String) -> Bool { candidate.allSatisfy(\.isNumber) }
 
     /// What AiTerm finds of `taskBranch`'s worker, its HEAD first. `head` nil is a worktree git couldn't
     /// read, and `named` nil a last message not read now (the worker still at work): each says nothing,
@@ -70,10 +68,8 @@ public struct BranchDrift: Codable, Equatable, Sendable {
 
     private static func messageDrift(_ named: [Named], taskBranch: String) -> BranchDrift? {
         guard let off = named.first(where: { !$0.onTaskBranch }) else { return nil }
-        let found = off.commit == nil
-            ? "Its last message names \(off.text), which isn't a commit in this repository, so not on its task branch \(taskBranch)."
-            : "Its last message names \(off.text), which isn't on its task branch \(taskBranch)"
-              + (off.branches.isEmpty ? "." : ": it is on \(off.branches.joined(separator: ", ")).")
+        let found = "Its last message names \(off.text), which isn't on its task branch \(taskBranch)"
+            + (off.branches.isEmpty ? "." : ": it is on \(off.branches.joined(separator: ", ")).")
         return BranchDrift(source: .lastMessage, branch: off.branches.first, sha: off.text, found: found)
     }
 }

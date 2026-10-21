@@ -83,6 +83,19 @@ final class DaemonOperatorWireTests {
         #expect(delivery == Delivery(result: .refused, reason: nil))
     }
 
+    @Test(arguments: [("typing", DeliveryCode.typing), ("prompt", .prompt), ("somethingNew", .unknown)])
+    func aRefusalReadsItsCodeAndOneThisAppDoesNotKnowAsUnknown(_ raw: String, _ code: DeliveryCode) async throws {
+        try connect { _ in ["result": "refused", "reason": "why", "code": raw] }
+        let delivery = try await client.deliver(sessionId: "s1", text: "hi", ownership: 1, wake: true, worktree: nil)
+        #expect(delivery == Delivery(result: .refused, reason: "why", code: code))
+    }
+
+    @Test func aDaemonThatNamesNoCodeReadsAsNone() async throws {
+        try connect { _ in ["result": "refused", "reason": "why"] }
+        let delivery = try await client.deliver(sessionId: "s1", text: "hi", ownership: 1, wake: true, worktree: nil)
+        #expect(delivery.code == nil)
+    }
+
     @Test func theSessionAndOperatorRequestsNameWhatTheyAreAbout() async throws {
         try connect { _ in [String: Any]() }
         try await client.setOwnership(sessionId: "s1", ownership: 4)

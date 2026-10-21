@@ -17,7 +17,9 @@ public final class BackpackSettings: @unchecked Sendable {
         static let network = "backpack.network"
         static let engaged = "backpack.engaged"
         static let password = "backpack.password"
-        static let pushes = "backpack.pushes"
+        /// Notifies' choice, saved by builds that pushed to the iPhone through iTerm2 Buddy: never
+        /// read, and removed by the next save.
+        static let retired = ["backpack.pushes"]
     }
 
     private let defaults: UserDefaults?
@@ -49,14 +51,6 @@ public final class BackpackSettings: @unchecked Sendable {
         set { write(newValue, Key.network) }
     }
 
-    /// What reaches the iPhone while the lid is shut: the sheet's Notifies, saved by Connect as the
-    /// hotspot is. Unlike Turns off it is remembered — it can never keep a Mac awake in a bag. A value
-    /// this build does not know reads as the default.
-    public var pushes: BackpackPushes {
-        get { (read(Key.pushes) as? String).flatMap(BackpackPushes.init(rawValue:)) ?? .needsInput }
-        set { write(newValue.rawValue, Key.pushes) }
-    }
-
     /// Set just before `disablesleep 1` and cleared just after `disablesleep 0`, so a launch after a
     /// crash knows to put sleep back.
     public var engaged: Bool {
@@ -70,7 +64,11 @@ public final class BackpackSettings: @unchecked Sendable {
     }
 
     private func write(_ value: Any?, _ key: String) {
-        if let defaults { defaults.set(value, forKey: key); return }
+        if let defaults {
+            defaults.set(value, forKey: key)
+            Key.retired.forEach(defaults.removeObject(forKey:))
+            return
+        }
         lock.withLock { _ in memory[key] = value }
     }
 }

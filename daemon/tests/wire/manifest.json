@@ -1,4 +1,22 @@
 {
+  "deliveryCodes": [
+    "itermDisconnected",
+    "itermRefused",
+    "messageFile",
+    "notChecked",
+    "nothing",
+    "ownership",
+    "pasteOnly",
+    "prompt",
+    "replaced",
+    "screenUnread",
+    "sessionClosed",
+    "typing",
+    "unrecognisedScreen",
+    "unsentInput",
+    "unsupported",
+    "wakeText"
+  ],
   "errorCodes": [
     "bad_params",
     "internal",
@@ -43,10 +61,6 @@
       "window.closed": "event.window.closed.json"
     },
     "replies": {
-      "companion.notify": [
-        "reply.companion.notify.json",
-        "reply.companion.notify.refused.json"
-      ],
       "delivery.policy": [
         "reply.delivery.policy.json"
       ],
@@ -69,7 +83,8 @@
         "reply.operator.revoke.json"
       ],
       "session.deliver": [
-        "reply.session.deliver.json"
+        "reply.session.deliver.json",
+        "reply.session.deliver.refused.json"
       ],
       "session.dismissStartup": [
         "reply.session.dismissStartup.json"
@@ -118,7 +133,6 @@
   },
   "maxFrameBytes": 1048576,
   "methods": [
-    "companion.notify",
     "delivery.policy",
     "interface.setMatchItermBackground",
     "iterm.provideCookie",

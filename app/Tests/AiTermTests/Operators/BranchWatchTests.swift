@@ -32,7 +32,7 @@ import Testing
     }
 
     func driftLines(_ world: OperatorWorld) -> [String] {
-        world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("off its task branch") }
+        world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.hasSuffix("call run_status") }
     }
 
     @Test func aWorkerOnItsTaskBranchIsNotFlagged() async throws {
@@ -55,7 +55,7 @@ import Testing
         let status = try #require(world.controller.status(of: current))
         #expect(status.obligations.branchDrift == ["PLUTO-1"])
         #expect(await eventually(describing: "the operator told") {
-            driftLines(world) == ["[AiTerm] PLUTO-1 committed off its task branch, call run_status"]
+            driftLines(world) == ["[AiTerm] one task committed off its task branch, call run_status"]
         })
         await tick(world)
         await world.controller.waker.lastSend?.value
@@ -102,6 +102,21 @@ import Testing
         try saveReply("Committed \(sha). Run 2f9c4b7e-5a1d-4c3b-9e8f-0a1b2c3d4e5f stays; 1234567 rows read.", conversation: "conv-2", in: world)
         await tick(world)
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
+    }
+
+    /// A hex string that is no commit in the repository is no evidence of drift: a session id or a hash the
+    /// worker quotes. Only a commit the repository has, off the task branch, is flagged.
+    @Test func aHexStringThatIsNoCommitIsIgnored() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .idle, conversation: "conv-3")
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the fix"], in: worktree)
+        let sha = try git.run(["rev-parse", "HEAD"], in: worktree)
+        try saveReply("Committed \(sha). Evidence: session 0f3c9a7e1b2d4c5f6a7b8c9d0e1f2a3b, cache key 5e4d3c2b1a0f9e8.",
+                      conversation: "conv-3", in: world)
+        await tick(world)
+        #expect(world.task(task.id)?.operated?.branchDrift == nil)
+        let current = try #require(world.run(run.id))
+        #expect(try #require(world.controller.status(of: current)).obligations.branchDrift.isEmpty)
+        #expect(driftLines(world).isEmpty, "nothing to tell")
     }
 
     /// Each worker tab's last message is read once its own turn ended: an extra tab's names a commit off the task

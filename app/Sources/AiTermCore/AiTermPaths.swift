@@ -22,6 +22,12 @@ public enum AiTermPaths {
         supportDirectory(home: home).appendingPathComponent("hook-port")
     }
 
+    /// The delivery check's verdicts (`daemon/tools/delivery_check.py`), which the helper reads on
+    /// every delivery (`delivery.POLICY_PATH`) and Settings › Agents on every card.
+    public static func deliveryPolicyURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        supportDirectory(home: home).appendingPathComponent("delivery-policy.json")
+    }
+
     /// The command of the user's own Claude Code status line, which the shim runs.
     public static func statusLineOriginalURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         supportDirectory(home: home).appendingPathComponent("statusline-original.cmd")

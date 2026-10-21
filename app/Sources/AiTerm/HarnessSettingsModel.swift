@@ -49,10 +49,11 @@ final class HarnessSettingsModel {
         self.cliInstalled = cliInstalled
     }
 
-    /// Every harness at once, so a slow one (PI launches its CLI twice) holds up only its own card.
-    func load() async {
+    /// Every harness at once, so a slow one (PI launches its CLI twice) holds up only its own card;
+    /// New Broadcast probes only the agents the Operator may plan on.
+    func load(_ agents: [AgentKind] = AgentKind.allCases) async {
         await withTaskGroup(of: Void.self) { group in
-            for agent in AgentKind.allCases {
+            for agent in agents {
                 group.addTask { await self.refresh(agent) }
             }
         }

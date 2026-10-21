@@ -52,6 +52,10 @@ final class NewBroadcastModel: Identifiable {
     @ObservationIgnored private let startBroadcast: @MainActor (Request) async throws -> UUID
     @ObservationIgnored private let fetchJiraProjects: @MainActor () async throws -> [JiraProjectRef]
     @ObservationIgnored private let canChangeWorkspace: @MainActor () -> Bool
+    /// What Start Broadcast waits for (`BroadcastReadiness`), read where it is kept: the cards' probes
+    /// and the delivery check's file, both observed, so the footer follows them while the sheet is up.
+    @ObservationIgnored private let readinessSource: @MainActor () -> BroadcastReadiness
+    @ObservationIgnored private let prepareReadiness: @MainActor () async -> Void
 
     static let title = "New broadcast"
     static let stepNames = ["Broadcast", "Prompt", "Review", "Done"]
@@ -73,16 +77,22 @@ final class NewBroadcastModel: Identifiable {
     /// The agents whose skills `/` lists: the two a task can run on.
     static let skillAgents: [AgentKind] = [.claude, .codex]
 
+    /// `readiness` is what Start waits for as it stands; `checkReadiness` reads it, for as long as the
+    /// sheet is open. A test or a snapshot that leaves them out is ready at once.
     init(projects: [Project], slices: Slices,
          skills: @escaping @Sendable (AgentKind, String?) -> [AgentCompletion] = { SkillCatalog.discover(agent: $0, projectPath: $1) },
          files: @escaping @Sendable (String) -> FileIndex = { _ in .empty },
          loadJiraProjects: @escaping @MainActor () async throws -> [JiraProjectRef] = { [] },
          canChangeWorkspace: @escaping @MainActor () -> Bool = { true },
+         readiness: @escaping @MainActor () -> BroadcastReadiness = { .ready },
+         checkReadiness: @escaping @MainActor () async -> Void = {},
          start: @escaping @MainActor (Request) async throws -> UUID) {
         offeredProjects = projects
         linkedJiraProjects = projects.flatMap(\.jiraProjects).linkedOnce
         fetchJiraProjects = loadJiraProjects
         self.canChangeWorkspace = canChangeWorkspace
+        readinessSource = readiness
+        prepareReadiness = checkReadiness
         self.slices = slices
         self.skills = skills
         self.files = files
@@ -199,13 +209,24 @@ final class NewBroadcastModel: Identifiable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Step 1 needs a project; every later step a prompt too. Review and Done may be left empty.
+    /// Step 1 needs a project; every later step a prompt too. Review and Done may be left empty. Start
+    /// Broadcast also waits for everything the broadcast needs to be ready (`readiness`); Continue never does.
     func canAdvance(step: Int) -> Bool {
         guard !starting, canChangeWorkspace(), !projects.isEmpty else { return false }
-        return step == 1 || Self.said(prompt) != nil
+        guard step == 1 || Self.said(prompt) != nil else { return false }
+        return step < CreationSteps.broadcast.count || readiness == .ready
     }
 
     var canStart: Bool { canAdvance(step: CreationSteps.broadcast.count) }
+
+    /// What Start waits for, as it stands now.
+    var readiness: BroadcastReadiness { readinessSource() }
+
+    /// The footer's lines while something is not ready: one per agent, and iTerm2's.
+    var notReadyLines: [String] { readiness.lines }
+
+    /// Reads what Start waits for, until the sheet's task ends.
+    func checkReadiness() async { await prepareReadiness() }
 
     /// Starts the broadcast and returns its id, or nil with why in `error`.
     func start() async -> UUID? {

@@ -110,7 +110,11 @@ import AiTermTestSupport
         #expect(line.utf8.count > AgentCommand.inlineLimit)
 
         #expect(prepared.command == "eval \"$(command cat launch.sh)\"")
-        #expect(try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.launchFile), encoding: .utf8) == line)
+        #expect(prepared.command.utf8.count <= AgentCommand.inlineLimit)
+        let launch = prepared.folder.appendingPathComponent(OperatorCommand.launchFile)
+        #expect(try String(contentsOf: launch, encoding: .utf8) == line)
+        #expect(try FileManager.default.attributesOfItem(atPath: launch.path)[.posixPermissions] as? Int == 0o600,
+                "readable by you alone, as the token is")
         let message = try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
         let ran = try ShellLine.run(shell, "claude() { /usr/bin/printf '%s\\0' \"$@\"; }\neval \"$1\"", argument: prepared.command,
                                     in: prepared.folder)

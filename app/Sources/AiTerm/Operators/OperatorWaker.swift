@@ -2,10 +2,12 @@ import Foundation
 import AiTermCore
 
 /// Wakes an idle operator when `run_status` would show it something new (spec §7.3): one short fixed
-/// line typed into its own tab — `[AiTerm] 2 updates, call run_status` — through the daemon's delivery
-/// with `wake: true`, which holds it while you type there. A burst within `coalesce` is one line. A
-/// working operator is not typed at: the line waits for its tab to be idle. Wake lines are hints: the
-/// operator's next `run_status` shows everything, whether or not one landed.
+/// line typed into its own tab — `[AiTerm] updates waiting, call run_status` — through the daemon's
+/// delivery with `wake: true`, which holds it while you type there and needs no pass from the delivery
+/// check. A burst within `coalesce` is one line. A working operator is not typed at: the line waits for
+/// its tab to be idle. Wake lines are hints: the operator's next `run_status` shows everything, whether
+/// or not one landed. A line refused for anything but your typing or a prompt waiting on you is reported
+/// (`refused`) for the sidebar's Notice, which `cleared` takes down.
 @MainActor
 final class OperatorWaker {
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -45,6 +47,10 @@ final class OperatorWaker {
     struct Reason: Equatable { var text: String, colon: Bool }
     /// The latest delivery, for a test to await.
     private(set) var lastSend: Task<Void, Never>?
+    /// A wake line the daemon refused for anything but a prompt that waits on you (`OperatorWakeNotice`).
+    var refused: (@MainActor (UUID, Delivery) -> Void)?
+    /// The operator is awake, or its run is gone: it called `run_status`, a wake line was delivered, or the run was forgotten.
+    var cleared: (@MainActor (UUID) -> Void)?
     /// The latest coalescing pass, for a test to release and await.
     private(set) var lastCoalesce: Task<Void, Never>?
 
@@ -77,6 +83,7 @@ final class OperatorWaker {
         wake.clearPending()
         wake.acknowledgedStatus = status
         wake.lastSeen = status
+        cleared?(run)
     }
 
     /// One synchronous change the tool made: callers bracket the write, never an await. News that
@@ -86,8 +93,9 @@ final class OperatorWaker {
         acknowledged(after, of: run)
     }
 
-    /// A fixed reason to wake it — `reconnected`, `operation complete` — which is the line when it is the only news.
-    /// `colon` joins it to the call with a colon: `[AiTerm] Codex reviewed PAY-2: call run_status`.
+    /// A fixed reason to wake it — `reconnected`, `operation complete` — which is the line when it is the only news
+    /// and plain (`isPlain`). `colon` joins it to the call with a colon, after news about one task:
+    /// `[AiTerm] <reason>: call run_status`.
     func say(_ reason: String, to run: UUID, unlessAcknowledged status: RunStatus? = nil, colon: Bool = false) {
         let wake = state(for: run)
         if let status, Self.content(status) == wake.acknowledgedStatus { return }
@@ -114,6 +122,7 @@ final class OperatorWaker {
         wake.lastSeen = nil
         wake.isForgotten = true
         if wake.sending == nil { wakes[run] = nil }
+        cleared?(run)
     }
 
     private func state(for run: UUID) -> WakeState {
@@ -123,9 +132,24 @@ final class OperatorWaker {
         return wake
     }
 
+    /// The line for `count` updates: the reason when it is the only news and plain enough to type (`isPlain`),
+    /// otherwise that updates wait. Never a count: no line carries a digit.
     static func line(updates count: Int, reason: Reason?) -> String {
-        if let reason, count <= 1 { return "[AiTerm] \(reason.text)\(reason.colon ? ":" : ",") call run_status" }
-        return "[AiTerm] \(count) update\(count == 1 ? "" : "s"), call run_status"
+        if let reason, count <= 1, isPlain(reason.text) { return "[AiTerm] \(reason.text)\(reason.colon ? ":" : ",") call run_status" }
+        return "[AiTerm] updates waiting, call run_status"
+    }
+
+    /// Whether `text` may go into a wake line: no digit and no one-letter word, which a menu opening as the
+    /// line arrives could take for its answer (`1`, `y`, `a`); the daemon refuses such a line too
+    /// (`delivery.wake_text_problem`). A reason that names a task by its key (`PAY-2`) is not plain: the line
+    /// then says only that updates wait, and `run_status` says which.
+    static func isPlain(_ text: String) -> Bool {
+        guard !text.contains(where: \.isNumber) else { return false }
+        let edges = CharacterSet.punctuationCharacters.union(.symbols)
+        return !text.split(whereSeparator: \.isWhitespace).contains { word in
+            let bare = String(word).trimmingCharacters(in: edges)
+            return bare.count == 1 && bare.first?.isLetter == true
+        }
     }
 
     /// A status as the operator reads its news: the revision counts calls, not changes, and the usage
@@ -170,8 +194,14 @@ final class OperatorWaker {
                 return
             }
             // Typed, or left in the input for the person to send: the news is out. Refused — the person
-            // typing there, a prompt open — it waits for the next idle moment, or `retryAfter`.
-            guard let delivery, delivery.result != .refused else { retryLater(run, wake); return }
+            // typing there, a prompt open — it waits for the next idle moment, or `retryAfter`. Any refusal
+            // but those, which already wait on the person, is theirs to see (`refused`).
+            guard let delivery, delivery.result != .refused else {
+                if let delivery, OperatorWakeNotice.shows(delivery.code) { refused?(run, delivery) }
+                retryLater(run, wake)
+                return
+            }
+            if delivery.result == .delivered { cleared?(run) }
             wake.retrying?.cancel(); wake.retrying = nil
             wake.updates = max(0, wake.updates - snapshot.count)
             if wake.updates == 0 { wake.reason = nil }

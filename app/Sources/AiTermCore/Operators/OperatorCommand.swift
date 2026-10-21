@@ -108,14 +108,15 @@ public enum OperatorCommand {
     /// What the Operator's window has typed: `line` itself, or, past `AgentCommand.inlineLimit` (many
     /// projects, each its `--add-dir`), a line that reads it from `launch.sh` in the run folder, as a
     /// task's long first prompt is read from `.aiterm/first-prompt.md`: a terminal still in canonical
-    /// mode keeps only 1024 bytes of a line. A launch short enough to type removes an earlier one's file.
+    /// mode keeps only 1024 bytes of a line. The file is readable by you alone, as the token is: it runs in your
+    /// shell. A launch short enough to type removes an earlier one's file.
     static func typed(_ line: String, in folder: URL) throws -> String {
         let file = folder.appendingPathComponent(launchFile)
         guard line.utf8.count > AgentCommand.inlineLimit else {
             try? FileManager.default.removeItem(at: file)
             return line
         }
-        try Data(line.utf8).write(to: file, options: .atomic)
+        try writePrivate(Data(line.utf8), to: file)
         return "eval \"$(command cat \(launchFile))\""
     }
 

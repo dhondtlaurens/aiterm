@@ -110,6 +110,9 @@ final class OperatorController {
     /// gone (spec §13): the board's footer says so and offers Start Fresh. Cleared by a reopening that
     /// opens one, and by Start Fresh. Observed, so the board open in front of it changes at once.
     var reopenFailed: Set<UUID> = []
+    /// The Operator's wake line refused for anything but a prompt waiting on you: the sidebar's Notice. Taken
+    /// down once the Operator calls `run_status`, a later wake line is delivered, or its broadcast is forgotten.
+    var wakeNotice: OperatorWakeNotice?
     /// The operations whose operator window is being opened now (`reopenOperatorWindow`, D16): a second
     /// click on the row meanwhile opens no second operator.
     @ObservationIgnored var reopeningOperator: Set<UUID> = []
@@ -179,12 +182,19 @@ final class OperatorController {
             self?.observeRuns()
             self?.heardWorkspace()
         }
+        waker.refused = { [weak self] run, delivery in
+            guard let self else { return }
+            wakeNotice = OperatorWakeNotice(run: run, status: self.run(id: run).flatMap(status(of:)), refusal: delivery)
+        }
+        waker.cleared = { [weak self] run in
+            if self?.wakeNotice?.run == run { self?.wakeNotice = nil }
+        }
         tools.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
-            self?.waker.say("\(operated.key) is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)
+            self?.waker.say("one task is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)
         }
         starter.onBlocked = { [weak self] task, _ in
             guard let self, let runId = task.operated?.runId else { return }
@@ -568,7 +578,7 @@ final class OperatorController {
             guard let operated = workspace.state.task(id: id)?.operated else { continue }
             quiet[operated.runId, default: []].append(operated.key)
         }
-        for (run, keys) in quiet { waker.say("\(keys.joined(separator: ", ")) may be stalled", to: run) }
+        for (run, keys) in quiet { waker.say(keys.count == 1 ? "one task may be stalled" : "some tasks may be stalled", to: run) }
     }
 
     /// Starts the reconcile loop; AiTerm's `start()` calls it. The merges AiTerm was waiting for when it
@@ -592,9 +602,7 @@ final class OperatorController {
     /// settled, so an operation's last merge completes it (spec §9).
     func publicationChanged(_ id: UUID) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
-        let line = operated.state == .published ? "\(operated.key) merged"
-            : "\(operated.key) can’t merge: \(operated.publication?.problem ?? "the host gave no reason")"
-        waker.say(line, to: operated.runId)
+        waker.say(operated.state == .published ? "one task merged" : "one task can’t merge", to: operated.runId)
         runChanged(operated.runId)
     }
 
@@ -602,7 +610,7 @@ final class OperatorController {
     /// is told once, with the reason recorded on the task.
     func mergeWatchStopped(_ id: UUID, _ why: String) {
         guard let operated = workspace.state.task(id: id)?.operated else { return }
-        waker.say("\(operated.key): the merge watch stopped, \(why); call finish_task again when it can go on", to: operated.runId)
+        waker.say("one task’s merge watch stopped", to: operated.runId, colon: true)
     }
 
     /// The host merged the task's request with a head nobody accepted (spec §6): only you can say how the

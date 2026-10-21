@@ -1,0 +1,8 @@
+{
+  "id": 31,
+  "result": {
+    "code": "unsupported",
+    "reason": "AiTerm cannot read whether a prompt is open in pi",
+    "result": "refused"
+  }
+}

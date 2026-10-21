@@ -19,6 +19,7 @@ struct OperatorSnapshotTests {
         "banner-find-a-fix-offered.png", "banner-find-a-fix-looking.png", "banner-find-a-fix-proposal.png",
         "banner-find-a-fix-failed.png",
         "notice-footer.png",
+        "new-broadcast-4-not-ready.png",
     ]
 
     @Test func everyOperatorStateHasItsImage() {

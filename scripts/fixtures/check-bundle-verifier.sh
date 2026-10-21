@@ -5,10 +5,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture_dir="$(mktemp -d -t aiterm-bundle-fixture)"
 trap 'rm -rf "$fixture_dir"' EXIT
 app="$fixture_dir/AiTerm.app"
-mkdir -p "$app/Contents/Resources/hooks" "$app/Contents/MacOS"
+mkdir -p "$app/Contents/Resources/hooks" "$app/Contents/Resources/daemon/tools" "$app/Contents/MacOS"
 cp "$ROOT/app/Sources/AiTerm/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$ROOT/app/Sources/AiTerm/Resources/AiTerm.icns" "$app/Contents/Resources/"
 cp "$ROOT/hooks/"* "$app/Contents/Resources/hooks/"
+cp "$ROOT/daemon/tools/delivery_check.py" "$app/Contents/Resources/daemon/tools/"
 touch "$app/Contents/MacOS/AiTerm"
 chmod +x "$app/Contents/MacOS/AiTerm"
 cat > "$fixture_dir/python" <<'PYTHON'
@@ -31,6 +32,16 @@ for hook in claude-statusline-shim.sh grok-statusline-shim.sh pi-aiterm-status.t
     }
     cp "$ROOT/hooks/$hook" "$app/Contents/Resources/hooks/$hook"
 done
+check="$app/Contents/Resources/daemon/tools/delivery_check.py"
+print '# stale bundled resource' >> "$check"
+rc=0
+PYTHON="$fixture_dir/python" "$ROOT/scripts/test-app-bundle.sh" "$app" >"$fixture_dir/output" 2>&1 || rc=$?
+[[ "$rc" == 1 ]] && grep -Fq "bundled delivery check is missing or differs" "$fixture_dir/output" || {
+    print -u2 "bundle verifier missed a changed delivery check (status $rc)"
+    cat "$fixture_dir/output" >&2
+    exit 1
+}
+cp "$ROOT/daemon/tools/delivery_check.py" "$check"
 
 # Exercise the real Python metadata checks with isolated stub modules and distribution metadata.
 # The signer boundary returns 73; no signature is created or claimed by this fixture.

@@ -47,6 +47,25 @@ struct OperatorProjectionTests {
         #expect(rows.broadcast?.status == .working)
     }
 
+    /// The tabs are read for the broadcast's line too: a task whose worker ended its turn waits to be accepted,
+    /// on the row and the board's band alike.
+    @Test func aWorkerThatEndedItsTurnIsReadyToAcceptOnTheBroadcastsLine() throws {
+        let controller = try controller(), rows = controller.rows
+        let project = OperatorUIFixtures.project("pluto-web"), run = OperatorUIFixtures.run()
+        let task = OperatorUIFixtures.task("The homepage section", project: project.id, windowId: "w9",
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
+        controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
+        func worker(_ state: SessionState) -> SessionInfo {
+            SessionInfo(sessionId: "w1", windowId: "w9", tabIndex: 0, taskId: task.id.uuidString, projectId: project.id.uuidString,
+                        agent: .claude, model: nil, state: state, title: "", cwd: "/")
+        }
+        controller.live.sessions = [worker(.working)]
+        #expect(rows.broadcast?.line == OperatorLine("working · 1 task", look: .acting))
+        controller.live.sessions = [worker(.idle)]
+        #expect(rows.broadcast?.line == OperatorLine("ready to accept · 1 task"))
+        #expect(rows.board?.band == OperatorLine("ready to accept · 1 task"))
+    }
+
     @Test func whatTheOperatorActsOnRedrawsTheTaskItDrives() throws {
         let controller = try controller(), rows = controller.rows
         let project = OperatorUIFixtures.project("pluto-web"), run = OperatorUIFixtures.run()
