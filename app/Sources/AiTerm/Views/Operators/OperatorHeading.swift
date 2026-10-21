@@ -4,13 +4,13 @@ import AiTermCore
 
 /// `OPERATOR`, above `PROJECTS` (spec §3, §13): a `SidebarHeading` whose "+" — an `AddMenu` with New
 /// Broadcast… — is the one way to start a broadcast, so it is drawn with no broadcast at all. While one
-/// exists the "+" is absent and the broadcast row sits under the heading: one broadcast at a time.
+/// exists the "+" is absent and the broadcast's group sits under the heading: one broadcast at a time.
 struct OperatorHeading: View {
     let controller: AppController
     @Environment(\.interfaceScale) private var scale
 
     /// Whether the heading offers New Broadcast…: only while there is no broadcast.
-    static func offersNewBroadcast(_ broadcast: BroadcastRow?) -> Bool { broadcast == nil }
+    static func offersNewBroadcast(_ broadcast: BroadcastSection?) -> Bool { broadcast == nil }
 
     var body: some View {
         HStack {

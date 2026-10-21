@@ -260,16 +260,16 @@ final class AppController {
         notices.makesFixes { [weak self] in self?.makeFix(for: $0) }
         // A notification's click: an overview opens over the sidebar, a task's window comes forward.
         operatorPorts.notifications.onOpen = { [weak self] in self?.openNote($0) }
-        // The broadcast row and the driven task rows read what the Operator is acting on, which the
+        // The broadcast's group and the driven task rows read what the Operator is acting on, which the
         // operator controller owns; a change to it derives the rows again.
         let operators = operatorController
         rows.actingSource = { [weak operators] in operators?.acting ?? .none }
         operators.onChange { [weak self] in self?.refreshRows() }
         refreshRows()
-        // A chosen broadcast without a window — closed, or its Operator offline — is the operator
-        // controller's to reopen.
-        focus.onChoosingOperationWithoutWindow { [weak operators] id, behind in
-            Task { await operators?.reopenOperator(run: id, background: behind) }
+        // The Operator's row chosen without a window — closed, or its Operator offline — is the operator
+        // controller's to reopen, in front.
+        focus.onChoosingOperationWithoutWindow { [weak operators] id in
+            Task { await operators?.reopenOperator(run: id) }
         }
         // A driven task whose window you closed: its conversation resumed by the operator controller,
         // never a second worker beside a live one (integration decision 7). The row raises the window
@@ -362,7 +362,7 @@ final class AppController {
     /// moved — a section changed, a removal started or ended — and the label almost never changes.
     /// It counts what Focus View steps through, from the same rows.
     private func updateDockBadge() {
-        let label = DockBadge.label(for: rows.sections, skippingTasks: remover.leavingTasks)
+        let label = DockBadge.label(for: rows.sections, broadcast: rows.broadcast, skippingTasks: remover.leavingTasks)
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         setBadge(label)
@@ -378,6 +378,7 @@ final class AppController {
     @discardableResult
     func pullDefault(project: Project) -> Task<Void, Never>? { projects.pullDefault(project: project) }
     func toggleCollapsed(_ project: Project) { projects.toggleCollapsed(project) }
+    func toggleFolded(run id: UUID) { projects.toggleFolded(run: id) }
     func canMove(itemId: UUID, _ step: MoveStep) -> Bool { projects.canMove(itemId: itemId, step) }
     @discardableResult
     func move(itemId: UUID, _ step: MoveStep) -> Bool { projects.move(itemId: itemId, step) }
@@ -390,27 +391,29 @@ final class AppController {
 
     // -- Focus View and List View -----------------------------------------------------
     /// Whether Focus View would do anything. Off behind a sheet, whose search fields are where ⌘F
-    /// would otherwise land, and with no project that has rows (`SidebarModel.focusView`).
-    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections)) }
+    /// would otherwise land, and with no project that has rows and no broadcast (`SidebarModel.focusView`).
+    var canShowFocusView: Bool { canApplyView(SidebarModel.focusView(rows.sections, broadcast: rows.broadcast)) }
     /// Whether List View would do anything: off behind a sheet, as Focus View, and with no project
-    /// that has rows to open.
-    var canShowListView: Bool { canApplyView(SidebarModel.listView(rows.sections)) }
+    /// that has rows to open and no broadcast.
+    var canShowListView: Bool { canApplyView(SidebarModel.listView(rows.sections, broadcast: rows.broadcast)) }
 
-    /// ⌘F: opens every project with a done or needs-input row and folds the rest — all of them when
-    /// nothing is waiting — in one save, then peeks at the first row waiting on you: selected and its
-    /// window shown, the keyboard left in the sidebar and a task still unseen. With nothing waiting
-    /// the selection stays. The peek is returned, when there is one.
+    /// ⌘F: opens every project with a done or needs-input row, and the broadcast's group while something
+    /// in it needs you, and folds the rest — all of them when nothing is waiting — in one save, then peeks
+    /// at the first row waiting on you: selected and its window shown, the keyboard left in the sidebar
+    /// and a task still unseen. With nothing waiting the selection stays. The peek is returned, when there
+    /// is one.
     @discardableResult
     func showFocusView() -> Task<Void, Never>? {
-        let sections = rows.sections
-        guard applyView(SidebarModel.focusView(sections)) else { return nil }
+        let sections = rows.sections, broadcast = rows.broadcast
+        guard applyView(SidebarModel.focusView(sections, broadcast: broadcast)) else { return nil }
         // A peek, as the arrows would: the keyboard stays here to arrow through what is waiting.
         // Forced: a waiting row already selected can have its window buried under others.
-        guard let first = SidebarModel.firstNeedingAttention(sections, skippingTasks: remover.leavingTasks) else { return nil }
+        guard let first = SidebarModel.firstNeedingAttention(sections, broadcast: broadcast, skippingTasks: remover.leavingTasks)
+        else { return nil }
         return focus.peek(RowSelection(first), force: true)
     }
-    /// ⌘L: opens every project with rows, in one save.
-    func showListView() { applyView(SidebarModel.listView(rows.sections)) }
+    /// ⌘L: opens every project with rows, and the broadcast's group, in one save.
+    func showListView() { applyView(SidebarModel.listView(rows.sections, broadcast: rows.broadcast)) }
 
     private func canApplyView(_ layout: [UUID: Bool]) -> Bool {
         canChangeWorkspace && sheet == nil && !layout.isEmpty
@@ -541,7 +544,7 @@ final class AppController {
         case .project(let id): state.project(id: id)
         case .task(let id): state.task(id: id).flatMap { state.project(id: $0.projectId) }
         case .terminal(let id): state.terminal(id: id).flatMap { state.project(id: $0.projectId) }
-        case .operation, nil: nil
+        case .broadcast, .operation, nil: nil
         }
     }
 
@@ -563,9 +566,10 @@ final class AppController {
         }
     }
 
-    /// ↩ on the list: a header folds or opens its project; the broadcast row opens its overview; any
-    /// other row goes to its window. An empty project has nothing to fold, so its header opens its
-    /// context menu — its first items are the ones that give it a row.
+    /// ↩ on the list: a header folds or opens its project, a broadcast's header its group; any other row
+    /// goes to its window, the Operator's row to the Operator's, and a queued task's to none. An empty
+    /// project has nothing to fold, so its header opens its context menu — its first items are the ones
+    /// that give it a row.
     @discardableResult
     func activateSelection() -> Task<Void, Never>? {
         if let project = focus.selectedProjectId.flatMap(state.project(id:)) {
@@ -578,8 +582,11 @@ final class AppController {
             }
             return nil
         }
-        // The broadcast row's ↩ is its click: the overview.
-        if let id = focus.selectedOperationId { return openBroadcast(id) }
+        // The broadcast's header folds, as its click does; its board is its button's and its menu's.
+        if let id = focus.selectedBroadcastId {
+            toggleFolded(run: id)
+            return nil
+        }
         return focus.activateSelection()
     }
 

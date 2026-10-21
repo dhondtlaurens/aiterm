@@ -4,7 +4,7 @@ import Testing
 @testable import AiTerm
 @testable import AiTermTestSupport
 
-/// The broadcast row is derived with the rest of the rows: from the runs, their tasks and what the
+/// The broadcast's group is derived with the rest of the rows: from the runs, their tasks and what the
 /// Operator is acting on, again whenever one of them changes.
 @MainActor
 struct OperatorProjectionTests {
@@ -28,7 +28,7 @@ struct OperatorProjectionTests {
         let run = OperatorUIFixtures.run()
         controller.workspace.mutate { $0.runs = [run] }
         #expect(rows.broadcast?.id == run.id, "a workspace change derives the row again")
-        #expect(rows.broadcast?.title == run.name)
+        #expect(rows.broadcast?.header.title == run.name)
         #expect(rows.runs[run.id] == run)
     }
 
@@ -40,11 +40,12 @@ struct OperatorProjectionTests {
         let acting = Box<OperatorActs>(.none)
         rows.actingSource = { acting.value }
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.broadcast?.status == .idle)
+        #expect(rows.broadcast?.operatorRow.status == .idle)
         acting.value = OperatorActs(runs: [run.id: .init(act: .starting, task: "pluto-232")])
         rows.refresh()
-        #expect(rows.broadcast?.line.text == "starting Claude · The homepage section")
-        #expect(rows.broadcast?.status == .working)
+        #expect(rows.broadcast?.header.line.text == "starting Claude · The homepage section")
+        #expect(rows.broadcast?.operatorRow.line.text == "starting Claude · The homepage section", "its act is the Operator's own")
+        #expect(rows.broadcast?.operatorRow.status == .working)
     }
 
     /// The tabs are read for the broadcast's line too: a task whose worker ended its turn waits to be accepted,
@@ -60,9 +61,9 @@ struct OperatorProjectionTests {
                         agent: .claude, model: nil, state: state, title: "", cwd: "/")
         }
         controller.live.sessions = [worker(.working)]
-        #expect(rows.broadcast?.line == OperatorLine("working · 1 task", look: .acting))
+        #expect(rows.broadcast?.header.line == OperatorLine("working · 1 task", look: .acting))
         controller.live.sessions = [worker(.idle)]
-        #expect(rows.broadcast?.line == OperatorLine("ready to accept · 1 task"))
+        #expect(rows.broadcast?.header.line == OperatorLine("ready to accept · 1 task"))
         #expect(rows.board?.band == OperatorLine("ready to accept · 1 task"))
     }
 
@@ -74,10 +75,10 @@ struct OperatorProjectionTests {
         let acting = Box<OperatorActs>(.none)
         rows.actingSource = { acting.value }
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("working", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("working", look: .acting))
         acting.value = OperatorActs(tasks: [task.id: .answering])
         rows.refresh()
-        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("answering Claude", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("answering Claude", look: .acting))
         #expect(rows.acting.tasks == [task.id: .answering])
     }
 
@@ -90,7 +91,8 @@ struct OperatorProjectionTests {
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
         #expect(rows.broadcast?.id == run.id)
-        #expect(rows.sections[0].tasks[0].operatorLine != nil)
+        #expect(rows.broadcast?.tasks[0].operatorLine != nil)
+        #expect(rows.sections[0].tasks.isEmpty && rows.sections[0].operatorTasks == 1, "drawn under the broadcast, counted on its project")
 
         // The tasks, the items and the sessions stay as they were: only the run's state moves.
         var stopped = run
@@ -100,7 +102,7 @@ struct OperatorProjectionTests {
         #expect(rows.derivations == before + 1, "a runs-only change is a change to the rows")
         #expect(rows.runs[run.id]?.state == .stopped)
         #expect(rows.broadcast == nil, "an ended broadcast has no row")
-        #expect(rows.sections[0].tasks[0].operatorLine == nil, "and the task it drove loses the Operator's line")
+        #expect(rows.sections[0].tasks[0].operatorLine == nil, "and the task it drove is back in its project, without the Operator's line")
     }
 
     @Test func aChangeOnlyToWhatTheOperatorActsOnDerivesTheDrivenRowAgain() throws {
@@ -109,7 +111,7 @@ struct OperatorProjectionTests {
         let task = OperatorUIFixtures.task("The homepage section", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("working", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("working", look: .acting))
 
         // Through the operator controller's own hook, as the tool handler reports it.
         let before = rows.derivations
@@ -118,11 +120,11 @@ struct OperatorProjectionTests {
         #expect(rows.derivations == before + 1, "acting alone is a change to the rows")
         #expect(rows.acting.tasks == [task.id: .answering])
         #expect(rows.acting.broadcast(run.id)?.0 == .answering && rows.acting.broadcast(run.id)?.task == "pluto-232")
-        #expect(rows.sections[0].tasks[0].operatorLine?.look == .acting)
+        #expect(rows.broadcast?.tasks[0].operatorLine?.look == .acting)
 
         controller.operatorController.setActing(answering, false)
         #expect(rows.acting == .none)
-        #expect(rows.sections[0].tasks[0].operatorLine == OperatorLine("working", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("working", look: .acting))
     }
 
     @Test func runsWithTheSameIdDoNotTrapTheLookup() throws {

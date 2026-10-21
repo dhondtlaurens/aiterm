@@ -56,12 +56,20 @@ struct SidebarView: View {
         }
     }
 
-    /// The OPERATOR heading and, while a broadcast exists, its row, as the list draws them above the
-    /// projects. The heading is off the arrow path, as a divider is; the row is on it, tagged with its run.
+    /// The OPERATOR heading and, while a broadcast exists, its group, as the list draws them above the
+    /// projects: the broadcast's header and — open — the Operator's row, then the tasks it holds, the queued
+    /// ones last. The heading is off the arrow path, as a divider is; the rest is on it, the header tagged with
+    /// its run, the Operator's row with an id of its own (`OperatorRow.id(of:)`), each task with its own.
     @ViewBuilder static func operatorRows(in rows: SidebarProjection, controller: AppController) -> some View {
         OperatorHeading(controller: controller).selectionDisabled()
         if let broadcast = rows.broadcast {
-            BroadcastRowView(row: broadcast, controller: controller).tag(broadcast.id)
+            BroadcastHeaderRow(section: broadcast, controller: controller).tag(broadcast.id)
+            if !broadcast.folded {
+                OperatorRowView(row: broadcast.operatorRow, controller: controller).tag(broadcast.operatorRow.id)
+                ForEach(broadcast.tasks) { row in
+                    TaskRowView(row: row, task: rows.tasks[row.id], controller: controller).tag(row.id)
+                }
+            }
         }
     }
 

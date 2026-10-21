@@ -21,9 +21,10 @@ final class SidebarProjection {
     /// Each task and terminal by id: the saved item a drawn row also reads.
     private(set) var tasks: [UUID: TaskItem] = [:]
     private(set) var terminals: [UUID: TerminalItem] = [:]
-    /// The broadcast row under the OPERATOR heading, above the projects; nil while no broadcast exists.
-    private(set) var broadcast: BroadcastRow?
-    /// Each live or ended run by id: what the broadcast row's menu reads.
+    /// The broadcast's group under the OPERATOR heading, above the projects: its header, the Operator's row
+    /// and the tasks it holds, which `entries` leaves out; nil while no broadcast exists.
+    private(set) var broadcast: BroadcastSection?
+    /// Each live or ended run by id: what the broadcast header's menu reads.
     private(set) var runs: [UUID: OperatorRun] = [:]
     /// The broadcast's board, what its sheet draws (`BroadcastBoardHost`); nil while no broadcast exists.
     /// Derived with the rows and written only when it differs, so a change it draws nothing of (another
@@ -60,19 +61,20 @@ final class SidebarProjection {
         var items: [SidebarItem], tasks: [TaskItem], terminals: [TerminalItem]
         var sessions: [SessionInfo]
         var branchByCwd: [String: String], projectBranch: [UUID: String], diffByTask: [UUID: DiffStat]
-        var runs: [OperatorRun], acting: OperatorActs
+        var runs: [OperatorRun], acting: OperatorActs, folded: Set<UUID>
     }
 
     /// Derives the rows again if what they are made of changed since they last were. Run by
     /// whoever changes one of those: the workspace's every change, a change to `rowSessions`, and a
-    /// checkout pass that moved a branch or a diff. Says whether `sections` changed.
+    /// checkout pass that moved a branch or a diff. Says whether `sections` or the broadcast's group changed:
+    /// what the Dock badge counts.
     @discardableResult
     func refresh() -> Bool {
         let state = workspace.state
         let next = Inputs(items: state.items, tasks: state.tasks, terminals: state.terminals, sessions: live.rowSessions,
                           branchByCwd: checkouts.branchByCwd, projectBranch: checkouts.projectBranch,
                           diffByTask: checkouts.diffByTask,
-                          runs: state.runs, acting: actingSource())
+                          runs: state.runs, acting: actingSource(), folded: state.foldedRuns)
         guard next != inputs else { return false }
         let previous = inputs
         inputs = next
@@ -82,8 +84,10 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
-        let broadcast = SidebarModel.broadcastRow(state: state, acting: next.acting, sessions: next.sessions)
-        if broadcast != self.broadcast { self.broadcast = broadcast }
+        let broadcast = SidebarModel.broadcastSection(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,
+                                                      diffByTask: next.diffByTask, acting: next.acting)
+        let broadcastChanged = broadcast != self.broadcast
+        if broadcastChanged { self.broadcast = broadcast }
         let board = state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
                                 requests: OperatorRequests.open(run: run, state: state, prompts: [:]), sessions: next.sessions)
@@ -101,10 +105,10 @@ final class SidebarProjection {
             let terminals = Dictionary(next.terminals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if terminals != self.terminals { self.terminals = terminals }
         }
-        guard entries != self.entries else { return false }
+        guard entries != self.entries else { return broadcastChanged }
         self.entries = entries
         let sections = entries.compactMap { if case .project(let section) = $0 { section } else { nil } }
-        guard sections != self.sections else { return false }
+        guard sections != self.sections else { return broadcastChanged }
         self.sections = sections
         return true
     }
@@ -124,7 +128,7 @@ final class SidebarProjection {
             guard let terminal = terminals[id] else { return nil }
             return SidebarModel.usageTerminalRow(windowId: terminal.windowId, sessions: live.rowSessions, contexts: contexts,
                                                  tokens: live.tokens)
-        case .project, .operation, nil: return nil
+        case .project, .broadcast, .operation, nil: return nil
         }
     }
 }

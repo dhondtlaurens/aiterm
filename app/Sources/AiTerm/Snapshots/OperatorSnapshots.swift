@@ -5,7 +5,7 @@ import AiTermCore
 #if DEBUG
 /// The design's broadcast as the images draw it (the Proposals tab's `p-op-*` sections): the Operator
 /// running "Checkout redesign" over webshop and payments-api, PAY-230 to PAY-236 and the PAY-240 it added.
-/// Each scene is a controller of its own, at the snapshot clock; the sidebar draws the broadcast row only
+/// Each scene is a controller of its own, at the snapshot clock; the sidebar draws the broadcast's group only
 /// once `show` has put a broadcast in, so a bare scene is the OPERATOR heading and its "+".
 @MainActor
 struct OperatorScene {
@@ -104,17 +104,39 @@ struct OperatorScene {
     }
 
     /// Puts `run` and `tasks` in the workspace, the tabs of the tasks at work, and what the Operator does.
-    /// A task with an open permission prompt has its agent waiting on you.
-    func show(_ run: OperatorRun?, _ tasks: [TaskItem], acting: OperatorActs = .none) {
+    /// A task with an open permission prompt has its agent waiting on you. `operatorTab` is the Operator's own
+    /// tab, in the state its session is in; nil leaves it unlisted. `others` are tasks of your own beside them.
+    func show(_ run: OperatorRun?, _ tasks: [TaskItem], acting: OperatorActs = .none, operatorTab: String? = nil,
+              others: [TaskItem] = [], folded: Bool = false) {
         controller.rows.actingSource = { acting }
-        controller.workspace.mutate { state in state.runs = run.map { [$0] } ?? []; state.tasks = tasks }
+        controller.workspace.mutate { state in
+            state.runs = run.map { [$0] } ?? []; state.tasks = others + tasks
+            state.foldedRuns = folded ? Set([runId]) : []
+        }
         let prompted = Set((run?.questions ?? []).filter { $0.id.hasPrefix("prompt-") }.compactMap(\.task))
-        controller.live.sessions = tasks.compactMap { task -> SessionInfo? in
+        let workers = tasks.compactMap { task -> SessionInfo? in
             guard let operated = task.operated, operated.state == .working else { return nil }
             return Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue,
                                    prompted.contains(task.id) ? "needsInput" : "working", 0, cwd: task.worktreePath, active: true)
         }
+        let own = others.compactMap { task in
+            Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue, "idle", 0,
+                            cwd: task.worktreePath, active: true)
+        }
+        let operatorSession = operatorTab.flatMap { state in
+            Fixture.session("s-operator", "operator-window", runId, "claude", state, 0, cwd: "/Users/me", active: true)
+        }
+        controller.live.sessions = workers + own + [operatorSession].compactMap { $0 }
         controller.rows.refresh()
+    }
+
+    /// A task of your own in webshop, beside the broadcast: Fix the footer links, idle.
+    func footerTask() -> TaskItem {
+        TaskItem(id: UUID(), projectId: webshop.id, title: "Fix the footer links", branch: "fix/web-88-footer",
+                 worktreePath: "/Users/me/Sites/webshop/.worktrees/web-88-footer", baseBranch: "main",
+                 jira: JiraRef(key: "WEB-88", summary: "Footer links", url: "https://example.atlassian.net/browse/WEB-88"),
+                 agent: .claude, model: "claude-opus-5-5", reasoning: "high", firstPrompt: nil, appendTicket: false,
+                 createdAt: Snapshots.clock.now, windowId: "w-footer")
     }
 
     /// What the Operator does to the cart drawer: answering Claude, on its row and the broadcast's.
@@ -193,9 +215,10 @@ enum OperatorSnapshots {
         [
             // The sidebar with no broadcast: OPERATOR and its "+", nothing beneath it.
             Snapshot("operator-heading-empty.png") { headingEmpty() },
-            // The broadcast row in each state, then on the selection, acting and needing you.
+            // The broadcast's header over the Operator's row in each state, then the Operator's row selected while
+            // it acts, and the header selected while it is asked.
             Snapshot("broadcast-row-states.png") { broadcastRowStates() },
-            // A broadcast running: the heading without its "+", the row, and a driven task row in every state,
+            // A broadcast running: the heading without its "+", the group, and a driven task row in every state,
             // the one needing you selected.
             Snapshot("driven-task-rows.png") { drivenTaskRows() },
             Snapshot("board-running.png") { board(OperatorScene.running()) },
@@ -238,12 +261,17 @@ enum OperatorSnapshots {
             Snapshot("new-broadcast-4-not-ready.png") {
                 newBroadcast(step: 4, readiness: .notReady(["Codex: Messaging not checked for 0.161", "iTerm2 checks not run"]))
             },
+            // The group folded while something in it needs you: its name, progress and one amber count, and the
+            // project's badge counting the tasks it holds over your own.
+            Snapshot("broadcast-folded.png") { folded() },
+            // Right after Start Broadcast: everything queued under its planned agent and the pause sign, one selected.
+            Snapshot("broadcast-queued.png") { queued() },
         ]
     }
 
     // -- the sidebar ----------------------------------------------------------------
 
-    /// The list's rows as the sidebar stacks them: OPERATOR and the broadcast's row, then PROJECTS and the projects.
+    /// The list's rows as the sidebar stacks them: OPERATOR and the broadcast's group, then PROJECTS and the projects.
     private static func sidebar(_ scene: OperatorScene) -> some View {
         let controller = scene.controller, rows = controller.rows
         return VStack(alignment: .leading, spacing: Space.hairline) {
@@ -273,7 +301,8 @@ enum OperatorSnapshots {
         return sidebar(scene)
     }
 
-    /// The row in the drawing's nine states, then selected while the Operator acts and while it needs you.
+    /// The header over the Operator's row in the drawing's nine states, then the Operator's row selected while it
+    /// acts and the header selected while it is asked. Each scene draws those two rows alone, not its tasks.
     private static func broadcastRowStates() -> some View {
         func watching(_ scene: OperatorScene) -> [TaskItem] { scene.checkout([scene.shipping: .working]) }
         let planning = OperatorScene()
@@ -314,14 +343,16 @@ enum OperatorSnapshots {
 
         let needsYou = OperatorScene()
         needsYou.show(needsYou.run(.active, questions: [needsYou.npmInstall, needsYou.question("which currency format?", on: needsYou.drawer)]),
-                      watching(needsYou))
-        needsYou.controller.focus.browse(.operation(needsYou.runId))
+                      watching(needsYou), operatorTab: "needsInput")
+        needsYou.controller.focus.browse(.broadcast(needsYou.runId))
 
         let scenes = [planning, oracle, watched, asked, several, review, paused, closed, done, acting, needsYou]
         return VStack(alignment: .leading, spacing: Space.hairline) {
             ForEach(scenes.indices, id: \.self) { index in
-                if let row = scenes[index].controller.rows.broadcast {
-                    BroadcastRowView(row: row, controller: scenes[index].controller)
+                let controller = scenes[index].controller
+                if let section = controller.rows.broadcast {
+                    BroadcastHeaderRow(section: section, controller: controller)
+                    OperatorRowView(row: section.operatorRow, controller: controller)
                 }
             }
         }
@@ -349,8 +380,38 @@ enum OperatorSnapshots {
             scene.task(more.wrap, "Gift wrap option", .published, end: .draftMR, sha: "c2d4e6f", mr: 422),
             scene.task(more.tidy, "Tidy the footer", .working, takenOver: true),
         ]
-        scene.show(scene.run(.active, questions: [scene.npmInstall]), tasks, acting: scene.answeringTheDrawer)
+        scene.show(scene.run(.active, questions: [scene.npmInstall]), tasks, acting: scene.answeringTheDrawer, others: [scene.footerTask()])
         scene.controller.focus.browse(.task(scene.provider))
+        return sidebar(scene)
+    }
+
+    /// Folded mid-run, the provider switch asking to run npm install: one amber count on the header, webshop's
+    /// badge counting the six tasks it holds there, over your own footer task.
+    private static func folded() -> some View {
+        let scene = OperatorScene(projects: [OperatorScene.project("webshop")])
+        scene.show(scene.run(.active, questions: [scene.npmInstall]), scene.checkout(oneProject: true), acting: scene.answeringTheDrawer,
+                   operatorTab: "idle", others: [scene.footerTask()], folded: true)
+        return sidebar(scene)
+    }
+
+    /// Seconds after Start Broadcast: the plan in Todo, every task queued under its planned agent and the pause
+    /// sign, Address autocomplete selected (nothing opens), the Operator starting Claude on PAY-230.
+    private static func queued() -> some View {
+        let scene = OperatorScene(projects: [OperatorScene.project("webshop")])
+        let states = Dictionary(uniqueKeysWithValues: [scene.layout, scene.provider, scene.drawer, scene.shipping, scene.price, scene.autocomplete,
+                                                       scene.summary, scene.retry].map { ($0, OperatedState.queued) })
+        let tasks = scene.checkout(states, oneProject: true).filter { $0.id != scene.retry }.map { task -> TaskItem in
+            var task = task
+            task.windowId = nil
+            task.operated?.publication = nil
+            task.operated?.acceptance = nil
+            task.operated?.peopleReview = nil
+            return task
+        }
+        scene.show(scene.run(.active, planned: 7), tasks,
+                   acting: OperatorActs(runs: [scene.runId: .init(act: .starting, task: "Checkout layout")]),
+                   operatorTab: "working", others: [scene.footerTask()])
+        scene.controller.focus.browse(.task(scene.autocomplete))
         return sidebar(scene)
     }
 
