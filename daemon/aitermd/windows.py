@@ -9,7 +9,7 @@ from typing import Any
 
 from . import protocol
 from .iterm_bridge import ItermPort, ItermUnavailable
-from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG
+from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcError
 from .sessions import SessionRegistry
@@ -115,14 +115,32 @@ class WindowManager:
         wid, cmd = param(p, "windowId", str), optional_param(p, "agentCommand", str)
         # A caller that knows where the tab belongs says so; otherwise it inherits, as Cmd+T does.
         cwd = optional_param(p, "cwd", str)
+        # An Operator's extra worker tab (open_tab): tagged with its key beside its task's tag, and
+        # opened behind your work when `background` asks for it.
+        tab_key = optional_param(p, "tabKey", str)
+        background = bool(optional_param(p, "background", bool))
         require_iterm(self.iterm)
-        tags = self._window_tags(wid)
+        if not tab_key:
+            return await self._create_tab(wid, cmd, cwd, {}, background)
+        # A request whose answer was lost is asked again: the tab already tagged with this key in its
+        # task, or in this window when the window has no task, is the answer, never a second one.
+        async with self._creation_lock:
+            await guard(self.tick())
+            task = self.registry.task_for_window(wid)
+            existing = next((s for s in self.registry.all()
+                             if s.tab_key == tab_key and (s.task_id == task if task else s.window_id == wid)), None)
+            if existing:
+                return {"sessionId": existing.session_id}
+            return await self._create_tab(wid, cmd, cwd, {TAB_TAG: tab_key}, background)
+
+    async def _create_tab(self, wid: str, cmd: str | None, cwd: str | None, own: dict[str, str], background: bool) -> dict[str, Any]:
+        tags = self._window_tags(wid) | own
         # The iTerm2 new-session notification for this tab's session can fire
         # during create_tab's await, before we learn its session id, so gate
         # on the (already-known) window id instead.
         self._creating_in[wid] += 1
         try:
-            sid = await guard(self.iterm.create_tab(wid, tags, cwd or self._anchor_cwd(wid)))
+            sid = await guard(self.iterm.create_tab(wid, tags, cwd or self._anchor_cwd(wid), background=background))
         finally:
             # Counted, not a set: another tab.create into this window may still be under way.
             self._creating_in[wid] -= 1

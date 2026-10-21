@@ -16,7 +16,7 @@ from typing import Any, ParamSpec, Protocol, TypeVar
 import iterm2
 from websockets.legacy.exceptions import InvalidStatusCode
 
-from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
+from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, TITLE_TAG, Frame, RawSession
 from .offload import run_detached
 
 log = logging.getLogger(__name__)
@@ -26,7 +26,8 @@ KeystrokeCallback = Callable[[str, str, frozenset[str]], Awaitable[None]]
 # The modifiers a key's effect on a CLI's input depends on: a Return held with one types a newline.
 _MODIFIER_NAMES = {iterm2.api_pb2.Modifiers.CONTROL: "control", iterm2.api_pb2.Modifiers.OPTION: "option",
                    iterm2.api_pb2.Modifiers.COMMAND: "command", iterm2.api_pb2.Modifiers.SHIFT: "shift"}
-VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}", f"user.{TERMINAL_TAG}")
+VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"user.{PROJECT_TAG}", f"user.{TERMINAL_TAG}",
+             f"user.{TAB_TAG}")
 # How long one bridge call may wait on iTerm2. The library resolves a request only when its reply
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
 # the service's tick lock -- for good.
@@ -304,7 +305,8 @@ class ItermPort(Protocol):
     async def close(self) -> None: ...
     async def create_window(self, cwd: str, title: str, tags: dict[str, str], frame: Frame,
                             background: bool = False) -> tuple[str, str]: ...
-    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str: ...
+    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
+                         background: bool = False) -> str: ...
     async def activate_window(self, window_id: str) -> None: ...
     async def set_frame(self, window_id: str, frame: Frame) -> None: ...
     async def close_window(self, window_id: str) -> None: ...
@@ -572,15 +574,16 @@ class ItermBridge:
         if not background:
             await win.async_activate()
 
-    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None) -> str:
-        session = await _call(self._new_tab(window_id, cwd))
+    async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
+                         background: bool = False) -> str:
+        session = await _call(self._new_tab(window_id, cwd, background))
         try:
             await _call(self._tag(session, tags))
         except Exception:  # noqa: BLE001 - the tab exists either way
             log.exception("iTerm2 made tab %s but tagging it failed", session.session_id)
         return session.session_id
 
-    async def _new_tab(self, window_id: str, cwd: str | None) -> iterm2.Session:
+    async def _new_tab(self, window_id: str, cwd: str | None, background: bool = False) -> iterm2.Session:
         # With no anchor known yet, the window's first tab gives the directory, so it is read from the
         # hierarchy as it is now: the cached one can be a tick old, its first tab closed or dragged away since.
         win = await self._window(window_id, fresh=cwd is None)
@@ -589,14 +592,18 @@ class ItermBridge:
         prof = iterm2.LocalWriteOnlyProfile()
         prof.set_initial_directory_mode(iterm2.InitialWorkingDirectory.INITIAL_WORKING_DIRECTORY_CUSTOM)
         prof.set_custom_directory(cwd or os.path.expanduser("~"))
-        return (await self._make(window_id, prof))[1]
+        return (await self._make(window_id, prof, select=not background))[1]
 
-    async def _make(self, window_id: str | None, prof: iterm2.LocalWriteOnlyProfile) -> tuple[iterm2.Window, iterm2.Session]:
+    async def _make(self, window_id: str | None, prof: iterm2.LocalWriteOnlyProfile,
+                    select: bool = True) -> tuple[iterm2.Window, iterm2.Session]:
         """A new tab in `window_id`, or a new window when None, and its session. The request the
         library's `Window.async_create` and `async_create_tab` make, but the new session is found
         through `_app`: theirs refresh outside `_refresh_lock`, and one that overlaps a tick's
-        returns the tree from before the window or tab existed, which they report as none made."""
-        answer = await iterm2.rpc.async_create_tab(self._require(), window=window_id, profile_customizations=prof.values)
+        returns the tree from before the window or tab existed, which they report as none made.
+        `select` False makes a tab in the background: its window is not ordered front, nor the tab
+        selected -- a tab an operator's worker opens stays behind your work."""
+        answer = await iterm2.rpc.async_create_tab(self._require(), window=window_id, profile_customizations=prof.values,
+                                                   select=select)
         reply = answer.create_tab_response
         if reply.status != iterm2.api_pb2.CreateTabResponse.Status.Value("OK"):
             refused = iterm2.window.CreateWindowException if window_id is None else iterm2.window.CreateTabException
@@ -726,8 +733,8 @@ class ItermBridge:
     @staticmethod
     def _raw_session(placement: _Placement, values: list[Any]) -> RawSession:
         s, window_id, tab_index, active = placement
-        cmd, pid, title, path, task, project, terminal = values
-        user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project), (TERMINAL_TAG, terminal)) if v}
+        cmd, pid, title, path, task, project, terminal, tab = values
+        user_vars = {k: v for k, v in ((TASK_TAG, task), (PROJECT_TAG, project), (TERMINAL_TAG, terminal), (TAB_TAG, tab)) if v}
         return RawSession(s.session_id, window_id, tab_index, cmd, int(pid) if pid else None, title or "", path or "", user_vars,
                           active=active)
 

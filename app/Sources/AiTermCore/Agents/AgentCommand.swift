@@ -74,17 +74,19 @@ public enum AgentCommand {
     }
 
     /// `operated`: the Operator drives the task, and its worker launches with `workerWords`; false for a
-    /// task you make yourself.
+    /// task you make yourself. `promptFile` names the file under `.aiterm/` a prompt that does not go inline is
+    /// written to: an extra worker tab's own (`TabOpener`), so two agents started in one worktree never read
+    /// each other's. It is typed into the command as it is, so it is a plain file name.
     public static func build(agent: AgentKind, model: String, reasoning: String?, prompt: String?, worktreePath: String,
-                             git: any GitRunning, operated: Bool = false) throws -> String {
+                             git: any GitRunning, operated: Bool = false, promptFile: String = "first-prompt.md") throws -> String {
         var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
             if readsFromFile(prompt, after: parts) {
                 let dir = worktreePath + "/.aiterm"
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                try prompt.write(toFile: dir + "/first-prompt.md", atomically: true, encoding: .utf8)
+                try prompt.write(toFile: dir + "/" + promptFile, atomically: true, encoding: .utf8)
                 excludeAitermDirectory(worktreePath: worktreePath, git: git)
-                parts.append("\"$(command cat .aiterm/first-prompt.md)\"")
+                parts.append("\"$(command cat .aiterm/\(promptFile))\"")
             } else {
                 parts.append(shellQuote(prompt))
             }

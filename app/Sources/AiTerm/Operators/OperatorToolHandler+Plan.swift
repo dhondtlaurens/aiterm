@@ -116,7 +116,8 @@ extension OperatorToolHandler {
     /// A task whose agent's workers can't be messaged can't be steered or get review fixes: refused while another
     /// installed agent's can be, unless the person's words pin this one; planned with a warning otherwise. A paste-only
     /// agent is planned with what that means for each message. Nothing is said while the helper can't tell.
-    private func deliveryWarning(for agent: AgentKind, pinned: Bool, delivery: [AgentKind: AgentDelivery]?) throws(ToolRefusal) -> String? {
+    /// `open_tab` checks an extra tab's agent by it too.
+    func deliveryWarning(for agent: AgentKind, pinned: Bool, delivery: [AgentKind: AgentDelivery]?) throws(ToolRefusal) -> String? {
         guard let mine = delivery?[agent], mine.messaging != .auto else { return nil }
         guard mine.messaging == .off else { return mine.note }
         let name = SidebarModel.agentName(agent), why = "\(name)’s workers can’t be messaged: \(mine.note ?? "")"
@@ -263,7 +264,7 @@ extension OperatorToolHandler {
         return project
     }
 
-    private func agent(_ call: ToolCall) throws(ToolRefusal) -> AgentKind {
+    func agent(_ call: ToolCall) throws(ToolRefusal) -> AgentKind {
         switch try call.string("agent").lowercased() {
         case "claude": return .claude
         case "codex": return .codex
@@ -273,7 +274,7 @@ extension OperatorToolHandler {
 
     /// The model the call names, which must be in the agent's own list in Settings › Agents (spec §15), or
     /// the default Settings › Agents gives the agent. The agent must be installed either way.
-    private func model(_ call: ToolCall, for agent: AgentKind, catalogue: [AgentModel]) throws(ToolRefusal) -> (model: String, reasoning: String?) {
+    func model(_ call: ToolCall, for agent: AgentKind, catalogue: [AgentModel]) throws(ToolRefusal) -> (model: String, reasoning: String?) {
         let requested = call.optionalString("model"), fallback = defaultModel(for: agent)
         if requested == nil, fallback.model.isEmpty, installedAgents.contains(agent) {
             throw ToolRefusal("Pass a model: AiTerm has no default model for \(agent.harness.displayName) yet.")
@@ -344,7 +345,7 @@ extension OperatorToolHandler {
     }
 }
 
-private extension JSONValue {
+extension JSONValue {
     /// This object with `key` set; anything else unchanged.
     func adding(_ key: String, _ value: JSONValue) -> JSONValue {
         guard case .object(var members) = self else { return self }

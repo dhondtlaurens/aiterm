@@ -66,6 +66,8 @@ final class OperatorToolHandler {
     let daemon: @MainActor () -> (any DaemonCommands)?
     let ports: OperatorPorts
     let waker: OperatorWaker
+    /// Opens `open_tab`'s extra worker tabs, which the reconciler adopts.
+    let tabs: TabOpener
     /// Each run's last `run_status`, and the revision it was numbered.
     private var numbered: [UUID: (content: RunStatus, revision: Int)] = [:]
     /// The second opinions running now, by challenge id: one in a run's records but not here was lost
@@ -103,7 +105,7 @@ final class OperatorToolHandler {
     }
 
     /// The tools that act on one task while they run: its line says the act meanwhile (`act(for:on:)`).
-    static let actsOnTask: Set<String> = ["message_task", "mark_task", "finish_task", "review_task", "request_review", "reply_thread"]
+    static let actsOnTask: Set<String> = ["message_task", "open_tab", "mark_task", "finish_task", "review_task", "request_review", "reply_thread"]
     /// The tools that are the broadcast's own acts while they run.
     static let actsOnBroadcast: [String: OperatorAct] = ["create_task": .loadingTheConstruct, "update_task": .loadingTheConstruct,
                                                          "submit_plan": .loadingTheConstruct, "jira_create": .filingATicket,
@@ -142,17 +144,18 @@ final class OperatorToolHandler {
 
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
-    static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "mark_task", "resume_task",
+    static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
                                         "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find",
                                         "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
-         waker: OperatorWaker) {
+         waker: OperatorWaker, tabs: TabOpener) {
         self.workspace = workspace
         self.live = live
         self.daemon = daemon
         self.ports = ports
         self.waker = waker
+        self.tabs = tabs
     }
 
     var state: AppState { workspace.state }
@@ -242,6 +245,7 @@ final class OperatorToolHandler {
         case "submit_plan": return try submitPlan(call, in: run)
         case "read_task": return try await readTask(call, in: run)
         case "message_task": return try await messageTask(call, in: run)
+        case "open_tab": return try await openTab(call, in: run)
         case "mark_task": return try await markTask(call, in: run)
         case "resume_task": return try resumeTask(call, in: run)
         case "retry_task": return try retryTask(call, in: run)

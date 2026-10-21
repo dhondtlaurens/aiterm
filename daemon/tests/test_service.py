@@ -848,6 +848,49 @@ async def test_tab_create_opens_in_the_directory_it_is_given(stack):
     assert (sid, " claude\n") in it.sent
 
 
+async def test_an_extra_worker_tab_carries_its_task_and_its_own_key(stack):
+    # An Operator's extra worker tab (open_tab) is its task's, and told apart from the task's first
+    # worker and from its other extra tabs by its key; a tab you open beside it inherits no key.
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    first = it.windows[wid]["sessions"][0]
+    review = (await call(r, w, "tab.create", {"windowId": wid, "cwd": "/wt", "tabKey": "review"}, id_=2))["result"]["sessionId"]
+    docs = (await call(r, w, "tab.create", {"windowId": wid, "cwd": "/wt", "tabKey": "docs"}, id_=3))["result"]["sessionId"]
+    assert it.sessions[review].user_vars == {"aiterm_task": "t1", "aiterm_tab": "review"}
+    yours = await it.user_opens_tab(wid)
+    await it.settle()
+    listed = {s["sessionId"]: s for s in (await call(r, w, "sessions.list", id_=4))["result"]}
+    assert {sid: (s["taskId"], s["tabKey"]) for sid, s in listed.items()} == {
+        first: ("t1", None), review: ("t1", "review"), docs: ("t1", "docs"), yours: ("t1", None)}
+
+
+async def test_an_extra_worker_tab_asked_for_again_is_the_one_already_open(stack):
+    # A request whose answer was lost is asked again: the tab tagged with its task and key is the
+    # answer, never a second tab beside it.
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    params = {"windowId": wid, "cwd": "/wt", "tabKey": "review", "agentCommand": "claude"}
+    sid = (await call(r, w, "tab.create", params, id_=2))["result"]["sessionId"]
+    assert (await call(r, w, "tab.create", params, id_=3))["result"]["sessionId"] == sid
+    assert len(it.windows[wid]["sessions"]) == 2
+    assert [text for (s, text) in it.sent if s == sid] == [" claude\n"]
+    other = (await call(r, w, "tab.create", params | {"tabKey": "docs"}, id_=4))["result"]["sessionId"]
+    assert other != sid and len(it.windows[wid]["sessions"]) == 3
+
+
+async def test_a_background_tab_leaves_its_window_on_the_tab_you_were_on(stack):
+    # An Operator's worker opens behind your work: its window keeps the tab it had current, and
+    # iTerm2 is not brought forward (the bridge asks iTerm2 not to select the new tab).
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    first = it.windows[wid]["sessions"][0]
+    background = {"windowId": wid, "cwd": "/wt", "tabKey": "review", "background": True}
+    sid = (await call(r, w, "tab.create", background, id_=2))["result"]["sessionId"]
+    assert sid in it.sessions and it.windows[wid]["current"] == first
+    front = (await call(r, w, "tab.create", {"windowId": wid, "cwd": "/wt"}, id_=3))["result"]["sessionId"]
+    assert it.windows[wid]["current"] == front
+
+
 async def test_tab_create_race_with_notification_during_create_is_not_redirected(stack):
     # I1: the real ItermBridge.create_tab() creates the tab (which fires the
     # new-session notification) and only *then* tags the session - so the
@@ -860,7 +903,7 @@ async def test_tab_create_race_with_notification_during_create_is_not_redirected
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
 
-    async def racing_create_tab(window_id, tags, cwd=None):
+    async def racing_create_tab(window_id, tags, cwd=None, background=False):
         cwd = cwd or it.sessions[it.windows[window_id]["sessions"][0]].cwd
         sid = await it._add_session(window_id, cwd, {}, command_line="-zsh", title="zsh")  # untagged, like the real bridge
         for cb in it._new_cbs:
@@ -1492,7 +1535,7 @@ async def test_two_tabs_created_in_one_window_at_once_are_both_left_alone(stack)
     first_may_finish, first_done = asyncio.Event(), asyncio.Event()
     created: list[str] = []
 
-    async def create_tab(window_id, tags, cwd=None):
+    async def create_tab(window_id, tags, cwd=None, background=False):
         if not created:
             created.append("first")
             await first_may_finish.wait()

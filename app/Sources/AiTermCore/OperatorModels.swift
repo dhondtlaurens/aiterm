@@ -157,6 +157,36 @@ public struct LaunchAttempt: Codable, Equatable, Sendable {
     }
 }
 
+/// A worker tab the Operator added to a running task (`open_tab`): another agent in the task's window, on its worktree
+/// and branch. It is part of the task, which keeps one card and one branch and is accepted once. Saved before the
+/// daemon is asked for it, as a task's `LaunchAttempt` is: the reconciler and a restart adopt the session tagged with
+/// the task and this `key` (`SessionInfo.tabKey`) instead of opening a second one.
+public struct ExtraTab: Codable, Equatable, Sendable {
+    /// The Operator's idempotency key, unique within its task: `open_tab` with this key returns this tab.
+    public var key: String
+    public var agent: AgentKind
+    public var model: String
+    public var reasoning: String?
+    /// Why the Operator chose its agent and model, in its words.
+    public var modelReason: String
+    /// The tab's first prompt as the Operator wrote it, before AiTerm's own lines (`TabOpener.prompt`).
+    public var brief: String
+    /// The person's words named its agent: it was not refused for an agent whose workers can't be messaged.
+    public var agentPinned: Bool
+    /// Its latest request; `openedAt` once its tab was seen. A tab that showed is never asked for again.
+    public var launch: LaunchAttempt
+    /// The session it opened, as iTerm2 names it: the daemon's answer, or the tagged tab the reconciler found.
+    public var sessionId: String?
+    /// Why the daemon refused to open it, when it did; nil while it is open or may still open.
+    public var failure: String?
+
+    public init(key: String, agent: AgentKind, model: String, reasoning: String?, modelReason: String, brief: String,
+                agentPinned: Bool = false, launch: LaunchAttempt, sessionId: String? = nil, failure: String? = nil) {
+        self.key = key; self.agent = agent; self.model = model; self.reasoning = reasoning; self.modelReason = modelReason
+        self.brief = brief; self.agentPinned = agentPinned; self.launch = launch; self.sessionId = sessionId; self.failure = failure
+    }
+}
+
 /// An agent's review of a task's branch (spec §3.1, §5's base): the reviewer, what it was asked, the branch's
 /// head it read, and once it answered, its findings, or why it gave none. Nobody is notified, so it needs
 /// no slice. Running while neither `findings` nor `failure` is set.
@@ -260,6 +290,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     public var peopleReview: PeopleReview?
     /// Its worker committed off its task branch, as AiTerm last found it (`BranchDrift`).
     public var branchDrift: BranchDrift?
+    /// The worker tabs the Operator added beside its first worker (`open_tab`), in the order asked for.
+    public var extraTabs: [ExtraTab]
 
     public init(runId: UUID, key: String, state: OperatedState = .planned, end: TaskEnd = .commit, brief: String,
                 dependsOn: [TaskDependency] = [], stackedOn: UUID? = nil, revision: Int, firstRevision: Int? = nil,
@@ -267,7 +299,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
                 ownership: Int = 0, launch: LaunchAttempt? = nil, retriesUsed: Int = 0, runtimeUsed: TimeInterval = 0,
                 blockedReason: String? = nil, blockedFrom: OperatedState? = nil, flags: Set<OperatedFlag> = [],
                 lastFailure: String? = nil, modelReason: String? = nil, agentPinned: Bool = false, problem: String? = nil,
-                agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil, branchDrift: BranchDrift? = nil) {
+                agentReview: AgentReviewResult? = nil, peopleReview: PeopleReview? = nil, branchDrift: BranchDrift? = nil,
+                extraTabs: [ExtraTab] = []) {
         self.runId = runId; self.key = key; self.state = state; self.end = end; self.brief = brief
         self.dependsOn = dependsOn; self.stackedOn = stackedOn; self.revision = revision
         self.firstRevision = firstRevision ?? revision
@@ -277,6 +310,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         self.lastFailure = lastFailure
         self.modelReason = modelReason; self.agentPinned = agentPinned; self.problem = problem
         self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
+        self.extraTabs = extraTabs
     }
 
     /// Whether a worker was ever launched for it: what makes it "started" for the plan and for
@@ -286,7 +320,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case runId, key, state, end, brief, dependsOn, stackedOn, revision, firstRevision, acceptance, publication
         case takenOver, ownership, launch, retriesUsed, runtimeUsed, blockedReason, blockedFrom, flags, lastFailure
-        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift
+        case modelReason, agentPinned, problem, agentReview, peopleReview, branchDrift, extraTabs
     }
 
     /// Synthesised but for `flags`: a flag this build does not know is dropped, not a failed load.
@@ -320,6 +354,7 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         agentReview = (try? c.decodeIfPresent(AgentReviewResult.self, forKey: .agentReview)) ?? nil
         peopleReview = (try? c.decodeIfPresent(PeopleReview.self, forKey: .peopleReview)) ?? nil
         branchDrift = (try? c.decodeIfPresent(BranchDrift.self, forKey: .branchDrift)) ?? nil
+        extraTabs = try c.decodeIfPresent([ExtraTab].self, forKey: .extraTabs) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -352,6 +387,8 @@ public struct OperatedTask: Codable, Equatable, Sendable {
         try c.encodeIfPresent(agentReview, forKey: .agentReview)
         try c.encodeIfPresent(peopleReview, forKey: .peopleReview)
         try c.encodeIfPresent(branchDrift, forKey: .branchDrift)
+        // Left out while there are none, so a task without one saves as it did before.
+        if !extraTabs.isEmpty { try c.encode(extraTabs, forKey: .extraTabs) }
     }
 }
 

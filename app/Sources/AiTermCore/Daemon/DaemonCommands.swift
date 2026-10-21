@@ -7,8 +7,10 @@ public protocol DaemonCommands: Sendable {
     /// `background` opens it behind the person's work: an operator's worker windows do.
     func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame, background: Bool) async throws -> String
     func createTerminalWindow(projectId: String, terminalId: String, cwd: String, title: String, frame: Frame) async throws -> String
-    /// A tab in an existing window, carrying that window's task or project tag.
-    func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String
+    /// A tab in an existing window, carrying that window's task or project tag. `tabKey` tags it as the Operator's
+    /// extra worker tab of that key (`open_tab`), and a repeat returns the tab already tagged so; `background` opens
+    /// it behind the person's work.
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String
     func activate(windowId: String) async throws
     func setFrame(windowId: String, frame: Frame) async throws
     func close(windowId: String) async throws
@@ -37,6 +39,11 @@ extension DaemonCommands {
     /// A task window in front, as every window but an operator's worker's opens.
     public func createTaskWindow(taskId: String, cwd: String, title: String, agentCommand: String?, frame: Frame) async throws -> String {
         try await createTaskWindow(taskId: taskId, cwd: cwd, title: title, agentCommand: agentCommand, frame: frame, background: false)
+    }
+
+    /// A tab in front, as every tab but an operator's extra worker's opens.
+    public func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {
+        try await createTab(windowId: windowId, cwd: cwd, agentCommand: agentCommand, tabKey: nil, background: false)
     }
 }
 

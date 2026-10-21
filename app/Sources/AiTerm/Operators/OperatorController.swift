@@ -82,6 +82,8 @@ final class OperatorController {
     @ObservationIgnored let waker: OperatorWaker
     @ObservationIgnored let tools: OperatorToolHandler
     @ObservationIgnored let starter: WorkerStarter
+    /// `open_tab`'s extra worker tabs.
+    @ObservationIgnored let tabs: TabOpener
     /// `finish_task` and the merge watch (G10).
     @ObservationIgnored let finisher: TaskFinisher
     @ObservationIgnored let reconciler: RunReconciler
@@ -164,11 +166,12 @@ final class OperatorController {
                                   return state == .planning || state == .active || state == .complete
                               },
                               coalesce: ports.wakeCoalesce, sleep: ports.wakeSleep)
-        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker)
+        tabs = TabOpener(workspace: workspace, daemon: daemon, ports: ports)
+        tools = OperatorToolHandler(workspace: workspace, live: live, daemon: daemon, ports: ports, waker: waker, tabs: tabs)
         starter = WorkerStarter(workspace: workspace, live: live, daemon: daemon, taskFrame: taskFrame, ports: ports)
         // It captures nothing of `self`: its callbacks are installed once every stored property is set.
         finisher = TaskFinisher(store: workspace, git: ports.git, connect: ports.publisher, now: ports.publishNow, sleep: ports.mergeSleep)
-        reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, waker: waker, ports: ports)
+        reconciler = RunReconciler(workspace: workspace, live: live, starter: starter, tabs: tabs, waker: waker, ports: ports)
         reviewWatcher = ReviewWatcher(workspace: workspace, ports: ports, waker: waker)
         branchWatch = BranchWatch(workspace: workspace, live: live, ports: ports, waker: waker)
         lastHeard = (workspace.state.runs, workspace.state.tasks.filter { $0.operated != nil })

@@ -84,9 +84,11 @@ final class RecordingDaemon: DaemonCommands {
                                                    "frame": Self.frame(frame)], id: "terminal-window")
     }
 
-    func createTab(windowId: String, cwd: String, agentCommand: String?) async throws -> String {
+    func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String {
         var params: [String: Any] = ["windowId": windowId, "cwd": cwd]
         params["agentCommand"] = agentCommand
+        params["tabKey"] = tabKey
+        if background { params["background"] = true }
         return try await answer("tab.create", params, id: "s-review")
     }
 

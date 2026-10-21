@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import PROJECT_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, RawSession, SessionInfo, State, TokenTally, classify_agent
+from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, RawSession, SessionInfo, State, TokenTally, classify_agent
 
 
 @dataclass(slots=True)
@@ -80,6 +80,8 @@ class SessionRegistry:
             task_id=r.user_vars.get(TASK_TAG) or self._window_task.get(r.window_id),
             project_id=r.user_vars.get(PROJECT_TAG) or self._window_project.get(r.window_id),
             terminal_id=r.user_vars.get(TERMINAL_TAG) or self._window_terminal.get(r.window_id),
+            # The tab's own: a tab beside an extra worker's is not that worker.
+            tab_key=r.user_vars.get(TAB_TAG),
             agent=classify_agent(r.command_line), model=None, state="idle",
             title=r.title or "", cwd=r.cwd or "", job_pid=r.job_pid,
             # Read back from the map rather than from `r`, so a snapshot in which iTerm2

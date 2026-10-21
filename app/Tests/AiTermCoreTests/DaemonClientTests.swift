@@ -72,6 +72,18 @@ final class DaemonClientTests {
         #expect(params?["windowId"] as? String == "w1")
         #expect(params?["cwd"] as? String == "/wt")
         #expect(params?["agentCommand"] as? String == "claude '/code-review'")
+        #expect(params?["tabKey"] == nil && params?["background"] == nil, "left out, as every tab before extra worker tabs")
+    }
+
+    /// An Operator's extra worker tab: tagged with its key, opened behind the person's work.
+    @Test func testCreateTabSendsAnExtraWorkerTabsKeyAndBackground() async throws {
+        server.handler = { req in ["id": req["id"]!, "result": ["sessionId": "s9"]] }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        #expect(try await client.createTab(windowId: "w1", cwd: "/wt", agentCommand: "claude", tabKey: "review", background: true) == "s9")
+        let params = server.received.first?["params"] as? [String: Any]
+        #expect(params?["tabKey"] as? String == "review")
+        #expect(params?["background"] as? Bool == true)
     }
 
     /// The terminal's name titles its iTerm2 window, so it has to reach the daemon.
