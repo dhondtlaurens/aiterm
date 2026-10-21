@@ -1,13 +1,11 @@
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from aitermd.codex_sessions import LIST_SECONDS, CodexSessionFiles
-from aitermd.models import TokenTally
 
 
 def write_rollout(root, session_id, records, day="2026/09/22"):
@@ -30,19 +28,8 @@ def token_count(total_tokens, context_window):
     }
 
 
-def meta(thread_id, *, session_id=None, parent=None, spawned_by=None):
-    payload = {"id": thread_id, "session_id": session_id or thread_id}
-    if parent:
-        payload["parent_thread_id"] = parent
-    if spawned_by:
-        payload["source"] = {"subagent": {"thread_spawn": {"parent_thread_id": spawned_by, "depth": 1}}}
-    return {"type": "session_meta", "payload": payload}
-
-
-def totals(input_tokens, cached, output):
-    return {"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {
-        "input_tokens": input_tokens, "cached_input_tokens": cached, "cache_write_input_tokens": 0,
-        "output_tokens": output, "total_tokens": input_tokens + output}}}}
+def meta(thread_id):
+    return {"type": "session_meta", "payload": {"id": thread_id, "session_id": thread_id}}
 
 
 def test_reads_latest_valid_context_for_the_exact_codex_session(tmp_path):
@@ -90,7 +77,6 @@ def test_rate_limits_come_from_the_newest_record_of_the_newest_rollout(tmp_path)
         rate_limited({"used_percent": 52.0, "window_minutes": 10080, "resets_at": 1790582049}, timestamp="2026-09-22T14:31:09.229Z"),
         "{unfinished",
     ])
-    import os
     os.utime(older, ns=(1, 1))
     os.utime(newer, ns=(2, 2))
 
@@ -130,7 +116,6 @@ def test_rate_limits_are_not_reread_until_a_rollout_changes(tmp_path, monkeypatc
     first = files.rate_limits()
     assert files.rate_limits() == first and reads == [path]
 
-    import os
     with path.open("a") as stream:
         stream.write(json.dumps(rate_limited({"used_percent": 53.0, "window_minutes": 10080, "resets_at": 1})) + "\n")
     os.utime(path, ns=(path.stat().st_mtime_ns + 1, path.stat().st_mtime_ns + 1))
@@ -253,48 +238,6 @@ def test_matching_lines_are_found_whichever_block_they_straddle(tmp_path, block_
         assert found == [lines[6], lines[4], lines[1]]
 
 
-def test_a_threads_tally_is_its_newest_total(tmp_path):
-    root = tmp_path / "sessions"
-    write_rollout(root, "t1", [meta("t1"), totals(100, 60, 5), totals(3_283_279, 3_093_248, 18_391)])
-    assert CodexSessionFiles(root).tally("t1") == TokenTally(3_283_279, 3_093_248, 18_391)
-
-
-def test_review_spawned_and_nested_children_are_added_and_strangers_are_not(tmp_path):
-    root = tmp_path / "sessions"
-    write_rollout(root, "t1", [meta("t1"), totals(1_000, 900, 10)])
-    write_rollout(root, "review", [meta("review", session_id="t1", parent="t1"), totals(800, 700, 20)])
-    write_rollout(root, "spawn", [meta("spawn", session_id="t1", spawned_by="t1"), totals(400, 300, 30)])
-    write_rollout(root, "grandchild", [meta("grandchild", parent="spawn"), totals(40, 0, 4)])
-    write_rollout(root, "stranger", [meta("stranger"), totals(9_999, 0, 999)])
-    assert CodexSessionFiles(root).tally("t1") == TokenTally(2_240, 1_900, 64)
-
-
-def test_a_child_written_on_a_later_day_is_found(tmp_path):
-    root = tmp_path / "sessions"
-    write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)], day="2026/09/22")
-    write_rollout(root, "late", [meta("late", parent="t1"), totals(5, 0, 1)], day="2026/09/23")
-    assert CodexSessionFiles(root).tally("t1") == TokenTally(15, 0, 2)
-
-
-def test_a_rollout_without_totals_adds_nothing(tmp_path):
-    root = tmp_path / "sessions"
-    write_rollout(root, "t1", [meta("t1")])
-    assert CodexSessionFiles(root).tally("t1") is None
-    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 1, 1)])
-    assert CodexSessionFiles(root).tally("t1") == TokenTally(5, 1, 1)
-
-
-def test_totals_are_not_reread_until_a_rollout_changes(tmp_path, monkeypatch):
-    root, reads = tmp_path / "sessions", []
-    write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
-    files = CodexSessionFiles(root)
-    original = files._read_total
-    monkeypatch.setattr(files, "_read_total", lambda path: (reads.append(path), original(path))[1])
-    files.tally("t1")
-    files.tally("t1")
-    assert len(reads) == 1
-
-
 def versioned(thread_id, version):
     record = meta(thread_id)
     record["payload"]["cli_version"] = version
@@ -342,12 +285,12 @@ def test_a_rewritten_rollout_is_read_again_from_its_start(tmp_path):
     assert files._versions == {}
 
 
-@pytest.mark.parametrize("reading", ["context", "total", "limits"])
+@pytest.mark.parametrize("reading", ["context", "limits"])
 def test_unreadable_rollout_is_retried_without_a_file_change(tmp_path, monkeypatch, reading):
     root = tmp_path / "sessions"
-    path = write_rollout(root, "t1", [meta("t1"), totals(10, 2, 1), limits(30)])
+    path = write_rollout(root, "t1", [meta("t1"), limits(30)])
     files = CodexSessionFiles(root)
-    read = {"context": lambda: files.context_percent("t1"), "total": lambda: files.tally("t1"),
+    read = {"context": lambda: files.context_percent("t1"),
             "limits": files.rate_limits}[reading]
     original = type(path).open
 
@@ -359,60 +302,7 @@ def test_unreadable_rollout_is_retried_without_a_file_change(tmp_path, monkeypat
     with monkeypatch.context() as patch:
         patch.setattr(type(path), "open", unreadable)
         assert read() is None
-    expected = {"context": 10, "total": TokenTally(10, 2, 1),
+    expected = {"context": 10,
                 "limits": ({"limit_id": "codex", "primary": {"used_percent": 30, "window_minutes": 10080, "resets_at": 1},
                             "secondary": None, "plan_type": "team"}, 1790087469)}[reading]
     assert read() == expected
-
-
-def test_tallies_share_unchanged_day_directory_listings(tmp_path, monkeypatch):
-    root = tmp_path / "sessions"
-    first = write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
-    write_rollout(root, "t2", [meta("t2"), totals(20, 0, 2)])
-    files = CodexSessionFiles(root)
-    files.context_percent("t1")
-    files.context_percent("t2")
-    original, scans = os.scandir, []
-
-    def counted(path):
-        if Path(path) == first.parent:
-            scans.append(path)
-        return original(path)
-
-    monkeypatch.setattr(os, "scandir", counted)
-    assert files.tally("t1") == TokenTally(10, 0, 1)
-    assert files.tally("t2") == TokenTally(20, 0, 2)
-    assert len(scans) == 1
-    # A child added after that listing must still be found immediately.
-    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 0, 1)])
-    assert files.tally("t1") == TokenTally(15, 0, 2)
-    assert len(scans) == 2
-
-
-def test_lineage_cache_is_released_after_its_last_owner(tmp_path):
-    root = tmp_path / "sessions"
-    write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
-    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 0, 1)])
-    files = CodexSessionFiles(root)
-    assert files.tally("t1") == TokenTally(15, 0, 2)
-    files.retain(set())
-    assert files._lineage == {}
-
-
-def test_a_failed_day_listing_is_retried_without_directory_changes(tmp_path, monkeypatch):
-    root = tmp_path / "sessions"
-    parent = write_rollout(root, "t1", [meta("t1"), totals(10, 0, 1)])
-    write_rollout(root, "child", [meta("child", parent="t1"), totals(5, 0, 1)])
-    files = CodexSessionFiles(root)
-    files.context_percent("t1")  # Resolve the parent before simulating a child-listing failure.
-    original = os.scandir
-
-    def unavailable(path):
-        if Path(path) == parent.parent:
-            raise PermissionError("temporarily unavailable")
-        return original(path)
-
-    with monkeypatch.context() as patch:
-        patch.setattr(os, "scandir", unavailable)
-        assert files.tally("t1") == TokenTally(10, 0, 1)
-    assert files.tally("t1") == TokenTally(15, 0, 2)

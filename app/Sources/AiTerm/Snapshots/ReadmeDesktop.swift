@@ -73,9 +73,8 @@ struct ReadmeDesktop: View {
             state.tasks = tasks
         }
         controller.live.sessions = [
-            // The selected task: Claude Code in front, its context and its spend the footer's `ctx` row.
-            Fixture.session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38,
-                            tokens: TokenTally(input: 412_806, cached: 401_377, output: 6_212)),
+            // The selected task: Claude Code in front, its context the footer's `ctx` row.
+            Fixture.session("r1", "a1", refactor.id, "claude", "working", 0, cwd: refactor.worktreePath, active: true, context: 38),
             Fixture.session("r2", "a1", refactor.id, "codex", "idle", 1, cwd: refactor.worktreePath),
             Fixture.session("r3", "a2", orphan.id, "grok", "done", 0, cwd: orphan.worktreePath, active: true),
             Fixture.session("r4", "m1", quantize.id, "pi", "working", 0, cwd: quantize.worktreePath, active: true),

@@ -436,38 +436,6 @@ import Synchronization
 
     // MARK: - context
 
-    /// The counts are the active tab's own, never another tab's: two Claude tabs are two conversations.
-    @Test func theCountsAreTheActiveTabsOwn() {
-        let id = UUID()
-        let sessions = [tab(id, .claude, 0), tab(id, .claude, 1, active: true)]
-        let counts = ["s0": TokenTally(input: 9, cached: 0, output: 9), "s1": TokenTally(input: 936_018, cached: 935_988, output: 5_625)]
-        let row = SidebarModel.usageTaskRow(taskId: id, agent: .claude, sessions: sessions, contexts: [.claude: 42], tokens: counts)
-        #expect(row.tokens == counts["s1"])
-    }
-
-    /// A shell tab, or a task whose window is closed, has no conversation and no counts.
-    @Test func aShellTabHasNoCounts() {
-        let id = UUID()
-        let counts = ["s0": TokenTally(input: 9, cached: 0, output: 9), "s1": TokenTally(input: 1, cached: 0, output: 1)]
-        #expect(SidebarModel.usageTaskRow(taskId: id, agent: .claude, sessions: [tab(id, .claude, 0), tab(id, .shell, 1, active: true)],
-                                          contexts: [:], tokens: counts).tokens == nil)
-        #expect(SidebarModel.usageTaskRow(taskId: UUID(), agent: .claude, sessions: [], contexts: [:], tokens: counts).tokens == nil)
-    }
-
-    /// A tally of nothing in and nothing out — PI reports one from a session's start — is no counts
-    /// at all, never `in 0 · out 0`; a tally with either side spent still shows.
-    @Test func aTallyOfNothingInAndNothingOutHasNoCounts() {
-        let id = UUID()
-        let row = { (tally: TokenTally) in
-            SidebarModel.usageTaskRow(taskId: id, agent: .pi, sessions: [self.tab(id, .pi, 0, active: true)],
-                                      contexts: [:], tokens: ["s0": tally]).tokens
-        }
-        #expect(row(TokenTally(input: 0, cached: 0, output: 0)) == nil)
-        #expect(row(TokenTally(input: 0, cached: nil, output: 0)) == nil)
-        #expect(row(TokenTally(input: 0, cached: 0, output: 3)) == TokenTally(input: 0, cached: 0, output: 3))
-        #expect(row(TokenTally(input: 12, cached: nil, output: 0)) == TokenTally(input: 12, cached: nil, output: 0))
-    }
-
     /// The footer's first row is the selected task's active tab: that tab's agent mark and its
     /// provider's context fill. Other providers' fills in the same task are not drawn.
     @Test func testTheTaskRowFollowsTheActiveTab() {

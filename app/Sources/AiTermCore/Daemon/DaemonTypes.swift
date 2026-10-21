@@ -17,9 +17,6 @@ public struct SessionInfo: Codable, Equatable, Identifiable, Sendable {
     /// sibling tabs running the same provider so tab changes cannot erase it. An unassociated
     /// session may carry its own value, but the app only displays task context.
     public var contextPercent: Int? = nil
-    /// What this tab's conversation has spent, its subagents and background workers included. The
-    /// tab's own — the daemon never shares it across sibling tabs, as it does a context fill.
-    public var tokens: TokenTally? = nil
     /// The conversation this tab's agent runs, as the agent's own hooks name it: what reopening its
     /// task's window resumes (`TaskItem.conversations`). Nil for a shell, before the agent's first
     /// hook placed on this tab, and from a daemon too old to send it.
@@ -62,21 +59,10 @@ extension SessionInfo {
         agentCwd = try c.decodeIfPresent(String.self, forKey: .agentCwd)
         active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
         contextPercent = try c.decodeIfPresent(Int.self, forKey: .contextPercent)
-        // Read leniently: a tally this app cannot read — a count too large for an `Int`, a daemon of
-        // another shape — costs only these counts, not the session and the snapshot it came in.
-        tokens = (try? c.decodeIfPresent(TokenTally.self, forKey: .tokens)) ?? nil
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         terminalId = try c.decodeIfPresent(String.self, forKey: .terminalId)
         tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey)
     }
-}
-
-/// What one conversation has spent so far, its subagents and background workers included (the
-/// daemon's `TokenTally`). `input` counts cache reads and writes too; `cached` is that share — nil
-/// when the harness cannot tell it apart — and `output` counts reasoning.
-public struct TokenTally: Codable, Equatable, Sendable {
-    public var input: Int, cached: Int?, output: Int
-    public init(input: Int, cached: Int?, output: Int) { self.input = input; self.cached = cached; self.output = output }
 }
 
 /// A literal title for one iTerm2 tab. The daemon keeps it separate from the session's process
