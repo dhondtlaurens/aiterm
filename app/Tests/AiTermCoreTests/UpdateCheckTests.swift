@@ -24,13 +24,11 @@ private struct ThrowingSource: ReleaseSource {
         #expect(await UpdateCheck.run(source: FixedSource(result: .success(r)), current: current) == .available(r))
     }
 
-    @Test func sameReleaseIsCurrent() async {
-        #expect(await UpdateCheck.run(source: FixedSource(result: .success(release("0.2.0"))), current: current) == .current(current))
-    }
-
-    /// A dev build ahead of the newest release is not offered a downgrade.
-    @Test func olderReleaseIsCurrent() async {
-        #expect(await UpdateCheck.run(source: FixedSource(result: .success(release("0.1.9"))), current: current) == .current(current))
+    /// The same release is current, and so is an older one: a dev build ahead of the newest
+    /// release is not offered a downgrade.
+    @Test(arguments: ["0.2.0", "0.1.9"])
+    func aReleaseNoNewerThanThisBuildIsCurrent(_ version: String) async {
+        #expect(await UpdateCheck.run(source: FixedSource(result: .success(release(version))), current: current) == .current(current))
     }
 
     @Test func sourceErrorsPassThrough() async {
