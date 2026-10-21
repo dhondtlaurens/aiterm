@@ -140,6 +140,11 @@ final class OperatorController {
         }
         return acts
     }
+    /// How many lines each run's activity log has been written since this launch: the Operator sheet watches it to
+    /// read the file again (`activityGeneration(of:)`).
+    private var activityWritten: [UUID: Int] = [:]
+    /// Changes after each line of the run's activity log lands. Observed.
+    func activityGeneration(of run: UUID) -> Int { activityWritten[run, default: 0] }
     @ObservationIgnored private var changeHooks: [@MainActor () -> Void] = []
     /// The runs and operated tasks as the hooks last heard of them.
     @ObservationIgnored private var lastHeard: ([OperatorRun], [TaskItem]) = ([], [])
@@ -192,6 +197,7 @@ final class OperatorController {
         tools.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         starter.onActing = { [weak self] activity, on in self?.setActing(activity, on) }
         tools.onChange = { [weak self] in self?.runChanged($0) }
+        tools.onActivity = { [weak self] run in self?.activityWritten[run, default: 0] += 1 }
         starter.onUncertain = { [weak self] task in
             guard let operated = task.operated else { return }
             self?.waker.say("one task is uncertain: its window has only a shell; no worker is confirmed", to: operated.runId)

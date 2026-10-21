@@ -387,7 +387,7 @@ extension OperatorToolHandler {
     }
 
     /// JSON text, keys sorted, so the same value always reads the same.
-    private static func json(_ value: JSONValue) -> String {
+    static func json(_ value: JSONValue) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

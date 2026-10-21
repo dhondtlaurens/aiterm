@@ -95,6 +95,11 @@ final class OperatorToolHandler {
     var lastChallenge: Task<Void, Never>?
     /// The latest reply sent, for a test to await.
     private(set) var lastReply: Task<Void, Never>?
+    /// The latest line written to a run's activity log, for a test to await: each waits for the one before it, so the
+    /// lines land in the order the calls ended. Set by `OperatorToolHandler+Activity.swift`.
+    var lastRecording: Task<Void, Never>?
+    /// Said once a call's line has landed in its run's `activity.jsonl`: the controller's counter the Operator sheet watches.
+    var onActivity: @MainActor (UUID) -> Void = { _ in }
     /// Told when one of the Operator's acts starts and ends: the controller's `acting`, which the status
     /// lines say (`OperatorLine`).
     var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
@@ -176,16 +181,29 @@ final class OperatorToolHandler {
         }
     }
 
+    /// The answer to `request`, whatever it was: every call a known run's Operator makes is written to its activity log.
     func answer(_ request: OperatorRequest) async -> ToolAnswer {
-        guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else { return .error("This broadcast is no longer in AiTerm.") }
-        guard run.state != .stopped, run.intent != .stopped else { return .error("This broadcast has ended; its tools no longer act.") }
+        let (answer, outcome) = await respond(request)
+        record(request, answer: answer, outcome: outcome)
+        return answer
+    }
+
+    /// The answer, and how the call went, which the activity log keeps.
+    func respond(_ request: OperatorRequest) async -> (ToolAnswer, ActivityEntry.Outcome) {
+        guard let id = UUID(uuidString: request.runId), let run = state.run(id: id) else {
+            return (.error("This broadcast is no longer in AiTerm."), .refused)
+        }
+        guard run.state != .stopped, run.intent != .stopped else { return (.error("This broadcast has ended; its tools no longer act."), .refused) }
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
         let activity = activity(for: call, in: id)
         if let activity { onActing(activity, true) }
         defer { if let activity { onActing(activity, false) } }
         do {
-            if let recorded = try replayedMessage(call, in: run) { return .result(recorded) }
-            if let instead = try await challengeGate(call, in: run) { return .result(instead) }
+            if let recorded = try replayedMessage(call, in: run) { return (.result(recorded), .repeated) }
+            if let instead = try await challengeGate(call, in: run) {
+                // The critique, or the answer to a challenged call that acted already, said again.
+                return (.result(instead), instead["challenged"] == true ? .challenged : .repeated)
+            }
             // The gate's yes to an addition holds for this call only.
             let invocation = Self.invocation(call)
             defer { vettedCalls.remove(invocation) }
@@ -203,11 +221,11 @@ final class OperatorToolHandler {
             let value = try await perform(call, in: current)
             recordActed(call, in: id, answer: value)
             if Self.mutating.contains(call.tool) { onChange(id) }
-            return .result(value)
+            return (.result(value), .ok)
         } catch let refusal as ToolRefusal {
-            return .error(refusal.message)
+            return (.error(refusal.message), .refused)
         } catch {
-            return .error(error.localizedDescription)
+            return (.error(error.localizedDescription), .failed)
         }
     }
 
