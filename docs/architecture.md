@@ -193,9 +193,10 @@ The base needs no slice: a commit on the task's branch, its push, a draft MR, an
 every slice AiTerm's floor holds: only the commit the Operator accepted, a green pipeline, every
 review thread resolved, never a push to a default or protected branch, and a local merge never pushed.
 
-**The board.** `SidebarProjection.refresh` derives the broadcast's row (`SidebarModel.broadcastRow`,
-a `BroadcastRow`) and its board (`BroadcastBoard.make(run:state:acting:requests:)`) with the sidebar's
-rows, from the workspace and `OperatorController.acting` (`rows.actingSource`), and writes each only when
+**The board.** `SidebarProjection.refresh` derives the broadcast's group (`SidebarModel.broadcastSection`,
+a `BroadcastSection`: its header, a `BroadcastRow`, the Operator's own row, an `OperatorRow`, and the tasks it
+holds, which the projects' `entries` leave out and count) and its board
+(`BroadcastBoard.make(run:state:acting:requests:)`) with the sidebar's rows, from the workspace and `OperatorController.acting` (`rows.actingSource`), and writes each only when
 it differs, so a change the board draws nothing of redraws no board. `BroadcastBoard` is a value in
 `AiTermCore/Sidebar/`: the band (`OperatorLine.broadcast`, where a request outranks everything), the
 columns and their cards, what each card's click opens (`BroadcastBoard.Opens`) and, once complete, the
