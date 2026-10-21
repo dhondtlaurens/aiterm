@@ -160,8 +160,8 @@ import Testing
         }
     }
 
-    /// A driven task the Operator acts on shimmers on Core Animation's clock: its row's body is not run
-    /// again frame by frame while its words sweep.
+    /// A driven task the Operator acts on decodes its words in their own view: its row's body is not run
+    /// again frame by frame while its words decode.
     @Test func anActingRowIsNotRedrawnPerFrame() throws {
         let sidebar = try hostedSidebar()
         defer { sidebar.window.orderOut(nil) }
@@ -174,8 +174,8 @@ import Testing
                 state.tasks[i].operated = OperatorUIFixtures.operated(run: run.id, key: "t2", state: .working)
             }
         }
-        sidebar.settleRows { sidebar.host.firstDescendant(ShimmerWordsView.self) != nil }
-        #expect(sidebar.host.firstDescendant(ShimmerWordsView.self) != nil, "the acting row shimmers")
+        sidebar.settleRows { sidebar.host.firstDescendant(DecodeWordsView.self) != nil }
+        #expect(sidebar.host.firstDescendant(DecodeWordsView.self) != nil, "the acting row decodes")
         sidebar.counter.reset()
         settle(sidebar.host, for: 0.5)
         #expect(sidebar.counter.counts[acted.id] == nil, "the acting row was redrawn \(sidebar.counter.counts[acted.id] ?? 0) times in 0.5 s")

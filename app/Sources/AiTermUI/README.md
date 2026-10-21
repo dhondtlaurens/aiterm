@@ -262,15 +262,17 @@ Motion. Its menu leads with Take Over or Hand Back, and Stop Task… (it asks fi
 task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
 status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
 says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet, and
-ended, have no box and the surface's secondary ink; acting has no box and its words shimmer,
-a band of the surface's ink sweeping over its secondary ink every 1.6 s on Core Animation's clock
-(`ShimmerWordsView`: a `CAGradientLayer` masking the ink's `CATextLayer`, nothing updated per frame),
-standing still in the surface's ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
+ended, have no box and the surface's secondary ink; acting has no box and the surface's ink, and when its
+words change they decode once: each letter and digit runs through glyphs (`0-9a-z`, one advance wide in the mono
+face, so the line keeps its width) and they settle from the left over `OperatorBadge.decodeDuration` (0.5 s),
+then stand still, the row's spinner carrying the ongoing motion (`DecodeWordsView`: a `CATextLayer` with frames
+of its own at 30 a second, no SwiftUI update per frame, and no loop). The words stand still at once
+under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
 `Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. A line
-shimmers exactly when its row's `StatusMark` turns. Ended is every end a task's line names, `done · 4f2a91c`,
+acts exactly when its row's `StatusMark` turns. Ended is every end a task's line names, `done · 4f2a91c`,
 `done · no change`, `draft MR · !412`, `merged · 9b3e07d` and `merged locally · 1c84e20`: the Operator's work
 on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
