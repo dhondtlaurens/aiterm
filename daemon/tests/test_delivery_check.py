@@ -441,15 +441,16 @@ async def test_busy_queue_types_the_second_message_only_while_the_story_is_unfin
     assert len(sent) == 1
 
 
-async def test_busy_queue_passes_once_both_answers_show(monkeypatch):
+async def test_busy_queue_passes_once_the_message_typed_while_busy_is_answered(monkeypatch):
     from types import SimpleNamespace
     from tools import delivery_check as check
 
     class Busy(check.Live):
         def deliverer(self, agent, **kwargs):
             async def deliver(sid, text, *args):
+                # Codex steers a message typed mid-turn into that turn, and may answer only it.
                 if text.startswith("When you are done"):
-                    self.bridge.screens[sid] = "Once upon a time.\n\nFIN 7\n\nCHARLIE 9"
+                    self.bridge.screens[sid] = "Write a story\n\nWhen you are done\n\nCHARLIE9"
                 return SimpleNamespace(result="delivered", reason="")
             return SimpleNamespace(deliver=deliver)
 
@@ -559,7 +560,7 @@ async def test_update_paste_without_markers_is_not_applicable(tmp_path, monkeypa
     assert not agent_entry("2.1.301", results, NOW)["pasteSafe"]
 
 
-@pytest.mark.parametrize("failure", [None, "missing", "closed", "rules", "dismiss"])
+@pytest.mark.parametrize("failure", [None, "missing", "unrecognised", "closed", "rules", "dismiss"])
 async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeypatch):
     from dataclasses import replace
     from aitermd.delivery import ESC, PASTE_START, PASTE_END
@@ -569,7 +570,7 @@ async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeyp
     offer = "Update now\nSkip until next version"
     bridge, sid = await fake_session()
     bridge.sessions[sid] = replace(bridge.sessions[sid], command_line=agent)
-    bridge.screens[sid] = "› idle" if failure == "missing" else offer
+    bridge.screens[sid] = {"missing": "› idle", "unrecognised": "a crashed shell"}.get(failure, offer)
 
     class Update(check.Live):
         async def wait_for(self, sid, seen, seconds):
@@ -592,14 +593,17 @@ async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeyp
 
     monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
     result = await check.update_paste(Update(bridge), agent, sid, tmp_path)
-    assert result.passed == (failure is None)
+    # No update offered, its idle screen instead: nothing to paste into, and nothing pasted.
+    assert result.passed == (failure in (None, "missing"))
     sent = [text for _, text in bridge.sent]
-    assert (PASTE_START + check.HAZARD + PASTE_END in sent) == (failure != "missing")
+    assert (PASTE_START + check.HAZARD + PASTE_END in sent) == (failure not in ("missing", "unrecognised"))
     if failure is None:
         assert sent[-1] == ESC
-    if failure:
-        assert "Expected" in result.detail and "Last screen" in result.detail
     if failure == "missing":
+        assert result.detail.startswith("not shown")
+    elif failure:
+        assert "Expected" in result.detail and "Last screen" in result.detail
+    if failure == "unrecognised":
         assert "no update dialog showed" in result.detail
 
 
@@ -840,3 +844,28 @@ def test_the_window_says_a_failure_briefly_and_the_file_keeps_it_whole(capsys):
     assert "Expected answer marker 'ALPHA 42'" in printed and "line 39" in printed
     assert "line 27" not in printed, "the last twelve lines of the screen, not forty"
     assert "claude multiLine: pass\n" in printed, "a pass in one short line"
+
+
+@pytest.mark.parametrize("agent,idle_screen", [("codex", "› Ask Codex to do anything"), ("claude", "────\n❯\x20\n────")])
+async def test_a_cli_that_opens_on_its_idle_screen_has_no_trust_dialog_to_paste_into(agent, idle_screen, monkeypatch):
+    from tools import delivery_check as check
+    bridge, sid = await fake_session()
+    bridge.screens[sid] = idle_screen
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    result = await check.startup_paste(check.Live(bridge), agent, sid)
+    assert result.passed and result.detail.startswith("not shown")
+    assert bridge.sent == []
+
+
+async def test_a_trust_dialog_after_the_idle_screen_is_still_pasted_into(monkeypatch):
+    from tools import delivery_check as check
+    bridge, sid = await fake_session()
+    bridge.screens[sid] = "› Ask Codex to do anything"
+
+    async def dialog_opens(seconds):
+        bridge.screens[sid] = CODEX_TRUST
+
+    monkeypatch.setattr(check.asyncio, "sleep", dialog_opens)
+    result = await check.startup_paste(check.Live(bridge), "codex", sid)
+    assert result.passed and not result.detail.startswith("not shown")
+    assert any(check.HAZARD in text for _, text in bridge.sent)
