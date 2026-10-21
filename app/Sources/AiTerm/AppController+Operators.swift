@@ -236,8 +236,22 @@ extension AppController {
         guard let run = state.activeRun, run.id == id else { return }
         switch opens {
         case .taskWindow(let task): focus.select(.task(task))
+        case .tab(let task, let session): bringTab(task: task, sessionId: session)
         case .operatorWindow: openOperatorWindow(run)
         case .sidebarBanner, .nothing: break
+        }
+    }
+
+    /// One of a task's worker tabs in front (P5 A): its row selected and its window raised as a row's click raises
+    /// it, then that tab selected in the window and the window brought forward with it (`session.activate`), so the
+    /// tab stands in front whatever the window showed last. A board card's tab line brings its tab; a driven row's
+    /// click brings `TaskItem.tabToBring(sessions:requests:)`'s. A tab gone meanwhile leaves the window as raised.
+    @discardableResult
+    func bringTab(task id: UUID, sessionId: String) -> Task<Void, Never> {
+        let raising = focus.select(.task(id))
+        return Task { @MainActor [helper] in
+            await raising?.value
+            try? await helper.daemon?.activate(sessionId: sessionId)
         }
     }
 

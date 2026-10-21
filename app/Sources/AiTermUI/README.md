@@ -193,7 +193,7 @@ vendor needs both.
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
-`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
+`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
 `TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
@@ -337,7 +337,15 @@ task row, `Space.tight` apart: the title in `Typography.body`, two lines at most
 spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
-Its tooltip is the model the Operator chose and its one-line reason. A card's click closes the sheet
+Its tooltip is the model the Operator chose and its one-line reason. A task with several worker tabs keeps one
+card, `monitoring 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.Tab`),
+`Space.base` either side of it, `Space.tight` apart: a `Size.chip` line of the tab's agent's `VendorMark` at
+`Size.inlineMark`, centred under the card's mark; its key (`main`, `e2e-tests`) in `Typography.monoChip` and
+`Palette.text` on the title's leading edge; `Space.base` after it its state, an `OperatorBadge` (`at work`, `turn
+ended`, `opening`, `closed`, or `waiting on you` in the attention chip); and its `StatusMark` at
+`Size.statusMarkSmall` trailing. Hovered, a tab line takes `Palette.badgeHovered` at `Radius.chip`, `Space.tight`
+beyond it. A tab line's click closes the sheet and brings that tab forward (`session.activate`); a closed tab is
+listed with its key muted and no mark, and is no button, as is one still opening. A card's click closes the sheet
 first, then opens what resolves it (`BroadcastBoard.Opens`): a permission prompt or a started task, the
 task's window; a question or a blocked task, the Operator's window; a problem AiTerm hit, nothing more
 than the sidebar banner already showing it. A Todo card is no button. The footer is Pause Broadcast or

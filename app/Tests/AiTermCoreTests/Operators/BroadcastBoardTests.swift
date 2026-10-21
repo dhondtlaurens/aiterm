@@ -270,4 +270,36 @@ import Testing
         #expect(BroadcastBoard.make(run: run(.operatorOffline), state: state(run(.operatorOffline)), acting: .none, requests: []).isPaused)
         #expect(!BroadcastBoard.make(run: run(), state: state(run()), acting: .none, requests: []).isPaused)
     }
+
+    /// A card whose task has several worker tabs lists each under a hairline (P5 A): its agent, its key (`main` for the
+    /// first worker), what it does and its mark. A tab's click closes the board and brings that tab forward; a closed
+    /// tab is listed, muted, and is no button. A task with one tab lists none.
+    @Test func aCardListsItsWorkerTabs() throws {
+        let run = run()
+        var price = task("Price formatting", jira: "PAY-236", run: run.id, .working, agent: .codex)
+        price.operated?.extraTabs = [OperatorUIFixtures.extraTab("docs", agent: .claude), OperatorUIFixtures.extraTab("api-mocks", agent: .claude),
+                                     OperatorUIFixtures.extraTab("e2e-tests", opened: false)]
+        let drawer = task("Cart drawer", jira: "PAY-231", run: run.id, .working)
+        let sessions = [OperatorUIFixtures.tab("s1", of: price, .idle, agent: .codex),
+                        OperatorUIFixtures.tab("s2", of: price, .needsInput, index: 1, key: "docs"),
+                        OperatorUIFixtures.tab("s9", of: drawer, .working)]
+        let board = BroadcastBoard.make(run: run, state: state(run, [price, drawer]), acting: .none, requests: [], sessions: sessions)
+        let cards = try #require(board.columns.first { $0.column == .inProgress }?.cards)
+        let tabs = try #require(cards.first { $0.title == "Price formatting" }?.tabs)
+        typealias Tab = BroadcastBoard.Tab
+        #expect(tabs == [
+            Tab(key: "main", agent: .codex, line: OperatorLine("turn ended"), status: .idle, opens: .tab(task: price.id, sessionId: "s1")),
+            Tab(key: "docs", agent: .claude, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput,
+                opens: .tab(task: price.id, sessionId: "s2")),
+            Tab(key: "api-mocks", agent: .claude, line: OperatorLine("closed"), status: nil, opens: .nothing),
+            Tab(key: "e2e-tests", agent: .codex, line: OperatorLine("opening"), status: .working, opens: .nothing),
+        ])
+        #expect(tabs.map(\.isClosed) == [false, false, true, false])
+        #expect(cards.first { $0.title == "Cart drawer" }?.tabs == [], "one tab: nothing to tell apart")
+        #expect(cards.first { $0.title == "Price formatting" }?.line == OperatorLine("monitoring 3 tabs", look: .acting))
+        // At work, its words say so.
+        let working = BroadcastBoard.make(run: run, state: state(run, [price]), acting: .none, requests: [],
+                                          sessions: [OperatorUIFixtures.tab("s1", of: price, .working, agent: .codex)])
+        #expect(working.columns.flatMap(\.cards).first?.tabs.first?.line == OperatorLine("at work"))
+    }
 }
