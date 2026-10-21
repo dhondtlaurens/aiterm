@@ -19,15 +19,17 @@ import AiTermUI
     private let mr = MergeRequestRef(iid: 87, title: "Add diff setting", url: "https://gitlab.example.com/mr/87")
     private let diff = BaseDiff(base: "main", stat: DiffStat(added: 12, removed: 3))
 
-    @Test func aProjectKeyTurnedOffLeavesTheMarkAndMovesTheKeyIntoTheTooltip() {
-        let full = ProjectJiraBadge(jira: jira)
-        #expect(full.label == "SHOP")
-        #expect(full.help == "Storefront · https://example.atlassian.net/browse/SHOP")
+    @Test func aProjectCountTurnedOffLeavesTheMarkAndMenu() throws {
+        let project = Project(id: UUID(), name: "AiTerm", path: "/tmp/aiterm", provider: .git, remoteUrl: nil,
+                              addedAt: Date(), collapsed: false, jiraProjects: [jira])
+        let full = try #require(ProjectJiraBadge.badge(for: project))
+        #expect(full.label == "1")
+        #expect(full.help == "Jira · SHOP Storefront")
 
-        let compact = ProjectJiraBadge(jira: jira, showsKey: false)
+        let compact = try #require(ProjectJiraBadge.badge(for: project, showsCount: false))
         #expect(compact.label == nil)
-        #expect(compact.help == "Storefront (SHOP) · https://example.atlassian.net/browse/SHOP")
-        #expect(compact.url == full.url)
+        #expect(compact.help == full.help)
+        #expect(compact.items == full.items)
     }
 
     @Test func everyDetailOnDrawsTheRowAsItAlwaysWas() {

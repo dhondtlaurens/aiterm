@@ -3,7 +3,7 @@ import Foundation
 /// Which sidebar badges print their detail beside their mark. A badge whose detail is off keeps its
 /// mark, its click and its tooltip; it only stops spending width on the text. All on by default.
 public struct BadgeDetails: Equatable, Sendable {
-    /// The project key on a project header, `SHOP`.
+    /// The linked Jira project count on a project header, `2`.
     public var jiraProject: Bool
     /// The ticket key on a task row, `SHOP-412`.
     public var jiraTicket: Bool
