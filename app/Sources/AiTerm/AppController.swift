@@ -567,7 +567,8 @@ final class AppController {
     }
 
     /// ↩ on the list: a header folds or opens its project, a broadcast's header its group; any other row
-    /// goes to its window, the Operator's row to the Operator's, and a queued task's to none. An empty
+    /// goes to its window, the Operator's row to the Operator's, a driven task's to its tab that asks
+    /// (`choose(task:)`), and a queued task's to none. An empty
     /// project has nothing to fold, so its header opens its context menu — its first items are the ones
     /// that give it a row.
     @discardableResult
@@ -587,7 +588,24 @@ final class AppController {
             toggleFolded(run: id)
             return nil
         }
+        // A task's row, as its click chooses it: a driven one brings the tab that asks.
+        if let id = focus.selectedTaskId, state.task(id: id) != nil { return choose(task: id) }
         return focus.activateSelection()
+    }
+
+    /// A task row's click or ↩. A task the live broadcast drives brings its tab that asks, else the one last in
+    /// front (`TaskItem.tabToBring(sessions:requests:)`, P5 A), through `bringTab`, so with several worker tabs
+    /// the one that needs you stands in front. Any other task, a driven one with no tab listed (its window comes
+    /// back as `RowFocus.select` brings it), one being removed and a queued one, which opens nothing, go to
+    /// `RowFocus.select` as they are.
+    @discardableResult
+    func choose(task id: UUID) -> Task<Void, Never>? {
+        if let task = state.task(id: id), let operated = task.operated, !operated.takenOver, !task.isQueuedByOperator,
+           let run = state.activeRun, run.id == operated.runId, removal(of: id)?.inProgress != true,
+           let tab = task.tabToBring(sessions: live.sessions, requests: OperatorRequests.open(run: run, state: state, prompts: [:])) {
+            return bringTab(task: id, sessionId: tab.sessionId)
+        }
+        return focus.select(.task(id))
     }
 
     /// ⌘⌫ on the list: the selected row's own Remove, as its context menu has it — a task or a

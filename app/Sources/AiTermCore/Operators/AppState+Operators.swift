@@ -11,7 +11,7 @@ public extension AppState {
 
     /// The one broadcast that has not ended (spec §3): its state and its intent both short of stopped, so a
     /// broadcast being ended is gone at once. At most one; while there is one, no other starts. The
-    /// broadcast row, the selection and the Operator controller all read this.
+    /// broadcast's group, the selection and the Operator controller all read this.
     var activeRun: OperatorRun? { runs.first { !$0.hasEnded } }
 
     /// The run's tasks in sidebar order, which is the plan's order: the order they were created.

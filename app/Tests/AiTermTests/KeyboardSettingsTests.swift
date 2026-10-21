@@ -177,8 +177,8 @@ import Testing
         #expect(SettingsTab.allCases.count == 4)
     }
 
-    /// There is no ⌘I (spec §3, §10): a click or ↩ on the broadcast row opens its overview. No row lists
-    /// it, no menu item claims it, and the list hands it on.
+    /// There is no ⌘I (spec §3, §10): the broadcast header's board button and Open Board open its board, and ↩
+    /// on the header folds its group. No row lists it, no menu item claims it, and the list hands it on.
     @Test func thereIsNoCommandI() throws {
         #expect(KeyBindings.all.flatMap(\.bindings).filter { $0.keys.last == "I" }.isEmpty)
         let saved = NSApplication.shared.mainMenu
@@ -187,6 +187,6 @@ import Testing
         let items = try #require(NSApplication.shared.mainMenu).items.compactMap(\.submenu).flatMap(\.items)
         #expect(items.filter { $0.keyEquivalent.lowercased() == "i" }.isEmpty)
         let sidebar = try #require(KeyBindings.all.first { $0.title == "Sidebar" })
-        #expect(sidebar.bindings.contains { $0.action.contains("broadcast") }, "↩ names what it does on the broadcast row")
+        #expect(sidebar.bindings.contains { $0.action.contains("broadcast") }, "↩ names what it does on the broadcast's header")
     }
 }

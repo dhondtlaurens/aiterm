@@ -109,6 +109,33 @@ import Testing
         #expect(SidebarModel.heldStatus(.done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou)) == .needsInput)
     }
 
+    /// A driven task's line reads its own tabs: `monitoring 2 tabs` with several worker tabs open, `checking next`
+    /// once every one ended its turn, and the tab that asks named.
+    @Test func aTasksLineCountsItsTabs() throws {
+        let run = run()
+        var drawer = task("Cart drawer", run: run.id, .working)
+        drawer.operated?.extraTabs = [OperatorUIFixtures.extraTab("docs")]
+        func line(_ main: SessionState, _ docs: SessionState?) throws -> OperatorLine? {
+            let tabs = [OperatorUIFixtures.tab("s1", of: drawer, main)]
+                + (docs.map { [OperatorUIFixtures.tab("s2", of: drawer, $0, index: 1, key: "docs")] } ?? [])
+            return try section(state(run, [drawer]), sessions: tabs).tasks.first?.operatorLine
+        }
+        #expect(try line(.working, .working) == OperatorLine("monitoring 2 tabs", look: .acting))
+        #expect(try line(.working, .idle) == OperatorLine("monitoring 2 tabs", look: .acting), "one still at work")
+        #expect(try line(.idle, .done) == OperatorLine("checking next", look: .acting))
+        #expect(try line(.working, nil) == OperatorLine("monitoring Claude", look: .acting), "a closed extra tab is not counted")
+        let single = task("Price formatting", run: run.id, .working)
+        #expect(try section(state(run, [single]), sessions: [tab(single, .working)]).tasks.first?.operatorLine
+                == OperatorLine("monitoring Claude", look: .acting))
+        var asking = run
+        asking.questions = [OperatorUIFixtures.question("Codex asks to run npm install", id: "prompt-1", task: drawer.id, tab: "docs")]
+        let asked = try section(state(asking, [drawer]),
+                                sessions: [OperatorUIFixtures.tab("s1", of: drawer, .working),
+                                           OperatorUIFixtures.tab("s2", of: drawer, .needsInput, index: 1, key: "docs")])
+        #expect(asked.tasks.first?.operatorLine?.text == "waiting on you · docs")
+        #expect(asked.tasks.first?.status == .needsInput)
+    }
+
     // -- the Operator's row ------------------------------------------------------------
 
     @Test func theOperatorsRowHasAnIdOfItsOwn() throws {
@@ -119,10 +146,12 @@ import Testing
         #expect(OperatorRow.id(of: row.id) == run.id, "the derivation is its own inverse, so it can never meet the run's")
     }
 
+    /// Its line is its own session's (`OperatorLine.session`), in each state, and its mark follows the line.
     @Test func theOperatorsRowSpeaksForItsOwnSessionAlone() throws {
+        // One of its own questions, the broadcast's and no task's: it asks you in its window.
         let run = run(questions: [OperatorUIFixtures.question("which currency format?", task: nil)])
         let asked = try section(state(run)).operatorRow
-        #expect(asked.line == OperatorLine("waiting on you", look: .needsYou, tooltip: "The Operator asks: which currency format?"))
+        #expect(asked.line == OperatorLine("asks you in its window", look: .needsYou))
         #expect(asked.status == .needsInput)
 
         // A task's prompt and a question about a task are that task's: the Operator's row goes on with its act.
@@ -135,29 +164,51 @@ import Testing
         #expect(row.line == OperatorLine("answering Claude · Cart drawer", look: .acting))
         #expect(row.status == .working)
 
-        // Its own tab waiting on input: it asks you in its window.
-        let prompted = try section(state(busy, [drawer]), sessions: [operatorTab(busy, .needsInput)]).operatorRow
-        #expect(prompted.line.look == .needsYou && prompted.status == .needsInput)
+        // Its own tab waiting on input: it asks you in its window, over its act.
+        let prompted = try section(state(busy, [drawer]), sessions: [operatorTab(busy, .needsInput)], acting: acting).operatorRow
+        #expect(prompted.line == OperatorLine("asks you in its window", look: .needsYou))
+        #expect(prompted.status == .needsInput)
 
-        // Between turns, an idle tab: the idle ring under what its tasks are doing.
+        // Its session at work with no act of AiTerm's: working, spinning.
+        let working = try section(state(busy, [drawer]), sessions: [operatorTab(busy, .working), tab(drawer, .working)]).operatorRow
+        #expect(working.line == OperatorLine("working", look: .acting))
+        #expect(working.status == .working)
+
+        // Between turns, an idle tab: it waits for its tasks, under the idle ring, whatever they do.
         let review = task("review", run: busy.id, .inReview)
-        let between = try section(state(busy, [review]), sessions: [operatorTab(busy, .idle)]).operatorRow
+        let between = try section(state(busy, [review, drawer]), sessions: [operatorTab(busy, .idle), tab(drawer, .working)]).operatorRow
+        #expect(between.line == OperatorLine("waiting for its tasks"))
         #expect(between.status == .idle)
-        #expect(between.line.look == .quiet)
+        #expect(try section(state(busy)).operatorRow.line == OperatorLine("waiting for its tasks"), "no tab listed yet: quiet")
+    }
+
+    /// Its session is the one the run recorded (`operatorSessionId`), ahead of any other tab tagged with the run.
+    @Test func theOperatorsRowReadsTheSessionTheRunRecorded() throws {
+        var run = run()
+        run.operatorSessionId = "op-2"
+        var recorded = operatorTab(run, .needsInput)
+        recorded.sessionId = "op-2"
+        recorded.tabIndex = 1
+        let row = try section(state(run), sessions: [operatorTab(run, .idle), recorded]).operatorRow
+        #expect(row.line.look == .needsYou)
     }
 
     @Test func theOperatorsRowSaysWhenItsPausedClosedOrDone() throws {
         var paused = run()
         paused.state = .paused
-        #expect(try section(state(paused)).operatorRow.line.text == "paused")
-        var closed = run()
+        #expect(try section(state(paused), sessions: [operatorTab(paused, .working)]).operatorRow.line == OperatorLine("paused"))
+        var pausing = run()
+        pausing.intent = .paused
+        let held = try section(state(pausing)).operatorRow
+        #expect(held.line == OperatorLine("paused") && held.status == .idle)
+        var closed = run(questions: [OperatorUIFixtures.question("which currency format?", task: nil)])
         closed.state = .operatorOffline
         let offline = try section(state(closed)).operatorRow
-        #expect(offline.line.text == "paused · the Operator’s window is closed" && offline.status == .idle)
+        #expect(offline.line == OperatorLine("window closed") && offline.status == .idle, "no window, nothing it can ask in")
         var complete = run()
         complete.state = .complete
-        let done = try section(state(complete)).operatorRow
-        #expect(done.line.text == "done · debrief ready" && done.status == .done)
+        let done = try section(state(complete), sessions: [operatorTab(complete, .idle)]).operatorRow
+        #expect(done.line == OperatorLine("waiting for its tasks") && done.status == .done, "the accent dot once the debrief is ready")
     }
 
     // -- the header ------------------------------------------------------------------------

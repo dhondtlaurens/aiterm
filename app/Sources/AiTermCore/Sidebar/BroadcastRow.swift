@@ -137,22 +137,24 @@ public extension SidebarModel {
                             isComplete: run.state == .complete)
     }
 
-    /// The Operator's row. Its line is the broadcast's as its own session sees it: its own question, or its tab
-    /// waiting on input, as `waiting on you`; else paused, its window closed, the debrief ready, its act, the plan
-    /// being drawn up, or between its turns what its tasks are doing. A task's request is never its. Its mark
-    /// follows: amber when it asks, spinning while it or its line moves, the accent dot once the debrief is
-    /// ready, else the idle ring: a turn ended is routine.
+    /// The Operator's row: its own session's line (`OperatorLine.session`), nothing of its tasks, which the
+    /// header's tooltip, the board's band and the tasks' own rows say. It asks you while its tab waits on input
+    /// or one of its own questions, the broadcast's and no task's, is open; its window is closed while the run
+    /// is `operatorOffline`; else paused, its act, `working` while its session works, and `waiting for its tasks`
+    /// between turns. Its mark follows the line: amber when it asks, spinning while it acts or works, the
+    /// accent dot once the debrief is ready, else the idle ring: a turn ended is routine.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo]) -> OperatorRow {
-        let tab = operatorTab(of: run.id, in: sessions)
-        let asks = requests.filter { $0.runId == run.id && $0.taskId == nil }
-        let line = asks.isEmpty && tab?.state == .needsInput
-            ? OperatorLine("waiting on you", look: .needsYou)
-            : OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: asks,
-                                     ready: readyForAcceptance(tasks, sessions: sessions))
-        let status: TaskStatus = line.look == .needsYou ? .needsInput
-            : line.look == .acting || tab?.state == .working ? .working
-            : run.state == .complete ? .done : .idle
+        let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)
+        let asks = requests.contains { $0.runId == run.id && $0.taskId == nil }
+        let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
+                                        asking: asks || tab?.state == .needsInput, windowClosed: run.state == .operatorOffline,
+                                        paused: run.state == .paused || run.intent == .paused, tasks: tasks)
+        let status: TaskStatus = switch line.look {
+        case .needsYou: .needsInput
+        case .acting: .working
+        case .quiet, .ended: run.state == .complete ? .done : .idle
+        }
         return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, line: line, status: status)
     }
 

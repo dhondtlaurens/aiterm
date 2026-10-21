@@ -6,7 +6,7 @@ import AiTermCore
 /// Everything the Operator says on a status line (spec §7, §13, §14): the words of an `OperatorLine` in
 /// `Typography.monoChip`, no mark: where the line sits says whose it is. Always one `Size.chip` line: the
 /// words cut with an ellipsis rather than wrap, the whole of them in the tooltip and VoiceOver's label. The
-/// last line of a driven task's row and of the broadcast row, a card's last line on the board, the band
+/// last line of a driven task's row and of the Operator's row, a card's last line on the board, the band
 /// under the board's title.
 ///
 /// It reads its ground (`Surface`), as `RowCaption(warns:)` does:

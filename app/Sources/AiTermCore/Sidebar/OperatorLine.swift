@@ -48,7 +48,7 @@ public struct OperatorActs: Equatable, Sendable {
     /// Nothing in flight.
     public static let none = OperatorActs()
 
-    /// The broadcast's act as `OperatorLine.broadcast` takes it.
+    /// The broadcast's act as `OperatorLine.broadcast` and `OperatorLine.session` take it.
     public func broadcast(_ run: UUID) -> (OperatorAct, task: String?)? { runs[run].map { ($0.act, task: $0.task) } }
 }
 
@@ -177,7 +177,8 @@ public struct OperatorLine: Equatable, Sendable {
 
     // MARK: - The broadcast's line
 
-    /// The broadcast row's line and the board's band: the one thing that needs you, else the run's own
+    /// The broadcast's whole status line, on its header's tooltip and VoiceOver value and as the board's band
+    /// (the Operator's row says its own session's, `session`): the one thing that needs you, else the run's own
     /// state, else what the Operator is doing, else what its tasks are doing. `acting`'s task is the
     /// task's `key` (or its id); `tasks` are the broadcast's; `ready` the working ones whose workers all
     /// ended their turn, waiting for the Operator to accept them (`TaskItem.isReadyForAcceptance(in:)`).

@@ -205,6 +205,7 @@ struct BroadcastGroupFocusTests {
         controller.focus.onChoosingOperatedTaskWithoutWindow { _ in Issue.record("nothing reopens"); return nil }
         controller.focus.onChoosingOwedRow { _ in Issue.record("nothing restores"); return nil }
         #expect(controller.rows.broadcast?.tasks.map(\.queued) == [true])
+        #expect(controller.choose(task: queued.id) == nil, "a click")
         #expect(controller.focus.select(.task(queued.id)) == nil)
         #expect(controller.focus.selection == .task(queued.id))
         #expect(controller.activateSelection() == nil)
@@ -212,6 +213,53 @@ struct BroadcastGroupFocusTests {
         #expect(controller.sheet == nil)
         #expect(controller.issue == nil, "no “hasn’t started” error")
         #expect(daemon.requests("window.activate").isEmpty)
+        #expect(daemon.requests("session.activate").isEmpty)
+    }
+
+    /// P5 A: a driven task's row, clicked or ↩, raises its window and brings forward the worker tab that asks,
+    /// whichever tab the window showed last (`TaskItem.tabToBring`, `session.activate`).
+    @Test func aDrivenRowBringsTheTabThatAsks() async throws {
+        let run = OperatorUIFixtures.run()
+        let project = OperatorUIFixtures.project("pluto-web")
+        var operated = OperatorUIFixtures.operated(run: run.id, key: "a", state: .working)
+        operated.extraTabs = [OperatorUIFixtures.extraTab("docs"), OperatorUIFixtures.extraTab("e2e-tests")]
+        var task = OperatorUIFixtures.task("Cart drawer", project: project.id, windowId: nil, operated: operated)
+        task.windowId = "w-\(task.id)"
+        let (controller, daemon) = try controller(run)
+        defer { controller.shutdown() }
+        controller.workspace.mutate { state in state.append(project: project); state.tasks = [task] }
+        controller.live.sessions = [OperatorUIFixtures.tab("s1", of: task, .working, active: true),
+                                    OperatorUIFixtures.tab("s2", of: task, .needsInput, index: 1, key: "docs", agent: .codex),
+                                    OperatorUIFixtures.tab("s3", of: task, .idle, index: 2, key: "e2e-tests", agent: .codex)]
+        #expect(controller.rows.broadcast?.tasks.first?.status == .needsInput, "its docs tab waits on input")
+
+        await controller.choose(task: task.id)?.value                      // a click
+        #expect(controller.focus.selection == .task(task.id))
+        #expect(activated(daemon) == [task.windowId])
+        #expect(daemon.requests("session.activate").map { $0.params["sessionId"] as? String } == ["s2"], "the tab that asks")
+
+        await controller.activateSelection()?.value                        // ↩
+        #expect(daemon.requests("session.activate").map { $0.params["sessionId"] as? String } == ["s2", "s2"])
+
+        // Answered, nothing asks: the tab last in front.
+        controller.live.sessions[1].state = .working
+        await controller.choose(task: task.id)?.value
+        #expect(daemon.requests("session.activate").last?.params["sessionId"] as? String == "s1")
+    }
+
+    /// A task of your own is raised as ever: its window, no tab of it chosen.
+    @Test func aTaskOfYourOwnBringsOnlyItsWindow() async throws {
+        let run = OperatorUIFixtures.run()
+        let project = OperatorUIFixtures.project("pluto-web")
+        var mine = OperatorUIFixtures.task("Mine", project: project.id, windowId: nil, operated: nil)
+        mine.windowId = "w-\(mine.id)"
+        let (controller, daemon) = try controller(run)
+        defer { controller.shutdown() }
+        controller.workspace.mutate { state in state.append(project: project); state.tasks = [mine] }
+        controller.live.sessions = [OperatorUIFixtures.tab("s1", of: mine, .needsInput, active: true)]
+        await controller.choose(task: mine.id)?.value
+        #expect(activated(daemon) == [mine.windowId])
+        #expect(daemon.requests("session.activate").isEmpty)
     }
 
     /// A task an operator drives whose window you closed comes back on a click or ↩ from the operator

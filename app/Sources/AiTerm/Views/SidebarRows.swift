@@ -383,7 +383,7 @@ struct TaskRowView: View {
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
                                              awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(selected: selected, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
+        SelectableRow(selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {

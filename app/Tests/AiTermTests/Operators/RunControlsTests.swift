@@ -691,7 +691,7 @@ import Testing
         #expect(world.controller.notices.issue == nil)
     }
 
-    /// The broadcast row's click reopens the Operator's window behind the board it opens (spec §9).
+    /// The board reopens the Operator's window behind itself, in the background (spec §9).
     @Test func aClickBehindTheBoardReopensTheWindowInTheBackground() async throws {
         let (world, run, _) = try makeWorld(runState: .operatorOffline)
         world.show([])

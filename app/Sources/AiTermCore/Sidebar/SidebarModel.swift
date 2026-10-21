@@ -447,15 +447,16 @@ public enum SidebarModel {
                               operatorTasks: held.count, operatorWorktrees: held.filter(\.hasCheckout).count)
     }
 
-    /// One task's row: its tabs' agents, branch and status, and, driven, the Operator's line. A queued task
-    /// (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
+    /// One task's row: its tabs' agents, branch and status, and, driven, the Operator's line, read from the same
+    /// tabs, so it says `checking next` once every worker ended its turn and `monitoring 2 tabs` with several
+    /// open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
     static func taskRow(_ task: TaskItem, tabs: Tabs, operated: OperatedLookup, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
         let run = task.operated.flatMap { operated.runs[$0.runId] }
         let line = run.flatMap { run in
             OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
-                              tasks: operated.tasks)
+                              tasks: operated.tasks, sessions: own)
         }
         let queued = line != nil && task.isQueuedByOperator
         let status = aggregate(own.map(\.state))
