@@ -98,13 +98,14 @@ import Foundation
     /// Cancel while looking: the agent's group is killed and the run says it was cancelled.
     @Test func aCancelledLookStopsTheAgent() async throws {
         let request = request
-        let (script, _) = try agent(look: fixAnswer(drops: []), lookBody: "sleep 30", applyBody: "")
+        let (script, log) = try agent(look: fixAnswer(drops: []), lookBody: "sleep 30", applyBody: "")
         let pipeline = live(script)
         let clone = try await pipeline.prepare(request)
         defer { clone.remove() }
         let started = ContinuousClock.now
         let looking = Task { _ = try await pipeline.look(.claude, clone, request) }
-        try await Task.sleep(for: .milliseconds(300))
+        // Cancelled once the agent runs, which it logs first thing: mid-look, not before it began.
+        await eventually(describing: "the agent to start looking") { FileManager.default.fileExists(atPath: log) }
         looking.cancel()
         await #expect(throws: FixRefusal.cancelled) { try await looking.value }
         #expect(ContinuousClock.now - started < .seconds(15), "not the script's 30 s")

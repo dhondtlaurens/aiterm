@@ -127,7 +127,7 @@ struct OperatorBadgeTests {
         defer { window.close() }
         settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
         let words = try #require(host.firstDescendant(DecodeWordsView.self))
-        settle(host, for: OperatorBadge.decodeDuration + 0.3)
+        settle(host, describing: "the words to settle") { !words.isDecoding && words.shown == "consulting the Oracle" }
         #expect(!words.isDecoding && words.shown == "consulting the Oracle", "settled: \(words.shown)")
         #expect(words.frames > 1, "it decoded a frame at a time")
         let frames = words.frames, updates = OperatorBadge.decodeUpdates

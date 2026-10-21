@@ -13,7 +13,10 @@ import AiTermCore
 /// passing at all is the assertion; the submit is checked to show the press was real.
 @MainActor
 @Suite(.serialized) struct SheetDismissalTests {
-    private func pressCommandReturn(on view: some View, width: CGFloat = Sheet.width, height: CGFloat = Sheet.height) {
+    /// `view` in a window of its own, its first field holding the keyboard; then ⌘↩, and the run
+    /// loop turned until `done` says the sheet's action ran.
+    private func pressCommandReturn(on view: some View, width: CGFloat = Sheet.width, height: CGFloat = Sheet.height,
+                                    until done: () -> Bool) {
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: width, height: height)
         let window = testWindow(contentRect: host.frame, styleMask: [])
@@ -29,7 +32,7 @@ import AiTermCore
                                      windowNumber: window.windowNumber, context: nil, characters: "\r",
                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
         _ = window.performKeyEquivalent(with: event)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        pumpRunLoop(describing: "the sheet's action to run", until: done)
     }
 
     private func firstTextField(in view: NSView) -> NSTextField? {
@@ -95,7 +98,7 @@ import AiTermCore
     @Test func nameSheetSubmitsAndDismissesAfterTheEvent() {
         var submitted: [String] = []
         pressCommandReturn(on: NameSheet(title: "Rename", subtitle: "Renames it.", fieldLabel: "Name", placeholder: "Name", confirmLabel: "Rename",
-                                   initialName: "  Work  ", canSubmit: true, submit: { submitted.append($0) }))
+                                   initialName: "  Work  ", canSubmit: true, submit: { submitted.append($0) })) { !submitted.isEmpty }
         #expect(submitted == ["Work"])
     }
 
@@ -106,7 +109,7 @@ import AiTermCore
                                     checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
                                     preferences: .scratch(), setMatchItermBackground: { _ in },
                                     setInterfaceSize: { sizes.append($0) }, initialTab: .interface)
-        pressCommandReturn(on: settings, height: Sheet.settingsHeight)
+        pressCommandReturn(on: settings, height: Sheet.settingsHeight) { !sizes.isEmpty }
         #expect(sizes.count == 1, "Save ran")
     }
 }
