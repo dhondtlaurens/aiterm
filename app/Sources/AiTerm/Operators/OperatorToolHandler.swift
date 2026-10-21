@@ -464,7 +464,7 @@ final class OperatorToolHandler {
     private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
         var answer = questionAnswer(question)
         if question.task != nil, case .object(var fields) = answer {
-            fields["note"] = "This task now shows waiting on the person, and Waiting on you opens its worker’s tab."
+            fields["note"] = "This task now shows waiting on the person, and Waiting on you opens its worker’s terminal."
             answer = .object(fields)
         }
         return answer

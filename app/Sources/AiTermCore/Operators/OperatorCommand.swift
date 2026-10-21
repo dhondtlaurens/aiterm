@@ -261,7 +261,6 @@ public enum OperatorCommand {
         + "Start from that agent's default model in Settings > Agents, and step to another only when the task needs it: "
         + "only a model in that agent's own list there, since AiTerm refuses any other. "
         + "When an agent's weekly use reaches 80 %, start new tasks on the other agent. "
-        + "A task whose agent the person's words named stays on it. Say so with agentPinned. "
         + "If the other agent is missing or also at 80 %, the task stays on its agent. "
         + "run_status lists each installed agent's models and its default, and under delivery whether its workers can be messaged. "
         + "A task whose agent can't be messaged can't be steered with message_task and can't get review fixes, so plan on an "
@@ -300,7 +299,7 @@ public enum OperatorCommand {
         "Steer it with message_task, rereading each text against the ask-first acts, because a worker treats what you send as "
             + "allowed. When fixes followed the first agent review, run review_task again on the final commit before you accept, "
             + "because it is refused once the task is in review.",
-        "Accept only what you saw: the SHA at the branch head and the check output, read with read_task, since that is what "
+        "Accept and report only what you saw: the SHA at the branch head and the check output, read with read_task, since that is what "
             + "AiTerm pushes. With checkOutput naming what the repository lacks (\"typecheck: none defined\"), accept it with "
             + "mark_task accepted. Then, unless the task ends at a commit, call finish_task.",
         "When the broadcast is complete (run_status shows summaryDue), write its summary with `write_summary`, because the "
@@ -360,7 +359,8 @@ public enum OperatorCommand {
     static func mechanics(oracleIsOn: Bool) -> [String] {
         var rules = [
             "Every tool that changes something is safe to repeat with the same key: if a reply is lost, call it again.",
-            "When one tool fails twice the same way while others answer, stop retrying it: ask the person in this chat for what "
+            "A refusal is an answer: do what it says. When one tool fails twice the same way (such as \"AiTerm isn't "
+                + "answering\") while others answer, stop retrying it: ask the person in this chat for what "
                 + "it would have given (a username, a ticket's key), and record a snag. When every tool answers that AiTerm isn't "
                 + "open, wait and try again later, doing nothing else: nothing takes effect until it is back.",
             "A task listed under branchDrift in run_status committed off its task branch, the only branch AiTerm reads: have "
