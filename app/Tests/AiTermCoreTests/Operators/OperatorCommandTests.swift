@@ -132,6 +132,20 @@ import Foundation
                 .contains("carries out: commit, draft MR, merge, local merge."))
     }
 
+    /// When a worker tab (`open_tab`) is the right call, and how a task with several is briefed, steered and accepted.
+    @Test func theRunRulesSayWhenToOpenATab() throws {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        let rule = try #require(brief.split(separator: "\n").first { $0.contains("open_tab") })
+        #expect(rule.hasSuffix(OperatorCommand.tabRule), "a run rule of its own")
+        #expect(OperatorCommand.tabRule.contains("More work on the same branch that doesn't touch the same files, such as tests beside "
+                                                 + "an implementation, goes in a worker tab on that task: call open_tab."))
+        #expect(OperatorCommand.tabRule.contains("Unrelated work is a new task: plan it with create_task."))
+        #expect(OperatorCommand.tabRule.contains("In each tab's brief, name the files that are that tab's own."))
+        #expect(OperatorCommand.tabRule.contains("without one they reach the first worker, main in run_status."))
+        #expect(OperatorCommand.tabRule.contains("Accept the task once, on the SHA at its branch head, after every tab is done."))
+        #expect(!OperatorCommand.tabRule.contains("\u{2014}"))
+    }
+
     /// The role, the sections in their order, and what the Operator never does.
     @Test func theBriefStatesTheRoleAndKeepsItsSectionsInOrder() {
         let brief = OperatorCommand.brief(run: F.run(), projects: [F.project()])

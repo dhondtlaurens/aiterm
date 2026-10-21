@@ -185,7 +185,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "and a one-line summary, and what is open: questions waiting, prompts waiting on the user, tasks ready to accept, "
           "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
-          "named task/tab. Under run it also shows the off-brief finds, each agent's weekly use, "
+          "named task/tab, and a tab that was closed is marked closed and never opened again. "
+          "Under run it also shows the off-brief finds, each agent's weekly use, "
           "and each installed agent's models with its default model. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
@@ -229,8 +230,11 @@ TOOLS: tuple[dict[str, Any], ...] = (
           {"revision": {"type": "integer", "description": "The revision run_status shows open."}}, ("revision",)),
     _tool("read_task", "Reads a task: its worker's last message, its diff, the prompt open in its session, or its review: the "
           "agent review's findings, and for a task whose request people review, its threads with their ids, who approved "
-          "and who was asked.",
-          {"task": _TASK, "what": _choice("lastMessage, diff, prompt or review.", "lastMessage", "diff", "prompt", "review")},
+          "and who was asked. A task with tabs added by open_tab: tab names the one whose last message or prompt to read. "
+          "A key the task has no tab for is refused with its tabs.",
+          {"task": _TASK, "what": _choice("lastMessage, diff, prompt or review.", "lastMessage", "diff", "prompt", "review"),
+           "tab": _text("For lastMessage and prompt, the key of the tab to read, as run_status lists it. Left out, or main, "
+                        "the first worker.")},
           ("task", "what")),
     _tool("review_task", "Starts an agent review of a working task's branch, before you accept it: another agent reads its "
           "commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
@@ -254,8 +258,11 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "reads, so it needs no slice.",
           {"task": _TASK, "query": _text("A username or a name, or part of one.")}, ("task", "query")),
     _tool("message_task", "Sends a started task's worker a message, typed into its session by AiTerm's rules. Returns "
-          "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried.",
-          {"task": _TASK, "text": _text("The message.")}, ("task", "text")),
+          "delivered, partial (pasted, its Enter held back) or refused, with the reason; nothing is retried. A task with tabs "
+          "added by open_tab: tab names the one to message. A key the task has no tab for is refused with its tabs.",
+          {"task": _TASK, "text": _text("The message."),
+           "tab": _text("The key of the tab to message, as run_status lists it. Left out, or main, the first worker.")},
+          ("task", "text")),
     _tool("open_tab", "Adds a worker tab to a task that is working or in review: another agent in the task's window, on the "
           "same worktree and branch, for more work on that task. It is part of the task: one card, one branch, accepted once. "
           "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "

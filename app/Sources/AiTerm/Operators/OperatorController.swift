@@ -267,7 +267,7 @@ final class OperatorController {
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
                     TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model, status: worker.session?.state,
-                                      opening: worker.isOpening, waitingPrompt: open.first { $0.tab == key }?.text)
+                                      opening: worker.isOpening, closed: worker.isClosed, waitingPrompt: open.first { $0.tab == key }?.text)
                 }
             }
             if tab != nil || prompt != nil || !extra.isEmpty {

@@ -112,12 +112,13 @@ import Foundation
     // -- a task with extra worker tabs (`open_tab`) ------------------------------------------------
 
     /// One working task, B, with an extra tab `review` beside its first worker.
-    private func twoTabs(first: SessionState?, review: SessionState?, opening: Bool = false,
+    private func twoTabs(first: SessionState?, review: SessionState?, opening: Bool = false, closed: Bool = false,
                          prompt: String? = nil) throws -> (RunStatus, TaskItem) {
         var b = F.task("B", .working)
         b.operated?.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.",
                                           brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: F.epoch))]
-        let tab = TaskLiveFacts.Tab(key: "review", agent: .codex, model: "gpt-6-mini", status: review, opening: opening, waitingPrompt: prompt)
+        let tab = TaskLiveFacts.Tab(key: "review", agent: .codex, model: "gpt-6-mini", status: review, opening: opening, closed: closed,
+                                    waitingPrompt: prompt)
         let status = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1,
                                                   live: [b.id: TaskLiveFacts(status: first, tabs: [tab])]))
         return (status, b)
@@ -155,11 +156,21 @@ import Foundation
         #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle),
                                          RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, opening: true)])
         let json = String(decoding: try status.json(), as: UTF8.self)
-        #expect(json.contains(#""tabs":[{"agent":"claude","key":"main","live":"idle","model":"opus","opening":false},"#))
+        #expect(json.contains(#""tabs":[{"agent":"claude","closed":false,"key":"main","live":"idle","model":"opus","opening":false},"#))
         let (s, live, _) = scene()
         let plain = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live))
         #expect(plain.tasks.allSatisfy { $0.tabs == nil })
         #expect(!String(decoding: try plain.json(), as: UTF8.self).contains(#""tabs""#))
+    }
+
+    /// An extra tab closed after it opened is listed, marked closed, with no live status; it is no worker, so the task
+    /// is ready once its other tabs ended their turn.
+    @Test func aClosedExtraTabIsListedClosed() throws {
+        let (status, b) = try twoTabs(first: .idle, review: nil, closed: true)
+        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle),
+                                         RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, closed: true)])
+        #expect(String(decoding: try status.json(), as: UTF8.self).contains(#"{"agent":"codex","closed":true,"key":"review","model":"gpt-6-mini","opening":false}"#))
+        #expect(status.obligations.readyForAcceptance == ["B"])
     }
 
     @Test func anUnknownRunHasNoSnapshot() {

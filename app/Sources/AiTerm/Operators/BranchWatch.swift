@@ -49,11 +49,10 @@ final class BranchWatch {
     private func check(_ id: UUID) async {
         guard let task = state.task(id: id), isWatched(task), let operated = task.operated else { return }
         // A tab's last message is its final word only once its turn ended. The first worker's conversation is known
-        // from its window's tabs too; an extra tab's only from its own.
+        // from its window's tabs too; an extra tab's from its own (`WorkerTab.conversation`).
         let conversations: [(agent: AgentKind, id: String)] = task.workerTabs(in: live.sessions).compactMap { tab in
             guard let session = tab.session, session.state == .idle || session.state == .done,
-                  let conversation = session.conversationId
-                    ?? (tab.key == nil ? task.conversations.first(where: { $0.agent == task.agent })?.id : nil) else { return nil }
+                  let conversation = tab.conversation else { return nil }
             return (tab.agent, conversation)
         }
         let git = ports.git, home = ports.home, worktree = task.worktreePath, branch = task.branch

@@ -244,11 +244,12 @@ final class WorkerStarter {
     /// A worker's window you closed, brought back on your click (`OperatorController.reopenWorker`):
     /// reopened behind your work, its conversation resumed under the operation's flags — never a second
     /// worker. Nil when it is starting, has a tab, was reopened a moment ago and its tab is not listed yet, has no worktree
-    /// or no conversation to resume, or no helper is there.
+    /// or no conversation to resume, or no helper is there. Only the first worker's conversation resumes
+    /// (`TaskItem.firstWorkerConversation`): an extra tab the Operator added (`open_tab`) is never opened again.
     func reopen(_ id: UUID) -> Task<Void, Never>? {
         if let at = reopenedAt[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return nil }
         guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
-              task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.conversations.first(where: { $0.agent == task.agent }),
+              task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.firstWorkerConversation,
               let daemon = daemon() else { return nil }
         starting.insert(id)
         let reopening = OperatorActivity(run: operated.runId, task: id, act: .reopeningItsWindow)

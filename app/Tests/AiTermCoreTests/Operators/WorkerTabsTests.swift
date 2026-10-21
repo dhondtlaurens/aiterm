@@ -59,5 +59,18 @@ import Testing
         #expect(tabs.map(\.key) == [nil, "waiting", "typing", "closed"])
         #expect(tabs.map(\.isOpening) == [false, true, true, false])
         #expect(tabs.map(\.status) == [.idle, .working, .working, nil])
+        #expect(tabs.map(\.isClosed) == [false, false, false, true])
+        #expect(!task.workerTabs(in: [])[0].isClosed, "a first worker with no tab listed is never closed")
+    }
+
+    /// The first worker's conversation, as its window last showed it: the first of its agent's that no extra tab named,
+    /// wherever that tab stood in the window.
+    @Test func theFirstWorkersConversationIsNoExtraTabs() {
+        var task = task([{ var tab = extra("review"); tab.agent = .claude; tab.conversation = "conv-review"; return tab }()])
+        task.conversations = [TaskConversation(agent: .claude, id: "conv-review"), TaskConversation(agent: .codex, id: "conv-codex"),
+                              TaskConversation(agent: .claude, id: "conv-main")]
+        #expect(task.firstWorkerConversation?.id == "conv-main")
+        task.conversations = [TaskConversation(agent: .claude, id: "conv-review")]
+        #expect(task.firstWorkerConversation == nil)
     }
 }

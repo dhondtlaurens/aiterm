@@ -179,11 +179,16 @@ public struct ExtraTab: Codable, Equatable, Sendable {
     public var sessionId: String?
     /// Why the daemon refused to open it, when it did; nil while it is open or may still open.
     public var failure: String?
+    /// The conversation its agent last named (`SessionInfo.conversationId`): read once its tab is closed, and never taken
+    /// for the first worker's (`TaskItem.firstWorkerConversation`).
+    public var conversation: String?
 
     public init(key: String, agent: AgentKind, model: String, reasoning: String?, modelReason: String, brief: String,
-                agentPinned: Bool = false, launch: LaunchAttempt, sessionId: String? = nil, failure: String? = nil) {
+                agentPinned: Bool = false, launch: LaunchAttempt, sessionId: String? = nil, failure: String? = nil,
+                conversation: String? = nil) {
         self.key = key; self.agent = agent; self.model = model; self.reasoning = reasoning; self.modelReason = modelReason
         self.brief = brief; self.agentPinned = agentPinned; self.launch = launch; self.sessionId = sessionId; self.failure = failure
+        self.conversation = conversation
     }
 }
 

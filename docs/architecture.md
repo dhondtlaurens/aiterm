@@ -147,7 +147,11 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   `OperatorTiming.stallAfter` (20 min), probing it for an open prompt first. A task counts every worker
   tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
   work): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
-  tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message. Additions after the first
+  tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message.
+  `message_task` and `read_task` reach one tab by its key (`tab`), the first worker without one; a takeover,
+  a hand back and Stop Task reach every tab. An extra tab closed after it opened is marked closed in
+  `run_status` and opened again by nothing, the reconciler, a reopen and a restart included: a reopen
+  resumes only the first worker's conversation (`TaskItem.firstWorkerConversation`). Additions after the first
   plan are budgeted (`BacklogBudget`): a quarter of the first plan's size, at least one, go in on the
   Operator's word; past that each needs the Oracle's yes, a veto run headless and read-only
   (`ChallengeLaunch`, `SecondOpinionRunner`) for up to `OperatorTiming.challengeTimeout`. On the first

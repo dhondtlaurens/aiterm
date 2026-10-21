@@ -14,14 +14,32 @@ extension OperatorToolHandler {
     /// Every worker tab of the task: its first worker, then each extra tab (`TaskItem.workerTabs`).
     func workerTabs(of task: TaskItem) -> [WorkerTab] { task.workerTabs(in: live.sessions) }
 
+    /// The worker tab the call's `tab` names (`TaskItem.workerTab`): the first worker without one. A key the task has no
+    /// tab for is refused, naming the tabs it has.
+    func worker(_ call: ToolCall, of task: TaskItem) throws(ToolRefusal) -> WorkerTab {
+        let key = call.optionalString("tab")
+        if let tab = task.workerTab(key, in: live.sessions) { return tab }
+        let keys = [WorkerTab.firstKey] + workerTabs(of: task).compactMap(\.key)
+        throw ToolRefusal("\(task.operated?.key ?? task.title) has no tab \(key ?? ""). Its tabs are \(keys.joined(separator: ", ")).")
+    }
+
+    /// Why `tab` has no agent to reach: an extra tab closed or still opening, or a first worker with no tab listed.
+    static func noAgent(in tab: WorkerTab, of task: TaskItem) -> String {
+        let key = task.operated?.key ?? task.title
+        guard let name = tab.key else { return "\(key)’s worker has no open tab right now." }
+        return tab.isOpening ? "\(key)’s tab \(name) is still opening; try again in a moment."
+                             : "\(key)’s tab \(name) was closed. AiTerm doesn’t open it again."
+    }
+
     func readTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run), key = task.operated?.key ?? task.title
         switch try call.string("what") {
         case "lastMessage":
-            guard let conversation = workerTab(of: task)?.conversationId ?? task.conversations.first(where: { $0.agent == task.agent })?.id else {
+            let worker = try self.worker(call, of: task)
+            guard let conversation = worker.conversation else {
                 return ["lastMessage": .null, "note": "Its worker hasn’t started a conversation yet."]
             }
-            let home = ports.home, claudeConfig = ports.claudeConfig, agent = task.agent
+            let home = ports.home, claudeConfig = ports.claudeConfig, agent = worker.agent
             let text = await BackgroundWork.run {
                 WorkerTranscript.lastMessage(agent: agent, conversation: conversation, home: home, claudeConfig: claudeConfig)
             }
@@ -47,7 +65,10 @@ extension OperatorToolHandler {
             return ["commits": .string(read.commits), "diff": .string(String(read.diff.prefix(Self.diffLimit))),
                     "truncated": .bool(read.diff.count > Self.diffLimit), "uncommitted": .string(read.uncommitted)]
         case "prompt":
-            guard let tab = workerTab(of: task) else { return ["prompt": .null, "note": "Its worker has no open tab right now."] }
+            let worker = try self.worker(call, of: task)
+            guard let tab = worker.session, !worker.isOpening else {
+                return ["prompt": .null, "note": .string(worker.key == nil ? "Its worker has no open tab right now." : Self.noAgent(in: worker, of: task))]
+            }
             // No helper is unknown, not "no prompt".
             guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
             return ["prompt": try await daemon.prompt(sessionId: tab.sessionId).map { .string($0.rawValue) } ?? .null]
@@ -62,11 +83,15 @@ extension OperatorToolHandler {
         guard call.tool == "message_task" else { return nil }
         let task = try self.task(call, in: run), text = try call.string("text"), now = ports.now()
         deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < 600 }
-        return deliveredMessages[MessageKey(task: task.id, text: text)]?.answer
+        return deliveredMessages[MessageKey(task: task.id, tab: Self.tabKey(call), text: text)]?.answer
     }
 
+    /// The extra tab the call's `tab` names; nil for the first worker, named or not.
+    static func tabKey(_ call: ToolCall) -> String? { call.optionalString("tab").flatMap { $0 == WorkerTab.firstKey ? nil : $0 } }
+
     /// Delivered by the daemon's rules (spec §7.1) with the task's ownership generation, so a send begun
-    /// before a takeover cannot land after it. Never retried here: the result says what happened.
+    /// before a takeover cannot land after it. Never retried here: the result says what happened. To the first
+    /// worker, or to the tab `tab` names.
     func messageTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run), text = try call.string("text")
         try acceptsWork(run)
@@ -76,12 +101,13 @@ extension OperatorToolHandler {
         guard [.working, .blocked, .inReview].contains(operated.state) else {
             throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): there is no worker to steer.")
         }
-        let key = MessageKey(task: task.id, text: text), now = ports.now()
+        let worker = try self.worker(call, of: task)
+        let key = MessageKey(task: task.id, tab: worker.key, text: text), now = ports.now()
         deliveredMessages = deliveredMessages.filter { now.timeIntervalSince($0.value.at) < 600 }
         if let recorded = deliveredMessages[key] { return recorded.answer }
         guard sendingMessages.insert(key).inserted else { throw ToolRefusal("This message is still being delivered; call again for its result.") }
         defer { sendingMessages.remove(key) }
-        guard let tab = workerTab(of: task) else { throw ToolRefusal("\(operated.key)’s worker has no open tab right now.") }
+        guard let tab = worker.session, !worker.isOpening else { throw ToolRefusal(Self.noAgent(in: worker, of: task)) }
         guard let daemon = daemon() else { throw ToolRefusal("AiTerm’s helper isn’t connected; try again in a moment.") }
         let delivery = try await daemon.deliver(sessionId: tab.sessionId, text: text, ownership: operated.ownership, wake: false,
                                                 worktree: task.worktreePath)

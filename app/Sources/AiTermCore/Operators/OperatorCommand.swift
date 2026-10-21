@@ -244,6 +244,15 @@ public enum OperatorCommand {
         + "Plan on an agent whose delivery isn't off; create_task refuses an agent that can't be messaged while another can, "
         + "unless agentPinned says the person's words name it."
 
+    /// When a task takes another worker tab (`open_tab`) rather than a task of its own, and how its tabs are briefed,
+    /// reached and accepted.
+    static let tabRule = "More work on the same branch that doesn't touch the same files, such as tests beside an implementation, "
+        + "goes in a worker tab on that task: call open_tab. Unrelated work is a new task: plan it with create_task. "
+        + "In each tab's brief, name the files that are that tab's own. "
+        + "message_task and read_task reach a tab by its key in tab; without one they reach the first worker, main in run_status. "
+        + "A closed tab is not opened again. "
+        + "Accept the task once, on the SHA at its branch head, after every tab is done."
+
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
         let askFirst = ["deleting a branch or worktree", "anything outside this broadcast's projects"]
         let ends = TaskEnd.allCases.filter(milestone.supports).map(\.displayName)
@@ -272,6 +281,7 @@ public enum OperatorCommand {
             "When a worker waits on a permission prompt, tell the person in one line; never try to answer it.",
             "A task listed under branchDrift in run_status committed off its task branch, and AiTerm reads only that branch. "
                 + "Have its worker bring the work onto the task branch with message_task before you accept, or block the task.",
+            tabRule,
         ]
         if oracle.isOn {
             rules.append("Some of your calls are challenged by the Oracle, a second opinion. A challenged call may first return a critique, "

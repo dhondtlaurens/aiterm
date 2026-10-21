@@ -15,14 +15,22 @@ public struct WorkerTab: Equatable, Sendable {
     /// An extra tab asked for whose agent has not shown yet: never listed since its request, or listed as the shell its
     /// command is typed into. It counts as at work.
     public var isOpening: Bool
+    /// The conversation its agent named: its tab's now, else the one last recorded for it (the first worker's
+    /// `TaskItem.firstWorkerConversation`, an extra tab's `ExtraTab.conversation`).
+    public var conversation: String?
 
-    public init(key: String?, agent: AgentKind, model: String, session: SessionInfo?, isOpening: Bool = false) {
+    public init(key: String?, agent: AgentKind, model: String, session: SessionInfo?, isOpening: Bool = false, conversation: String? = nil) {
         self.key = key; self.agent = agent; self.model = model; self.session = session; self.isOpening = isOpening
+        self.conversation = conversation
     }
 
     /// What it counts as: at work while opening, else its tab's status; nil with no tab listed (a first worker whose
     /// window is gone, an extra tab that was closed).
     public var status: SessionState? { isOpening ? .working : session?.state }
+
+    /// An extra tab that opened and is listed no more: closed, and never opened again. A first worker is never closed
+    /// here; its window comes back on your click.
+    public var isClosed: Bool { key != nil && session == nil && !isOpening }
 }
 
 public extension TaskItem {
@@ -32,14 +40,32 @@ public extension TaskItem {
         sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil && $0.tabKey == nil }.min { $0.tabIndex < $1.tabIndex }
     }
 
+    /// The conversation its first worker last named, as its window last showed it (`conversations`): the first of its own
+    /// agent's that none of its extra tabs named (`ExtraTab.conversation`), wherever that tab stood in the window.
+    var firstWorkerConversation: TaskConversation? {
+        let extra = Set((operated?.extraTabs ?? []).compactMap(\.conversation))
+        return conversations.first { $0.agent == agent && !extra.contains($0.id) }
+    }
+
+    /// The worker tab `key` names: the first worker for nil or `WorkerTab.firstKey`, else the extra tab of that key; nil
+    /// when the task has none of that key.
+    func workerTab(_ key: String?, in sessions: [SessionInfo]) -> WorkerTab? {
+        let tabs = workerTabs(in: sessions)
+        guard let key, key != WorkerTab.firstKey else { return tabs[0] }
+        return tabs.first { $0.key == key }
+    }
+
     /// Its worker tabs: its first worker, then each extra tab in the order asked for, all but one the daemon refused.
     /// An extra tab is the tab tagged with the task and its key, whatever runs in it.
     func workerTabs(in sessions: [SessionInfo]) -> [WorkerTab] {
-        let first = WorkerTab(key: nil, agent: agent, model: model, session: firstWorker(in: sessions))
+        let worker = firstWorker(in: sessions)
+        let first = WorkerTab(key: nil, agent: agent, model: model, session: worker,
+                              conversation: worker?.conversationId ?? firstWorkerConversation?.id)
         return [first] + (operated?.extraTabs ?? []).filter { $0.failure == nil }.map { tab in
             let session = sessions.first { $0.taskUUID == id && $0.tabKey == tab.key }
             let opening = session.map { $0.agent.agentKind == nil } ?? (tab.sessionId == nil && tab.launch.openedAt == nil)
-            return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening)
+            return WorkerTab(key: tab.key, agent: tab.agent, model: tab.model, session: session, isOpening: opening,
+                             conversation: session?.conversationId ?? tab.conversation)
         }
     }
 }

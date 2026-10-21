@@ -11,11 +11,13 @@ public struct TaskLiveFacts: Equatable, Sendable {
         public var status: SessionState?
         /// Asked for, its agent not shown yet (`WorkerTab.isOpening`): at work.
         public var opening: Bool
+        /// Opened and listed no more (`WorkerTab.isClosed`): never opened again.
+        public var closed: Bool
         /// The prompt it waits on you with, if any.
         public var waitingPrompt: String?
-        public init(key: String, agent: AgentKind, model: String, status: SessionState? = nil, opening: Bool = false,
+        public init(key: String, agent: AgentKind, model: String, status: SessionState? = nil, opening: Bool = false, closed: Bool = false,
                     waitingPrompt: String? = nil) {
-            self.key = key; self.agent = agent; self.model = model; self.status = status; self.opening = opening
+            self.key = key; self.agent = agent; self.model = model; self.status = status; self.opening = opening; self.closed = closed
             self.waitingPrompt = waitingPrompt
         }
         /// What it counts as: `WorkerTab.status`.
@@ -120,13 +122,15 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     }
 
     /// One of a task's worker tabs: its key (`main` for the first worker, `WorkerTab.firstKey`), agent, model and live
-    /// status, and whether it is still opening.
+    /// status, and whether it is still opening or was closed.
     public struct TabLine: Encodable, Equatable, Sendable {
         public var key: String, agent: AgentKind, model: String
         public var live: SessionState?
         public var opening: Bool
-        public init(key: String, agent: AgentKind, model: String, live: SessionState? = nil, opening: Bool = false) {
-            self.key = key; self.agent = agent; self.model = model; self.live = live; self.opening = opening
+        /// An extra tab that opened and is listed no more: AiTerm never opens it again.
+        public var closed: Bool
+        public init(key: String, agent: AgentKind, model: String, live: SessionState? = nil, opening: Bool = false, closed: Bool = false) {
+            self.key = key; self.agent = agent; self.model = model; self.live = live; self.opening = opening; self.closed = closed
         }
     }
 
@@ -255,7 +259,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
     private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
         guard !facts.tabs.isEmpty else { return nil }
         return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status)]
-            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status, opening: $0.opening) }
+            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status, opening: $0.opening, closed: $0.closed) }
     }
 
     /// The snapshot as the tool returns it: JSON with sorted keys and ISO 8601 dates.

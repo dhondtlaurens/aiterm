@@ -197,6 +197,16 @@ def test_open_tab_adds_a_worker_tab_to_a_running_task_by_key():
     assert "same worktree and branch" in tool["description"] and "same key" in tool["description"]
 
 
+def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_without_one():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    for name in ("message_task", "read_task"):
+        schema = tools[name]["inputSchema"]
+        assert schema["properties"]["tab"]["type"] == "string" and "tab" not in schema["required"]
+        assert "first worker" in schema["properties"]["tab"]["description"]
+        assert "open_tab" in tools[name]["description"]
+    assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
+
+
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
     tools = {tool["name"]: tool for tool in TOOLS}
     for name in ("jira_create", "jira_move", "jira_link"):
