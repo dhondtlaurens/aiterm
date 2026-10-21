@@ -24,6 +24,8 @@ struct OperatorPorts {
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
     var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// The wait for the Operator's summary once a broadcast is complete (`OperatorTiming.summaryWait`).
+    var summarySleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// How often the run reconciler looks at the real tabs.
     var reconcileInterval: Duration = .seconds(OperatorTiming.reconcileInterval)
     /// What this build carries out (spec §13). A test that pins one milestone's rules names it, so
@@ -103,6 +105,10 @@ final class OperatorController {
     @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?
     /// The latest start a pass made, for a test to await.
     @ObservationIgnored private(set) var lastStart: Task<Void, Never>?
+    /// Each complete broadcast's wait for its summary, by run: one per completion.
+    @ObservationIgnored private var summaryWaits: [UUID: Task<Void, Never>] = [:]
+    /// The latest wait for a summary, for a test to await.
+    @ObservationIgnored private(set) var summaryWait: Task<Void, Never>?
     /// The operation whose overview a notification's click asked for (spec §10.3): the sidebar presents
     /// it and sets this back to nil. Observed, so the click reaches a sidebar already on screen.
     var presentOverview: UUID?
@@ -338,21 +344,59 @@ final class OperatorController {
         }
     }
 
-    /// Something in the run changed: whatever may start now starts, and a merge it was waiting for is
-    /// watched again once it runs — your Resume, or its operator back from offline.
+    /// Something in the run changed: whatever may start now starts, a summary overdue is given up on, and a
+    /// merge it was waiting for is watched again once it runs — your Resume, or its operator back from offline.
     func runChanged(_ id: UUID) {
         settle(id)
+        giveUpOnSummary(id)
         notifyRequests(of: id)
         finisher.resumeWatching(inRun: id)
         startReadyTasks()
     }
 
-    /// An operation whose every task has ended and with no question open is complete (spec §9): the
-    /// operator is told, and you are notified. A later `submit_plan` makes it active again.
+    /// An operation whose every task has ended and with no question open is complete (spec §9): when is
+    /// recorded, the operator is told — which asks it for its summary — and the wait for that summary begins.
+    /// You are notified once the summary is written or given up on (`OperatorNotifier`). A later `submit_plan`
+    /// makes it active again.
     func settle(_ id: UUID) {
         guard let run = run(id: id), run.state == .active, RunScheduler.isComplete(run, in: workspace.state) else { return }
-        mutateRun(id) { $0.state = .complete }
+        let now = ports.now()
+        mutateRun(id) { $0.state = .complete; $0.completedAt = now }
         waker.say("broadcast complete", to: id)
+        awaitSummary(id, completedAt: now)
+    }
+
+    /// Waits `OperatorTiming.summaryWait` for the summary of the completion at `completedAt`, then gives up on it
+    /// if none came. A new completion's wait replaces the one before.
+    private func awaitSummary(_ id: UUID, completedAt: Date) {
+        summaryWaits[id]?.cancel()
+        let sleep = ports.summarySleep
+        let wait = Task { [weak self] in
+            guard (try? await sleep(.seconds(OperatorTiming.summaryWait))) != nil, !Task.isCancelled, let self else { return }
+            giveUpOnSummary(id, waited: completedAt)
+            runChanged(id)
+        }
+        summaryWaits[id] = wait
+        summaryWait = wait
+    }
+
+    /// AiTerm stops waiting for the Operator's summary (the Operator sheet spec, Summary): `summaryWait` after the
+    /// run completed with none written — `waited` is a completion whose wait has ended — or at once when its window
+    /// is gone (`windowGone`, or `.operatorOffline`). Saved, as the notification that follows is. A summary
+    /// written later still replaces it. A run that completed before AiTerm recorded when starts its wait now.
+    func giveUpOnSummary(_ id: UUID, waited: Date? = nil, windowGone: Bool = false) {
+        guard let run = run(id: id), !run.hasEnded, run.summary == nil, !run.summaryGivenUp else { return }
+        guard let completedAt = run.completedAt else {
+            guard run.state == .complete else { return }
+            let now = ports.now()
+            mutateRun(id) { $0.completedAt = now }
+            if windowGone { giveUpOnSummary(id, windowGone: true) } else { awaitSummary(id, completedAt: now) }
+            return
+        }
+        let due = waited == completedAt || ports.now() >= completedAt.addingTimeInterval(OperatorTiming.summaryWait)
+        guard due || windowGone || run.state == .operatorOffline else { return }
+        mutateRun(id) { $0.summaryGivenUp = true }
+        _ = workspace.flush()
     }
 
     // -- starting ---------------------------------------------------------------------------
@@ -544,8 +588,10 @@ final class OperatorController {
 
     /// The Operator's window closed (spec §9): it ends nothing. A broadcast under way goes offline at once,
     /// and a click on its row reopens the window and resumes it (`reopenOperator`). A complete one stays
-    /// complete, its debrief up until End, and a click reopens its window as it is. A pause of yours stays a pause.
+    /// complete until End, and a click reopens its window as it is; a summary it had not written is not coming,
+    /// so AiTerm stops waiting for it. A pause of yours stays a pause.
     private func operatorWindowClosed(_ id: UUID) {
+        giveUpOnSummary(id, windowGone: true)
         guard let run = run(id: id), run.intent == nil, run.state == .planning || run.state == .active else { return }
         mutateRun(id) { $0.state = .operatorOffline }
     }
@@ -557,6 +603,8 @@ final class OperatorController {
     func reconcileTick() {
         // The code hosts are read whether or not iTerm2's tabs are known: a wake waits for the Operator's tab.
         reviewWatcher.poll()
+        // A summary overdue while AiTerm was not running, or whose wait went with it, is given up on here.
+        for run in runs where run.state == .complete { giveUpOnSummary(run.id) }
         guard reconciler.synced else { return }
         for id in reconciler.tick() { runChanged(id) }
         applyStallFlags()

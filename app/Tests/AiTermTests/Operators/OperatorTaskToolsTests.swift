@@ -192,10 +192,13 @@ import Testing
         world.show([OperatorServiceFixtures.session("op", tag: run.id)])
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "noChange", "note": "Already fixed upstream."])
         #expect(world.run(run.id)?.state == .complete)
-        #expect(world.notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
+        #expect(world.notifications.posted.isEmpty, "you are notified once its summary is written")
         try await world.daemon.received("session.deliver")
         #expect(world.daemon.requests("session.deliver").last?.params["text"] as? String == "[AiTerm] broadcast complete, call run_status")
         #expect(world.task(task.id)?.operated?.state == .noChange)
+        _ = await world.call(run.id, "write_summary", ["text": "Nothing to change: fixed upstream."])
+        #expect(world.notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
+        #expect(world.notifications.posted.first?.body == "The summary is ready.")
     }
 
     @Test func aFailedTaskIsRetriedWhileRetriesAreLeftAndABlockedOneResumes() async throws {

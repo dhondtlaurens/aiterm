@@ -82,13 +82,42 @@ import Testing
                                           acting: OperatorActs(runs: [busy.id: .init(act: .starting, task: "a")]))?.line.look == .acting)
         #expect(SidebarModel.broadcastRow(state: state(run(.planning, firstPlanSize: nil)))?.line.look == .acting)
 
-        // Quiet while it only waits on people, and once the debrief is ready.
+        // Quiet while it only waits on people, and once the summary is ready.
         var reviewed = task("a", run: busy.id, .inReview)
         reviewed.operated?.peopleReview = PeopleReview(reviewers: ["Jan"])
         let waiting = try #require(SidebarModel.broadcastRow(state: state(busy, [task("b", run: busy.id, .accepted), reviewed])))
         #expect(waiting.line.text == "in review · waiting on Jan")
-        let done = try #require(SidebarModel.broadcastRow(state: state(run(.complete), [task("a", run: busy.id, .accepted)])))
-        #expect(done.line.text == "done · debrief ready")
+        var written = run(.complete)
+        written.completedAt = OperatorUIFixtures.epoch
+        written.summary = "Both merged."
+        written.summaryAt = OperatorUIFixtures.epoch
+        let done = try #require(SidebarModel.broadcastRow(state: state(written, [task("a", run: written.id, .accepted)])))
+        #expect(done.line.text == "done · summary ready")
+    }
+
+    /// Every task done, the summary still to come: the header is done but not complete, and the Operator's row works on
+    /// it; once it is written, or AiTerm gave up on it, the row wears the done mark.
+    @Test func theSummaryIsReadyOnlyOnceWrittenOrGivenUp() throws {
+        var writing = run(.complete)
+        writing.completedAt = OperatorUIFixtures.epoch
+        let tasks = [task("a", run: writing.id, .accepted)]
+        let header = try #require(SidebarModel.broadcastRow(state: state(writing, tasks)))
+        #expect(header.line.text == "done · writing summary")
+        #expect(!header.isComplete && header.isDone, "done, its summary still coming: neither Pause nor Resume")
+        let busy = SidebarModel.operatorRow(writing, tasks: tasks, acting: .none, requests: [], sessions: [])
+        #expect(busy.line == OperatorLine("writing the summary", look: .acting) && busy.status == .working)
+
+        var written = writing
+        written.summary = "Both merged."
+        written.summaryAt = OperatorUIFixtures.epoch
+        var givenUp = writing
+        givenUp.summaryGivenUp = true
+        for settled in [written, givenUp] {
+            #expect(try #require(SidebarModel.broadcastRow(state: state(settled, tasks))).isComplete)
+            #expect(SidebarModel.operatorRow(settled, tasks: tasks, acting: .none, requests: [], sessions: []).status == .done)
+        }
+        #expect(SidebarModel.operatorRow(givenUp, tasks: tasks, acting: .none, requests: [], sessions: []).line == OperatorLine("done"))
+        #expect(try !#require(SidebarModel.broadcastRow(state: state(run(), tasks))).isDone, "a broadcast under way is not done")
     }
 
     /// A task's workers as iTerm2 lists them: its first worker in `first`, and an extra tab in `extra`.

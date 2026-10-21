@@ -203,7 +203,20 @@ import Testing
         }
         #expect(line(.paused) == "paused")
         #expect(line(.operatorOffline) == "paused · the Operator’s window is closed")
-        #expect(line(.complete) == "done · debrief ready")
+    }
+
+    /// Every task done is not the summary ready: the line waits for the Operator to write it, or for AiTerm to give up.
+    @Test func theBroadcastSaysWhenItsSummaryIsReady() {
+        func line(_ change: (inout OperatorRun) -> Void) -> String {
+            var run = OperatorUIFixtures.run(state: .complete)
+            run.completedAt = OperatorUIFixtures.epoch
+            change(&run)
+            return OperatorLine.broadcast(run, tasks: [], acting: nil, requests: []).text
+        }
+        #expect(line { _ in } == "done · writing summary")
+        #expect(line { $0.summary = "Both merged."; $0.summaryAt = OperatorUIFixtures.epoch } == "done · summary ready")
+        #expect(line { $0.summaryGivenUp = true } == "done")
+        #expect(line { $0.completedAt = nil } == "done · writing summary", "completed before AiTerm recorded when: still waiting")
     }
 
     /// A quiet line cut to fit keeps the whole of it in the tooltip, as needs-you does.
@@ -337,13 +350,16 @@ import Testing
         let run = OperatorUIFixtures.run()
         let pay = task("Cart drawer", jira: "PAY-231", run: run, key: "pay-231", .working)
         func line(acting: (OperatorAct, task: String?)? = nil, working: Bool = false, asking: Bool = false,
-                  windowClosed: Bool = false, paused: Bool = false, complete: Bool = false) -> OperatorLine {
+                  windowClosed: Bool = false, paused: Bool = false, summary: RunSummary = .notYet) -> OperatorLine {
             OperatorLine.session(acting: acting, working: working, asking: asking, windowClosed: windowClosed, paused: paused,
-                                 complete: complete, tasks: [pay])
+                                 summary: summary, tasks: [pay])
         }
         #expect(line() == OperatorLine("waiting for its tasks"), "between turns: quiet")
-        #expect(line(complete: true) == OperatorLine("done · debrief ready"), "every task done: as the header says it")
-        #expect(line(asking: true, complete: true).look == .needsYou, "its own ask still comes first")
+        #expect(line(summary: .writing) == OperatorLine("writing the summary", look: .acting), "every task done: it writes the summary")
+        #expect(line(working: true, summary: .written(text: "Both merged.", at: OperatorUIFixtures.epoch))
+                == OperatorLine("done · summary ready"), "as the header says it")
+        #expect(line(summary: .notComing) == OperatorLine("done"), "AiTerm gave up waiting for it")
+        #expect(line(asking: true, summary: .writing).look == .needsYou, "its own ask still comes first")
         #expect(line(working: true) == OperatorLine("working", look: .acting))
         #expect(line(acting: (.answering, task: "pay-231"), working: true) == OperatorLine("answering Claude · PAY-231", look: .acting))
         #expect(line(acting: (.consultingTheOracle, task: nil)) == OperatorLine("consulting the Oracle", look: .acting))

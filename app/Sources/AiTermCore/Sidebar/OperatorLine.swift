@@ -179,8 +179,9 @@ public struct OperatorLine: Equatable, Sendable {
 
     /// The broadcast's whole status line, on its header's tooltip and VoiceOver value and as the board's band
     /// (the Operator's row says its own session's, `session`): the one thing that needs you, else the run's own
-    /// state, else what the Operator is doing, else what its tasks are doing. `acting`'s task is the
-    /// task's `key` (or its id); `tasks` are the broadcast's; `ready` the working ones whose workers all
+    /// state — every task done, `done · writing summary` until the summary is written (`done · summary ready`) or
+    /// AiTerm gave up on it (`done`) — else what the Operator is doing, else what its tasks are doing. `acting`'s
+    /// task is the task's `key` (or its id); `tasks` are the broadcast's; `ready` the working ones whose workers all
     /// ended their turn, waiting for the Operator to accept them (`TaskItem.isReadyForAcceptance(in:)`).
     public static func broadcast(_ run: OperatorRun, tasks: [TaskItem], acting: (OperatorAct, task: String?)?,
                                  requests: [BroadcastRequest], ready: Set<UUID> = []) -> OperatorLine {
@@ -198,7 +199,13 @@ public struct OperatorLine: Equatable, Sendable {
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
         if run.state == .operatorOffline { return quiet("paused · the Operator’s window is closed") }
         if run.state == .paused || run.intent == .paused { return quiet("paused") }
-        if run.state == .complete { return quiet("done · debrief ready") }
+        if let summary = summary(of: run) {
+            switch summary {
+            case .written: return quiet("done · summary ready")
+            case .notComing: return quiet("done")
+            case .notYet, .writing, .endedEarly: return quiet("done · writing summary")
+            }
+        }
         if run.state == .stopped || run.intent == .stopped { return quiet("ended") }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in driven.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
@@ -255,20 +262,34 @@ public struct OperatorLine: Equatable, Sendable {
         return OperatorLine(Count.monitoring.counted(working) + waiting, look: .acting)
     }
 
+    /// Where a broadcast whose every task is done stands with its summary (`RunSummary`); nil while it is not done
+    /// (`.complete`). A run completed before AiTerm recorded when is still waiting for one.
+    public static func summary(of run: OperatorRun) -> RunSummary? {
+        guard run.state == .complete, !run.hasEnded else { return nil }
+        let summary = RunSummary(run)
+        return summary == .notYet ? .writing : summary
+    }
+
     // MARK: - The Operator's own session
 
     /// The Operator row's line: its own session's, nothing of its tasks (the broadcast's header and board say
     /// those). Its window closed, `window closed`; a prompt open in its tab, `asks you in its window`; paused,
-    /// `paused`; every task done, `done · debrief ready`, as the header says it; else its act, the task it is
-    /// about named (`answering Claude · PAY-231`); else `working` while its session works, and between turns
-    /// `waiting for its tasks`. `acting` is the broadcast's act as
+    /// `paused`; every task done, `writing the summary` until it is written, then `done · summary ready`, as the
+    /// header says it, or `done` once AiTerm gave up on it; else its act, the task it is about named (`answering
+    /// Claude · PAY-231`); else `working` while its session works, and between turns `waiting for its tasks`.
+    /// `summary` is `summary(of:)`'s, `.notYet` while the broadcast is under way. `acting` is the broadcast's act as
     /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
     public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, windowClosed: Bool,
-                               paused: Bool = false, complete: Bool = false, tasks: [TaskItem] = []) -> OperatorLine {
+                               paused: Bool = false, summary: RunSummary = .notYet, tasks: [TaskItem] = []) -> OperatorLine {
         if windowClosed { return OperatorLine("window closed") }
         if asking { return OperatorLine("asks you in its window", look: .needsYou) }
         if paused { return OperatorLine("paused") }
-        if complete { return OperatorLine("done · debrief ready") }
+        switch summary {
+        case .writing: return OperatorLine("writing the summary", look: .acting)
+        case .written: return OperatorLine("done · summary ready")
+        case .notComing: return OperatorLine("done")
+        case .notYet, .endedEarly: break
+        }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in tasks.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)

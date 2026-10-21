@@ -242,7 +242,7 @@ import Testing
         #expect(debrief.finds == run.finds)
         #expect(debrief.leftForYou == ["Marking !412 ready is yours."])
         #expect(debrief.sections == [.decided, .finds, .leftForYou])
-        #expect(board.band.text == "done · debrief ready")
+        #expect(board.band.text == "done · writing summary", "every task done, no summary written yet")
 
         // A task waiting on a person keeps the board.
         var waiting = self.run()

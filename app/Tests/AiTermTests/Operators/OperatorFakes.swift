@@ -102,6 +102,8 @@ extension OperatorPorts {
         // Nothing is published but through a test's own fake host, and no merge watch waits for real.
         ports.publisher = { _ in throw MergeRequestSearch.Unavailable.notConnected(.gitLab) }
         ports.mergeSleep = { _ in throw CancellationError() }
+        // No wait for a summary ends but a test's own: a test that gives up on one moves the clock or the sleep.
+        ports.summarySleep = { _ in throw CancellationError() }
         // Both agents installed, each with a short model list of its own, so no test reads this Mac's.
         ports.installedAgents = { [.claude, .codex] }
         ports.agentModels = { OperatorServiceFixtures.models[$0] ?? [] }

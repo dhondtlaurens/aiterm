@@ -116,11 +116,13 @@ import Testing
         #expect(world.run(run.id)?.state == .operatorOffline, "offline, nothing settles")
         try await world.controller.resume(run: run.id)
         #expect(world.run(run.id)?.state == .complete)
-        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) })
+        #expect(!world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" }, "not before its summary")
         world.show([OperatorServiceFixtures.session("op2", tag: run.id)])
         try await world.daemon.received("session.deliver")
         let lines = world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }
         #expect(lines.contains { $0.contains("broadcast complete") || $0.contains("updates") }, "its Operator is told: \(lines)")
+        _ = await world.call(run.id, "write_summary", ["text": "Stopped the last task."])
+        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) })
     }
 
     /// AiTerm's own git problem on a driven task (a checkout or a rebase that failed, in the banner): the task
@@ -469,7 +471,7 @@ import Testing
     }
 
     /// The same completion the tool paths reach: the last open task ended, the operation is complete, its
-    /// operator is told and you are notified.
+    /// operator is told, and you are notified once its summary is written.
     @Test func stoppingTheLastOpenTaskCompletesTheOperation() async throws {
         let (world, run, task) = try makeWorld()
         world.workspace.mutate { $0.updateRun(id: run.id) { $0.questions = [OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude asks for permission",
@@ -477,9 +479,11 @@ import Testing
         try world.controller.stop(task: task.id)
         #expect(world.run(run.id)?.state == .complete)
         #expect(world.run(run.id)?.questions.first?.resolution != nil, "a question about a stopped task has nothing left to ask")
-        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) }, "you are told it is done")
+        #expect(!world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" }, "not before its summary")
         // Its operator is woken; the waker may count the completion among several updates, so only that a line went is pinned.
         try await world.daemon.received("session.deliver")
+        _ = await world.call(run.id, "write_summary", ["text": "Stopped the last task."])
+        #expect(world.notifications.posted.contains { $0.id == "debrief-\(run.id.uuidString)" && $0.target == .overview(run.id) }, "you are told it is done")
     }
 
     @Test func stoppingATaskFreesItsSlotForTheNextQueuedTask() async throws {

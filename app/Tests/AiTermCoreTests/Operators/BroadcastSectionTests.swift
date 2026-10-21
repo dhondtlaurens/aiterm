@@ -207,8 +207,11 @@ import Testing
         #expect(offline.line == OperatorLine("window closed") && offline.status == .idle, "no window, nothing it can ask in")
         var complete = run()
         complete.state = .complete
+        complete.completedAt = OperatorUIFixtures.epoch
+        complete.summary = "Both merged."
+        complete.summaryAt = OperatorUIFixtures.epoch
         let done = try section(state(complete), sessions: [operatorTab(complete, .idle)]).operatorRow
-        #expect(done.line == OperatorLine("done · debrief ready") && done.status == .done, "the accent dot once the debrief is ready")
+        #expect(done.line == OperatorLine("done · summary ready") && done.status == .done, "the accent dot once the summary is ready")
     }
 
     // -- the header ------------------------------------------------------------------------

@@ -191,7 +191,7 @@ struct OperatorScene {
         return scene
     }
 
-    /// Every task merged, with what the Operator decided, found and left for you.
+    /// Every task merged, with what the Operator decided, found and left for you, and its summary written.
     static func debrief(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
         let merged: [(UUID, String, Int)] = [
             (scene.layout, "9b3e07d", 412), (scene.drawer, "51ac0f2", 416), (scene.provider, "e07d9b3", 417),
@@ -213,7 +213,7 @@ struct OperatorScene {
             item.operated = operated
             return item
         }
-        let run = scene.run(.complete, decisions: [
+        var run = scene.run(.complete, decisions: [
             OperatorDecision(key: "retry", text: "Added Retry failed payments (PAY-240)", task: scene.retry, at: Snapshots.clock.now,
                              why: "The provider switch left failed payments with no retry. In the brief’s scope; the Oracle agreed."),
             OperatorDecision(key: "flag", text: "Kept the old button behind a flag", task: scene.drawer, at: Snapshots.clock.now,
@@ -224,6 +224,9 @@ struct OperatorScene {
             OffBriefFind(key: "key", title: "An API key in payments-api’s test fixtures", why: "A live-looking Adyen key in a committed fixture. Off-brief."),
             OffBriefFind(key: "flaky", title: "A flaky cart test on main", why: "Fails one run in five, unrelated to this work."),
         ], leftForYou: ["File the 2 finds in Jira"])
+        run.completedAt = Snapshots.clock.now
+        run.summary = "All eight checkout tasks merged. The payment provider switch needed a retry after its first run failed the tests."
+        run.summaryAt = Snapshots.clock.now
         scene.show(run, tasks)
         return scene
     }

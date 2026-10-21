@@ -40,11 +40,11 @@ enum OperatorMenus {
     static let headingPlus: [OperatorMenuItem] = [.newBroadcast]
 
     /// The broadcast header's menu: Open Board, as its board button does; Rename…; Pause Broadcast while it
-    /// can run, Resume Broadcast while it is paused or its Operator's window is closed, neither once the
-    /// debrief is ready; End Broadcast…. No Interrupt Agents: an agent always finishes its turn (spec §9).
-    /// Read from the header (`BroadcastRow.isPaused`, `isComplete`), so the menu changes only with it.
+    /// can run, Resume Broadcast while it is paused or its Operator's window is closed, neither once every
+    /// task is done, its summary written or not; End Broadcast…. No Interrupt Agents: an agent always finishes its
+    /// turn (spec §9). Read from the header (`BroadcastRow.isPaused`, `isDone`), so the menu changes only with it.
     static func broadcast(_ row: BroadcastRow) -> [OperatorMenuItem] {
-        if row.isComplete { return [.openBoard, .separator, .rename, .separator, .endBroadcast] }
+        if row.isDone { return [.openBoard, .separator, .rename, .separator, .endBroadcast] }
         return [.openBoard, .separator, .rename, .separator, row.isPaused ? .resume : .pause, .separator, .endBroadcast]
     }
 

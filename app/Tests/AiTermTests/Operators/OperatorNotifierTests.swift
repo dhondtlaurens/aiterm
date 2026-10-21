@@ -182,29 +182,51 @@ import Testing
         #expect(Set(notifications.withdrawn) == Set(notifications.posted.map(\.id)))
     }
 
-    @Test func aFinishedBroadcastPostsItsDebriefOnce() {
+    /// The plan done is not the summary ready: nothing is posted while the Operator writes it.
+    @Test func aFinishedBroadcastWaitsForItsSummary() {
         let notifier = makeNotifier()
         change { state in
             state.updateOperated(task.id) { $0.state = .accepted }
-            state.updateRun(id: run.id) { $0.state = .complete }
+            state.updateRun(id: run.id) { $0.state = .complete; $0.completedAt = Date(timeIntervalSince1970: 0) }
         }
         notifier.requestsChanged(run: current)
-        notifier.requestsChanged(run: current)
-        #expect(notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
-        #expect(notifications.posted.first?.body == "The task is done. The debrief is ready.")
-        change { $0.updateRun(id: run.id) { $0.state = .stopped } }
-        notifier.requestsChanged(run: current)
-        #expect(notifications.withdrawn == ["debrief-\(run.id.uuidString)"], "End takes the debrief away")
+        #expect(notifications.posted.isEmpty, "the Operator is writing its summary")
     }
 
-    @Test func theDebriefCountsTheTasks() {
+    @Test func aWrittenSummaryPostsOnce() {
         let notifier = makeNotifier()
         change { state in
-            for n in 2...8 { state.tasks.append(OperatorServiceFixtures.task(in: run, project: project, key: "PAY-\(n)", state: .accepted)) }
-            state.updateRun(id: run.id) { $0.state = .complete }
+            state.updateOperated(task.id) { $0.state = .accepted }
+            state.updateRun(id: run.id) {
+                $0.state = .complete; $0.completedAt = Date(timeIntervalSince1970: 0)
+                $0.summary = "It merged."; $0.summaryAt = Date(timeIntervalSince1970: 60)
+            }
         }
         notifier.requestsChanged(run: current)
-        #expect(notifications.posted.first?.body == "All 8 tasks are done. The debrief is ready.")
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"], "the id delivered notes already carry")
+        #expect(notifications.posted.first?.body == "The summary is ready.")
+        #expect(notifications.posted.first?.target == .overview(run.id))
+        change { $0.updateRun(id: run.id) { $0.state = .stopped } }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.withdrawn == ["debrief-\(run.id.uuidString)"], "End takes the note away")
+    }
+
+    /// AiTerm gave up waiting for the summary: the note says the tasks are done, counting them.
+    @Test func aSummaryGivenUpSaysTheTasksAreDone() {
+        let notifier = makeNotifier()
+        change { state in
+            state.updateOperated(task.id) { $0.state = .accepted }
+            state.updateRun(id: run.id) { $0.state = .complete; $0.completedAt = Date(timeIntervalSince1970: 0); $0.summaryGivenUp = true }
+        }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
+        #expect(notifications.posted.first?.body == "The task is done.")
+        change { state in
+            for n in 2...3 { state.tasks.append(OperatorServiceFixtures.task(in: run, project: project, key: "PAY-\(n)", state: .accepted)) }
+        }
+        notifier.requestsChanged(run: current)
+        #expect(notifications.posted.last?.body == "All 3 tasks are done.")
     }
 
     @Test func copyHasNoEmDash() {
@@ -220,7 +242,7 @@ import Testing
         notifier.requestsChanged(run: current)
         change { $0.updateOperated(task.id) { $0.problem = "git-rebase-1" } }
         notifier.requestsChanged(run: current)
-        change { $0.updateRun(id: run.id) { $0.state = .complete } }
+        change { $0.updateRun(id: run.id) { $0.state = .complete; $0.completedAt = Date(timeIntervalSince1970: 0); $0.summaryGivenUp = true } }
         notifier.requestsChanged(run: current)
         #expect(!notifications.posted.isEmpty)
         #expect(notifications.posted.allSatisfy { !$0.title.contains("—") && !$0.body.contains("—") })

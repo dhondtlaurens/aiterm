@@ -147,6 +147,108 @@ import Testing
         #expect(world.daemon.requests("session.deliver").first?.params["text"] as? String == "[AiTerm] updates waiting, call run_status")  // the task, and the resuming itself
     }
 
+    // -- the summary: when it is ready (Operator sheet spec, Summary) ------------------------------
+    /// An active broadcast of one working task, its Operator's tab listed, on a clock the test moves. Stop Task
+    /// ends the task, which completes it.
+    private func broadcast(_ clock: StepClock, adjust: @escaping (inout OperatorPorts) -> Void = { _ in }) throws
+        -> (OperatorWorld, OperatorRun, TaskItem) {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active, planRevision: 1)
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PLUTO-1", state: .working, worktree: "/tmp/aiterm-wt")
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { ports in
+            ports.now = { clock.now }
+            adjust(&ports)
+        }
+        world.show([OperatorServiceFixtures.session("op", tag: run.id)])
+        return (world, run, task)
+    }
+
+    /// Completing records when, and asks for the summary: nothing is ready, and nothing is posted, until it is
+    /// written or `summaryWait` has passed with none — read on any change of the run, as after a relaunch.
+    @Test func completingRecordsWhenAndWaitsForTheSummary() throws {
+        let clock = StepClock()
+        let (world, run, task) = try broadcast(clock)
+        try world.controller.stop(task: task.id)
+        let done = try #require(world.run(run.id))
+        #expect(done.state == .complete && done.completedAt == clock.now)
+        #expect(RunSummary(done) == .writing && world.notifications.posted.isEmpty)
+        clock.advance(by: OperatorTiming.summaryWait - 1)
+        world.controller.runChanged(run.id)
+        #expect(world.run(run.id)?.summaryGivenUp == false, "not yet")
+        clock.advance(by: 1)
+        world.controller.runChanged(run.id)
+        #expect(world.run(run.id)?.summaryGivenUp == true)
+        #expect(world.notifications.posted.map(\.body) == ["The task is done."])
+        #expect(world.notifications.posted.map(\.id) == ["debrief-\(run.id.uuidString)"])
+        #expect(try world.workspace.file.load().run(id: run.id)?.summaryGivenUp == true, "saved")
+    }
+
+    /// The wait completing schedules: its end gives up on a summary that did not come, and the note goes then.
+    @Test func theWaitEndingWithNoSummaryGivesUpAndNotifies() async throws {
+        let clock = StepClock()
+        let gate = SleepGate(opened: true)
+        let (world, run, task) = try broadcast(clock) { $0.summarySleep = { await gate.wait($0) } }
+        try world.controller.stop(task: task.id)
+        await world.controller.summaryWait?.value
+        #expect(gate.asked == [.seconds(OperatorTiming.summaryWait)], "one wait per completion")
+        let run2 = try #require(world.run(run.id))
+        #expect(run2.summaryGivenUp && RunSummary(run2) == .notComing)
+        #expect(world.notifications.posted.map(\.body) == ["The task is done."])
+    }
+
+    /// A summary written before the wait ends: never given up, and the note says it is ready.
+    @Test func aSummaryWrittenFirstIsNeverGivenUp() async throws {
+        let clock = StepClock(), gate = SleepGate()
+        let (world, run, task) = try broadcast(clock) { $0.summarySleep = { await gate.wait($0) } }
+        try world.controller.stop(task: task.id)
+        #expect(await world.call(run.id, "write_summary", ["text": "It merged."]).value?["written"] == true)
+        #expect(world.notifications.posted.map(\.body) == ["The summary is ready."])
+        clock.advance(by: OperatorTiming.summaryWait)
+        gate.open()
+        await world.controller.summaryWait?.value
+        world.controller.runChanged(run.id)
+        #expect(world.run(run.id)?.summaryGivenUp == false)
+        #expect(world.notifications.posted.map(\.body) == ["The summary is ready."], "posted once")
+    }
+
+    /// The Operator's window gone after completion: no summary is coming, at once.
+    @Test func theOperatorsWindowGoneAfterCompletionGivesUpAtOnce() throws {
+        let clock = StepClock()
+        let (world, run, task) = try broadcast(clock)
+        try world.controller.stop(task: task.id)
+        world.show([])
+        #expect(world.run(run.id)?.state == .complete && world.run(run.id)?.summaryGivenUp == true, "the window closed")
+        #expect(world.notifications.posted.map(\.body) == ["The task is done."])
+
+        let (offline, other, its) = try broadcast(clock)
+        try offline.controller.stop(task: its.id)
+        offline.controller.mutateRun(other.id) { $0.state = .operatorOffline }
+        offline.controller.runChanged(other.id)
+        #expect(offline.run(other.id)?.summaryGivenUp == true, "offline")
+    }
+
+    @Test func endingRecordsWhen() async throws {
+        let clock = StepClock()
+        let (world, run, _) = try broadcast(clock)
+        clock.advance(by: 90)
+        try await world.controller.end(run: run.id)
+        #expect(world.run(run.id)?.endedAt == clock.now)
+        #expect(try world.workspace.file.load().run(id: run.id)?.endedAt == clock.now)
+    }
+
+    /// A new plan on a complete broadcast: its completion, and its summary, belonged to the old one.
+    @Test func aPlanSubmittedAfterCompletionReopensIt() async throws {
+        let clock = StepClock()
+        let (world, run, task) = try broadcast(clock)
+        try world.controller.stop(task: task.id)
+        world.link.attached = false
+        _ = await world.call(run.id, "write_summary", ["text": "It merged."])
+        _ = await world.call(run.id, "create_task", ["key": "PLUTO-2", "title": "Fix PLUTO-2", "brief": "Fix it.", "project": "Shop",
+                                                     "agent": "codex", "model": "gpt-6-astra", "modelReason": "Codex.", "end": "commit"])
+        #expect(await world.call(run.id, "submit_plan", ["revision": 2]).value?["released"] == 1)
+        let reopened = try #require(world.run(run.id))
+        #expect(reopened.state == .active && reopened.completedAt == nil && reopened.summary == nil)
+    }
+
     // -- a start that fails leaves nothing behind -----------------------------------------------
     private func startFailing(_ world: OperatorWorld) async {
         await #expect(throws: (any Error).self) {
@@ -245,5 +347,23 @@ import Testing
         controller.sheets.sheet = nil
         #expect(controller.sheet == nil)
         #expect(controller.operatorController.presentOverview == nil)
+    }
+}
+
+/// A `summarySleep` that ends when the test says, or at once once opened, and keeps what it was asked to wait.
+@MainActor final class SleepGate {
+    private(set) var asked: [Duration] = []
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    private var opened: Bool
+    init(opened: Bool = false) { self.opened = opened }
+    func wait(_ duration: Duration) async {
+        asked.append(duration)
+        guard !opened else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func open() {
+        opened = true
+        for continuation in waiting { continuation.resume() }
+        waiting = []
     }
 }

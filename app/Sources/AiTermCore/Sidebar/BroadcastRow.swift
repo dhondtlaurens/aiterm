@@ -47,7 +47,9 @@ public struct BroadcastRow: Equatable, Identifiable, Sendable {
     public var line: OperatorLine
     /// Paused by you, or its Operator's window closed: its menu offers Resume Broadcast.
     public var isPaused: Bool
-    /// Done, the debrief ready: its menu offers neither Pause nor Resume.
+    /// Every task done (`.complete`), its summary written or not: its menu offers neither Pause nor Resume.
+    public var isDone: Bool
+    /// Done, and its summary settled (`RunSummary.isSettled`): written, or not coming.
     public var isComplete: Bool
 
     /// What the header says after its name: the progress, and `paused` before it while the broadcast is paused.
@@ -134,28 +136,29 @@ public extension SidebarModel {
         return BroadcastRow(id: run.id, title: run.name, progress: BroadcastBoard.count(of: run, tasks: tasks),
                             projectsHelp: OperatorLine.list(projects.map(\.name)), line: line,
                             isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused,
-                            isComplete: run.state == .complete)
+                            isDone: run.state == .complete, isComplete: OperatorLine.summary(of: run)?.isSettled == true)
     }
 
     /// The Operator's row: its own session's line (`OperatorLine.session`), nothing of its tasks, which the
     /// header's tooltip, the board's band and the tasks' own rows say. It asks you while its tab waits on input
     /// or one of its own questions, the broadcast's and no task's, is open; its window is closed while the run
-    /// is `operatorOffline`; else paused, `done · debrief ready` once every task is, its act, `working` while its
-    /// session works, and `waiting for its tasks` between turns. Its mark follows the line: amber when it asks,
-    /// spinning while it acts or works, the accent dot once the debrief is ready, else the idle ring: a turn
-    /// ended is routine.
+    /// is `operatorOffline`; else paused, `writing the summary` once every task is done and `done · summary ready`
+    /// once it is written (`done` if AiTerm gave up on it), its act, `working` while its session works, and `waiting
+    /// for its tasks` between turns. Its mark follows the line: amber when it asks, spinning while it acts, works or
+    /// writes the summary, the accent dot once the summary is settled, else the idle ring: a turn ended is routine.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo]) -> OperatorRow {
         let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)
         let asks = requests.contains { $0.runId == run.id && $0.taskId == nil }
+        let summary = OperatorLine.summary(of: run)
         let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
                                         asking: asks || tab?.state == .needsInput, windowClosed: run.state == .operatorOffline,
                                         paused: run.state == .paused || run.intent == .paused,
-                                        complete: run.state == .complete, tasks: tasks)
+                                        summary: summary ?? .notYet, tasks: tasks)
         let status: TaskStatus = switch line.look {
         case .needsYou: .needsInput
         case .acting: .working
-        case .quiet, .ended: run.state == .complete ? .done : .idle
+        case .quiet, .ended: summary?.isSettled == true ? .done : .idle
         }
         return OperatorRow(id: OperatorRow.id(of: run.id), runId: run.id, agent: AgentKind.claude.session, line: line, status: status)
     }

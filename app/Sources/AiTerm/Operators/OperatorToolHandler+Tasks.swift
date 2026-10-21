@@ -199,11 +199,12 @@ extension OperatorToolHandler {
             revoked = try mutate(in: task.operated?.runId) { state in
                 let revoked = try UpstreamReplacement.reaccept(task.id, as: acceptance, in: &state)
                 state.updateOperated(task.id) { $0.flags.remove(.upstreamReplaced) }
-                // A complete operation holding work again is not complete: it settles once that is done.
+                // A complete operation holding work again is not complete: it settles once that is done, and its
+                // summary, which no longer tells the whole of it, goes with its completion.
                 let runs = Set(([task.id] + revoked).compactMap { state.task(id: $0)?.operated?.runId })
                 for id in runs {
                     guard let run = state.run(id: id), run.state == .complete, !RunScheduler.isComplete(run, in: state) else { continue }
-                    state.updateRun(id: id) { $0.state = .active }
+                    state.updateRun(id: id) { $0.state = .active; $0.reopen() }
                 }
                 return revoked
             }

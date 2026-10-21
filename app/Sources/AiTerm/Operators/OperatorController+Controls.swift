@@ -143,8 +143,8 @@ extension OperatorController {
         runChanged(id)
     }
 
-    /// End Broadcast (spec §9, §13), early or from the debrief: your stop, persisted first — one that cannot
-    /// be saved is taken back and nothing else is done. The tasks that never started are dropped, their rows
+    /// End Broadcast (spec §9, §13), early or from the debrief: your stop, persisted first with when, for the
+    /// Shelf — one that cannot be saved is taken back and nothing else is done. The tasks that never started are dropped, their rows
     /// gone with them: they have no worktree and no window. Those started and still open end `stopped` and
     /// are yours, as after a takeover: their ownership moves on, so nothing the Operator queued lands, and
     /// an agent mid-turn is never interrupted but finishes it. Its second opinions are cancelled, its
@@ -154,9 +154,9 @@ extension OperatorController {
     func end(run id: UUID) async throws {
         guard let run = self.run(id: id), run.state != .stopped else { return }
         let before = snapshot()
-        let ending = Self.ending(id, in: workspace.state)
+        let ending = Self.ending(id, in: workspace.state), now = ports.now()
         workspace.mutate { state in
-            state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped }
+            state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped; $0.endedAt = now }
             state.tasks.removeAll { ending.dropped.contains($0.id) }
             for task in ending.handed {
                 _ = try? OperatedTransitions.apply(.stop, toTask: task, in: &state, by: .you)

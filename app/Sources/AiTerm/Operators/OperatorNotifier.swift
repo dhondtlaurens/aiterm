@@ -40,7 +40,8 @@ protocol OperatorNotifications: AnyObject {
 
 /// Tells you the moment something needs you, and takes it back once it does not (spec §4.1): each open
 /// request of a broadcast (`OperatorRequests`) is posted when it appears and withdrawn when it is answered,
-/// unblocked or the broadcast ends, and a finished broadcast posts its debrief once. Called with the run
+/// unblocked or the broadcast ends, and a finished broadcast posts once its summary is settled: written, or given
+/// up on (`RunSummary.isSettled`), never when its last task ends. Called with the run
 /// whenever it or its tasks change: what it posts follows the state, never the events that led to it.
 @MainActor
 final class OperatorNotifier {
@@ -83,9 +84,12 @@ final class OperatorNotifier {
         if !stale.isEmpty { notifications.withdraw(ids: stale.sorted()) }
     }
 
+    /// The finished broadcast's note. Its `debrief-` prefix is what earlier builds posted it under: a note they
+    /// delivered is not posted again.
     static func debriefId(_ run: UUID) -> String { "debrief-\(run.uuidString)" }
 
-    /// What the run asks of you now, as notes: each request on its own, and the debrief once it is complete.
+    /// What the run asks of you now, as notes: each request on its own, and once every task is done and its
+    /// summary settled, that it is ready — or, given up on, that the tasks are done.
     private func wanted(for run: OperatorRun, in state: AppState) -> [OperatorNote] {
         var notes: [OperatorNote] = OperatorRequests.open(run: run, state: state, prompts: prompts()).map { request in
             // A prompt only you can answer opens its task's window; anything else, the broadcast's overview.
@@ -93,11 +97,11 @@ final class OperatorNotifier {
             if request.kind == .permission, let task = request.taskId { target = .task(task) }
             return OperatorNote(id: request.id, title: run.name, body: request.text, target: target)
         }
-        if run.state == .complete, run.intent != .stopped {
+        if let summary = OperatorLine.summary(of: run), summary.isSettled {
             let count = state.tasks(inRun: run.id).count
-            notes.append(OperatorNote(id: Self.debriefId(run.id), title: run.name,
-                                      body: count == 1 ? "The task is done. The debrief is ready." : "All \(count) tasks are done. The debrief is ready.",
-                                      target: .overview(run.id)))
+            let body = if case .written = summary { "The summary is ready." }
+                else { count == 1 ? "The task is done." : "All \(count) tasks are done." }
+            notes.append(OperatorNote(id: Self.debriefId(run.id), title: run.name, body: body, target: .overview(run.id)))
         }
         return notes
     }
