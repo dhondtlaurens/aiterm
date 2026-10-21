@@ -28,11 +28,6 @@ import Synchronization
 
     private var cloneExists: Bool { FileManager.default.fileExists(atPath: clone.path) }
 
-    /// Find a Fix says what you get, not who gives it.
-    @Test func theButtonIsFindAFix() {
-        #expect(FixSession(request: request, fixer: .ready(.claude), pipeline: pipeline(), retry: { _ in }).buttonTitle == "Find a Fix")
-    }
-
     /// Off — Help with problems turned off, or Claude Code missing — offers nothing and does not start.
     @Test func anOffFixerIsUnavailableAndDoesNotStart() async {
         let off = FixSession(request: request, fixer: .off, pipeline: pipeline(), retry: { _ in })

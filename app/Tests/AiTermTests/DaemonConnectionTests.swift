@@ -57,16 +57,13 @@ with c:
         return backgroundRequestCount()
     }
 
-    /// The daemon applies the preference only while iTerm2 is connected, so it is sent when iTerm2
-    /// connects — here, after the app attached — and only then.
-    @Test func itermReconnectReappliesPersistedBackgroundPreference() async throws {
-        #expect(try await backgroundSends(connectedAtAttach: false) == 1)
-    }
-
-    /// A daemon that already has iTerm2 — adopted, or reached again after the app's socket dropped —
-    /// broadcasts no `iterm.connected`; the attach snapshot is the only news, and it sends once.
-    @Test func attachingToADaemonThatHasItermSendsTheBackgroundPreferenceOnce() async throws {
-        #expect(try await backgroundSends(connectedAtAttach: true) == 1)
+    /// The daemon applies the preference only while iTerm2 is connected, so it is sent once, when
+    /// iTerm2 connects. Without iTerm2 at the attach, that is its `iterm.connected`, after the app
+    /// attached. A daemon that already has iTerm2 (adopted, or reached again after the app's socket
+    /// dropped) broadcasts no `iterm.connected`: the attach snapshot is the only news.
+    @Test(arguments: [false, true])
+    func thePersistedBackgroundPreferenceIsSentOncePerDaemon(connectedAtAttach: Bool) async throws {
+        #expect(try await backgroundSends(connectedAtAttach: connectedAtAttach) == 1)
     }
 
     @Test func socketLossReconnectsWhileServerStaysAliveAndStopEndsRetries() async throws {

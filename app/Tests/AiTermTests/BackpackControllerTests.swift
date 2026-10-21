@@ -496,7 +496,8 @@ import Testing
         #expect(backpack.setup.isComplete)
     }
 
-    /// At launch the header's menu must know setup is done, not wait for Settings to open.
+    /// At launch a marker a crash left puts sleep back (`launch` is the only caller of
+    /// `recoverAtLaunch`), and the header's menu must know setup is done, not wait for Settings to open.
     @Test func launchPutsSleepBackAndReadsSetup() async {
         let fake = FakeBackpack()
         fake.settings.engaged = true
@@ -504,13 +505,6 @@ import Testing
         await backpack.launch()
         #expect(fake.lid.calls == [false])
         #expect(backpack.setup.isComplete)
-    }
-
-    @Test func launchRecoveryClearsALeftoverMarker() {
-        let fake = FakeBackpack()
-        fake.settings.engaged = true
-        controller(fake).recoverAtLaunch()
-        #expect(fake.lid.calls == [false])
     }
 
     @Test func theInertControllerTouchesNothing() async {
