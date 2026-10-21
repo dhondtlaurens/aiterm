@@ -69,7 +69,7 @@ final class BranchWatch {
         let found = BranchDrift.find(taskBranch: branch, head: reading.head, named: reading.named, previous: fresh.branchDrift)
         guard found != fresh.branchDrift else { return }
         workspace.mutate { $0.updateOperated(id) { $0.branchDrift = found } }
-        if found != nil, fresh.branchDrift == nil { waker.say("\(fresh.key) committed off its task branch", to: fresh.runId) }
+        if found != nil, fresh.branchDrift == nil { waker.say("one task committed off its task branch", to: fresh.runId) }
     }
 
     /// The worktree's HEAD: its branch, nil when detached, and its commit. Nil when git can't read it, and

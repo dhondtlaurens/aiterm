@@ -39,7 +39,7 @@ import Testing
         world.controller.reconcileTick()
         #expect(world.task(quiet.id)?.operated?.flags.contains(.possiblyStalled) == true)
         #expect(world.task(busy.id)?.operated?.flags.contains(.possiblyStalled) == false)
-        #expect(await eventually(describing: "the operator told") { stalledLines() == ["[AiTerm] updates waiting, call run_status"] })
+        #expect(await eventually(describing: "the operator told") { stalledLines() == ["[AiTerm] one task may be stalled, call run_status"] })
 
         world.controller.reconcileTick()
         // A second line would be armed with no coalescing delay and typed within a few turns of the main actor.

@@ -31,6 +31,8 @@ import Foundation
 
     @Test func aPromptWaitingOnThePersonOrALineThatWentInIsNoNotice() {
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "a menu prompt is open", code: .prompt)) == nil)
+        #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "you are typing", code: .typing)) == nil)
+        #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .refused, reason: "unsent input", code: .unsentInput)) == nil)
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .delivered, reason: nil)) == nil)
         #expect(OperatorWakeNotice(run: run, status: status(), refusal: Delivery(result: .partial, reason: "held", code: .typing)) == nil)
     }

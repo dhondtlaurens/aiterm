@@ -58,7 +58,7 @@ extension OperatorToolHandler {
                                         instructions: instructions, skills: skills)
         let review = AgentReviewResult(agent: agent, instructions: instructions, head: read.head, startedAt: ports.now())
         mutate(in: run.id) { $0.updateOperated(task.id) { $0.agentReview = review } }
-        startReview(review, of: task.id, key: operated.key, in: run.id, prompt: prompt, worktree: path)
+        startReview(review, of: task.id, in: run.id, prompt: prompt, worktree: path)
         return Self.reviewAnswer(review, started: true)
     }
 
@@ -80,7 +80,7 @@ extension OperatorToolHandler {
 
     /// The review runs on its own; its answer is kept on the task, unless another review replaced it meanwhile,
     /// and the Operator is woken.
-    private func startReview(_ review: AgentReviewResult, of id: UUID, key: String, in runId: UUID, prompt: String, worktree: String) {
+    private func startReview(_ review: AgentReviewResult, of id: UUID, in runId: UUID, prompt: String, worktree: String) {
         let runner = ports.agentReviewer, model = defaultModel(for: review.agent)
         let folder = OperatorCommand.runFolder(runId, home: ports.home)
         let running = Task { [weak self] in
@@ -100,8 +100,8 @@ extension OperatorToolHandler {
                 }
             }
             switch verdict {
-            case .findings: waker.say("\(name) reviewed \(key)", to: runId, colon: true)
-            case .failed: waker.say("\(name)’s review of \(key) failed", to: runId, colon: true)
+            case .findings: waker.say("\(name) reviewed one task", to: runId, colon: true)
+            case .failed: waker.say("\(name)’s review of one task failed", to: runId, colon: true)
             }
         }
         runningReviews[id] = running

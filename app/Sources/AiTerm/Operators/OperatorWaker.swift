@@ -6,8 +6,8 @@ import AiTermCore
 /// delivery with `wake: true`, which holds it while you type there and needs no pass from the delivery
 /// check. A burst within `coalesce` is one line. A working operator is not typed at: the line waits for
 /// its tab to be idle. Wake lines are hints: the operator's next `run_status` shows everything, whether
-/// or not one landed. A line refused for anything but a prompt waiting on you is reported (`refused`)
-/// for the sidebar's Notice, which `cleared` takes down.
+/// or not one landed. A line refused for anything but your typing or a prompt waiting on you is reported
+/// (`refused`) for the sidebar's Notice, which `cleared` takes down.
 @MainActor
 final class OperatorWaker {
     private let daemon: @MainActor () -> (any DaemonCommands)?
@@ -195,9 +195,9 @@ final class OperatorWaker {
             }
             // Typed, or left in the input for the person to send: the news is out. Refused — the person
             // typing there, a prompt open — it waits for the next idle moment, or `retryAfter`. Any refusal
-            // but a prompt, which already waits on the person, is theirs to see (`refused`).
+            // but those, which already wait on the person, is theirs to see (`refused`).
             guard let delivery, delivery.result != .refused else {
-                if let delivery, delivery.code != .prompt { refused?(run, delivery) }
+                if let delivery, OperatorWakeNotice.shows(delivery.code) { refused?(run, delivery) }
                 retryLater(run, wake)
                 return
             }

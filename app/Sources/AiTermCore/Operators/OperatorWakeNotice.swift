@@ -2,7 +2,8 @@ import Foundation
 
 /// The sidebar's Notice when the Operator's wake line was refused (`OperatorWaker`): what waits on the Operator,
 /// from its `run_status`, and why AiTerm couldn't type into its tab, in one short sentence. Its links are Open the
-/// Operator and Fix in Settings. Not shown for a prompt open in its tab, which already waits on the person; taken
+/// Operator and Fix in Settings. Not shown while the person types in its tab, or for a prompt open there, which
+/// already waits on them (`shows`); taken
 /// down once the Operator calls `run_status` or a later wake line is delivered.
 public struct OperatorWakeNotice: Equatable, Sendable {
     public static let title = "The Operator can’t be woken"
@@ -12,11 +13,17 @@ public struct OperatorWakeNotice: Equatable, Sendable {
     public var description: String
 
     /// The Notice for `refusal`, with `status` as the Operator's `run_status` would show it now; nil when the refusal
-    /// is a prompt waiting on the person, or nothing was refused.
+    /// is not one to show (`shows`), or nothing was refused.
     public init?(run: UUID, status: RunStatus?, refusal: Delivery) {
-        guard refusal.result == .refused, refusal.code != .prompt else { return nil }
+        guard refusal.result == .refused, Self.shows(refusal.code) else { return nil }
         self.run = run
         description = Self.waiting(status) + " " + Self.sentence(refusal.code)
+    }
+
+    /// Whether a wake refused for `code` is the Notice's: not a prompt that waits on the person, nor their own typing
+    /// or unsent text in its tab, which the waker tries again after.
+    public static func shows(_ code: DeliveryCode?) -> Bool {
+        ![.prompt, .typing, .unsentInput].contains(code)
     }
 
     /// What waits on the Operator in `status`, as a sentence: "2 tasks ready to accept in “Payments”."

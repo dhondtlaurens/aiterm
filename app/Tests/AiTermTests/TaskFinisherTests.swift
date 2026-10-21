@@ -494,9 +494,9 @@ final class MergeClock: Sendable {
         let before = world.daemon.requests("session.deliver").count
         await ticker.tick()
         #expect(await eventually(describing: "the watch to stop") { world.controller.finisher.watching.isEmpty })
-        // The reason names the task by its key, so the line only says updates wait: run_status shows the problem.
+        // The line names no task: run_status shows which, and the problem.
         let stopped = { world.daemon.requests("session.deliver").dropFirst(before).compactMap { $0.params["text"] as? String } }
-        #expect(await eventually(describing: "the operator told") { stopped() == ["[AiTerm] updates waiting, call run_status"] })
+        #expect(await eventually(describing: "the operator told") { stopped() == ["[AiTerm] one task’s merge watch stopped: call run_status"] })
         #expect(world.task(task)?.operated?.publication?.problem?.hasPrefix("feat/pluto-231 moved past") == true)
         world.controller.runChanged(run)
         world.controller.start()

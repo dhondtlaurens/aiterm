@@ -55,7 +55,7 @@ import Testing
         let status = try #require(world.controller.status(of: current))
         #expect(status.obligations.branchDrift == ["PLUTO-1"])
         #expect(await eventually(describing: "the operator told") {
-            driftLines(world) == ["[AiTerm] updates waiting, call run_status"]
+            driftLines(world) == ["[AiTerm] one task committed off its task branch, call run_status"]
         })
         await tick(world)
         await world.controller.waker.lastSend?.value
