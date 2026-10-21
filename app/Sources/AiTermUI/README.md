@@ -308,6 +308,10 @@ one picked project; under each its help in place of `CompletionHint`. Review's a
 slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
 linked, and nothing is amber. No command preview: the Operator chooses each task's agent. The
 `DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 4. No new `Palette` or `Metrics` member.
+Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on,
+Claude Code and Codex where installed, Ready on its Settings card, Messaging included, and iTerm2's own delivery
+checks passed. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
+its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
 
 The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
 `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
@@ -514,7 +518,13 @@ the answer replaces that card's status line rather than landing in the sheet foo
 card's one action is named by the card's state and runs the same code whatever it says: Install
 while the CLI or the driver is missing, Repair while a check is amber, Reinstall when the card is
 Ready; a card whose only amber check is one Install cannot fix (Grok's Context, when its status line
-is the built-in or one AiTerm must not edit) shows no action at all. Over a missing CLI it runs the
+is the built-in or one AiTerm must not edit) shows no action at all. Claude Code's and Codex's cards
+carry a third chip, Messaging: the delivery check's verdict held against the version installed
+(`DeliveryCheck.messaging`; a pass covers every patch of its major and minor). Passing, its sentence
+(“Messaging ready for 2.1”) is the chip's tooltip; needing attention, it is the status line
+(“Messaging not checked for 2.2”, “Messaging failed: approvalRace”) and, once nothing Install can fix
+is amber, the action is **Run check**, which opens an iTerm2 window in front running the check for
+that agent; the card follows the policy file while Settings is open. Over a missing CLI it runs the
 vendor's own installer and then the driver; over a present one it writes the driver whether or not
 it is already installed, so it can be overwritten. Claude Code's card leads its fields with one
 `HelpText` line, `Configuration:` and the full path of the folder its settings, models and skills are

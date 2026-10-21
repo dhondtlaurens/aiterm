@@ -414,16 +414,18 @@ struct SidebarSheet: View {
                         case .broadcast(let run): controller.rename(run: run, to: name)
                         }
                     })
-                case .settings(let jira, let gitLab, let gitHub, let tab):
+                case .settings(let jira, let gitLab, let gitHub, let tab, let agent):
                     SettingsView(jiraConfig: jira, gitLabConfig: gitLab, gitHubConfig: gitHub,
                                  harnessModel: controller.agents.harnessSettingsModel(),
                                  agents: controller.agents,
+                                 messaging: controller.messaging,
                                  itermConnection: { controller.helper.itermConnection },
                                  checkIterm: controller.helper.checkIterm,
                                  preferences: controller.preferences,
                                  setMatchItermBackground: { controller.helper.setMatchItermBackground($0) },
                                  setInterfaceSize: { controller.tiling.setInterfaceSize($0) },
                                  initialTab: tab,
+                                 initialAgent: agent,
                                  backpack: controller.backpack)
                 case .backpack(let model): BackpackSheet(model: model)
                 case .archive(let model): ArchiveSheet(model: model)

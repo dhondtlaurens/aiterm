@@ -96,23 +96,32 @@ struct SettingsView: View {
     private var itermTesting: Bool { get { _itermTesting.wrappedValue } nonmutating set { _itermTesting.wrappedValue = newValue } }
     /// Backpack Mode: the Mac card shows its setup live.
     let backpack: BackpackController
+    /// Claude Code's and Codex's Messaging, read for as long as Settings is open.
+    let messaging: MessagingChecks
+    /// The agent card it opened at, scrolled to on Agents (`AppController.presentSettings(tab:agent:)`).
+    let initialAgent: AgentKind?
 
     init(jiraConfig: JiraConfig?, gitLabConfig: GitLabConfig?, gitHubConfig: GitHubConfig? = nil, harnessModel: HarnessSettingsModel,
          // The default is for previews and tests only: the app must pass its own integrations.
          agents: AgentIntegrations = .inert(),
+         messaging: MessagingChecks = .inert(),
          itermConnection: @escaping () -> ItermConnection,
          checkIterm: @escaping () async -> ItermEnvironment,
          preferences: InterfacePreferences,
          setMatchItermBackground: @escaping (Bool) -> Void,
          setInterfaceSize: @escaping (InterfaceSize) -> Void,
          initialTab: SettingsTab? = nil,
+         initialAgent: AgentKind? = nil,
          testRecord: ServiceTestRecord = .shared,
          backpack: BackpackController = .inert(),
          operatorSettings: OperatorSettingsModel? = nil) {
-        _tab = State(initialValue: initialTab
+        // An agent's card is on Agents, whatever tab is asked for with it.
+        _tab = State(initialValue: initialAgent.map { _ in .agents } ?? initialTab
                      ?? .opening(iterm: itermConnection(), serviceTestFailed: testRecord.anyFailed))
         self.harnessModel = harnessModel
         self.agents = agents
+        self.messaging = messaging
+        self.initialAgent = initialAgent
         _operatorSettings = State(initialValue: operatorSettings)
         _integrations = State(initialValue: IntegrationSettingsModel(jira: jiraConfig, gitLab: gitLabConfig, gitHub: gitHubConfig,
                                                                      record: testRecord))
@@ -129,10 +138,15 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        // Around the sheet, so the Agents pane can scroll the sheet's own scroll view to a card.
+        ScrollViewReader { scroll in sheet(scroll) }
+    }
+
+    private func sheet(_ scroll: ScrollViewProxy) -> some View {
         SheetLayout(title: "Settings", height: Sheet.settingsHeight) {
             tabBar
         } content: {
-            settingsContent
+            settingsContent(scroll)
         } footer: {
             SheetFooter(primary: "Save", closeList: closeOpenList, cancel: { cancel(); dismiss.afterThisEvent() },
                         submit: { if save() { dismiss.afterThisEvent() } }) {
@@ -160,6 +174,9 @@ struct SettingsView: View {
             async let mac: Void = backpack.refreshSetup()
             _ = await (profile, harnesses, mac)
         }
+        // The delivery check's file and the agents' versions, read again while Settings is open: a
+        // check run by hand, or by Run check, reaches its card without reopening Settings.
+        .task { await messaging.watch() }
     }
 
     /// ⎋ closes Instructions' `/` popup while it is open, and only then Settings: the popup is the
@@ -170,10 +187,10 @@ struct SettingsView: View {
         return true
     }
 
-    private var settingsContent: some View {
+    private func settingsContent(_ scroll: ScrollViewProxy) -> some View {
         Group {
             switch tab {
-            case .agents: HarnessSettingsPane(model: harnessModel, agents: agents)
+            case .agents: HarnessSettingsPane(model: harnessModel, agents: agents, messaging: messaging, focus: initialAgent, scroll: scroll)
             case .operator: if let operatorSettings { OperatorSettingsPane(model: operatorSettings) }
             case .integrations: integrationSettings
             case .interface:

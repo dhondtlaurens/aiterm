@@ -230,6 +230,9 @@ struct CreationFooter: View {
     var canApply = true
     /// Apply on the proposal that is up.
     var applyFix: () -> Void = {}
+    /// What the create waits for, one line each, under a title: New Broadcast's `BroadcastReadiness`.
+    /// A Notice with no actions, as a failure is; none while nothing waits.
+    var waiting: (title: String, lines: [String])? = nil
 
     var body: some View {
         let state = fix?.state
@@ -246,6 +249,9 @@ struct CreationFooter: View {
             }
             if steps.saysNoAgentCanRun(onStep: step), availableAgents.isEmpty, let note = AgentStep.missingAgentNote(available: availableAgents) {
                 Notice(title: note)
+            }
+            if let waiting, !waiting.lines.isEmpty {
+                Notice(title: waiting.title, description: waiting.lines.joined(separator: "\n"))
             }
             SheetFooter(secondary: shown.buttons == .sheet ? steps.secondaryTitle(onStep: step) : "Cancel",
                         primary: primaryTitle(shown.buttons),

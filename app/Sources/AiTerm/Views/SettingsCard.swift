@@ -61,7 +61,8 @@ struct SettingsCard<Mark: View, Chips: View, Actions: View, Content: View>: View
             mark.frame(width: Self.markSize, height: Self.markSize)
             VStack(alignment: .leading, spacing: Space.tight) {
                 HStack(spacing: Space.snug) {
-                    Text(title).font(Typography.card).foregroundStyle(Palette.text)
+                    // Never cut: three chips and a long status line (Codex's Messaging) took its room.
+                    Text(title).font(Typography.card).foregroundStyle(Palette.text).fixedSize()
                     chips
                 }
                 HStack(spacing: Space.tight) {

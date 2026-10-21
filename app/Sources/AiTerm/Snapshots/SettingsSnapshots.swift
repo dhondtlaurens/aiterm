@@ -56,11 +56,23 @@ enum SettingsSnapshots {
     ]
     private static let ready = ItermEnvironment(installed: true, pythonAPIEnabled: true)
 
+    /// The delivery check passed Claude Code 2.1 and iTerm2; Codex updated itself past the 0.150 it passed,
+    /// so its card says so and offers Run check.
+    static let messaging: DeliveryCheckFile = {
+        let json = #"""
+        {"claude": {"version": "2.1.301", "pasteSafe": true, "submitSafe": true, "scenarios": {}},
+         "codex": {"version": "0.150.0", "pasteSafe": true, "submitSafe": true, "scenarios": {}},
+         "iterm": {"version": "3.7.2", "keystrokesPassThrough": true, "backgroundWindow": true, "scenarios": {}}}
+        """#
+        return DeliveryCheckFile(data: Data(json.utf8))
+    }()
+
     /// Settings on `tab`, its Agents tab on the fixture harnesses.
     private static func settings(jira: JiraConfig?, iterm: ItermConnection, environment: ItermEnvironment,
                                  tab: SettingsTab) -> SettingsView {
         SettingsView(jiraConfig: jira, gitLabConfig: nil, harnessModel: .preview(),
                      agents: .inert(claudeConfigPath: "/Users/you/.config/claude"),
+                     messaging: .preview(file: messaging, versions: [.claude: "2.1.305", .codex: "0.161.0"]),
                      itermConnection: { iterm }, checkIterm: { environment },
                      preferences: Fixture.preferences, setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
                      initialTab: tab)

@@ -62,8 +62,9 @@ extension AppController {
         case newTask(TaskCreationModel), newReview(ReviewCreationModel)
         case newTerminal(Project, name: String, branch: String)
         case newDivider, rename(RenameTarget)
-        /// Settings opens on the saved credentials, read from the Keychain once when it is presented.
-        case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, tab: SettingsTab?)
+        /// Settings opens on the saved credentials, read from the Keychain once when it is presented;
+        /// on `tab`, or at `agent`'s card on Agents.
+        case settings(jira: JiraConfig?, gitLab: GitLabConfig?, gitHub: GitHubConfig?, tab: SettingsTab?, agent: AgentKind?)
         /// Backpack Mode's sheet: its model is built once, as New Task's is.
         case backpack(BackpackSheetModel)
         /// The Archive sheet: its model holds the query and highlight across redraws, as New Task's does.

@@ -1420,9 +1420,25 @@ extension AppControllerTests {
                                        gitHubSettings: { nil })
         controller.presentSettings()
         await eventually { controller.sheet != nil }
-        guard case .settings(let saved, let gitLab, _, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
+        guard case .settings(let saved, let gitLab, _, _, _)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
         #expect(saved == jira && gitLab == nil)
         #expect(onMain.withLock { $0 } == [false, false])
+    }
+
+    /// The sidebar's "Fix in Settings" opens Agents at that agent's card.
+    @Test func settingsOpensAtAnAgentsCard() async throws {
+        let (controller, dir) = try loadedController()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        controller.presentSettings(tab: .integrations, agent: .codex)
+        await eventually { controller.sheet != nil }
+        guard case .settings(_, _, _, let tab, let agent)? = controller.sheet else { Issue.record("expected the Settings sheet"); return }
+        #expect(tab == .agents && agent == .codex)
+        let view = SettingsView(jiraConfig: nil, gitLabConfig: nil, harnessModel: .preview(),
+                                itermConnection: { .waitingForIterm }, checkIterm: { ItermEnvironment(installed: true, pythonAPIEnabled: true) },
+                                preferences: .scratch(), setMatchItermBackground: { _ in }, setInterfaceSize: { _ in },
+                                initialAgent: .codex)
+        #expect(view._tab.wrappedValue == .agents, "on Agents, though iTerm2 would open it on Integrations")
+        #expect(view.initialAgent == .codex)
     }
 
     /// ⌘, behind another sheet would replace it — and a New Task draft with it — so it does nothing.
