@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -139,14 +140,41 @@ def merged_policy(existing: Any, entries: Mapping[str, dict[str, Any]]) -> dict[
 
 
 def scratch_codex_home(real: Path, into: Path) -> Path:
-    """A CODEX_HOME holding only copies of the real one's login and settings, so an allow rule a
-    failing scenario writes (its `rules/`) lands here and never in ~/.codex (the spike's hazard, §2.2)."""
+    """A CODEX_HOME holding only a copy of the real one's login and its screen settings, so an allow
+    rule a failing scenario writes (its `rules/`) lands here and never in ~/.codex (the spike's
+    hazard, §2.2)."""
     home = into / "codex-home"
     home.mkdir(parents=True)
-    for name in ("auth.json", "config.toml"):
-        if (real / name).is_file():
-            shutil.copy2(real / name, home / name)
+    if (real / "auth.json").is_file():
+        shutil.copy2(real / "auth.json", home / "auth.json")
+    if (real / "config.toml").is_file():
+        (home / "config.toml").write_text(screen_settings((real / "config.toml").read_text(encoding="utf-8")),
+                                          encoding="utf-8")
     return home
+
+
+_TABLE = re.compile(r"\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?")
+
+
+def screen_settings(config: str) -> str:
+    """The `[tui]` tables of a Codex config.toml, and nothing else: what its screens already showed you,
+    so a fresh home opens on no first-run notice. Everything else stays out -- hooks, trusted under the
+    real file's path, would all ask for review again; servers would start and fill the context; a
+    reviewer would answer the approvals the check pastes into; the model is the check's own. Nothing,
+    when what is kept does not parse."""
+    kept: list[str] = []
+    keep = False
+    for line in config.splitlines():
+        if table := _TABLE.fullmatch(line):
+            keep = table.group(1) == "tui" or table.group(1).startswith("tui.")
+        if keep:
+            kept.append(line)
+    text = "\n".join(kept) + "\n" if kept else ""
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return ""
+    return text
 
 
 def allow_rules(agent: AgentKind, folder: Path) -> list[str]:

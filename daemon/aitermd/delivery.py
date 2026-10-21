@@ -71,13 +71,20 @@ def open_prompt(agent: AgentKind, screen: str) -> PromptKind | None:
     return None
 
 
+# A menu's numbered option, as it follows the selection arrow: `› 1. Review hooks`.
+_OPTION = re.compile(r"\s*\d+\.\s")
+
+
 def shows_input_box(agent: AgentKind, screen: str) -> bool:
     """Whether some line of `screen` starts, past its spaces, with the harness's input-box marker
     (Claude's `❯`, Codex's `›`): the positive sign that this is the CLI's own screen, idle or at work,
-    and not a blank, a crashed shell or something unrecognised. A harness without markers shows none."""
+    and not a blank, a crashed shell or something unrecognised. A harness without markers shows none.
+    A menu marks its selected option with the same arrow: one followed by a numbered option is the
+    menu's, so a menu no prompt marker knows yet still reads as no input box."""
     if (harness := HARNESS_BY_AGENT.get(agent)) is None or not harness.input_box:
         return False
-    return any(line.lstrip()[:1] in harness.input_box for line in screen.splitlines() if line.strip())
+    return any((text := line.lstrip())[:1] in harness.input_box and not _OPTION.match(text[1:])
+               for line in screen.splitlines() if line.strip())
 
 
 # How AiTerm may type into one CLI, from the delivery check it last passed (tools/delivery_check.py):

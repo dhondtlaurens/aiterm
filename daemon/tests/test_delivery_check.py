@@ -94,6 +94,44 @@ def test_the_scratch_codex_home_gets_only_the_login_and_the_settings(tmp_path):
     assert (home / "auth.json").read_text(encoding="utf-8") == "auth.json"
 
 
+def test_the_scratch_codex_settings_keep_only_what_its_screens_have_shown_you(tmp_path):
+    # Hooks trusted by the real config's path would all ask for review again, servers would start and
+    # fill the context, and a reviewer would answer the approvals the check pastes into.
+    import tomllib
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "auth.json").write_text("{}", encoding="utf-8")
+    (real / "config.toml").write_text("""model = "gpt-6-astra"
+approvals_reviewer = "auto_review"
+
+[projects."/Users/me"]
+trust_level = "trusted"
+
+[tui]
+theme = "dark"
+screen_reader_detection_done = true
+
+[tui.model_availability_nux]
+"gpt-6.1-sol" = 1
+
+[mcp_servers.cloudflare]
+command = "npx"
+args = [
+  "-y",
+  "cloudflare",
+]
+
+[hooks.state."/Users/me/.codex/config.toml:stop:0:0"]
+trusted_hash = "abc"
+
+[[hooks.SessionStart]]
+command = "curl"
+""", encoding="utf-8")
+    home = scratch_codex_home(real, tmp_path / "scratch")
+    assert tomllib.loads((home / "config.toml").read_text(encoding="utf-8")) == {
+        "tui": {"theme": "dark", "screen_reader_detection_done": True, "model_availability_nux": {"gpt-6.1-sol": 1}}}
+
+
 def test_an_allow_rule_a_paste_wrote_is_found(tmp_path):
     assert allow_rules("codex", tmp_path) == [] and allow_rules("claude", tmp_path) == []
     (tmp_path / "codex-home" / "rules").mkdir(parents=True)

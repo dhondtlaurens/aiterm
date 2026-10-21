@@ -60,6 +60,19 @@ CODEX_UPDATE = """\
   2. Skip
   3. Skip until next version
 """
+# Codex 0.163's own review of hooks it has not trusted, as the delivery check met it: a numbered menu
+# with no input box under it.
+CODEX_HOOKS_REVIEW = """\
+  Hooks need review
+  6 hooks are new or changed.
+  Hooks can run outside the sandbox after you trust them.
+
+› 1. Review hooks
+  2. Trust all and continue
+  3. Continue without trusting (hooks won't run)
+
+  enter confirm · esc skip
+"""
 # An idle Codex whose banner announces an update: no dialog is open, so this must read as none. The
 # empty prompt's trailing space is written \x20: ruff (W291) flags trailing whitespace even in a string.
 CODEX_IDLE_WITH_UPDATE_BANNER = """\
@@ -94,6 +107,7 @@ UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
     ("codex", CODEX_IDLE, None),
     # The banner only announces an update; the dialog is known by its own options.
     ("codex", CODEX_IDLE_WITH_UPDATE_BANNER, None),
+    ("codex", CODEX_HOOKS_REVIEW, "menu"),
     # Drawn with cursor moves for spaces, or wrapped where the window is narrow.
     ("claude", "Doyouwantto\nproceed?", "permission"),
     ("codex", "Press enter to confirm\nor esc to cancel", "menu"),
@@ -113,6 +127,8 @@ def test_an_idle_or_working_cli_screen_shows_its_input_box(agent, screen):
 @pytest.mark.parametrize("agent,screen", [
     ("claude", UNRECOGNISED), ("claude", "  \n"), ("codex", IDLE),  # Claude's ❯ is not Codex's ›
     ("claude", "text then ❯ mid-line"), ("grok", IDLE), ("pi", CODEX_IDLE), ("shell", IDLE),
+    # A menu's selected option is drawn with the same arrow: a menu no marker knows yet is no input box.
+    ("codex", CODEX_HOOKS_REVIEW), ("claude", CLAUDE_TRUST),
 ])
 def test_anything_else_shows_no_input_box(agent, screen):
     assert not shows_input_box(agent, screen)
@@ -129,7 +145,7 @@ def test_the_markers_are_the_spikes():
     assert claude.menu_prompt == ("Enter to select", "Esc to cancel")
     assert "Yes, I trust this folder" in claude.startup_prompt
     assert codex.permission_prompt == ("Would you like to run the following command?",)
-    assert codex.menu_prompt == ("Press enter to confirm or esc to cancel",)
+    assert codex.menu_prompt == ("Press enter to confirm or esc to cancel", "enter confirm ·")
     assert codex.startup_prompt == ("Trust this folder?", "Skip until next version", "Update now")
     assert not any("Update available" in marker for marker in codex.startup_prompt), "the idle banner says that too"
 
