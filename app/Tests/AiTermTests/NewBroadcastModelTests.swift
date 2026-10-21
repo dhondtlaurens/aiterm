@@ -187,6 +187,25 @@ struct NewBroadcastModelTests {
         #expect(requests.last?.name == "Checkout redesign")
     }
 
+    /// Every kind of text a person types (`TypedText`) reaches the controller byte for byte: only its
+    /// ends are trimmed, and these texts have nothing to trim.
+    @Test func everyKindOfTypedTextReachesTheControllerWhole() async throws {
+        var requests: [NewBroadcastModel.Request] = []
+        let webshop = project("webshop")
+        let sheet = model(projects: [webshop]) { requests.append($0); return UUID() }
+        sheet.add(project: webshop)
+        sheet.prompt = TypedText.text("Prompt", bytes: 110_000)
+        sheet.review = TypedText.text("Review")
+        sheet.done = TypedText.text("Done")
+
+        _ = await sheet.start()
+
+        let request = try #require(requests.first)
+        #expect(Array(request.prompt.utf8) == Array(sheet.prompt.utf8))
+        #expect(request.review.map { Array($0.utf8) } == Array(sheet.review.utf8))
+        #expect(request.done.map { Array($0.utf8) } == Array(sheet.done.utf8))
+    }
+
     @Test func aStartThatFailsSaysWhyInTheFooterAndCanBeTriedAgain() async {
         struct Refused: LocalizedError { var errorDescription: String? { "One broadcast at a time." } }
         let webshop = project("webshop")
