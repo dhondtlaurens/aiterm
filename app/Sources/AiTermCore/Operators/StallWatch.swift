@@ -2,7 +2,7 @@ import Foundation
 
 /// When each working task last showed a sign of life, on a clock of its own (spec §8, *possibly
 /// stalled*). A sign of life is any change the daemon reports for one of the task's sessions —
-/// its status, title, tokens, context fill or conversation — or one noted from elsewhere (a hook
+/// its status, title, context fill or conversation — or one noted from elsewhere (a hook
 /// event, a delivered message). With several tasks at work, one busy worker never keeps a silent
 /// one from being noticed, and a silent one never makes a busy one look stalled.
 ///

@@ -67,7 +67,7 @@ public enum Size {
     /// Everything at 100% costs a digit per segment and clips — the accepted price of showing clock
     /// times rather than a countdown.
     /// `SidebarFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth` holds this honest.
-    /// The context row's widest case — a full window and both token counts at `999k` — fits too, held
+    /// The context row's widest case — a full window — fits too, held
     /// by `SidebarFooterGeometryTests.theWidestContextRowFitsTheMinimumSidebarWidth`.
     ///
     /// Was 395 while each vendor row also carried its `ctx` segment; that moved to the footer's

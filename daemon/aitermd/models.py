@@ -3,7 +3,6 @@ import math
 import os
 import re
 import shlex
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -181,33 +180,6 @@ class RawSession:
     active: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class TokenTally:
-    """What one conversation has spent so far, its subagents and background workers included.
-    `input` counts every input token, cache reads and writes among them; `cached` is that share,
-    None when the harness cannot tell it apart; `output` counts reasoning among it. A compaction
-    empties the window, not the bill: within a conversation these only grow."""
-    input: int
-    cached: int | None
-    output: int
-
-    def __add__(self, other: TokenTally) -> TokenTally:
-        # A share unknown in one part is unknown in the whole, rather than read as none.
-        cached = None if self.cached is None or other.cached is None else self.cached + other.cached
-        return TokenTally(self.input + other.input, cached, self.output + other.output)
-
-    @staticmethod
-    def combined(parts: Iterable[TokenTally]) -> TokenTally | None:
-        """The sum of `parts`, or None for no parts at all: a conversation before its first reply."""
-        total: TokenTally | None = None
-        for part in parts:
-            total = part if total is None else total + part
-        return total
-
-    def to_json(self) -> dict[str, Any]:
-        return {"input": self.input, "cached": self.cached, "output": self.output}
-
-
 @dataclass
 class SessionInfo:
     session_id: str
@@ -234,9 +206,6 @@ class SessionInfo:
     # The provider's last-known context fill within this task, 0-100. The status engine shares it
     # across sibling tabs running the same provider; an unassociated session retains its own value.
     context_percent: int | None = None
-    # What the tab's conversation has spent, subagents and background workers included. The tab's
-    # own: two tabs running one provider are two conversations, so unlike context it is never shared.
-    tokens: TokenTally | None = None
     # The conversation the tab's agent runs, as the agent's own hooks name it (HookEvent.conversation_id),
     # and what the app resumes when it reopens the task's window. Another process in the tab is another
     # conversation, so it goes with the agent's process, as the model does (SessionRegistry).
@@ -244,12 +213,9 @@ class SessionInfo:
     # The terminal row this tab's window was opened for (TERMINAL_TAG), which the app adopts the
     # window by; None for a task's tab and for a terminal opened by an app too old to send it.
     terminal_id: str | None = None
-    # Where a Claude conversation writes its transcript, which its tokens are summed from. Neither
-    # sent nor compared: only the service's tally reads it.
-    transcript: str | None = field(default=None, compare=False)
     # The version of the agent CLI the tab runs, as the CLI's own files report it: Claude's session
     # file, Codex's rollout. What the delivery check's verdict is held against (delivery.Verdict).
-    # Neither sent nor compared; it goes with the agent's process, as the transcript does.
+    # Neither sent nor compared; it goes with the agent's process.
     cli_version: str | None = field(default=None, compare=False)
     # The key of the Operator's extra worker tab this is (TAB_TAG), None for any other tab.
     tab_key: str | None = None
@@ -260,7 +226,6 @@ class SessionInfo:
             "taskId": self.task_id, "projectId": self.project_id, "agent": self.agent, "model": self.model,
             "reasoning": self.reasoning, "state": self.state, "title": self.title, "cwd": self.cwd, "agentCwd": self.agent_cwd,
             "active": self.active, "contextPercent": self.context_percent,
-            "tokens": self.tokens.to_json() if self.tokens else None,
             "conversationId": self.conversation_id, "terminalId": self.terminal_id, "tabKey": self.tab_key,
         }
 

@@ -52,17 +52,10 @@ class HookRouter:
             usage = tick.usage
             if usage and (usage.five_hour or usage.seven_day or usage.spend) and self.usage.set(agent, usage):
                 await self.publisher.usage_changed()
-            # The model, reasoning, context and spend all arrive from one session, so one resolution
-            # serves them. Status keeps the model and the spend on that session and promotes context
-            # to the task's latest value. A tick can carry any of them without the rest:
-            # `context_window` is present from the first turn, `model` only once Claude has settled on
-            # one, and a Grok tick between turns may carry nothing new but its totals.
-            if (tick.model or tick.reasoning or tick.context_percent is not None or tick.tokens is not None
-                    or tick.transcript) and (
+            if (tick.model or tick.reasoning or tick.context_percent is not None) and (
                     sid := self._resolve_post(agent, tick.session_id, tick.cwd, tick.iterm_session_id)[0]):
                 await self.publisher.session_changed(self.status.apply_metadata(
-                    sid, model=tick.model, reasoning=tick.reasoning, context=tick.context_percent,
-                    tokens=tick.tokens, transcript=tick.transcript))
+                    sid, model=tick.model, reasoning=tick.reasoning, context=tick.context_percent))
             return None
         # Tool text and Stop hooks are telemetry, never checkout-removal authority.
         # Leave shell commands intact; explicit cleanup belongs to the app's Remove action.
@@ -83,7 +76,6 @@ class HookRouter:
         # conversation is the tab's only when the post was placed by evidence.
         changed = self.status.apply_metadata(sid, model=ev.model, reasoning=ev.reasoning,
                                              context=ev.context_percent, cwd=ev.cwd,
-                                             tokens=ev.tokens, transcript=ev.transcript,
                                              conversation=ev.conversation_id if sid == direct else None)
         # A new session forgets the tab's subagents and deferred completion — only for a tab the post
         # provably came from. A stale pin or a shared directory could otherwise wipe another tab's turn.
