@@ -30,6 +30,7 @@ for hook in claude-statusline-shim.sh grok-statusline-shim.sh pi-aiterm-status.t
     fi
     cmp -s "$ROOT/hooks/$hook" "$bundled" || { echo "bundled $hook differs from source" >&2; exit 1; }
 done
+# Settings › Agents' Run check runs it from the bundle, beside the helper's package.
 cmp -s "$ROOT/daemon/tools/delivery_check.py" "$APP/Contents/Resources/daemon/tools/delivery_check.py" \
     || { echo "the bundled delivery check is missing or differs from the repo's" >&2; exit 1; }
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$APP/Contents/Resources/daemon" "$PYTHON" - "$ROOT/daemon/pyproject.toml" "$APP/Contents/Resources/daemon" <<'PYCODE'
@@ -39,7 +40,6 @@ import sys
 import tomllib
 import aitermd.service
 import iterm2
-import tools.delivery_check  # Settings › Agents' Run check
 
 with open(sys.argv[1], "rb") as manifest:
     dependencies = tomllib.load(manifest)["project"]["dependencies"]
