@@ -155,18 +155,28 @@ public struct BroadcastBoard: Equatable, Sendable {
     /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does.
     public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo] = []) -> BroadcastBoard {
+        build(run: run, state: state, acting: acting, requests: requests, sessions: sessions, keepsHanded: false)
+    }
+
+    /// The board, `keepsHanded` keeping the tasks End handed to you (`handedOnEnd`) In progress and counted, as the
+    /// Shelf reads an ended broadcast.
+    private static func build(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
+                              sessions: [SessionInfo], keepsHanded: Bool) -> BroadcastBoard {
         let tasks = state.tasks(inRun: run.id)
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         let hasReview = !(run.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        // A task you stopped is no longer the broadcast's work: it is on no column.
+        // A task you stopped is no longer the broadcast's work: it is on no column. One End handed you stays In
+        // progress on the Shelf's board, taken over, as it was when the broadcast ended.
         let cards = tasks.compactMap { task -> (Column, Card, AgentKind)? in
-            guard let operated = task.operated, operated.state != .stopped else { return nil }
+            guard let operated = task.operated else { return nil }
+            let handed = keepsHanded && Self.handedOnEnd(operated)
+            guard operated.state != .stopped || handed else { return nil }
             let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
-            return (Self.column(of: operated, hasReview: hasReview), card, task.agent)
+            return (handed ? .inProgress : Self.column(of: operated, hasReview: hasReview), card, task.agent)
         }
         let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
             Lane(column: column, cards: cards.filter { $0.0 == column }.map(\.1), empty: Self.empty(column, planned: !tasks.isEmpty))
@@ -175,7 +185,7 @@ public struct BroadcastBoard: Equatable, Sendable {
             runId: run.id, title: run.name,
             band: OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
                                          ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions)),
-            progress: progress(of: run, tasks: tasks),
+            progress: progress(of: run, tasks: tasks, keepsHanded: keepsHanded),
             clauses: [Clause(label: "Asked", text: oneLine(run.prompt))]
                 + [("Review", run.review), ("Done", run.done)].compactMap { label, text in
                     text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }
@@ -187,12 +197,13 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// The board of an ended `run` for the Shelf: every task it drove, the live ones and those archived since, in the
     /// order they were created (the state's order where that ties), and no card a button, no worker tab listed, nothing
-    /// paused. Nothing is live: no acts, no requests, no sessions.
+    /// paused. Nothing is live: no acts, no requests, no sessions. What End handed you, mid-flight, stays In progress
+    /// reading `taken over` and counts towards the total, not as done: a broadcast ended at 2 of 8 says so.
     public static func shelved(run: OperatorRun, state: AppState) -> BroadcastBoard {
         var all = state
-        let driven = state.tasks(inRun: run.id).map(\.self) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
+        let driven = state.tasks(inRun: run.id) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
         all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
-        var board = make(run: run, state: all, acting: .none, requests: [])
+        var board = build(run: run, state: all, acting: .none, requests: [], sessions: [], keepsHanded: true)
         board.columns = board.columns.map { lane in
             var lane = lane
             lane.cards = lane.cards.map { card in
@@ -210,18 +221,25 @@ public struct BroadcastBoard: Equatable, Sendable {
 
     /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped, as the board's
     /// band says it.
-    public static func progress(of run: OperatorRun, tasks: [TaskItem]) -> String? {
-        count(of: run, tasks: tasks).map { $0 + " done" }
+    public static func progress(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
+        count(of: run, tasks: tasks, keepsHanded: keepsHanded).map { $0 + " done" }
     }
 
     /// `2 of 8`, the progress as the broadcast's header in the sidebar says it; nil until the first plan is
-    /// in Todo. A stopped task is not counted.
-    public static func count(of run: OperatorRun, tasks: [TaskItem]) -> String? {
+    /// in Todo. A stopped task is not counted, unless `keepsHanded` and End handed it to you.
+    public static func count(of run: OperatorRun, tasks: [TaskItem], keepsHanded: Bool = false) -> String? {
         guard run.firstPlanSize != nil else { return nil }
-        let counted = tasks.filter { $0.operated?.runId == run.id && $0.operated?.state != .stopped }
-        let done = counted.filter { $0.operated.map(\.isFinished) ?? false }.count
+        let counted = tasks.filter { task in
+            guard let operated = task.operated, operated.runId == run.id else { return false }
+            return operated.state != .stopped || (keepsHanded && handedOnEnd(operated))
+        }
+        // A handed task is stopped, which `isFinished` counts as an end: it was not done.
+        let done = counted.filter { $0.operated.map { $0.isFinished && !handedOnEnd($0) } ?? false }.count
         return "\(done) of \(counted.count)"
     }
+
+    /// A task End handed you while it was in flight: stopped, and yours (`OperatorController.end`).
+    private static func handedOnEnd(_ operated: OperatedTask) -> Bool { operated.state == .stopped && operated.takenOver }
 
     // MARK: - A card
 

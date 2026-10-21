@@ -247,12 +247,20 @@ struct OperatorScene {
         return scene
     }
 
-    /// Ended from its menu mid-run, read from the Shelf: the board as it stopped, no summary, one thing left for you.
+    /// Ended from its menu mid-run, read from the Shelf: what End leaves of the running board (`applyEnd`), the three
+    /// tasks that never started dropped and the three in flight yours, taken over; no summary, one thing left for you.
     static func shelved(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard {
-        var run = scene.run(.stopped, leftForYou: ["Finish the provider switch by hand: its retry still fails the refund test."])
-        run.endedAt = Snapshots.clock.now
-        scene.show(run, scene.checkout())
-        return BroadcastBoard.shelved(run: run, state: scene.controller.state)
+        let run = scene.run(.active, leftForYou: ["Finish the provider switch by hand: its retry still fails the refund test."])
+        // A task that never started has no worktree yet, as `create_task` makes it.
+        let tasks = scene.checkout().map { item in
+            var item = item
+            if item.operated?.started == false { item.worktreePath = "" }
+            return item
+        }
+        scene.show(run, tasks)
+        scene.controller.workspace.mutate { OperatorController.applyEnd(scene.runId, at: Snapshots.clock.now, to: &$0) }
+        let state = scene.controller.state
+        return BroadcastBoard.shelved(run: state.run(id: scene.runId) ?? run, state: state)
     }
 
     /// The drawing's Activity (option 2A), newest first, from 14:41 back to the Jira search the plan began with:

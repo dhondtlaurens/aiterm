@@ -5,7 +5,8 @@ import AiTermCore
 /// folder's `activity.jsonl` (`ActivityLog`), whatever the answer was and without changing it.
 extension OperatorToolHandler {
     /// Writes `request`'s line off the main actor, after the lines of the calls that ended before it. A write that
-    /// fails is logged, never said to the Operator. A call for a run AiTerm no longer has leaves no line: it has no folder.
+    /// fails is logged, never said to the Operator. A call for a run AiTerm no longer has leaves no line: it has no folder,
+    /// and one forgotten while the lines before it were written is not made again (`OperatorController.forget`).
     func record(_ request: OperatorRequest, answer: ToolAnswer, outcome: ActivityEntry.Outcome) {
         guard let id = UUID(uuidString: request.runId), state.run(id: id) != nil else { return }
         let call = ToolCall(tool: request.tool, arguments: request.arguments)
@@ -23,6 +24,7 @@ extension OperatorToolHandler {
         let folder = OperatorCommand.runFolder(id, home: ports.home), before = lastRecording
         lastRecording = Task {
             await before?.value
+            guard state.run(id: id) != nil else { return }
             await Log.daemon.attempt("Recording the Operator’s \(entry.tool) call in broadcast \(id.uuidString)’s activity log") {
                 try await BackgroundWork.run {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

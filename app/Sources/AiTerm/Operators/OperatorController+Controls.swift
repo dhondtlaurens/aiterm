@@ -143,7 +143,7 @@ extension OperatorController {
         runChanged(id)
     }
 
-    /// End Broadcast (spec §9, §13), early or from the debrief: your stop, persisted first with when, for the
+    /// End Broadcast (spec §9, §13), early or once complete: your stop, persisted first with when, for the
     /// Shelf — one that cannot be saved is taken back and nothing else is done. The tasks that never started are dropped, their rows
     /// gone with them: they have no worktree and no window. Those started and still open end `stopped` and
     /// are yours, as after a takeover: their ownership moves on, so nothing the Operator queued lands, and
@@ -153,16 +153,8 @@ extension OperatorController {
     /// the "+" returns.
     func end(run id: UUID) async throws {
         guard let run = self.run(id: id), run.state != .stopped else { return }
-        let before = snapshot()
-        let ending = Self.ending(id, in: workspace.state), now = ports.now()
-        workspace.mutate { state in
-            state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped; $0.endedAt = now }
-            state.tasks.removeAll { ending.dropped.contains($0.id) }
-            for task in ending.handed {
-                _ = try? OperatedTransitions.apply(.stop, toTask: task, in: &state, by: .you)
-                state.updateOperated(task) { $0.takenOver = true; $0.ownership += 1 }
-            }
-        }
+        let before = snapshot(), now = ports.now()
+        let ending = workspace.mutate { state in Self.applyEnd(id, at: now, to: &state) }
         guard workspace.flush() else {
             restore(before)
             throw ActionUnavailable("The end couldn’t be saved, so the broadcast was left as it was.")
@@ -184,7 +176,8 @@ extension OperatorController {
     }
 
     /// Remove on the Shelf: an ended broadcast forgotten — saved first, one that cannot be saved taken back and
-    /// nothing else done — then its run folder deleted off the main actor, `activity.jsonl` and the brief with it.
+    /// nothing else done — then its run folder deleted off the main actor, `activity.jsonl` and the brief with it, once the
+    /// lines already on their way to it have landed, so none makes the folder again.
     /// Its tasks are not touched: those in the sidebar and those shelved stay where they are, each still naming
     /// the run. Refused for a broadcast that has not ended.
     func forget(run id: UUID) async throws {
@@ -201,10 +194,26 @@ extension OperatorController {
             throw ActionUnavailable("The removal couldn’t be saved, so the broadcast was left on the Shelf.")
         }
         let folder = self.folder(of: id)
+        await tools.lastRecording?.value
         try await BackgroundWork.run {
             guard FileManager.default.fileExists(atPath: folder.path) else { return }
             try FileManager.default.removeItem(at: folder)
         }
+    }
+
+    /// End's change to the workspace, as `end(run:)` saves it: the run stopped at `now`, the tasks that never started
+    /// dropped and those started and still open stopped and yours, their ownership moved on (`ending`). Returns
+    /// what `ending` said of them.
+    @discardableResult
+    static func applyEnd(_ id: UUID, at now: Date, to state: inout AppState) -> (dropped: Set<UUID>, handed: [UUID]) {
+        let ending = Self.ending(id, in: state)
+        state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped; $0.endedAt = now }
+        state.tasks.removeAll { ending.dropped.contains($0.id) }
+        for task in ending.handed {
+            _ = try? OperatedTransitions.apply(.stop, toTask: task, in: &state, by: .you)
+            state.updateOperated(task) { $0.takenOver = true; $0.ownership += 1 }
+        }
+        return ending
     }
 
     /// What End does to a broadcast's tasks (spec §9, §13): those that never started — no launch and no

@@ -261,12 +261,27 @@ import Testing
         #expect(board.firstTab == .summary && board.isSelectable(.summary))
     }
 
+    /// End's change to `state`, as `OperatorController.applyEnd` makes it: the run stopped, the tasks that never started
+    /// dropped, those started and still open stopped and yours.
+    private func ended(_ id: UUID, in state: inout AppState) {
+        state.updateRun(id: id) { $0.intent = .stopped; $0.state = .stopped; $0.endedAt = OperatorUIFixtures.epoch }
+        for task in state.tasks(inRun: id) {
+            guard let operated = task.operated else { continue }
+            if !operated.started, !task.hasCheckout { state.tasks.removeAll { $0.id == task.id } }
+            else if operated.state.isOpen {
+                _ = try? OperatedTransitions.apply(.stop, toTask: task.id, in: &state, by: .you)
+                guard let index = state.tasks.firstIndex(where: { $0.id == task.id }) else { continue }
+                state.tasks[index].operated?.takenOver = true
+                state.tasks[index].operated?.ownership += 1
+            }
+        }
+    }
+
     /// An ended broadcast, read from the Shelf: every task it drove, the live and the archived, in the order they were
-    /// created, no card a button and no worker tab listed, never paused, opening on its Summary.
+    /// created, no card a button and no worker tab listed, never paused, opening on its Summary. What End handed you
+    /// mid-flight stays In progress, taken over, and counts towards the total but not as done.
     @Test func aShelvedBoardListsLiveAndArchivedTasksAndOpensNothing() throws {
-        var run = run(.stopped)
-        run.endedAt = OperatorUIFixtures.epoch
-        run.intent = .paused
+        var run = run(.active)
         run.leftForYou = ["Marking !412 ready is yours."]
         func dated(_ item: TaskItem, _ seconds: TimeInterval) -> TaskItem {
             var item = item
@@ -275,19 +290,29 @@ import Testing
         }
         var price = dated(task("Price formatting", run: run.id, .working, agent: .codex), 40)
         price.operated?.extraTabs = [OperatorUIFixtures.extraTab("docs", agent: .claude)]
-        let live = [dated(task("Cart drawer", run: run.id, .working), 20), price]
+        var unstarted = dated(task("Order summary copy", run: run.id, .queued), 50)
+        unstarted.worktreePath = ""
+        let live = [dated(task("Cart drawer", run: run.id, .working), 20), price, unstarted]
         let archived = [dated(task("Checkout layout", jira: "PAY-230", run: run.id, .published, end: .merge), 10),
                         dated(task("Shipping step", run: run.id, .accepted), 30),
                         dated(task("Another run's task", run: UUID(), .accepted), 5)]
         var state = state(run, live)
         state.archive = archived.map { ArchivedTask(task: $0, archivedAt: OperatorUIFixtures.epoch) }
+        ended(run.id, in: &state)
+        run = try #require(state.run(id: run.id))
+        #expect(state.tasks.map(\.title) == ["Cart drawer", "Price formatting"], "End dropped the task that never started")
 
         let board = BroadcastBoard.shelved(run: run, state: state)
         let cards = board.columns.flatMap(\.cards)
         #expect(cards.map(\.title).sorted() == ["Cart drawer", "Checkout layout", "Price formatting", "Shipping step"],
                 "the live and the archived tasks of this run, no other run's")
-        #expect(column(board, .inProgress) == ["Cart drawer", "Price formatting"])
+        #expect(column(board, .inProgress) == ["Cart drawer", "Price formatting"], "in flight when it ended")
         #expect(column(board, .done) == ["Checkout layout", "Shipping step"], "in the order they were created")
+        let handed = cards.filter { $0.takenOver }
+        #expect(handed.map(\.title) == ["Cart drawer", "Price formatting"])
+        #expect(handed.allSatisfy { $0.line == nil && !$0.needsYou && $0.result == nil }, "they read taken over, nothing more")
+        #expect(board.progress == "2 of 4 done", "counted, and not as done")
+        #expect(board.band.text == "ended")
         #expect(cards.allSatisfy { $0.opens == .nothing }, "a shelved board opens no window")
         #expect(cards.allSatisfy { $0.tabs.isEmpty })
         #expect(cards.first { $0.title == "Checkout layout" }?.ticket == "PAY-230")
@@ -296,6 +321,11 @@ import Testing
         #expect(board.firstTab == .summary && board.isSelectable(.summary))
         #expect(board.leftForYou == ["Marking !412 ready is yours."])
         #expect(board.title == "Checkout redesign")
+
+        // The live board keeps its rule: a task stopped and yours is no longer the broadcast's work.
+        let liveBoard = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
+        #expect(column(liveBoard, .inProgress).isEmpty)
+        #expect(BroadcastBoard.count(of: run, tasks: state.tasks) == "0 of 0")
     }
 
     /// With no creation order to tell them apart, the live tasks come first and the archived ones after, each in its own order.

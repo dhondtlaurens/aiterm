@@ -256,6 +256,21 @@ import Testing
         #expect(world.state.archive == state.archive)
     }
 
+    /// A line still on its way to the log when the broadcast is removed does not make its folder again: Remove waits
+    /// for it, and a line whose run has gone is not written.
+    @Test func aLineInFlightDoesNotMakeAForgottenRunsFolderAgain() async throws {
+        var ended = OperatorServiceFixtures.run(projects: [project], state: .stopped)
+        ended.intent = .stopped
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [ended]))
+        let folder = world.controller.folder(of: ended.id)
+        world.controller.tools.record(OperatorRequest(requestId: "r1", runId: ended.id.uuidString, tool: "run_status", arguments: [:]),
+                                      answer: .result(["ok": true]), outcome: .ok)
+        try await world.controller.forget(run: ended.id)
+        await world.controller.tools.lastRecording?.value
+        #expect(world.state.runs.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
     @Test func aBroadcastThatHasNotEndedIsNotForgotten() async throws {
         let run = OperatorServiceFixtures.run(projects: [project], state: .active)
         let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
