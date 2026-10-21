@@ -297,6 +297,22 @@ import Foundation
         #expect(askFirst.contains("deleting a branch or worktree") && askFirst.contains("anything outside this broadcast's projects"))
     }
 
+    /// A question is asked in the Operator's chat first; `ask_you` only lists it under Waiting on you, on a task
+    /// only when that task's worker is stopped on the answer, and a task listed under promptsWaitingOnYou with no
+    /// prompt open is the Operator's own question, never reported as a worker's.
+    @Test func theBriefAsksInTheChatFirstAndPutsAQuestionOnATaskOnlyForAStoppedWorker() {
+        let brief = OperatorCommand.brief(run: F.run(), projects: [])
+        let section = brief.components(separatedBy: "## Asking the person\n\n").dropFirst().first?
+            .components(separatedBy: "\n\n").first ?? ""
+        #expect(section.contains("1. Ask the person in this chat first."))
+        #expect(section.contains("only so it shows under Waiting on you"))
+        #expect(section.contains("unless that task's worker is itself stopped on the answer"))
+        #expect(section.contains("a reviewer's username, a scope choice or a merge decision, is never put on a task"))
+        #expect(section.contains("call resolve_question at once"))
+        #expect(section.contains("read_task what: prompt") && section.contains("not the worker's"))
+        #expect(brief.range(of: "## Asking the person")!.lowerBound < brief.range(of: "## Run rules")!.lowerBound)
+    }
+
     @Test func theBriefHasNoEmDash() {
         for oracle in [true, false] {
             for slices in [Slices.none, Slices(jira: true, review: true, merge: true)] {

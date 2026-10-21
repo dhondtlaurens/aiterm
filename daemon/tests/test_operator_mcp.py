@@ -220,6 +220,16 @@ def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_wi
     assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
 
 
+def test_ask_you_lists_a_question_asked_in_chat_and_takes_a_task_only_for_a_stopped_worker():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    ask = tools["ask_you"]
+    assert "asked in your chat" in ask["description"] and "Waiting on you" in ask["description"]
+    assert "stopped on the answer" in ask["inputSchema"]["properties"]["task"]["description"]
+    assert "own next step" in ask["inputSchema"]["properties"]["task"]["description"]
+    assert "at once" in tools["resolve_question"]["description"]
+    assert "worker's terminal" in tools["run_status"]["description"]
+
+
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
     tools = {tool["name"]: tool for tool in TOOLS}
     for name in ("jira_create", "jira_move", "jira_link"):

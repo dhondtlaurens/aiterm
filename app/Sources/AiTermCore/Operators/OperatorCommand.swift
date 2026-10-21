@@ -169,7 +169,7 @@ public enum OperatorCommand {
 
     /// The Operator's system prompt (spec §2, §4.1, §5, §15), in fixed sections: its role, the
     /// broadcast, what its frozen slices let it do, the backlog rule, how to choose each task's agent
-    /// and model, the Instructions the broadcast froze, and the run rules. The slices are told in words
+    /// and model, the Instructions the broadcast froze, how to ask the person, and the run rules. The slices are told in words
     /// as "you may" or "you may not": the tool handler is what refuses a write, the brief is how the
     /// Operator knows not to try.
     public static func brief(run: OperatorRun, projects: [Project], milestone: OperatorMilestone = .current) -> String {
@@ -183,6 +183,7 @@ public enum OperatorCommand {
         out += slicesRule(run.profile.slices, oracleIsOn: run.profile.oracle.isOn).flatMap { [$0, ""] } + [sliceBoundary + " Call leave_for_you(key, text) for anything a slice kept you from doing, naming what is left and why.", ""]
         out += ["## The backlog", "", backlogRule(oracleIsOn: run.profile.oracle.isOn), ""]
         out += ["## Agent and model", "", agentChoiceRule, ""]
+        out += ["## Asking the person", ""] + askRules.enumerated().map { "\($0.offset + 1). \($0.element)" } + [""]
         let instructions = said(run.profile.instructions)
         if let instructions { out += ["## Instructions", "", instructions, ""] }
         out += ["## Run rules", ""] + runRules(oracle: run.profile.oracle, milestone: milestone).enumerated().map { "\($0.offset + 1). \($0.element)" }
@@ -277,6 +278,21 @@ public enum OperatorCommand {
         + "message_task and read_task reach a tab by its key in tab; without one they reach the first worker, main in run_status. "
         + "A closed tab is not opened again. "
         + "Accept the task once, on the SHA at its branch head, after every tab is done."
+
+    /// How the Operator asks the person something. A question on a task marks that task waiting on you, and Waiting
+    /// on you brings its worker's tab: one asked there about the Operator's own next step showed a tab where nothing
+    /// was asked. So a question is asked in the chat, listed with `ask_you`, and put on a task only for a stopped worker.
+    static let askRules = [
+        "Ask the person in this chat first. Put the question in your reply, clearly marked, one short question.",
+        "Call ask_you as well, with the same text, only so it shows under Waiting on you. Leave out its task unless that "
+            + "task's worker is itself stopped on the answer, such as a worker asking a scope question it cannot go on without. "
+            + "A question about your own next step, such as a reviewer's username, a scope choice or a merge decision, "
+            + "is never put on a task.",
+        "When the person answers in this chat, call resolve_question at once.",
+        "promptsWaitingOnYou in run_status means a prompt open in a worker's terminal. Check it with read_task what: prompt. "
+            + "If that is null and questionsWaiting has a question on that task, the question is yours, not the worker's: "
+            + "say so in one line, and don't report it as a worker prompt.",
+    ]
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {
         let askFirst = ["deleting a branch or worktree", "anything outside this broadcast's projects"]

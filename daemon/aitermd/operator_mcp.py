@@ -182,7 +182,8 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 # Every one that changes something is safe to repeat: the repeat returns the recorded result.
 TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
-          "and a one-line summary, and what is open: questions waiting, prompts waiting on the user, tasks ready to accept, "
+          "and a one-line summary, and what is open: questions waiting, prompts waiting on the user (a prompt open in a "
+          "worker's terminal, or a question asked on that task), tasks ready to accept, "
           "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "
@@ -318,10 +319,15 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "or cannot say whether it does, or it is the default branch. "
           "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
           {"task": _TASK}, ("task",)),
-    _tool("ask_you", "Asks the user a question: it shows under Waiting on you and notifies them. They answer in this window; "
-          "close it with resolve_question. The same key returns the open question.",
-          {"key": _KEY, "question": _text("The question, complete on its own."), "task": _TASK}, ("key", "question")),
-    _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer.",
+    _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the user. "
+          "They answer in this window; close it with resolve_question. The same key returns the open question.",
+          {"key": _KEY, "question": _text("The question, complete on its own."),
+           "task": _text("Only when that task's worker is itself stopped on the answer: the task, by its key or its id from "
+                         "run_status. The task then waits on the user, and Waiting on you brings its worker's tab. Left out for a "
+                         "question about your own next step, such as a reviewer's username, a scope choice or a merge decision.")},
+          ("key", "question")),
+    _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer. Call it at once "
+          "when they answer in your chat.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
           "worked on, and the summary may mention it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "
