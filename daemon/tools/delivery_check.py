@@ -12,11 +12,12 @@ From daemon/, with iTerm2 open:
     .venv/bin/python -m tools.delivery_check --agents codex --skip-iterm
     .venv/bin/python -m tools.delivery_check --agents claude,codex
 
-Never run by the test suite: it opens windows, starts agents that spend tokens, and asks you to
-answer a dialog and type once. Codex runs with a scratch CODEX_HOME holding copies of its login and
+Never run by the test suite: it opens windows and starts agents that spend tokens. An agent's
+check runs by itself; iTerm2's own two checks, run until they have passed, ask you to type once and
+to click another app. Codex runs with a scratch CODEX_HOME holding copies of its login and
 settings, so an allow rule a failing scenario writes lands there and never in ~/.codex. Nothing is
-typed into an agent but each scenario's own text, Enter and Esc. Claude's answer to the scratch
-folder's trust dialog is the one thing left behind, in ~/.claude.json."""
+typed into an agent but each scenario's own text, Enter and Esc, and the Down arrow that selects
+the scratch folder's trust. That trust, Claude's in ~/.claude.json, is the one thing left behind."""
 from __future__ import annotations
 
 import argparse
@@ -57,6 +58,21 @@ HAZARD = "please wait 1 2 3 y a p"
 WORKING = "tointerrupt"
 # How each CLI starts: Claude asking before every command, Codex sandboxed and asking on request.
 COMMANDS: dict[AgentKind, str] = {"claude": "claude --permission-mode default", "codex": "codex -s workspace-write -a on-request"}
+# What each scenario after the startup dialog does, as the check says it runs: each waits first for
+# the agent to be idle, up to three minutes.
+STEPS: dict[str, str] = {
+    "idleSubmit": "sending one message, and waiting for its answer",
+    "multiLine": "sending three lines as one message",
+    "busyQueue": "sending a message while it works on a story",
+    "takeover": "pasting a message and holding its Enter back",
+    "menuPaste": "pasting into its /model menu",
+    "approvalRace": "pasting while an approval opens",
+    "permissionPaste": "pasting into an approval, which it then declines",
+}
+# The option that trusts the scratch folder in each CLI's trust dialog, which the check answers itself
+# (answer_trust): Claude's opens on "No, exit", Codex's on this.
+TRUST_OPTION: dict[AgentKind, str] = {"claude": "Yes, I trust this folder", "codex": "Yes, allow Codex to work in this folder"}
+DOWN = "\x1b[B"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +173,11 @@ def shows(*phrases: str) -> Callable[[str], bool]:
     return lambda screen: all(_flat(phrase) in _flat(screen) for phrase in phrases)
 
 
+def trust_open(agent: AgentKind) -> Callable[[str], bool]:
+    """The folder-trust dialog, and not the update offer, which is a startup dialog too."""
+    return lambda screen: open_prompt(agent, screen) == "startup" and not shows_update_offer(agent, screen)
+
+
 def idle(agent: AgentKind) -> Callable[[str], bool]:
     """The CLI's own screen, as the adapter recognises it (its input-box marker), with no prompt open and no
     turn running: a blank or an unrecognised screen is not idle, as the adapter would refuse it too."""
@@ -175,8 +196,12 @@ def expected_prompt(agent: AgentKind, kind: str) -> str:
     return f"{kind} prompt with any harness marker {markers!r}"
 
 
+def say(line: str) -> None:
+    print(f"  {line}", flush=True)
+
+
 def report(where: str, name: str, result: ScenarioResult) -> None:
-    print(f"  {where} {name}: {'pass' if result.passed else 'FAIL'} -- {result.detail}")
+    print(f"  {where} {name}: {'pass' if result.passed else 'FAIL'} -- {result.detail}", flush=True)
 
 
 def front_app() -> str:
@@ -261,21 +286,39 @@ class Live:
 
 async def startup_paste(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     """Pastes the hazard into the folder-trust dialog a fresh folder opens with; the dialog must stay
-    open. Then you answer it: Claude's default option is "No, exit", so the check never presses Enter."""
-    def trust(screen: str) -> bool:
-        return open_prompt(agent, screen) == "startup" and not shows_update_offer(agent, screen)
-
+    open. answer_trust answers it after."""
+    trust = trust_open(agent)
     if not await live.wait_for(sid, trust, 60):
         return await live.failure(sid, agent, expected_prompt(agent, "startup"),
                                   "No startup dialog showed, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
     await asyncio.sleep(3)
-    after = await live.screen(sid)
-    passed = trust(after)
-    await asyncio.to_thread(input, f"  {agent}: trust the folder in its window's dialog yourself, then press Return here. ")
-    if not passed:
+    if not trust(await live.screen(sid)):
         return await live.failure(sid, agent, expected_prompt(agent, "startup") + " to stay open under the paste")
     return ScenarioResult(True, "the dialog stayed open under the paste")
+
+
+async def answer_trust(live: Live, agent: AgentKind, sid: str) -> bool:
+    """Trusts the scratch folder in its dialog, if one is open: Down until the CLI's selection arrow
+    (its input-box marker) is on TRUST_OPTION, then Enter. Enter is pressed only once the screen shows
+    that option selected, so the dialog's default -- Claude's "No, exit" -- is never chosen. Whether
+    the dialog then closed; true when none was open."""
+    trust, marks = trust_open(agent), HARNESS_BY_AGENT[agent].input_box
+    pressed = False
+    for _ in range(4):
+        screen = await live.screen(sid)
+        if not trust(screen):
+            return not pressed
+        option = next((line for line in screen.splitlines() if _flat(TRUST_OPTION[agent]) in _flat(line)), None)
+        if option is None:
+            return False
+        if option.lstrip()[:1] in marks:
+            await live.bridge.send_text(sid, "\r")
+            return await live.wait_for(sid, lambda screen: not trust(screen), 15)
+        await live.bridge.send_text(sid, DOWN)
+        pressed = True
+        await asyncio.sleep(0.5)
+    return False
 
 
 async def idle_submit(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
@@ -491,6 +534,7 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
     try:
         await asyncio.sleep(1)  # the shell starting
         await live.bridge.send_text(sid, f" {command}\n")
+        say(f"{agent}: starting it in a scratch folder, and waiting for its trust dialog")
         # Codex may offer its update before or after folder trust. Check it where it actually
         # appears, before ready would wait forever for the still-open dialog.
         if HARNESS_BY_AGENT[agent].update_prompt:
@@ -499,6 +543,14 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
                 results["updatePaste"] = await update_paste(live, agent, sid, folder)
         results["startupPaste"] = await startup_paste(live, agent, sid)
         report(agent, "startupPaste", results["startupPaste"])
+        if not await answer_trust(live, agent, sid):
+            stuck = await live.failure(sid, agent, f"the trust dialog answered with {TRUST_OPTION[agent]!r}",
+                                       "The check could not trust its scratch folder, so the scenarios after it were not run.",
+                                       refresh=True)
+            for name in (*PASTE_SAFE, *SUBMIT_SAFE):
+                results.setdefault(name, stuck)
+            report(agent, "trust", stuck)
+            return results
         if "updatePaste" not in results:
             results["updatePaste"] = await update_paste(live, agent, sid, folder)
         report(agent, "updatePaste", results["updatePaste"])
@@ -512,6 +564,7 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
             ("permissionPaste", lambda: permission_paste(live, agent, sid, folder)),
         )
         for name, step in steps:
+            say(f"{agent} {name}: {STEPS[name]}")
             if not await live.ready(agent, sid):
                 results[name] = await live.failure(sid, agent, expected_idle(agent),
                                                    f"{name} and the rest are not run; registry must also identify {agent}.")
@@ -588,8 +641,11 @@ async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, poli
     # Outside $TMPDIR and /tmp: Codex's workspace-write sandbox writes there unasked, and the
     # permission scenario needs a write it must ask for.
     caches = Path.home() / "Library" / "Caches"
+    print(f"AiTerm's delivery check: {', '.join(agents)}. Each agent runs in a window of its own, driven by the "
+          "check; leave it be. It takes a few minutes.", flush=True)
     try:
         if not skip_iterm:
+            say("iTerm2's own checks first; they need you twice.")
             iterm_results = {"keystrokesPassThrough": await keystrokes_pass_through(live),
                              "backgroundWindow": await background_window(live)}
             for name, result in iterm_results.items():
@@ -606,9 +662,12 @@ async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, poli
     finally:
         await bridge.close()
     print(json.dumps(entries, indent=2, sort_keys=True))
+    for name, entry in entries.items():
+        failed = [scenario for scenario, result in entry["scenarios"].items() if not result["passed"]]
+        print(f"{name}: {'FAILED ' + ', '.join(failed) if failed else 'passed'}")
     if write:
         write_policy(policy_path, merged_policy(read_json(policy_path), entries))
-        print(f"written to {policy_path}")
+        print(f"Written to {policy_path}. Settings shows it now; you can close this window.")
     return 0
 
 

@@ -8,8 +8,9 @@ import AiTermCore
 /// card within `interval`, and one Run check opened again as its window closes.
 ///
 /// Run check opens an iTerm2 window in front, in the helper's own folder, running the check for that
-/// agent alone, written into the file (`DeliveryCheck.command`): the person answers the check's trust
-/// dialog and its prompts there.
+/// agent alone, written into the file (`DeliveryCheck.command`). The agent's scenarios run by
+/// themselves; iTerm2's own checks, until they pass, ask the person there to type once and click
+/// another app. The card says the check runs until it writes the file or its window closes.
 @MainActor
 @Observable
 final class MessagingChecks {
@@ -31,6 +32,8 @@ final class MessagingChecks {
     private(set) var failures: [AgentKind: String] = [:]
     /// The agents whose Run check is opening its window.
     private(set) var opening: Set<AgentKind> = []
+    /// The file as it was read when each agent's Run check opened its window, while that window is open.
+    private(set) var started: [AgentKind: DeliveryCheckFile] = [:]
     @ObservationIgnored var opener: Opener?
     /// The windows Run check opened that are still open, and whose check each runs.
     @ObservationIgnored private(set) var windows: [String: AgentKind] = [:]
@@ -57,6 +60,11 @@ final class MessagingChecks {
     /// the check does not cover.
     func readiness(of agent: AgentKind) -> DeliveryReadiness? {
         file.flatMap { DeliveryCheck.messaging(agent, file: $0, installed: versions[agent]) }
+    }
+
+    /// Whether `agent`'s Run check is still at work: its window open, and the file as it was when it opened.
+    func isRunning(_ agent: AgentKind) -> Bool {
+        opening.contains(agent) || started[agent].map { $0 == (file ?? .missing) } ?? false
     }
 
     /// iTerm2's own checks; nil until the file is read.
@@ -107,6 +115,7 @@ final class MessagingChecks {
         }
         opening.insert(agent)
         defer { opening.remove(agent) }
+        started[agent] = nil
         for (window, checked) in windows where checked == agent {
             windows[window] = nil
             await Log.daemon.attempt("Closing the last delivery check window of \(agent.rawValue)") {
@@ -120,6 +129,7 @@ final class MessagingChecks {
                                                            cwd: runtime.daemonDir.path, title: "Delivery check · \(agent.displayName)",
                                                            agentCommand: command, frame: opener.frame(), background: false)
             windows[window] = agent
+            started[agent] = file ?? .missing
             opener.activateIterm()
             await Log.daemon.attempt("Bringing the delivery check window forward") { try await daemon.activate(windowId: window) }
         } catch {
@@ -129,7 +139,8 @@ final class MessagingChecks {
 
     /// The helper's word that an iTerm2 window closed: one Run check opened reads the file again.
     func windowClosed(_ window: String) {
-        guard windows.removeValue(forKey: window) != nil else { return }
+        guard let agent = windows.removeValue(forKey: window) else { return }
+        started[agent] = nil
         Task { await refresh(force: true) }
     }
 }
