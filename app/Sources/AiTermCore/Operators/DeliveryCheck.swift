@@ -8,18 +8,24 @@ public struct DeliveryCheckFile: Equatable, Sendable {
     /// One entry: the version it was checked against, its flags (`pasteSafe` and `submitSafe` for a CLI,
     /// `keystrokesPassThrough` and `backgroundWindow` for iTerm2) and each scenario run, by whether it
     /// passed. A flag or a scenario counts only as a JSON true, as `load_policy` reads one. `checkedAt`
-    /// tells one run from the next that found the same.
+    /// tells one run from the next that found the same. A run that failed names the scenario it
+    /// stopped at (`failedAt`) and why, as its window said it (`failure`).
     public struct Entry: Equatable, Sendable {
         public var version: String?
         public var flags: Set<String>
         public var passed: Set<String>
         public var checkedAt: String?
+        public var failedAt: String?
+        public var failure: String?
 
-        public init(version: String?, flags: Set<String>, passed: Set<String>, checkedAt: String? = nil) {
+        public init(version: String?, flags: Set<String>, passed: Set<String>, checkedAt: String? = nil,
+                    failedAt: String? = nil, failure: String? = nil) {
             self.version = version
             self.flags = flags
             self.passed = passed
             self.checkedAt = checkedAt
+            self.failedAt = failedAt
+            self.failure = failure
         }
     }
 
@@ -42,7 +48,8 @@ public struct DeliveryCheckFile: Equatable, Sendable {
             let flags = Set(entry.compactMap { key, value in Self.isTrue(value) ? key : nil })
             let scenarios = entry["scenarios"] as? [String: Any] ?? [:]
             let passed = Set(scenarios.compactMap { key, value in Self.isTrue((value as? [String: Any])?["passed"]) ? key : nil })
-            entries[name] = Entry(version: version, flags: flags, passed: passed, checkedAt: entry["checkedAt"] as? String)
+            entries[name] = Entry(version: version, flags: flags, passed: passed, checkedAt: entry["checkedAt"] as? String,
+                                  failedAt: entry["failedAt"] as? String, failure: entry["failure"] as? String)
         }
         self.entries = entries
     }
@@ -109,8 +116,19 @@ public enum DeliveryCheck {
             return .needsAttention("Messaging not checked for \(line)")
         }
         if entry.flags.isSuperset(of: ["pasteSafe", "submitSafe"]) { return .ready("Messaging ready for \(line)") }
+        // The run stopped there: the scenarios after it were never reached.
+        if let failedAt = entry.failedAt { return .needsAttention("Messaging failed: \(failedAt)") }
         let failed = (pasteSafeScenarios + submitSafeScenarios).filter { !entry.passed.contains($0) }
         return .needsAttention(failed.isEmpty ? "Messaging failed for \(line)" : "Messaging failed: \(named(failed))")
+    }
+
+    /// Why `agent`'s last run failed, as its window said it, while that run is the verdict the card
+    /// shows: nil once it passed, for a version it does not cover, and for a file written before
+    /// runs kept a reason.
+    public static func failure(_ agent: AgentKind, file: DeliveryCheckFile, installed: String?) -> String? {
+        guard messaging(agent, file: file, installed: installed)?.isReady == false,
+              let entry = file.entries[agent.rawValue], covers(checked: entry.version, installed: installed) else { return nil }
+        return entry.failure
     }
 
     /// iTerm2's own checks, run once whatever the agent: the keystroke monitor and a window behind.
@@ -129,12 +147,13 @@ public enum DeliveryCheck {
     /// What Run check types into its window, opened in `daemonDir`: the check for `agent` alone, its
     /// verdict written into the policy file, with the helper's own Python and package as the helper
     /// itself is started (`DaemonSupervisor.daemonEnvironment`). iTerm2's own checks run with it until
-    /// the file holds a pass for them.
+    /// the file holds a pass for them. The window closes once the check has written its verdict, which
+    /// the card then shows; one that crashed stays open on its traceback.
     public static func command(agent: AgentKind, file: DeliveryCheckFile, python: URL, daemonDir: URL) -> String {
         var command = "env PYTHONPATH=\(AgentCommand.shellQuote(daemonDir.path)) PYTHONDONTWRITEBYTECODE=1 "
             + "\(AgentCommand.shellQuote(python.path)) -m tools.delivery_check --agents \(agent.rawValue) --write"
         if iterm(file).isReady { command += " --skip-iterm" }
-        return command
+        return command + " && exit"
     }
 }
 

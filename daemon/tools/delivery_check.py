@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import datetime
 import json
 import os
@@ -45,12 +46,19 @@ from aitermd.keystrokes import TypingGuard
 from aitermd.models import HARNESS_BY_AGENT, AgentKind, Frame
 from aitermd.sessions import SessionRegistry
 
+# How long each step may take: an answer, a prompt opening, the agent settling. Starting the CLI may
+# take longer, and so may busyQueue, which waits for two turns.
+STEP_SECONDS = 15.0
+START_SECONDS = 30.0
 # Which scenarios each verdict needs. Paste-safe: text pasted into an open prompt never acts as its
 # keys. Submit-safe: the whole text arrives, Enter submits it once, and a takeover holds Enter back.
 PASTE_SAFE = ("permissionPaste", "startupPaste", "menuPaste", "updatePaste", "approvalRace")
 SUBMIT_SAFE = ("idleSubmit", "multiLine", "busyQueue", "takeover")
 # iTerm2's own, checked once: the keystroke monitor lets keys through, and a background window stays behind.
 ITERM_CHECKS = ("keystrokesPassThrough", "backgroundWindow")
+# The order an agent's scenarios run in (check_agent); the first that fails ends the rest.
+RUN_ORDER = ("startupPaste", "updatePaste", "idleSubmit", "multiLine", "busyQueue", "takeover", "menuPaste",
+             "approvalRace", "permissionPaste")
 AGENTS: tuple[AgentKind, ...] = ("claude", "codex")
 # Pasted into an open prompt: the keys that answer one -- Codex's y, a and p (p chose "always allow"
 # in the spike, §2.2), Claude's digits.
@@ -68,7 +76,7 @@ COMMANDS: dict[AgentKind, str] = {
     "codex": "codex -s workspace-write -a on-request -m gpt-6-luna -c model_reasoning_effort=low",
 }
 # What each scenario after the startup dialog does, as the check says it runs: each waits first for
-# the agent to be idle, up to three minutes.
+# the agent to be idle, up to STEP_SECONDS.
 STEPS: dict[str, str] = {
     "idleSubmit": "sending one message, and waiting for its answer",
     "multiLine": "sending three lines as one message",
@@ -122,9 +130,13 @@ def _scenarios(results: Mapping[str, ScenarioResult]) -> dict[str, Any]:
 
 
 def agent_entry(version: str | None, results: Mapping[str, ScenarioResult], checked_at: str) -> dict[str, Any]:
-    """One CLI's entry in delivery-policy.json, as load_policy reads it."""
-    return {"version": version, "pasteSafe": _passed(results, PASTE_SAFE), "submitSafe": _passed(results, SUBMIT_SAFE),
-            "checkedAt": checked_at, "scenarios": _scenarios(results)}
+    """One CLI's entry in delivery-policy.json, as load_policy reads it. A run that failed names the
+    scenario it stopped at, and why as the window said it (`brief`), for Settings to show."""
+    entry = {"version": version, "pasteSafe": _passed(results, PASTE_SAFE), "submitSafe": _passed(results, SUBMIT_SAFE),
+             "checkedAt": checked_at, "scenarios": _scenarios(results)}
+    if (failed := next((name for name in RUN_ORDER if name in results and not results[name].passed), None)) is not None:
+        entry["failedAt"], entry["failure"] = failed, brief(results[failed].detail)
+    return entry
 
 
 def iterm_entry(version: str | None, results: Mapping[str, ScenarioResult], checked_at: str) -> dict[str, Any]:
@@ -238,19 +250,20 @@ def say(line: str) -> None:
     print(f"  {line}", flush=True)
 
 
-# The screen lines a failure shows in the check's window; the policy file keeps all it read.
+# The screen lines a failure shows in the check's window and in Settings; the policy file keeps all it read.
 SHOWN_LINES = 12
 
 
+def brief(detail: str) -> str:
+    """A failure's reason and the end of the screen it read."""
+    reason, _, screen = detail.partition("Last screen")
+    tail = "\n".join([line for line in screen.splitlines()[1:] if line.strip()][-SHOWN_LINES:])
+    return reason.strip() + (f"\nEnd of its screen:\n{tail}" if tail else "")
+
+
 def report(where: str, name: str, result: ScenarioResult) -> None:
-    """A pass in one line; a failure with its reason and the end of the screen it read."""
-    if result.passed:
-        print(f"  {where} {name}: pass", flush=True)
-        return
-    reason, _, screen = result.detail.partition("Last screen")
-    tail = "\n".join(line for line in screen.splitlines()[1:] if line.strip())
-    tail = "\n".join(tail.splitlines()[-SHOWN_LINES:])
-    print(f"  {where} {name}: FAIL -- {reason.strip()}" + (f"\n  End of its screen:\n{tail}" if tail else ""), flush=True)
+    """A pass in one line; a failure `brief`ly."""
+    print(f"  {where} {name}: {'pass' if result.passed else 'FAIL -- ' + brief(result.detail)}", flush=True)
 
 
 def front_app() -> str:
@@ -322,7 +335,7 @@ class Live:
         policy: dict[AgentKind, Verdict] = {agent: Verdict("auto", self.versions.get(agent))}
         return Deliverer(self.bridge, self.registry, lambda: policy, self.typing, sleep=sleep)
 
-    async def ready(self, agent: AgentKind, session_id: str, seconds: float = 180) -> bool:
+    async def ready(self, agent: AgentKind, session_id: str, seconds: float = STEP_SECONDS) -> bool:
         """Whether the CLI is idle with no prompt open, and known to the adapter's registry as itself,
         at the version `--version` printed: the daemon's tick reads the same string from the CLI's own
         files, which this check does not tick."""
@@ -335,9 +348,9 @@ class Live:
 
 async def dialog_or_idle(live: Live, agent: AgentKind, sid: str, dialog: Callable[[str], bool]) -> bool | None:
     """Whether `dialog` opens as the agent starts: true when it shows, false when the agent settles on
-    its idle screen and two seconds later still shows none, None when neither shows within a minute."""
+    its idle screen and two seconds later still shows none, None when neither shows in START_SECONDS."""
     ready = idle(agent)
-    if not await live.wait_for(sid, lambda screen: dialog(screen) or ready(screen), 60):
+    if not await live.wait_for(sid, lambda screen: dialog(screen) or ready(screen), START_SECONDS):
         return None
     if dialog(await live.screen(sid)):
         return True
@@ -387,7 +400,7 @@ async def answer_trust(live: Live, agent: AgentKind, sid: str) -> bool:
             return False
         if option.lstrip()[:1] in marks:
             await live.bridge.send_text(sid, "\r")
-            return await live.wait_for(sid, lambda screen: not trust(screen), 15)
+            return await live.wait_for(sid, lambda screen: not trust(screen), STEP_SECONDS)
         await live.bridge.send_text(sid, DOWN)
         pressed = True
         await asyncio.sleep(0.5)
@@ -399,9 +412,9 @@ async def idle_submit(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     if result.result != "delivered":
         return await live.failure(sid, agent, "delivery from " + expected_idle(agent),
                                   f"{result.result}: {result.reason}", refresh=True)
-    answered = await live.wait_for(sid, shows("ALPHA 42"), 120)
+    answered = await live.wait_for(sid, shows("ALPHA 42"), STEP_SECONDS)
     if not answered:
-        return await live.failure(sid, agent, "answer marker 'ALPHA 42' within 2 minutes after Enter")
+        return await live.failure(sid, agent, f"answer marker 'ALPHA 42' within {STEP_SECONDS:g} seconds after Enter")
     return ScenarioResult(True, "answered")
 
 
@@ -412,7 +425,7 @@ async def multi_line(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     if result.result != "delivered":
         return await live.failure(sid, agent, "delivery from " + expected_idle(agent),
                                   f"{result.result}: {result.reason}", refresh=True)
-    answered = await live.wait_for(sid, shows("DELTA 5"), 120)
+    answered = await live.wait_for(sid, shows("DELTA 5"), STEP_SECONDS)
     if not answered:
         return await live.failure(sid, agent, "answer marker 'DELTA 5' from all three lines in one message")
     return ScenarioResult(True, "all three lines arrived as one message")
@@ -437,7 +450,7 @@ async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
         return await live.failure(sid, agent, f"queued delivery while the story was being written (no {STORY_END!r} yet), "
                                   f"with input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
                                   f"{second.result}: {second.reason}", refresh=True)
-    if not await live.wait_for(sid, shows("CHARLIE 9"), 120):
+    if not await live.wait_for(sid, shows("CHARLIE 9"), START_SECONDS):
         return await live.failure(sid, agent, "the answer 'CHARLIE 9' to the message typed while it wrote")
     return ScenarioResult(True, "the message typed while it wrote reached it, and was answered")
 
@@ -465,7 +478,7 @@ async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
         failures.append((await live.failure(sid, agent, "no answer marker 'ECHO 4' before Enter")).detail)
     # Entered now, by the check, so the session is left idle for the next scenario.
     await live.bridge.send_text(sid, "\r")
-    answered = await live.wait_for(sid, shows("ECHO 4"), 120)
+    answered = await live.wait_for(sid, shows("ECHO 4"), STEP_SECONDS)
     passed = waiting and not submitted and answered
     if not answered:
         failures.append((await live.failure(sid, agent, "answer marker 'ECHO 4' after Enter")).detail)
@@ -475,6 +488,14 @@ async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
                                   f"answered once entered: {answered}")
 
 
+def permission_request(agent: AgentKind, target: Path) -> str:
+    """The message that makes the agent ask to run a command. Claude, started in default mode, asks
+    before any; Codex 0.163 asks only when the model escalates out of its sandbox, which a small
+    model does not do for a write it was refused, so it is told to."""
+    request = f"Run exactly this shell command and nothing else: touch {target}"
+    return request + " -- run it with sandbox_permissions set to require_escalated" if agent == "codex" else request
+
+
 async def permission_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> ScenarioResult:
     """Has the agent ask to run a command, pastes the hazard into the approval, and checks nothing was
     approved -- once or for good -- before declining with Esc."""
@@ -482,11 +503,11 @@ async def permission_paste(live: Live, agent: AgentKind, sid: str, folder: Path)
     # Claude, started in default mode, asks before any command.
     target = folder / "outside" / "approved.txt" if agent == "codex" else folder / "work" / "approved.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
-    asked = await live.deliverer(agent).deliver(sid, f"Run exactly this shell command and nothing else: touch {target}", 1)
+    asked = await live.deliverer(agent).deliver(sid, permission_request(agent, target), 1)
     if asked.result != "delivered":
         return await live.failure(sid, agent, "permission request delivered from " + expected_idle(agent),
                                   f"{asked.result}: {asked.reason}", refresh=True)
-    if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "permission", 120):
+    if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "permission", STEP_SECONDS):
         return await live.failure(sid, agent, expected_prompt(agent, "permission"),
                                   "No approval prompt opened, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
@@ -509,7 +530,7 @@ async def menu_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> Sc
     try:
         await live.paste(sid, "/model")
         await live.bridge.send_text(sid, "\r")
-        if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "menu", 30):
+        if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "menu", STEP_SECONDS):
             return await live.failure(sid, agent, expected, "The /model menu did not open.")
         before = await live.screen(sid)
         await live.paste(sid, HAZARD)
@@ -569,7 +590,7 @@ async def approval_race(live: Live, agent: AgentKind, sid: str, folder: Path) ->
         async def send_text(self, session_id: str, text: str) -> None:
             nonlocal landed, entered
             if text == PASTE_START + HAZARD + PASTE_END:
-                if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "permission", 120):
+                if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "permission", STEP_SECONDS):
                     raise ItermUnavailable("No approval prompt opened, so the race paste was not checked.")
                 await live.paste(sid, HAZARD)
                 landed = True
@@ -579,8 +600,7 @@ async def approval_race(live: Live, agent: AgentKind, sid: str, folder: Path) ->
                 await live.bridge.send_text(session_id, text)
 
     try:
-        asked = await live.deliverer(agent).deliver(
-            sid, f"Run exactly this shell command and nothing else: touch {target}", 1)
+        asked = await live.deliverer(agent).deliver(sid, permission_request(agent, target), 1)
         if asked.result != "delivered":
             return await live.failure(sid, agent, expected + "; permission request delivered from " + expected_idle(agent),
                                       f"{asked.result}: {asked.reason}", refresh=True)
@@ -600,9 +620,17 @@ async def approval_race(live: Live, agent: AgentKind, sid: str, folder: Path) ->
         await live.bridge.send_text(sid, ESC)
 
 
+def not_run(results: Mapping[str, ScenarioResult]) -> dict[str, ScenarioResult]:
+    """`results` with every scenario they lack, after the one that failed, as not run."""
+    stopped = next((name for name in RUN_ORDER if name in results and not results[name].passed), None)
+    return dict(results) | {name: ScenarioResult(False, f"not run: the check stopped at {stopped}")
+                            for name in RUN_ORDER if name not in results}
+
+
 async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, ScenarioResult]:
-    """Every scenario against one CLI, in its own window and scratch folder. One that leaves the CLI
-    unable to go on ends the rest, which then count as failed."""
+    """Every scenario against one CLI in RUN_ORDER, in its own window and scratch folder, each step
+    within STEP_SECONDS. The first that fails -- an error being that step's failure -- ends the rest,
+    which count as not run: its reason is the whole story, and Settings shows it."""
     work = folder / "work"
     work.mkdir(parents=True)
     command = COMMANDS[agent]
@@ -611,6 +639,13 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
         command = f"env CODEX_HOME={shlex.quote(str(home))} {command}"
     window, sid = await live.bridge.create_window(str(work), f"delivery check · {agent}", {}, Frame(120, 80, 1100, 760))
     results: dict[str, ScenarioResult] = {}
+    current = "startupPaste"
+
+    def note(name: str, result: ScenarioResult) -> bool:
+        results[name] = result
+        report(agent, name, result)
+        return result.passed
+
     try:
         await asyncio.sleep(1)  # the shell starting
         await live.bridge.send_text(sid, f" {command}\n")
@@ -618,22 +653,22 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
         # Codex may offer its update before or after folder trust. Check it where it actually
         # appears, before ready would wait forever for the still-open dialog.
         if HARNESS_BY_AGENT[agent].update_prompt:
-            await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "startup" or idle(agent)(screen), 60)
+            await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "startup" or idle(agent)(screen), START_SECONDS)
             if shows_update_offer(agent, await live.screen(sid)):
-                results["updatePaste"] = await update_paste(live, agent, sid, folder)
-        results["startupPaste"] = await startup_paste(live, agent, sid)
-        report(agent, "startupPaste", results["startupPaste"])
+                current = "updatePaste"
+                if not note(current, await update_paste(live, agent, sid, folder)):
+                    return not_run(results)
+        current = "startupPaste"
+        if not note(current, await startup_paste(live, agent, sid)):
+            return not_run(results)
         if not await answer_trust(live, agent, sid):
-            stuck = await live.failure(sid, agent, f"the trust dialog answered with {TRUST_OPTION[agent]!r}",
-                                       "The check could not trust its scratch folder, so the scenarios after it were not run.",
-                                       refresh=True)
-            for name in (*PASTE_SAFE, *SUBMIT_SAFE):
-                results.setdefault(name, stuck)
-            report(agent, "trust", stuck)
-            return results
+            note(current, await live.failure(sid, agent, f"the trust dialog answered with {TRUST_OPTION[agent]!r}",
+                                             "The check could not trust its scratch folder.", refresh=True))
+            return not_run(results)
         if "updatePaste" not in results:
-            results["updatePaste"] = await update_paste(live, agent, sid, folder)
-        report(agent, "updatePaste", results["updatePaste"])
+            current = "updatePaste"
+            if not note(current, await update_paste(live, agent, sid, folder)):
+                return not_run(results)
         steps: tuple[tuple[str, Callable[[], Awaitable[ScenarioResult]]], ...] = (
             ("idleSubmit", lambda: idle_submit(live, agent, sid)),
             ("multiLine", lambda: multi_line(live, agent, sid)),
@@ -643,18 +678,21 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
             ("approvalRace", lambda: approval_race(live, agent, sid, folder)),
             ("permissionPaste", lambda: permission_paste(live, agent, sid, folder)),
         )
-        for name, step in steps:
-            say(f"{agent} {name}: {STEPS[name]}")
+        for current, step in steps:
+            say(f"{agent} {current}: {STEPS[current]}")
             if not await live.ready(agent, sid):
-                results[name] = await live.failure(sid, agent, expected_idle(agent),
-                                                   f"{name} and the rest are not run; registry must also identify {agent}.")
-                report(agent, name, results[name])
+                note(current, await live.failure(sid, agent, expected_idle(agent),
+                                                 f"The agent was not idle within {STEP_SECONDS:g} seconds; "
+                                                 f"the registry must also identify {agent}."))
                 break
-            results[name] = await step()
-            report(agent, name, results[name])
+            if not note(current, await step()):
+                break
+    except Exception as error:  # noqa: BLE001 - whatever stopped the check is that step's failure
+        note(current, ScenarioResult(False, f"the check stopped with an error: {error!r}"))
     finally:
-        await live.bridge.close_window(window)
-    return results
+        with contextlib.suppress(Exception):
+            await live.bridge.close_window(window)
+    return not_run(results)
 
 
 async def keystrokes_pass_through(live: Live) -> ScenarioResult:
@@ -714,10 +752,20 @@ async def background_window(live: Live, *, front: Callable[[], str] = front_app,
 
 async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, policy_path: Path) -> int:
     bridge = ItermBridge()
-    iterm_version = await bridge.connect()
-    live = Live(bridge)
     checked_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     entries: dict[str, dict[str, Any]] = {}
+    try:
+        iterm_version = await bridge.connect()
+    except Exception as error:  # noqa: BLE001 - written as each agent's failure, for Settings to show
+        print(f"iTerm2 could not be reached: {error}", flush=True)
+        for agent in agents:
+            if (version := cli_version(agent)) is not None:
+                entries[agent] = agent_entry(version, not_run({"startupPaste": ScenarioResult(
+                    False, f"the check stopped with an error: iTerm2 could not be reached: {error}")}), checked_at)
+        if write and entries:
+            write_policy(policy_path, merged_policy(read_json(policy_path), entries))
+        return 0
+    live = Live(bridge)
     # Outside $TMPDIR and /tmp: Codex's workspace-write sandbox writes there unasked, and the
     # permission scenario needs a write it must ask for.
     caches = Path.home() / "Library" / "Caches"

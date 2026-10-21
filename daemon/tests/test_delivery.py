@@ -108,6 +108,8 @@ UNRECOGNISED = "zsh: command not found: claude\nlaurens@mac ~/wt % "
     # The banner only announces an update; the dialog is known by its own options.
     ("codex", CODEX_IDLE_WITH_UPDATE_BANNER, None),
     ("codex", CODEX_HOOKS_REVIEW, "menu"),
+    # 0.163's /model picker.
+    ("codex", "  Select Model and Effort\n› 4. GPT-6-Luna (current)  Fast and affordable\n  enter select · esc back", "menu"),
     # Drawn with cursor moves for spaces, or wrapped where the window is narrow.
     ("claude", "Doyouwantto\nproceed?", "permission"),
     ("codex", "Press enter to confirm\nor esc to cancel", "menu"),
@@ -145,7 +147,7 @@ def test_the_markers_are_the_spikes():
     assert claude.menu_prompt == ("Enter to select", "Esc to cancel")
     assert "Yes, I trust this folder" in claude.startup_prompt
     assert codex.permission_prompt == ("Would you like to run the following command?",)
-    assert codex.menu_prompt == ("Press enter to confirm or esc to cancel", "enter confirm ·")
+    assert codex.menu_prompt == ("Press enter to confirm or esc to cancel", "enter confirm ·", "enter select ·")
     assert codex.startup_prompt == ("Trust this folder?", "Skip until next version", "Update now")
     assert not any("Update available" in marker for marker in codex.startup_prompt), "the idle banner says that too"
 

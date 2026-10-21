@@ -522,9 +522,13 @@ is the built-in or one AiTerm must not edit) shows no action at all. Claude Code
 carry a third chip, Messaging: the delivery check's verdict held against the version installed
 (`DeliveryCheck.messaging`; a pass covers every patch of its major and minor). Passing, its sentence
 (“Messaging ready for 2.1”) is the chip's tooltip; needing attention, it is the status line
-(“Messaging not checked for 2.2”, “Messaging failed: approvalRace”) and, once nothing Install can fix
-is amber, the action is **Run check**, which opens an iTerm2 window in front running the check for
-that agent; the card follows the policy file while Settings is open. Over a missing CLI it runs the
+(“Messaging not checked for 2.2”, “Messaging failed: approvalRace”, naming the scenario the run
+stopped at) and, once nothing Install can fix is amber, the action is **Run check**, which opens an
+iTerm2 window in front running the check for that agent; the card says “Check running in iTerm2”
+with a spinner until the check writes its verdict, and the window closes itself when it has. The
+card follows the policy file while Settings is open. A failed run leaves `CheckFailureDetails` among
+its fields: “Why it failed” behind a chevron, in muted `Typography.caption`, unfolding to the check's
+reason and the end of the screen it read in `Typography.mono`, selectable. Over a missing CLI it runs the
 vendor's own installer and then the driver; over a present one it writes the driver whether or not
 it is already installed, so it can be overwritten. Claude Code's card leads its fields with one
 `HelpText` line, `Configuration:` and the full path of the folder its settings, models and skills are

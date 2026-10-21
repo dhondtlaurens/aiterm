@@ -819,8 +819,8 @@ async def test_an_unanswered_trust_ends_the_agents_check_at_once(tmp_path, monke
     results = await check.check_agent(Stuck(FakeIterm()), "claude", tmp_path)
     assert ran == []
     assert set(results) == set(PASTE_SAFE + SUBMIT_SAFE)
-    assert results["startupPaste"].passed
-    assert not results["idleSubmit"].passed and "trust" in results["idleSubmit"].detail
+    assert not results["startupPaste"].passed and "trust" in results["startupPaste"].detail
+    assert results["idleSubmit"].detail == "not run: the check stopped at startupPaste"
 
 
 async def _ok():
@@ -869,3 +869,135 @@ async def test_a_trust_dialog_after_the_idle_screen_is_still_pasted_into(monkeyp
     result = await check.startup_paste(check.Live(bridge), "codex", sid)
     assert result.passed and not result.detail.startswith("not shown")
     assert any(check.HAZARD in text for _, text in bridge.sent)
+
+
+def _scenarios_that(monkeypatch, check, called, outcome):
+    for name in ("startup_paste", "update_paste", "menu_paste", "approval_race", "permission_paste",
+                 "idle_submit", "multi_line", "busy_queue", "takeover"):
+        async def scenario(*args, name=name):
+            called.append(name)
+            return outcome(name)
+        monkeypatch.setattr(check, name, scenario, raising=False)
+
+    async def answered(*args):
+        return True
+    monkeypatch.setattr(check, "answer_trust", answered)
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+
+
+async def test_the_first_failure_ends_the_agents_check(tmp_path, monkeypatch):
+    from tools import delivery_check as check
+    from tests.fake_iterm import FakeIterm
+
+    class Ready(check.Live):
+        async def ready(self, *args, **kwargs):
+            return True
+
+    called: list[str] = []
+    _scenarios_that(monkeypatch, check, called, lambda name: FAILED if name == "multi_line" else OK)
+    results = await check.check_agent(Ready(FakeIterm()), "claude", tmp_path)
+    assert called == ["startup_paste", "update_paste", "idle_submit", "multi_line"]
+    assert results["multiLine"] == FAILED
+    assert results["busyQueue"].detail == "not run: the check stopped at multiLine"
+    entry = agent_entry("1.2.3", results, NOW)
+    assert entry["failedAt"] == "multiLine" and entry["failure"] == FAILED.detail
+
+
+async def test_an_error_mid_check_is_that_steps_failure(tmp_path, monkeypatch):
+    from tools import delivery_check as check
+    from tests.fake_iterm import FakeIterm
+    from aitermd.iterm_bridge import ItermUnavailable
+
+    class Ready(check.Live):
+        async def ready(self, *args, **kwargs):
+            return True
+
+        async def wait_for(self, *args, **kwargs):
+            return True
+
+    def outcome(name):
+        if name == "busy_queue":
+            raise ItermUnavailable("iTerm2 quit")
+        return OK
+
+    called: list[str] = []
+    _scenarios_that(monkeypatch, check, called, outcome)
+    bridge = FakeIterm()
+    results = await check.check_agent(Ready(bridge), "codex", tmp_path)
+    assert "iTerm2 quit" in results["busyQueue"].detail and not results["busyQueue"].passed
+    assert results["takeover"].detail == "not run: the check stopped at busyQueue"
+    assert bridge.windows == {} or all(not w["sessions"] for w in bridge.windows.values()), "its window closed"
+
+
+def test_a_passing_entry_names_no_failure():
+    entry = agent_entry("1.2.3", every(PASTE_SAFE + SUBMIT_SAFE, OK), NOW)
+    assert "failedAt" not in entry and "failure" not in entry
+
+
+def test_the_entrys_failure_is_the_windows_brief_one():
+    screen = "\n".join(f"line {n}" for n in range(40))
+    failed = ScenarioResult(False, f"Expected X. \nopen_prompt=None\nLast screen (up to 40 lines, 8000 characters):\n{screen}")
+    entry = agent_entry("1.2.3", {**every(PASTE_SAFE + SUBMIT_SAFE, OK), "takeover": failed}, NOW)
+    assert entry["failedAt"] == "takeover"
+    assert entry["failure"].startswith("Expected X.") and "line 39" in entry["failure"] and "line 27" not in entry["failure"]
+    assert entry["scenarios"]["takeover"]["detail"] == failed.detail, "the whole screen kept beside it"
+
+
+# approvalRace waits inside its own transport, which a stubbed delivery never reaches.
+@pytest.mark.parametrize("scenario", ["idle_submit", "multi_line", "busy_queue", "takeover", "menu_paste",
+                                      "permission_paste", "startup_paste", "update_paste"])
+async def test_no_step_waits_longer_than_its_limit(scenario, tmp_path, monkeypatch):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from tools import delivery_check as check
+    waits: list[float] = []
+
+    class Timed(check.Live):
+        async def wait_for(self, sid, seen, seconds):
+            waits.append(seconds)
+            return False
+
+        def deliverer(self, agent, **kwargs):
+            async def deliver(*args):
+                return SimpleNamespace(result="partial" if scenario == "takeover" else "delivered", reason="")
+            return SimpleNamespace(deliver=deliver, set_ownership=lambda *a: None)
+
+    bridge, sid = await fake_session()
+    bridge.sessions[sid] = replace(bridge.sessions[sid], command_line="codex")
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    folder = (tmp_path,) if scenario in ("menu_paste", "permission_paste", "approval_race", "update_paste") else ()
+    await getattr(check, scenario)(Timed(bridge), "codex", sid, *folder)
+    assert waits and max(waits) <= check.START_SECONDS
+    starting = scenario in ("startup_paste", "update_paste")
+    assert max(waits) <= (check.START_SECONDS if starting or scenario == "busy_queue" else check.STEP_SECONDS)
+
+
+def test_the_limits_are_fifteen_seconds_a_step_and_thirty_to_start():
+    from tools import delivery_check as check
+    assert (check.STEP_SECONDS, check.START_SECONDS) == (15, 30)
+
+
+def test_codex_is_asked_to_escalate_so_it_must_ask_for_approval(tmp_path):
+    from tools import delivery_check as check
+    assert "require_escalated" in check.permission_request("codex", tmp_path / "x")
+    assert "require_escalated" not in check.permission_request("claude", tmp_path / "x")
+
+
+async def test_no_iterm2_is_written_as_each_agents_failure(tmp_path, monkeypatch):
+    from tools import delivery_check as check
+    from aitermd.iterm_bridge import ItermUnavailable
+
+    class Unreachable:
+        async def connect(self):
+            raise ItermUnavailable("iTerm2 is not running")
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(check, "ItermBridge", Unreachable)
+    monkeypatch.setattr(check, "cli_version", lambda agent: "0.163.0")
+    policy = tmp_path / "delivery-policy.json"
+    assert await check.run(("codex",), True, True, policy) == 0
+    entry = json.loads(policy.read_text(encoding="utf-8"))["codex"]
+    assert entry["failedAt"] == "startupPaste" and "iTerm2 is not running" in entry["failure"]
+    assert not entry["pasteSafe"] and entry["version"] == "0.163.0"
