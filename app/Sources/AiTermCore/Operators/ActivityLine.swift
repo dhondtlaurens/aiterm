@@ -44,13 +44,14 @@ public enum ActivityLine {
     }
 
     /// Why the call went the way it did: AiTerm's answer to a refused or failed one, the Oracle's critique of
-    /// a challenged one, the note on an accepted mark and the why of a decision. Nil for the rest.
+    /// a challenged one (or that it is still awaited, while the challenge's answer carries none), the note on an
+    /// accepted mark and the why of a decision. Nil for the rest.
     public static func reason(tool: String, arguments: JSONValue, outcome: ActivityEntry.Outcome, result: String) -> String? {
         switch outcome {
         case .refused, .failed: return result
         case .challenged:
-            let data = Data(result.utf8)
-            return (try? JSONDecoder().decode(JSONValue.self, from: data))?["critique"]?.stringValue ?? result
+            guard case .object(let answer)? = try? JSONDecoder().decode(JSONValue.self, from: Data(result.utf8)) else { return result }
+            return answer["critique"]?.stringValue ?? "Waiting on the Oracle’s answer."
         case .ok:
             switch tool {
             case "mark_task": return arguments["note"]?.stringValue

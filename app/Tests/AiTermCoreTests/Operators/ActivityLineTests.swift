@@ -72,6 +72,11 @@ import Foundation
         #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .challenged,
                                     result: #"{"critique":"Tests missing"}"#) == "Tests missing")
         #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .challenged, result: "plain") == "plain")
+        // A challenge still waiting on the Oracle answers with no critique yet: the line says so, not the JSON.
+        #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .challenged,
+                                    result: #"{"challenged":true,"challengeId":"c1","pending":true}"#) == "Waiting on the Oracle’s answer.")
+        #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .challenged,
+                                    result: #"{"challenged":true,"critique":null,"pending":true}"#) == "Waiting on the Oracle’s answer.")
         #expect(ActivityLine.reason(tool: "mark_task", arguments: ["note": "All green"], outcome: .ok, result: "x") == "All green")
         #expect(ActivityLine.reason(tool: "log_decision", arguments: ["why": "Simpler"], outcome: .ok, result: "x") == "Simpler")
         #expect(ActivityLine.reason(tool: "finish_task", arguments: ["note": "n"], outcome: .ok, result: "x") == nil)

@@ -15,7 +15,7 @@ extension DismissAction {
 struct SheetLayout<Navigation: View, Content: View, Footer: View>: View {
     let title: String
     let height: CGFloat
-    /// `Sheet.width`, or `Sheet.boardWidth` for the broadcast's board.
+    /// `Sheet.width` for every sheet, the broadcast's included; its board scrolls sideways instead.
     let width: CGFloat
     /// The band's height: `Size.control` for a step bar, a tab bar or a subtitle; nil for a band of lines
     /// that sizes itself (the board's badge line and Asked line), `Space.base` under the title.

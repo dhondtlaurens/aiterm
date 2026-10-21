@@ -3,8 +3,8 @@ import Testing
 @testable import AiTerm
 
 /// Every Operator image draws, and draws the same twice: the OPERATOR heading with no broadcast, the
-/// broadcast's header and Operator row in each state, driven task rows, the board at each moment and the
-/// debrief, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
+/// broadcast's header and Operator row in each state, driven task rows, the board at each moment, its Summary
+/// and Activity tabs and its read-only form from the Shelf, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
 /// sheet's footer, and the broadcast's group folded and just started.
 @MainActor
 struct OperatorSnapshotTests {
@@ -12,7 +12,8 @@ struct OperatorSnapshotTests {
         "operator-heading-empty.png", "broadcast-row-states.png",
         "driven-task-rows.png",
         "board-running.png", "board-planning.png", "board-paused.png", "board-reopen-failed.png",
-        "debrief.png",
+        "board-summary.png", "board-summary-writing.png", "board-summary-left-for-you.png", "board-activity.png",
+        "board-shelved.png",
         "new-broadcast-1.png", "new-broadcast-2.png", "new-broadcast-3.png", "new-broadcast-4.png",
         "new-broadcast-3-review-off.png", "new-broadcast-4-merge-off.png",
         "settings-operator.png", "settings-operator-oracle-off.png",

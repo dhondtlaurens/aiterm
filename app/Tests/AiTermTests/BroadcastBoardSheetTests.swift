@@ -75,16 +75,16 @@ struct BroadcastBoardSheetTests {
         let complete = OperatorUIFixtures.run(state: .complete)
         let done = OperatorUIFixtures.task("Footer", project: UUID(),
                                            operated: OperatorUIFixtures.operated(run: complete.id, key: "a", state: .accepted, sha: "4f2a91c"))
-        let debrief = BoardFooter(board(complete, [done]), reopenFailed: false)
-        #expect(shown(debrief) == ([], "End Broadcast", nil), "the debrief's End asks nothing")
-        #expect(debrief.secondary == "Close")
+        let finished = BoardFooter(board(complete, [done]), reopenFailed: false)
+        #expect(shown(finished) == ([], "End Broadcast", nil), "a complete broadcast's End asks nothing")
+        #expect(finished.secondary == "Close")
 
         let failed = BoardFooter(board(OperatorUIFixtures.run(state: .operatorOffline)), reopenFailed: true)
         #expect(shown(failed) == ([], "Start Fresh", "Couldn’t reopen the Operator’s window"))
         #expect(failed.notice?.description == "Its conversation couldn’t be resumed. A fresh one starts from the board and what it decided so far.")
         #expect(failed.secondary == "Close")
 
-        // The debrief outranks a failed reopening: ⌘↩ stays End Broadcast, Start Fresh a plain button by the Notice.
+        // A complete broadcast outranks a failed reopening: ⌘↩ stays End Broadcast, Start Fresh a plain button by the Notice.
         let both = BoardFooter(board(complete, [done]), reopenFailed: true)
         #expect(shown(both) == (["Start Fresh"], "End Broadcast", "Couldn’t reopen the Operator’s window"))
         #expect(both.secondary == "Close")
@@ -113,10 +113,52 @@ struct BroadcastBoardSheetTests {
         #expect(moments == ["pause", "resume", "end…", "end", "fresh"])
     }
 
-    @Test func theSheetIsTheBoardsWidth() {
-        let sheet = BroadcastBoardSheet(board: board(OperatorUIFixtures.run()), reopenFailed: false, actions: BoardActions())
+    /// Settings' width, whichever tab it is on.
+    @Test func theSheetIsSettingsWidth() {
+        let sheet = BroadcastBoardSheet(board: board(OperatorUIFixtures.run()), reopenFailed: false, actions: BoardActions(), activity: nil)
         let host = NSHostingView(rootView: sheet)
-        #expect(host.fittingSize.width == Sheet.boardWidth)
+        #expect(host.fittingSize.width == Sheet.width)
+    }
+
+    /// An Activity row's time, `HH:mm` in the calendar it is read in.
+    @Test func anActivityRowsTimeIsHoursAndMinutes() {
+        let at = Snapshots.clock.now.addingTimeInterval(2 * 3600 + 35 * 60)
+        #expect(BroadcastActivityView.timeText(at: at, calendar: Snapshots.clock.calendar) == "14:35")
+        #expect(BroadcastActivityView.timeText(at: Snapshots.clock.now.addingTimeInterval(-11 * 3600 - 55 * 60),
+                                               calendar: Snapshots.clock.calendar) == "00:05")
+    }
+
+    /// Only what did not go through says so first: a refusal and a failure in amber, a challenge muted.
+    @Test func onlyACallThatDidNotGoThroughIsLabelled() {
+        #expect(BroadcastActivityView.label(for: .refused) == "Refused")
+        #expect(BroadcastActivityView.label(for: .failed) == "Failed")
+        #expect(BroadcastActivityView.label(for: .challenged) == "Challenged")
+        #expect(BroadcastActivityView.label(for: .ok) == nil)
+        #expect(BroadcastActivityView.label(for: .repeated) == nil)
+    }
+
+    /// Activity's day headings: Today, then the day.
+    @Test func activityIsHeadedByItsDays() {
+        let calendar = Snapshots.clock.calendar, now = Snapshots.clock.now
+        func entry(_ offset: TimeInterval) -> ActivityEntry {
+            ActivityEntry(at: now.addingTimeInterval(offset), tool: "run_status", task: nil, taskLabel: nil, arguments: .null,
+                          outcome: .ok, result: "", line: "Checked the broadcast’s status", reason: nil)
+        }
+        let entries = [entry(-60), entry(-3600), entry(-86_400), entry(-86_400 - 60)]
+        let days = BroadcastActivityView.days(entries, calendar: calendar)
+        #expect(days.map(\.entries.count) == [2, 2])
+        #expect(days.map { BroadcastActivityView.dayTitle($0.start, now: now, calendar: calendar) } == ["Today", "10 Mar"])
+    }
+
+    /// The summary's byline, and what the Summary tab says while there is no summary to show.
+    @Test func theSummarySaysWhoWroteItAndWhyThereIsNone() {
+        #expect(BroadcastSummaryView.byline(at: Snapshots.clock.now.addingTimeInterval(4 * 3600 + 5 * 60), calendar: Snapshots.clock.calendar)
+                == "Written by the Operator at 16:05")
+        #expect(BroadcastSummaryView.placeholder(for: .writing) == "The Operator is writing its summary.")
+        #expect(BroadcastSummaryView.placeholder(for: .notComing) == "The Operator didn’t write a summary.")
+        #expect(BroadcastSummaryView.placeholder(for: .endedEarly) == "Ended before it finished. The Operator didn’t write a summary.")
+        #expect(BroadcastSummaryView.placeholder(for: .written(text: "Done.", at: Snapshots.clock.now)) == nil)
+        #expect(BroadcastSummaryView.paragraphs("First.\nStill first.\n\n  \nSecond.\n\n") == ["First.\nStill first.", "Second."])
     }
 
     @Test func theBoardOpensInTheSheetSlotForALiveBroadcastOnly() throws {
@@ -196,7 +238,7 @@ struct BroadcastBoardSheetTests {
         }
         let counter = RowBodyCounter()
         let host = NSHostingView(rootView: BroadcastBoardHost(runId: run.id, controller: controller).environment(\.rowBodyCounter, counter))
-        host.frame = NSRect(x: 0, y: 0, width: Sheet.boardWidth, height: Sheet.height)
+        host.frame = NSRect(x: 0, y: 0, width: Sheet.width, height: Sheet.height)
         let window = testWindow(contentRect: host.frame, styleMask: [.titled])
         window.isReleasedWhenClosed = false
         window.contentView = host
@@ -267,7 +309,7 @@ struct BroadcastBoardSheetTests {
         }
     }
 
-    /// A notification's click (spec §13): the debrief is ready, so the board opens, once.
+    /// A notification's click (spec §13): the summary is ready, so the board opens, once.
     @Test func aNotificationsClickOpensTheBoard() async throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }

@@ -191,8 +191,22 @@ struct OperatorScene {
         return scene
     }
 
-    /// Every task merged, with what the Operator decided, found and left for you, and its summary written.
-    static func debrief(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
+    /// The drawing's summary (option 3A): two short paragraphs in the Operator's words.
+    static let summaryText = """
+        All eight checkout tasks are merged. Most went in on the first try: the layout, the cart drawer and price \
+        formatting needed nothing from you. The payment provider switch took longest: Codex’s first attempt broke \
+        partial refunds, so I sent it back with the failing test and the retry passed.
+
+        I added one task of my own, retrying failed payments, after the switch showed nothing retried them. I kept the \
+        old provider behind a flag although the Oracle objected, since rolling back without it means a redeploy. Jan \
+        asked for smaller commits on the shipping step; I split them before he approved. Along the way Claude noticed \
+        the tax module rounds per line instead of per order: I filed PAY-241 rather than fixing it here.
+        """
+
+    /// Every task merged, with what the Operator decided, found and left for you; its summary written at 16:05
+    /// unless `written` is false, while the Operator still writes it.
+    static func complete(_ scene: OperatorScene = OperatorScene(), written: Bool = true,
+                         leftForYou: [String] = ["File the 2 finds in Jira"]) -> OperatorScene {
         let merged: [(UUID, String, Int)] = [
             (scene.layout, "9b3e07d", 412), (scene.drawer, "51ac0f2", 416), (scene.provider, "e07d9b3", 417),
             (scene.autocomplete, "3be1a07", 419), (scene.summary, "c4a8d21", 420), (scene.shipping, "71f0e9c", 418),
@@ -223,12 +237,57 @@ struct OperatorScene {
         ], finds: [
             OffBriefFind(key: "key", title: "An API key in payments-api’s test fixtures", why: "A live-looking Adyen key in a committed fixture. Off-brief."),
             OffBriefFind(key: "flaky", title: "A flaky cart test on main", why: "Fails one run in five, unrelated to this work."),
-        ], leftForYou: ["File the 2 finds in Jira"])
+        ], leftForYou: leftForYou)
         run.completedAt = Snapshots.clock.now
-        run.summary = "All eight checkout tasks merged. The payment provider switch needed a retry after its first run failed the tests."
-        run.summaryAt = Snapshots.clock.now
+        if written {
+            run.summary = summaryText
+            run.summaryAt = Snapshots.clock.now.addingTimeInterval(4 * 3600 + 5 * 60)
+        }
         scene.show(run, tasks)
         return scene
+    }
+
+    /// Ended from its menu mid-run, read from the Shelf: the board as it stopped, no summary, one thing left for you.
+    static func shelved(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard {
+        var run = scene.run(.stopped, leftForYou: ["Finish the provider switch by hand: its retry still fails the refund test."])
+        run.endedAt = Snapshots.clock.now
+        scene.show(run, scene.checkout())
+        return BroadcastBoard.shelved(run: run, state: scene.controller.state)
+    }
+
+    /// The drawing's Activity (option 2A), newest first, from 14:41 back to the Jira search the plan began with:
+    /// reads muted, the failed mark open with its note, a mark the Oracle challenged, a refused finish.
+    func activity() -> [ActivityEntry] {
+        func at(_ hour: Int, _ minute: Int) -> Date {
+            Snapshots.clock.now.addingTimeInterval(TimeInterval((hour - 12) * 3600 + minute * 60))
+        }
+        func entry(_ id: Int, _ time: Date, _ tool: String, _ task: UUID?, _ key: String?, _ arguments: JSONValue,
+                   _ outcome: ActivityEntry.Outcome = .ok, result: String = "{\"ok\":true}", line: String, reason: String? = nil) -> ActivityEntry {
+            ActivityEntry(id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!, at: time, tool: tool, task: task,
+                          taskLabel: key, arguments: arguments, outcome: outcome, result: result, line: line, reason: reason)
+        }
+        return [
+            entry(9, at(14, 41), "message_task", drawer, "PAY-231", ["task": "PAY-231", "text": "keep the drawer’s focus trap"],
+                  line: "Told Cart drawer’s worker: keep the drawer’s focus trap"),
+            entry(8, at(14, 38), "ask_you", nil, nil, ["question": "Should the retries cover subscriptions too?"],
+                  line: "Asked you: Should the retries cover subscriptions too?"),
+            entry(7, at(14, 36), "read_task", provider, "PAY-232", ["task": "PAY-232", "what": "diff"], result: "diff --git …",
+                  line: "Read Payment provider switch’s diff"),
+            entry(6, at(14, 35), "mark_task", provider, "PAY-232",
+                  ["task": "PAY-232", "outcome": "failed", "note": "refund flow returns 500 on partial refunds"],
+                  result: "{\"ok\":true,\"retriesLeft\":1}", line: "Marked Payment provider switch failed",
+                  reason: "refund flow returns 500 on partial refunds"),
+            entry(5, at(14, 31), "mark_task", provider, "PAY-232", ["task": "PAY-232", "outcome": "accepted"], .challenged,
+                  result: "{\"challenged\":true,\"critique\":\"The refund test still fails on partial refunds.\"}",
+                  line: "Marked Payment provider switch accepted", reason: "The refund test still fails on partial refunds."),
+            entry(4, at(14, 22), "finish_task", shipping, "PAY-235", ["task": "PAY-235"], .refused, result: "Jan’s review hasn’t ended.",
+                  line: "Finished Shipping step", reason: "Jan’s review hasn’t ended."),
+            entry(3, at(14, 20), "create_task", retry, "PAY-240", ["title": "Retry failed payments", "project": "payments-api"],
+                  line: "Added Retry failed payments to the plan"),
+            entry(2, at(14, 5), "submit_plan", nil, nil, ["tasks": .int(7)], line: "Submitted the plan"),
+            entry(1, at(14, 2), "jira_search", nil, nil, ["jql": "project = PAY AND sprint in openSprints()"], result: "[…]",
+                  line: "Searched Jira: project = PAY AND sprint in openSprints()"),
+        ]
     }
 
     var board: BroadcastBoard? { controller.rows.board }
@@ -251,7 +310,20 @@ enum OperatorSnapshots {
             Snapshot("board-planning.png") { board(OperatorScene.planning()) },
             Snapshot("board-paused.png") { board(pausedCleanup()) },
             Snapshot("board-reopen-failed.png") { board(OperatorScene.windowClosed(), reopenFailed: true) },
-            Snapshot("debrief.png") { board(OperatorScene.debrief()) },
+            // The board's other tabs: Summary written with nothing left, while it is written, written with Left for
+            // you; Activity mid-run with the failed mark open; and an ended broadcast read from the Shelf.
+            Snapshot("board-summary.png") { board(OperatorScene.complete(leftForYou: [])) },
+            Snapshot("board-summary-writing.png") { board(OperatorScene.complete(written: false, leftForYou: [])) },
+            Snapshot("board-summary-left-for-you.png") {
+                board(OperatorScene.complete(leftForYou: ["Remove the old provider’s flag once the switch has run a week in production."]))
+            },
+            Snapshot("board-activity.png") {
+                let scene = OperatorScene.running(), entries = scene.activity()
+                return board(scene).seeded(tab: .activity, entries: entries, open: entries[3].id)
+            },
+            Snapshot("board-shelved.png") {
+                BroadcastBoardSheet(board: OperatorScene.shelved(), reopenFailed: false, actions: BoardActions(), activity: nil)
+            },
             Snapshot("new-broadcast-1.png") { newBroadcast(step: 1) },
             Snapshot("new-broadcast-2.png") { newBroadcast(step: 2) },
             Snapshot("new-broadcast-3.png") { newBroadcast(step: 3) },
@@ -361,7 +433,7 @@ enum OperatorSnapshots {
         let closed = OperatorScene()
         closed.show(closed.run(.operatorOffline), watching(closed))
 
-        let done = OperatorScene.debrief()
+        let done = OperatorScene.complete()
 
         let acting = OperatorScene()
         acting.show(acting.run(.active), watching(acting), acting: acting.answeringTheDrawer)
@@ -451,9 +523,9 @@ enum OperatorSnapshots {
 
     // -- the board --------------------------------------------------------------------
 
-    private static func board(_ scene: OperatorScene, reopenFailed: Bool = false) -> some View {
+    private static func board(_ scene: OperatorScene, reopenFailed: Bool = false) -> BroadcastBoardSheet {
         let board = scene.board ?? BroadcastBoard.make(run: scene.run(.active), state: scene.controller.state, acting: .none, requests: [])
-        return BroadcastBoardSheet(board: board, reopenFailed: reopenFailed, actions: BoardActions())
+        return BroadcastBoardSheet(board: board, reopenFailed: reopenFailed, actions: BoardActions(), activity: nil)
     }
 
     /// The drawing's paused broadcast: one project, so no project on the cards, and no review, so no Review column.

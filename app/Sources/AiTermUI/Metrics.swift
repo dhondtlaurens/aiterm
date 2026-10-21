@@ -229,7 +229,7 @@ public enum Sheet {
     public static let height: CGFloat = 560
     /// Settings has a slightly taller preferred viewport for its forms.
     public static let settingsHeight: CGFloat = 580
-    /// The broadcast's board: wider than a form sheet, for its columns of cards (the Operator's
-    /// greenfield design, 19 Oct 2026).
-    public static let boardWidth: CGFloat = 820
+    /// One column of the broadcast's board, which sits in a `width` sheet: two and a bit of them
+    /// show at once and the row of columns scrolls sideways (the Operator sheet, option 1B, 21 Oct 2026).
+    public static let boardColumn: CGFloat = 236
 }

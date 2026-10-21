@@ -5,7 +5,7 @@ import AiTermCore
 /// What the board's cards and buttons do, handed in by `AppController.boardActions(for:dismiss:)`; a
 /// snapshot or a test hands in none.
 struct BoardActions {
-    /// A card's or a Delivered row's click, the sheet already closed (`BroadcastBoardSheet.choose`).
+    /// A card's or a worker tab line's click, the sheet already closed (`BroadcastBoardSheet.choose`).
     var open: @MainActor (BroadcastBoard.Opens) -> Void = { _ in }
     var pause: @MainActor () -> Void = {}
     var resume: @MainActor () -> Void = {}
@@ -70,28 +70,41 @@ struct BoardFooter: Equatable {
     }
 }
 
-/// The broadcast's board (spec §4, §13), `Sheet.boardWidth` by `Sheet.height` in `SheetLayout`'s
-/// anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; then the
-/// Asked line, two lines at most, the whole of it in its tooltip. Under them the columns, each
-/// a `SidebarHeading` and its count over its cards, scrolling on its own, at every moment: once every task
-/// is done they all sit in Done. A card's click closes the sheet first, then opens what
-/// resolves it (`choose`). Equatable by what it draws, its actions left out (they act on the broadcast
-/// as it is when pressed), so the host's `.equatable()` skips a body that would draw the same.
+/// The broadcast's sheet (spec §4, §13; the Operator sheet, 21 Oct 2026), `Sheet.width` by `Sheet.height` in
+/// `SheetLayout`'s anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; the
+/// Asked line, two lines at most, the whole of it in its tooltip; then the tab bar, Settings' `SegmentedControl` in
+/// its accent style, Board · Activity · Summary, picked by click or ⌘1–⌘3. It opens on `BroadcastBoard.firstTab`
+/// and stays where you put it; Summary is dimmed until the broadcast reached it. Board is the columns, each
+/// `Sheet.boardColumn` wide and scrolling on its own, the row of them scrolling sideways; once every task is done
+/// they all sit in Done. A card's click closes the sheet first, then opens what resolves it (`choose`). Activity
+/// is the run's log (`BroadcastActivityView`), Summary the Operator's summary and what it left for you
+/// (`BroadcastSummaryView`); both scroll as one. The footer is the same on every tab. Equatable by what it draws,
+/// its actions left out (they act on the broadcast as it is when pressed), so the host's `.equatable()` skips a
+/// body that would draw the same; the feed redraws Activity alone.
 struct BroadcastBoardSheet: View, Equatable {
     let board: BroadcastBoard
     let reopenFailed: Bool
     let actions: BoardActions
+    /// The run's activity log as the host follows it; nil where Activity is handed its `entries` instead.
+    let activity: ActivityFeed?
+    /// What Activity lists without a feed, and the row it opens with: the snapshots' (`seeded(tab:entries:open:)`).
+    private(set) var entries: [ActivityEntry] = []
+    private(set) var openEntry: UUID?
+    private var _tab: State<BroadcastBoard.Tab>
+    private var tab: BroadcastBoard.Tab { get { _tab.wrappedValue } nonmutating set { _tab.wrappedValue = newValue } }
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
     #endif
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.board == rhs.board && lhs.reopenFailed == rhs.reopenFailed
+        lhs.board == rhs.board && lhs.reopenFailed == rhs.reopenFailed && lhs.activity === rhs.activity && lhs.entries == rhs.entries
+            && lhs.openEntry == rhs.openEntry
     }
 
-    init(board: BroadcastBoard, reopenFailed: Bool, actions: BoardActions) {
-        self.board = board; self.reopenFailed = reopenFailed; self.actions = actions
+    init(board: BroadcastBoard, reopenFailed: Bool, actions: BoardActions, activity: ActivityFeed?) {
+        self.board = board; self.reopenFailed = reopenFailed; self.actions = actions; self.activity = activity
+        _tab = State(initialValue: board.firstTab)
     }
 
     /// A card's click: the sheet closes, then what the card opens comes forward. A Todo card has nothing to
@@ -105,24 +118,36 @@ struct BroadcastBoardSheet: View, Equatable {
     /// Whether a card that opens this is a button.
     static func isButton(_ opens: BroadcastBoard.Opens) -> Bool { opens != .nothing }
 
+    /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
+    static func key(of tab: BroadcastBoard.Tab) -> KeyEquivalent {
+        KeyEquivalent(Character(String(BroadcastBoard.Tab.allCases.firstIndex(of: tab)! + 1)))
+    }
+
     var body: some View {
         #if DEBUG
         let _ = bodyCounter?.count(board.runId)
         #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
-        SheetLayout(title: board.title, height: Sheet.height, width: Sheet.boardWidth, bandHeight: nil, scrolls: false,
+        SheetLayout(title: board.title, height: Sheet.height, width: Sheet.width, bandHeight: nil, scrolls: tab != .board,
                     contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.base) {
                 BroadcastStatusLine(line: board.band, progress: board.progress)
                 Self.asked(board.clauses).font(Typography.help).foregroundStyle(Palette.muted)
                     .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true).help(board.asked)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                tabBar
             }
         } content: {
-            HStack(alignment: .top, spacing: Space.gap) {
-                ForEach(board.columns) { lane in column(lane) }
+            switch tab {
+            case .board: columns
+            case .activity:
+                if let activity {
+                    ActivityFeedView(feed: activity, titles: titles)
+                } else {
+                    BroadcastActivityView(entries: entries, titles: titles, openId: openEntry)
+                }
+            case .summary: BroadcastSummaryView(summary: board.summary, leftForYou: board.leftForYou)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } footer: {
             SheetFooter(secondary: footer.secondary, primary: footer.primary?.title, cancel: { dismiss.afterThisEvent() },
                         submit: { footer.primary?.perform(actions) }) {
@@ -132,6 +157,45 @@ struct BroadcastBoardSheet: View, Equatable {
                 }
             }
         }
+        // ⌘1–⌘3, on hidden buttons, as Settings' ⌘1–⌘4: the tab bar's segments are not buttons of their own.
+        .background {
+            ForEach(BroadcastBoard.Tab.allCases, id: \.self) { item in
+                Button(item.title) { select(item) }.keyboardShortcut(Self.key(of: item), modifiers: .command)
+            }
+            .hidden()
+        }
+    }
+
+    /// Settings' tab bar: the same `SegmentedControl` in its accent style, labels in `Typography.body` that the
+    /// control inks, Summary dimmed and disabled until there is one to read.
+    private var tabBar: some View {
+        SegmentedControl(values: BroadcastBoard.Tab.allCases, selection: Binding(get: { tab }, set: { select($0) }),
+                         style: .accent, isSelectable: board.isSelectable) { item, _ in
+            Text(item.title).font(Typography.body)
+        }
+    }
+
+    private func select(_ item: BroadcastBoard.Tab) {
+        guard board.isSelectable(item) else { return }
+        tab = item
+    }
+
+    /// The board's tasks' titles by id, for Activity's lines.
+    private var titles: [UUID: String] {
+        Dictionary(board.columns.flatMap(\.cards).map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The columns, `Space.gap` apart, the first on the content's leading margin; the row of them runs past the
+    /// trailing margin to the sheet's edge and scrolls sideways, the last ending on the margin.
+    private var columns: some View {
+        BoardScroll(.horizontal) {
+            HStack(alignment: .top, spacing: Space.gap) {
+                ForEach(board.columns) { lane in column(lane).frame(width: Sheet.boardColumn) }
+            }
+            .padding(.trailing, Space.margin)
+        }
+        .padding(.trailing, -Space.margin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func choose(_ opens: BroadcastBoard.Opens) {
@@ -164,6 +228,29 @@ struct BroadcastBoardSheet: View, Equatable {
     }
 }
 
+#if DEBUG
+extension BroadcastBoardSheet {
+    /// The sheet already on `tab`, Activity listing `entries` with `open` open: what only clicks and a run folder
+    /// reach in the app, for the snapshots.
+    func seeded(tab: BroadcastBoard.Tab, entries: [ActivityEntry] = [], open: UUID? = nil) -> Self {
+        var sheet = self
+        sheet._tab = State(initialValue: tab)
+        sheet.entries = entries
+        sheet.openEntry = open
+        return sheet
+    }
+}
+#endif
+
+/// Activity as the run's feed has it: this view alone reads the feed, so an append redraws the list and not
+/// the sheet around it.
+private struct ActivityFeedView: View {
+    let feed: ActivityFeed
+    let titles: [UUID: String]
+
+    var body: some View { BroadcastActivityView(entries: feed.entries, titles: titles) }
+}
+
 /// A column's head: a `SidebarHeading` and its count in `Typography.monoChip`,
 /// `Size.menuRow` tall.
 struct BoardHeading: View {
@@ -181,21 +268,34 @@ struct BoardHeading: View {
     }
 }
 
-/// A column's own scroll: a `ScrollView`, or in the snapshots — whose `ImageRenderer` cannot materialise
-/// one — its content clipped at the top.
+/// The board's own scrolls: a column's, vertical, and the row of columns', sideways. A `ScrollView`, or in the
+/// snapshots — whose `ImageRenderer` cannot materialise one — its content clipped at the top and leading edge,
+/// a sideways row laid out whole first, so what lies past the edge is cut rather than squeezed.
 struct BoardScroll<Content: View>: View {
-    @ViewBuilder let content: Content
+    let axis: Axis
+    let content: Content
     #if DEBUG
     @Environment(\.snapshotRendering) private var isSnapshot
     #else
     private let isSnapshot = false
     #endif
 
+    init(_ axis: Axis = .vertical, @ViewBuilder content: () -> Content) {
+        self.axis = axis; self.content = content()
+    }
+
     var body: some View {
-        if isSnapshot {
+        switch (axis, isSnapshot) {
+        case (.vertical, true):
             content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
-        } else {
+        case (.horizontal, true):
+            // `minWidth: 0`: a frame with no minimum is at least as wide as the row it holds, and would widen the sheet.
+            content.fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
+        case (.vertical, false):
             ScrollView { content.frame(maxWidth: .infinity, alignment: .topLeading) }.scrollIndicators(.automatic)
+        case (.horizontal, false):
+            ScrollView(.horizontal) { content.frame(maxHeight: .infinity, alignment: .topLeading) }.scrollIndicators(.automatic)
         }
     }
 }

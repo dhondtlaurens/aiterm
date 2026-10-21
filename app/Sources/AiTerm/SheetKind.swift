@@ -71,8 +71,8 @@ extension AppController {
         case archive(ArchiveSheetModel)
         /// New Broadcast…: its projects, prompt, review and done, started on Settings › Operator's profile.
         case newBroadcast(NewBroadcastModel)
-        /// The broadcast's board: read live from the workspace,
-        /// so it carries only the run's id.
+        /// The broadcast's sheet, Board · Activity · Summary: read live from the workspace and its run
+        /// folder, so it carries only the run's id.
         case broadcastBoard(UUID)
         var id: String {
             switch self {
