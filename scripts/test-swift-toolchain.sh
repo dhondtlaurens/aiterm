@@ -180,6 +180,11 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
         repo="$runner_logs/repo"
         mkdir -p "$repo/app" "$repo/daemon"
         cp -R "$ROOT/scripts" "$repo/"
+        # test.sh's toolchain step also runs scripts/test-test-select.sh, whose reader check fails when
+        # app/Tests or daemon/tests is missing. The guard stays strict on the real tree, so the scratch
+        # repository carries the test directories instead of switching the guard off.
+        cp -R "$ROOT/app/Tests" "$repo/app/"
+        cp -R "$ROOT/daemon/tests" "$repo/daemon/"
         cp "$ROOT/.swift-version" "$repo/"
         cp "$ROOT/app/Package.swift" "$repo/app/"
         git -C "$repo" init -q -b trunk
