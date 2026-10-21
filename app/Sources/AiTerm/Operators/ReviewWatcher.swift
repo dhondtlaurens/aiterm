@@ -22,7 +22,8 @@ enum ReviewHosts {
 /// them. A thread that is new and unresolved, one newly resolved or reopened, a new last note on an unresolved
 /// thread by anyone but the token's own user (so the Operator's own `reply_thread` is no news), and a new
 /// approval are news:
-/// the Operator is woken once for the task, `[AiTerm] review feedback on PAY-2: call run_status`. What was read
+/// the Operator is woken once for the task (`review feedback on PAY-2`, a reason its key keeps out of the line
+/// typed: `OperatorWaker.isPlain`). What was read
 /// is kept on the task (`PeopleReview`), so a restart wakes it for what came meanwhile and for nothing else.
 /// A task taken over, or one whose operation is paused or ended, is not read.
 @MainActor

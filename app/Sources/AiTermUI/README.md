@@ -186,7 +186,7 @@ vendor needs both.
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
-`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `SidebarToast`,
+`PromptEditor`, `SidebarView`, `SidebarScrollFollower`, `SidebarBanners`, `SidebarBanner`, `SidebarConnectionBanner`, `IssueBanner`, `OperatorWakeBanner`, `SidebarToast`,
 `SidebarSheetPresenter`, `SidebarSheet`, `SidebarHeader`, `SidebarEmptyState`,
 `ProjectHeaderRow`, `SelectableRow`, `RowPill`, `RowTitle`, `RowCaption`, `TaskRowView`,
 `OperatorHeading`, `BroadcastRowView`, `OperatorBadge`, `BroadcastStatusLine`, `OperatorMenuButtons`, `TerminalRowView`, `DividerRow`,
@@ -386,7 +386,10 @@ fix and then the create it stopped (`CreationFailure.Recovery`).
 `Typography.label` and `Palette.text` on one row; the description under it in `Typography.help` and
 `Palette.muted`; then the actions as links `Space.gap` apart; `Space.tight` between the rows and nothing
 indented. No amber text: the mark carries the tone. It is the sidebar's banner about a failed save
-or a failed operation (`IssueBanner`) and iTerm2 refusing the connection (`SidebarConnectionBanner`:
+or a failed operation (`IssueBanner`), the Operator's wake line refused (`OperatorWakeBanner`: "The
+Operator can’t be woken", what waits on it and why as its description from `OperatorWakeNotice`, Open the
+Operator and Fix in Settings its links; not for a prompt that already waits on you, and gone once the
+Operator calls `run_status` or a later wake line lands) and iTerm2 refusing the connection (`SidebarConnectionBanner`:
 the status its title, what to do its description), a failed create in `CreationFooter`, and the
 Backpack sheet's permission ask (Allow… its one link). In a sheet's footer the caller passes no
 actions and keeps its buttons, and a failure with one sentence (`GitError.sentence`) is the title

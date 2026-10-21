@@ -246,6 +246,8 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         # The raw values a session's `agent` and `state` can take: the app reads one it does not
         # know as a shell or as idle, so a new one would otherwise go unnoticed.
         "sessionAgents": sorted(get_args(AgentKind)), "sessionStates": sorted(get_args(State)),
+        # The codes a refused delivery can name: the app reads one it does not know as unknown.
+        "deliveryCodes": sorted(get_args(delivery.RefusalCode)),
         # Which files show each name: a reply can have more than one, a snapshot both refused and connected.
         "fixtures": {
             "events": {name: f"event.{name}.json" for name in sorted(events)},

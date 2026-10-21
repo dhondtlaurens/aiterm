@@ -174,6 +174,17 @@ extension AppController {
         focus.select(.operation(run.id))
     }
 
+    /// The wake Notice's Open the Operator: the broadcast's Operator window brought forward, while it has one.
+    func openOperatorWindow(of id: UUID) {
+        if let run = state.run(id: id) { openOperatorWindow(run) }
+    }
+
+    /// Fix in Settings, from a Notice about an agent AiTerm can't type into: Settings on the Agents tab. It takes
+    /// the agent so that, once Settings can open at one agent's card, this is the one place that passes it on.
+    func presentAgentSettings(for agent: AgentKind) {
+        presentSettings(tab: .agents)
+    }
+
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer
     /// the active one. End Broadcast… asks first and closes the board once it ended, and only then: a failed end keeps it up. The debrief's End
     /// Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
