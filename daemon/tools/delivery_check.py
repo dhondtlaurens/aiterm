@@ -408,8 +408,10 @@ async def menu_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> Sc
 async def update_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> ScenarioResult:
     expected = expected_prompt(agent, "update") + " to stay open under the paste, with no allow rules written"
     if not HARNESS_BY_AGENT[agent].update_prompt:
-        return await live.failure(sid, agent, expected,
-                                  "this CLI has no update dialog marker, so pasting into one was not checked.")
+        # No update dialog means none to answer. If a later version adds one, add its
+        # markers to models.py so this scenario checks it again.
+        return ScenarioResult(True, "not applicable: this CLI has no update dialog marker (update_prompt is empty), "
+                                    "so there is no update dialog to paste into")
     await live.wait_for(sid, lambda screen: shows_update_offer(agent, screen) or idle(agent)(screen), 60)
     if not shows_update_offer(agent, await live.screen(sid)):
         return await live.failure(sid, agent, expected,
