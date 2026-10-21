@@ -51,6 +51,13 @@ import Foundation
         #expect(!G.allows("Hold off on the worktree: I'm asking the person first.", refusals: worktree))
         #expect(!G.allows("You can create it, but don’t remove the worktree yet.", refusals: worktree))
         #expect(!G.allows("Thanks for asking. I'm checking with the person.", refusals: worktree))
+        // Refusals that share words with a yes are refusals.
+        #expect(!G.allows("Please don't use a worktree.", refusals: worktree))
+        #expect(!G.allows("You can't create a worktree without the person's okay.", refusals: worktree))
+        #expect(!G.allows("Skip the worktree; you can run it in place.", refusals: worktree))
+        // And a yes that shares words with a refusal is a yes.
+        #expect(G.allows("Yes, keep the worktree until it passes.", refusals: worktree))
+        #expect(G.allows("Do not hesitate: yes, go ahead with the worktree.", refusals: worktree))
         #expect(G.allows("Yes, push the branch and open the MR.", refusals: G.pushRefusals))
         #expect(!G.allows("No, please don't push: AiTerm pushes and opens the draft MR.", refusals: G.pushRefusals))
     }
