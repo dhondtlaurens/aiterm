@@ -2,8 +2,8 @@ import Foundation
 import AiTermCore
 
 /// Watches that each worker commits on its task branch (`BranchDrift`), on every reconcile tick: the
-/// worktree's HEAD is read, and once the worker is idle at its prompt or done, the SHAs its last message
-/// names are looked up in the repository. What it finds is kept on the task, shown in `run_status`, and
+/// worktree's HEAD is read, and once a worker tab (`WorkerTab`) is idle at its prompt or done, the SHAs its
+/// last message names are looked up in the repository. What it finds is kept on the task, shown in `run_status`, and
 /// a newly found drift wakes the Operator once: `[AiTerm] PAY-2 committed off its task branch, call
 /// run_status`. A task taken over, not at work, or in an operation paused or ended, is not read.
 @MainActor
@@ -48,15 +48,18 @@ final class BranchWatch {
 
     private func check(_ id: UUID) async {
         guard let task = state.task(id: id), isWatched(task), let operated = task.operated else { return }
-        let tab = live.sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
-        // Its last message is its final word only once its turn ended.
-        let conversation = tab?.state == .idle || tab?.state == .done
-            ? tab?.conversationId ?? task.conversations.first(where: { $0.agent == task.agent })?.id : nil
-        let git = ports.git, home = ports.home, worktree = task.worktreePath, branch = task.branch, agent = task.agent
+        // A tab's last message is its final word only once its turn ended. The first worker's conversation is known
+        // from its window's tabs too; an extra tab's from its own (`WorkerTab.conversation`).
+        let conversations: [(agent: AgentKind, id: String)] = task.workerTabs(in: live.sessions).compactMap { tab in
+            guard let session = tab.session, session.state == .idle || session.state == .done,
+                  let conversation = tab.conversation else { return nil }
+            return (tab.agent, conversation)
+        }
+        let git = ports.git, home = ports.home, worktree = task.worktreePath, branch = task.branch
         let reading = await BackgroundWork.run {
             (head: Self.head(in: worktree, git: git),
-             named: conversation.map { conversation in
-                 WorkerTranscript.lastMessage(agent: agent, conversation: conversation, home: home)
+             named: conversations.isEmpty ? nil : conversations.flatMap { conversation in
+                 WorkerTranscript.lastMessage(agent: conversation.agent, conversation: conversation.id, home: home)
                      .map { Self.named(in: $0, branch: branch, worktree: worktree, git: git) } ?? []
              })
         }

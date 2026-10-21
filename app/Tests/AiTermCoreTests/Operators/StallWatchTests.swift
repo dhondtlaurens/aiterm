@@ -157,4 +157,80 @@ import Testing
         world.state.tasks = kept
         #expect(watch.stalled(in: world.state, now: minutes(40)).contains(task), "its sign at 30 was dropped, so from its launch")
     }
+
+    // -- a task with an extra worker tab (`open_tab`) -------------------------------------------
+
+    /// One working task launched at `start`, with an extra tab `review` asked for then too.
+    func twoTabs() -> (world: OperatedWorld, task: UUID) {
+        var world = OperatedWorld()
+        let task = world.addTask("TWO-1", run: world.addRun(), state: .working)
+        world.update(task) { operated in
+            operated.launch = LaunchAttempt(number: 1, requestedAt: start, openedAt: start)
+            operated.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.",
+                                           brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: start, openedAt: start),
+                                           sessionId: "r")]
+        }
+        return (world, task)
+    }
+
+    func extra(_ task: UUID, state: SessionState = .working, title: String = "Working") -> SessionInfo {
+        var tab = session("r", task: task, state: state, title: title)
+        tab.agent = .codex
+        tab.tabIndex = 1
+        tab.tabKey = "review"
+        return tab
+    }
+
+    /// Each tab on its own clock: a busy tab that goes quiet is a stall, however much the other one does.
+    @Test func aQuietBusyTabIsNoticedWhileTheOtherTabKeepsChanging() {
+        let (world, task) = twoTabs()
+        var first = StallWatch(), second = StallWatch()
+        first.observe([session("a", task: task), extra(task)], at: minutes(0))
+        second.observe([session("a", task: task), extra(task)], at: minutes(0))
+        for minute in stride(from: 5.0, through: 20, by: 5) {
+            first.observe([session("a", task: task), extra(task, title: "Step \(minute)")], at: minutes(minute))
+            second.observe([session("a", task: task, title: "Step \(minute)"), extra(task)], at: minutes(minute))
+        }
+        #expect(first.stalled(in: world.state, now: minutes(21)) == [task], "the first worker went quiet")
+        #expect(second.stalled(in: world.state, now: minutes(21)) == [task], "the extra tab went quiet")
+    }
+
+    /// A tab whose turn ended is not stalled while another is at work; once none is, the latest sign of any counts.
+    @Test func aTabIdleAtItsPromptIsNoStallWhileAnotherWorks() {
+        let (world, task) = twoTabs()
+        var watch = StallWatch()
+        watch.observe([session("a", task: task), extra(task, state: .idle)], at: minutes(0))
+        watch.observe([session("a", task: task, title: "Editing"), extra(task, state: .idle)], at: minutes(15))
+        #expect(watch.stalled(in: world.state, now: minutes(30)).isEmpty)
+        watch.observe([session("a", task: task, state: .idle), extra(task, state: .idle)], at: minutes(30))
+        #expect(watch.stalled(in: world.state, now: minutes(49)).isEmpty, "every tab ended its turn: counted from the last sign")
+        #expect(watch.stalled(in: world.state, now: minutes(50)) == [task])
+    }
+
+    /// An extra tab asked for that never showed counts as at work from its request: the task is noticed.
+    @Test func anExtraTabThatNeverOpensIsAStallFromItsRequest() {
+        var (world, task) = twoTabs()
+        world.update(task) { operated in
+            operated.extraTabs[0].sessionId = nil
+            operated.extraTabs[0].launch = LaunchAttempt(number: 1, requestedAt: minutes(5))
+        }
+        var watch = StallWatch()
+        for minute in stride(from: 0.0, through: 20, by: 5) {
+            watch.observe([session("a", task: task, title: "Step \(minute)")], at: minutes(minute))
+        }
+        #expect(watch.stalled(in: world.state, now: minutes(24)).isEmpty)
+        #expect(watch.stalled(in: world.state, now: minutes(25)) == [task])
+    }
+
+    /// A task coming back to work counts every tab from then, not from a sign before it.
+    @Test func aTaskBackAtWorkRestartsEveryTabsClock() {
+        var (world, task) = twoTabs()
+        var watch = StallWatch()
+        watch.observe([session("a", task: task), extra(task)], at: minutes(0))
+        world.update(task) { $0.takenOver = true }
+        watch.settle(in: world.state, at: minutes(30))
+        world.update(task) { $0.takenOver = false }
+        #expect(watch.stalled(in: world.state, now: minutes(49)).isEmpty)
+        #expect(watch.stalled(in: world.state, now: minutes(50)) == [task])
+    }
 }

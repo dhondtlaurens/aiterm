@@ -131,8 +131,9 @@ final class RunReconciler {
     }
 
     /// Spec §8's limits. Each tick adds the time since the last one to every working task of an active
-    /// run whose worker tab is busy and which neither waits on you nor is taken over — at most two intervals'
-    /// worth, so a Mac asleep is not work — saved with the task. A worker idle at its prompt is not at work:
+    /// run any of whose worker tabs is busy (`WorkerTab.status`: an extra tab still opening is), once however many
+    /// are, and which neither waits on you nor is taken over: at most two intervals' worth, so a Mac asleep is
+    /// not work, saved with the task. A worker idle at its prompt is not at work:
     /// its turn ended, and its result waits for review. A task past its runtime, or failed with no retry left, is
     /// blocked with the reason, which the notifier then tells you — never for its runtime while it waits for
     /// acceptance. The runs it blocked a task in.
@@ -146,14 +147,15 @@ final class RunReconciler {
             for task in state.tasks {
                 guard let operated = task.operated, let run = state.run(id: operated.runId), run.state == .active, run.intent == nil
                 else { continue }
-                let worker = sessions.filter { $0.taskUUID == task.id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
-                if elapsed > 0, worker?.state == .working, operated.state == .working, !operated.takenOver,
+                let workers = task.workerTabs(in: sessions).map(\.status)
+                if elapsed > 0, workers.contains(.working), operated.state == .working, !operated.takenOver,
                    !operated.flags.contains(.waitingOnYou) {
                     state.updateOperated(task.id) { $0.runtimeUsed += elapsed }
                 }
                 guard let current = state.task(id: task.id)?.operated,
                       let reason = OperatedTransitions.limitReason(for: current,
-                                                                   readyForAcceptance: RunStatus.isReadyForAcceptance(current, live: worker?.state)),
+                                                                   readyForAcceptance: RunStatus.isReadyForAcceptance(
+                                                                       current, live: workers[0], extraTabs: Array(workers.dropFirst()))),
                       (try? OperatedTransitions.apply(.block(reason: reason), toTask: task.id, in: &state, by: .aiterm)) != nil
                 else { continue }
                 blocked.append(task.id)

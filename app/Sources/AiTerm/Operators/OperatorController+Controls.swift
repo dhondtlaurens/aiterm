@@ -41,7 +41,7 @@ extension OperatorController {
     }
 
     /// Stop Task…, in the row's menu (E6, confirmed first): the task ends `stopped`, its dependents
-    /// blocked; its worker, if any, runs on. A question about it has nothing left to ask, so it is
+    /// blocked; its workers, in every tab, run on, and none is steered or opened again (`TabOpener.holds`). A question about it has nothing left to ask, so it is
     /// resolved — an open one would keep the operation from completing. The operation is then settled the
     /// way every other end settles it: the last open task stopped completes it.
     func stop(task id: UUID) throws {
@@ -84,7 +84,7 @@ extension OperatorController {
         let reason: String
         if daemon() == nil || !tabsKnown { reason = OperationIssue.disconnected("again").title }
         else if !task.hasCheckout { reason = "It hasn’t started: AiTerm opens its window when it does." }
-        else if !task.conversations.contains(where: { $0.agent == task.agent }) { reason = "Its worker left no conversation to resume." }
+        else if task.firstWorkerConversation == nil { reason = "Its worker left no conversation to resume." }
         else if let opening = starter.reopen(id) {
             await opening.value
             // The starter logs a window that would not open and leaves the row as it was.
@@ -96,7 +96,8 @@ extension OperatorController {
         notices.report(OperationIssue(title: "Couldn’t reopen \(task.title)’s worker.", reason: reason))
     }
 
-    /// The task's generation on each of its tabs, every one tried: the first failure is thrown after. With
+    /// The task's generation on each of its tabs, its first worker's and every extra tab's (`open_tab`), all tagged with
+    /// the task, every one tried: the first failure is thrown after. With
     /// no helper nothing is lost — the change is saved, and `resendOwnership` sets it once one attaches.
     private func setOwnership(_ ownership: Int, on task: UUID) async throws {
         guard let daemon = daemon() else { return }

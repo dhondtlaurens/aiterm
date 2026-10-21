@@ -91,18 +91,21 @@ final class TabOpener {
         }
     }
 
-    /// The tabs iTerm2 lists now: each tagged with a task and a key the task records is that extra tab, opened.
+    /// The tabs iTerm2 lists now: each tagged with a task and a key the task records is that extra tab, opened, with the
+    /// conversation its agent names.
     func tabsListed(_ sessions: [SessionInfo]) {
         for session in sessions {
             guard let task = session.taskUUID, let key = session.tabKey,
-                  let tab = state.task(id: task)?.operated?.extraTabs.first(where: { $0.key == key }),
-                  tab.sessionId != session.sessionId || tab.launch.openedAt == nil else { continue }
-            recordSession(session.sessionId, of: ID(task: task, key: key))
+                  let tab = state.task(id: task)?.operated?.extraTabs.first(where: { $0.key == key }) else { continue }
+            let conversation = session.conversationId.flatMap { TaskConversation.isResumable($0) ? $0 : nil }
+            guard tab.sessionId != session.sessionId || tab.launch.openedAt == nil || (conversation != nil && conversation != tab.conversation)
+            else { continue }
+            recordSession(session.sessionId, of: ID(task: task, key: key), conversation: conversation)
         }
     }
 
     /// The tab's session, and that its request showed it: never asked for again.
-    private func recordSession(_ session: String, of id: ID) {
+    private func recordSession(_ session: String, of id: ID, conversation: String? = nil) {
         let now = ports.now()
         workspace.mutate { state in
             state.updateOperated(id.task) { operated in
@@ -110,6 +113,7 @@ final class TabOpener {
                 operated.extraTabs[i].sessionId = session
                 operated.extraTabs[i].failure = nil
                 if operated.extraTabs[i].launch.openedAt == nil { operated.extraTabs[i].launch.openedAt = now }
+                if let conversation { operated.extraTabs[i].conversation = conversation }
             }
         }
     }

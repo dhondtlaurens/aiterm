@@ -25,7 +25,7 @@ final class WorkerStarter {
         let attempt: LaunchAttempt
     }
     /// When a launch or a reopen last asked iTerm2 for each task's window, or ended not knowing whether one
-    /// opens, until iTerm2 lists a worker tab tagged with the task (`isWorkerTab`) — not the shell the agent
+    /// opens, until iTerm2 lists a worker tab tagged with the task (`isFirstWorkerTab`), not the shell the agent
     /// command is still being typed into. A claim in that gap — the task failed and was retried meanwhile —
     /// would find no worker to retry in and launch again, so none is made for `launchAdoptAfter`, the time a
     /// slow iTerm2 has to list it. Past that, the claim goes ahead: with a worker listed by then the retry goes
@@ -244,11 +244,12 @@ final class WorkerStarter {
     /// A worker's window you closed, brought back on your click (`OperatorController.reopenWorker`):
     /// reopened behind your work, its conversation resumed under the operation's flags — never a second
     /// worker. Nil when it is starting, has a tab, was reopened a moment ago and its tab is not listed yet, has no worktree
-    /// or no conversation to resume, or no helper is there.
+    /// or no conversation to resume, or no helper is there. Only the first worker's conversation resumes
+    /// (`TaskItem.firstWorkerConversation`): an extra tab the Operator added (`open_tab`) is never opened again.
     func reopen(_ id: UUID) -> Task<Void, Never>? {
         if let at = reopenedAt[id], ports.now().timeIntervalSince(at) < OperatorTiming.launchAdoptAfter { return nil }
         guard !starting.contains(id), !live.sessions.contains(where: { $0.taskUUID == id }), let task = state.task(id: id),
-              task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.conversations.first(where: { $0.agent == task.agent }),
+              task.hasCheckout, let operated = task.operated, state.run(id: operated.runId) != nil, let conversation = task.firstWorkerConversation,
               let daemon = daemon() else { return nil }
         starting.insert(id)
         let reopening = OperatorActivity(run: operated.runId, task: id, act: .reopeningItsWindow)
@@ -281,7 +282,7 @@ final class WorkerStarter {
         let tagged = Set(sessions.compactMap(\.taskUUID))
         for id in reopenedAt.keys where tagged.contains(id) { reopenedAt[id] = nil }
         for id in tagged { checkWorker(id, sessions: sessions) }
-        let workers = Set(sessions.filter(Self.isWorkerTab).compactMap(\.taskUUID))
+        let workers = Set(sessions.filter(Self.isFirstWorkerTab).compactMap(\.taskUUID))
         let listed = unlisted.keys.filter(workers.contains)
         for id in listed { unlisted[id] = nil }
         return !listed.isEmpty
@@ -310,7 +311,7 @@ final class WorkerStarter {
               [.working, .blocked].contains(operated.state) else { return }
         let tabs = sessions.filter { $0.taskUUID == id }
         guard !tabs.isEmpty else { return }
-        if tabs.contains(where: Self.isWorkerTab) {
+        if tabs.contains(where: Self.isFirstWorkerTab) {
             if operated.flags.contains(.uncertain) { workspace.mutate { $0.updateOperated(id) { $0.flags.remove(.uncertain) } } }
         } else if !operated.flags.contains(.uncertain) {
             workspace.mutate { $0.updateOperated(id) { $0.flags.insert(.uncertain) } }
@@ -394,12 +395,15 @@ final class WorkerStarter {
         }
     }
 
-    private func workerTab(of id: UUID) -> SessionInfo? {
-        live.sessions.filter { $0.taskUUID == id && Self.isWorkerTab($0) }.min { $0.tabIndex < $1.tabIndex }
-    }
+    /// The task's first worker (`TaskItem.firstWorker`): the one a retry goes to.
+    private func workerTab(of id: UUID) -> SessionInfo? { state.task(id: id)?.firstWorker(in: live.sessions) }
 
     /// A tab running an agent: a worker. A new worker's tab is listed first as the shell its command is typed into.
     static func isWorkerTab(_ tab: SessionInfo) -> Bool { tab.agent.agentKind != nil }
+
+    /// A tab running an agent that is none of the Operator's extra tabs (`open_tab`): the task's first worker, as
+    /// `TaskItem.firstWorker` finds it.
+    static func isFirstWorkerTab(_ tab: SessionInfo) -> Bool { isWorkerTab(tab) && tab.tabKey == nil }
 
     /// Blocks the task and asks you — only when the block took: a task already stopped or changed is left
     /// as it is, and you are not told of a block that did not happen.

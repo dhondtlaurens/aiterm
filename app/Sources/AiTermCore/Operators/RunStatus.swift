@@ -4,14 +4,39 @@ import Foundation
 /// commit, a one-line summary, and a prompt waiting on you. Gathered by the caller from the daemon
 /// snapshot and git; `RunStatus` only arranges it.
 public struct TaskLiveFacts: Equatable, Sendable {
+    /// An extra worker tab the Operator added (`open_tab`), as `WorkerTab` counts it.
+    public struct Tab: Equatable, Sendable {
+        public var key: String, agent: AgentKind, model: String
+        /// Its tab's live status; nil while none is listed.
+        public var status: SessionState?
+        /// Asked for, its agent not shown yet (`WorkerTab.isOpening`): at work.
+        public var opening: Bool
+        /// Opened and listed no more (`WorkerTab.isClosed`): never opened again.
+        public var closed: Bool
+        /// The prompt it waits on you with, if any.
+        public var waitingPrompt: String?
+        public init(key: String, agent: AgentKind, model: String, status: SessionState? = nil, opening: Bool = false, closed: Bool = false,
+                    waitingPrompt: String? = nil) {
+            self.key = key; self.agent = agent; self.model = model; self.status = status; self.opening = opening; self.closed = closed
+            self.waitingPrompt = waitingPrompt
+        }
+        /// What it counts as: `WorkerTab.status`.
+        public var counted: SessionState? { opening ? .working : status }
+    }
+
+    /// The first worker's live status.
     public var status: SessionState?
     public var lastCommit: String?
     public var summary: String?
-    /// The classified prompt that waits on you — `permission` or `unknown` (spec §7.2) — if any.
+    /// The classified prompt that waits on you in the first worker, `permission` or `unknown` (spec §7.2), if any.
     public var waitingPrompt: String?
+    /// The task's extra worker tabs, in the order asked for.
+    public var tabs: [Tab]
 
-    public init(status: SessionState? = nil, lastCommit: String? = nil, summary: String? = nil, waitingPrompt: String? = nil) {
+    public init(status: SessionState? = nil, lastCommit: String? = nil, summary: String? = nil, waitingPrompt: String? = nil,
+                tabs: [Tab] = []) {
         self.status = status; self.lastCommit = lastCommit; self.summary = summary; self.waitingPrompt = waitingPrompt
+        self.tabs = tabs
     }
 }
 
@@ -96,11 +121,24 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
+    /// One of a task's worker tabs: its key (`main` for the first worker, `WorkerTab.firstKey`), agent, model and live
+    /// status, and whether it is still opening or was closed.
+    public struct TabLine: Encodable, Equatable, Sendable {
+        public var key: String, agent: AgentKind, model: String
+        public var live: SessionState?
+        public var opening: Bool
+        /// An extra tab that opened and is listed no more: AiTerm never opens it again.
+        public var closed: Bool
+        public init(key: String, agent: AgentKind, model: String, live: SessionState? = nil, opening: Bool = false, closed: Bool = false) {
+            self.key = key; self.agent = agent; self.model = model; self.live = live; self.opening = opening; self.closed = closed
+        }
+    }
+
     public struct TaskLine: Encodable, Equatable, Sendable {
         public var id: UUID, key: String, title: String, project: String
         public var agent: AgentKind, model: String
         public var state: OperatedState, end: TaskEnd, revision: Int
-        /// The session's live status; nil when it has none (not started, or its window is gone).
+        /// The first worker's live status; nil when it has none (not started, or its window is gone).
         public var live: SessionState?
         public var branch: String, lastCommit: String?, summary: String?
         public var dependsOn: [Dependency]
@@ -110,18 +148,21 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var agentReview: AgentReviewLine?, peopleReview: PeopleReviewLine?
         /// Its worker committed off its task branch: what AiTerm found, and the branch and SHA it found it on.
         public var branchDrift: BranchDrift?
+        /// Every worker tab, the first worker first, when the Operator added any (`open_tab`); nil when it has only its first.
+        public var tabs: [TabLine]?
         public init(id: UUID, key: String, title: String, project: String, agent: AgentKind, model: String,
                     state: OperatedState, end: TaskEnd, revision: Int, live: SessionState? = nil, branch: String,
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
-                    peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil) {
+                    peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.lastCommit = lastCommit; self.summary = summary; self.dependsOn = dependsOn
             self.acceptedSHA = acceptedSHA; self.blockedReason = blockedReason; self.flags = flags
             self.takenOver = takenOver; self.retriesUsed = retriesUsed
             self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
+            self.tabs = tabs
         }
     }
 
@@ -134,7 +175,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
 
     public struct Obligations: Encodable, Equatable, Sendable {
         public var questionsWaiting: [Question]
-        /// Task keys whose worker waits on a prompt for you; the operator only tells you.
+        /// Task keys whose worker waits on a prompt for you; the operator only tells you. A prompt in an extra tab
+        /// names it after its task's key: `PAY-2/tests`.
         public var promptsWaitingOnYou: [String]
         /// Working tasks whose worker ended its turn: check the result, then `mark_task`.
         public var readyForAcceptance: [String]
@@ -179,9 +221,12 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
                 agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init),
-                branchDrift: o.branchDrift))
-            if facts.waitingPrompt != nil || o.flags.contains(.waitingOnYou) { prompts.append(o.key) }
-            else if isReadyForAcceptance(o, live: facts.status) { ready.append(o.key) }
+                branchDrift: o.branchDrift, tabs: tabLines(item, facts)))
+            let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
+            if facts.waitingPrompt != nil || o.flags.contains(.waitingOnYou) || !tabPrompts.isEmpty {
+                // The task's key alone stands for its first worker's prompt, or a question of another kind.
+                prompts += (facts.waitingPrompt != nil || tabPrompts.isEmpty ? [o.key] : []) + tabPrompts
+            } else if isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted)) { ready.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
@@ -202,10 +247,19 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 branchDrift: drift))
     }
 
-    /// A working task whose worker ended its turn, idle at its prompt or done, and not yours: its result
-    /// waits for the Operator's check. A prompt waiting on you is told apart by the caller.
-    public static func isReadyForAcceptance(_ task: OperatedTask, live status: SessionState?) -> Bool {
-        task.state == .working && !task.takenOver && (status == .idle || status == .done)
+    /// A working task whose every worker ended its turn, idle at its prompt or done, and not yours: its result
+    /// waits for the Operator's check. `status` is its first worker's; `extraTabs` its extra tabs' (`WorkerTab.status`),
+    /// where nil is one closed, no worker any more. A prompt waiting on you is told apart by the caller.
+    public static func isReadyForAcceptance(_ task: OperatedTask, live status: SessionState?, extraTabs: [SessionState?] = []) -> Bool {
+        let ended: (SessionState?) -> Bool = { $0 == .idle || $0 == .done }
+        return task.state == .working && !task.takenOver && ended(status) && extraTabs.allSatisfy { $0 == nil || ended($0) }
+    }
+
+    /// The task's worker tabs as its line lists them, the first worker as `main`; nil when it has no extra tab.
+    private static func tabLines(_ item: TaskItem, _ facts: TaskLiveFacts) -> [TabLine]? {
+        guard !facts.tabs.isEmpty else { return nil }
+        return [TabLine(key: WorkerTab.firstKey, agent: item.agent, model: item.model, live: facts.status)]
+            + facts.tabs.map { TabLine(key: $0.key, agent: $0.agent, model: $0.model, live: $0.status, opening: $0.opening, closed: $0.closed) }
     }
 
     /// The snapshot as the tool returns it: JSON with sorted keys and ISO 8601 dates.

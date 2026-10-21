@@ -77,7 +77,8 @@ final class OperatorToolHandler {
     var actingChallenges: Set<String> = []
     /// The `create_task` invocations the Oracle said yes to, while the call performs: past the backlog's threshold they add.
     var vettedCalls: Set<String> = []
-    struct MessageKey: Hashable { let task: UUID; let text: String }
+    /// A message to one worker tab: `tab` is an extra tab's key, nil for the first worker.
+    struct MessageKey: Hashable { let task: UUID; let tab: String?; let text: String }
     var deliveredMessages: [MessageKey: (at: Date, answer: JSONValue)] = [:]
     var sendingMessages: Set<MessageKey> = []
     /// The finds being filed in Jira now, by run and key: a second call for one leaves it to the first.

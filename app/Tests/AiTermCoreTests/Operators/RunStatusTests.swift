@@ -109,6 +109,70 @@ import Foundation
         #expect(!text.contains("approvedRevision") && !text.contains("planAwaitingApproval") && !text.contains("gated"))
     }
 
+    // -- a task with extra worker tabs (`open_tab`) ------------------------------------------------
+
+    /// One working task, B, with an extra tab `review` beside its first worker.
+    private func twoTabs(first: SessionState?, review: SessionState?, opening: Bool = false, closed: Bool = false,
+                         prompt: String? = nil) throws -> (RunStatus, TaskItem) {
+        var b = F.task("B", .working)
+        b.operated?.extraTabs = [ExtraTab(key: "review", agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.",
+                                          brief: "Write the tests.", launch: LaunchAttempt(number: 1, requestedAt: F.epoch))]
+        let tab = TaskLiveFacts.Tab(key: "review", agent: .codex, model: "gpt-6-mini", status: review, opening: opening, closed: closed,
+                                    waitingPrompt: prompt)
+        let status = try #require(RunStatus.build(state: F.state(F.run(), [b]), run: F.runId, revision: 1,
+                                                  live: [b.id: TaskLiveFacts(status: first, tabs: [tab])]))
+        return (status, b)
+    }
+
+    /// A task is ready for acceptance only once every one of its worker tabs ended its turn.
+    @Test func aTaskWithOneTabStillAtWorkIsNotReadyForAcceptance() throws {
+        #expect(try twoTabs(first: .idle, review: .working).0.obligations.readyForAcceptance.isEmpty)
+        #expect(try twoTabs(first: .working, review: .done).0.obligations.readyForAcceptance.isEmpty)
+        #expect(try twoTabs(first: .idle, review: nil, opening: true).0.obligations.readyForAcceptance.isEmpty, "still opening is at work")
+        #expect(try twoTabs(first: .idle, review: .done).0.obligations.readyForAcceptance == ["B"])
+        #expect(try twoTabs(first: .done, review: nil).0.obligations.readyForAcceptance == ["B"], "a closed extra tab is no worker")
+    }
+
+    @Test func readinessCountsEveryWorkerTab() {
+        let working = F.operated("B", .working)
+        #expect(RunStatus.isReadyForAcceptance(working, live: .idle))
+        #expect(RunStatus.isReadyForAcceptance(working, live: .idle, extraTabs: [.done, nil]))
+        #expect(!RunStatus.isReadyForAcceptance(working, live: .idle, extraTabs: [.working]))
+        #expect(!RunStatus.isReadyForAcceptance(working, live: .done, extraTabs: [.needsInput]))
+        #expect(!RunStatus.isReadyForAcceptance(working, live: nil, extraTabs: [.idle]), "a first worker with no tab has not ended its turn")
+    }
+
+    /// A prompt open in an extra tab waits on you, named by its task and its tab, and the task is not ready.
+    @Test func aPromptInAnExtraTabWaitsOnYouNamingTheTab() throws {
+        let (status, _) = try twoTabs(first: .idle, review: .needsInput, prompt: "Codex asks for permission")
+        #expect(status.obligations.promptsWaitingOnYou == ["B/review"])
+        #expect(status.obligations.readyForAcceptance.isEmpty)
+    }
+
+    /// A task with extra tabs lists every worker tab, its first worker as `main`; one without keeps today's line.
+    @Test func theTaskLineListsItsTabsOnlyWhenItHasExtraOnes() throws {
+        let (status, b) = try twoTabs(first: .idle, review: nil, opening: true)
+        #expect(status.tasks[0].live == .idle && status.tasks[0].agent == .claude && status.tasks[0].model == b.model)
+        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle),
+                                         RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, opening: true)])
+        let json = String(decoding: try status.json(), as: UTF8.self)
+        #expect(json.contains(#""tabs":[{"agent":"claude","closed":false,"key":"main","live":"idle","model":"opus","opening":false},"#))
+        let (s, live, _) = scene()
+        let plain = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live))
+        #expect(plain.tasks.allSatisfy { $0.tabs == nil })
+        #expect(!String(decoding: try plain.json(), as: UTF8.self).contains(#""tabs""#))
+    }
+
+    /// An extra tab closed after it opened is listed, marked closed, with no live status; it is no worker, so the task
+    /// is ready once its other tabs ended their turn.
+    @Test func aClosedExtraTabIsListedClosed() throws {
+        let (status, b) = try twoTabs(first: .idle, review: nil, closed: true)
+        #expect(status.tasks[0].tabs == [RunStatus.TabLine(key: "main", agent: .claude, model: b.model, live: .idle),
+                                         RunStatus.TabLine(key: "review", agent: .codex, model: "gpt-6-mini", live: nil, closed: true)])
+        #expect(String(decoding: try status.json(), as: UTF8.self).contains(#"{"agent":"codex","closed":true,"key":"review","model":"gpt-6-mini","opening":false}"#))
+        #expect(status.obligations.readyForAcceptance == ["B"])
+    }
+
     @Test func anUnknownRunHasNoSnapshot() {
         #expect(RunStatus.build(state: .empty, run: UUID(), revision: 1, live: [:]) == nil)
     }
