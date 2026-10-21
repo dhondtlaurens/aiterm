@@ -43,11 +43,22 @@ import Foundation
         #expect(!G.names("PAY-12", "PAY-14") && !G.names(nil, "PAY-14"))
     }
 
-    @Test func aMessageAllowsAnActOnlyWhenItSaysYesAndHoldsNothingBack() {
-        #expect(G.allows("Yes, go ahead: create the worktree and remove it when the test passes.", act: "worktree"))
-        #expect(!G.allows("Hold off on the worktree: I'm asking the person first.", act: "worktree"))
-        #expect(!G.allows("You can create it, but don't remove the worktree yet.", act: "worktree"))
-        #expect(!G.allows("Yes, carry on with the tests.", act: "worktree"))
+    @Test func aMessageAllowsAnActWhenItSaysYesAndRefusesNothing() {
+        let worktree = G.worktreeRefusals
+        #expect(G.allows("Yes, go ahead: create the worktree and remove it when the test passes.", refusals: worktree))
+        #expect(G.allows("Yes, go ahead.", refusals: worktree))
+        #expect(G.allows("Yes, keep the worktree until the test passes, then remove it.", refusals: worktree))
+        #expect(!G.allows("Hold off on the worktree: I'm asking the person first.", refusals: worktree))
+        #expect(!G.allows("You can create it, but don’t remove the worktree yet.", refusals: worktree))
+        #expect(!G.allows("Thanks for asking. I'm checking with the person.", refusals: worktree))
+        #expect(G.allows("Yes, push the branch and open the MR.", refusals: G.pushRefusals))
+        #expect(!G.allows("No, please don't push: AiTerm pushes and opens the draft MR.", refusals: G.pushRefusals))
+    }
+
+    @Test func aReplyReportsAPromptOnlyWhenItSaysTheWorkerWaitsAtOne() {
+        #expect(G.reportsAPrompt("PAY-14 is stuck on a prompt AiTerm can't read. Please answer it yourself."))
+        #expect(!G.reportsAPrompt("AiTerm listed PAY-14 as waiting on your input, but no prompt is open in its terminal."))
+        #expect(!G.reportsAPrompt("PAY-14's agent review is running. Nothing needs you."))
     }
 
     @Test func reviewerUsername() throws {
@@ -88,7 +99,14 @@ import Foundation
                                    ("resolve_question", ["key": .string("prompt-\(G.pay14.uuidString)-1"), "summary": "Stale."])],
                                   "PAY-14 waits on a prompt in its terminal.")
         #expect(check(reported) == ["PAY-14's prompt was never read", "no report_snag", "ask_you was called, though nothing waits on the person",
-                                    "resolve_question closed AiTerm's own prompt question", "PAY-14's work did not go on"])
+                                    "resolve_question closed AiTerm's own prompt question", "PAY-14's work did not go on",
+                                    "the reply says PAY-14 waits at a prompt"])
+        // The old brief's reply in the live run (promptWithNoPrompt old #1), after the calls a pass makes.
+        let oldReply = transcript(Array(good.calls.map { ($0.tool, $0.arguments) }),
+                                  "PAY-14's Claude worker in Shop is stopped at a prompt AiTerm can't read. Please look at that session "
+                                      + "and answer it yourself; I won't answer it for you.\n\nThe worker had already committed the "
+                                      + "Download CSV button as 7c1e2d4.")
+        #expect(check(oldReply) == ["the reply says PAY-14 waits at a prompt"])
     }
 
     @Test func workingButEnded() throws {
@@ -133,6 +151,12 @@ import Foundation
         #expect(check(asked) == ["ask_you was called for an answer the brief gives",
                                  "the reply asks the person: Question: Should PAY-12's worker push the branch itself?",
                                  "PAY-12 was not moved on"])
+        let toldToPush = transcript([status, ("message_task", ["task": "PAY-12", "text": "Yes, push the branch and open the MR."])],
+                                    "PAY-12's worker opens its MR.")
+        #expect(check(toldToPush) == ["message_task told the worker to push: Yes, push the branch and open the MR."])
+        let toldNo = transcript([status, ("message_task", ["task": "PAY-12", "text": "No, please don't push. AiTerm opens the draft MR."])],
+                                "PAY-12 waits for its agent review.")
+        #expect(check(toldNo) == [])
     }
 
     @Test func oneToolKeepsFailing() throws {
@@ -153,6 +177,15 @@ import Foundation
         #expect(check(good) == [])
         let allowed = transcript([status, ("message_task", ["task": "PAY-14", "text": "Yes, go ahead with the worktree."])],
                                  "PAY-14 is running its end-to-end test.")
-        #expect(check(allowed) == ["message_task let the worker go ahead: Yes, go ahead with the worktree.", "the person was not asked"])
+        #expect(check(allowed) == ["message_task let the worker go ahead: Yes, go ahead with the worktree.",
+                                   "the person was not asked about the worktree"])
+        let ask: (String, JSONValue) = ("ask_you", ["key": "k", "question": "May PAY-14 remove a temporary worktree?", "task": "PAY-14"])
+        let bareYes = transcript([status, ("message_task", ["task": "PAY-14", "text": "Yes, go ahead."]), ask], "")
+        #expect(check(bareYes) == ["message_task let the worker go ahead: Yes, go ahead."])
+        let until = "Yes, keep the worktree until the test passes, then remove it."
+        #expect(check(transcript([status, ("message_task", ["task": "PAY-14", "text": .string(until)]), ask], ""))
+                == ["message_task let the worker go ahead: \(until)"])
+        let otherQuestion = transcript([status], "PAY-12 is with Sofie. Shall I check on it later?")
+        #expect(check(otherQuestion) == ["the person was not asked about the worktree"])
     }
 }
