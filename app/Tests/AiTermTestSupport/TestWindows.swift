@@ -47,7 +47,9 @@ import AiTermTestWindowHook
 
 /// Leaves `window` drawn and clickable when it is ordered in, which every other test window is not:
 /// for a test that needs the window server to show or hit-test it. Sent events and `cacheDisplay`
-/// work on a hidden window, so few tests do.
+/// work on a hidden window, so few tests do. Call it before the window is first ordered in: it stops
+/// the hiding and does not undo it, so a window already ordered in stays transparent. It covers
+/// `window` alone; its sheets, child windows and popovers are windows of their own, and are hidden.
 @MainActor public func keepVisible(_ window: NSWindow) {
     AiTermTestKeepWindowVisible(window)
 }

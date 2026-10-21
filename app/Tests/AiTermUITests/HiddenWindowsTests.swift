@@ -108,8 +108,10 @@ struct HiddenWindowsTests {
         #expect(field.stringValue == "a")
     }
 
+    /// The window server must draw this one, so it is the smallest window it will list: one point,
+    /// with no title bar.
     @Test func aKeptWindowStaysVisible() {
-        let window = plainWindow()
+        let window = plainWindow(styleMask: [.borderless], size: NSSize(width: 1, height: 1))
         defer { window.close() }
         keepVisible(window)
         window.orderFront(nil)

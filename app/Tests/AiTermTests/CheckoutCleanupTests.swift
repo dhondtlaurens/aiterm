@@ -144,6 +144,8 @@ extension AppControllerTests {
 
             let asked = try #require(prompter.asked.last)
             #expect(asked.buttons == ["Keep Task", "Delete Changes and Remove"])
+            // ↩ and ⎋ answer by position, so the prompter never checks that Keep Task can be pressed.
+            #expect(!asked.unavailable.contains("Keep Task"), "Keep Task can be pressed")
             #expect(!asked.defaultDeletes)
             #expect(server.closedWindowIds.isEmpty, "\(key) keeps the task")
             #expect(FileManager.default.fileExists(atPath: fixture.task.worktreePath + "/notes.txt"))
