@@ -1,9 +1,41 @@
 import Foundation
 
-/// Orders the archive for the Archive sheet's search field: a pure function over what is in hand, so
-/// it is tested without a sheet. Each row scores its best field — title, ticket key and summary,
-/// merge request number and title, branch, project — in five tiers, because a long archive buries
-/// the one you mean under a plain substring match:
+/// An ended broadcast as the Shelf lists it: its name, what it was asked, and when it ended.
+public struct ShelvedBroadcast: Equatable, Sendable {
+    public let runId: UUID
+    public let name: String
+    public let asked: String
+    public let endedAt: Date
+    public init(runId: UUID, name: String, asked: String, endedAt: Date) {
+        self.runId = runId; self.name = name; self.asked = asked; self.endedAt = endedAt
+    }
+}
+
+/// One row of the Shelf: a shelved task or review, or an ended broadcast.
+public enum ShelfRow: Equatable, Sendable, Identifiable {
+    case task(ArchiveSearch.Entry), broadcast(ShelvedBroadcast)
+
+    /// The archived task's id, or the run's.
+    public var id: UUID {
+        switch self {
+        case .task(let entry): entry.archived.id
+        case .broadcast(let broadcast): broadcast.runId
+        }
+    }
+
+    /// When it went on the Shelf: shelved, or ended.
+    public var shelvedAt: Date {
+        switch self {
+        case .task(let entry): entry.archived.archivedAt
+        case .broadcast(let broadcast): broadcast.endedAt
+        }
+    }
+}
+
+/// Orders the Shelf for its search field: a pure function over what is in hand, so it is tested
+/// without a sheet. Each row scores its best field — for a task its title, ticket key and summary,
+/// merge request number and title, branch, project; for an ended broadcast its name and what it was
+/// asked — in five tiers, because a long archive buries the one you mean under a plain substring match:
 ///
 /// 0. the exact ticket key, or the merge request's number written `482`, `!482` or `#482`;
 /// 1. a field that starts with the query, which for the merge request number counts with or without
@@ -12,7 +44,8 @@ import Foundation
 /// 3. the query anywhere in a field;
 /// 4. every letter of the query in order in a field — the fuzzy tier.
 ///
-/// Within a tier, and for an empty query, the most recently archived comes first.
+/// Tiers 0 and 1's numbers and keys are a task's alone. Within a tier, and for an empty query, the most
+/// recently shelved comes first.
 public enum ArchiveSearch {
     public struct Entry: Equatable, Sendable {
         public let archived: ArchivedTask
@@ -24,14 +57,27 @@ public enum ArchiveSearch {
         }
     }
 
-    public static func rank(_ entries: [Entry], query: String) -> [Entry] {
-        let newestFirst = entries.sorted { $0.archived.archivedAt > $1.archived.archivedAt }
+    public static func rank(_ rows: [ShelfRow], query: String) -> [ShelfRow] {
+        let newestFirst = rows.sorted { $0.shelvedAt > $1.shelvedAt }
         let query = normalized(query.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !query.isEmpty else { return newestFirst }
         return newestFirst.enumerated()
-            .compactMap { position, entry in tier(of: entry, query: query).map { (tier: $0, position: position, entry: entry) } }
+            .compactMap { position, row in tier(of: row, query: query).map { (tier: $0, position: position, row: row) } }
             .sorted { ($0.tier, $0.position) < ($1.tier, $1.position) }
-            .map(\.entry)
+            .map(\.row)
+    }
+
+    /// The tasks and reviews alone, ranked as the Shelf ranks them.
+    public static func rank(_ entries: [Entry], query: String) -> [Entry] {
+        rank(entries.map(ShelfRow.task), query: query).compactMap { if case .task(let entry) = $0 { entry } else { nil } }
+    }
+
+    /// `query` is normalized already.
+    static func tier(of row: ShelfRow, query: String) -> Int? {
+        switch row {
+        case .task(let entry): tier(of: entry, query: query)
+        case .broadcast(let broadcast): tier(of: [broadcast.name, broadcast.asked].map(normalized), query: query)
+        }
     }
 
     static func tier(of entry: Entry, query: String) -> Int? {
@@ -42,6 +88,11 @@ public enum ArchiveSearch {
         if let iid = task.mr?.iid, let digits = sigilDigits(in: query), String(iid).hasPrefix(digits) { return 1 }
         let fields = [task.title, task.jira?.key, task.jira?.summary, task.mr.map { String($0.iid) }, task.mr?.title,
                       task.branch, entry.projectName].compactMap { $0 }.map(normalized)
+        return tier(of: fields, query: query)
+    }
+
+    /// Tiers 1 to 4 over normalized fields.
+    static func tier(of fields: [String], query: String) -> Int? {
         if fields.contains(where: { $0.hasPrefix(query) }) { return 1 }
         if fields.contains(where: { words(of: $0).contains { $0.hasPrefix(query) } }) { return 2 }
         if fields.contains(where: { $0.contains(query) }) { return 3 }

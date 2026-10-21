@@ -82,4 +82,37 @@ import Foundation
         #expect(ArchiveDate.label(now.addingTimeInterval(-3 * 86_400), now: now, calendar: calendar, locale: locale) == "9 Oct")
         #expect(ArchiveDate.label(now.addingTimeInterval(-400 * 86_400), now: now, calendar: calendar, locale: locale) == "7 Sep 2025")
     }
+
+    // -- ended broadcasts on the Shelf ------------------------------------------------------------
+    func broadcast(_ name: String, asked: String = "Implement the sprint.", at: TimeInterval = 0) -> ShelfRow {
+        .broadcast(ShelvedBroadcast(runId: UUID(), name: name, asked: asked, endedAt: Date(timeIntervalSince1970: at)))
+    }
+
+    @Test func aShelvedBroadcastMatchesItsNameAndWhatItWasAsked() {
+        let sprint = broadcast("Sprint 42", asked: "Fix the checkout tickets")
+        #expect(ArchiveSearch.tier(of: sprint, query: "sprint") == 1, "its name's prefix")
+        #expect(ArchiveSearch.tier(of: sprint, query: "heckout") == 3, "inside what it was asked")
+        #expect(ArchiveSearch.rank([sprint, .task(entry("Login"))], query: "checkout") == [sprint])
+        #expect(ArchiveSearch.rank([sprint], query: "zebra").isEmpty)
+    }
+
+    @Test func tasksAndBroadcastsMixNewestFirst() {
+        let old = ShelfRow.task(entry("Old", at: 1)), ended = broadcast("Sprint 42", at: 2), new = ShelfRow.task(entry("New", at: 3))
+        #expect(ArchiveSearch.rank([old, ended, new], query: "") == [new, ended, old])
+        #expect(ended.shelvedAt == Date(timeIntervalSince1970: 2))
+    }
+
+    @Test func theShelvedBroadcastsAreTheEndedRunsEndedAtOrWhenTheyWereMade() {
+        var ended = OperatorFixtures.run(id: UUID(), state: .stopped)
+        ended.endedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        var ending = OperatorFixtures.run(id: UUID(), state: .active)
+        ending.intent = .stopped
+        let live = OperatorFixtures.run(id: UUID(), state: .active)
+        var state = AppState.empty
+        state.runs = [ended, ending, live]
+        #expect(state.shelvedBroadcasts == [
+            ShelvedBroadcast(runId: ended.id, name: "Sprint 42", asked: "Implement the sprint.", endedAt: Date(timeIntervalSince1970: 1_800_000_000)),
+            ShelvedBroadcast(runId: ending.id, name: "Sprint 42", asked: "Implement the sprint.", endedAt: OperatorFixtures.epoch),
+        ])
+    }
 }

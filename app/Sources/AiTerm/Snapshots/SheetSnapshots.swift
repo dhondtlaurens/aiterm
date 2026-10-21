@@ -105,7 +105,8 @@ enum SheetSnapshots {
     }
 
     /// The Archive sheet with the proposal's five rows, a search that finds one by its merge request,
-    /// nothing archived, and a search that finds nothing. Drawn last: an added image goes after the
+    /// nothing archived, a search that finds nothing, and an ended broadcast among the rows, highlighted
+    /// so the footer reads Open. Drawn last: an added image goes after the
     /// ones before it (`Snapshots.regressionSet`).
     private static var archiveSheets: [Snapshot] {
         [
@@ -114,6 +115,11 @@ enum SheetSnapshots {
             Snapshot("archive-empty.png") { ArchiveSheet(model: ArchiveSnapshots.model(entries: [], query: "")) },
             // Not the proposal's "paymnet": the fuzzy tier finds "payment" in it.
             Snapshot("archive-no-match.png") { ArchiveSheet(model: ArchiveSnapshots.model(query: "refund")) },
+            Snapshot("archive-broadcast.png") {
+                let model = ArchiveSnapshots.model(entries: ArchiveSnapshots.rows + [ArchiveSnapshots.broadcast], query: "")
+                model.highlight(ArchiveSnapshots.broadcast.id)
+                return ArchiveSheet(model: model)
+            },
         ]
     }
 
@@ -303,22 +309,28 @@ enum SheetSnapshots {
 @MainActor enum ArchiveSnapshots {
     static let now = Date(timeIntervalSince1970: 1_791_800_000)
 
-    static func model(entries: [ArchiveSearch.Entry]? = nil, query: String) -> ArchiveSheetModel {
+    static func model(entries: [ShelfRow]? = nil, query: String) -> ArchiveSheetModel {
         let shown = entries ?? rows
-        let model = ArchiveSheetModel(entries: { shown }, restore: { _ in }, remove: { _ in })
+        let model = ArchiveSheetModel(entries: { shown }, restore: { _ in }, open: { _ in }, remove: { _ in })
         model.query = query
         model.now = { now }
         return model
     }
 
-    static var rows: [ArchiveSearch.Entry] {
+    /// An ended broadcast, two days ago: between the review shelved yesterday and the task three days ago.
+    static let broadcast = ShelfRow.broadcast(ShelvedBroadcast(runId: UUID(), name: "Newsletter signup",
+                                                               asked: "PLUTO-231 newsletter signup block in Storyblok",
+                                                               endedAt: now.addingTimeInterval(-172_800)))
+
+    static var rows: [ShelfRow] {
         func row(_ title: String, _ agent: AgentKind, jira: String? = nil, mr: Int? = nil, branch: String, project: String,
-                 ago: TimeInterval) -> ArchiveSearch.Entry {
+                 ago: TimeInterval) -> ShelfRow {
             let task = TaskItem(id: UUID(), projectId: UUID(), title: title, branch: branch, worktreePath: "/w", baseBranch: "main",
                                 jira: jira.map { JiraRef(key: $0, summary: title, url: "") }, kind: mr == nil ? .task : .review,
                                 mr: mr.map { MergeRequestRef(iid: $0, title: title, url: "") }, agent: agent, model: "m", reasoning: nil,
                                 firstPrompt: nil, appendTicket: false, createdAt: now, windowId: nil)
-            return .init(archived: ArchivedTask(task: task, archivedAt: now.addingTimeInterval(-ago)), projectName: project, provider: .gitlab)
+            return .task(.init(archived: ArchivedTask(task: task, archivedAt: now.addingTimeInterval(-ago)), projectName: project,
+                               provider: .gitlab))
         }
         return [row("Login flow", .claude, jira: "SHOP-123", branch: "feat/SHOP-123-login", project: "acme-storefront", ago: 7_200),
                 row("Header refactor", .claude, mr: 482, branch: "feat/header-refactor", project: "acme-storefront", ago: 86_400),

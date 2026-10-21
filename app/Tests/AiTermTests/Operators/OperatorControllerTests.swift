@@ -235,6 +235,49 @@ import Testing
         #expect(try world.workspace.file.load().run(id: run.id)?.endedAt == clock.now)
     }
 
+    /// Remove on the Shelf: the run and its folder go, the tasks it ran — in the sidebar or shelved — stay.
+    @Test func forgettingAnEndedBroadcastKeepsItsTasks() async throws {
+        var ended = OperatorServiceFixtures.run(projects: [project], state: .stopped)
+        ended.intent = .stopped
+        let live = OperatorServiceFixtures.task(in: ended, project: project, key: "PLUTO-1", state: .stopped)
+        let shelved = OperatorServiceFixtures.task(in: ended, project: project, key: "PLUTO-2", state: .published)
+        var state = OperatorServiceFixtures.state(projects: [project], runs: [ended], tasks: [live])
+        state.archive = [ArchivedTask(task: shelved, archivedAt: Date(timeIntervalSince1970: 50))]
+        let world = try OperatorWorld(state)
+        let folder = world.controller.folder(of: ended.id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{}\n".utf8).write(to: folder.appendingPathComponent(ActivityLog.file))
+
+        try await world.controller.forget(run: ended.id)
+        #expect(world.state.runs.isEmpty)
+        #expect(try world.workspace.file.load().runs.isEmpty, "saved")
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "its activity log and summary with it")
+        #expect(world.state.tasks == [live])
+        #expect(world.state.archive == state.archive)
+    }
+
+    @Test func aBroadcastThatHasNotEndedIsNotForgotten() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .active)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        await #expect(throws: ActionUnavailable.self) { try await world.controller.forget(run: run.id) }
+        #expect(world.state.runs.map(\.id) == [run.id])
+    }
+
+    /// A forget that cannot be saved is taken back, and its folder kept.
+    @Test func aForgetThatCannotBeSavedLeavesTheBroadcast() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .stopped)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run]))
+        let folder = world.controller.folder(of: run.id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(world.workspace.flush())
+        let backup = world.workspace.file.backupURL
+        try? FileManager.default.removeItem(at: backup)
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        await #expect(throws: ActionUnavailable.self) { try await world.controller.forget(run: run.id) }
+        #expect(world.state.runs.map(\.id) == [run.id])
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
     /// A new plan on a complete broadcast: its completion, and its summary, belonged to the old one.
     @Test func aPlanSubmittedAfterCompletionReopensIt() async throws {
         let clock = StepClock()

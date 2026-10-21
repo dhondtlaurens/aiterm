@@ -35,3 +35,34 @@ struct BroadcastBoardHost: View {
         .task(id: controller.operatorController.activityGeneration(of: runId)) { await feed.refresh() }
     }
 }
+
+/// An ended broadcast's sheet, opened from the Shelf (`SheetKind.shelvedBroadcast`): its board as it ended
+/// (`BroadcastBoard.shelved`) — cards that open nothing, Close alone — opening on Summary. Its Activity is the
+/// run's log read once as the sheet opens: an ended broadcast's log no longer grows. A broadcast removed
+/// meanwhile closes it.
+struct ShelvedBroadcastHost: View {
+    let runId: UUID
+    let controller: AppController
+    /// Made with the first `init` of a presentation and kept across redraws.
+    private var _feed: State<ActivityFeed>
+    private var feed: ActivityFeed { _feed.wrappedValue }
+    @Environment(\.dismiss) private var dismiss
+
+    init(runId: UUID, controller: AppController) {
+        self.runId = runId; self.controller = controller
+        _feed = State(initialValue: ActivityFeed(runFolder: controller.operatorController.folder(of: runId)))
+    }
+
+    var body: some View {
+        Group {
+            if let run = controller.state.run(id: runId), run.hasEnded {
+                BroadcastBoardSheet(board: .shelved(run: run, state: controller.state), reopenFailed: false, actions: BoardActions(),
+                                    activity: feed)
+                    .equatable()
+            } else {
+                Color.clear.frame(width: Sheet.width, height: Size.control).onAppear { dismiss.afterThisEvent() }
+            }
+        }
+        .task { await feed.refresh() }
+    }
+}

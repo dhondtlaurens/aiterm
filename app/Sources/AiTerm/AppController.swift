@@ -434,13 +434,19 @@ final class AppController {
     func presentSettings(tab: SettingsTab? = nil, agent: AgentKind? = nil) { sheets.presentSettings(tab: tab, agent: agent) }
     var canPresentArchive: Bool { sheets.canPresentArchive }
 
-    /// The Archive sheet, reading the archive as it is whenever it draws.
+    /// The Shelf, reading the archive and the ended broadcasts as they are whenever it draws.
     func presentArchive() {
         sheets.presentArchive(ArchiveSheetModel(
-            entries: { [weak self] in self?.state.archiveEntries ?? [] },
+            entries: { [weak self] in self?.state.shelfRows ?? [] },
             restore: { [weak self] in self?.restoreArchived($0) },
+            open: { [weak self] in self?.presentShelved(run: $0) },
             // A turn later, never inside the key handler that asked (`Prompter`).
-            remove: { [weak self] id in Task { await self?.confirmRemove(archived: id) } }))
+            remove: { [weak self] id in Task { await self?.removeFromShelf(id) } }))
+    }
+
+    /// Remove on the Shelf: an ended broadcast's own question, or a shelved task's or review's.
+    func removeFromShelf(_ id: UUID) async {
+        if state.run(id: id) != nil { await confirmRemoveShelved(id) } else { await confirmRemove(archived: id) }
     }
 
     func presentJiraProjects(for project: Project) { sheets.presentJiraProjects(for: project) }

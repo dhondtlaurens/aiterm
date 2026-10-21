@@ -74,6 +74,8 @@ extension AppController {
         /// The broadcast's sheet, Board · Activity · Summary: read live from the workspace and its run
         /// folder, so it carries only the run's id.
         case broadcastBoard(UUID)
+        /// An ended broadcast's sheet, opened from the Shelf: read-only, on Summary (`ShelvedBroadcastHost`).
+        case shelvedBroadcast(UUID)
         var id: String {
             switch self {
             case .jiraProjects(let project): return "project-jira-\(project.id)"
@@ -87,6 +89,7 @@ extension AppController {
             case .archive: return "archive"
             case .newBroadcast(let model): return "broadcast-new-\(model.id)"
             case .broadcastBoard(let id): return "board-\(id)"
+            case .shelvedBroadcast(let id): return "shelved-\(id)"
             }
         }
     }

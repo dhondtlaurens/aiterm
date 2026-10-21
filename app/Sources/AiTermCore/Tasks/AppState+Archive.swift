@@ -37,6 +37,17 @@ public extension AppState {
         }
     }
 
+    /// The ended broadcasts, as the Shelf lists them: each dated when it ended, or, ended before that was
+    /// recorded, when it was made. The one live broadcast is the sidebar's.
+    var shelvedBroadcasts: [ShelvedBroadcast] {
+        runs.filter(\.hasEnded).map {
+            ShelvedBroadcast(runId: $0.id, name: $0.name, asked: $0.prompt, endedAt: $0.endedAt ?? $0.createdAt)
+        }
+    }
+
+    /// Everything on the Shelf: the archive's rows and the ended broadcasts.
+    var shelfRows: [ShelfRow] { archiveEntries.map(ShelfRow.task) + shelvedBroadcasts.map(ShelfRow.broadcast) }
+
     mutating func removeArchived(id: UUID) { archive.removeAll { $0.id == id } }
 
     /// The project and everything AiTerm keeps for it — its tasks, terminals and archived rows — gone

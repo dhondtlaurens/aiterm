@@ -93,6 +93,24 @@ extension AppController {
         sheets.present(operatorSheet: .broadcastBoard(id))
     }
 
+    /// Open on the Shelf, for an ended broadcast: its sheet, read-only on Summary, in the Shelf's place. The live
+    /// broadcast's is the sidebar's (`presentOverview`).
+    func presentShelved(run id: UUID) {
+        guard state.run(id: id)?.hasEnded == true else { return }
+        sheets.present(operatorSheet: .shelvedBroadcast(id))
+    }
+
+    /// Remove on the Shelf, for an ended broadcast: asks first (`OperatorAlerts.removeShelved`), then forgets it
+    /// and deletes its run folder; its tasks stay. Says whether it went: false when declined, and false when it
+    /// failed (it is reported).
+    @discardableResult
+    func confirmRemoveShelved(_ id: UUID) async -> Bool {
+        guard canChangeWorkspace, let run = state.run(id: id), run.hasEnded else { return false }
+        guard await prompter.ask(OperatorAlerts.removeShelved(run)).confirmed else { return false }
+        let controller = operatorController
+        return await attemptNow("Couldn’t remove “\(run.name)”") { try await controller.forget(run: id) }
+    }
+
     /// The board a notification's click asked for (D7 sets `OperatorController.presentOverview`),
     /// held behind an editing sheet, then presented and cleared so it opens once.
     func presentRequestedOverview() {

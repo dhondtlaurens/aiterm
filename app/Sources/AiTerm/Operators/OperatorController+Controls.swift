@@ -183,6 +183,30 @@ extension OperatorController {
         await closeOperatorWindowIfOnlyItsOperator(id, daemon: daemon)
     }
 
+    /// Remove on the Shelf: an ended broadcast forgotten — saved first, one that cannot be saved taken back and
+    /// nothing else done — then its run folder deleted off the main actor, `activity.jsonl` and the brief with it.
+    /// Its tasks are not touched: those in the sidebar and those shelved stay where they are, each still naming
+    /// the run. Refused for a broadcast that has not ended.
+    func forget(run id: UUID) async throws {
+        guard let run = self.run(id: id) else { return }
+        guard run.hasEnded else { throw ActionUnavailable("Only an ended broadcast can be removed from the Shelf.") }
+        let before = snapshot(), folded = workspace.state.foldedRuns.contains(id)
+        workspace.mutate { state in
+            state.runs.removeAll { $0.id == id }
+            state.foldedRuns.remove(id)
+        }
+        guard workspace.flush() else {
+            restore(before)
+            if folded { workspace.mutate { $0.foldedRuns.insert(id) } }
+            throw ActionUnavailable("The removal couldn’t be saved, so the broadcast was left on the Shelf.")
+        }
+        let folder = self.folder(of: id)
+        try await BackgroundWork.run {
+            guard FileManager.default.fileExists(atPath: folder.path) else { return }
+            try FileManager.default.removeItem(at: folder)
+        }
+    }
+
     /// What End does to a broadcast's tasks (spec §9, §13): those that never started — no launch and no
     /// checkout — are dropped; those started and still open (working, blocked, failed, in review, waiting
     /// on you) are handed to you. A task that has ended stays as it is.

@@ -109,12 +109,13 @@ even while typing (`ArchiveSheetModel`).
 |---|---|---|
 | ↑ ↓ | Move | The highlight, wrapping at both ends. It starts on the first row — the newest, or the best match — and goes back there whenever the search changes. A click highlights a row too. |
 | ⌘↩ | Restore | The highlighted row: its worktree back at its own path, its row back in the sidebar and chosen, its window reopened with its conversations resumed; the sheet closes. A refusal comes up as an alert and leaves it on the shelf. With nothing shelved Restore is absent, key and all. |
-| double-click | Restore | That row, as ⌘↩. VoiceOver has it as the row's Restore action. |
+| ⌘↩ | Open | On an ended broadcast the button reads Open: the Shelf closes and the broadcast's sheet opens in its place, read-only, on Summary. |
+| double-click | Restore or Open | That row, as ⌘↩. VoiceOver has it as the row's Restore or Open action. |
 | ⌘⌫ | Remove from the shelf | The highlighted row, after Remove's question. In the field ⌘⌫ would delete to the line's start; with a row shown it removes the row instead, and with none the field has it back. |
 | ⎋ | Clear the search, then close | A search is cleared first, the whole shelf back; ⎋ on an empty field closes the sheet. |
 
 The search finds a row by its title, ticket key and summary, merge request number and title, branch
-or project, ignoring case and accents. A merge request is found by its number in any form — `482`,
+or project, and an ended broadcast by its name and what it was asked, ignoring case and accents. A merge request is found by its number in any form — `482`,
 `!482`, `#482` — and by its start while it is being typed (`!4`, `#48`, `48`); a lone `!` or `#`
 finds none (`ArchiveSearch`).
 
@@ -151,6 +152,7 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 | Remove task / Remove review, after its window was closed | Remove, red | Cancel — Shelve is the grey button between them |
 | Uncommitted changes | Keep Task / Keep Review, blue | Keep Task / Keep Review — Delete Changes and Remove, or Delete Changes and Shelve, is the grey button |
 | Remove a shelved task or review | Remove, red | Cancel |
+| Remove an ended broadcast from the Shelf | Remove, red: its activity log and summary are deleted | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
 | Stop a task the Operator drives | Stop Task, blue: its window and branch stay | Cancel |
 | End a broadcast, before its debrief | End Broadcast, blue: its started tasks stay, worktrees and MRs too | Cancel |

@@ -194,7 +194,7 @@ vendor needs both.
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
 `NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
-`TaskBadges`, `ArchiveSheet`, `ArchiveRow`.
+`TaskBadges`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`, `ShelvedBroadcastHost`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -472,7 +472,7 @@ terminal's name is its row's; its iTerm2 tabs keep their branch titles. `JiraPro
 reached only from a project's context menu: Add Project… has no sheet, the folder chooser adds the
 project at once, and a folder inside a repository adds that repository with a toast saying so.
 
-`ArchiveSheet` is the Shelf sheet, View › Show Shelf's (⌘S), every shelved task and review in one `SheetLayout`. Its
+`ArchiveSheet` is the Shelf sheet, View › Show Shelf's (⌘S), every shelved task and review and every ended broadcast in one `SheetLayout`. Its
 band holds a search in place of a `SheetSubtitle` — a `magnifyingglass` and a `SearchField` in
 `fieldChrome`, "Search title, ticket, !MR, branch, project" — which keeps the keyboard throughout:
 ↑ ↓ move the highlight, wrapping, ⌘↩ or a double-click restores, ⌘⌫ asks Remove's question about
@@ -484,7 +484,11 @@ then the quiet Jira and merge-request `Badge`s, the branch in `Typography.mono`,
 and the project — newest first, or in `ArchiveSearch`'s order. It sits in a `RowPill` whose ground
 at rest is `Surface.sheet`, `Space.hairline` from the next, the list padded `Space.base` above and
 below rather than `Space.margin`, since the pills pad themselves (`SheetLayout`'s
-`contentVerticalPadding`). The footer counts — "5 shelved", "1 of 5" — beside Close and Restore;
+`contentVerticalPadding`). An ended broadcast is a `ShelvedBroadcastRow` among them, by the day it ended: the
+broadcast header's mark (`ProviderIcon` on `BroadcastHeaderRow.glyph`, in its `Size.avatar` square), the
+`RowTitle` with its name, and that day trailing as a task's does; its tooltip is what it was asked. On it the
+primary button reads Open: the Shelf gives its slot to the broadcast's sheet (`ShelvedBroadcastHost`), the
+`BroadcastBoardSheet` of `BroadcastBoard.shelved` — read-only, on Summary, Close alone. The footer counts — "5 shelved", "1 of 5" — beside Close and Restore;
 with no row shown Restore is absent. Nothing shelved reads "Nothing on the shelf yet." over a
 `HelpText`, as `SidebarEmptyState` does; a search that finds nothing, "No shelved task matches
 “…”.".
