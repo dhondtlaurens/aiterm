@@ -44,7 +44,7 @@ extension AppController {
 
 extension AppController {
     /// The OPERATOR heading's "+": New Broadcast…, its help following Settings › Operator's slices as
-    /// they are now, the profile the broadcast freezes as it starts. Started, the broadcast's row is
+    /// they are now, the profile the broadcast freezes as it starts. Started, the broadcast's header is
     /// selected; its window comes forward by the operator controller's own start.
     func presentNewBroadcast() {
         guard canChangeWorkspace else { return }
@@ -59,7 +59,7 @@ extension AppController {
                 let id = try await controller.startBroadcast(name: request.name, jiraProjectKeys: request.jiraProjectKeys,
                                                              projectIds: request.projectIds, prompt: request.prompt,
                                                              review: request.review, done: request.done)
-                self?.focus.browse(.operation(id))
+                self?.focus.browse(.broadcast(id))
                 return id
             }
         }
@@ -86,8 +86,8 @@ extension AppController {
 }
 
 extension AppController {
-    /// The broadcast row's click or ↩ (`openBroadcast`), or a notification's click: its board, over
-    /// whatever sheet is up.
+    /// The broadcast header's board button or Open Board (`openBoard`), or a notification's click: its
+    /// board, over whatever sheet is up.
     func presentOverview(run id: UUID) {
         guard state.activeRun?.id == id else { return }
         sheets.present(operatorSheet: .broadcastBoard(id))
@@ -119,15 +119,16 @@ extension AppController {
         }
     }
 
-    /// The broadcast row's menu and its VoiceOver actions, on the broadcast as it is now.
+    /// The broadcast header's menu and its VoiceOver actions, on the broadcast as it is now.
     func perform(_ item: OperatorMenuItem, onBroadcast id: UUID) {
         guard let run = state.activeRun, run.id == id else { return }
         perform(item, on: run)
     }
 
-    /// The broadcast row's menu.
+    /// The broadcast header's menu.
     func perform(_ item: OperatorMenuItem, on run: OperatorRun) {
         switch item {
+        case .openBoard: openBoard(run.id)
         case .rename: presentRename(run: run)
         case .pause: pause(run)
         case .resume: resume(run)
@@ -136,21 +137,35 @@ extension AppController {
         }
     }
 
-    /// A click or ↩ on the broadcast row (spec §3, §9): its board opens over the sidebar and the row is
-    /// selected; the sheet is what comes forward. With the Operator's window closed — no tab of it listed,
-    /// whatever window id was recorded — the window is asked back from the operator controller behind the
-    /// board (`RowFocus.reopenOperatorBehind`), resuming the broadcast. Until iTerm2's tabs are known (a
-    /// launch, a reconnect) the recorded window id is all there is to go by. Returns the reopening, if one
-    /// started.
-    @discardableResult
-    func openBroadcast(_ id: UUID) -> Task<Void, Never>? {
-        guard let run = state.activeRun, run.id == id else { return nil }
-        let operators = operatorController
-        let closed = operators.tabsKnown ? operators.operatorTab(of: id) == nil : run.operatorWindowId == nil
-        focus.browse(.operation(id))
-        let reopening = closed ? focus.reopenOperatorBehind(id) : nil
+    /// The broadcast header's board button, or Open Board in its menu (decided 21 Oct 2026): its board
+    /// opens over the sidebar, and nothing else moves. The header's click and ↩ fold its group; the
+    /// Operator's window is its own row's.
+    func openBoard(_ id: UUID) {
         presentOverview(run: id)
-        return reopening
+    }
+
+    /// The folded header's amber chip (or ↩ on it): the group opens and its first row that needs you is
+    /// selected, its window shown as the arrows show one.
+    @discardableResult
+    func openAttention(of id: UUID) -> Task<Void, Never>? {
+        guard let section = rows.broadcast, section.id == id, let first = section.firstNeedingAttention else { return nil }
+        unfold(run: id)
+        return focus.peek(RowSelection(first), force: true)
+    }
+
+    /// A project header's broadcast badge: the group opens and the first of the project's tasks the
+    /// Operator holds is selected, its window shown as the arrows show one.
+    @discardableResult
+    func showOperatorTasks(of project: Project) -> Task<Void, Never>? {
+        guard let run = state.activeRun,
+              let first = state.tasks(inRun: run.id).first(where: { $0.projectId == project.id }) else { return nil }
+        unfold(run: run.id)
+        return focus.peek(.task(first.id), force: true)
+    }
+
+    /// Opens the group, if it is folded.
+    private func unfold(run id: UUID) {
+        if state.foldedRuns.contains(id) { toggleFolded(run: id) }
     }
 
     /// Rename…: the `NameSheet`, on the broadcast's name.

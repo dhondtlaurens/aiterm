@@ -129,7 +129,7 @@ extension OperatorController {
     /// Resume (spec §9), from paused or offline: an operator still there is kept and woken; one gone is
     /// reopened — its conversation resumed, or a fresh operator briefed from the run — before anything
     /// changes, so a reopening that fails leaves the operation as it was. Then whatever was held back starts.
-    /// `background`: the window reopens behind the board the broadcast row's click opened.
+    /// `background`: the window reopens behind what is in front, the board.
     func resume(run id: UUID, background: Bool = false) async throws {
         guard let run = self.run(id: id), run.state == .paused || run.state == .operatorOffline else { return }
         // A reopening already under way (a second click) is the first one's to finish: it sets the state and wakes.
@@ -274,11 +274,12 @@ extension OperatorController {
     }
 
     // -- the Operator's window --------------------------------------------------------------------
-    /// The broadcast's row chosen with the Operator's window closed (spec §3, §9): the window reopens and a
+    /// The Operator's row chosen with its window closed (spec §3, §9): the window reopens, in front, and a
     /// broadcast that went offline resumes; a pause of yours stays paused. An ended broadcast is never
-    /// reopened. `background`: behind the board the broadcast row's click opened, which then says a
-    /// conversation that can't be resumed (`reopenFailed`) and offers Start Fresh (`startFresh`); any other
-    /// failure, and one with no board in front, is said in the banner.
+    /// reopened. A conversation that can't be resumed is remembered (`reopenFailed`), so the board's footer
+    /// offers Start Fresh (`startFresh`), and said in the banner. `background` opens it behind what is in
+    /// front, and says only a failure other than that one in the banner: nothing in the sidebar asks for it
+    /// since its row brings the window to front (21 Oct 2026).
     func reopenOperator(run id: UUID, background: Bool = false) async {
         guard let run = self.run(id: id), !hasEnded(id), operatorTab(of: id) == nil else { return }
         do {
@@ -319,7 +320,7 @@ extension OperatorController {
     /// meanwhile (an await passed) is left ended: the token registered is revoked and the window opened is
     /// closed. Says whether it opened one, or left it to a reopening already under way (or within its
     /// wait): a caller that goes on to change the operation waits for that one instead. `background`
-    /// opens it behind what is in front: the board the broadcast row's click opened.
+    /// opens it behind what is in front.
     @discardableResult
     func reopenOperatorWindow(_ id: UUID, background: Bool = false) async throws -> OperatorReopening {
         guard let run = self.run(id: id) else { throw ActionUnavailable("This broadcast is no longer in AiTerm.") }

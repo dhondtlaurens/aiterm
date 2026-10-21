@@ -107,7 +107,7 @@ struct BroadcastBoardSheetTests {
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
         var chosen: [UUID] = []
-        controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
+        controller.focus.onChoosingOperationWithoutWindow { id in chosen.append(id); return nil }
         controller.open(.taskWindow(task.id), run: run.id)
         #expect(controller.focus.selection == .task(task.id))
         controller.open(.sidebarBanner(issue: "issue-7"), run: run.id)
@@ -129,7 +129,7 @@ struct BroadcastBoardSheetTests {
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
         var chosen: [UUID] = []
-        controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
+        controller.focus.onChoosingOperationWithoutWindow { id in chosen.append(id); return nil }
         controller.workspace.mutate { $0.runs[0].intent = .stopped }
         controller.open(.taskWindow(task.id), run: run.id)
         controller.open(.operatorWindow, run: run.id)

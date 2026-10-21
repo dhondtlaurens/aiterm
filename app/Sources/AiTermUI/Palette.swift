@@ -183,6 +183,33 @@ public enum Palette {
         }
         return Color(nsColor: blended)
     }()
+    /// The Operator's row at rest, behind it in `RowPill`'s pill, which selection replaces (decided 21 Oct
+    /// 2026, wash A): the badge's neutral wash. It says the row is different without a colour meaning anything,
+    /// and is never `rowHover`, so it never reads as hover. Hovered, the row takes `badgeHovered` in its place.
+    public static let operatorRow = badge
+    /// The opaque colour the Operator row's avatar ring is painted at rest: `operatorRow` composited over
+    /// `sidebar`, as `rowHoverSolid` is `rowHover` over it, and for the same reason: a ring has to occlude.
+    public static let operatorRowSolid: Color = composited(operatorRow)
+    /// The same ring on the Operator's row hovered: `badgeHovered` composited over `sidebar`.
+    public static let operatorRowHoveredSolid: Color = composited(badgeHovered)
+
+    /// `wash` painted over `sidebar`, opaque: blended by hand in sRGB at the wash's own alpha, as
+    /// `rowHoverSolid` is, under the `.darkAqua` AiTerm always draws in.
+    private static func composited(_ wash: Color) -> Color {
+        let appearance = NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()
+        var blended = NSColor(sidebar)
+        appearance.performAsCurrentDrawingAppearance {
+            let base = NSColor(sidebar).usingColorSpace(.sRGB) ?? NSColor(sidebar)
+            guard let top = NSColor(wash).usingColorSpace(.sRGB) else { return }
+            let alpha = top.alphaComponent
+            blended = NSColor(
+                srgbRed: base.redComponent * (1 - alpha) + top.redComponent * alpha,
+                green: base.greenComponent * (1 - alpha) + top.greenComponent * alpha,
+                blue: base.blueComponent * (1 - alpha) + top.blueComponent * alpha,
+                alpha: 1)
+        }
+        return Color(nsColor: blended)
+    }
 
     /// A collapsed project's status-count chips (`StatusCountChips`): a fill and a stroke per
     /// status family, each a wash of that family's colour. The three pairs strengthen with urgency —

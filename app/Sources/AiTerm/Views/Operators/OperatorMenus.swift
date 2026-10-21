@@ -7,13 +7,14 @@ import AiTermCore
 /// them with `OperatorMenuButtons`.
 enum OperatorMenuItem: Hashable {
     case newBroadcast
-    case rename, pause, resume, endBroadcast
+    case openBoard, rename, pause, resume, endBroadcast
     case takeOver, handBack, stopTask
     case separator
 
     var title: String {
         switch self {
         case .newBroadcast: "New Broadcast…"
+        case .openBoard: "Open Board"
         case .rename: "Rename…"
         case .pause: "Pause Broadcast"
         case .resume: "Resume Broadcast"
@@ -38,13 +39,13 @@ enum OperatorMenus {
     /// The OPERATOR heading's "+", shown only while no broadcast exists: the one way to start one.
     static let headingPlus: [OperatorMenuItem] = [.newBroadcast]
 
-    /// The broadcast row's menu: Rename…; Pause Broadcast while it can run, Resume Broadcast while it is
-    /// paused or its Operator's window is closed, neither once the debrief is ready; End Broadcast…. No
-    /// Overview… (a click opens it) and no Interrupt Agents: an agent always finishes its turn (spec §9).
-    /// Read from the row (`BroadcastRow.isPaused`, `isComplete`), so the menu changes only with it.
+    /// The broadcast header's menu: Open Board, as its board button does; Rename…; Pause Broadcast while it
+    /// can run, Resume Broadcast while it is paused or its Operator's window is closed, neither once the
+    /// debrief is ready; End Broadcast…. No Interrupt Agents: an agent always finishes its turn (spec §9).
+    /// Read from the header (`BroadcastRow.isPaused`, `isComplete`), so the menu changes only with it.
     static func broadcast(_ row: BroadcastRow) -> [OperatorMenuItem] {
-        if row.isComplete { return [.rename, .separator, .endBroadcast] }
-        return [.rename, .separator, row.isPaused ? .resume : .pause, .separator, .endBroadcast]
+        if row.isComplete { return [.openBoard, .separator, .rename, .separator, .endBroadcast] }
+        return [.openBoard, .separator, .rename, .separator, row.isPaused ? .resume : .pause, .separator, .endBroadcast]
     }
 
     /// What a task row's menu leads with while the Operator drives the task: Take Over, or Hand Back

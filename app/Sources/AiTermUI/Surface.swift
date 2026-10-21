@@ -10,6 +10,10 @@ public enum Surface: Equatable, Sendable {
     case sidebar
     /// A hovered row: the sidebar plus a white wash.
     case hover
+    /// A row washed at rest, the Operator's: the sidebar plus `Palette.operatorRow`.
+    case washed
+    /// That row hovered: the sidebar plus `Palette.badgeHovered`, in the wash's place.
+    case washedHover
     /// A selected row. Everything on it turns white.
     case accent
     /// A sheet or any other surface away from the sidebar. The default.
@@ -29,6 +33,8 @@ public enum Surface: Equatable, Sendable {
         switch self {
         case .sidebar: Palette.sidebar
         case .hover: Palette.rowHoverSolid
+        case .washed: Palette.operatorRowSolid
+        case .washedHover: Palette.operatorRowHoveredSolid
         case .accent: Palette.selection
         case .sheet: Palette.surface
         }

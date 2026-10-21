@@ -468,6 +468,9 @@ public struct AppState: Codable, Equatable, Sendable {
     public var lastModelByAgent: [AgentKind: String] = [:]
     /// The operations, in the order they were started (spec §5.1). The app is their only writer.
     public var runs: [OperatorRun] = []
+    /// The broadcasts whose group in the sidebar is folded to its header (`setFolded(run:_:)`): where a
+    /// project's fold is kept, its `collapsed`, the sidebar's and not the run's.
+    public var foldedRuns: Set<UUID> = []
     /// Runs this build cannot read — a state or field only a newer build knows — kept as they came
     /// and written back after `runs`, so a downgrade and a later upgrade lose none.
     private var unreadableRuns: [StoredJSON] = []
@@ -531,7 +534,7 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent, runs
+        case items, projects, tasks, terminals, archive, sidebarFrame, lastAgentByProject, lastModelByAgent, runs, foldedRuns
     }
 
     /// Workspaces written before dividers existed carry a flat `projects` array and no `items`;
@@ -555,6 +558,7 @@ public struct AppState: Codable, Equatable, Sendable {
             case .unknown(let raw): unreadableRuns.append(raw)
             }
         }
+        foldedRuns = try c.decodeIfPresent(Set<UUID>.self, forKey: .foldedRuns) ?? []
     }
 
     /// A run as the file has it: read when this build can, kept whole when it cannot.
@@ -591,6 +595,8 @@ public struct AppState: Codable, Equatable, Sendable {
             for run in runs { try list.encode(run) }
             for raw in unreadableRuns { try list.encode(raw) }
         }
+        // Left out while nothing is folded, so a workspace without one is written as it always was.
+        if !foldedRuns.isEmpty { try c.encode(foldedRuns.sorted { $0.uuidString < $1.uuidString }, forKey: .foldedRuns) }
     }
 
     /// A window iTerm2 no longer has: its row is owed it — a task's and a terminal's alike — and

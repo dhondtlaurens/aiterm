@@ -51,6 +51,9 @@ struct PaletteDistinctionTests {
         ("sidebar", Palette.sidebar),
         ("rowHover", Palette.rowHover),
         ("rowHoverSolid", Palette.rowHoverSolid),
+        ("operatorRow", Palette.operatorRow),
+        ("operatorRowSolid", Palette.operatorRowSolid),
+        ("operatorRowHoveredSolid", Palette.operatorRowHoveredSolid),
         ("statusChipQuietFill", Palette.statusChipQuietFill),
         ("statusChipQuietStroke", Palette.statusChipQuietStroke),
         ("statusChipAttentionFill", Palette.statusChipAttentionFill),
@@ -151,7 +154,7 @@ struct PaletteDistinctionTests {
     @Test func theScansFindTheAliasesAndTheMarks() throws {
         let body = try Self.paletteBody()
         let aliases = try Self.aliases(in: body)
-        #expect(aliases.isSuperset(of: ["sidebar", "menu", "tabActive", "devBuildInk"]))
+        #expect(aliases.isSuperset(of: ["sidebar", "menu", "tabActive", "devBuildInk", "operatorRow"]))
         #expect(!aliases.contains("surface") && !aliases.contains("onAccentSecondary"))
         #expect(try Self.brandMarks(in: body).isSuperset(of: ["claude", "jira", "gitlab", "github", "vscode"]))
     }
@@ -166,6 +169,17 @@ struct PaletteDistinctionTests {
     /// host process (a plain command-line tool vs. a test bundle); what must hold everywhere is
     /// that `rowHoverSolid` tracks `rowHover` composited over `sidebar`, not any fixed number.
     @Test func rowHoverSolidIsRowHoverCompositedOverSidebar() {
+        expectComposite(Palette.rowHoverSolid, of: Palette.rowHover, named: "rowHoverSolid")
+    }
+
+    /// The Operator row's rings, at rest and hovered, on the same rule: its wash, and its hover's, composited
+    /// over the sidebar.
+    @Test func theOperatorRowsSolidsAreItsWashesCompositedOverSidebar() {
+        expectComposite(Palette.operatorRowSolid, of: Palette.operatorRow, named: "operatorRowSolid")
+        expectComposite(Palette.operatorRowHoveredSolid, of: Palette.badgeHovered, named: "operatorRowHoveredSolid")
+    }
+
+    private func expectComposite(_ solid: Color, of washColor: Color, named name: String) {
         func components(_ rgba: String) -> (r: Double, g: Double, b: Double, a: Double) {
             let inner = rgba.trimmingCharacters(in: CharacterSet(charactersIn: "rgba() "))
             let parts = inner.split(separator: ",").map {
@@ -179,7 +193,7 @@ struct PaletteDistinctionTests {
             return Int(hex[start..<end], radix: 16) ?? 0
         }
 
-        let wash = components(ColorProbe.rgba(Palette.rowHover))
+        let wash = components(ColorProbe.rgba(washColor))
         let base = components(ColorProbe.rgba(Palette.sidebar))
         let alpha = wash.a
 
@@ -188,14 +202,14 @@ struct PaletteDistinctionTests {
         }
         let expected = (r: blended(wash.r, base.r), g: blended(wash.g, base.g), b: blended(wash.b, base.b))
 
-        let actualHex = ColorProbe.hex(Palette.rowHoverSolid)
+        let actualHex = ColorProbe.hex(solid)
         let actual = (r: channel(actualHex, 0), g: channel(actualHex, 1), b: channel(actualHex, 2))
 
         #expect(abs(actual.r - expected.r) <= 1,
-                "rowHoverSolid (\(actualHex)) red channel \(actual.r) is not rowHover composited over sidebar (expected \(expected.r))")
+                "\(name) (\(actualHex)) red channel \(actual.r) is not its wash composited over sidebar (expected \(expected.r))")
         #expect(abs(actual.g - expected.g) <= 1,
-                "rowHoverSolid (\(actualHex)) green channel \(actual.g) is not rowHover composited over sidebar (expected \(expected.g))")
+                "\(name) (\(actualHex)) green channel \(actual.g) is not its wash composited over sidebar (expected \(expected.g))")
         #expect(abs(actual.b - expected.b) <= 1,
-                "rowHoverSolid (\(actualHex)) blue channel \(actual.b) is not rowHover composited over sidebar (expected \(expected.b))")
+                "\(name) (\(actualHex)) blue channel \(actual.b) is not its wash composited over sidebar (expected \(expected.b))")
     }
 }
