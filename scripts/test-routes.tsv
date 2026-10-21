@@ -12,6 +12,16 @@
 #
 # OperatorEvalTests reads daemon/aitermd and daemon/tools but is opt-in and spends quota, so no
 # row selects it.
+#
+# scripts/test-test-select.sh fails when a test reads outside its own target and is not accounted for
+# here, so a new cross-read cannot fall out of the routing unnoticed. It looks for Swift files that
+# use `#filePath` and daemon tests that climb out of daemon/. A Swift reader is accounted for by a
+# `suite:<Target>.<File>` on a row above, or by its name on one of the next two lines; a daemon reader
+# by `<test file>=<path it reads>` on the third line, where a row above must route that path to daemon.
+# Add the name when a new test only reads its own target's files; add a row when it reads another's.
+# reads only its own target: PaletteDistinctionTests CoreFoldersTests OperatorPlanToolsTests
+# opt-in, reads outside its target: OperatorEvalTests
+# daemon readers outside daemon/: test_statusline_shim.py=hooks/claude-statusline-shim.sh test_grok_statusline_shim.py=hooks/grok-statusline-shim.sh test_pi_extension.py=hooks/pi-aiterm-status.ts
 
 # The daemon, and what the Swift suites read from it.
 daemon/*	daemon
