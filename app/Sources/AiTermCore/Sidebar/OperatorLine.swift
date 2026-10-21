@@ -148,7 +148,7 @@ public struct OperatorLine: Equatable, Sendable {
         }
     }
 
-    /// What a finished task ended at, as its line and the debrief's Delivered row say it: `done · 4f2a91c`,
+    /// What a finished task ended at, as its line and its card say it: `done · 4f2a91c`,
     /// `done · no change`, `merged · 9b3e07d`, `merged locally · 1c84e20`, `draft MR · !412`. Nil for a task
     /// that has not finished.
     public static func ending(of operated: OperatedTask) -> String? {

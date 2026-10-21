@@ -2,7 +2,7 @@ import Foundation
 
 /// What the Activity tab says of an Operator tool call, in plain words, and why a call went the way it did.
 public enum ActivityLine {
-    /// The tools that only look: the tab can fold their lines away.
+    /// The tools that only look: the tab reads their lines muted.
     public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "find_user"]
 
     /// The line for `tool` called with `arguments`: `task` is the task it was about, when AiTerm found one. A call

@@ -24,7 +24,7 @@ struct OperatorSettingsPane: View {
     static let alwaysOn = "Always on"
     static let slices = [
         Slice(title: "Jira",
-              help: "Creates and updates tickets in the broadcast’s Jira projects: tickets for planned work, status moves, links, and the debrief’s finds.",
+              help: "Creates and updates tickets in the broadcast’s Jira projects: tickets for planned work and off-brief finds, status moves, links.",
               keyPath: \.jira),
         Slice(title: "Review",
               help: "Involves people on the MR: marks it ready, assigns reviewers, has the agent fix their feedback and replies in the threads.",

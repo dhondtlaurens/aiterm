@@ -95,15 +95,15 @@ import Testing
         #expect(done.line.text == "done · summary ready")
     }
 
-    /// Every task done, the summary still to come: the header is done but not complete, and the Operator's row works on
-    /// it; once it is written, or AiTerm gave up on it, the row wears the done mark.
+    /// Every task done, the summary still to come: the header is done, and the Operator's row works on it; once it is
+    /// written, or AiTerm gave up on it, the row wears the done mark.
     @Test func theSummaryIsReadyOnlyOnceWrittenOrGivenUp() throws {
         var writing = run(.complete)
         writing.completedAt = OperatorUIFixtures.epoch
         let tasks = [task("a", run: writing.id, .accepted)]
         let header = try #require(SidebarModel.broadcastRow(state: state(writing, tasks)))
         #expect(header.line.text == "done · writing summary")
-        #expect(!header.isComplete && header.isDone, "done, its summary still coming: neither Pause nor Resume")
+        #expect(header.isDone, "done, its summary still coming: neither Pause nor Resume")
         let busy = SidebarModel.operatorRow(writing, tasks: tasks, acting: .none, requests: [], sessions: [])
         #expect(busy.line == OperatorLine("writing the summary", look: .acting) && busy.status == .working)
 
@@ -113,7 +113,6 @@ import Testing
         var givenUp = writing
         givenUp.summaryGivenUp = true
         for settled in [written, givenUp] {
-            #expect(try #require(SidebarModel.broadcastRow(state: state(settled, tasks))).isComplete)
             #expect(SidebarModel.operatorRow(settled, tasks: tasks, acting: .none, requests: [], sessions: []).status == .done)
         }
         #expect(SidebarModel.operatorRow(givenUp, tasks: tasks, acting: .none, requests: [], sessions: []).line == OperatorLine("done"))

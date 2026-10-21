@@ -49,8 +49,6 @@ public struct BroadcastRow: Equatable, Identifiable, Sendable {
     public var isPaused: Bool
     /// Every task done (`.complete`), its summary written or not: its menu offers neither Pause nor Resume.
     public var isDone: Bool
-    /// Done, and its summary settled (`RunSummary.isSettled`): written, or not coming.
-    public var isComplete: Bool
 
     /// What the header says after its name: the progress, and `paused` before it while the broadcast is paused.
     public var headerProgress: String? {
@@ -136,7 +134,7 @@ public extension SidebarModel {
         return BroadcastRow(id: run.id, title: run.name, progress: BroadcastBoard.count(of: run, tasks: tasks),
                             projectsHelp: OperatorLine.list(projects.map(\.name)), line: line,
                             isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused,
-                            isDone: run.state == .complete, isComplete: OperatorLine.summary(of: run)?.isSettled == true)
+                            isDone: run.state == .complete)
     }
 
     /// The Operator's row: its own session's line (`OperatorLine.session`), nothing of its tasks, which the

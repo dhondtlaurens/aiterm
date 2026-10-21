@@ -384,8 +384,6 @@ final class OperatorToolHandler {
         return Self.questionAnswer(question)
     }
 
-    /// `why` is the reason in a sentence, and `objection` the Oracle's, when the Operator decided against it: the
-    /// debrief lists them under the decision.
     private func leaveForYou(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("text")
         mutate(in: run.id) { state in
@@ -399,6 +397,8 @@ final class OperatorToolHandler {
         return ["key": .string(key), "recorded": true]
     }
 
+    /// `why` is the reason in a sentence, and `objection` the Oracle's, when the Operator decided against it: both
+    /// kept with the decision, and its `why` in the brief a fresh conversation starts from.
     private func logDecision(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("text")
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }

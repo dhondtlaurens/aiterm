@@ -239,8 +239,8 @@ extension AppController {
     }
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer
-    /// the active one. End Broadcast… asks first and closes the board once it ended, and only then: a failed end keeps it up. The debrief's End
-    /// Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
+    /// the active one. End Broadcast… asks first and closes the board once it ended, and only then: a failed end keeps it up. A complete
+    /// broadcast's End Broadcast asks nothing. Start Fresh keeps the board up, its footer back to the moment's.
     func boardActions(for id: UUID, dismiss: @escaping @MainActor () -> Void) -> BoardActions {
         BoardActions(
             open: { [weak self] opens in self?.open(opens, run: id) },

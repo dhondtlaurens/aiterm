@@ -33,7 +33,7 @@ extension OperatorToolHandler {
         case .free: break
         case .refused:
             let filing = await noteFind(call, in: current, why: "Past the backlog limit with the Oracle off.")
-            throw ToolRefusal("Past the backlog limit with the Oracle off. AiTerm noted it for the debrief" + Self.ending(filing))
+            throw ToolRefusal("Past the backlog limit with the Oracle off. AiTerm noted it for the summary" + Self.ending(filing))
         case .needsOracle:
             // Another addition took the last free place while git was read: this one needs the Oracle's check now.
             throw ToolRefusal("The backlog reached its limit while AiTerm read this: call create_task again for the Oracle’s check.")
@@ -65,7 +65,7 @@ extension OperatorToolHandler {
         return BacklogBudget.verdict(firstPlanSize: first, additionsSoFar: additions, oracleIsOn: run.profile.oracle.isOn)
     }
 
-    /// An addition past the backlog's limit, refused: AiTerm notes it for the debrief (spec §4.2), once per key,
+    /// An addition past the backlog's limit, refused: AiTerm notes it for the summary (spec §4.2), once per key,
     /// as `report_find` would, and filed in Jira when the Jira slice is on.
     func noteFind(_ call: ToolCall, in run: OperatorRun, why: String) async -> Filing {
         guard let key = call.optionalString("key") else { return .notAttempted }

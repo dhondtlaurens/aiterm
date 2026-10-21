@@ -427,7 +427,7 @@ public struct OperatorDecision: Codable, Equatable, Sendable {
         self.why = why; self.objection = objection
     }
 
-    /// The debrief's muted line under the decision: why, then the Oracle's objection when there is one.
+    /// The decision's reason in one line: why, then the Oracle's objection when there is one.
     public var reason: String? {
         let parts = [why.flatMap(Self.said), objection.flatMap(Self.said).map { "The Oracle objected: “\($0)”" }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
@@ -439,8 +439,8 @@ public struct OperatorDecision: Codable, Equatable, Sendable {
     }
 }
 
-/// Something the Operator found that the brief did not ask for (spec §4.1): never worked on, listed in
-/// the debrief, and filed as `ticket` when the Jira slice is on.
+/// Something the Operator found that the brief did not ask for (spec §4.1): never worked on, read by the
+/// Operator for its summary, and filed as `ticket` when the Jira slice is on.
 public struct OffBriefFind: Codable, Equatable, Sendable {
     public var key: String
     public var title: String
@@ -539,7 +539,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// How many tasks the first submitted plan had: what the backlog's growth is measured against.
     public var firstPlanSize: Int?
     public var questions: [OperatorQuestion], decisions: [OperatorDecision]
-    /// The off-brief finds, for the debrief; and what the slices kept the Operator from doing.
+    /// The off-brief finds, for the Operator's summary; and what the slices kept the Operator from doing.
     public var finds: [OffBriefFind], leftForYou: [String]
     public var leftForYouRecords: [String: String]?
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.

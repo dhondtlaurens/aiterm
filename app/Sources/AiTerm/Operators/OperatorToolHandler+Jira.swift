@@ -172,7 +172,7 @@ extension OperatorToolHandler {
         }
     }
 
-    /// How a refusal that says "AiTerm noted it for the debrief" ends once the find was filed, or was not.
+    /// How a refusal that says "AiTerm noted it for the summary" ends once the find was filed, or was not.
     static func ending(_ filing: Filing) -> String {
         switch filing {
         case .filed(let ticket): return " and filed it as \(ticket)."

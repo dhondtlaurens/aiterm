@@ -163,11 +163,11 @@ import Testing
 
     func finds(_ world: OperatorWorld, _ run: OperatorRun) -> [OffBriefFind] { world.run(run.id)?.finds ?? [] }
 
-    /// A no within the reply budget refuses at once, and AiTerm notes the addition for the debrief with the Oracle's reason.
+    /// A no within the reply budget refuses at once, and AiTerm notes the addition for the summary with the Oracle's reason.
     @Test func anAdditionPastTheThresholdNeedsTheOraclesYes() async throws {
         let (world, run) = try makeBacklogWorld(oracle: true, runner: .answering("NO. A dark mode is not in the sprint."))
         #expect(await create(world, run, "FREE").value?["created"] == true, "a quarter of one, at least one, goes free")
-        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief. AiTerm noted it for the debrief.")
+        #expect(await create(world, run, "PAST").message == "The Oracle judged this off-brief. AiTerm noted it for the summary.")
         #expect(world.state.tasks.count == 2 && operated(world, "PAST") == nil)
         #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "A dark mode is not in the sprint.")])
         #expect(world.run(run.id)?.challenges.isEmpty == true, "an answer within the budget keeps no record")
@@ -204,7 +204,7 @@ import Testing
         #expect(await create(world, run, "PAST", challengeId: id).value?["pending"] == true, "still judging")
         await gate.open()
         await world.controller.tools.lastChallenge?.value
-        #expect(await create(world, run, "PAST", challengeId: id).message == "The Oracle judged this off-brief. AiTerm noted it for the debrief.")
+        #expect(await create(world, run, "PAST", challengeId: id).message == "The Oracle judged this off-brief. AiTerm noted it for the summary.")
         #expect(operated(world, "PAST") == nil && finds(world, run).map(\.why) == ["Not in the brief."])
     }
 
@@ -217,12 +217,12 @@ import Testing
         })
         let (world, run) = try makeBacklogWorld(oracle: true, runner: timingOut)
         _ = await create(world, run, "FREE")
-        #expect(await create(world, run, "PAST").message == "The Oracle didn’t answer in time. AiTerm noted it for the debrief.")
+        #expect(await create(world, run, "PAST").message == "The Oracle didn’t answer in time. AiTerm noted it for the summary.")
         #expect(asked.withLock { $0 } == .seconds(OperatorTiming.challengeTimeout))
         #expect(world.state.tasks.count == 2 && finds(world, run).map(\.why) == ["The Oracle didn’t answer in time."])
         let (silent, silentRun) = try makeBacklogWorld(oracle: true, runner: .unavailable)
         _ = await create(silent, silentRun, "FREE")
-        #expect(await create(silent, silentRun, "PAST").message == "The Oracle didn’t answer in time. AiTerm noted it for the debrief.",
+        #expect(await create(silent, silentRun, "PAST").message == "The Oracle didn’t answer in time. AiTerm noted it for the summary.",
                 "an Oracle that cannot run is no yes")
     }
 
@@ -235,14 +235,14 @@ import Testing
         #expect(world.workspace.flush())
         let restarted = try OperatorWorld(try world.workspace.file.load())
         restarted.link.attached = false
-        #expect(await create(restarted, run, "PAST", challengeId: id).message == "The Oracle didn’t answer in time. AiTerm noted it for the debrief.")
+        #expect(await create(restarted, run, "PAST", challengeId: id).message == "The Oracle didn’t answer in time. AiTerm noted it for the summary.")
         #expect(restarted.state.tasks.count == 2 && finds(restarted, run).map(\.key) == ["PAST"])
     }
 
     @Test func withTheOracleOffAnAdditionPastTheThresholdIsRefused() async throws {
         let (world, run) = try makeBacklogWorld(oracle: false)
         #expect(await create(world, run, "FREE").value?["created"] == true)
-        #expect(await create(world, run, "PAST").message == "Past the backlog limit with the Oracle off. AiTerm noted it for the debrief.")
+        #expect(await create(world, run, "PAST").message == "Past the backlog limit with the Oracle off. AiTerm noted it for the summary.")
         #expect(world.state.tasks.count == 2)
         #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "Past the backlog limit with the Oracle off.")])
         #expect(await create(world, run, "FREE").value?["created"] == false, "a repeat of a key is no addition")
@@ -254,15 +254,35 @@ import Testing
         let (world, run) = try makeBacklogWorld(oracle: false, jira: jira)
         _ = await create(world, run, "FREE")
         #expect(await create(world, run, "PAST").message
-                == "Past the backlog limit with the Oracle off. AiTerm noted it for the debrief and filed it as PLUTO-101.")
+                == "Past the backlog limit with the Oracle off. AiTerm noted it for the summary and filed it as PLUTO-101.")
         #expect(jira.writes == [.create(project: "PLUTO", type: "Task", summary: "Fix PAST", description: "Past the backlog limit with the Oracle off.", parent: nil)])
         #expect(finds(world, run) == [OffBriefFind(key: "PAST", title: "Fix PAST", why: "Past the backlog limit with the Oracle off.", ticket: "PLUTO-101")])
         _ = await create(world, run, "PAST")
         #expect(jira.writes.count == 1, "once per key")
         jira.failWrites()
         #expect(await create(world, run, "LATER").message
-                == "Past the backlog limit with the Oracle off. AiTerm noted it for the debrief. It could not be filed: Jira returned an error (HTTP 500). Try again.")
+                == "Past the backlog limit with the Oracle off. AiTerm noted it for the summary. It could not be filed: Jira returned an error (HTTP 500). Try again.")
         #expect(finds(world, run).last?.ticket == nil)
+    }
+
+    /// What AiTerm tells the Operator speaks of its summary, never of the debrief it replaced: no string in the
+    /// Operator's sources says it, as the daemon's schema test reads its tools. The finished broadcast's
+    /// notification id keeps its `debrief-` prefix, so notes already delivered are not posted again.
+    @Test func noRefusalSpeaksOfADebrief() throws {
+        let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/AiTerm/Operators")
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).filter { $0.pathExtension == "swift" }
+        #expect(files.count > 5, "the Operator's sources, read from \(folder.path)")
+        let literal = try Regex(#""[^"\n]*""#)
+        for file in files {
+            let code = try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            for line in code {
+                for match in line.matches(of: literal) where match.output[0].substring?.lowercased().contains("debrief") == true {
+                    #expect(match.output[0].substring?.hasPrefix("\"debrief-") == true, "\(file.lastPathComponent): \(line)")
+                }
+            }
+        }
     }
 
     @Test func aTaskOutsideTheWorkspaceOrAnAgentTheOperatorCannotRunIsRefused() async throws {

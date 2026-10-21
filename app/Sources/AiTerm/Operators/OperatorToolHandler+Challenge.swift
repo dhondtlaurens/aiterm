@@ -184,7 +184,7 @@ extension OperatorToolHandler {
 
     /// A veto's call again with its id (spec §4.1). Unlike a critique, only the Oracle's yes acts, with no reply
     /// needed and only for the call it was asked about; a no, a failure, a timeout, or a veto lost with AiTerm's
-    /// restart refuses, and AiTerm notes the addition for the debrief.
+    /// restart refuses, and AiTerm notes the addition for the summary.
     private func vetoAnswer(_ call: ToolCall, _ kept: ChallengeRecord, in run: OperatorRun) async throws -> JSONValue? {
         let id = kept.id
         // A challenge answers only the call it was asked about, whatever its stage: never another task's.
@@ -245,7 +245,7 @@ extension OperatorToolHandler {
                               + "AiTerm recorded it on the task; call finish_task again once they hold.")
         }
         let filing = await noteFind(call, in: run, why: why ?? "The Oracle judged it off-brief.")
-        throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the debrief" + Self.ending(filing))
+        throw ToolRefusal("The Oracle judged this off-brief. AiTerm noted it for the summary" + Self.ending(filing))
     }
 
     private func proceedUnchallenged(_ call: ToolCall, in run: OperatorRun, askedSHA: String?) throws {
@@ -264,7 +264,7 @@ extension OperatorToolHandler {
 
     private func refuseUnanswered(_ call: ToolCall, in run: OperatorRun) async throws -> Never {
         let filing = await noteFind(call, in: run, why: "The Oracle didn’t answer in time.")
-        throw ToolRefusal("The Oracle didn’t answer in time. AiTerm noted it for the debrief" + Self.ending(filing))
+        throw ToolRefusal("The Oracle didn’t answer in time. AiTerm noted it for the summary" + Self.ending(filing))
     }
 
     /// `text` ending as a sentence does.
@@ -273,7 +273,7 @@ extension OperatorToolHandler {
         return [".", "!", "?"].contains(trimmed.last.map(String.init) ?? "") ? trimmed : trimmed + "."
     }
 
-    /// Why the Oracle kept a merge from happening, on the task's publication, where its card and the debrief read it;
+    /// Why the Oracle kept a merge from happening, on the task's publication, where its card reads it;
     /// the operator's next finish_task clears it.
     private func refuseMerge(_ call: ToolCall, in run: OperatorRun, problem: String) {
         guard let task = try? task(call, in: run) else { return }

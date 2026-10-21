@@ -107,7 +107,6 @@ import Foundation
     }
 
     @Test func aReasonIsWhyTheCallWentTheWayItDid() {
-        typealias E = ActivityEntry.Outcome
         #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .refused, result: "No") == "No")
         #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .failed, result: "Broke") == "Broke")
         #expect(ActivityLine.reason(tool: "mark_task", arguments: .null, outcome: .challenged,

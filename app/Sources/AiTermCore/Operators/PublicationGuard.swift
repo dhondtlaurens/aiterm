@@ -49,7 +49,7 @@ public enum PublicationGuard {
         return nil
     }
 
-    /// What is left for you when the Merge slice keeps a merge from happening, said once in the debrief.
+    /// What is left for you when the Merge slice keeps a merge from happening, said once in Left for you.
     public static func mergeLeftForYou(_ operated: OperatedTask) -> String {
         let request = operated.publication.flatMap { publication in
             publication.mergeRequestNumber.map { number in
