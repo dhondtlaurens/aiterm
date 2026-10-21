@@ -193,7 +193,7 @@ vendor needs both.
 `JiraProjectSheet`, `SettingsView`, `SettingsCard`, `ServiceCard`, `ItermSettingsCard`, `SettingsGroup`,
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
-`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardHeading`, `BoardScroll`,
+`NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
 `TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
@@ -290,36 +290,46 @@ Motion. Its menu leads with Take Over or Hand Back, and Stop Task… (it asks fi
 task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
 status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
 says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet, and
-ended, have no box and the surface's secondary ink; acting has no box and its words shimmer,
-a band of the surface's ink sweeping over its secondary ink every 1.6 s on Core Animation's clock
-(`ShimmerWordsView`: a `CAGradientLayer` masking the ink's `CATextLayer`, nothing updated per frame),
-standing still in the surface's ink under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
+ended, have no box and the surface's secondary ink; acting has no box and the surface's ink, and when its
+words change they decode once: each letter and digit runs through glyphs (`0-9a-z`, one advance wide in the mono
+face, so the line keeps its width) and they settle from the left over `OperatorBadge.decodeDuration` (0.5 s),
+then stand still, the row's spinner carrying the ongoing motion (`DecodeWordsView`: a `CATextLayer` with frames
+of its own at 30 a second, no SwiftUI update per frame, and no loop). The words stand still at once
+under Reduce Motion and in the snapshots; needs you is `statusChipAttentionFill` and `Stroke` with
 `Palette.text`, and on `Surface.accent` the surface's `badgeWash` and ink. The words are a closed list
 decided by `OperatorLine` (`AiTermCore/Sidebar/OperatorLine.swift`), from the task's state, the
 broadcast's requests (`OperatorRequests`) and the act AiTerm is carrying out (`OperatorAct`, published
 by `OperatorController.acting`); a request outranks an act, and a task you took over has no line. A line
-shimmers exactly when its row's `StatusMark` turns. Ended is every end a task's line names, `done · 4f2a91c`,
+acts exactly when its row's `StatusMark` turns. Ended is every end a task's line names, `done · 4f2a91c`,
 `done · no change`, `draft MR · !412`, `merged · 9b3e07d` and `merged locally · 1c84e20`: the Operator's work
 on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
 and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
 removal or shelving spins. Until then, while the Operator holds the task, its mark spins whatever its tabs say,
 with no done dot, and turns amber only when it needs you: its tab waiting on input, or its line needing you
-(`SidebarModel.heldStatus`, P3 1A). A queued task's is the pause sign. No other state has a mark of its own. Acting: `working` (the task's agent works), the
-broadcast's `working · 3 tasks` (`working · 2 tasks · 1 ready to accept` while some wait to be accepted, their
-workers done; the words are `OperatorLine.Count`'s), and the acts: `loading the construct`, `consulting the Oracle`,
+(`SidebarModel.heldStatus`, P3 1A). A queued task's is the pause sign. No other state has a mark of its own. The
+Operator's words are its own plain verbs: accepting is its job, so only what you must do is amber. Acting:
+`monitoring Claude` (the task's agent works; `monitoring 2 tabs` with several worker tabs open), `checking next`
+(every worker ended its turn: the Operator checks it next), the broadcast's `monitoring 3 tasks` (`monitoring 2
+tasks · checking 1 next` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
+tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
 a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
 task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-and on the broadcast's line `ready to accept · 2 tasks` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
+and on the broadcast's line `checking 2 next` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
 and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
-window shows it whole), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
+window shows it whole), `waiting on you · docs` (one of several worker tabs asks: the first by
+`OperatorLine.first`'s order, then by tab order, `main` first), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
-`left for you · 4f2a91c`, a publication handed back. A line is at most `OperatorLine.maxLength` (40) characters,
-its detail cut at a word. The group, its header and the Operator's row are values, `BroadcastSection`, `BroadcastRow` and
-`OperatorRow` (`AiTermCore/Sidebar/BroadcastRow.swift`).
+`left for you · 4f2a91c`, a publication handed back. The Operator's own row says its session's line
+(`OperatorLine.session`), nothing of its tasks: its act, `working`, `waiting for its tasks` between turns,
+`paused`, `asks you in its window` (needs you: its tab waits on input, or a question for the whole broadcast is
+open) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
+A line is at most `OperatorLine.maxLength` (40) characters, its detail cut at a word. The group, its header and
+the Operator's row are values, `BroadcastSection`, `BroadcastRow` and `OperatorRow`
+(`AiTermCore/Sidebar/BroadcastRow.swift`).
 
 The heading's "+" opens **New Broadcast** (`NewBroadcastSheet`, its state `NewBroadcastModel`), the creation
 frame's parts on four steps, Broadcast · Prompt · Review · Done, and no agent step (`CreationSteps.broadcast`):
@@ -361,7 +371,15 @@ task row, `Space.tight` apart: the title in `Typography.body`, two lines at most
 spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
-Its tooltip is the model the Operator chose and its one-line reason. A card's click closes the sheet
+Its tooltip is the model the Operator chose and its one-line reason. A task with several worker tabs keeps one
+card, `monitoring 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.Tab`),
+`Space.base` either side of it, `Space.tight` apart: a `Size.chip` line of the tab's agent's `VendorMark` at
+`Size.inlineMark`, centred under the card's mark; its key (`main`, `e2e-tests`) in `Typography.monoChip` and
+`Palette.text` on the title's leading edge; `Space.base` after it its state, an `OperatorBadge` (`at work`, `turn
+ended`, `opening`, `closed`, or `waiting on you` in the attention chip); and its `StatusMark` at
+`Size.statusMarkSmall` trailing. Hovered, a tab line takes `Palette.badgeHovered` at `Radius.chip`, `Space.tight`
+beyond it. A tab line's click closes the sheet and brings that tab forward (`session.activate`); a closed tab is
+listed with its key muted and no mark, and is no button, as is one still opening. A card's click closes the sheet
 first, then opens what resolves it (`BroadcastBoard.Opens`): a permission prompt or a started task, the
 task's window; a question or a blocked task, the Operator's window; a problem AiTerm hit, nothing more
 than the sidebar banner already showing it. A Todo card is no button. The footer is Pause Broadcast or

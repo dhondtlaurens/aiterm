@@ -82,6 +82,9 @@
       "operator.revoke": [
         "reply.operator.revoke.json"
       ],
+      "session.activate": [
+        "reply.session.activate.json"
+      ],
       "session.deliver": [
         "reply.session.deliver.json",
         "reply.session.deliver.refused.json"
@@ -140,6 +143,7 @@
     "operator.register",
     "operator.reply",
     "operator.revoke",
+    "session.activate",
     "session.deliver",
     "session.dismissStartup",
     "session.prompt",

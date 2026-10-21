@@ -104,8 +104,9 @@ struct OperatorScene {
     }
 
     /// Puts `run` and `tasks` in the workspace, the tabs of the tasks at work, and what the Operator does.
-    /// A task with an open permission prompt has its agent waiting on you. `operatorTab` is the Operator's own
-    /// tab, in the state its session is in; nil leaves it unlisted. `others` are tasks of your own beside them.
+    /// A task with an open permission prompt has its agent waiting on you; an extra worker tab with a session
+    /// ended its turn. `operatorTab` is the Operator's own tab, in the state its session is in; nil leaves it
+    /// unlisted. `others` are tasks of your own beside them.
     func show(_ run: OperatorRun?, _ tasks: [TaskItem], acting: OperatorActs = .none, operatorTab: String? = nil,
               others: [TaskItem] = [], folded: Bool = false) {
         controller.rows.actingSource = { acting }
@@ -114,10 +115,15 @@ struct OperatorScene {
             state.foldedRuns = folded ? Set([runId]) : []
         }
         let prompted = Set((run?.questions ?? []).filter { $0.id.hasPrefix("prompt-") }.compactMap(\.task))
-        let workers = tasks.compactMap { task -> SessionInfo? in
-            guard let operated = task.operated, operated.state == .working else { return nil }
-            return Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue,
-                                   prompted.contains(task.id) ? "needsInput" : "working", 0, cwd: task.worktreePath, active: true)
+        let workers = tasks.flatMap { task -> [SessionInfo] in
+            guard let operated = task.operated, operated.state == .working else { return [] }
+            let main = Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue,
+                                       prompted.contains(task.id) ? "needsInput" : "working", 0, cwd: task.worktreePath, active: true)
+            let extra = operated.extraTabs.enumerated().compactMap { index, tab in
+                tab.sessionId.flatMap { Fixture.session($0, task.windowId ?? "", task.id, tab.agent.rawValue, "idle", index + 1,
+                                                        cwd: task.worktreePath, tabKey: tab.key) }
+            }
+            return [main].compactMap { $0 } + extra
         }
         let own = others.compactMap { task in
             Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue, "idle", 0,
@@ -139,6 +145,22 @@ struct OperatorScene {
                  createdAt: Snapshots.clock.now, windowId: "w-footer")
     }
 
+    /// The cart drawer with two extra worker tabs (P5 A): `e2e-tests`, whose turn ended, and `api-mocks`, closed.
+    func withTabs(_ tasks: [TaskItem]) -> [TaskItem] {
+        tasks.map { task in
+            guard task.id == drawer else { return task }
+            var task = task
+            let opened = LaunchAttempt(number: 1, requestedAt: Snapshots.clock.now, openedAt: Snapshots.clock.now)
+            task.operated?.extraTabs = [
+                ExtraTab(key: "e2e-tests", agent: .codex, model: "gpt-5.5", reasoning: nil, modelReason: "Codex writes the tests.",
+                         brief: "Write the end-to-end tests.", launch: opened, sessionId: "s-e2e"),
+                ExtraTab(key: "api-mocks", agent: .claude, model: "claude-opus-5-5", reasoning: nil, modelReason: "Mocks the provider.",
+                         brief: "Mock the payment provider.", launch: opened),
+            ]
+            return task
+        }
+    }
+
     /// What the Operator does to the cart drawer: answering Claude, on its row and the broadcast's.
     var answeringTheDrawer: OperatorActs {
         OperatorActs(tasks: [drawer: .answering], runs: [runId: .init(act: .answering, task: "Cart drawer")])
@@ -148,9 +170,9 @@ struct OperatorScene {
 
     // -- the drawing's moments ------------------------------------------------------
 
-    /// The board while it runs: one request on it, the Operator answering another agent.
+    /// The board while it runs: one request on it, the Operator answering another agent whose task has three tabs.
     static func running(_ scene: OperatorScene = OperatorScene()) -> OperatorScene {
-        scene.show(scene.run(.active, questions: [scene.npmInstall]), scene.checkout(), acting: scene.answeringTheDrawer)
+        scene.show(scene.run(.active, questions: [scene.npmInstall]), scene.withTabs(scene.checkout()), acting: scene.answeringTheDrawer)
         return scene
     }
 

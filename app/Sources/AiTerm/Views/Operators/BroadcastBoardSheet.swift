@@ -149,7 +149,7 @@ struct BroadcastBoardSheet: View, Equatable {
                         // At the card's own inset, so it reads on the line of the cards' titles beside it.
                         Text(lane.empty).font(Typography.help).foregroundStyle(Palette.muted).padding(.vertical, Space.inset)
                     }
-                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: { choose(card.opens) }).equatable() }
+                    ForEach(lane.cards) { card in BoardCardView(card: card, choose: choose).equatable() }
                 }
             }
         }
@@ -208,11 +208,13 @@ struct BoardScroll<Content: View>: View {
 /// wears, and the project when the broadcast spans several, never the branch; then its status line, one
 /// `Size.chip` line: the task's `OperatorBadge`, or `taken over` with no badge. A card
 /// that needs you has its edge in `Palette.statusChipAttentionStroke` and the needs-you badge, nothing more:
-/// the card is the action. Its tooltip is the model the Operator chose and why. Equatable by its card
-/// alone, so a change to another card redraws this one not at all.
+/// the card is the action. Its tooltip is the model the Operator chose and why. A task with several worker
+/// tabs lists them under a `Hairline` (`BoardTabLine`), each its own button, the card's click above them.
+/// Equatable by its card alone, so a change to another card redraws this one not at all.
 struct BoardCardView: View, Equatable {
     let card: BroadcastBoard.Card
-    let choose: () -> Void
+    /// What the card's click, or a tab line's, opens: the sheet closes first (`BroadcastBoardSheet.choose`).
+    let choose: (BroadcastBoard.Opens) -> Void
     @State private var hovered = false
     #if DEBUG
     @Environment(\.rowBodyCounter) private var bodyCounter
@@ -224,27 +226,45 @@ struct BoardCardView: View, Equatable {
         #if DEBUG
         let _ = bodyCounter?.count(card.id)
         #endif
-        if BroadcastBoardSheet.isButton(card.opens) {
-            Button(action: choose) { box }
-                .buttonStyle(.plain)
-                .onHover { hovered = $0 }
-                .accessibilityHint(Text(Self.hint(card.opens)))
-        } else {
-            box
+        VStack(alignment: .leading, spacing: 0) {
+            if BroadcastBoardSheet.isButton(card.opens) {
+                Button { choose(card.opens) } label: { head }
+                    .buttonStyle(.plain)
+                    .onHover { hovered = $0 }
+                    .accessibilityHint(Text(Self.hint(card.opens)))
+            } else {
+                head
+            }
+            if !card.tabs.isEmpty { tabs }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
+                     edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
+        .help(card.modelTooltip ?? "")
     }
 
-    private var box: some View {
+    /// The card's own part, its click's: the mark and the lines, `Space.inset` inside, `Space.base` above the
+    /// tabs' hairline when it has them.
+    private var head: some View {
         HStack(alignment: .top, spacing: Space.base) {
             if let agent = card.agent { VendorMark(agent: agent.session, size: Size.avatar) }
             lines
         }
-        .padding(Space.inset)
+        .padding([.horizontal, .top], Space.inset)
+        .padding(.bottom, card.tabs.isEmpty ? Space.inset : Space.base)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .groupChrome(fill: hovered ? Palette.rowHoverSolid : Palette.surface,
-                     edge: card.needsYou ? Palette.statusChipAttentionStroke : Palette.border)
         .contentShape(Rectangle())
-        .help(card.modelTooltip ?? "")
+    }
+
+    /// The worker tabs under a `Hairline`, `Space.base` below it, `Space.tight` apart.
+    private var tabs: some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            ForEach(card.tabs) { tab in BoardTabLine(tab: tab, choose: { choose(tab.opens) }) }
+        }
+        .padding(.top, Space.base)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Hairline() }
+        .padding([.horizontal, .bottom], Space.inset)
     }
 
     private var lines: some View {
@@ -272,10 +292,60 @@ struct BoardCardView: View, Equatable {
     static func hint(_ opens: BroadcastBoard.Opens) -> String {
         switch opens {
         case .taskWindow: "Opens the task’s window."
+        case .tab: "Brings this tab to the front."
         case .operatorWindow: "Opens the Operator’s window."
         case .sidebarBanner: "Shows the problem in the sidebar’s banner."
         case .nothing: ""
         }
+    }
+}
+
+/// One worker tab on a card (P5 A), a `Size.chip` line: the tab's agent's `VendorMark` at `Size.inlineMark`,
+/// centred under the card's `Size.avatar` mark; its key in `Typography.monoChip` and `Palette.text` on the
+/// title's leading edge; its state `Space.base` after it, an `OperatorBadge` (needs you in the attention chip);
+/// its `StatusMark` at `Size.statusMarkSmall` trailing. Hovered, `Palette.badgeHovered` at `Radius.chip`,
+/// `Space.tight` beyond the line. Its click closes the board and brings the tab forward; a closed tab is muted,
+/// with no mark, and is no button.
+struct BoardTabLine: View {
+    let tab: BroadcastBoard.Tab
+    let choose: () -> Void
+    private var _hovered = State(initialValue: false)
+    private var hovered: Bool {
+        get { _hovered.wrappedValue }
+        nonmutating set { _hovered.wrappedValue = newValue }
+    }
+
+    init(tab: BroadcastBoard.Tab, choose: @escaping () -> Void) {
+        self.tab = tab; self.choose = choose
+    }
+
+    var body: some View {
+        if BroadcastBoardSheet.isButton(tab.opens) {
+            Button(action: choose) { line }
+                .buttonStyle(.plain)
+                .onHover { hovered = $0 }
+                .accessibilityHint(Text(BoardCardView.hint(tab.opens)))
+        } else {
+            line
+        }
+    }
+
+    private var line: some View {
+        HStack(spacing: 0) {
+            VendorMark(agent: tab.agent.session, size: Size.inlineMark).frame(width: Size.avatar)
+            Text(verbatim: tab.key).font(Typography.monoChip).foregroundStyle(tab.isClosed ? Palette.muted : Palette.text)
+                .lineLimit(1).fixedSize().padding(.leading, Space.base)
+            OperatorBadge(line: tab.line).padding(.leading, Space.base)
+            Spacer(minLength: Space.tight)
+            if let status = tab.status { StatusMark(status: status, size: Size.statusMarkSmall) }
+        }
+        .frame(height: Size.chip)
+        .background {
+            if hovered { RoundedRectangle(cornerRadius: Radius.chip).fill(Palette.badgeHovered).padding(-Space.tight) }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(tab.key), \(tab.line.tooltip)")
     }
 }
 

@@ -32,7 +32,7 @@ import Testing
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         let drawn = row(task, run: run, tabs: [tab(task, .claude)])
         #expect(drawn.avatars == AvatarGroup(marks: [.claude], overflow: 0))
-        #expect(drawn.operatorLine == OperatorLine("working", look: .acting))
+        #expect(drawn.operatorLine == OperatorLine("monitoring Claude", look: .acting))
         let acting = row(task, run: run, tabs: [tab(task, .claude)], acting: [task.id: .answering])
         #expect(acting.operatorLine == OperatorLine("answering Claude", look: .acting))
     }

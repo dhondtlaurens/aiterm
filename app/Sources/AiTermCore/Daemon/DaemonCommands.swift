@@ -12,6 +12,9 @@ public protocol DaemonCommands: Sendable {
     /// it behind the person's work.
     func createTab(windowId: String, cwd: String, agentCommand: String?, tabKey: String?, background: Bool) async throws -> String
     func activate(windowId: String) async throws
+    /// One tab selected in its window, and that window brought forward: a task's worker tab among several, which
+    /// `activate(windowId:)` would leave as its window last showed it.
+    func activate(sessionId: String) async throws
     func setFrame(windowId: String, frame: Frame) async throws
     func close(windowId: String) async throws
     @discardableResult func setSessionTitles(_ titles: [SessionTitle]) async throws -> Int
