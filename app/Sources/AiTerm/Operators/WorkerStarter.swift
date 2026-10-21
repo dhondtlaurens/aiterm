@@ -38,7 +38,7 @@ final class WorkerStarter {
     /// Said when a start blocks its task: you are asked (spec §8).
     var onBlocked: @MainActor (TaskItem, String) -> Void = { _, _ in }
     var onUncertain: @MainActor (TaskItem) -> Void = { _ in }
-    /// Told when a start or a reopen begins and ends: the task's line says `starting Claude` or
+    /// Told when a start or a reopen begins and ends: the task's line says `Operator starting it` or
     /// `reopening its window` meanwhile (the controller's `acting`).
     var onActing: @MainActor (OperatorActivity, Bool) -> Void = { _, _ in }
 

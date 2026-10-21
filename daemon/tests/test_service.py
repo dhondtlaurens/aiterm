@@ -16,7 +16,7 @@ from aitermd import service
 from aitermd.codex_sessions import CodexSessionFiles
 from aitermd.hooks_server import HookServer
 from aitermd.iterm_bridge import ItermUnavailable
-from aitermd.models import Frame, TokenTally
+from aitermd.models import Frame
 from tests.conftest import wait_until
 from tests.fake_iterm import FakeIterm
 
@@ -381,121 +381,11 @@ async def test_tick_reads_codex_context_after_a_hook_identifies_the_thread(stack
         {"type": "session_meta", "payload": {"id": "thread-context", "session_id": "thread-context"}},
         {"type": "event_msg", "payload": {"type": "token_count", "info": {
             "last_token_usage": {"total_tokens": 66_020}, "model_context_window": 258_400,
-            "total_token_usage": {"input_tokens": 70_000, "cached_input_tokens": 60_000, "output_tokens": 900},
         }}},
     ]) + "\n")
-    child = rollout.parent / "rollout-2026-09-22T09-30-00-review-child.jsonl"
-    child.write_text("\n".join(json.dumps(record) for record in [
-        {"type": "session_meta", "payload": {"id": "review-child", "session_id": "thread-context",
-                                             "parent_thread_id": "thread-context"}},
-        {"type": "event_msg", "payload": {"type": "token_count", "info": {
-            "total_token_usage": {"input_tokens": 800, "cached_input_tokens": 700, "output_tokens": 20}}}},
-    ]) + "\n")
-
     await svc.tick()
 
     assert svc.registry.get(sid).context_percent == 26
-    assert svc.registry.get(sid).tokens == TokenTally(70_800, 60_700, 920)
-
-
-async def test_tick_tallies_a_claude_conversation_and_its_subagents(stack, tmp_path):
-    svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=120, title="Claude")
-    await svc.tick()
-    transcript = tmp_path / "projects" / "c1.jsonl"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "model": "claude-opus-5", "usage": {
-        "input_tokens": 2, "cache_creation_input_tokens": 8, "cache_read_input_tokens": 90, "output_tokens": 7}}}) + "\n")
-    child = tmp_path / "projects" / "c1" / "subagents" / "agent-a1.jsonl"
-    child.parent.mkdir(parents=True)
-    child.write_text(json.dumps({"type": "assistant", "message": {"id": "a1", "model": "claude-haiku-5", "usage": {
-        "input_tokens": 50, "output_tokens": 3}}}) + "\n")
-    await svc.hook_router.handle_hook("/statusline", {"session_id": "c1", "cwd": "/wt", "transcript_path": str(transcript),
-                                                      "_aiterm_iterm_session_id": sid})
-
-    await svc.tick()
-
-    assert svc.registry.get(sid).tokens == TokenTally(150, 98, 10)
-
-
-async def test_a_codex_tab_that_moves_to_a_thread_without_totals_drops_the_old_threads_tokens(stack):
-    svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "codex", job_pid=112, title="Codex")
-    await svc.tick()
-    await svc.hook_router.handle_hook("/hook/codex", {
-        "hook_event_name": "SessionStart", "session_id": "old-thread", "cwd": "/wt", "_aiterm_iterm_session_id": sid})
-    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-old-thread.jsonl"
-    rollout.parent.mkdir(parents=True)
-    rollout.write_text("\n".join(json.dumps(record) for record in [
-        {"type": "session_meta", "payload": {"id": "old-thread", "session_id": "old-thread"}},
-        {"type": "event_msg", "payload": {"type": "token_count", "info": {
-            "total_token_usage": {"input_tokens": 900, "cached_input_tokens": 800, "output_tokens": 30}}}},
-    ]) + "\n")
-    await svc.tick()
-    assert svc.registry.get(sid).tokens == TokenTally(900, 800, 30)
-
-    # /new in the same process: the new thread has made no call yet, so it has no totals at all.
-    await svc.hook_router.handle_hook("/hook/codex", {
-        "hook_event_name": "SessionStart", "session_id": "new-thread", "cwd": "/wt", "_aiterm_iterm_session_id": sid})
-    await svc.tick()
-
-    assert svc.resolver.codex_thread(sid) == "new-thread"
-    assert svc.registry.get(sid).tokens is None
-
-
-async def test_a_codex_tally_that_raises_still_lets_the_context_through(stack, monkeypatch):
-    svc, it, files, r, w = stack
-    svc.codex_files = CodexSessionFiles(files.root.parent / "codex-sessions")
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "codex", job_pid=113, title="Codex")
-    await svc.tick()
-    await svc.hook_router.handle_hook("/hook/codex", {
-        "hook_event_name": "SessionStart", "session_id": "thread-x", "cwd": "/wt", "_aiterm_iterm_session_id": sid})
-    rollout = svc.codex_files.root / "2026" / "09" / "22" / "rollout-2026-09-22T09-26-25-thread-x.jsonl"
-    rollout.parent.mkdir(parents=True)
-    rollout.write_text(json.dumps({"type": "event_msg", "payload": {"type": "token_count", "info": {
-        "last_token_usage": {"total_tokens": 50}, "model_context_window": 100}}}) + "\n")
-
-    def broken(thread_id):
-        raise RuntimeError("a tally that cannot be read")
-    monkeypatch.setattr(svc.codex_files, "tally", broken)
-    await svc.tick()
-
-    assert svc.registry.get(sid).context_percent == 50
-
-
-async def test_a_claude_tally_read_before_a_clear_is_not_written_onto_the_new_conversation(stack, tmp_path, monkeypatch):
-    svc, it, files, r, w = stack
-    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
-    sid = it.windows[wid]["sessions"][0]
-    await it.user_runs(sid, "claude", job_pid=121, title="Claude")
-    await svc.tick()
-    old, new = tmp_path / "projects" / "old.jsonl", tmp_path / "projects" / "new.jsonl"
-    old.parent.mkdir(parents=True)
-    old.write_text(json.dumps({"type": "assistant", "message": {"id": "m1", "model": "claude-opus-5", "usage": {
-        "input_tokens": 40, "output_tokens": 4}}}) + "\n")
-    await svc.hook_router.handle_hook("/statusline", {"session_id": "old", "cwd": "/wt", "transcript_path": str(old),
-                                                      "_aiterm_iterm_session_id": sid})
-    real_off_loop = svc._off_loop
-
-    async def clear_during_the_read(name, work, nothing):
-        found = await real_off_loop(name, work, nothing)
-        if name == service.CLAUDE_READ:
-            # /clear lands while the old transcript is being read: the tab now runs a new conversation.
-            svc.status.apply_metadata(sid, transcript=str(new))
-        return found
-    monkeypatch.setattr(svc, "_off_loop", clear_during_the_read)
-
-    await svc.tick()
-
-    assert svc.registry.get(sid).transcript == str(new)
-    assert svc.registry.get(sid).tokens is None
 
 
 async def test_new_codex_process_cannot_reuse_the_previous_threads_context(stack):
@@ -2165,24 +2055,12 @@ async def test_codex_rollout_cannot_change_a_replacement_thread(stack, monkeypat
 
     async def replaced_during_read(name, work, nothing):
         svc.resolver.bind(sid, "codex", "new-thread", "SessionStart")
-        return {"old-thread": (90, TokenTally(999, 9, 99), "old-version")}
+        return {"old-thread": (90, "old-version")}
 
     monkeypatch.setattr(svc, "_off_loop", replaced_during_read)
     assert await svc._apply_codex_rollouts({sid: "old-thread"}) == []
     session = svc.registry.get(sid)
-    assert (session.context_percent, session.tokens, session.cli_version) == (None, None, None)
-    assert svc._codex_threads.get(sid) != "old-thread"
-
-
-async def test_last_claude_transcript_owner_releases_cached_tallies(make_service, tmp_path):
-    from tests.test_claude_tokens import append, reply
-    svc = make_service()
-    transcript = tmp_path / "old.jsonl"
-    append(transcript, reply("m1", fresh=2, output=1))
-    svc.claude_tallies.tally(str(transcript))
-    assert svc.registry.all() == []
-    await svc._apply_claude_tallies()
-    assert svc.claude_tallies._conversations == {}
+    assert (session.context_percent, session.cli_version) == (None, None)
 
 
 async def test_service_stop_drains_the_shared_tick_started_by_an_unplaced_hook(make_service):

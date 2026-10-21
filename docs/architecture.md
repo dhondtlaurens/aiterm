@@ -207,8 +207,8 @@ columns and their cards, what each card's click opens (`BroadcastBoard.Opens`), 
 is made to `activity.jsonl` in the run folder (`ActivityLog`, its words from `ActivityLine`), which the sheet's
 Activity follows through `ActivityFeed`. `BroadcastBoardHost` presents it, and `ShelvedBroadcastHost` an ended
 broadcast's, read-only, from the Shelf (`BroadcastBoard.shelved`); `OperatorRequests.open` says what needs you, and
-`OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`monitoring
-2 tabs`, `checking next`), the Operator's row's from its own session alone (`OperatorLine.session`, read from
+`OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`Operator
+watching · 2 tabs`, `ready for the Operator`), the Operator's row's from its own session alone (`OperatorLine.session`, read from
 `run.operatorSessionId`'s tab), the header's tooltip and the band from the whole broadcast. A driven task's
 click (`AppController.choose(task:)`) raises its window and then brings `TaskItem.tabToBring`'s tab with
 `session.activate`.
@@ -416,15 +416,6 @@ failure the banner names the log at `~/Library/Application Support/AiTerm/aiterm
 | conversation | each agent's own hooks — Claude's, Codex's and Grok's `session_id`/`sessionId`, PI's session id — kept only for a post placed on its tab by pid or by the tab id it carries, never by a pin or the directory; a subagent's start or stop and a Grok subagent's post name none, and it goes with the agent's process as the model does |
 | skills & commands | discovered on disk per agent and per project, for the prompt step's completions |
 
-**Token counts** are each tab's own, its subagents' included and nothing counted twice. Claude's are
-summed from the transcript and every `subagents/**/agent-*.jsonl` beside it, one reply per
-`message.id` across the tree, each field the most any of its lines said, so a fork's copy of a
-parent's reply adds nothing. Codex's are the newest `total_token_usage` of the thread's rollout and
-of every rollout descended from it, by the `session_meta` lineage. Grok's are the status line's
-session totals, whose ledger already holds its subagents'. PI's extension posts its own: the
-session's entries without a tool result's usage, where pi-subagents hangs a child's, plus a
-process-wide ledger of what each subagent has spent.
-
 ## What AiTerm writes, and where
 
 **Secrets** — one Keychain item, service `com.laurensdhondt.aiterm`, account `secrets`: a JSON
@@ -472,7 +463,7 @@ status line counts as current only when it names this bundle's shim or a copy th
 eight events go to a file AiTerm owns outright, `~/.grok/hooks/aiterm.json`, written atomically
 rather than merged; only its status line merges into `~/.grok/config.toml`'s `[ui.status_line]`
 table, saving a foreign command to `grok-statusline-original.cmd` first. The PI extension goes to
-`~/.pi/agent/extensions/aiterm-status.ts`, schema 5, written with the hook port in place of its placeholder.
+`~/.pi/agent/extensions/aiterm-status.ts`, schema 6, written with the hook port in place of its placeholder.
 The two status-line shims run from the bundle and read the port from `hook-port` in the support folder,
 which each of their drivers' Install writes (launch writes it too, for an upgrade); a shim with no port
 posts nothing, and a card whose file does not hold the daemon's port is outdated.

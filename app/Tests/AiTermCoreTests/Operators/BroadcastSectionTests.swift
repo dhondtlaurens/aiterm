@@ -99,7 +99,7 @@ import Testing
         let group = try section(state(run, [working, turnEnded, asking, blocked, review, merged, mine]), sessions: sessions)
         let status = Dictionary(uniqueKeysWithValues: group.tasks.map { ($0.title, $0.status) })
         #expect(status["working"] == .working, "an idle tab spins while the Operator holds it")
-        #expect(status["turn ended"] == .working, "no done dot: the turn is the Operator's to read")
+        #expect(status["turn ended"] == .working, "no done ring: the turn is the Operator's to read")
         #expect(status["asking"] == .needsInput, "a prompt is yours")
         #expect(status["blocked"] == .needsInput, "so is a block")
         #expect(status["review"] == .working)
@@ -109,7 +109,7 @@ import Testing
         #expect(SidebarModel.heldStatus(.done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou)) == .needsInput)
     }
 
-    /// A driven task's line reads its own tabs: `monitoring 2 tabs` with several worker tabs open, `checking next`
+    /// A driven task's line reads its own tabs: `Operator watching · 2 tabs` with several worker tabs open, `ready for the Operator`
     /// once every one ended its turn, and the tab that asks named.
     @Test func aTasksLineCountsItsTabs() throws {
         let run = run()
@@ -120,13 +120,13 @@ import Testing
                 + (docs.map { [OperatorUIFixtures.tab("s2", of: drawer, $0, index: 1, key: "docs")] } ?? [])
             return try section(state(run, [drawer]), sessions: tabs).tasks.first?.operatorLine
         }
-        #expect(try line(.working, .working) == OperatorLine("monitoring 2 tabs", look: .acting))
-        #expect(try line(.working, .idle) == OperatorLine("monitoring 2 tabs", look: .acting), "one still at work")
-        #expect(try line(.idle, .done) == OperatorLine("checking next", look: .acting))
-        #expect(try line(.working, nil) == OperatorLine("monitoring Claude", look: .acting), "a closed extra tab is not counted")
+        #expect(try line(.working, .working) == OperatorLine("Operator watching · 2 tabs", look: .acting))
+        #expect(try line(.working, .idle) == OperatorLine("Operator watching · 2 tabs", look: .acting), "one still at work")
+        #expect(try line(.idle, .done) == OperatorLine("ready for the Operator", look: .acting))
+        #expect(try line(.working, nil) == OperatorLine("Operator watching", look: .acting), "a closed extra tab is not counted")
         let single = task("Price formatting", run: run.id, .working)
         #expect(try section(state(run, [single]), sessions: [tab(single, .working)]).tasks.first?.operatorLine
-                == OperatorLine("monitoring Claude", look: .acting))
+                == OperatorLine("Operator watching", look: .acting))
         var asking = run
         asking.questions = [OperatorUIFixtures.question("Codex asks to run npm install", id: "prompt-1", task: drawer.id, tab: "docs")]
         let asked = try section(state(asking, [drawer]),
@@ -174,12 +174,12 @@ import Testing
         #expect(working.line == OperatorLine("working", look: .acting))
         #expect(working.status == .working)
 
-        // Between turns, an idle tab: it waits for its tasks, under the idle ring, whatever they do.
+        // Between turns, an idle tab: it watches its working tasks, counted, under the idle ring.
         let review = task("review", run: busy.id, .inReview)
         let between = try section(state(busy, [review, drawer]), sessions: [operatorTab(busy, .idle), tab(drawer, .working)]).operatorRow
-        #expect(between.line == OperatorLine("waiting for its tasks"))
+        #expect(between.line == OperatorLine("watching 1 task"))
         #expect(between.status == .idle)
-        #expect(try section(state(busy)).operatorRow.line == OperatorLine("waiting for its tasks"), "no tab listed yet: quiet")
+        #expect(try section(state(busy)).operatorRow.line == OperatorLine("waiting for its tasks"), "no tab listed yet and none at work: quiet")
     }
 
     /// Its session is the one the run recorded (`operatorSessionId`), ahead of any other tab tagged with the run.
@@ -211,7 +211,7 @@ import Testing
         complete.summary = "Both merged."
         complete.summaryAt = OperatorUIFixtures.epoch
         let done = try section(state(complete), sessions: [operatorTab(complete, .idle)]).operatorRow
-        #expect(done.line == OperatorLine("done · summary ready") && done.status == .done, "the accent dot once the summary is ready")
+        #expect(done.line == OperatorLine("done · summary ready") && done.status == .done, "the accent ring once the summary is ready")
     }
 
     // -- the header ------------------------------------------------------------------------

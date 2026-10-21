@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, RawSession, SessionInfo, State, TokenTally, classify_agent
+from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, RawSession, SessionInfo, State, classify_agent
 
 
 @dataclass(slots=True)
@@ -53,7 +53,7 @@ class SessionRegistry:
             # or context, nor send Cmd+T into the worktree an exited Claude had entered.
             if info.agent == old.agent and info.job_pid == old.job_pid:
                 info.model, info.reasoning, info.agent_cwd = old.model, old.reasoning, old.agent_cwd
-                info.context_percent, info.tokens, info.transcript = old.context_percent, old.tokens, old.transcript
+                info.context_percent = old.context_percent
                 info.cli_version = old.cli_version
                 info.conversation_id = old.conversation_id
             if info != old:
@@ -117,20 +117,6 @@ class SessionRegistry:
         if s is None or s.context_percent == percent:
             return False
         s.context_percent = percent
-        return True
-
-    def set_tokens(self, session_id: str, tokens: TokenTally | None) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.tokens == tokens:
-            return False
-        s.tokens = tokens
-        return True
-
-    def set_transcript(self, session_id: str, transcript: str) -> bool:
-        s = self._sessions.get(session_id)
-        if s is None or s.transcript == transcript:
-            return False
-        s.transcript = transcript
         return True
 
     def set_cli_version(self, session_id: str, version: str | None) -> bool:

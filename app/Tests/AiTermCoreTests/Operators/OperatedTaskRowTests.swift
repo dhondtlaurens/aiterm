@@ -32,9 +32,9 @@ import Testing
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         let drawn = row(task, run: run, tabs: [tab(task, .claude)])
         #expect(drawn.avatars == AvatarGroup(marks: [.claude], overflow: 0))
-        #expect(drawn.operatorLine == OperatorLine("monitoring Claude", look: .acting))
+        #expect(drawn.operatorLine == OperatorLine("Operator watching", look: .acting))
         let acting = row(task, run: run, tabs: [tab(task, .claude)], acting: [task.id: .answering])
-        #expect(acting.operatorLine == OperatorLine("answering Claude", look: .acting))
+        #expect(acting.operatorLine == OperatorLine("Operator answering", look: .acting))
     }
 
     /// The column is two marks wide, all of it the task's own: a third tab is `+n`.

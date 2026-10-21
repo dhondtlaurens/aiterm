@@ -8,7 +8,7 @@ enum BackpackNeed: Equatable { case lostHotspot, lowBattery(level: Int) }
 
 /// The Mac's mode in SYSTEM, decided apart from the view so a test reads it (spec 2026-10-05;
 /// proposal 2A and 3A, 6 Oct 2026). At the desk it draws no line of its own — the Mac's readings
-/// row is its row — and in the backpack a `ToneDot` and its words.
+/// row is its row — and in the backpack a `ToneRing` and its words.
 enum MacMode: Equatable {
     case desk
     case turningOn, on, needsYou(BackpackNeed), turningOff
@@ -36,7 +36,7 @@ enum MacMode: Equatable {
         }
     }
 
-    /// The line's colour, its dot's and its words': ready while on, attention when it needs you,
+    /// The line's colour, its ring's and its words': ready while on, attention when it needs you,
     /// idle while it switches. Nil at the desk.
     var tone: SettingsTone? {
         switch self {

@@ -99,7 +99,7 @@ final class OperatorController {
     /// The worker tabs, by session, whose open prompt is being read.
     @ObservationIgnored private var probing: Set<String> = []
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
-    /// daemon reports for one of its tabs — status, title, tokens, context, conversation.
+    /// daemon reports for one of its tabs — status, title, context, conversation.
     @ObservationIgnored private var stallWatch = StallWatch()
     /// The latest prompt probe, for a test to await.
     @ObservationIgnored private(set) var lastProbe: Task<Void, Never>?

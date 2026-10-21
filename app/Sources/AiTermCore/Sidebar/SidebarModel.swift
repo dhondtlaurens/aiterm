@@ -21,11 +21,11 @@ public extension SessionState {
 
 public extension SessionInfo {
     /// The tab without what no row draws, for telling a change the rows draw from one they don't:
-    /// most session events are a context fill, a token count, a conversation id, a model or a Codex spinner title. A field the rows —
+    /// most session events are a context fill, a conversation id, a model or a Codex spinner title. A field the rows —
     /// or the footer's `ctx` row — start to read has to stay here.
     var rowRelevant: SessionInfo {
         var row = self
-        row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil; row.tokens = nil
+        row.model = nil; row.reasoning = nil; row.title = ""; row.contextPercent = nil
         row.conversationId = nil
         return row
     }
@@ -202,14 +202,12 @@ public struct UsageVendorRow: Equatable, Sendable {
     public var vendor: AgentKind; public var lines: [UsageLine]; public var note: String?
     public var warning = false
 }
-/// The footer's first row: what runs in the selected task's or terminal's active tab, its `ctx` line
-/// and what its conversation has spent — each absent for a shell, and until the agent has reported it.
+/// The footer's first row: what runs in the selected task's or terminal's active tab and its `ctx` line,
+/// absent for a shell and until the agent has reported it.
 public struct UsageTaskRow: Equatable, Sendable {
     public var agent: SessionAgent; public var context: UsageLine?
-    /// The active tab's own counts, its subagents and background workers included.
-    public var tokens: TokenTally?
-    public init(agent: SessionAgent, context: UsageLine?, tokens: TokenTally? = nil) {
-        self.agent = agent; self.context = context; self.tokens = tokens
+    public init(agent: SessionAgent, context: UsageLine?) {
+        self.agent = agent; self.context = context
     }
 }
 
@@ -448,8 +446,8 @@ public enum SidebarModel {
     }
 
     /// One task's row: its tabs' agents, branch and status, and, driven, the Operator's line, read from the same
-    /// tabs, so it says `checking next` once every worker ended its turn and `monitoring 2 tabs` with several
-    /// open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
+    /// tabs, so it says `ready for the Operator` once every worker ended its turn and `Operator watching · 2 tabs`
+    /// with several open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
     static func taskRow(_ task: TaskItem, tabs: Tabs, operated: OperatedLookup, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
@@ -469,7 +467,7 @@ public enum SidebarModel {
     }
 
     /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct
-    /// 2026): at work, whatever its tabs say, so an idle tab or a turn's end shows the spinner and no done dot,
+    /// 2026): at work, whatever its tabs say, so an idle tab or a turn's end shows the spinner and no done ring,
     /// those being the Operator's to read. It needs you, amber, when its tab waits on input or its line does
     /// (a prompt, a question, a block). A task you made, one you took over and an ended one keep their tabs'.
     public static func heldStatus(_ status: TaskStatus, line: OperatorLine?) -> TaskStatus {
@@ -534,34 +532,28 @@ public enum SidebarModel {
     }
 
     /// The selected task — or review — as the footer's first row: whatever runs in its active tab,
-    /// that provider's last-known fill from `contexts`, and that tab's own counts from `tokens`, by
-    /// session. A shell tab has neither even while another tab of the task has both. A task whose
-    /// window is closed shows its own `agent`, with its last fill and no counts.
+    /// that provider's last-known fill from `contexts`. A shell tab has no context. A task whose
+    /// window is closed shows its own `agent`, with its last fill.
     public static func usageTaskRow(taskId: UUID, agent: AgentKind, sessions: [SessionInfo],
-                                    contexts: [AgentKind: Int], tokens: [String: TokenTally] = [:]) -> UsageTaskRow {
-        usageRow(sessions.filter { $0.taskUUID == taskId }, fallback: agent.session, contexts: contexts, tokens: tokens)
+                                    contexts: [AgentKind: Int]) -> UsageTaskRow {
+        usageRow(sessions.filter { $0.taskUUID == taskId }, fallback: agent.session, contexts: contexts)
     }
 
     /// The selected terminal as the footer's first row, on the same rules as ``usageTaskRow``. Its
     /// tabs carry no task tag, so they are matched by window, as its avatars are. A terminal has no
     /// agent of its own: with its window closed it is a shell.
     public static func usageTerminalRow(windowId: String?, sessions: [SessionInfo],
-                                        contexts: [AgentKind: Int], tokens: [String: TokenTally] = [:]) -> UsageTaskRow {
+                                        contexts: [AgentKind: Int]) -> UsageTaskRow {
         let own = windowId.map { wid in sessions.filter { $0.windowId == wid } } ?? []
-        return usageRow(own, fallback: .shell, contexts: contexts, tokens: tokens)
+        return usageRow(own, fallback: .shell, contexts: contexts)
     }
 
     /// Until the daemon has said which tab is current, the first tab stands in for it.
-    private static func usageRow(_ own: [SessionInfo], fallback: SessionAgent, contexts: [AgentKind: Int],
-                                 tokens: [String: TokenTally]) -> UsageTaskRow {
+    private static func usageRow(_ own: [SessionInfo], fallback: SessionAgent, contexts: [AgentKind: Int]) -> UsageTaskRow {
         let tab = own.first(where: \.active) ?? own.min { $0.tabIndex < $1.tabIndex }
         let agent = tab?.agent ?? fallback
         return UsageTaskRow(agent: agent, context: agent.agentKind.flatMap { contexts[$0] }.map {
             UsageLine(window: .context, percent: $0, reset: nil, warning: $0 >= warningThreshold)
-        }, tokens: agent == .shell ? nil : tab.flatMap { tokens[$0.sessionId] }.flatMap {
-            // Nothing in and nothing out (PI's tally from a session's start) is no counts yet, never
-            // `in 0 · out 0`. Dropped here, not by the daemon: a PI /new's zeros still replace an old tally.
-            $0.input == 0 && $0.output == 0 ? nil : $0
         })
     }
 

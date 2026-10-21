@@ -14,10 +14,10 @@ struct BadgeDetailSwitch: Identifiable, Sendable {
 
     var id: String { title }
 
-    /// In the order a task row draws them, the project header's key first because it sits above.
+    /// In the order a task row draws them, the project header's count first because it sits above.
     static let all = [
-        BadgeDetailSwitch(detail: \.jiraProject, title: "Jira project key", help: "On the project header",
-                          brand: Palette.jira, label: "SHOP"),
+        BadgeDetailSwitch(detail: \.jiraProject, title: "Jira project count", help: "On the project header",
+                          brand: Palette.jira, label: "2"),
         BadgeDetailSwitch(detail: \.jiraTicket, title: "Jira ticket key", help: "On each task linked to a ticket",
                           brand: Palette.jira, label: "SHOP-412"),
         BadgeDetailSwitch(detail: \.mergeRequest, title: "Merge request number",

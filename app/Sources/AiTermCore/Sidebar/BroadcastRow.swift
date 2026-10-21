@@ -141,9 +141,10 @@ public extension SidebarModel {
     /// header's tooltip, the board's band and the tasks' own rows say. It asks you while its tab waits on input
     /// or one of its own questions, the broadcast's and no task's, is open; its window is closed while the run
     /// is `operatorOffline`; else paused, `writing the summary` once every task is done and `done · summary ready`
-    /// once it is written (`done` if AiTerm gave up on it), its act, `working` while its session works, and `waiting
-    /// for its tasks` between turns. Its mark follows the line: amber when it asks, spinning while it acts, works or
-    /// writes the summary, the accent dot once the summary is settled, else the idle ring: a turn ended is routine.
+    /// once it is written (`done` if AiTerm gave up on it), its act, `working` while its session works, and between
+    /// turns `watching 3 tasks`, its working ones counted. Its mark follows the line: amber when it asks, spinning
+    /// while it acts, works or writes the summary, the accent ring once the summary is settled, else the idle ring:
+    /// a turn ended is routine.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo]) -> OperatorRow {
         let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)

@@ -3,8 +3,7 @@ import AiTermUI
 import AiTermCore
 
 /// The sidebar's foot, on the list's grid: SYSTEM, then USAGE, split by a rule. SYSTEM is the
-/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill, then
-/// what that tab's conversation has spent, `in 936k · out 5.6k` (proposal A, 8 Oct 2026) — then
+/// selected task's or terminal's context — its active tab's mark, `ctx`, the ring and the fill — then
 /// the Mac (proposal 1A · 2A · 3A, 6 Oct 2026): its readings, `cpu ◔ 23% · ram ◔ 61%` and `bat` on
 /// battery, under its `macbook` mark, and while Backpack Mode is on or switching, a line in a
 /// `SettingsTone` — `● backpack enabled`. At the desk there is no such line: the readings row is the
@@ -26,8 +25,7 @@ import AiTermCore
 /// Every ring and number is drawn in one of two inks, `Palette.text` or `Palette.amber` past the
 /// warning threshold — for the Mac's readings, when macOS itself warns — whatever the agent is
 /// doing: an idle vendor's last reading is still its reading, and a dimmed ring beside a bright one
-/// reads as a different kind of mark. The backpack line is the one other colour. The counts have no
-/// ring and are never amber: a count has no ceiling to fill towards, and spending is not a warning.
+/// reads as a different kind of mark. The backpack line is the one other colour.
 struct SidebarFooter: View {
     let task: UsageTaskRow?
     let rows: [UsageVendorRow]
@@ -52,13 +50,8 @@ struct SidebarFooter: View {
             group(Self.systemHeading) {
                 if let task {
                     telemetryRow(mark: vendorMark(task.agent)) {
-                        if task.context != nil || task.tokens != nil {
-                            // One zero-spacing run, as a vendor row's windows are: the row's own
-                            // spacing would open a gap between `ctx` and the counts.
-                            HStack(spacing: 0) {
-                                if let context = task.context { usageWindows([context]) }
-                                if let tokens = task.tokens { tokenCounts(tokens, afterContext: task.context != nil) }
-                            }
+                        if let context = task.context {
+                            usageWindows([context])
                         } else if task.agent != .shell {
                             // A shell has no context to wait for; an agent has not reported yet.
                             Text("No context yet").foregroundStyle(Palette.muted)
@@ -103,12 +96,12 @@ struct SidebarFooter: View {
         machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
     }
 
-    /// While Backpack Mode is on or switching: its `ToneDot` centred in the marks' column, then its
+    /// While Backpack Mode is on or switching: its `ToneRing` centred in the marks' column, then its
     /// words in the same tone. Nothing at the desk.
     @ViewBuilder private var backpackLine: some View {
         if let tone = mac.mode.tone, let words = mac.mode.words {
             macControl(
-                telemetryRow(mark: ToneDot(tone: tone, size: scale(Size.statusMarkSmall)).frame(width: scale(Size.vendorMark))) {
+                telemetryRow(mark: ToneRing(tone: tone, size: scale(Size.statusMarkSmall)).frame(width: scale(Size.vendorMark))) {
                     Text(words).foregroundStyle(tone.color)
                 }
                 .accessibilityElement(children: .ignore)
@@ -187,27 +180,6 @@ struct SidebarFooter: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(line.help)
             }
-        }
-    }
-
-    /// The active tab's spend after its `ctx`: `in 936k · out 5.6k`, the labels muted and the numbers
-    /// in the text ink, like a window's — but with no ring, a count having no ceiling to fill towards,
-    /// and never amber. Hovered and read as one sentence (`TokenTally.help`): the glyphs alone say
-    /// "in", "out" and two numbers.
-    private func tokenCounts(_ tokens: TokenTally, afterContext: Bool) -> some View {
-        HStack(spacing: 0) {
-            if afterContext { Text(" · ").foregroundStyle(Palette.muted).accessibilityHidden(true) }
-            HStack(spacing: 0) {
-                Text(TokenTally.inputLabel + " ").foregroundStyle(Palette.muted)
-                Text(TokenTally.short(tokens.input)).foregroundStyle(Palette.text)
-                Text(" · ").foregroundStyle(Palette.muted)
-                Text(TokenTally.outputLabel + " ").foregroundStyle(Palette.muted)
-                Text(TokenTally.short(tokens.output)).foregroundStyle(Palette.text)
-            }
-            .contentShape(Rectangle())
-            .help(tokens.help)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(tokens.help)
         }
     }
 }

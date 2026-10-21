@@ -14,7 +14,7 @@ iTerm2 through its Python API — AiTerm does not embed a terminal.
 - **Tasks from a Jira ticket or a prompt**: AiTerm creates the worktree and branch, copies the
   gitignored files `.worktreeinclude` names, opens an iTerm2 window and launches the agent.
 - **Every agent's state at a glance**: working, needs input or done, from Claude Code, Codex,
-  Grok Build and PI, with context, tokens and account usage in the footer.
+  Grok Build and PI, with context and account usage in the footer.
 - **Reviews**: a GitLab merge request or a GitHub pull request in its own worktree, its resolved
   review threads counted on the row.
 - **Backpack Mode** (⌘B): keeps the Mac awake with the lid shut and on your iPhone's hotspot while
@@ -38,7 +38,7 @@ What the sidebar knows depends on what each agent reports:
 | Reported through | HTTP hooks | hooks, `Stop` over MCP | command hooks | an extension |
 | A second source, should a hook go missing | its session file | the tab title's spinner | — | — |
 | Stays working while a subagent runs | ✓ | ✓ | ✓ | ✓ (pi-subagents) |
-| Context fill and token counts | ✓ | ✓ | ✓ | ✓ |
+| Context fill | ✓ | ✓ | ✓ | ✓ |
 | Account usage in the footer | ✓ | ✓ | — | — |
 | Model and reasoning picked per task | ✓ | ✓ | ✓ | ✓ |
 | Skills and commands completed in the first prompt | `/` | `$` and `/prompts:` | `/` | `/skill:` |

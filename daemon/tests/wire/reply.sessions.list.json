@@ -18,11 +18,6 @@
       "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
       "terminalId": null,
       "title": "pi",
-      "tokens": {
-        "cached": 935988,
-        "input": 936018,
-        "output": 5625
-      },
       "windowId": "w1"
     },
     {
@@ -42,7 +37,6 @@
       "taskId": "2F9C4B7E-5A1D-4C3B-9E8F-0A1B2C3D4E5F",
       "terminalId": null,
       "title": "zsh",
-      "tokens": null,
       "windowId": "w1"
     },
     {
@@ -62,7 +56,6 @@
       "taskId": null,
       "terminalId": null,
       "title": "Logs",
-      "tokens": null,
       "windowId": "w4"
     }
   ]

@@ -66,7 +66,7 @@ struct SettingsCard<Mark: View, Chips: View, Actions: View, Content: View>: View
                     chips
                 }
                 HStack(spacing: Space.tight) {
-                    ToneDot(tone: status.tone, size: Size.statusMarkSmall)
+                    ToneRing(tone: status.tone, size: Size.statusMarkSmall)
                     Text(status.text).font(Typography.help).foregroundStyle(status.tone.color)
                         .lineLimit(1).truncationMode(.tail)
                         .help(status.text)

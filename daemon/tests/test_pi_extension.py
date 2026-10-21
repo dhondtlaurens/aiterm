@@ -49,8 +49,6 @@ def test_a_child_session_reports_nothing(phases):
 def test_background_subagents_are_relayed_once_against_the_root_session(phases):
     assert _events(phases["background"]) == [
         ("subagent_start", "root", "a1"), ("subagent_start", "root", "a2"),
-        # The child's agent_settled records its tally; the root reports the sum at once.
-        ("tokens", "root", None),
         ("agent_settled", "root", None),
         ("subagent_stop", "root", "a1"), ("subagent_stop", "root", "a2"),
     ]
@@ -60,6 +58,11 @@ def test_a_relayed_subagent_carries_the_sessions_metadata(phases):
     first = phases["background"][0]
     assert (first["cwd"], first["model"], first["reasoning"], first["context_percent"]) == (
         "/wt", "openai/model-x", "high", 12)
+
+
+def test_turn_end_refreshes_the_roots_context_without_reporting_children(phases):
+    assert _events(phases["turn_end"]) == [("turn_end", "root", None)]
+    assert phases["turn_end"][0]["context_percent"] == 37
 
 
 def test_session_start_forwards_why_the_session_started(phases):
@@ -77,20 +80,6 @@ def test_nothing_is_reported_once_the_sessions_ctx_has_gone_stale(phases):
 
 def test_a_stale_context_is_dropped_rather_than_thrown(phases):
     assert phases["stale"] == []
-
-
-SESSION_AND_CHILD = {"input": 168, "cached": 135, "output": 13}
-
-
-def test_a_subagents_turn_reports_the_session_and_its_subagents_tokens(phases):
-    child_moved, turn_end = phases["tokens"]
-    assert (child_moved["hook_event_name"], child_moved["session_id"]) == ("tokens", "root")
-    assert (turn_end["hook_event_name"], turn_end["session_id"]) == ("turn_end", "root")
-    assert child_moved["tokens"] == turn_end["tokens"] == SESSION_AND_CHILD
-
-
-def test_every_report_from_the_session_carries_its_tokens(phases):
-    assert all(post["tokens"] == SESSION_AND_CHILD for post in phases["tokens"] + phases["background"][3:])
 
 
 def test_every_report_goes_to_the_port_the_driver_wrote(phases):

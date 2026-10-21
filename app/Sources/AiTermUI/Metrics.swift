@@ -67,7 +67,7 @@ public enum Size {
     /// Everything at 100% costs a digit per segment and clips — the accepted price of showing clock
     /// times rather than a countdown.
     /// `SidebarFooterGeometryTests.theTwoWindowTelemetryFitsTheMinimumSidebarWidth` holds this honest.
-    /// The context row's widest case — a full window and both token counts at `999k` — fits too, held
+    /// The context row's widest case — a full window — fits too, held
     /// by `SidebarFooterGeometryTests.theWidestContextRowFitsTheMinimumSidebarWidth`.
     ///
     /// Was 395 while each vendor row also carried its `ctx` segment; that moved to the footer's
@@ -103,7 +103,7 @@ public enum Size {
     /// is drawn at ``statusMarkSmall``.
     public static let statusMark = trailingGlyph
     /// The smaller status mark drawn inside a count chip, where ``statusMark``'s usual size would
-    /// overflow it; and a tone's dot, leading a Settings card's status line and the footer's
+    /// overflow it; and a tone's ring, leading a Settings card's status line and the footer's
     /// backpack line.
     public static let statusMarkSmall: CGFloat = 8
     /// The ink in the sidebar's trailing column, centred in a ``slot``.

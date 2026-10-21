@@ -11,7 +11,6 @@ from typing import Any, TypeVar
 from . import protocol
 from .claude_sessions import ClaudeSessionFiles
 from .claude_subagents import SubagentTranscripts, TranscriptTail
-from .claude_tokens import ClaudeTranscriptTallies
 from .codex_sessions import CodexSessionFiles
 from .connection import ItermSupervisor
 from .delivery import NOT_CHECKED, Deliverer, Verdict, read_policy
@@ -25,7 +24,7 @@ from .publisher import Publisher
 from .resolver import SessionResolver
 from .rpc_params import frame_param, guard, optional_param, param, require_iterm
 from .rpc_server import RpcServer
-from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo, TokenTally
+from .models import HARNESS_BY_AGENT, AgentKind, SessionInfo
 from .sessions import SessionRegistry, SnapshotDiff
 from .status import StatusEngine, path_is_missing, shows_trust_prompt
 from .usage import UsageStore, parse_codex_rate_limits
@@ -47,14 +46,11 @@ POLL_SECONDS = 2.0
 # How long a tick waits for a check it runs on a worker thread: the orphan directories, the subagent
 # transcripts, the Codex rollouts.
 OFF_LOOP_CHECK_SECONDS = 1.0
-# Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill and spend -- run
+# Both of a tick's Codex reads -- the account's rate limits and the sessions' context fill -- run
 # under this one off-loop name. They share CodexSessionFiles' caches, which nothing locks, so a read
 # still stuck from an earlier tick holds back the other kind as well, rather than race it on a
 # second worker thread.
 CODEX_READ = "the Codex rollout read"
-# A tick's Claude transcript reads, which share ClaudeTranscriptTallies' cursors: a read still stuck
-# from an earlier tick holds the next one back rather than race it on a second worker thread.
-CLAUDE_READ = "the Claude transcript read"
 
 T = TypeVar("T")
 
@@ -114,10 +110,6 @@ class Service:
         self._last_good_tick = 0
         self._path_missing = path_missing
         self.subagent_transcripts = SubagentTranscripts()
-        self.claude_tallies = ClaudeTranscriptTallies()
-        # The Codex thread each tab ran at the last tick, by session: a tab that moves to a thread with
-        # no totals yet (/new, /resume) must drop the old thread's, which no reading replaces.
-        self._codex_threads: dict[str, str] = {}
         # Each off-loop check's latest run, by name, while its worker thread may still be running: a
         # thread stuck on a hung mount cannot be cancelled, so no second one is started beside it.
         self._checks: dict[str, asyncio.Future[Any]] = {}
@@ -371,8 +363,6 @@ class Service:
             changed += await self._apply_trust_prompts(screens)
         with _logged("reading the Codex rollouts"):
             changed += await self._apply_codex_rollouts(threads)
-        with _logged("reading the Claude transcripts"):
-            changed += await self._apply_claude_tallies()
         with _logged("settling orphaned sessions"):
             changed += self.status.settle_orphans(await self._missing_paths(self.status.orphan_paths()))
         with _logged("releasing dead subagents"):
@@ -420,82 +410,42 @@ class Service:
         return changed
 
     async def _apply_codex_rollouts(self, threads: dict[str, str]) -> list[str]:
-        """The sessions whose context fill or spend their Codex rollouts changed, and the rollouts'
+        """The sessions whose context fill their Codex rollouts changed, and the rollouts'
         caches pruned to the threads still running. A rollout grows without bound and a hung mount can
         stall its read, so it is read on a worker thread: everything that touches the caches runs there."""
         if (files := self.codex_files) is None:
             return []
 
-        def read() -> dict[str, tuple[int | None, TokenTally | None, str | None]]:
-            readings: dict[str, tuple[int | None, TokenTally | None, str | None]] = {}
+        def read() -> dict[str, tuple[int | None, str | None]]:
+            readings: dict[str, tuple[int | None, str | None]] = {}
             for thread_id in set(threads.values()):
                 # Another process's file: one that cannot be read costs only its own thread, and only
-                # the reading that failed -- a tally that raises still lets the context through.
+                # the reading that failed.
                 context: int | None = None
-                tally: TokenTally | None = None
                 version: str | None = None
                 try:
                     context = files.context_percent(thread_id)
                 except Exception:  # noqa: BLE001
                     log.exception("reading the Codex context of thread %s failed", thread_id)
                 try:
-                    tally = files.tally(thread_id)
-                except Exception:  # noqa: BLE001
-                    log.exception("reading the Codex tally of thread %s failed", thread_id)
-                try:
                     version = files.cli_version(thread_id)
                 except Exception:  # noqa: BLE001
                     log.exception("reading the Codex version of thread %s failed", thread_id)
-                readings[thread_id] = (context, tally, version)
+                readings[thread_id] = (context, version)
             files.retain(set(threads.values()))
             return readings
 
-        none: dict[str, tuple[int | None, TokenTally | None, str | None]] = {}
+        none: dict[str, tuple[int | None, str | None]] = {}
         readings = await self._off_loop(CODEX_READ, read, none)
         changed: list[str] = []
         for session_id, thread_id in threads.items():
             # A hook or a replacement process may have changed the binding during the read.
             if self.resolver.codex_thread(session_id) != thread_id:
                 continue
-            context, tally, version = readings.get(thread_id, (None, None, None))
+            context, version = readings.get(thread_id, (None, None))
             # The running Codex's version, which delivery is held against (delivery.Verdict).
             self.registry.set_cli_version(session_id, version)
-            # None is no reading, which apply_metadata leaves alone; on a new thread it is no spend yet.
-            if tally is None and self._codex_threads.get(session_id) != thread_id and self.registry.set_tokens(session_id, None):
-                changed.append(session_id)
-            changed += self.status.apply_metadata(session_id, context=context, tokens=tally)
-        # Only the tabs running Codex now: a closed or quit one's binding goes with it.
-        self._codex_threads = {sid: tid for sid, tid in threads.items() if self.resolver.codex_thread(sid) == tid}
-        return changed
-
-    async def _apply_claude_tallies(self) -> list[str]:
-        """The sessions whose Claude conversation has spent more since the last tick. A transcript
-        grows to megabytes and its first read is whole, so it is read on a worker thread, which keeps
-        what it read for the next tick even when this one stops waiting."""
-        transcripts = {s.session_id: s.transcript for s in self.registry.all() if s.transcript}
-        # Even an empty owner set goes through the worker gate: it must prune the last
-        # conversation without racing a read an earlier tick left running.
-        tallies = self.claude_tallies
-
-        def read() -> dict[str, TokenTally | None]:
-            found: dict[str, TokenTally | None] = {}
-            for transcript in set(transcripts.values()):
-                try:  # another process's file: one that cannot be read costs only its own conversation
-                    found[transcript] = tallies.tally(transcript)
-                except Exception:  # noqa: BLE001
-                    log.exception("reading the Claude transcript %s failed", transcript)
-            tallies.retain(set(transcripts.values()))
-            return found
-
-        none: dict[str, TokenTally | None] = {}
-        found = await self._off_loop(CLAUDE_READ, read, none)
-        changed: list[str] = []
-        for session_id, transcript in transcripts.items():
-            # The tab may have moved on while the read ran (/clear, /resume), its tokens already reset:
-            # the old conversation's tally must not be written back onto the new one.
-            if ((tally := found.get(transcript)) is not None and (s := self.registry.get(session_id)) is not None
-                    and s.transcript == transcript):
-                changed += self.status.apply_metadata(session_id, tokens=tally)
+            changed += self.status.apply_metadata(session_id, context=context)
         return changed
 
     async def _missing_paths(self, paths: set[str]) -> frozenset[str]:

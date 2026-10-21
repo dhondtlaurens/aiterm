@@ -74,8 +74,12 @@ environment's `InterfaceScale` (`standard` ×1, `large` ×1.15, `extraLarge` ×1
 - A `size:` parameter is points on screen: the caller scales the token it passes, and the view
   never scales its own parameters. A view's *own* token reads it scales itself.
 - Strokes do not scale: hairlines, borders, outline rings, the focus ring. (A drawn ring whose
-  stroke is a fraction of its diameter — `StatusMark`, `UsageRing` — is a mark, not a stroke, and
-  scales with the size it is given.)
+  stroke is a fraction of its diameter — `StatusMark`, `UsageRing`, `ToneRing` — is a mark, not a
+  stroke, and scales with the size it is given.)
+- Every round status mark is a ring, never a disc: a `size * 0.15` stroke inside the `size` box,
+  `strokeBorder` or a trimmed stroke padded by half its width. `StatusMark` is the idle ring, the
+  working arc over its whole track, needs input in `Palette.amber` and done in `Palette.done`
+  (`Palette.onAccent` on the accent, as the arc is); `UsageRing` and `ToneRing` are drawn the same way.
 
 Only the sidebar is scaled; `SidebarSheet` resets to `.standard`. AppKit's pop-up and push-button
 bezels stop at 28 pt (`.extraLarge` draws `.large` on macOS 26), so a sheet — full of them — keeps
@@ -149,7 +153,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 
 | Type | What it is |
 |---|---|
-| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a merge request's reference (extended with a `suffix`: a bubble and its resolved review threads of all of them, `2/5`, in the label's ink), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows; `action` makes it a button, `menu` a menu — a project header's `+n` of Jira projects — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
+| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a merge request's reference (extended with a `suffix`: a bubble and its resolved review threads of all of them, `2/5`, in the label's ink), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows; `action` makes it a button, `menu` a menu — a project header's Jira mark and total count — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
 | `Icon` | every mark, at a size: an SF Symbol (its glyph's own width, in the surface's ink unless tinted), a vendor `Brand` (a `size` square, in its colour unless tinted), or a full-colour artwork that carries its own fallback (`.gitlabTanuki`, `.piBadge`). The one way the app draws a logo — no fill travels as a hex string |
 | `FormField` | a label above its control; what the control hangs out of itself — a dropdown's results — draws over the lines after it |
 | `FrontToBackStack` | a `VStack` whose earlier children draw over its later ones, so an overhang (a picker's results, the completion popup) needs no `zIndex` at any level of a sheet. `FormField` is one; a sheet's fields and steps go in another |
@@ -182,7 +186,7 @@ vendor needs both.
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `AgentSegmentLabel`, `Notice`, `FixProposalBlock`, `FixBusyLine`, `FixOfferLabel`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
+`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneRing` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
@@ -198,9 +202,7 @@ vendor needs both.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
-tab's mark, the `UsageRing` and the percentage, then that tab's spend, `in 936k · out 5.6k`, from
-`TokenTally.short`: labels muted, numbers in `Palette.text`, no ring and never amber, its subagents and
-background workers included; a shell draws its mark alone), then the Mac's rows,
+tab's mark, the `UsageRing` and the percentage; a shell draws its mark alone), then the Mac's rows,
 always there (proposal 1A · 2A · 3A, 6 Oct 2026). The first is its readings, under a `SymbolMark` in
 `.paper` style at `Size.vendorMark` with `macbook`: `cpu ◔ 23% · ram ◔ 61%`, and `bat ◔ 64%` while the
 Mac runs on its battery, drawn by the same renderer as `ctx` and the vendor windows. `MachineMonitor`
@@ -208,7 +210,7 @@ samples them every 5 s through a `MachineSensor` — Mach host statistics, `ther
 memory-pressure sysctl, in-process — and `MachineReadings` turns two samples and the battery into
 `UsageLine`s. A reading turns amber only on macOS's own warning: the CPU when the Mac throttles for
 heat, memory under pressure, the battery within five points of Backpack Mode's cutoff. While the mode
-is on or switching, a second row follows: a `ToneDot` at `Size.statusMarkSmall`, centred in the marks'
+is on or switching, a second row follows: a `ToneRing` at `Size.statusMarkSmall`, centred in the marks'
 column, then the words in its `SettingsTone` — `backpack turning on…` and `backpack turning off…` idle,
 `backpack enabled` ready, `backpack needs you` attention. That is the one colour in the footer that is
 not ink or amber, and a Settings card's voice: the task list keeps `StatusMark` to itself. At the desk
@@ -264,10 +266,10 @@ The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first u
 `SelectableRow`, `washed` at rest in `Palette.operatorRow` (an alias of `badge`) and `Palette.badgeHovered`
 hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.washed` and `.washedHover`, so the
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
-`Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `waiting for
-its tasks` between its turns, `asks you in its window`, `paused`, `window closed`; never a task's request nor
+`Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
+3 tasks` between its turns (`waiting for its tasks` with none at work), `asks you in its window`, `paused`, `window closed`; never a task's request nor
 what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
-acts or works, the accent dot once the summary is written or AiTerm gave up waiting for it, else the idle ring. No project, ticket or branch line. It has an id of its own
+acts or works, the accent ring once the summary is written or AiTerm gave up waiting for it, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
 closed. VoiceOver calls it "Operator, Claude Code session".
@@ -307,27 +309,33 @@ acts exactly when its row's `StatusMark` turns. Ended is every end a task's line
 `done · no change`, `draft MR · !412`, `merged · 9b3e07d` and `merged locally · 1c84e20`: the Operator's work
 on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
-and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
+and for the accent ring of an unseen turn; a session at work or waiting on input keeps its own mark, and a
 removal or shelving spins. Until then, while the Operator holds the task, its mark spins whatever its tabs say,
-with no done dot, and turns amber only when it needs you: its tab waiting on input, or its line needing you
+with no done ring, and turns amber only when it needs you: its tab waiting on input, or its line needing you
 (`SidebarModel.heldStatus`, P3 1A). A queued task's is the pause sign. No other state has a mark of its own. The
-Operator's words are its own plain verbs: accepting is its job, so only what you must do is amber. Acting:
-`monitoring Claude` (the task's agent works; `monitoring 2 tabs` with several worker tabs open), `checking next`
-(every worker ended its turn: the Operator checks it next), the broadcast's `monitoring 3 tasks` (`monitoring 2
-tasks · checking 1 next` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
+Operator's words are plain verbs: accepting is its job, so only what you must do is amber. A task row's icon
+already names its agent, so wherever the Operator acts on a task its row names the Operator, never the agent
+(`Operator answering`, not `answering Codex` on a Codex row, which reads as Codex answering itself). Acting:
+`Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open), `ready
+for the Operator` (every worker ended its turn: the Operator checks it next), the broadcast's `3 working` (`2
+working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
 tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
-`assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
-a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
+`assigning Jan` (`assigning reviewers` before it knows who), `relaying feedback`, `merging`, `filing
+a ticket` and `reopening its window`, on the broadcast's line and the Operator's row with the task named
+after them (`answering Claude · PAY-231`), on the task's own row as `OperatorAct.rowWords` says them:
+`Operator starting it`, `Operator answering`, `Operator checking the work`, `Claude reviewing` (its reviewer)
+and `Operator relaying feedback`, the rest as they are; `opening the MR` and `merging` also while AiTerm publishes an accepted
 task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-and on the broadcast's line `checking 2 next` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · writing summary`
+and on the broadcast's line `2 to check` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · writing summary`
 (every task done, the summary not written yet), `done · summary ready`, `done` (AiTerm gave up waiting for it) and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
 window shows it whole), `waiting on you · docs` (one of several worker tabs asks: the first by
 `OperatorLine.first`'s order, then by tab order, `main` first), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
 `left for you · 4f2a91c`, a publication handed back. The Operator's own row says its session's line
-(`OperatorLine.session`), nothing of its tasks: its act, `working`, `waiting for its tasks` between turns, `writing the summary` (acting) once every task is done, then
+(`OperatorLine.session`), nothing of its tasks but how many it watches: its act, `working`, `watching 3 tasks`
+between turns (`waiting for its tasks` with none at work), `writing the summary` (acting) once every task is done, then
 `done · summary ready` or `done`,
 `paused`, `asks you in its window` (needs you: its tab waits on input, or a question for the whole broadcast is
 open) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
@@ -385,7 +393,7 @@ spans several projects, the project in `Typography.mono`, never the branch; then
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
 Its tooltip is the model the Operator chose and its one-line reason. A task with several worker tabs keeps one
-card, `monitoring 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.TabLine`),
+card, `Operator watching · 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.TabLine`),
 `Space.base` either side of it, `Space.tight` apart: a `Size.chip` line of the tab's agent's `VendorMark` at
 `Size.inlineMark`, centred under the card's mark; its key (`main`, `e2e-tests`) in `Typography.monoChip` and
 `Palette.text` on the title's leading edge; `Space.base` after it its state, an `OperatorBadge` (`at work`, `turn
@@ -526,15 +534,14 @@ with no row shown Restore is absent. Nothing shelved reads "Nothing on the shelf
 `HelpText`, as `SidebarEmptyState` does; a search that finds nothing, "No shelved task matches
 “…”.".
 
-A project header wears **one** quiet Jira `Badge` beside its name, however many Jira projects it
-links (proposal E2, 8 Oct 2026): the first linked project's key, which opens that project, and —
-when it links more — `Space.snug` after it a boxed `+n` `Badge`, as `BranchLabelView` counts a
-window's other branches. The `+n` opens a menu of every project, the first included — `KEY · Name`
-in the order they were linked, each opening its own — then "Jira Projects…", greyed while the
-workspace is locked. The `+n` stays when Settings › Interface turns the project key off, since it is
-not a key; its tooltip names every project and VoiceOver the rest ("2 more Jira projects: PAY and
-WEB"). `ProjectJiraBadge` decides all of it, tested without rendering; `ProjectJiraBadgeView` draws
-it. One mark per row, so linking projects takes little of the name's room.
+A project header wears **one** quiet Jira `Badge` beside its name: the Jira mark and the total
+number of linked Jira projects, including `1` for a single link. Clicking the badge opens a menu
+of every project — `KEY · Name` in the order they were linked, each opening its own — then
+"Jira Projects…", greyed while the workspace is locked. Settings › Interface's "Jira project count"
+switch hides the number while keeping the mark and menu. Its tooltip names every project and
+VoiceOver reads the total and keys ("3 Jira projects: SHOP, PAY and WEB"). `ProjectJiraBadge`
+decides all of it, tested without rendering; `ProjectJiraBadgeView` draws it. An unlinked project
+wears no badge.
 
 **Alerts** are `NSAlert`s, described by an `AlertPrompt`: one default button, on ↩, blue — or red
 (`defaultDeletes`, `hasDestructiveAction`) when it deletes files or commits — and every other
@@ -593,7 +600,7 @@ once, as the sheet opens, and a test answering afterwards never switches the tab
 
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
 (`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
-a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneDot` — the dot the footer's backpack line draws too)
+a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneRing` — the ring the footer's backpack line draws too)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:
 Settings tests every card when it opens (and a service again once its fields stop changing), and
@@ -691,8 +698,6 @@ Every window in the footer — its label, ring, number and reset — has one too
 label in words (`UsageLine.help`): “Weekly limit, 61 % used, resets Friday 23:33”, “Context 84 %
 full”, “CPU 87 % busy, slowed by heat”. A vendor's or the context's reading turns amber at 80 % or
 more; the Mac's, on macOS's warnings above.
-The token counts are one element with one sentence (`TokenTally.help`): “Input 936,018 tokens, 99 % from
-cache · output 5,625 tokens · subagents included”.
 
 ## The artifact
 
