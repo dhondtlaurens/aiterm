@@ -1,4 +1,5 @@
 import asyncio
+import http.client
 import json
 import os
 import tempfile
@@ -111,6 +112,23 @@ def daemon():
     server.shutdown()
     server.server_close()
     thread.join()
+
+
+def posted_before_a_last_post(server):
+    """What the `daemon` fixture's `server` recorded before one more POST, the test's own, was
+    answered: every POST made before that one. The server takes one connection at a time, in the
+    order they were made, so a post started earlier has been read and recorded by the time this
+    one is answered. A test that shows nothing was posted asks this instead of waiting out a window
+    that a loaded machine could overrun, and that cost half a second a test."""
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+    try:
+        connection.request("POST", "/last", body=b"{}", headers={"Content-Type": "application/json"})
+        connection.getresponse().read()
+    finally:
+        connection.close()
+    *before, last = server.received
+    assert last[0] == "/last"
+    return before
 
 
 async def operator_post(port, body, token=None, *, method="POST", hook=True):

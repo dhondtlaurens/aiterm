@@ -6,11 +6,14 @@ posts to the port ClaudeDriver records in `hook-port`, which here is the test se
 reaches a daemon that happens to be running on the app's own.
 """
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
 
 import pytest
+
+from tests.conftest import posted_before_a_last_post
 
 SHIM = Path(__file__).resolve().parents[2] / "hooks" / "claude-statusline-shim.sh"
 PAYLOAD = {
@@ -27,9 +30,30 @@ def home(tmp_path, daemon):
     return tmp_path
 
 
+def environment(home):
+    return {"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+
+
 def run_shim(home, payload=PAYLOAD):
-    return subprocess.run([str(SHIM)], input=json.dumps(payload), capture_output=True,
-                          text=True, env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"})
+    return subprocess.run([str(SHIM)], input=json.dumps(payload), capture_output=True, text=True, env=environment(home))
+
+
+def run_shim_to_the_end(home):
+    """run_shim, then waits for what the shim left running too: the post it fires into the
+    background, had it started one. The shim runs in a process group of its own, which a
+    background job without job control stays in, so the group is gone once the post has ended."""
+    shim = subprocess.Popen([str(SHIM)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, env=environment(home), start_new_session=True)
+    stdout, stderr = shim.communicate(json.dumps(PAYLOAD), timeout=10)
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            os.killpg(shim.pid, 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < deadline, "the shim's background job never ended"
+        time.sleep(0.005)
+    return subprocess.CompletedProcess(shim.args, shim.returncode, stdout, stderr)
 
 
 def forwarded(daemon, timeout=3.0):
@@ -101,18 +125,16 @@ def test_posts_to_whatever_port_the_file_names_and_to_no_other(home, daemon):
     original.write_text("#!/bin/sh\ncat >/dev/null\necho 'my own status line'\n")
     original.chmod(0o755)
     (support_of(home) / "statusline-original.cmd").write_text(str(original))
-    result = run_shim(home)
+    result = run_shim_to_the_end(home)
     assert (result.returncode, result.stdout.strip(), result.stderr) == (0, "my own status line", "")
-    time.sleep(0.5)
-    assert daemon.received == []
+    assert posted_before_a_last_post(daemon) == []
 
 
 def test_an_unreadable_port_file_is_silent(home, daemon):
     (support_of(home) / "hook-port").chmod(0o000)
-    result = run_shim(home)
+    result = run_shim_to_the_end(home)
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
-    time.sleep(0.5)
-    assert daemon.received == []
+    assert posted_before_a_last_post(daemon) == []
 
 
 def test_runs_the_original_command_through_sh_without_reading_zshenv(home, daemon):
@@ -131,7 +153,6 @@ def test_a_port_file_that_is_not_a_port_posts_nothing_and_still_runs_the_origina
     # query into the URL curl is given.
     (support_of(home) / "hook-port").write_text(written.format(port=daemon.server_port) + "\n")
     (support_of(home) / "statusline-original.cmd").write_text("cat >/dev/null; printf 'mine'")
-    result = run_shim(home)
+    result = run_shim_to_the_end(home)
     assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
-    time.sleep(0.5)
-    assert daemon.received == []
+    assert posted_before_a_last_post(daemon) == []

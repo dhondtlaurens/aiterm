@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import posted_before_a_last_post
+
 SHIM = Path(__file__).resolve().parents[2] / "hooks" / "grok-statusline-shim.sh"
 PAYLOAD = {"session_id": "g-1", "context_window": {"used_percentage": 37}}
 
@@ -74,8 +76,7 @@ def test_shim_without_a_recorded_port_posts_nothing_and_still_runs_the_original(
     original.write_text("cat >/dev/null; printf 'mine'")
     result = run_shim(home)
     assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
-    time.sleep(0.5)
-    assert daemon.received == []
+    assert posted_before_a_last_post(daemon) == []
 
 
 @pytest.mark.parametrize("written", ["1@127.0.0.1:{port}", "{port}/elsewhere?", "{port}0", "0", "abc", " {port}"])
@@ -85,5 +86,4 @@ def test_shim_with_a_port_file_that_is_not_a_port_posts_nothing_and_still_runs_t
     (support / "grok-statusline-original.cmd").write_text("cat >/dev/null; printf 'mine'")
     result = run_shim(home)
     assert (result.returncode, result.stdout, result.stderr) == (0, "mine", "")
-    time.sleep(0.5)
-    assert daemon.received == []
+    assert posted_before_a_last_post(daemon) == []
