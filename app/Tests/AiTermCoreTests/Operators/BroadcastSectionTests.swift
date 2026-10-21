@@ -99,7 +99,7 @@ import Testing
         let group = try section(state(run, [working, turnEnded, asking, blocked, review, merged, mine]), sessions: sessions)
         let status = Dictionary(uniqueKeysWithValues: group.tasks.map { ($0.title, $0.status) })
         #expect(status["working"] == .working, "an idle tab spins while the Operator holds it")
-        #expect(status["turn ended"] == .working, "no done dot: the turn is the Operator's to read")
+        #expect(status["turn ended"] == .working, "no done ring: the turn is the Operator's to read")
         #expect(status["asking"] == .needsInput, "a prompt is yours")
         #expect(status["blocked"] == .needsInput, "so is a block")
         #expect(status["review"] == .working)
@@ -208,7 +208,7 @@ import Testing
         var complete = run()
         complete.state = .complete
         let done = try section(state(complete), sessions: [operatorTab(complete, .idle)]).operatorRow
-        #expect(done.line == OperatorLine("done · debrief ready") && done.status == .done, "the accent dot once the debrief is ready")
+        #expect(done.line == OperatorLine("done · debrief ready") && done.status == .done, "the accent ring once the debrief is ready")
     }
 
     // -- the header ------------------------------------------------------------------------

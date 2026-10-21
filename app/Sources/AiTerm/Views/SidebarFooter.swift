@@ -96,12 +96,12 @@ struct SidebarFooter: View {
         machine.isEmpty ? "Mac" : machine.map(\.help).joined(separator: ", ")
     }
 
-    /// While Backpack Mode is on or switching: its `ToneDot` centred in the marks' column, then its
+    /// While Backpack Mode is on or switching: its `ToneRing` centred in the marks' column, then its
     /// words in the same tone. Nothing at the desk.
     @ViewBuilder private var backpackLine: some View {
         if let tone = mac.mode.tone, let words = mac.mode.words {
             macControl(
-                telemetryRow(mark: ToneDot(tone: tone, size: scale(Size.statusMarkSmall)).frame(width: scale(Size.vendorMark))) {
+                telemetryRow(mark: ToneRing(tone: tone, size: scale(Size.statusMarkSmall)).frame(width: scale(Size.vendorMark))) {
                     Text(words).foregroundStyle(tone.color)
                 }
                 .accessibilityElement(children: .ignore)
