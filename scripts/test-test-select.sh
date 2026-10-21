@@ -41,7 +41,8 @@ check() {
 # unaccounted_readers <root> — prints one line for each test under <root>/app/Tests or
 # <root>/daemon/tests that reads outside its own target and that <root>/scripts/test-routes.tsv does
 # not account for; prints nothing when every reader is. The detection is a plain grep, so it is a net
-# and not a proof. It finds Swift files that use `#filePath`, and daemon tests that climb out of
+# and not a proof. It finds Swift files that use `#filePath` or `#file` (which Swift 5 mode also makes
+# a real path; `#fileID` is not one), and daemon tests that climb out of
 # daemon/ with `parents[2]` or more, `parents[1] / "hooks"`, or three `.parent`s. It misses a reader
 # that finds the repo another way (`git rev-parse`, a `..` in a string, `parents[1]` into some folder
 # other than hooks), and it cannot tell what a `#filePath` file reads, so a file that only builds a
@@ -65,16 +66,23 @@ unaccounted_readers() {
         esac
     done
 
-    local file target base
-    for file in $(grep -rl '#filePath' "$root/app/Tests" --include='*.swift' | sort); do
+    # A moved or renamed test directory would otherwise find no readers and pass without a word, so the
+    # directories must exist and each kind of reader must turn up at least once (the tree has both today).
+    local file target base swift_found=0 daemon_found=0
+    [[ -d "$root/app/Tests" ]] || { print -r -- "app/Tests is missing, so no Swift reader could be checked"; return; }
+    [[ -d "$root/daemon/tests" ]] || { print -r -- "daemon/tests is missing, so no daemon reader could be checked"; return; }
+
+    for file in $(grep -rlE '#file(Path)?([^A-Za-z]|$)' "$root/app/Tests" --include='*.swift' | sort); do
+        swift_found=1
         target="${${file#$root/app/Tests/}%%/*}"
         base="${${file:t}%.swift}"
         (( ${suites[(Ie)suite:$target.$base]} + ${own[(Ie)$base]} + ${optin[(Ie)$base]} )) && continue
-        print -r -- "${file#$root/}: reads outside its target (#filePath) but no row has suite:$target.$base and it is on no reader line in scripts/test-routes.tsv"
+        print -r -- "${file#$root/}: reads outside its target (#file or #filePath) but no row has suite:$target.$base and it is on no reader line in scripts/test-routes.tsv"
     done
 
     local entry read_path i routed
     for file in $(grep -rlE 'parents\[([2-9]|[1-9][0-9])\]|parents\[1\] */ *"hooks"|\.parent\.parent\.parent' "$root/daemon/tests" --include='*.py' | sort); do
+        daemon_found=1
         base="${file:t}"
         entry=""
         for line in $daemon_reads; do [[ "$line" == "$base="* ]] && entry="$line"; done
@@ -89,6 +97,9 @@ unaccounted_readers() {
         done
         (( routed )) || print -r -- "${file#$root/}: reads $read_path but no row routes that path to daemon"
     done
+
+    (( swift_found )) || print -r -- "app/Tests holds no #file or #filePath reader, so the detection looks broken"
+    (( daemon_found )) || print -r -- "daemon/tests holds no test that climbs out of daemon/, so the detection looks broken"
 }
 
 check "docs only runs nothing" -- docs/architecture.md README.md
@@ -144,5 +155,21 @@ reader_check_fails "a new swift #filePath reader fails, naming the file" "$SCRAT
 copy_tree "$SCRATCH/daemon"
 print -r -- 'APP = Path(__file__).resolve().parents[2] / "app"' >"$SCRATCH/daemon/daemon/tests/test_new_reader.py"
 reader_check_fails "a new daemon test reaching outside daemon/ fails, naming the file" "$SCRATCH/daemon" "daemon/tests/test_new_reader.py"
+
+# `#file` is a real path in Swift 5 mode, so it is a reader too; `#fileID` is not.
+copy_tree "$SCRATCH/hashfile"
+print -r -- 'let here = URL(fileURLWithPath: #file)' >"$SCRATCH/hashfile/app/Tests/AiTermUITests/FileReaderTests.swift"
+reader_check_fails "a new swift #file reader fails, naming the file" "$SCRATCH/hashfile" "app/Tests/AiTermUITests/FileReaderTests.swift"
+copy_tree "$SCRATCH/fileid"
+print -r -- 'let here = #fileID' >"$SCRATCH/fileid/app/Tests/AiTermUITests/FileIDTests.swift"
+reader_check_passes "#fileID is not a path, so it is not a reader" "$SCRATCH/fileid"
+
+# A guard that finds nothing must say so, not pass: a moved test directory would otherwise look clean.
+copy_tree "$SCRATCH/nodaemon"
+rm -rf "$SCRATCH/nodaemon/daemon/tests"
+reader_check_fails "a missing daemon/tests fails" "$SCRATCH/nodaemon" "daemon/tests is missing"
+copy_tree "$SCRATCH/noswift"
+rm -rf "$SCRATCH/noswift/app/Tests"
+reader_check_fails "a missing app/Tests fails" "$SCRATCH/noswift" "app/Tests is missing"
 
 print "test selector guard passed"
