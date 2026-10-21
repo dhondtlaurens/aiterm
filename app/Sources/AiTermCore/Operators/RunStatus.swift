@@ -69,6 +69,12 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         }
     }
 
+    /// A snag the Operator reported: the rest of it is kept beside the summary.
+    public struct SnagLine: Encodable, Equatable, Sendable {
+        public var key: String, title: String
+        public init(key: String, title: String) { self.key = key; self.title = title }
+    }
+
     public struct Run: Encodable, Equatable, Sendable {
         public var id: UUID, name: String, state: OperatorRunState, prompt: String, review: String?, done: String?
         /// The last submitted revision, and the open one `create_task` adds to.
@@ -77,6 +83,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var firstPlanSize: Int?
         /// The off-brief finds so far, never worked on.
         public var finds: [OffBriefFind]
+        /// What AiTerm got wrong that the Operator worked around, by key and title.
+        public var snags: [SnagLine]
         public var jiraProjectKeys: [String]
         /// What the Operator may do beyond the base, as this broadcast froze it.
         public var slices: Slices
@@ -89,13 +97,13 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         /// The run is complete and its summary is not written: the Operator writes it with `write_summary`.
         public var summaryDue: Bool
         public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
-                    planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [],
+                    planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [], snags: [SnagLine] = [],
                     slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:], jiraProjectKeys: [String] = [],
                     summaryDue: Bool = false) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
             self.jiraProjectKeys = jiraProjectKeys
-            self.finds = finds; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
+            self.finds = finds; self.snags = snags; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
             self.summaryDue = summaryDue
         }
     }
@@ -240,7 +248,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             revision: revision,
             run: Run(id: run.id, name: run.name, state: run.state, prompt: run.prompt, review: run.review, done: run.done,
                      planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
-                     finds: run.finds, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
+                     finds: run.finds, snags: run.snags.map { SnagLine(key: $0.key, title: $0.title) }, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
                      usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
                      agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }), jiraProjectKeys: run.jiraProjectKeys,
                      summaryDue: run.state == .complete && run.summary == nil),

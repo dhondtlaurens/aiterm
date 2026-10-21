@@ -110,6 +110,31 @@ import Testing
         #expect(await world.call(run.id, "report_find", ["key": "x", "title": "t"]).message == "report_find needs `why`.")
     }
 
+    /// AiTerm's own mistake is recorded once per key, with the task's key and branch and the app's version, and
+    /// run_status lists it by key and title.
+    @Test func reportSnagRecordsItOnceAndRunStatusListsIt() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-240", state: .working)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { $0.appVersion = "0.28.0" }
+        let snag = ["key": "stale-prompt", "title": "A prompt shows as working", "showed": "The row said working.",
+                    "actual": "The worker was waiting on a prompt.", "workaround": "Answered it in its tab.",
+                    "evidence": "Tab 2 showed Allow edits?", "task": "PAY-240"] as JSONValue
+        let answer = await world.call(run.id, "report_snag", snag)
+        #expect(answer.value?["snag"] == "stale-prompt" && answer.value?["recorded"] == true)
+        _ = await world.call(run.id, "report_snag", ["key": "stale-prompt", "title": "Again", "showed": "s", "actual": "a", "workaround": "w"])
+
+        let recorded = try #require(world.run(run.id)?.snags)
+        #expect(recorded.count == 1)
+        #expect(recorded.first?.title == "A prompt shows as working" && recorded.first?.evidence == "Tab 2 showed Allow edits?")
+        #expect(recorded.first?.task == task.id && recorded.first?.taskKey == "PAY-240" && recorded.first?.branch == "feat/pay-240")
+        #expect(recorded.first?.appVersion == "0.28.0")
+
+        let listed = await world.call(run.id, "run_status").value?["run"]?["snags"]?.arrayValue
+        #expect(listed == [["key": "stale-prompt", "title": "A prompt shows as working"]])
+        let missing = await world.call(run.id, "report_snag", ["key": "x", "title": "t", "showed": "s", "workaround": "w"])
+        #expect(missing.message == "report_snag needs `actual`.")
+    }
+
     /// The Operator says why in a sentence, and the debrief shows it under the decision.
     @Test func aDecisionCarriesItsWhy() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])

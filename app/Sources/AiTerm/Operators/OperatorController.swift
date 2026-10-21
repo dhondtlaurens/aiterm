@@ -21,6 +21,8 @@ struct OperatorPorts {
     /// inside the daemon's `operatorRequestTimeout`, which the challenge's own limit is not.
     var challengeReplyBudget: Duration = .seconds(20)
     var now: @MainActor () -> Date = { Date() }
+    /// The version of AiTerm that is running, for the snags the Operator reports: "dev" for a build with none.
+    var appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     /// How long a burst of changes is gathered into one wake line.
     var wakeCoalesce: Duration = .seconds(OperatorTiming.wakeCoalesce)
     var wakeSleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }

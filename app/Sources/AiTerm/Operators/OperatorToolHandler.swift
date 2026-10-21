@@ -115,7 +115,7 @@ final class OperatorToolHandler {
     /// The tools that are the broadcast's own acts while they run.
     static let actsOnBroadcast: [String: OperatorAct] = ["create_task": .loadingTheConstruct, "update_task": .loadingTheConstruct,
                                                          "submit_plan": .loadingTheConstruct, "jira_create": .filingATicket,
-                                                         "report_find": .filingATicket]
+                                                         "report_find": .filingATicket, "report_snag": .filingATicket]
 
     /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
     /// under way, relaying their feedback; checking the work; opening the MR or merging, by the task's end.
@@ -151,7 +151,8 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "write_summary",
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "report_snag",
+                                        "write_summary",
                                         "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
@@ -260,6 +261,7 @@ final class OperatorToolHandler {
         case "log_decision": return try logDecision(call, in: run)
         case "write_summary": return try writeSummary(call, in: run)
         case "report_find": return try await reportFind(call, in: run)
+        case "report_snag": return try reportSnag(call, in: run)
         case "create_task": return try await createTask(call, in: run)
         case "update_task": return try await updateTask(call, in: run)
         case "submit_plan": return try submitPlan(call, in: run)
@@ -441,6 +443,21 @@ final class OperatorToolHandler {
         case .notAttempted: break
         }
         return .object(answer)
+    }
+
+    /// What AiTerm got wrong (`report_snag`): kept beside the summary once per key, with the task it happened on. Unlike a
+    /// find it is about AiTerm and not the project, so it needs no slice and is filed nowhere.
+    private func reportSnag(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+        let key = try call.string("key"), title = try call.string("title"), showed = try call.string("showed")
+        let actual = try call.string("actual"), workaround = try call.string("workaround")
+        let task = try call.optionalString("task").map { _ in try self.task(call, in: run) }
+        if !run.snags.contains(where: { $0.key == key }) {
+            let snag = OperatorSnag(key: key, title: title, showed: showed, actual: actual, workaround: workaround,
+                                    evidence: call.optionalString("evidence"), task: task?.id, taskKey: task?.operated?.key,
+                                    branch: task?.branch, appVersion: ports.appVersion, at: ports.now())
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.snags.append(snag) } }
+        }
+        return ["snag": .string(key), "recorded": true]
     }
 
     /// `ask_you`'s answer: a question on a task also says what that does, so the Operator knows it is no plain note.

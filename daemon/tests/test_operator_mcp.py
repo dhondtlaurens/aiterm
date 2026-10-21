@@ -136,8 +136,8 @@ def test_memory_wins_over_a_file(tmp_path):
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
                   "submit_plan", "read_task", "message_task", "open_tab", "mark_task", "resume_task", "retry_task", "finish_task",
-                  "ask_you", "resolve_question", "report_find", "log_decision", "leave_for_you", "review_task", "request_review",
-                  "reply_thread", "find_user", "write_summary"}
+                  "ask_you", "resolve_question", "report_find", "report_snag", "log_decision", "leave_for_you", "review_task",
+                  "request_review", "reply_thread", "find_user", "write_summary"}
 
 
 def test_the_tools_are_the_contracts():
@@ -258,6 +258,14 @@ def test_schema_has_report_find_and_no_propose_lesson():
     report = tools["report_find"]["inputSchema"]
     assert set(report["properties"]) == {"key", "title", "why"} and set(report["required"]) == {"key", "title", "why"}
     assert "summary" in tools["report_find"]["description"]
+
+
+def test_report_snag_is_about_aiterm_not_the_project():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    snag = tools["report_snag"]
+    assert set(snag["inputSchema"]["required"]) == {"key", "title", "showed", "actual", "workaround"}
+    assert {"evidence", "task"} <= set(snag["inputSchema"]["properties"])
+    assert "report_find" in snag["description"] and "AiTerm itself" in snag["description"]
 
 
 def test_create_task_end_is_optional():

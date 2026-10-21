@@ -335,6 +335,18 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "Task in the first of its Jira projects and answers the ticket's key, or why it could not. The same key is recorded once.",
           {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
           ("key", "title", "why")),
+    _tool("report_snag", "Records that AiTerm itself showed you something wrong and you worked around it: a state that was not "
+          "true, a prompt it missed, a tab it lost. After you checked the real source (the tab, git, the host), say what AiTerm "
+          "showed, what was true, and how you got unstuck. AiTerm keeps it beside the summary, and the person can start an "
+          "AiTerm task from it to fix the bug. A find (report_find) is about the project's code; a snag is about AiTerm itself. "
+          "It needs no slice, and nothing is filed or sent. The same key is recorded once.",
+          {"key": _KEY, "title": _text("The snag, in a few words."),
+           "showed": _text("What AiTerm showed, such as a status or a count, in one sentence."),
+           "actual": _text("What was true, and how you checked it, in one sentence."),
+           "workaround": _text("What you did to carry on, in one sentence."),
+           "evidence": _text("Optional: the exact text, state or output that shows it, such as a line from the tab."),
+           "task": _text("The task it happened on, by its key or its id from run_status. Left out when it is not about a task.")},
+          ("key", "title", "showed", "actual", "workaround")),
     _tool("leave_for_you", "Records what a slice kept you from doing, naming what is left and why. "
           "It changes no task and sends nothing. The same key is recorded once.",
           {"key": _KEY, "text": _text("What is left for the person and why, in one sentence.")}, ("key", "text")),

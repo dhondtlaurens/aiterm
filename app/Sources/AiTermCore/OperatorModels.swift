@@ -457,6 +457,36 @@ public struct OffBriefFind: Codable, Equatable, Sendable {
     }
 }
 
+/// Something AiTerm showed the Operator that was not true, which it checked at the real source and worked
+/// around (`report_snag`): kept on the run beside the summary, and worded by `fixTask` as the prompt of an AiTerm
+/// task that fixes the bug. `task`, `taskKey` and `branch` are the task it happened on, when it was one.
+public struct OperatorSnag: Codable, Equatable, Sendable {
+    public var key: String, title: String, showed: String, actual: String, workaround: String
+    public var evidence: String?
+    public var task: UUID?, taskKey: String?, branch: String?
+    public var appVersion: String, at: Date
+    public init(key: String, title: String, showed: String, actual: String, workaround: String, evidence: String? = nil,
+                task: UUID? = nil, taskKey: String? = nil, branch: String? = nil, appVersion: String, at: Date) {
+        self.key = key; self.title = title; self.showed = showed; self.actual = actual; self.workaround = workaround
+        self.evidence = evidence; self.task = task; self.taskKey = taskKey; self.branch = branch
+        self.appVersion = appVersion; self.at = at
+    }
+
+    /// The snag as an AiTerm task's prompt: a line with nothing to say (no task, no evidence) is left out.
+    public func fixTask(broadcast: String, runId: UUID) -> String {
+        var seen = "Seen in broadcast \"\(broadcast)\" (\(runId.uuidString))"
+        if let taskKey { seen += ", task \(taskKey)" + (branch.map { " on \($0)" } ?? "") }
+        seen += ", AiTerm \(appVersion), \(ISO8601DateFormatter().string(from: at))."
+        var lines = ["Fix in AiTerm: \(title)", "", seen, "",
+                     "What AiTerm showed: \(showed)", "What was true: \(actual)", "How the Operator got unstuck: \(workaround)"]
+        if let evidence = evidence?.trimmingCharacters(in: .whitespacesAndNewlines), !evidence.isEmpty {
+            lines += ["Evidence:", evidence]
+        }
+        lines += ["", "Make AiTerm show what was true here, so the Operator doesn't have to work around it."]
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// Where a challenged tool call stands (spec §4.4): its second opinion running, its critique ready
 /// but not yet read, read by the operator, unavailable — the act then proceeds unchallenged — or acted on.
 public enum ChallengeStage: String, Codable, CaseIterable, Sendable { case running, ready, delivered, unchallenged, acted }
@@ -547,6 +577,8 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     public var questions: [OperatorQuestion], decisions: [OperatorDecision]
     /// The off-brief finds, for the Operator's summary; and what the slices kept the Operator from doing.
     public var finds: [OffBriefFind], leftForYou: [String]
+    /// What AiTerm got wrong that the Operator worked around, kept beside the summary (`report_snag`).
+    public var snags: [OperatorSnag]
     public var leftForYouRecords: [String: String]?
     /// The tickets `jira_create` made, by the key the Operator gave the call: the same key again returns the ticket.
     public var jiraCreated: [String: String]
@@ -575,7 +607,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
                 prompt: String, review: String? = nil, done: String? = nil, state: OperatorRunState = .planning,
                 intent: OperatorRunState? = nil, planRevision: Int = 0, firstPlanSize: Int? = nil,
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
-                leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
+                snags: [OperatorSnag] = [], leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], jiraCreated: [String: String] = [:],
                 threadReplies: [String: String] = [:], pendingWrites: [String] = [], createdAt: Date,
                 summary: String? = nil, summaryAt: Date? = nil, completedAt: Date? = nil, summaryGivenUp: Bool = false,
@@ -583,7 +615,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
-        self.questions = questions; self.decisions = decisions; self.finds = finds; self.leftForYou = leftForYou
+        self.questions = questions; self.decisions = decisions; self.finds = finds; self.snags = snags; self.leftForYou = leftForYou
         self.leftForYouRecords = nil
         self.operatorConversation = operatorConversation; self.operatorWindowId = operatorWindowId
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
@@ -595,7 +627,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
-        case firstPlanSize, questions, decisions, finds, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
+        case firstPlanSize, questions, decisions, finds, snags, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, jiraCreated, threadReplies, pendingWrites, createdAt
         case summary, summaryAt, completedAt, summaryGivenUp, endedAt
     }
@@ -620,6 +652,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         questions = try c.decodeIfPresent([OperatorQuestion].self, forKey: .questions) ?? []
         decisions = try c.decodeIfPresent([OperatorDecision].self, forKey: .decisions) ?? []
         finds = try c.decodeIfPresent([OffBriefFind].self, forKey: .finds) ?? []
+        snags = try c.decodeIfPresent([OperatorSnag].self, forKey: .snags) ?? []
         leftForYou = try c.decodeIfPresent([String].self, forKey: .leftForYou) ?? []
         leftForYouRecords = try c.decodeIfPresent([String: String].self, forKey: .leftForYouRecords)
         challenges = try c.decodeIfPresent([ChallengeRecord].self, forKey: .challenges) ?? []
@@ -664,6 +697,7 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(questions, forKey: .questions)
         try c.encode(decisions, forKey: .decisions)
         try c.encode(finds, forKey: .finds)
+        try c.encode(snags, forKey: .snags)
         try c.encode(leftForYou, forKey: .leftForYou)
         try c.encodeIfPresent(leftForYouRecords, forKey: .leftForYouRecords)
         try c.encode(challenges, forKey: .challenges)

@@ -229,8 +229,8 @@ registered token and forwards each call to the app as `operator.request`; `Opera
 answers with `operator.reply`. Every mutating tool is safe to repeat (a `key`, or a recorded step):
 `run_status`; `jira_search`, `jira_create`, `jira_move`, `jira_link`; `create_task`, `update_task`,
 `submit_plan`; `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`; `message_task`,
-`mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`
-and `log_decision`.
+`mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`,
+`report_snag` and `log_decision`.
 
 ### Help with problems
 
@@ -331,7 +331,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
 | `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
-| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `open_tab`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `log_decision` |
+| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `open_tab`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `report_snag`, `log_decision` |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 
