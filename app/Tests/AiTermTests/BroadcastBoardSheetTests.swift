@@ -175,6 +175,33 @@ struct BroadcastBoardSheetTests {
         #expect(BroadcastSummaryView.paragraphs("First.\nStill first.\n\n  \nSecond.\n\n") == ["First.\nStill first.", "Second."])
     }
 
+    /// Worked around in AiTerm comes after Left for you, only when the Operator reported a snag. Each item's Copy says
+    /// what it puts on the clipboard, and what AiTerm showed and how the Operator got unstuck, on screen nowhere else,
+    /// are its tooltip and what VoiceOver reads as its value.
+    @Test func theSummaryListsSnagsAfterLeftForYou() {
+        let snag = OperatorSnag(key: "prompt", title: "Waiting on you showed a task with no prompt open",
+                                showed: "run_status listed PAY-232 under promptsWaitingOnYou.",
+                                actual: "No prompt was open: read_task what: prompt was null and Codex had ended its turn.",
+                                workaround: "Read the task's screen, saw the finished turn and checked the work.",
+                                appVersion: "0.28.1", at: Snapshots.clock.now)
+        #expect(BroadcastSummaryView.lists(leftForYou: ["File the finds"], snags: [snag]) == [.leftForYou, .workedAround])
+        #expect(BroadcastSummaryView.lists(leftForYou: [], snags: [snag]) == [.workedAround])
+        #expect(BroadcastSummaryView.lists(leftForYou: ["File the finds"], snags: []) == [.leftForYou], "left out with none")
+        #expect(BroadcastSummaryView.lists(leftForYou: [], snags: []).isEmpty)
+        #expect(BroadcastSummaryView.SummaryList.workedAround.title == "Worked around in AiTerm")
+        #expect(BroadcastSummaryView.SummaryList.leftForYou.title == "Left for you")
+
+        #expect(BroadcastSummaryView.details(of: snag) == """
+            AiTerm showed: run_status listed PAY-232 under promptsWaitingOnYou.
+            The Operator: Read the task's screen, saw the finished turn and checked the work.
+            """)
+        #expect(BroadcastSummaryView.copyLabel(of: snag)
+                == "Copy “Waiting on you showed a task with no prompt open” as a complete Markdown fix task for AiTerm")
+        #expect(BroadcastSummaryView.copyHelp == "Copy a complete Markdown fix task for AiTerm")
+        #expect(BroadcastSummaryView.copyAllHelp == "Copy every one as a complete Markdown fix task for AiTerm")
+        #expect(BroadcastSummaryView.copied == "Copied" && BroadcastSummaryView.copiedFor == .seconds(2))
+    }
+
     @Test func theBoardOpensInTheSheetSlotForALiveBroadcastOnly() throws {
         let controller = AppController(preferences: .scratch())
         defer { controller.shutdown() }

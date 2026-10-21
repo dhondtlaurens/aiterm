@@ -427,7 +427,15 @@ in `Typography.body` and `Palette.text`, `Space.gap` apart and selectable, and `
 Operator at 16:05" in muted `Typography.help`. Until it has one the same muted line says why: "The Operator is writing
 its summary.", "The Operator didn’t write a summary." or "Ended before it finished. The Operator didn’t write a
 summary." `Space.section` on, and only when something is, Left for you: a `BoardHeading` with its count over each item
-in `Typography.caption`, `Space.base` apart, one line as `leave_for_you` wrote it.
+in `Typography.caption`, `Space.base` apart, one line as `leave_for_you` wrote it. Last, `Space.section` on and only
+when the Operator reported a snag (`report_snag`), Worked around in AiTerm: its `BoardHeading` and count, with Copy All
+a link at its trailing edge while there are two or more; then each snag, `Space.base` apart, its title in
+`Typography.caption` and `Palette.text`, what was true under it in `Typography.help` and `Palette.muted`, and Copy
+under that, `Space.hairline` apart. Copy and Copy All are links in `Typography.help` and `Palette.link`, drawn as a
+Notice draws its actions; Copy puts the snag's Markdown fix task on the clipboard (`BroadcastBoard.fixTask`), Copy All
+every one joined by a rule (`copyAll`), and each reads Copied for 2 s, which VoiceOver announces. What AiTerm showed
+and how the Operator got unstuck, on screen nowhere else, are the item's tooltip and accessibility value; Copy All
+sits beside the heading because `BoardHeading` hides its children from VoiceOver.
 
 Once every task is done the columns stay, every card in Done, the band reads `done · writing summary` and then
 `done · summary ready` (or `done`, AiTerm having given up waiting), and the footer is Close and End Broadcast on ⌘↩,

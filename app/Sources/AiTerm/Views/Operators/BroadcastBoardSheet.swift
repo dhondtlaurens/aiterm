@@ -153,7 +153,7 @@ struct BroadcastBoardSheet: View, Equatable {
                 } else {
                     BroadcastActivityView(entries: entries, titles: titles, openId: openEntry)
                 }
-            case .summary: BroadcastSummaryView(summary: board.summary, leftForYou: board.leftForYou)
+            case .summary: BroadcastSummaryView(board: board)
             }
         } footer: {
             SheetFooter(secondary: footer.secondary, primary: footer.primary?.title, cancel: { dismiss.afterThisEvent() },

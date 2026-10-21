@@ -42,10 +42,10 @@ struct OperatorScene {
     func run(_ state: OperatorRunState, name: String = "Checkout redesign", prompt: String = OperatorScene.prompt,
              review: String? = OperatorScene.review, done: String? = OperatorScene.done, planned: Int? = 8,
              questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
-             leftForYou: [String] = []) -> OperatorRun {
+             leftForYou: [String] = [], snags: [OperatorSnag] = []) -> OperatorRun {
         OperatorRun(id: runId, name: name, profile: Self.profile, projectIds: projects.map(\.id), jiraProjectKeys: ["PAY"],
                     prompt: prompt, review: review, done: done, state: state, planRevision: planned == nil ? 0 : 1,
-                    firstPlanSize: planned, questions: questions, decisions: decisions, finds: finds, leftForYou: leftForYou,
+                    firstPlanSize: planned, questions: questions, decisions: decisions, finds: finds, snags: snags, leftForYou: leftForYou,
                     operatorWindowId: "operator-window", createdAt: Snapshots.clock.now)
     }
 
@@ -203,10 +203,28 @@ struct OperatorScene {
         the tax module rounds per line instead of per order: I filed PAY-241 rather than fixing it here.
         """
 
-    /// Every task merged, with what the Operator decided, found and left for you; its summary written at 16:05
-    /// unless `written` is false, while the Operator still writes it.
+    /// The drawing's snags (the Debug summary proposal, option 2B): Waiting on you with no prompt open, on the provider
+    /// switch, and find_user's false "AiTerm isn't answering", from the Operator's own chat.
+    func snags() -> [OperatorSnag] {
+        [
+            OperatorSnag(key: "prompt-not-open", title: "Waiting on you showed a task with no prompt open",
+                         showed: "run_status listed PAY-232 under promptsWaitingOnYou.",
+                         actual: "No prompt was open: read_task what: prompt was null and Codex had ended its turn.",
+                         workaround: "Read the task’s screen, saw the finished turn and checked the work.",
+                         evidence: "run_status → promptsWaitingOnYou: [\"PAY-232\"]\nread_task {task: \"PAY-232\", what: \"prompt\"} → {\"prompt\": null}",
+                         task: provider, taskKey: "PAY-232", branch: "feat/pay-232-payment-provider-switch", appVersion: "0.28.1",
+                         at: Snapshots.clock.now),
+            OperatorSnag(key: "find-user", title: "find_user answered AiTerm isn’t answering while other tools worked",
+                         showed: "find_user answered “AiTerm isn’t answering”.",
+                         actual: "AiTerm was answering: run_status and read_task replied in the same minute.",
+                         workaround: "Asked you for Jan’s account instead.", appVersion: "0.28.1", at: Snapshots.clock.now),
+        ]
+    }
+
+    /// Every task merged, with what the Operator decided, found and left for you, and the `snags` it worked around;
+    /// its summary written at 16:05 unless `written` is false, while the Operator still writes it.
     static func complete(_ scene: OperatorScene = OperatorScene(), written: Bool = true,
-                         leftForYou: [String] = ["File the 2 finds in Jira"]) -> OperatorScene {
+                         leftForYou: [String] = ["File the 2 finds in Jira"], snags: [OperatorSnag] = []) -> OperatorScene {
         let merged: [(UUID, String, Int)] = [
             (scene.layout, "9b3e07d", 412), (scene.drawer, "51ac0f2", 416), (scene.provider, "e07d9b3", 417),
             (scene.autocomplete, "3be1a07", 419), (scene.summary, "c4a8d21", 420), (scene.shipping, "71f0e9c", 418),
@@ -237,7 +255,7 @@ struct OperatorScene {
         ], finds: [
             OffBriefFind(key: "key", title: "An API key in payments-api’s test fixtures", why: "A live-looking Adyen key in a committed fixture. Off-brief."),
             OffBriefFind(key: "flaky", title: "A flaky cart test on main", why: "Fails one run in five, unrelated to this work."),
-        ], leftForYou: leftForYou)
+        ], leftForYou: leftForYou, snags: snags)
         run.completedAt = Snapshots.clock.now
         if written {
             run.summary = summaryText
@@ -248,9 +266,10 @@ struct OperatorScene {
     }
 
     /// Ended from its menu mid-run, read from the Shelf: what End leaves of the running board (`applyEnd`), the three
-    /// tasks that never started dropped and the three in flight yours, taken over; no summary, one thing left for you.
-    static func shelved(_ scene: OperatorScene = OperatorScene()) -> BroadcastBoard {
-        let run = scene.run(.active, leftForYou: ["Finish the provider switch by hand: its retry still fails the refund test."])
+    /// tasks that never started dropped and the three in flight yours, taken over; no summary, one thing left for you,
+    /// and the `snags` the Operator worked around.
+    static func shelved(_ scene: OperatorScene = OperatorScene(), snags: [OperatorSnag] = []) -> BroadcastBoard {
+        let run = scene.run(.active, leftForYou: ["Finish the provider switch by hand: its retry still fails the refund test."], snags: snags)
         // A task that never started has no worktree yet, as `create_task` makes it.
         let tasks = scene.checkout().map { item in
             var item = item
@@ -372,6 +391,17 @@ enum OperatorSnapshots {
             Snapshot("broadcast-folded.png") { folded() },
             // Right after Start Broadcast: everything queued under its planned agent and the pause sign, one selected.
             Snapshot("broadcast-queued.png") { queued() },
+            // Summary with what the Operator worked around in AiTerm: two snags under the summary, with Copy All; and on
+            // the Shelf one snag after Left for you, with no Copy All.
+            Snapshot("board-summary-worked-around.png") {
+                let scene = OperatorScene()
+                return board(OperatorScene.complete(scene, leftForYou: [], snags: scene.snags()))
+            },
+            Snapshot("board-shelved-worked-around.png") {
+                let scene = OperatorScene()
+                return BroadcastBoardSheet(board: OperatorScene.shelved(scene, snags: Array(scene.snags().prefix(1))), reopenFailed: false,
+                                           actions: BoardActions(), activity: nil)
+            },
         ]
     }
 
