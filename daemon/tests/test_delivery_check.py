@@ -386,3 +386,252 @@ async def test_screen_diagnostic_caps_long_lines():
     result = await check.Live(bridge).failure(sid, "codex", "expected marker")
     assert result.detail.endswith("last characters")
     assert len(result.detail) < 8300
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+async def test_check_agent_runs_all_required_scenarios(agent, tmp_path, monkeypatch):
+    from tools import delivery_check as check
+    from tests.fake_iterm import FakeIterm
+
+    class Ready(check.Live):
+        async def ready(self, *args, **kwargs):
+            return True
+
+        async def wait_for(self, *args, **kwargs):
+            return True
+
+    called = []
+    for name in ("startup_paste", "update_paste", "menu_paste", "approval_race", "permission_paste",
+                 "idle_submit", "multi_line", "busy_queue", "takeover"):
+        async def scenario(*args, name=name):
+            called.append(name)
+            return OK
+        monkeypatch.setattr(check, name, scenario, raising=False)
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    results = await check.check_agent(Ready(FakeIterm()), agent, tmp_path)
+    assert set(results) == set(PASTE_SAFE + SUBMIT_SAFE)
+    assert len(called) == len(results)
+    entry = agent_entry("1.2.3", results, NOW)
+    assert entry["pasteSafe"] and entry["submitSafe"]
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+@pytest.mark.parametrize("failure", [None, "missing", "closed", "changed", "rules"])
+async def test_menu_paste_checks_screen_and_rules(agent, failure, tmp_path, monkeypatch):
+    from aitermd.delivery import ESC, PASTE_START, PASTE_END
+    from aitermd.models import HARNESS_BY_AGENT
+    from tools import delivery_check as check
+
+    menu = "Model picker\n" + "\n".join(HARNESS_BY_AGENT[agent].menu_prompt)
+    bridge, sid = await fake_session()
+
+    class Menu(check.Live):
+        async def wait_for(self, sid, seen, seconds):
+            bridge.screens[sid] = "missing menu" if failure == "missing" else menu
+            return await super().wait_for(sid, seen, 0)
+
+        async def paste(self, sid, text):
+            await super().paste(sid, text)
+            if text == check.HAZARD:
+                bridge.screens[sid] = "closed menu" if failure == "closed" else menu + (" changed" if failure == "changed" else "")
+                if failure == "rules":
+                    write_allow_rule(agent, tmp_path)
+
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    result = await check.menu_paste(Menu(bridge), agent, sid, tmp_path)
+    assert result.passed == (failure is None)
+    sent = [text for _, text in bridge.sent]
+    assert PASTE_START + "/model" + PASTE_END in sent
+    assert sent[-1] == ESC
+    assert (PASTE_START + check.HAZARD + PASTE_END in sent) == (failure != "missing")
+    if failure:
+        assert "Expected" in result.detail and "Last screen" in result.detail
+
+
+def write_allow_rule(agent, folder):
+    path = (folder / "work" / ".claude" / "settings.local.json" if agent == "claude"
+            else folder / "codex-home" / "rules" / "default.rules")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("allow")
+
+
+@pytest.mark.parametrize("failure", [None, "missing", "no_marker", "closed", "rules", "dismiss"])
+async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeypatch):
+    from dataclasses import replace
+    from aitermd.delivery import ESC, PASTE_START, PASTE_END
+    from tools import delivery_check as check
+
+    agent = "claude" if failure == "no_marker" else "codex"
+    offer = "Update now\nSkip until next version"
+    bridge, sid = await fake_session()
+    bridge.sessions[sid] = replace(bridge.sessions[sid], command_line=agent)
+    bridge.screens[sid] = "› idle" if failure == "missing" else offer
+
+    class Update(check.Live):
+        async def wait_for(self, sid, seen, seconds):
+            return await super().wait_for(sid, seen, 0)
+
+        async def paste(self, sid, text):
+            await super().paste(sid, text)
+            if failure == "closed":
+                bridge.screens[sid] = "offer disappeared"
+            if failure == "rules":
+                write_allow_rule(agent, tmp_path)
+
+        def deliverer(self, agent, **kwargs):
+            adapter = super().deliverer(agent, **kwargs)
+            if failure == "dismiss":
+                async def dismiss(sid):
+                    return False
+                adapter.dismiss_startup = dismiss
+            return adapter
+
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    result = await check.update_paste(Update(bridge), agent, sid, tmp_path)
+    assert result.passed == (failure is None)
+    sent = [text for _, text in bridge.sent]
+    assert (PASTE_START + check.HAZARD + PASTE_END in sent) == (failure not in ("missing", "no_marker"))
+    if failure is None:
+        assert sent[-1] == ESC
+    if failure:
+        assert "Expected" in result.detail and "Last screen" in result.detail
+    if failure == "missing":
+        assert "no update dialog showed" in result.detail
+    if failure == "no_marker":
+        assert "this CLI has no update dialog marker" in result.detail
+
+
+@pytest.mark.parametrize("agent", ["claude", "codex"])
+@pytest.mark.parametrize("failure", [
+    None, "request", "setup_partial", "early", "missing", "closed", "command", "rules", "enter", "enter_error"])
+async def test_approval_race_uses_adapter_and_requires_paste_in_approval(agent, failure, tmp_path, monkeypatch):
+    from dataclasses import replace
+    from aitermd.delivery import ESC, PASTE_START, PASTE_END
+    from aitermd.models import HARNESS_BY_AGENT
+    from tools import delivery_check as check
+
+    bridge, sid = await fake_session()
+    bridge.sessions[sid] = replace(bridge.sessions[sid], command_line=agent)
+    prompt = HARNESS_BY_AGENT[agent].permission_prompt[0]
+    box = HARNESS_BY_AGENT[agent].input_box[0]
+    bridge.screens[sid] = "unknown" if failure == "request" else box
+    pasted_in = []
+    adapters = []
+    original_send = bridge.send_text
+
+    async def send(session_id, text):
+        from aitermd.iterm_bridge import ItermUnavailable
+        await original_send(session_id, text)
+        if failure == "enter_error" and text == "\r" and len(adapters) == 2:
+            bridge.screens[sid] = prompt
+            raise ItermUnavailable("Enter transport failed")
+
+    bridge.send_text = send
+
+    class Race(check.Live):
+        async def wait_for(self, sid, seen, seconds):
+            bridge.screens[sid] = box if failure == "missing" else prompt
+            return await super().wait_for(sid, seen, 0)
+
+        async def paste(self, sid, text):
+            pasted_in.append(await self.screen(sid))
+            await super().paste(sid, text)
+            if failure == "closed":
+                bridge.screens[sid] = "unknown"
+            if failure in ("enter", "enter_error"):
+                bridge.screens[sid] = box
+            if failure == "command":
+                list(tmp_path.rglob("outside" if agent == "codex" else "work"))[0].joinpath("race-approved.txt").touch()
+            if failure == "rules":
+                write_allow_rule(agent, tmp_path)
+
+        def deliverer(self, agent, **kwargs):
+            if failure == "early" and adapters:
+                bridge.screens[sid] = prompt
+
+            async def settle(seconds):
+                if failure == "setup_partial":
+                    bridge.screens[sid] = prompt
+            adapter = super().deliverer(agent, sleep=settle)
+            adapters.append(adapter)
+            return adapter
+
+    live = Race(bridge)
+    live.versions[agent] = "1.2.3"
+    live.registry.apply_snapshot(await bridge.snapshot())
+    live.registry.set_cli_version(sid, "1.2.3")
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    result = await check.approval_race(live, agent, sid, tmp_path)
+    assert result.passed == (failure is None)
+    sent = [text for _, text in bridge.sent]
+    assert sent[-1] == ESC
+    if failure is None:
+        assert pasted_in == [prompt]
+        assert sent.count("\r") == 1, "only the setup request may be submitted"
+        assert PASTE_START + check.HAZARD + PASTE_END in sent
+    if failure:
+        assert "Expected" in result.detail and "Last screen" in result.detail
+    if failure == "missing":
+        assert "No approval prompt opened" in result.detail
+    if failure == "early":
+        assert not pasted_in
+        assert "refused" in result.detail
+
+
+@pytest.mark.parametrize("update_first", [False, True])
+async def test_startup_checks_update_on_either_side_of_trust(update_first, tmp_path, monkeypatch):
+    from tools import delivery_check as check
+    from tests.fake_iterm import FakeIterm
+
+    calls = []
+
+    class Startup(check.Live):
+        async def wait_for(self, sid, seen, seconds):
+            self.bridge.screens[sid] = ("Update now\nSkip until next version" if update_first else "Trust this folder?")
+            return await super().wait_for(sid, seen, 0)
+
+        async def ready(self, *args, **kwargs):
+            return False
+
+    async def trust(*args):
+        calls.append("trust")
+        return OK
+
+    async def update(*args):
+        calls.append("update")
+        return OK
+
+    monkeypatch.setattr(check, "startup_paste", trust)
+    monkeypatch.setattr(check, "update_paste", update, raising=False)
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    await check.check_agent(Startup(FakeIterm()), "codex", tmp_path)
+    assert calls == (["update", "trust"] if update_first else ["trust", "update"])
+
+
+@pytest.mark.parametrize("changed_to_update", [False, True])
+async def test_startup_paste_waits_past_stale_update_frame(changed_to_update, monkeypatch):
+    from tools import delivery_check as check
+
+    bridge, sid = await fake_session()
+    frames = iter(["Update now\nSkip until next version", "Trust this folder?"])
+    pasted_on = []
+
+    class Startup(check.Live):
+        async def wait_for(self, sid, seen, seconds):
+            for frame in frames:
+                bridge.screens[sid] = frame
+                if await super().wait_for(sid, seen, 0):
+                    return True
+            return False
+
+        async def paste(self, sid, text):
+            pasted_on.append(await self.screen(sid))
+            await super().paste(sid, text)
+            if changed_to_update:
+                bridge.screens[sid] = "Update now\nSkip until next version"
+
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr("builtins.input", lambda *args: "")
+    result = await check.startup_paste(Startup(bridge), "codex", sid)
+    assert result.passed == (not changed_to_update)
+    assert pasted_on == ["Trust this folder?"]

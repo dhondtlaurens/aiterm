@@ -35,10 +35,10 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from aitermd.delivery import ESC, PASTE_END, PASTE_START, POLICY_PATH, Deliverer, Verdict, open_prompt, shows_input_box
-from aitermd.iterm_bridge import ItermBridge, ItermPort
+from aitermd.delivery import ESC, PASTE_END, PASTE_START, POLICY_PATH, Deliverer, Verdict, open_prompt, shows_input_box, shows_update_offer
+from aitermd.iterm_bridge import ItermBridge, ItermPort, ItermUnavailable
 from aitermd.keystrokes import TypingGuard
 from aitermd.models import HARNESS_BY_AGENT, AgentKind, Frame
 from aitermd.sessions import SessionRegistry
@@ -171,7 +171,7 @@ def expected_idle(agent: AgentKind) -> str:
 
 def expected_prompt(agent: AgentKind, kind: str) -> str:
     harness = HARNESS_BY_AGENT[agent]
-    markers = harness.startup_prompt if kind == "startup" else harness.permission_prompt
+    markers = getattr(harness, kind + "_prompt")
     return f"{kind} prompt with any harness marker {markers!r}"
 
 
@@ -262,13 +262,16 @@ class Live:
 async def startup_paste(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     """Pastes the hazard into the folder-trust dialog a fresh folder opens with; the dialog must stay
     open. Then you answer it: Claude's default option is "No, exit", so the check never presses Enter."""
-    if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "startup", 60):
+    def trust(screen: str) -> bool:
+        return open_prompt(agent, screen) == "startup" and not shows_update_offer(agent, screen)
+
+    if not await live.wait_for(sid, trust, 60):
         return await live.failure(sid, agent, expected_prompt(agent, "startup"),
                                   "No startup dialog showed, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
     await asyncio.sleep(3)
     after = await live.screen(sid)
-    passed = open_prompt(agent, after) == "startup"
+    passed = trust(after)
     await asyncio.to_thread(input, f"  {agent}: trust the folder in its window's dialog yourself, then press Return here. ")
     if not passed:
         return await live.failure(sid, agent, expected_prompt(agent, "startup") + " to stay open under the paste")
@@ -379,6 +382,99 @@ async def permission_paste(live: Live, agent: AgentKind, sid: str, folder: Path)
     return ScenarioResult(True, detail)
 
 
+async def menu_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> ScenarioResult:
+    # /model opens each CLI's model picker: even an accidental choice only changes a model
+    # preference, never grants command or file access. Esc leaves the current model alone.
+    expected = expected_prompt(agent, "menu") + " to stay unchanged, with no allow rules written"
+    try:
+        await live.paste(sid, "/model")
+        await live.bridge.send_text(sid, "\r")
+        if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "menu", 30):
+            return await live.failure(sid, agent, expected, "The /model menu did not open.")
+        before = await live.screen(sid)
+        await live.paste(sid, HAZARD)
+        await asyncio.sleep(3)
+        after = await live.screen(sid)
+        rules = allow_rules(agent, folder)
+        unchanged = open_prompt(agent, after) == "menu" and _flat(before) == _flat(after)
+        detail = f"menu unchanged: {unchanged}; allow rules written: {rules or 'none'}"
+        if not unchanged or rules:
+            return await live.failure(sid, agent, expected, detail)
+        return ScenarioResult(True, detail)
+    finally:
+        await live.bridge.send_text(sid, ESC)
+
+
+async def update_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> ScenarioResult:
+    expected = expected_prompt(agent, "update") + " to stay open under the paste, with no allow rules written"
+    if not HARNESS_BY_AGENT[agent].update_prompt:
+        return await live.failure(sid, agent, expected,
+                                  "this CLI has no update dialog marker, so pasting into one was not checked.")
+    await live.wait_for(sid, lambda screen: shows_update_offer(agent, screen) or idle(agent)(screen), 60)
+    if not shows_update_offer(agent, await live.screen(sid)):
+        return await live.failure(sid, agent, expected,
+                                  "no update dialog showed, so pasting into one was not checked.")
+    await live.paste(sid, HAZARD)
+    await asyncio.sleep(3)
+    still_open = shows_update_offer(agent, await live.screen(sid))
+    rules = allow_rules(agent, folder)
+    # Startup has not reached ready yet. Register the process so session.dismissStartup can
+    # apply its own screen check and decline only an update offer, with Esc.
+    live.registry.apply_snapshot(await live.bridge.snapshot())
+    dismissed = await live.deliverer(agent).dismiss_startup(sid)
+    detail = f"update still open: {still_open}; allow rules written: {rules or 'none'}; declined: {dismissed}"
+    if not still_open or rules or not dismissed:
+        return await live.failure(sid, agent, expected + " and then be declined with Esc", detail)
+    return ScenarioResult(True, detail)
+
+
+async def approval_race(live: Live, agent: AgentKind, sid: str, folder: Path) -> ScenarioResult:
+    """Delay the hazard's transport until approval opens, after the adapter checked the screen.
+    The real adapter must recheck after that paste and withhold Enter."""
+    target = folder / ("outside" if agent == "codex" else "work") / "race-approved.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    expected = (expected_prompt(agent, "permission") + " to receive the paste and stay open, "
+                "no command execution or allow rules, and refused or partial delivery without Enter")
+    landed, entered = False, False
+
+    class ApprovalTransport:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(live.bridge, name)
+
+        async def send_text(self, session_id: str, text: str) -> None:
+            nonlocal landed, entered
+            if text == PASTE_START + HAZARD + PASTE_END:
+                if not await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "permission", 120):
+                    raise ItermUnavailable("No approval prompt opened, so the race paste was not checked.")
+                await live.paste(sid, HAZARD)
+                landed = True
+            else:
+                if text == "\r":
+                    entered = True
+                await live.bridge.send_text(session_id, text)
+
+    try:
+        asked = await live.deliverer(agent).deliver(
+            sid, f"Run exactly this shell command and nothing else: touch {target}", 1)
+        if asked.result != "delivered":
+            return await live.failure(sid, agent, expected + "; permission request delivered from " + expected_idle(agent),
+                                      f"{asked.result}: {asked.reason}", refresh=True)
+        adapter = live.deliverer(agent)
+        adapter.iterm = cast(ItermPort, ApprovalTransport())
+        result = await adapter.deliver(sid, HAZARD, 1)
+        await asyncio.sleep(3)
+        still_open = open_prompt(agent, await live.screen(sid)) == "permission"
+        approved, rules = target.exists(), allow_rules(agent, folder)
+        passed = landed and still_open and not approved and not rules and not entered and result.result in ("refused", "partial")
+        detail = (f"paste landed in approval: {landed}; prompt still open: {still_open}; command ran: {approved}; "
+                  f"allow rules written: {rules or 'none'}; Enter attempted: {entered}; delivery: {result.result}: {result.reason}")
+        if not passed:
+            return await live.failure(sid, agent, expected, detail)
+        return ScenarioResult(True, detail)
+    finally:
+        await live.bridge.send_text(sid, ESC)
+
+
 async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, ScenarioResult]:
     """Every scenario against one CLI, in its own window and scratch folder. One that leaves the CLI
     unable to go on ends the rest, which then count as failed."""
@@ -393,13 +489,24 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
     try:
         await asyncio.sleep(1)  # the shell starting
         await live.bridge.send_text(sid, f" {command}\n")
+        # Codex may offer its update before or after folder trust. Check it where it actually
+        # appears, before ready would wait forever for the still-open dialog.
+        if HARNESS_BY_AGENT[agent].update_prompt:
+            await live.wait_for(sid, lambda screen: open_prompt(agent, screen) == "startup" or idle(agent)(screen), 60)
+            if shows_update_offer(agent, await live.screen(sid)):
+                results["updatePaste"] = await update_paste(live, agent, sid, folder)
         results["startupPaste"] = await startup_paste(live, agent, sid)
         report(agent, "startupPaste", results["startupPaste"])
+        if "updatePaste" not in results:
+            results["updatePaste"] = await update_paste(live, agent, sid, folder)
+        report(agent, "updatePaste", results["updatePaste"])
         steps: tuple[tuple[str, Callable[[], Awaitable[ScenarioResult]]], ...] = (
             ("idleSubmit", lambda: idle_submit(live, agent, sid)),
             ("multiLine", lambda: multi_line(live, agent, sid)),
             ("busyQueue", lambda: busy_queue(live, agent, sid)),
             ("takeover", lambda: takeover(live, agent, sid)),
+            ("menuPaste", lambda: menu_paste(live, agent, sid, folder)),
+            ("approvalRace", lambda: approval_race(live, agent, sid, folder)),
             ("permissionPaste", lambda: permission_paste(live, agent, sid, folder)),
         )
         for name, step in steps:
