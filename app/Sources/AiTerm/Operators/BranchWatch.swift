@@ -90,16 +90,14 @@ final class BranchWatch {
         }
     }
 
-    /// The SHAs `message` names, each looked up: the commit it is, whether `branch` holds it, and which other
-    /// branches do. One git couldn't answer for is left out: nothing is said of it.
+    /// The SHAs `message` names that are commits in the repository, each looked up: the commit it is, whether
+    /// `branch` holds it, and which other branches do. A hex string that is no commit here (a session id, a hash
+    /// quoted as evidence) is left out, as is one git couldn't answer for: nothing is said of either.
     nonisolated static func named(in message: String, branch: String, worktree: String, git: any GitRunning) -> [BranchDrift.Named] {
         BranchDrift.shaCandidates(in: message).compactMap { text in
-            guard case .answered(let found) = ask(["rev-parse", "--verify", "--quiet", text + "^{commit}"], in: worktree, none: [1, 128], git: git)
+            guard case .answered(let found) = ask(["rev-parse", "--verify", "--quiet", text + "^{commit}"], in: worktree, none: [1, 128], git: git),
+                  let commit = found
             else { return nil }
-            guard let commit = found else {
-                // Digits alone that name no commit are a number, not a SHA from elsewhere.
-                return BranchDrift.isNumber(text) ? nil : BranchDrift.Named(text: text, commit: nil, onTaskBranch: false)
-            }
             guard case .answered(let held) = ask(["merge-base", "--is-ancestor", commit, "refs/heads/" + branch], in: worktree, none: [1], git: git),
                   let listed = try? git.run(["for-each-ref", "--contains", commit, "--format=%(refname:short)", "refs/heads"], in: worktree)
             else { return nil }

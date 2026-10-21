@@ -117,8 +117,10 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var asked: String { clauses.map { "\($0.label) \($0.text)" }.joined(separator: " · ") }
 
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
-    /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`).
-    public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest]) -> BroadcastBoard {
+    /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
+    /// `sessions` the tabs as iTerm2 lists them, which the band reads as its row does.
+    public static func make(run: OperatorRun, state: AppState, acting: OperatorActs, requests: [BroadcastRequest],
+                            sessions: [SessionInfo] = []) -> BroadcastBoard {
         let tasks = state.tasks(inRun: run.id)
         let byId = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let projects = run.projectIds.compactMap(state.project(id:))
@@ -148,7 +150,8 @@ public struct BroadcastBoard: Equatable, Sendable {
 
         return BroadcastBoard(
             runId: run.id, title: run.name,
-            band: OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests),
+            band: OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
+                                         ready: SidebarModel.readyForAcceptance(tasks, sessions: sessions)),
             progress: progress(of: run, tasks: tasks),
             clauses: [Clause(label: "Asked", text: oneLine(run.prompt))]
                 + [("Review", run.review), ("Done", run.done)].compactMap { label, text in

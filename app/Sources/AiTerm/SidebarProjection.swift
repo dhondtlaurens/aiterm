@@ -82,11 +82,11 @@ final class SidebarProjection {
             let runs = Dictionary(next.runs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if runs != self.runs { self.runs = runs }
         }
-        let broadcast = SidebarModel.broadcastRow(state: state, acting: next.acting)
+        let broadcast = SidebarModel.broadcastRow(state: state, acting: next.acting, sessions: next.sessions)
         if broadcast != self.broadcast { self.broadcast = broadcast }
         let board = state.activeRun.map { run in
             BroadcastBoard.make(run: run, state: state, acting: next.acting,
-                                requests: OperatorRequests.open(run: run, state: state, prompts: [:]))
+                                requests: OperatorRequests.open(run: run, state: state, prompts: [:]), sessions: next.sessions)
         }
         if board != self.board { self.board = board }
         let entries = SidebarModel.entries(state: state, sessions: next.sessions, branchByCwd: next.branchByCwd,

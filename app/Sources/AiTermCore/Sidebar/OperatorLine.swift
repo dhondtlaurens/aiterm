@@ -171,9 +171,10 @@ public struct OperatorLine: Equatable, Sendable {
 
     /// The broadcast row's line and the board's band: the one thing that needs you, else the run's own
     /// state, else what the Operator is doing, else what its tasks are doing. `acting`'s task is the
-    /// task's `key` (or its id); `tasks` are the broadcast's.
+    /// task's `key` (or its id); `tasks` are the broadcast's; `ready` the working ones whose workers all
+    /// ended their turn, waiting for the Operator to accept them (`TaskItem.isReadyForAcceptance(in:)`).
     public static func broadcast(_ run: OperatorRun, tasks: [TaskItem], acting: (OperatorAct, task: String?)?,
-                                 requests: [BroadcastRequest]) -> OperatorLine {
+                                 requests: [BroadcastRequest], ready: Set<UUID> = []) -> OperatorLine {
         let driven = tasks.filter { $0.operated?.runId == run.id }
         // A finished task's leftover asks nothing, as on its own line.
         let finished = Set(driven.filter { $0.operated.map(\.isFinished) ?? false }.map(\.id))
@@ -196,9 +197,9 @@ public struct OperatorLine: Equatable, Sendable {
         }
         if run.state == .planning { return OperatorLine("loading the construct", look: .acting) }
         let open = driven.filter { ($0.operated).map { !$0.takenOver && $0.state.isOpen } ?? false }
-        let working = open.filter { $0.operated?.state == .working }.count
-        // Its tasks work: the line moves with the row's mark.
-        if working > 0 { return OperatorLine("working · \(working) \(working == 1 ? "task" : "tasks")", look: .acting) }
+        let working = open.filter { $0.operated?.state == .working }
+        let waiting = working.filter { ready.contains($0.id) }.count
+        if !working.isEmpty { return counted(working: working.count - waiting, ready: waiting) }
         // Waiting only on people: the names its reviews wait on, each once.
         var names: [String] = []
         for task in open {
@@ -210,6 +211,32 @@ public struct OperatorLine: Equatable, Sendable {
     }
 
     // MARK: - The words
+
+    /// What the broadcast's line counts its working tasks as, each with its words: kept here alone, so
+    /// renaming one is one edit.
+    public enum Count: Sendable {
+        /// Its agent is at work.
+        case working
+        /// Its workers all ended their turn: its result waits for the Operator to check and accept it.
+        case readyToAccept
+
+        public var words: String {
+            switch self {
+            case .working: "working"
+            case .readyToAccept: "ready to accept"
+            }
+        }
+    }
+
+    /// The working tasks counted: `working · 2 tasks`, `ready to accept · 1 task`, or both, `working · 2 tasks
+    /// · 1 ready to accept`. While one is at work the line moves with the row's mark; with every one ready it
+    /// waits on the Operator, quiet.
+    static func counted(working: Int, ready: Int) -> OperatorLine {
+        func tasks(_ count: Int) -> String { "\(count) \(count == 1 ? "task" : "tasks")" }
+        guard working > 0 else { return OperatorLine(Count.readyToAccept.words + " · " + tasks(ready)) }
+        let waiting = ready > 0 ? " · \(ready) " + Count.readyToAccept.words : ""
+        return OperatorLine(Count.working.words + " · " + tasks(working) + waiting, look: .acting)
+    }
 
     /// An act's line: the words in the task's agent (a review's in its reviewer's), and on the broadcast's
     /// line the task it is about after them.
