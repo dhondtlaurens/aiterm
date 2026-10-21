@@ -23,44 +23,81 @@ struct StatusMarkTests {
         #expect(min(cycleDifference, 360 - cycleDifference) < 0.0001)
     }
 
-    private func solidFillRatio(for status: TaskStatus, color: Color) throws -> Double {
+    /// A mark drawn offscreen on black, `Space.base` of black around it so a stroke that leaves
+    /// its box shows.
+    private func drawn(_ status: TaskStatus, on surface: Surface = .sidebar) throws -> NSBitmapImageRep {
         let view = StatusMark(status: status, size: size)
+            .surface(surface)
+            .environment(\.stillSpinners, true)
+            .padding(Space.base)
             .background(Color.black)
         let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: size, height: size)
+        host.frame = NSRect(x: 0, y: 0, width: size + 2 * Space.base, height: size + 2 * Space.base)
         host.appearance = NSAppearance(named: .darkAqua)
         host.layoutSubtreeIfNeeded()
-
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
+        return bitmap
+    }
+
+    /// The pixel `radius` points from the mark's centre, `degrees` clockwise from three o'clock.
+    private func pixel(_ bitmap: NSBitmapImageRep, radius: CGFloat, degrees: CGFloat) throws -> NSColor {
+        let scale = CGFloat(bitmap.pixelsWide) / (size + 2 * Space.base)
+        let centre = CGFloat(bitmap.pixelsWide) / 2
+        let angle = degrees * .pi / 180
+        let x = Int(centre + radius * scale * cos(angle)), y = Int(centre + radius * scale * sin(angle))
+        return try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+    }
+
+    private func matches(_ pixel: NSColor, _ color: Color) throws -> Bool {
         let expected = try #require(NSColor(color).usingColorSpace(.sRGB))
-        let scale = CGFloat(bitmap.pixelsWide) / size
-        let center = CGFloat(bitmap.pixelsWide - 1) / 2
-        let sampleRadius = size * scale * 0.3
-        var matching = 0
-        var sampled = 0
+        return abs(pixel.redComponent - expected.redComponent) + abs(pixel.greenComponent - expected.greenComponent)
+            + abs(pixel.blueComponent - expected.blueComponent) < 0.08
+    }
 
-        for y in 0..<bitmap.pixelsHigh {
-            for x in 0..<bitmap.pixelsWide {
-                guard hypot(CGFloat(x) - center, CGFloat(y) - center) <= sampleRadius,
-                      let pixel = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                sampled += 1
-                let difference = abs(pixel.redComponent - expected.redComponent)
-                    + abs(pixel.greenComponent - expected.greenComponent)
-                    + abs(pixel.blueComponent - expected.blueComponent)
-                if difference < 0.08 { matching += 1 }
-            }
+    private func isBlack(_ pixel: NSColor) -> Bool {
+        pixel.redComponent + pixel.greenComponent + pixel.blueComponent < 0.03
+    }
+
+    /// The middle of the stroke: half a stroke in from the box's edge.
+    private var band: CGFloat { size / 2 - size * 0.15 / 2 }
+
+    /// Needs input and done are rings like every other look (proposal 1A, 21 Oct 2026): their
+    /// colour on the band all the way round, nothing inside it.
+    @Test(arguments: [(TaskStatus.needsInput, Palette.amber), (.done, Palette.done)])
+    func isARingNotADisc(status: TaskStatus, color: Color) throws {
+        let bitmap = try drawn(status)
+        for degrees in stride(from: CGFloat(0), to: 360, by: 45) {
+            #expect(try matches(pixel(bitmap, radius: band, degrees: degrees), color), "\(status) at \(degrees)°")
         }
-
-        return Double(matching) / Double(sampled)
+        #expect(isBlack(try pixel(bitmap, radius: 0, degrees: 0)), "\(status) is filled in")
+        #expect(isBlack(try pixel(bitmap, radius: size * 0.25, degrees: 90)), "\(status) is filled in")
     }
 
-    @Test func doneIsASolidBlueDot() throws {
-        #expect(try solidFillRatio(for: .done, color: Palette.done) > 0.98)
+    /// On the accent the done ring is white, as the arc is: the accent on the accent would vanish.
+    /// Amber stays amber.
+    @Test func onTheAccentDoneIsWhiteAndNeedsInputStaysAmber() throws {
+        #expect(try matches(pixel(drawn(.done, on: .accent), radius: band, degrees: 90), Palette.onAccent))
+        #expect(try matches(pixel(drawn(.needsInput, on: .accent), radius: band, degrees: 90), Palette.amber))
     }
 
-    @Test func needsInputIsASolidAmberDot() throws {
-        #expect(try solidFillRatio(for: .needsInput, color: Palette.amber) > 0.98)
+    /// The track is whole. It used to leave out the slice the arc rests on, from three o'clock to
+    /// about five past four, which showed as a gap once the arc turned away from it.
+    @Test func theWorkingTrackIsWhole() throws {
+        let bitmap = try drawn(.working)
+        for degrees in stride(from: CGFloat(5), to: 300, by: 10) {
+            #expect(!isBlack(try pixel(bitmap, radius: band, degrees: degrees)), "no track at \(degrees)°")
+        }
+    }
+
+    /// Every look stays inside its `size` box (proposal 2A, 21 Oct 2026): the arc used to straddle
+    /// the circle and reach half a stroke past the idle ring's edge.
+    @Test(arguments: [TaskStatus.idle, .working, .needsInput, .done])
+    func staysInsideItsBox(status: TaskStatus) throws {
+        let bitmap = try drawn(status)
+        for degrees in stride(from: CGFloat(0), to: 360, by: 15) {
+            #expect(isBlack(try pixel(bitmap, radius: size / 2 + 1.5, degrees: degrees)), "\(status) leaves its box at \(degrees)°")
+        }
     }
 
     /// A window the mark is really in, so its arc joins a layer tree Core Animation draws.
@@ -138,6 +175,7 @@ struct StatusMarkTests {
     @Test func theArcTurnsClockwiseFromWhereTheShapeLies() throws {
         let shape = Circle().trim(from: 0, to: 0.15)
             .stroke(Palette.spinner, style: StrokeStyle(lineWidth: size * 0.15, lineCap: .round))
+            .padding(size * 0.15 / 2)
             .frame(width: size, height: size)
         let (shapeWindow, shapeHost) = hostInWindow(shape)
         defer { shapeWindow.close() }

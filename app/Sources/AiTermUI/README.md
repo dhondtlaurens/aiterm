@@ -74,8 +74,12 @@ environment's `InterfaceScale` (`standard` ×1, `large` ×1.15, `extraLarge` ×1
 - A `size:` parameter is points on screen: the caller scales the token it passes, and the view
   never scales its own parameters. A view's *own* token reads it scales itself.
 - Strokes do not scale: hairlines, borders, outline rings, the focus ring. (A drawn ring whose
-  stroke is a fraction of its diameter — `StatusMark`, `UsageRing` — is a mark, not a stroke, and
-  scales with the size it is given.)
+  stroke is a fraction of its diameter — `StatusMark`, `UsageRing`, `ToneRing` — is a mark, not a
+  stroke, and scales with the size it is given.)
+- Every round status mark is a ring, never a disc: a `size * 0.15` stroke inside the `size` box,
+  `strokeBorder` or a trimmed stroke padded by half its width. `StatusMark` is the idle ring, the
+  working arc over its whole track, needs input in `Palette.amber` and done in `Palette.done`
+  (`Palette.onAccent` on the accent, as the arc is); `UsageRing` and `ToneRing` are drawn the same way.
 
 Only the sidebar is scaled; `SidebarSheet` resets to `.standard`. AppKit's pop-up and push-button
 bezels stop at 28 pt (`.extraLarge` draws `.large` on macOS 26), so a sheet — full of them — keeps
@@ -182,7 +186,7 @@ vendor needs both.
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
 `AgentSegmented`, `AgentSegmentLabel`, `Notice`, `FixProposalBlock`, `FixBusyLine`, `FixOfferLabel`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
-`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneDot` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
+`NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneRing` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
 `PickerResultRow`,
 `PickedItemField`, `LaneChip`, `AgentStep`, `PromptStep`, `WorktreeIncludeToggle`, `CompletionHint`,
@@ -208,7 +212,7 @@ samples them every 5 s through a `MachineSensor` — Mach host statistics, `ther
 memory-pressure sysctl, in-process — and `MachineReadings` turns two samples and the battery into
 `UsageLine`s. A reading turns amber only on macOS's own warning: the CPU when the Mac throttles for
 heat, memory under pressure, the battery within five points of Backpack Mode's cutoff. While the mode
-is on or switching, a second row follows: a `ToneDot` at `Size.statusMarkSmall`, centred in the marks'
+is on or switching, a second row follows: a `ToneRing` at `Size.statusMarkSmall`, centred in the marks'
 column, then the words in its `SettingsTone` — `backpack turning on…` and `backpack turning off…` idle,
 `backpack enabled` ready, `backpack needs you` attention. That is the one colour in the footer that is
 not ink or amber, and a Settings card's voice: the task list keeps `StatusMark` to itself. At the desk
@@ -267,7 +271,7 @@ avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude'
 `Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
 3 tasks` between its turns (`waiting for its tasks` with none at work), `asks you in its window`, `paused`, `window closed`; never a task's request nor
 what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
-acts or works, the accent dot once the debrief is ready, else the idle ring. No project, ticket or branch line. It has an id of its own
+acts or works, the accent ring once the debrief is ready, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
 closed. VoiceOver calls it "Operator, Claude Code session".
@@ -307,9 +311,9 @@ acts exactly when its row's `StatusMark` turns. Ended is every end a task's line
 `done · no change`, `draft MR · !412`, `merged · 9b3e07d` and `merged locally · 1c84e20`: the Operator's work
 on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
-and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
+and for the accent ring of an unseen turn; a session at work or waiting on input keeps its own mark, and a
 removal or shelving spins. Until then, while the Operator holds the task, its mark spins whatever its tabs say,
-with no done dot, and turns amber only when it needs you: its tab waiting on input, or its line needing you
+with no done ring, and turns amber only when it needs you: its tab waiting on input, or its line needing you
 (`SidebarModel.heldStatus`, P3 1A). A queued task's is the pause sign. No other state has a mark of its own. The
 Operator's words are plain verbs: accepting is its job, so only what you must do is amber. A task row's icon
 already names its agent, so wherever the Operator acts on a task its row names the Operator, never the agent
@@ -568,7 +572,7 @@ once, as the sheet opens, and a test answering afterwards never switches the tab
 
 `SettingsCard` is the one box every Settings entry is drawn in — a harness on Agents; iTerm2
 (`ItermSettingsCard`), the Mac (`MacSettingsCard`), then Jira, GitLab and GitHub (`ServiceCard`) on Integrations: a `Size.control` mark,
-a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneDot` — the dot the footer's backpack line draws too)
+a title with optional check chips, a status line in one of three tones (`SettingsTone`: ready, attention, idle, led by its `ToneRing` — the ring the footer's backpack line draws too)
 and with no full stop (`SettingsStatus` drops the one an error's own sentence ends with),
 trailing actions at `.controlSize(.large)`, fields below a divider. Cards carry no Test button:
 Settings tests every card when it opens (and a service again once its fields stop changing), and

@@ -469,7 +469,7 @@ public enum SidebarModel {
     }
 
     /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct
-    /// 2026): at work, whatever its tabs say, so an idle tab or a turn's end shows the spinner and no done dot,
+    /// 2026): at work, whatever its tabs say, so an idle tab or a turn's end shows the spinner and no done ring,
     /// those being the Operator's to read. It needs you, amber, when its tab waits on input or its line does
     /// (a prompt, a question, a block). A task you made, one you took over and an ended one keep their tabs'.
     public static func heldStatus(_ status: TaskStatus, line: OperatorLine?) -> TaskStatus {
