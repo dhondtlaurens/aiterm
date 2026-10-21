@@ -16,7 +16,11 @@ let package = Package(
         // they live in a library the tests import. It uses only what Core makes public — no
         // `@testable` — so a plain release build still compiles, and it stays below the app: what
         // needs `AiTerm` (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
-        .target(name: "AiTermTestSupport", dependencies: ["AiTermCore"], path: "Tests/AiTermTestSupport"),
+        .target(name: "AiTermTestSupport", dependencies: ["AiTermCore", "AiTermTestWindowHook"], path: "Tests/AiTermTestSupport"),
+        // Hides every window the test process orders in, so a run does not draw over the person's
+        // apps. Only AiTermTestSupport depends on it: it is never linked into the app.
+        .target(name: "AiTermTestWindowHook", path: "Tests/AiTermTestWindowHook",
+                linkerSettings: [.linkedFramework("AppKit")]),
         // The Operator evals' baseline (Fixtures/) is read by path from the checkout, not as a resource bundle.
         .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests",
                     exclude: ["Operators/Fixtures"]),

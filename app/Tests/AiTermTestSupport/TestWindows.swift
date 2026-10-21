@@ -1,4 +1,5 @@
 import AppKit
+import AiTermTestWindowHook
 
 // Windows for tests. AppKit animates a window's opening and closing (NSWindowTransformAnimation) as
 // a threaded NSAnimation on a user-interactive global queue. A test window that is covered, or a
@@ -6,6 +7,10 @@ import AppKit
 // about 64 are parked (`kern.wq_max_constrained_threads`) nothing dispatched to a global queue
 // runs again — every `BackgroundWork.run` and `asyncAfter` in the tests included — and the suite
 // hangs with its windows still open. So a test process animates none: every window comes from here.
+//
+// Every window is also hidden — transparent and click-through — however it was made: the hook in
+// AiTermTestWindowHook does that to each one the test process orders in, so a run does not draw
+// over the person's apps. `keepVisible` is the way out for a window that must be seen.
 
 /// Turns window animations off for the whole test process. A static initialiser, so the first call
 /// does it, once, whichever test reaches a window first; every helper below calls it before it makes
@@ -38,6 +43,13 @@ import AppKit
     panel.isReleasedWhenClosed = false
     panel.animationBehavior = .none
     return panel
+}
+
+/// Leaves `window` drawn and clickable when it is ordered in, which every other test window is not:
+/// for a test that needs the window server to show or hit-test it. Sent events and `cacheDisplay`
+/// work on a hidden window, so few tests do.
+@MainActor public func keepVisible(_ window: NSWindow) {
+    AiTermTestKeepWindowVisible(window)
 }
 
 /// Whether the login session's screen is locked. While it is, the login window owns key focus, and
