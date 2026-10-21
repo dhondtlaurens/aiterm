@@ -63,6 +63,15 @@ import AiTermCore
         #expect(HarnessCardPresentation.action(for: shown) == "Run check")
     }
 
+    /// While Run check's window works, the card says so in place of the last verdict.
+    @Test func aRunningCheckSaysSo() {
+        let shown = HarnessCardPresentation.snapshot(card(), messaging: .needsAttention("Messaging failed: startupPaste"), running: true)
+        #expect(HarnessCardPresentation.status(for: shown) == SettingsStatus(.attention, HarnessCardPresentation.checkRunning))
+        #expect(HarnessCardPresentation.action(for: shown) == "Run check", "run again, in place of the window")
+        let passed = HarnessCardPresentation.snapshot(card(), messaging: .ready("Messaging ready for 2.1"), running: true)
+        #expect(HarnessCardPresentation.status(for: passed) == SettingsStatus(.ready, "Ready"))
+    }
+
     // -- the checks, read and run ---------------------------------------------------------------
 
     private func scratchPolicy() throws -> URL {
@@ -130,6 +139,35 @@ import AiTermCore
         #expect(daemon.requests("window.close").map { $0.params["windowId"] as? String } == ["reopened"])
         #expect(daemon.requests("window.createTask").count == 2)
         #expect(checks.windows == ["reopened-2": .codex])
+    }
+
+    /// Running from the window opening until the check writes the file, even the same verdicts again.
+    @Test func aCheckRunsUntilItWritesTheFile() async throws {
+        let url = try scratchPolicy()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let failed = #"{"claude": {"version": "2.1.301", "pasteSafe": false, "submitSafe": false, "checkedAt": "%@", "scenarios": {}}}"#
+        try write(failed.replacingOccurrences(of: "%@", with: "2026-10-21T07:40:16Z"), to: url)
+        let checks = MessagingChecks(policyURL: url, versions: { _ in [.claude: "2.1.301"] })
+        checks.opener = .init(daemon: { RecordingDaemon() }, runtime: { HelperLink.Runtime(python: URL(fileURLWithPath: "/p"), daemonDir: URL(fileURLWithPath: "/d")) },
+                              frame: { Frame(x: 0, y: 0, w: 800, h: 600) }, activateIterm: {})
+        await checks.refresh()
+        #expect(!checks.isRunning(.claude))
+        await checks.run(.claude)
+        #expect(checks.isRunning(.claude))
+        #expect(!checks.isRunning(.codex))
+        try write(failed.replacingOccurrences(of: "%@", with: "2026-10-21T08:12:00Z"), to: url)
+        await checks.refresh(force: true)
+        #expect(!checks.isRunning(.claude), "written, though it failed the same way")
+    }
+
+    @Test func aClosedWindowRunsNoMore() async throws {
+        let checks = MessagingChecks.inert()
+        checks.opener = .init(daemon: { RecordingDaemon() }, runtime: { HelperLink.Runtime(python: URL(fileURLWithPath: "/p"), daemonDir: URL(fileURLWithPath: "/d")) },
+                              frame: { Frame(x: 0, y: 0, w: 800, h: 600) }, activateIterm: {})
+        await checks.run(.claude)
+        #expect(checks.isRunning(.claude))
+        checks.windowClosed(try #require(checks.windows.keys.first))
+        #expect(!checks.isRunning(.claude))
     }
 
     @Test func aWindowTheHelperRefusedSaysWhy() async {

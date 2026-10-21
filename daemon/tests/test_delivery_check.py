@@ -625,7 +625,11 @@ async def test_startup_checks_update_on_either_side_of_trust(update_first, tmp_p
         calls.append("update")
         return OK
 
+    async def answered(*args):
+        return True
+
     monkeypatch.setattr(check, "startup_paste", trust)
+    monkeypatch.setattr(check, "answer_trust", answered)
     monkeypatch.setattr(check, "update_paste", update, raising=False)
     monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
     await check.check_agent(Startup(FakeIterm()), "codex", tmp_path)
@@ -655,7 +659,87 @@ async def test_startup_paste_waits_past_stale_update_frame(changed_to_update, mo
                 bridge.screens[sid] = "Update now\nSkip until next version"
 
     monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
-    monkeypatch.setattr("builtins.input", lambda *args: "")
     result = await check.startup_paste(Startup(bridge), "codex", sid)
     assert result.passed == (not changed_to_update)
     assert pasted_on == ["Trust this folder?"]
+
+
+# The trust dialogs as each CLI draws them, the selection on the option its arrow marks.
+CLAUDE_TRUST = {"No": " ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm · Esc to cancel",
+                "Yes": "   No, exit\n ❯ Yes, I trust this folder\n Enter to confirm · Esc to cancel"}
+CODEX_TRUST = "  Trust this folder?\n› 1. Yes, allow Codex to work in this folder\n  2. No, ask me to approve edits and commands"
+IDLE = {"claude": "────────────────\n❯\x20\n────────────────", "codex": "›\x20Ask Codex to do anything"}
+
+
+async def keyed_session(screens):
+    """A session whose screen answers each key as `screens` says: (screen, key) -> the next screen."""
+    from tests.fake_iterm import FakeIterm
+
+    class Keyed(FakeIterm):
+        async def send_text(self, session_id, text):
+            await super().send_text(session_id, text)
+            self.screens[session_id] = screens.get((self.screens[session_id], text), self.screens[session_id])
+
+    bridge, sid = await fake_session()
+    bridge.__class__ = Keyed
+    return bridge, sid
+
+
+@pytest.mark.parametrize("agent,start,keys", [
+    # Claude's dialog opens on "No, exit": one Down reaches the trust, then Enter.
+    ("claude", CLAUDE_TRUST["No"], ["\x1b[B", "\r"]),
+    ("codex", CODEX_TRUST, ["\r"]),
+])
+async def test_the_check_trusts_its_own_scratch_folder(agent, start, keys, monkeypatch):
+    from tools import delivery_check as check
+    bridge, sid = await keyed_session({(CLAUDE_TRUST["No"], "\x1b[B"): CLAUDE_TRUST["Yes"],
+                                       (CLAUDE_TRUST["Yes"], "\r"): IDLE["claude"], (CODEX_TRUST, "\r"): IDLE["codex"]})
+    bridge.screens[sid] = start
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    assert await check.answer_trust(check.Live(bridge), agent, sid)
+    assert [text for _, text in bridge.sent] == keys
+
+
+async def test_the_check_never_enters_on_an_option_it_did_not_select(monkeypatch):
+    from tools import delivery_check as check
+    # Down moves nothing: the selection never reaches the trust, so no Enter answers "No, exit".
+    bridge, sid = await keyed_session({})
+    bridge.screens[sid] = CLAUDE_TRUST["No"]
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    assert not await check.answer_trust(check.Live(bridge), "claude", sid)
+    assert "\r" not in [text for _, text in bridge.sent]
+
+
+async def test_a_folder_already_trusted_needs_no_answer(monkeypatch):
+    from tools import delivery_check as check
+    bridge, sid = await keyed_session({})
+    bridge.screens[sid] = IDLE["claude"]
+    assert await check.answer_trust(check.Live(bridge), "claude", sid)
+    assert bridge.sent == []
+
+
+async def test_an_unanswered_trust_ends_the_agents_check_at_once(tmp_path, monkeypatch):
+    from tools import delivery_check as check
+    from tests.fake_iterm import FakeIterm
+    ran = []
+
+    class Stuck(check.Live):
+        async def ready(self, *args, **kwargs):
+            ran.append("ready")
+            return True
+
+    async def unanswered(*args):
+        return False
+
+    monkeypatch.setattr(check, "startup_paste", lambda *args: _ok())
+    monkeypatch.setattr(check, "answer_trust", unanswered)
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    results = await check.check_agent(Stuck(FakeIterm()), "claude", tmp_path)
+    assert ran == []
+    assert set(results) == set(PASTE_SAFE + SUBMIT_SAFE)
+    assert results["startupPaste"].passed
+    assert not results["idleSubmit"].passed and "trust" in results["idleSubmit"].detail
+
+
+async def _ok():
+    return OK

@@ -10,7 +10,7 @@ import os
 import plistlib
 import subprocess
 import threading
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from typing import Any, ParamSpec, Protocol, TypeVar
 
 import iterm2
@@ -318,6 +318,13 @@ class ItermPort(Protocol):
     def on_window_activated(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
     def on_keystroke(self, cb: KeystrokeCallback) -> None: ...
     def on_disconnect(self, cb: Callable[[], Awaitable[None]]) -> None: ...
+
+
+def screen_string(lines: Iterable[str]) -> str:
+    """A screen's lines as one text, each cell a program skipped with a cursor move -- which iTerm2
+    hands back as NUL -- read as the space it shows. Unread, the NULs split the words every prompt
+    marker is matched by, and Claude Code draws its dialogs that way."""
+    return "\n".join(lines).replace("\x00", " ")
 
 
 # A session where the hierarchy has it: its window, its tab's index, and whether it is that window's
@@ -742,7 +749,7 @@ class ItermBridge:
         except KeyError:
             return None
         contents = await session.async_get_screen_contents()
-        return "\n".join(contents.line(i).string for i in range(contents.number_of_lines))
+        return screen_string(contents.line(i).string for i in range(contents.number_of_lines))
 
     @_bounded
     async def session_info(self, session_id: str) -> RawSession | None:

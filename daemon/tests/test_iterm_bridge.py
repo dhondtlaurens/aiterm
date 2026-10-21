@@ -1475,3 +1475,25 @@ async def test_monitor_epoch_exists_only_while_subscription_is_live(patched_conn
     await bridge.connect()
     assert bridge.keystroke_epoch() is not None and bridge.keystroke_epoch() is not first
     await bridge.close()
+
+
+# Claude Code's folder-trust dialog as iTerm2 handed it back on 2026-10-21: the cells Claude skips
+# with cursor moves come back as NUL, not as spaces.
+_DRAWN_WITH_NULS = ["❯  claude --permission-mode default", "",
+                    "\x00Quick\x00safety\x00check:\x00Is\x00this\x00a\x00project\x00you\x00created\x00or\x00one\x00you\x00trust?",
+                    "\x00❯\x00No,\x00exit", "\x00\x00\x00Yes,\x00I\x00trust\x00this\x00folder", "",
+                    "\x00Enter\x00to\x00confirm\x00·\x00Esc\x00to\x00cancel"]
+
+
+def test_a_screen_reads_its_skipped_cells_as_spaces():
+    screen = iterm_bridge.screen_string(_DRAWN_WITH_NULS)
+    assert "\x00" not in screen
+    assert screen.splitlines()[4] == "   Yes, I trust this folder"
+
+
+def test_a_prompt_drawn_with_skipped_cells_is_still_seen():
+    from aitermd.delivery import open_prompt
+    from aitermd.status import shows_trust_prompt
+    screen = iterm_bridge.screen_string(_DRAWN_WITH_NULS)
+    assert open_prompt("claude", screen) == "startup"
+    assert shows_trust_prompt("claude", screen)

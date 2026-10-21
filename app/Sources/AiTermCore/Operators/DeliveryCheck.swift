@@ -7,11 +7,20 @@ import Synchronization
 public struct DeliveryCheckFile: Equatable, Sendable {
     /// One entry: the version it was checked against, its flags (`pasteSafe` and `submitSafe` for a CLI,
     /// `keystrokesPassThrough` and `backgroundWindow` for iTerm2) and each scenario run, by whether it
-    /// passed. A flag or a scenario counts only as a JSON true, as `load_policy` reads one.
+    /// passed. A flag or a scenario counts only as a JSON true, as `load_policy` reads one. `checkedAt`
+    /// tells one run from the next that found the same.
     public struct Entry: Equatable, Sendable {
         public var version: String?
         public var flags: Set<String>
         public var passed: Set<String>
+        public var checkedAt: String?
+
+        public init(version: String?, flags: Set<String>, passed: Set<String>, checkedAt: String? = nil) {
+            self.version = version
+            self.flags = flags
+            self.passed = passed
+            self.checkedAt = checkedAt
+        }
     }
 
     public var entries: [String: Entry]
@@ -33,7 +42,7 @@ public struct DeliveryCheckFile: Equatable, Sendable {
             let flags = Set(entry.compactMap { key, value in Self.isTrue(value) ? key : nil })
             let scenarios = entry["scenarios"] as? [String: Any] ?? [:]
             let passed = Set(scenarios.compactMap { key, value in Self.isTrue((value as? [String: Any])?["passed"]) ? key : nil })
-            entries[name] = Entry(version: version, flags: flags, passed: passed)
+            entries[name] = Entry(version: version, flags: flags, passed: passed, checkedAt: entry["checkedAt"] as? String)
         }
         self.entries = entries
     }
