@@ -259,14 +259,16 @@ public struct OperatorLine: Equatable, Sendable {
 
     /// The Operator row's line: its own session's, nothing of its tasks (the broadcast's header and board say
     /// those). Its window closed, `window closed`; a prompt open in its tab, `asks you in its window`; paused,
-    /// `paused`; else its act, the task it is about named (`answering Claude · PAY-231`); else `working` while
-    /// its session works, and between turns `waiting for its tasks`. `acting` is the broadcast's act as
+    /// `paused`; every task done, `done · debrief ready`, as the header says it; else its act, the task it is
+    /// about named (`answering Claude · PAY-231`); else `working` while its session works, and between turns
+    /// `waiting for its tasks`. `acting` is the broadcast's act as
     /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
     public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, windowClosed: Bool,
-                               paused: Bool = false, tasks: [TaskItem] = []) -> OperatorLine {
+                               paused: Bool = false, complete: Bool = false, tasks: [TaskItem] = []) -> OperatorLine {
         if windowClosed { return OperatorLine("window closed") }
         if asking { return OperatorLine("asks you in its window", look: .needsYou) }
         if paused { return OperatorLine("paused") }
+        if complete { return OperatorLine("done · debrief ready") }
         if let (act, ref) = acting {
             let task = ref.flatMap { ref in tasks.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)

@@ -337,10 +337,13 @@ import Testing
         let run = OperatorUIFixtures.run()
         let pay = task("Cart drawer", jira: "PAY-231", run: run, key: "pay-231", .working)
         func line(acting: (OperatorAct, task: String?)? = nil, working: Bool = false, asking: Bool = false,
-                  windowClosed: Bool = false, paused: Bool = false) -> OperatorLine {
-            OperatorLine.session(acting: acting, working: working, asking: asking, windowClosed: windowClosed, paused: paused, tasks: [pay])
+                  windowClosed: Bool = false, paused: Bool = false, complete: Bool = false) -> OperatorLine {
+            OperatorLine.session(acting: acting, working: working, asking: asking, windowClosed: windowClosed, paused: paused,
+                                 complete: complete, tasks: [pay])
         }
         #expect(line() == OperatorLine("waiting for its tasks"), "between turns: quiet")
+        #expect(line(complete: true) == OperatorLine("done · debrief ready"), "every task done: as the header says it")
+        #expect(line(asking: true, complete: true).look == .needsYou, "its own ask still comes first")
         #expect(line(working: true) == OperatorLine("working", look: .acting))
         #expect(line(acting: (.answering, task: "pay-231"), working: true) == OperatorLine("answering Claude · PAY-231", look: .acting))
         #expect(line(acting: (.consultingTheOracle, task: nil)) == OperatorLine("consulting the Oracle", look: .acting))

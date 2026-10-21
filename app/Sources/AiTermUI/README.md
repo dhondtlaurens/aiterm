@@ -327,7 +327,7 @@ window shows it whole), `waiting on you · docs` (one of several worker tabs ask
 `OperatorLine.first`'s order, then by tab order, `main` first), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
 `left for you · 4f2a91c`, a publication handed back. The Operator's own row says its session's line
-(`OperatorLine.session`), nothing of its tasks: its act, `working`, `waiting for its tasks` between turns,
+(`OperatorLine.session`), nothing of its tasks: its act, `working`, `waiting for its tasks` between turns, `done · debrief ready` once every task is,
 `paused`, `asks you in its window` (needs you: its tab waits on input, or a question for the whole broadcast is
 open) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
 A line is at most `OperatorLine.maxLength` (40) characters, its detail cut at a word. The group, its header and

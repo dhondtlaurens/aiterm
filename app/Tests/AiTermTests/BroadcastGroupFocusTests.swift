@@ -241,6 +241,11 @@ struct BroadcastGroupFocusTests {
         await controller.activateSelection()?.value                        // ↩
         #expect(daemon.requests("session.activate").map { $0.params["sessionId"] as? String } == ["s2", "s2"])
 
+        controller.openNote(.task(task.id))                                // its notification's click
+        #expect(await eventually(describing: "the notification brings the tab that asks") {
+            daemon.requests("session.activate").map { $0.params["sessionId"] as? String } == ["s2", "s2", "s2"]
+        })
+
         // Answered, nothing asks: the tab last in front.
         controller.live.sessions[1].state = .working
         await controller.choose(task: task.id)?.value

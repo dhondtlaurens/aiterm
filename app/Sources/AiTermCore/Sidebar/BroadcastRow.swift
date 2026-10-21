@@ -140,16 +140,18 @@ public extension SidebarModel {
     /// The Operator's row: its own session's line (`OperatorLine.session`), nothing of its tasks, which the
     /// header's tooltip, the board's band and the tasks' own rows say. It asks you while its tab waits on input
     /// or one of its own questions, the broadcast's and no task's, is open; its window is closed while the run
-    /// is `operatorOffline`; else paused, its act, `working` while its session works, and `waiting for its tasks`
-    /// between turns. Its mark follows the line: amber when it asks, spinning while it acts or works, the
-    /// accent dot once the debrief is ready, else the idle ring: a turn ended is routine.
+    /// is `operatorOffline`; else paused, `done · debrief ready` once every task is, its act, `working` while its
+    /// session works, and `waiting for its tasks` between turns. Its mark follows the line: amber when it asks,
+    /// spinning while it acts or works, the accent dot once the debrief is ready, else the idle ring: a turn
+    /// ended is routine.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],
                             sessions: [SessionInfo]) -> OperatorRow {
         let tab = run.operatorSessionId.flatMap { id in sessions.first { $0.sessionId == id } } ?? operatorTab(of: run.id, in: sessions)
         let asks = requests.contains { $0.runId == run.id && $0.taskId == nil }
         let line = OperatorLine.session(acting: acting.broadcast(run.id), working: tab?.state == .working,
                                         asking: asks || tab?.state == .needsInput, windowClosed: run.state == .operatorOffline,
-                                        paused: run.state == .paused || run.intent == .paused, tasks: tasks)
+                                        paused: run.state == .paused || run.intent == .paused,
+                                        complete: run.state == .complete, tasks: tasks)
         let status: TaskStatus = switch line.look {
         case .needsYou: .needsInput
         case .acting: .working

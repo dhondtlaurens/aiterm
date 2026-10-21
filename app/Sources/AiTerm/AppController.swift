@@ -558,11 +558,12 @@ final class AppController {
 
     // -- the selected row -------------------------------------------------------------
     /// What a notification's click opens (spec §10.3): an operation's overview — the sidebar presents
-    /// what `presentOverview` names — or the window of the task whose prompt waits on you.
+    /// what `presentOverview` names — or the task whose prompt waits on you, its tab that asks in front
+    /// (`choose(task:)`), as a click on its row brings it.
     func openNote(_ target: OperatorNote.Target) {
         switch target {
         case .overview(let id): operatorController.presentOverview = id
-        case .task(let id): focus.select(.task(id))
+        case .task(let id): choose(task: id)
         }
     }
 
