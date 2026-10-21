@@ -29,6 +29,8 @@ public enum OperatorTiming {
     public static let mergePoll: TimeInterval = 30
     /// M3, app only: how long it waits for that before blocking the task and asking you.
     public static let mergeWait: TimeInterval = 60 * 60
+    /// App only: how long after the plan is done AiTerm waits for the Operator's summary before giving up on it.
+    public static let summaryWait: TimeInterval = 300
     /// App only: relaunches of a failed task before AiTerm blocks it (spec §4.1's fixed caps).
     public static let retries = 2
     /// App only: minutes a task's worker may be busy, not counting time idle or waiting on you, before AiTerm blocks it.

@@ -163,4 +163,28 @@ import Foundation
 
         #expect(again.operated == OperatorFixtures.operated("PLUTO-1", .queued))
     }
+
+    /// The summary, its times and the end time are all kept, and a run saved without them reads them as none.
+    @Test func theSummaryFieldsRoundTrip() throws {
+        var run = OperatorFixtures.run(state: .stopped)
+        run.summary = "All done."; run.summaryAt = OperatorFixtures.epoch.addingTimeInterval(60)
+        run.completedAt = OperatorFixtures.epoch.addingTimeInterval(30); run.summaryGivenUp = true
+        run.endedAt = OperatorFixtures.epoch.addingTimeInterval(90)
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+
+        #expect(try decoder.decode(OperatorRun.self, from: encoder.encode(run)) == run)
+    }
+
+    @Test func aRunWithoutThemDecodes() throws {
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let json = try #require(JSONSerialization.jsonObject(with: encoder.encode(OperatorFixtures.run())) as? [String: Any])
+        for key in ["summary", "summaryAt", "completedAt", "summaryGivenUp", "endedAt"] {
+            #expect(json[key] == nil, "a run that never had one writes no \(key)")
+        }
+
+        let run = try decoder.decode(OperatorRun.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(run.summary == nil && run.summaryAt == nil && run.completedAt == nil && run.endedAt == nil && !run.summaryGivenUp)
+    }
 }

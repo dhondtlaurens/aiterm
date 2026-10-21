@@ -555,6 +555,14 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
     /// The Operator's Claude conversation, for `claude --resume`.
     public var operatorConversation: String?, operatorWindowId: String?, operatorSessionId: String?
     public var createdAt: Date
+    /// The Operator's prose summary of the broadcast (`write_summary`) and when it came; `RunSummary` reads them.
+    public var summary: String?, summaryAt: Date?
+    /// When the plan was done: every task finished, and the run `.complete`. Cleared when a new plan reopens it.
+    public var completedAt: Date?
+    /// AiTerm stopped waiting for a summary (`OperatorTiming.summaryWait`): it is not coming.
+    public var summaryGivenUp = false
+    /// When the broadcast ended, for the Shelf.
+    public var endedAt: Date?
 
     /// `projectIds` defaults to none: a run made in a test or a fixture that never reads its scope.
     public init(id: UUID, name: String, profile: OperatorProfile, projectIds: [UUID] = [], jiraProjectKeys: [String] = [],
@@ -563,7 +571,9 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
                 questions: [OperatorQuestion] = [], decisions: [OperatorDecision] = [], finds: [OffBriefFind] = [],
                 leftForYou: [String] = [], operatorConversation: String? = nil, operatorWindowId: String? = nil,
                 operatorSessionId: String? = nil, challenges: [ChallengeRecord] = [], jiraCreated: [String: String] = [:],
-                threadReplies: [String: String] = [:], pendingWrites: [String] = [], createdAt: Date) {
+                threadReplies: [String: String] = [:], pendingWrites: [String] = [], createdAt: Date,
+                summary: String? = nil, summaryAt: Date? = nil, completedAt: Date? = nil, summaryGivenUp: Bool = false,
+                endedAt: Date? = nil) {
         self.id = id; self.name = name; self.profile = profile; self.projectIds = projectIds; self.jiraProjectKeys = jiraProjectKeys
         self.prompt = prompt; self.review = review; self.done = done; self.state = state; self.intent = intent
         self.planRevision = planRevision; self.firstPlanSize = firstPlanSize
@@ -573,12 +583,15 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         self.operatorSessionId = operatorSessionId; self.challenges = challenges; self.jiraCreated = jiraCreated
         self.threadReplies = threadReplies; self.pendingWrites = pendingWrites
         self.createdAt = createdAt
+        self.summary = summary; self.summaryAt = summaryAt; self.completedAt = completedAt
+        self.summaryGivenUp = summaryGivenUp; self.endedAt = endedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, profile, projectIds, jiraProjectKeys, prompt, review, done, state, intent, planRevision
         case firstPlanSize, questions, decisions, finds, leftForYou, leftForYouRecords, challenges, operatorConversation, operatorWindowId
         case operatorSessionId, jiraCreated, threadReplies, pendingWrites, createdAt
+        case summary, summaryAt, completedAt, summaryGivenUp, endedAt
     }
 
     /// The lists may be missing and read as empty. A run without a profile or a prompt (round 1's,
@@ -611,6 +624,17 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         threadReplies = try c.decodeIfPresent([String: String].self, forKey: .threadReplies) ?? [:]
         pendingWrites = try c.decodeIfPresent([String].self, forKey: .pendingWrites) ?? []
         createdAt = try c.decode(Date.self, forKey: .createdAt)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        summaryAt = try c.decodeIfPresent(Date.self, forKey: .summaryAt)
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        summaryGivenUp = try c.decodeIfPresent(Bool.self, forKey: .summaryGivenUp) ?? false
+        endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
+    }
+
+    /// A new plan on a finished run: the summary, its time, the completion and the give-up belonged to the old
+    /// one. The end time stays, since only an ended run has one.
+    public mutating func reopen() {
+        summary = nil; summaryAt = nil; completedAt = nil; summaryGivenUp = false
     }
 
     /// The revision `create_task` and `update_task` add to: the one after the last submitted.
@@ -644,6 +668,11 @@ public struct OperatorRun: Codable, Equatable, Sendable, Identifiable {
         try c.encode(threadReplies, forKey: .threadReplies)
         try c.encode(pendingWrites, forKey: .pendingWrites)
         try c.encode(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(summary, forKey: .summary)
+        try c.encodeIfPresent(summaryAt, forKey: .summaryAt)
+        try c.encodeIfPresent(completedAt, forKey: .completedAt)
+        if summaryGivenUp { try c.encode(true, forKey: .summaryGivenUp) }
+        try c.encodeIfPresent(endedAt, forKey: .endedAt)
     }
 }
 

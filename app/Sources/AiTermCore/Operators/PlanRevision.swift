@@ -70,6 +70,7 @@ public enum PlanRevision {
         state.updateRun(id: id) { run in
             run.planRevision = revision
             run.state = .active
+            run.reopen()
             if run.firstPlanSize == nil { run.firstPlanSize = size }
         }
         let released = release(revision, run: id, in: &state)

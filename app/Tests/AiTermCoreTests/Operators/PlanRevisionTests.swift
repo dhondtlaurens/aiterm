@@ -103,6 +103,15 @@ import Foundation
         #expect(s.runs[0].state == .active && s.tasks[0].operated?.state == .queued)
     }
 
+    /// The summary and the completion belonged to the finished plan: the run starts over without them.
+    @Test func aSubmissionClearsTheCompletedRunsSummary() throws {
+        var run = F.run(state: .complete, planRevision: 1)
+        run.completedAt = F.epoch; run.summary = "All done."; run.summaryAt = F.epoch; run.summaryGivenUp = true
+        var s = F.state(run, [F.task("D", .planned, revision: 2)])
+        try PlanRevision.submit(2, run: F.runId, in: &s)
+        #expect(s.runs[0].completedAt == nil && s.runs[0].summary == nil && s.runs[0].summaryAt == nil && !s.runs[0].summaryGivenUp)
+    }
+
     @Test(arguments: [OperatorRunState.paused, .operatorOffline, .stopped])
     func aPausedOfflineOrStoppedRunTakesNoPlan(_ runState: OperatorRunState) {
         var (s, _, _) = planning()
