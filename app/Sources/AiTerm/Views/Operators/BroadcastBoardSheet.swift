@@ -118,6 +118,12 @@ struct BroadcastBoardSheet: View, Equatable {
     /// Whether a card that opens this is a button.
     static func isButton(_ opens: BroadcastBoard.Opens) -> Bool { opens != .nothing }
 
+    /// The tab the sheet shows when it is on `tab`: the Board instead of a tab the broadcast has gone back from, as a
+    /// Summary when a new plan makes a complete run active again.
+    static func shownTab(_ tab: BroadcastBoard.Tab, on board: BroadcastBoard) -> BroadcastBoard.Tab {
+        board.isSelectable(tab) ? tab : .board
+    }
+
     /// ⌘1–⌘3 pick the tabs in the order the tab bar draws them.
     static func key(of tab: BroadcastBoard.Tab) -> KeyEquivalent {
         KeyEquivalent(Character(String(BroadcastBoard.Tab.allCases.firstIndex(of: tab)! + 1)))
@@ -128,7 +134,8 @@ struct BroadcastBoardSheet: View, Equatable {
         let _ = bodyCounter?.count(board.runId)
         #endif
         let footer = BoardFooter(board, reopenFailed: reopenFailed)
-        SheetLayout(title: board.title, height: Sheet.height, width: Sheet.width, bandHeight: nil, scrolls: tab != .board,
+        let shown = Self.shownTab(tab, on: board)
+        SheetLayout(title: board.title, height: Sheet.height, width: Sheet.width, bandHeight: nil, scrolls: shown != .board,
                     contentVerticalPadding: Space.block) {
             VStack(alignment: .leading, spacing: Space.base) {
                 BroadcastStatusLine(line: board.band, progress: board.progress)
@@ -138,7 +145,7 @@ struct BroadcastBoardSheet: View, Equatable {
                 tabBar
             }
         } content: {
-            switch tab {
+            switch shown {
             case .board: columns
             case .activity:
                 if let activity {
@@ -169,7 +176,7 @@ struct BroadcastBoardSheet: View, Equatable {
     /// Settings' tab bar: the same `SegmentedControl` in its accent style, labels in `Typography.body` that the
     /// control inks, Summary dimmed and disabled until there is one to read.
     private var tabBar: some View {
-        SegmentedControl(values: BroadcastBoard.Tab.allCases, selection: Binding(get: { tab }, set: { select($0) }),
+        SegmentedControl(values: BroadcastBoard.Tab.allCases, selection: Binding(get: { Self.shownTab(tab, on: board) }, set: { select($0) }),
                          style: .accent, isSelectable: board.isSelectable) { item, _ in
             Text(item.title).font(Typography.body)
         }

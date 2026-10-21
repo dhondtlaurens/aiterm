@@ -113,6 +113,20 @@ struct BroadcastBoardSheetTests {
         #expect(moments == ["pause", "resume", "end…", "end", "fresh"])
     }
 
+    /// A Summary left selected when a new plan makes the broadcast active again shows the Board, as the tab bar does;
+    /// the other tabs stay where they are.
+    @Test func aSummaryNoLongerReachedShowsTheBoard() {
+        let active = board(OperatorUIFixtures.run())
+        #expect(active.summary == .notYet)
+        #expect(BroadcastBoardSheet.shownTab(.summary, on: active) == .board)
+        #expect(BroadcastBoardSheet.shownTab(.activity, on: active) == .activity)
+        #expect(BroadcastBoardSheet.shownTab(.board, on: active) == .board)
+        var complete = OperatorUIFixtures.run(state: .complete)
+        complete.completedAt = OperatorUIFixtures.epoch
+        complete.summary = "Done."; complete.summaryAt = OperatorUIFixtures.epoch
+        #expect(BroadcastBoardSheet.shownTab(.summary, on: board(complete)) == .summary)
+    }
+
     /// Settings' width, whichever tab it is on.
     @Test func theSheetIsSettingsWidth() {
         let sheet = BroadcastBoardSheet(board: board(OperatorUIFixtures.run()), reopenFailed: false, actions: BoardActions(), activity: nil)
