@@ -140,6 +140,22 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             exit 1
         }
         changed_case "daemon code" 73 pytest daemon/aitermd/x.py
+        if grep -Fq "test selector guard passed" "$bad_output"; then
+            print -u2 "expected a fixture run to leave the reader guard to the run that started it"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
+        # A run that is no fixture runs the reader guard whatever it picked, here only the daemon.
+        : >"$calls"
+        runner_status=0
+        env -u TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER AITERM_TEST_PATHS=daemon/aitermd/x.py AITERM_FIXTURE_CALLS="$calls" \
+            SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" PYTEST="$pytest" \
+            "$ROOT/scripts/test.sh" >"$bad_output" 2>&1 || runner_status=$?
+        if [[ "$runner_status" != 73 || "$(<"$calls")" != pytest ]] || ! grep -Fq "test selector guard passed" "$bad_output"; then
+            print -u2 "expected a daemon-only change to run the reader guard before the daemon's tests (status $runner_status)"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
         changed_case "app code" 0 'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' \
             app/Sources/AiTerm/X.swift
         grep -Fq "app/Sources/AiTerm/X.swift" "$bad_output" || {
@@ -180,11 +196,6 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
         repo="$runner_logs/repo"
         mkdir -p "$repo/app" "$repo/daemon"
         cp -R "$ROOT/scripts" "$repo/"
-        # test.sh's toolchain step also runs scripts/test-test-select.sh, whose reader check fails when
-        # app/Tests or daemon/tests is missing. The guard stays strict on the real tree, so the scratch
-        # repository carries the test directories instead of switching the guard off.
-        cp -R "$ROOT/app/Tests" "$repo/app/"
-        cp -R "$ROOT/daemon/tests" "$repo/daemon/"
         cp "$ROOT/.swift-version" "$repo/"
         cp "$ROOT/app/Package.swift" "$repo/app/"
         git -C "$repo" init -q -b trunk

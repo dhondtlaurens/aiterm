@@ -31,10 +31,11 @@ daemon/aitermd/delivery.py	daemon suite:AiTermCoreTests.OperatorTimingTests
 hooks/*	daemon suite:AiTermCoreTests.StatusLineShimTests
 
 # Swift sources: each target is built into the ones above it, and the test support is shared.
+# The manifest is the toolchain guard's too: it loads it with the pinned Swift and fails on a warning.
 app/Sources/AiTermCore/*	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
 app/Tests/AiTermTestSupport/*	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
 app/Tests/AiTermTestWindowHook/*	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
-app/Package.swift	target:AiTermCoreTests target:AiTermUITests target:AiTermTests
+app/Package.swift	toolchain target:AiTermCoreTests target:AiTermUITests target:AiTermTests
 app/Sources/AiTermUI/*	target:AiTermUITests target:AiTermTests
 app/Sources/AiTerm/*	target:AiTermTests suite:AiTermUITests.DesignRulesTests
 app/Sources/AiTerm/Resources/Info.plist	suite:AiTermCoreTests.ReleaseFeedTests

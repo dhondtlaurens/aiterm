@@ -4,16 +4,18 @@
 #   changed (the default) what this checkout's changes since main can affect: its commits, what is
 #           staged and unstaged, and new files. scripts/test-select.sh turns those paths into suites
 #           (scripts/test-routes.tsv says why each goes where), and this prints them, with the paths
-#           that picked each, before it runs them. Nothing a test reads changed: nothing runs.
+#           that picked each, before it runs them. Nothing a test reads changed: nothing runs. A run
+#           that waited for the lock picks again, from what changed while it waited.
 #   all     the toolchain guard, the daemon's tests and lint, then every Swift test
 #   swift   the toolchain guard and the Swift tests
 #   daemon  the daemon's tests and lint
-# The toolchain guard is scripts/test-swift-toolchain.sh and scripts/test-test-select.sh; `changed`
-# runs it only when the toolchain or the runner changed, or when it runs everything.
+# The toolchain guard is scripts/test-swift-toolchain.sh; `changed` runs it only when the toolchain,
+# the manifest or the runner changed, or when it runs everything. The reader guard,
+# scripts/test-test-select.sh, runs before every run that tests anything.
 # Anything after `--` goes to `swift test`, e.g. `scripts/test.sh swift -- --filter DesignRulesTests`.
 # With no suite named (`scripts/test.sh -- --filter X`) the suite is `changed` and the arguments
-# replace the Swift tests it picked, running even when it picked none; the daemon and the guard run
-# only if it picked them.
+# replace the Swift tests it picked, running even when it picked none; the daemon and the toolchain
+# guard run only if it picked them.
 # AITERM_TEST_PATHS, one path per line, stands in for the changed paths (the guard's fixture runs set
 # it), and AITERM_TEST_LOGS_KEEP=0 drops a failed run's logs instead of keeping them.
 set -euo pipefail
@@ -78,17 +80,11 @@ check_swift_selector() {
     (( ${targets[(Ie)${rest%%.*}]} )) || route_error "$item names no test target of app/Package.swift"
 }
 
-# Chosen before the lock is taken, so a run with nothing to do never waits for one.
-if [[ "$SUITE" == changed ]]; then
-    # A row with a glob and no selectors would route its paths to nothing without a word.
-    while IFS=$'\t' read -r glob selectors; do
-        [[ -n "$glob" && "$glob" != \#* ]] || continue
-        [[ -n "${selectors//[[:space:]]/}" ]] || route_error "the row for $glob names no selectors"
-    done <"$ROUTES"
-
-    CHANGED=()
-    SELECTION=()
-    WHY=()
+# The changed paths into CHANGED, the selectors they pick into SELECTION, and into WHY one
+# `<selector><TAB><path>` per path that picked it. SINCE says where the paths came from; it is empty
+# when there is no main to compare with, and then the selection is everything.
+select_changed() {
+    CHANGED=() SELECTION=() WHY=()
     if [[ -n "${AITERM_TEST_PATHS+set}" ]]; then
         CHANGED=(${(f)AITERM_TEST_PATHS})
         SINCE="in AITERM_TEST_PATHS"
@@ -102,7 +98,13 @@ if [[ "$SUITE" == changed ]]; then
         SELECTION=(${(f)"$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh")"})
         WHY=(${(f)"$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh" --why)"})
     fi
+}
 
+# What SELECTION runs, into RUN_* and SWIFT_SELECTORS, and says so.
+use_selection() {
+    local item pair
+    RUN_TOOLCHAIN=0 RUN_DAEMON=0 RUN_SWIFT=0
+    SWIFT_SELECTORS=()
     for item in $SELECTION; do
         case "$item" in
             everything) RUN_TOOLCHAIN=1 RUN_DAEMON=1 RUN_SWIFT=1 ;;
@@ -114,7 +116,7 @@ if [[ "$SUITE" == changed ]]; then
     done
     # Everything is every Swift test, not a filtered few.
     if (( ${SELECTION[(Ie)everything]} )); then SWIFT_SELECTORS=(); fi
-    (( ${#SWIFT_ARGS} )) && RUN_SWIFT=1
+    if (( ${#SWIFT_ARGS} )); then RUN_SWIFT=1; fi
 
     if [[ -z "$SINCE" ]]; then
         print "No merge base with main to tell what changed, so this runs:"
@@ -135,6 +137,18 @@ if [[ "$SUITE" == changed ]]; then
     if (( ${#SWIFT_ARGS} )); then
         print -r -- "The Swift tests are the arguments after --: ${SWIFT_ARGS[*]}"
     fi
+}
+
+# Chosen before the lock is taken, so a run with nothing to do never waits for one.
+if [[ "$SUITE" == changed ]]; then
+    # A row with a glob and no selectors would route its paths to nothing without a word.
+    while IFS=$'\t' read -r glob selectors; do
+        [[ -n "$glob" && "$glob" != \#* ]] || continue
+        [[ -n "${selectors//[[:space:]]/}" ]] || route_error "the row for $glob names no selectors"
+    done <"$ROUTES"
+
+    select_changed
+    use_selection
     (( RUN_TOOLCHAIN || RUN_DAEMON || RUN_SWIFT )) || exit 0
 fi
 
@@ -144,6 +158,7 @@ fi
 # one starts (the toolchain guard runs this script against a fake toolchain) inherit it. Who holds
 # it is written beside it, never to it: closing any descriptor of a locked file drops the lock.
 TEST_LOCK="${AITERM_TEST_LOCK:-/tmp/aiterm-test.lock}"
+WAITED_FOR_LOCK=0
 if [[ -z "${AITERM_TEST_LOCK_HELD:-}" ]]; then
     zmodload zsh/system
     : >>"$TEST_LOCK"
@@ -152,14 +167,38 @@ if [[ -z "${AITERM_TEST_LOCK_HELD:-}" ]]; then
         waited_since=$SECONDS
         zsystem flock -f test_lock_fd "$TEST_LOCK"
         print -u2 "Waited $(( SECONDS - waited_since ))s for the test lock."
+        WAITED_FOR_LOCK=1
     fi
     print -r -- "pid $$, $SUITE in $ROOT since $(date '+%H:%M:%S')" >"$TEST_LOCK.holder"
     export AITERM_TEST_LOCK_HELD=1
 fi
 
+# The build reads the files as they are once the lock is held, so a run that waited picks again from
+# what changed meanwhile: an edit made during the wait is built, and its suites must run too. Paths
+# named in AITERM_TEST_PATHS cannot have moved. A run that did not wait has had no time to.
+if [[ "$SUITE" == changed && -z "${AITERM_TEST_PATHS+set}" ]] && (( WAITED_FOR_LOCK )); then
+    picked_before=("${SELECTION[@]}")
+    select_changed
+    if [[ "${(pj:\n:)SELECTION}" != "${(pj:\n:)picked_before}" ]]; then
+        print "What changed moved while this waited, so it picks again."
+        use_selection
+        (( RUN_TOOLCHAIN || RUN_DAEMON || RUN_SWIFT )) || exit 0
+    fi
+fi
+
 if (( RUN_TOOLCHAIN )); then
     # Validate first, before spending time on daemon tests with an unusable Swift compiler.
     TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE=1 "$ROOT/scripts/test-swift-toolchain.sh"
+fi
+
+# The reader guard: it pins the routing table and fails on a test that reads outside its own target
+# with no row to say so. It runs before every run that tests anything, not only with the toolchain:
+# a branch that adds such a reader changes only that test's target, which selects no toolchain, so a
+# plain run would pass it. Running it only when a test file changed would also catch that, but is one
+# more rule that has to stay true; the guard is plain shell and takes about 3 s, little beside any
+# suite. The toolchain guard's fixture runs (TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER) skip it: the run that
+# started them runs it itself, and running it in each of them tripled the toolchain guard's time.
+if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != 1 ]]; then
     "$ROOT/scripts/test-test-select.sh"
 fi
 

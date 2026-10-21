@@ -111,6 +111,7 @@ check "a suite inside a selected target is dropped" target:AiTermTests target:Ai
 check "the plist adds the release feed" suite:AiTermCoreTests.ReleaseFeedTests suite:AiTermUITests.DesignRulesTests target:AiTermTests -- app/Sources/AiTerm/Resources/Info.plist
 check "hooks run the daemon and the shim" daemon suite:AiTermCoreTests.StatusLineShimTests -- hooks/claude-statusline-shim.sh
 check "the toolchain runs everything" everything toolchain -- .swift-version
+check "the manifest runs the toolchain guard and every swift target" target:AiTermCoreTests target:AiTermTests target:AiTermUITests toolchain -- app/Package.swift
 check "an unknown path runs everything" everything -- Makefile
 check "a rename routes both sides" daemon target:AiTermTests -- app/Tests/AiTermTests/A.swift daemon/b.py
 check "no paths runs nothing" --
