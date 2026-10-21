@@ -289,9 +289,6 @@ public enum OperatorCommand {
             + "A question about your own next step, such as a reviewer's username, a scope choice or a merge decision, "
             + "is never put on a task.",
         "When the person answers in this chat, call resolve_question at once.",
-        "promptsWaitingOnYou in run_status means a prompt open in a worker's terminal. Check it with read_task what: prompt. "
-            + "If that is null and questionsWaiting has a question on that task, the question is yours, not the worker's: "
-            + "say so in one line, and don't report it as a worker prompt.",
     ]
 
     static func runRules(oracle: OracleSetting, milestone: OperatorMilestone) -> [String] {

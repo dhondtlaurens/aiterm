@@ -298,8 +298,7 @@ import Foundation
     }
 
     /// A question is asked in the Operator's chat first; `ask_you` only lists it under Waiting on you, on a task
-    /// only when that task's worker is stopped on the answer, and a task listed under promptsWaitingOnYou with no
-    /// prompt open is the Operator's own question, never reported as a worker's.
+    /// only when that task's worker is stopped on the answer.
     @Test func theBriefAsksInTheChatFirstAndPutsAQuestionOnATaskOnlyForAStoppedWorker() {
         let brief = OperatorCommand.brief(run: F.run(), projects: [])
         let section = brief.components(separatedBy: "## Asking the person\n\n").dropFirst().first?
@@ -309,7 +308,6 @@ import Foundation
         #expect(section.contains("unless that task's worker is itself stopped on the answer"))
         #expect(section.contains("a reviewer's username, a scope choice or a merge decision, is never put on a task"))
         #expect(section.contains("call resolve_question at once"))
-        #expect(section.contains("read_task what: prompt") && section.contains("not the worker's"))
         #expect(brief.range(of: "## Asking the person")!.lowerBound < brief.range(of: "## Run rules")!.lowerBound)
     }
 

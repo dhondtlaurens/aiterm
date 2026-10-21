@@ -182,8 +182,8 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 # Every one that changes something is safe to repeat: the repeat returns the recorded result.
 TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
-          "and a one-line summary, and what is open: questions waiting, prompts waiting on the user (a prompt open in a "
-          "worker's terminal, or a question asked on that task), tasks ready to accept, "
+          "and a one-line summary, and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
+          "worker's terminal), tasks ready to accept, "
           "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "

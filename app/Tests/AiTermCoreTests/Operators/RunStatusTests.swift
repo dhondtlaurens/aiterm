@@ -61,6 +61,20 @@ import Foundation
         #expect(o.possiblyStalled == ["C"] && o.uncertain == ["C"])
     }
 
+    /// A question on a task is a question, not a prompt: the task leaves promptsWaitingOnYou, keeps its
+    /// question under questionsWaiting, and still isn't ready to accept while it waits on you.
+    @Test func aQuestionOnATaskIsNotAPromptInItsTerminal() throws {
+        var q = F.task("Q", .working)
+        q.operated?.flags = [.waitingOnYou]
+        var s = F.state(F.run(), [q])
+        s.runs[0].questions = [OperatorQuestion(id: "merged-on-host-1", text: "Merged on the host?", task: q.id, askedAt: F.epoch)]
+        let live = [q.id: TaskLiveFacts(status: .idle)]
+        let o = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)).obligations
+        #expect(!o.promptsWaitingOnYou.contains("Q"))
+        #expect(o.questionsWaiting.map(\.task) == ["Q"])
+        #expect(!o.readyForAcceptance.contains("Q"))
+    }
+
     /// A worker that committed off its task branch is named with what AiTerm found, the branch and the SHA,
     /// and listed among the obligations, so the Operator looks before the runtime runs out.
     @Test func aTaskOffItsBranchSaysWhatWasFound() throws {

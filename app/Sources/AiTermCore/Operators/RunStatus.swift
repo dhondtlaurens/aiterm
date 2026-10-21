@@ -227,10 +227,11 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init),
                 branchDrift: o.branchDrift, tabs: tabLines(item, facts)))
             let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
-            if facts.waitingPrompt != nil || o.flags.contains(.waitingOnYou) || !tabPrompts.isEmpty {
-                // The task's key alone stands for its first worker's prompt, or a question of another kind.
-                prompts += (facts.waitingPrompt != nil || tabPrompts.isEmpty ? [o.key] : []) + tabPrompts
-            } else if isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted)) { ready.append(o.key) }
+            if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
+                // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.
+                prompts += (facts.waitingPrompt != nil ? [o.key] : []) + tabPrompts
+            } else if !o.flags.contains(.waitingOnYou),
+                      isReadyForAcceptance(o, live: facts.status, extraTabs: facts.tabs.map(\.counted)) { ready.append(o.key) }
             if o.flags.contains(.possiblyStalled) { stalled.append(o.key) }
             if o.flags.contains(.uncertain) { uncertain.append(o.key) }
             if o.branchDrift != nil { drift.append(o.key) }
