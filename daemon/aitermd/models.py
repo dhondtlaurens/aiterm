@@ -75,8 +75,9 @@ HARNESSES: tuple[Harness, ...] = (
     # `Stop` over MCP; the other hooks are spawned curl.
     Harness("codex", "/hook/codex", corroboration="codex_title", end_of_turn_survives_cwd_loss=True, reports_usage=True,
             permission_prompt=("Would you like to run the following command?",),
-            # 0.163's dialogs (its review of untrusted hooks) end on "enter confirm · esc skip".
-            menu_prompt=("Press enter to confirm or esc to cancel", "enter confirm ·"),
+            # 0.163's dialogs end on "enter confirm · esc skip" (its review of untrusted hooks) or
+            # "enter select · esc back" (its /model picker).
+            menu_prompt=("Press enter to confirm or esc to cancel", "enter confirm ·", "enter select ·"),
             # The update dialog by its own options: the idle banner also says "Update available".
             startup_prompt=("Trust this folder?", "Skip until next version", "Update now"),
             update_prompt=("Update now", "Skip until next version"),
