@@ -32,10 +32,6 @@ VARIABLES = ("commandLine", "jobPid", "autoName", "path", f"user.{TASK_TAG}", f"
 # arrives, and pings nothing, so an iTerm2 that hangs would hold the caller -- and a tick holds
 # the service's tick lock -- for good.
 ITERM_CALL_SECONDS = 10.0
-# How long iTerm2 itself may take over a push to the paired iPhone: its relay can stall for longer, and
-# iTerm2 waits 30 s on an app-context call by default. Inside `ITERM_CALL_SECONDS`, so iTerm2 says it
-# timed out before the bridge gives up, and both inside the app's 15 s request timeout.
-COMPANION_PUSH_SECONDS = 8.0
 P = ParamSpec("P")
 T = TypeVar("T")
 
@@ -315,7 +311,6 @@ class ItermPort(Protocol):
     async def set_session_titles(self, titles: dict[str, str]) -> list[str]: ...
     async def set_aiterm_background(self, session_ids: list[str], enabled: bool) -> None: ...
     async def screen_text(self, session_id: str) -> str | None: ...
-    async def send_companion_notification(self, title: str, body: str) -> str | None: ...
     async def snapshot(self) -> list[RawSession]: ...
     async def session_info(self, session_id: str) -> RawSession | None: ...
     def on_new_session(self, cb: Callable[[str], Awaitable[None]]) -> None: ...
@@ -748,30 +743,6 @@ class ItermBridge:
             return None
         contents = await session.async_get_screen_contents()
         return "\n".join(contents.line(i).string for i in range(contents.number_of_lines))
-
-    @_bounded
-    async def send_companion_notification(self, title: str, body: str) -> str | None:
-        """Pushes `title` and `body` to the iPhone paired with iTerm2 (iTerm2 Buddy) through iTerm2
-        3.7.5's builtin, as `it2 notify` does: an app-context call, each argument a JSON string. iTerm2
-        sends them through its push relay to Apple as plain text, so the caller puts nothing private in
-        them. None once iTerm2 has handed the push on; otherwise why not, in iTerm2's words where it
-        gave them -- no paired device, notifications off in Buddy, the relay refusing."""
-        invocation = (f"iterm2.send_companion_notification(title: {json.dumps(title, ensure_ascii=False)}, "
-                      f"body: {json.dumps(body, ensure_ascii=False)})")
-        response = await iterm2.rpc.async_invoke_function(self._require(), invocation, timeout=COMPANION_PUSH_SECONDS)
-        reply = response.invoke_function_response
-        if reply.WhichOneof("disposition") != "error":
-            return None
-        status = iterm2.api_pb2.InvokeFunctionResponse.Status.Name(reply.error.status)
-        if status == "TIMEOUT":
-            return f"iTerm2 did not send it within {COMPANION_PUSH_SECONDS:g} s."
-        reason = reply.error.error_reason
-        # An iTerm2 without the builtin names it: "No function registered for invocation “iterm2.
-        # send_companion_notification(body,title)”…" with its Python API on, as it is while the daemon
-        # is connected through it, and "Undefined function with signature …" with it off.
-        if "send_companion_notification" in reason and reason.startswith(("No function registered", "Undefined function")):
-            return "Pushes need iTerm2 3.7.5 or later."
-        return reason or f"iTerm2 answered {status}."
 
     @_bounded
     async def session_info(self, session_id: str) -> RawSession | None:
