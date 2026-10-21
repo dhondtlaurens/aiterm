@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = ["iterm2==2.30", "websockets==17.1", "protobuf==7.36.1"]
 
 [project.optional-dependencies]
-dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "ruff==0.16.8", "mypy==2.3.1"]
+dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "pytest-cov==7.1.0", "ruff==0.16.8", "mypy==2.3.1"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
