@@ -342,8 +342,9 @@ class _Handle:
     def __init__(self):
         self.calls: list[tuple[str, object]] = []
 
-    async def async_activate(self):
-        self.calls.append(("activate", None))
+    async def async_activate(self, **options):
+        # A window takes no options; a session is told whether to select its tab and raise its window.
+        self.calls.append(("activate", options or None))
 
     async def async_set_frame(self, frame):
         self.calls.append(("frame", frame))
@@ -454,6 +455,22 @@ async def test_a_tab_without_an_anchor_opens_where_the_windows_first_tab_is_now(
 
     assert await bridge.create_tab("w1", {}) == "s9"
     assert made[0]["Working Directory"] == json.dumps("/first-now")
+
+
+async def test_activating_a_session_selects_its_tab_and_raises_its_window(monkeypatch):
+    """One worker tab among its task's, brought forward on its own: its tab selected, its window in front."""
+    tree = _Tree(sessions=["s1"])
+    bridge = await _tree_bridge(monkeypatch, tree)
+    tree.appearing = {"s9": _Handle()}
+
+    await bridge.activate_session("s1")
+    await bridge.activate_session("s9")
+
+    assert tree.sessions["s1"].calls == [("activate", {"select_tab": True, "order_window_front": True})]
+    assert tree.sessions["s9"].calls == [("activate", {"select_tab": True, "order_window_front": True})]
+    assert tree.fetches == 2, "a known session asks for no hierarchy; one it lacks is looked for again once"
+    with pytest.raises(KeyError):
+        await bridge.activate_session("gone")
 
 
 async def test_a_window_nowhere_in_iterm_is_not_found_after_one_refresh(monkeypatch):

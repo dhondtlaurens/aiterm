@@ -330,6 +330,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task the Operator starts opens behind your work |
 | `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |
+| `session.activate` | select one tab in its window and bring that window forward: an Operator's task with several worker tabs, its asking tab on a row's click, or the tab a board card's line names |
 | `window.setFrame` | re-snap beside the sidebar |
 | `window.close` | on remove, and before a worktree is deleted. The window is closed once iTerm2 has answered: a failed tick after it is logged, not answered |
 | `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is. The optional `tabKey` tags that one tab `aiterm_tab` beside its task's tag, never inherited, and the sessions carry it back as `tabKey`: an Operator's extra worker tab (`open_tab`). A request with a `tabKey` already on a tab of its task returns that tab. With `background`, iTerm2 is asked not to select it: its window is not brought forward and keeps the tab you were on |
@@ -351,7 +352,7 @@ time with `iterm_unavailable` — the tick a command runs before it changes anyt
 Requests are answered concurrently, each as soon as its handler returns, so a slow
 `window.createTask` holds up nothing behind it. The `workspace.snapshot` reply is still written
 before any later event. `sessions.setTitles`, `interface.setMatchItermBackground`,
-`window.setFrame` and `window.activate` each leave a state the next one replaces, so each takes
+`window.setFrame`, `window.activate` and `session.activate` each leave a state the next one replaces, so each takes
 effect in the order it was sent.
 
 ## Events the daemon broadcasts

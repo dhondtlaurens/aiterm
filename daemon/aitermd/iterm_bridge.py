@@ -304,6 +304,7 @@ class ItermPort(Protocol):
     async def create_tab(self, window_id: str, tags: dict[str, str], cwd: str | None = None,
                          background: bool = False) -> str: ...
     async def activate_window(self, window_id: str) -> None: ...
+    async def activate_session(self, session_id: str) -> None: ...
     async def set_frame(self, window_id: str, frame: Frame) -> None: ...
     async def close_window(self, window_id: str) -> None: ...
     async def send_text(self, session_id: str, text: str) -> None: ...
@@ -613,6 +614,12 @@ class ItermBridge:
     @_bounded
     async def activate_window(self, window_id: str) -> None:
         await (await self._window(window_id)).async_activate()
+
+    @_bounded
+    async def activate_session(self, session_id: str) -> None:
+        """One tab brought forward: selected in its window, and that window ordered front with the keyboard.
+        A task's worker tab among several, which `activate_window` alone would leave as its window last showed."""
+        await (await self._session(session_id)).async_activate(select_tab=True, order_window_front=True)
 
     @_bounded
     async def set_frame(self, window_id: str, frame: Frame) -> None:

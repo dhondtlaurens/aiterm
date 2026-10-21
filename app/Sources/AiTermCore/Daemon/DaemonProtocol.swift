@@ -22,6 +22,8 @@ public enum DaemonMethod: String, CaseIterable, Sendable {
     case windowCreateTask = "window.createTask"
     case windowCreateTerminal = "window.createTerminal"
     case windowActivate = "window.activate"
+    /// One tab selected in its window and that window brought forward: a worker tab among its task's.
+    case sessionActivate = "session.activate"
     case windowSetFrame = "window.setFrame"
     case windowClose = "window.close"
     case tabCreate = "tab.create"

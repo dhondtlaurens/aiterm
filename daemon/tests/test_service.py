@@ -728,6 +728,21 @@ async def test_window_closed_event_when_last_session_goes(stack):
     assert payload["windowId"] == wid
 
 
+async def test_activating_a_session_selects_its_tab_and_raises_its_window(stack):
+    svc, it, files, r, w = stack
+    wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]
+    terminal = {"projectId": "p1", "cwd": "/", "title": "y", "frame": FRAME}
+    other = (await call(r, w, "window.createTerminal", terminal, id_=2))["result"]["windowId"]
+    first = it.windows[wid]["sessions"][0]
+    docs = (await call(r, w, "tab.create", {"windowId": wid, "tabKey": "docs"}, id_=3))["result"]["sessionId"]
+    assert it.windows[wid]["current"] == docs and it.windows[other]["active"]
+
+    assert (await call(r, w, "session.activate", {"sessionId": first}, id_=4)) == {"id": 4, "result": {}}
+    assert it.windows[wid]["current"] == first and it.windows[wid]["active"] and not it.windows[other]["active"]
+    assert (await call(r, w, "session.activate", {"sessionId": "nope"}, id_=5))["error"]["code"] == "not_found"
+    assert (await call(r, w, "session.activate", {}, id_=6))["error"]["code"] == "bad_params"
+
+
 async def test_externally_activated_window_is_broadcast_to_the_app(stack):
     svc, it, files, r, w = stack
     wid = (await call(r, w, "window.createTask", {"taskId": "t1", "cwd": "/wt", "title": "x", "frame": FRAME}))["result"]["windowId"]

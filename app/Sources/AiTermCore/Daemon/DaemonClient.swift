@@ -556,6 +556,7 @@ public final class DaemonClient: Sendable {
                                                               background: background ? true : nil), as: SessionResult.self).sessionId
     }
     public func activate(windowId: String) async throws { _ = try await request(.windowActivate, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
+    public func activate(sessionId: String) async throws { _ = try await request(.sessionActivate, params: SessionParams(sessionId: sessionId), as: Empty.self) }
     public func setFrame(windowId: String, frame: Frame) async throws { _ = try await request(.windowSetFrame, params: WindowParams(windowId: windowId, frame: frame), as: Empty.self) }
     public func close(windowId: String) async throws { _ = try await request(.windowClose, params: WindowParams(windowId: windowId, frame: nil), as: Empty.self) }
     @discardableResult public func setSessionTitles(_ titles: [SessionTitle]) async throws -> Int {
