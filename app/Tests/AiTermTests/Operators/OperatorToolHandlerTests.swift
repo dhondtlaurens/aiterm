@@ -376,6 +376,41 @@ import Testing
         #expect(!waiting())
     }
 
+    @Test func aitermsOwnQuestionsAreNotTheOperatorsToResolve() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let prompt = OperatorQuestion(id: "prompt-\(task.id.uuidString)-1", text: "Claude asks to run npm install", task: task.id, askedAt: Date(timeIntervalSince1970: 0))
+        let merge = OperatorQuestion(id: "merged-on-host-\(task.id.uuidString)", text: "The host merged it.", task: task.id, askedAt: Date(timeIntervalSince1970: 0))
+        run.questions = [prompt, merge]
+        let world = try makeWorld(run, tasks: [task])
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.flags.insert(.waitingOnYou) } }
+        for question in [prompt, merge] {
+            let refused = await world.call(run.id, "resolve_question", ["key": .string(question.id), "summary": "Done."])
+            #expect(refused.message == "\(question.id) is AiTerm’s own question, not yours: AiTerm closes a prompt’s question when its worker leaves the prompt, and only the person decides a merge on the host. If it looks stale, record it with report_snag.")
+        }
+        #expect(world.run(run.id)?.questions.map(\.resolution) == [nil, nil])
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == true)
+    }
+
+    @Test func askYouRefusesAiTermsQuestionKeys() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        for key in ["prompt-mine", "merged-on-host-mine"] {
+            #expect(await world.call(run.id, "ask_you", ["key": .string(key), "question": "Q?"]).message
+                    == "Keys starting with “prompt-” or “merged-on-host-” are AiTerm’s own questions. Choose another key.")
+        }
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+    }
+
+    @Test func askYouOnATaskSaysWhatThatDoes() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        let onTask = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
+        #expect(onTask.value?["note"] == "This task now shows waiting on the person, and Waiting on you opens its worker’s tab.")
+        #expect(await world.call(run.id, "ask_you", ["key": "b", "question": "Which scope?"]).value?["note"] == nil)
+    }
+
     @Test func aRepeatedResolveReturnsTheRecordedResolution() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)

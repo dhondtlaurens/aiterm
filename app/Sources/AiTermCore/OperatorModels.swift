@@ -409,6 +409,12 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil) {
         self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
     }
+
+    /// The keys AiTerm records its own questions under: a worker's prompt is `prompt-<task>-<n>`, a merge on the host
+    /// `merged-on-host-<task>`. The Operator neither picks keys in these namespaces nor closes such a question.
+    public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-"
+    public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix]
+    public var isAiTerms: Bool { Self.aitermPrefixes.contains { id.hasPrefix($0) } }
 }
 
 /// One line of the decisions log; `why` is its reason in a sentence, `challenge` the Oracle's critique and

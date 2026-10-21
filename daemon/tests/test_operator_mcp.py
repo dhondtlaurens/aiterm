@@ -227,6 +227,7 @@ def test_ask_you_lists_a_question_asked_in_chat_and_takes_a_task_only_for_a_stop
     assert "stopped on the answer" in ask["inputSchema"]["properties"]["task"]["description"]
     assert "own next step" in ask["inputSchema"]["properties"]["task"]["description"]
     assert "at once" in tools["resolve_question"]["description"]
+    assert "you asked" in tools["resolve_question"]["description"]
     assert "worker's terminal" in tools["run_status"]["description"]
 
 

@@ -326,8 +326,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
                          "run_status. The task then waits on the user, and Waiting on you brings its worker's tab. Left out for a "
                          "question about your own next step, such as a reviewer's username, a scope choice or a merge decision.")},
           ("key", "question")),
-    _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer. Call it at once "
-          "when they answer in your chat.",
+    _tool("resolve_question", "Closes a question you asked with ask_you, once the person has answered, with a one-line summary "
+          "of the answer. Call it at once when they answer in your chat. AiTerm's own questions (a worker's prompt, a merge on "
+          "the host) are refused: AiTerm closes those itself.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
           "worked on, and the summary may mention it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "

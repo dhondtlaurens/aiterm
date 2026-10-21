@@ -284,7 +284,7 @@ final class OperatorController {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
-            let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+            let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
             let workers = task.workerTabs(in: sessions), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
             let extra = workers.dropFirst().compactMap { worker in
                 worker.key.map { key in
@@ -671,7 +671,7 @@ final class OperatorController {
     /// operation goes on, so it is a question for you, asked once — as `ask_you` asks it — on the task.
     func askAboutMergeOnHost(_ id: UUID, _ why: String) {
         guard let operated = workspace.state.task(id: id)?.operated, let run = run(id: operated.runId) else { return }
-        let key = "merged-on-host-\(id.uuidString)"
+        let key = OperatorQuestion.mergedOnHostPrefix + id.uuidString
         guard !run.questions.contains(where: { $0.id == key }) else { return }
         let question = OperatorQuestion(id: key, text: "\(why) AiTerm publishes nothing more of it or on top of it: decide how the broadcast goes on.",
                                         task: id, askedAt: ports.now(), resolution: nil)
@@ -692,7 +692,7 @@ final class OperatorController {
     func probePrompts() {
         for task in workspace.state.tasks {
             guard let operated = task.operated else { continue }
-            let open = run(id: operated.runId)?.questions.contains { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+            let open = run(id: operated.runId)?.questions.contains { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix(OperatorQuestion.promptPrefix) }
             if operated.state == .working || operated.state == .blocked || open == true { probePrompt(task.id) }
         }
     }
@@ -708,7 +708,7 @@ final class OperatorController {
 
     private func probePrompt(_ id: UUID, _ worker: WorkerTab) {
         guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else { return }
-        let prefix = "prompt-\(id.uuidString)-"
+        let prefix = "\(OperatorQuestion.promptPrefix)\(id.uuidString)-"
         let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.tab == worker.key && $0.resolution == nil }
         let tab = worker.session
         if let open, tab?.state != .needsInput {

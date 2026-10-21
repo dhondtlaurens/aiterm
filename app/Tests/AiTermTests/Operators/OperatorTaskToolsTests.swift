@@ -201,6 +201,14 @@ import Testing
         #expect(world.notifications.posted.first?.body == "The summary is ready.")
     }
 
+    @Test func aRetryPastItsLimitSaysToAskThePersonInChat() async throws {
+        let (world, run, task) = try makeWorld()
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .failed; $0.retriesUsed = OperatorTiming.retries } }
+        let limit = OperatorTiming.retries
+        #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).message
+                == "PLUTO-1 has used its \(limit) retr\(limit == 1 ? "y" : "ies"). Ask the person how to go on, in your chat and with ask_you.")
+    }
+
     @Test func aFailedTaskIsRetriedWhileRetriesAreLeftAndABlockedOneResumes() async throws {
         let (world, run, task) = try makeWorld()
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "failed", "note": "The build broke."])
@@ -212,7 +220,7 @@ import Testing
         #expect(afterRetry.lastFailure == "The build broke.")
         world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .failed; $0.retriesUsed = OperatorTiming.retries } }
         #expect(await world.call(run.id, "retry_task", ["task": "PLUTO-1"]).message
-                == "PLUTO-1 has used its 2 retries. Ask the person with ask_you how to go on.")
+                == "PLUTO-1 has used its 2 retries. Ask the person how to go on, in your chat and with ask_you.")
         world.workspace.mutate { $0.updateOperated(task.id) { $0.state = .working } }
         _ = await world.call(run.id, "mark_task", ["task": "PLUTO-1", "outcome": "blocked", "note": "Needs a decision."])
         #expect(world.state.tasks.first?.operated?.state == .blocked)

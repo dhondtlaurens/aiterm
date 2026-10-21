@@ -242,7 +242,7 @@ extension OperatorToolHandler {
         guard operated.state == .failed else { return Self.taskAnswer(task, created: false) }
         let limit = OperatorTiming.retries
         guard operated.retriesUsed < limit else {
-            throw ToolRefusal("\(operated.key) has used its \(limit) retr\(limit == 1 ? "y" : "ies"). Ask the person with ask_you how to go on.")
+            throw ToolRefusal("\(operated.key) has used its \(limit) retr\(limit == 1 ? "y" : "ies"). Ask the person how to go on, in your chat and with ask_you.")
         }
         try apply(.retry, to: task)
         return Self.taskAnswer(state.task(id: task.id) ?? task, created: false)

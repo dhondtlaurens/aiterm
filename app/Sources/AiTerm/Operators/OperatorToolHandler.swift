@@ -357,19 +357,25 @@ final class OperatorToolHandler {
     // -- the records ----------------------------------------------------------------------------
     private func askYou(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("question")
+        guard !OperatorQuestion.aitermPrefixes.contains(where: key.hasPrefix) else {
+            throw ToolRefusal("Keys starting with “prompt-” or “merged-on-host-” are AiTerm’s own questions. Choose another key.")
+        }
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
-        if let open = run.questions.first(where: { $0.id == key }) { return Self.questionAnswer(open) }
+        if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
         let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil)
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }
             if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
         }
-        return Self.questionAnswer(question)
+        return Self.askAnswer(question)
     }
 
     private func resolveQuestion(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), summary = try call.string("summary")
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
+        guard !question.isAiTerms else {
+            throw ToolRefusal("\(key) is AiTerm’s own question, not yours: AiTerm closes a prompt’s question when its worker leaves the prompt, and only the person decides a merge on the host. If it looks stale, record it with report_snag.")
+        }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
         mutate(in: run.id) { state in
@@ -435,6 +441,16 @@ final class OperatorToolHandler {
         case .notAttempted: break
         }
         return .object(answer)
+    }
+
+    /// `ask_you`'s answer: a question on a task also says what that does, so the Operator knows it is no plain note.
+    private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
+        var answer = questionAnswer(question)
+        if question.task != nil, case .object(var fields) = answer {
+            fields["note"] = "This task now shows waiting on the person, and Waiting on you opens its worker’s tab."
+            answer = .object(fields)
+        }
+        return answer
     }
 
     private static func questionAnswer(_ question: OperatorQuestion) -> JSONValue {
