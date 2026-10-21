@@ -131,7 +131,7 @@ Add Project… has no sheet: the folder chooser adds the project at once.
 | ⎋ | Cancel | Plain `.cancelAction` where there is no list. Jira projects has one, so ⎋ closes it first, on a hidden button as in New Task. |
 | ← → | Move between segments | Any focused `SegmentedControl`: the Settings tabs, the agent picker, Sidebar size. |
 
-The board's ⌘↩ is the moment's: End Broadcast once it is the debrief, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. A card's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a question or a blocked task, the sidebar's banner for a problem AiTerm hit. A Todo card is not a button. ⎋ is Close.
+The broadcast's sheet takes ⌘1 ⌘2 ⌘3 for Board, Activity and Summary, on hidden buttons as in Settings; Summary only once the broadcast has reached it. Its ⌘↩ is the moment's, the same on every tab: End Broadcast once every task is done, asking nothing; Start Fresh when the Operator's window couldn't be reopened behind it; nothing while it runs, where Pause Broadcast (Resume Broadcast while paused) and End Broadcast… are plain buttons. A card's click closes the board, then opens what resolves it: the task's window for a permission prompt or a started task, the Operator's window for a question or a blocked task, the sidebar's banner for a problem AiTerm hit. A Todo card is not a button. ⎋ is Close.
 
 ## Settings
 
@@ -155,7 +155,7 @@ included. ⎋ answers the safe choice on every alert (`AlertPrompt.escapeButton`
 | Remove an ended broadcast from the Shelf | Remove, red: its activity log and summary are deleted | Cancel |
 | Remove project | Remove, blue: the files are kept | Cancel |
 | Stop a task the Operator drives | Stop Task, blue: its window and branch stay | Cancel |
-| End a broadcast, before its debrief | End Broadcast, blue: its started tasks stay, worktrees and MRs too | Cancel |
+| End a broadcast, before every task is done | End Broadcast, blue: its started tasks stay, worktrees and MRs too | Cancel |
 | Import worktrees | Import | Skip |
 | An update is available | Update | Later |
 | Unsaved workspace on quit | Cancel Quit | Cancel Quit |

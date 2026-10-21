@@ -169,9 +169,12 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
 - **Complete.** Once every task has ended and no question is open, `settle` makes the run `complete`:
-  the board becomes the debrief (Delivered; Decided on its own, from `log_decision`; Found along the
-  way, from `report_find` and the Oracle's vetoes; Left for you, from the slices' refusals) and the
-  debrief's notification goes out. A later `submit_plan` makes it active again.
+  the board's columns stay, every card in Done, and the Operator writes its summary with `write_summary`,
+  as its brief asks (`OperatorCommand.summaryRule`; `run_status` shows `summaryDue` until it has), in its
+  own words, what it decided on its own and found along the way folded in. The sheet's Summary shows it
+  with what was left for you (`leftForYou`, from `leave_for_you` and the slices' refusals). The finished
+  broadcast's notification goes out once the summary is written, or once AiTerm stops waiting for it
+  (`OperatorTiming.summaryWait`, `RunSummary.notComing`). A later `submit_plan` makes it active again.
 - **End.** `end(run:)` saves your stop first; one that cannot be saved is taken back and nothing else
   happens. Tasks that never started are dropped, rows and all: they have no worktree and no window.
   Started tasks still open end `stopped` and become yours, as after a Take Over: their ownership
@@ -179,7 +182,7 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   Oracle's runs are cancelled, the token is revoked (`operator.revoke`, which deletes the file too) and
   the Operator's window closed when it holds only the run's tabs. Every task that started stays, its
   worktree and MR untouched, and the heading's "+" returns. End Broadcast… asks first (`OperatorAlerts.endBroadcast`);
-  the debrief's End Broadcast does not.
+  End Broadcast on a complete broadcast does not.
 
 **The slices are gates in AiTerm, never in the brief.** The Operator cannot write to Jira or a code
 host itself; AiTerm does each write on its tool call, and checks the run's frozen `profile.slices`
@@ -188,7 +191,7 @@ first. The tool handler refuses `jira_create`, `jira_move` and `jira_link` with 
 (`OperatorToolHandler+Review`); `review_task`, an agent review, needs none. A merge, through the
 request or local, is refused by `PublicationGuard` with the Merge slice off, checked when `finish_task`
 starts and read again in `TaskPublisher` right before the host merges. Each refusal also appends one
-sentence to the run's `leftForYou` (`Merge !418: the Merge slice is off.`), which the debrief lists.
+sentence to the run's `leftForYou` (`Merge !418: the Merge slice is off.`), which Summary lists under Left for you.
 The base needs no slice: a commit on the task's branch, its push, a draft MR, an agent review. Under
 every slice AiTerm's floor holds: only the commit the Operator accepted, a green pipeline, every
 review thread resolved, never a push to a default or protected branch, and a local merge never pushed.
@@ -199,8 +202,11 @@ holds, which the projects' `entries` leave out and count) and its board
 (`BroadcastBoard.make(run:state:acting:requests:)`) with the sidebar's rows, from the workspace and `OperatorController.acting` (`rows.actingSource`), and writes each only when
 it differs, so a change the board draws nothing of redraws no board. `BroadcastBoard` is a value in
 `AiTermCore/Sidebar/`: the band (`OperatorLine.broadcast`, where a request outranks everything), the
-columns and their cards, what each card's click opens (`BroadcastBoard.Opens`) and, once complete, the
-debrief. `BroadcastBoardHost` presents it; `OperatorRequests.open` says what needs you, and
+columns and their cards, what each card's click opens (`BroadcastBoard.Opens`), the tab it opens on
+(`firstTab`), its summary (`RunSummary`) and what was left for you. Every Operator tool call is logged as it
+is made to `activity.jsonl` in the run folder (`ActivityLog`, its words from `ActivityLine`), which the sheet's
+Activity follows through `ActivityFeed`. `BroadcastBoardHost` presents it, and `ShelvedBroadcastHost` an ended
+broadcast's, read-only, from the Shelf (`BroadcastBoard.shelved`); `OperatorRequests.open` says what needs you, and
 `OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`monitoring
 2 tabs`, `checking next`), the Operator's row's from its own session alone (`OperatorLine.session`, read from
 `run.operatorSessionId`'s tab), the header's tooltip and the band from the whole broadcast. A driven task's
@@ -210,8 +216,10 @@ click (`AppController.choose(task:)`) raises its window and then brings `TaskIte
 **Notifications** follow the state, never the events that led to it. After any change to a run or its
 tasks, `OperatorController.notifyRequests(of:)` hands the run to `OperatorNotifier.requestsChanged(run:)`,
 which works out what should be showing: one note per open request (`OperatorRequests.open`, each with
-a stable id, `request-<run>-<task or run>-<kind>`, a question one per key) and, once complete, the
-debrief's (`debrief-<run>`), each titled with the broadcast's name. It posts what is new or reworded
+a stable id, `request-<run>-<task or run>-<kind>`, a question one per key) and, once complete and its
+summary settled, the finished broadcast's (`debrief-<run>`, the id earlier builds posted it under): “The
+summary is ready.”, or, AiTerm having stopped waiting, that the tasks are done; each titled with the
+broadcast's name. It posts what is new or reworded
 and withdraws from Notification Center what no longer stands; an ended broadcast withdraws everything.
 At launch it reads what is still delivered and withdraws what an earlier run left that nothing asks any
 more. A permission prompt's note opens its task's window; every other note opens the board.

@@ -194,7 +194,7 @@ vendor needs both.
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
 `NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
-`TaskBadges`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`, `ShelvedBroadcastHost`.
+`TaskBadges`, `BroadcastActivityView`, `BroadcastSummaryView`, `ArchiveSheet`, `ArchiveRow`, `ShelvedBroadcastRow`, `ShelvedBroadcastHost`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -267,7 +267,7 @@ avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude'
 `Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `waiting for
 its tasks` between its turns, `asks you in its window`, `paused`, `window closed`; never a task's request nor
 what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
-acts or works, the accent dot once the debrief is ready, else the idle ring. No project, ticket or branch line. It has an id of its own
+acts or works, the accent dot once the summary is written or AiTerm gave up waiting for it, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
 closed. VoiceOver calls it "Operator, Claude Code session".
@@ -358,16 +358,25 @@ Claude Code and Codex where installed, Ready on its Settings card, Messaging inc
 checks passed. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
 its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
 
-The header's board button and Open Board open the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
-`BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band
-two lines (`bandHeight: nil`, `Space.base` under the title) and its content not scrolling as one
-(`scrolls: false`). The title is the broadcast's name, whole until the sheet's width cuts it (a name made
-from the brief is its first line, uncut). The band is the broadcast's `BroadcastStatusLine`, as its row
-says it, no projects; under it the Asked line in `Typography.help`, `Asked …  · Review …  · Done …` with
-each label in `Palette.text` at medium weight, cut at two lines, the whole in its tooltip. The columns are Todo · In progress · Review · Done, `Space.gap`
-apart, Review only when the broadcast has a review; each is a `BoardHeading` (a `SidebarHeading` and its
-count in `Typography.monoChip`, `Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its
-own (`BoardScroll`), an empty one saying so in one `Typography.help` line ("Nothing started yet.") at
+The header's board button and Open Board open the broadcast's sheet (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`,
+decided by `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.width` by `Sheet.height`, Settings'
+footprint, its band sizing itself (`bandHeight: nil`, `Space.base` under the title) and its content scrolling as one
+on Activity and Summary but not on Board (`scrolls: tab != .board`), `Space.block` above and below. The title is the
+broadcast's name, whole until the sheet's width cuts it (a name made from the brief is its first line, uncut). The
+band, `Space.base` apart, is the broadcast's `BroadcastStatusLine`, as its row says it, no projects; the Asked line in
+`Typography.help`, `Asked …  · Review …  · Done …` with each label in `Palette.text` at medium weight, cut at two
+lines, the whole in its tooltip; and the tab bar, Settings' `SegmentedControl` in its accent style, Board · Activity ·
+Summary (`BroadcastBoard.Tab`), its segments sharing the width and its labels in `Typography.body`, picked by click or
+⌘1–⌘3 (hidden buttons, as Settings' ⌘1–⌘4). It opens on `BroadcastBoard.firstTab` — Board until the broadcast reaches
+its summary, Summary from then on — and stays where you put it; Summary is dimmed and disabled until then. The footer
+is the same on every tab.
+
+Board is the columns, Todo · In progress · Review · Done, each `Sheet.boardColumn` (236) wide and `Space.gap`
+apart, Review only when the broadcast has a review: two and a bit show at once, the first on the content's leading
+margin, the row of them running past the trailing margin to the sheet's edge and scrolling sideways
+(`BoardScroll(.horizontal)`). Each is a `BoardHeading` (a `SidebarHeading` and its count in `Typography.monoChip`,
+`Size.menuRow` tall) over its cards, `Space.base` apart, scrolling on its own (`BoardScroll`), an empty one saying so
+in one `Typography.help` line ("Nothing started yet.") at
 `Space.inset` above and below, the card's own inset, so it reads on the line of the cards' titles beside it. A card
 (`BoardCardView`) is a `groupChrome` box, `Space.inset` inside: the agent's `VendorMark` at `Size.avatar`
 on every card, started or not, and `Space.base` beside it every line on the title's leading edge, as on a
@@ -391,12 +400,36 @@ Resume Broadcast, End Broadcast… (the blue alert), and Close (⎋). When the O
 be resumed as its window reopens, the board's footer carries a `Notice` ("Couldn’t reopen the
 Operator’s window") with Close and Start Fresh on ⌘↩ (`OperatorController.reopenFailed`).
 
-Once every task is done the columns stay, every card in Done, and the footer is Close and End Broadcast on ⌘↩,
-which asks nothing. A broadcast whose last task waits on a person keeps
-the board. No new `Palette` or `Metrics` member.
+Activity (`BroadcastActivityView`) is the run's log, `activity.jsonl` in its run folder, which the host follows while
+the sheet is open (`ActivityFeed`): every call the Operator made, newest first, what it only read included, under a
+`SidebarHeading` for each day, `Size.menuRow` tall (`Today`, then the day, `10 Mar`, with the year once it is another
+year's). A row is `Space.snug` above and below and `Space.base` either side, its ground reaching `Space.base` past the
+content's margins while its text stays on them: the time in `Typography.mono` on the 24-hour clock; `Space.gap` on, the
+line in `Typography.caption`, the task's name in medium weight, the whole muted for a call that only read
+(`ActivityLine.reads`); and the task's key trailing in `Typography.monoChip`. A call that did not go through says what
+it asked (`finish Shipping step`) and leads with its label at medium weight, `Refused` and `Failed` in `Palette.amber`,
+`Challenged` muted; a reason sits under the line in `Typography.help`. A click opens the row in place on
+`Palette.rowHoverSolid` at `Radius.control`: `Space.tight` under it the call itself — its tool in `Palette.text`, its
+arguments as JSON, then `→` how it went and what AiTerm answered — in `Typography.mono` on `Palette.surfaceRaised`,
+`Space.base` by `Space.inset` inside, selectable. One row is open at a time; a second click closes it. With nothing
+logged it reads "Nothing recorded yet." in muted `Typography.help`.
+
+Summary (`BroadcastSummaryView`) is what the Operator wrote once every task was done (`write_summary`): its paragraphs
+in `Typography.body` and `Palette.text`, `Space.gap` apart and selectable, and `Space.base` under them "Written by the
+Operator at 16:05" in muted `Typography.help`. Until it has one the same muted line says why: "The Operator is writing
+its summary.", "The Operator didn’t write a summary." or "Ended before it finished. The Operator didn’t write a
+summary." `Space.section` on, and only when something is, Left for you: a `BoardHeading` with its count over each item
+in `Typography.caption`, `Space.base` apart, one line as `leave_for_you` wrote it.
+
+Once every task is done the columns stay, every card in Done, the band reads `done · writing summary` and then
+`done · summary ready` (or `done`, AiTerm having given up waiting), and the footer is Close and End Broadcast on ⌘↩,
+which asks nothing. A broadcast whose last task waits on a person keeps the board. An ended broadcast's sheet, opened
+from the Shelf, is read-only (`BroadcastBoard.shelved`): no card or tab line is a button, Activity is its log as it
+ended, it opens on Summary, and the footer is Close alone. No new `Palette` member; one `Metrics` member,
+`Sheet.boardColumn`, in place of the board's own width.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review, New Broadcast), a
-tab bar (Settings), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
+tab bar (Settings; the broadcast's sheet, under its band), or — on every other sheet — one `SheetSubtitle`: a sentence saying what the
 sheet does, never a path. Every sheet that opens a window ends its content with one
 `DestinationLine`, in one format: `Opens in iTerm2 · <project>/<worktree path in it> · <branch>` —
 the project alone for New terminal, `task “<title>”` in place of the path for a review that opens in
@@ -440,8 +473,8 @@ actions and keeps its buttons, and a failure with one sentence (`GitError.senten
 alone. Not Notices: the grey line while AiTerm connects (`SidebarBannerText`), field help, row captions
 and toasts. `SidebarBanner` is only the banners' margins now: their text starts where `PROJECTS`
 does. The Operator's greenfield design added two Metrics members: `Size.inlineMark` (12), a mark that
-leads a line of text — the Notice's, Find a Fix's — and `Sheet.boardWidth` (820), the broadcast
-board's width. The board's footer carries a Notice too, when the Operator's window could not be reopened.
+leads a line of text — the Notice's, Find a Fix's — and what is now `Sheet.boardColumn` (236), one
+column of the broadcast's board in its `Sheet.width` sheet. The board's footer carries a Notice too, when the Operator's window could not be reopened.
 
 **Find a Fix.** A problem an agent can fix — New Review's diverged or rebase-conflicted branch, and
 Pull main's — offers **Find a Fix**, after the failure's own recovery and before Dismiss: led by the
