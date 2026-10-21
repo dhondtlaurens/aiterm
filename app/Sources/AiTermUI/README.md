@@ -313,6 +313,10 @@ one picked project; under each its help in place of `CompletionHint`. Review's a
 slices allow, from Settings › Operator's profile as the sheet opens, in plain text: Settings is named, not
 linked, and nothing is amber. No command preview: the Operator chooses each task's agent. The
 `DestinationLine`, `Opens in iTerm2 · the Operator’s window`, ends steps 1 and 4. No new `Palette` or `Metrics` member.
+Start Broadcast waits for what the broadcast needs (`BroadcastReadiness`): every agent the Operator may plan on,
+Claude Code and Codex where installed, Ready on its Settings card, Messaging included, and iTerm2's own delivery
+checks passed. Until then the footer, on every step, carries a `Notice` with no actions, “Not ready to start”,
+its description one line per piece in its card's words (`Codex: Messaging not checked for 0.161`, `iTerm2 checks not run`).
 
 The row's click opens the board (`BroadcastBoardSheet`, presented by `BroadcastBoardHost`, decided by
 `BroadcastBoard` in `AiTermCore/Sidebar/`): `SheetLayout` at `Sheet.boardWidth` by `Sheet.height`, its band

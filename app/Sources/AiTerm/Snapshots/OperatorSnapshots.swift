@@ -234,6 +234,10 @@ enum OperatorSnapshots {
             },
             // A failed create in a sheet's footer: one sentence, so the title alone, the actions footer buttons.
             Snapshot("notice-footer.png") { noticeFooter() },
+            // Start waits: Codex updated past the version the delivery check passed, and iTerm2's own checks never ran.
+            Snapshot("new-broadcast-4-not-ready.png") {
+                newBroadcast(step: 4, readiness: .notReady(["Codex: Messaging not checked for 0.161", "iTerm2 checks not run"]))
+            },
         ]
     }
 
@@ -377,12 +381,14 @@ enum OperatorSnapshots {
 
     /// New Broadcast on `step`, as the drawing fills it: PAY · Payments picked, which picked webshop and
     /// payments-api, then the prompt, Jan's review and the merge, or with Review or Merge off the steps left empty.
-    private static func newBroadcast(step: Int, slices: Slices = Slices(jira: true, review: true, merge: true)) -> some View {
+    private static func newBroadcast(step: Int, slices: Slices = Slices(jira: true, review: true, merge: true),
+                                     readiness: BroadcastReadiness = .ready) -> some View {
         let projects = [OperatorScene.project("webshop"), OperatorScene.project("payments-api")]
         // What `/` lists: seeded, and found again by the load the sheet starts when hosted.
         let skills = [AgentCompletion(name: "superpowers:brainstorming", kind: .skill,
                                       detail: "You MUST use this before any creative work", source: .plugin("superpowers"))]
-        let model = NewBroadcastModel(projects: projects, slices: slices, skills: { _, _ in skills }) { _ in UUID() }
+        let model = NewBroadcastModel(projects: projects, slices: slices, skills: { _, _ in skills },
+                                      readiness: { readiness }) { _ in UUID() }
         model.received([OperatorScene.payments])
         model.add(jiraProject: OperatorScene.payments)
         model.completions.all = skills

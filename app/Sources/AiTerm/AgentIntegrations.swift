@@ -201,6 +201,8 @@ final class AgentIntegrations {
             home: harnessHome, daemonPort: AiTermPaths.hookPort, catalogue: catalogue, resources: resources, claudeConfig: claudeConfig)
         let settings = HarnessSettingsModel(
             service: service, rememberedModels: { [weak self] in self?.rememberedModels() ?? [:] },
+            // The defaults the rest of the agents' settings are kept in: a test's scratch ones, never this Mac's.
+            defaults: defaults,
             integrationChanged: { [weak self] agent in
                 if agent == .claude { Task { await self?.refreshStatusLineState() } }
             },
