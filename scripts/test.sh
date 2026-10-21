@@ -46,15 +46,19 @@ case "$SUITE" in
     daemon) RUN_DAEMON=1 ;;
 esac
 
+changes_unlisted() { print -u2 "git could not list the changes since main, so there is no telling what to test."; exit 1; }
+
 # The paths this checkout changed since it left main, into CHANGED: its commits, what is staged and
 # unstaged (both sides of a rename, since a test may read either), and files git neither tracks nor
-# ignores. Fails when there is no main, or no merge base with it, to compare with.
+# ignores. Fails when there is no main, or no merge base with it, to compare with. A git that finds
+# the merge base and then cannot list the changes stops the run: errexit is off inside a function
+# called as a condition, and going on with a partial list could test nothing and pass.
 changed_paths() {
     local base committed worktree untracked
     base="$(git -C "$ROOT" merge-base HEAD main 2>/dev/null)" || return 1
-    committed="$(git -C "$ROOT" diff --name-only --no-renames -z "$base" HEAD)"
-    worktree="$(git -C "$ROOT" diff --name-only --no-renames -z HEAD)"
-    untracked="$(git -C "$ROOT" ls-files --others --exclude-standard -z)"
+    committed="$(git -C "$ROOT" diff --name-only --no-renames -z "$base" HEAD)" || changes_unlisted
+    worktree="$(git -C "$ROOT" diff --name-only --no-renames -z HEAD)" || changes_unlisted
+    untracked="$(git -C "$ROOT" ls-files --others --exclude-standard -z)" || changes_unlisted
     CHANGED=(${(0)committed} ${(0)worktree} ${(0)untracked})
     CHANGED=(${(u)CHANGED})
 }
@@ -126,7 +130,7 @@ if [[ "$SUITE" == changed ]]; then
     elif (( ${#CHANGED} )); then
         print -r -- "Nothing to test: only ${(j:, :)CHANGED} changed."
     else
-        print -r -- "Nothing changed since main."
+        print -r -- "Nothing changed $SINCE."
     fi
     if (( ${#SWIFT_ARGS} )); then
         print -r -- "The Swift tests are the arguments after --: ${SWIFT_ARGS[*]}"
@@ -190,7 +194,9 @@ daemon_suite() {
 if (( RUN_DAEMON )); then daemon_suite; fi
 if (( ! RUN_SWIFT )); then exit 0; fi
 
-TEST_LOGS="$(mktemp -d -t aiterm-test)"
+# In TMPDIR, as the toolchain guard expects: macOS's `mktemp -t` would use the user's temp directory
+# whatever TMPDIR says.
+TEST_LOGS="$(mktemp -d "${TMPDIR:-/tmp}/aiterm-test.XXXXXX")"
 
 # `swift test` exits 0 on a run that never finished: a host that dies mid-run
 # (a modal alert once ended one's run loop), and a --filter that matches nothing

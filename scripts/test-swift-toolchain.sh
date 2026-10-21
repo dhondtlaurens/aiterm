@@ -60,9 +60,8 @@ fi
 
 # Exercise the runner without a real build: empty, unfinished, failed and nonzero runs
 # must fail even when the compiler process reports success. Avoid recursing through this guard.
-# A fixture run keeps no logs (AITERM_TEST_LOGS_KEEP=0): the failures here are meant, and macOS's
-# `mktemp -t` puts the logs in the user's temp directory whatever TMPDIR says, so every guard run
-# used to leave a few behind.
+# A fixture run keeps no logs (AITERM_TEST_LOGS_KEEP=0): the failures here are meant, and the runs
+# that do not set TMPDIR would otherwise leave them in the user's temp directory on every guard run.
 if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
     "$ROOT/scripts/fixtures/check-bundle-verifier.sh"
     (
@@ -134,6 +133,12 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             sed -n '1,30p' "$bad_output" >&2
             exit 1
         }
+        changed_case "no paths" 0 '' ''
+        grep -Fxq "Nothing changed in AITERM_TEST_PATHS." "$bad_output" || {
+            print -u2 "expected an empty AITERM_TEST_PATHS to say it names nothing"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        }
         changed_case "daemon code" 73 pytest daemon/aitermd/x.py
         changed_case "app code" 0 'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' \
             app/Sources/AiTerm/X.swift
@@ -148,6 +153,27 @@ if [[ "${TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER:-0}" != "1" ]]; then
             AITERM_FIXTURE_TEST_RUN="$result" changed_case "app code, $result" 1 \
                 'swift test --filter ^AiTermUITests\.DesignRulesTests/ --filter ^AiTermTests\.' app/Sources/AiTerm/X.swift
         done
+
+        # A git that finds the merge base but then fails to list the changes must stop the run: going
+        # on with what it did list could test nothing and still pass.
+        mkdir -p "$runner_logs/broken-git"
+        print -rl -- '#!/bin/zsh' \
+            'case " $* " in' \
+            '    *" merge-base "*) print 0000000000000000000000000000000000000000 ;;' \
+            '    *" diff "*) print -u2 "fatal: broken git fixture"; exit 128 ;;' \
+            "    *) exec $(whence -p git) \"\$@\" ;;" \
+            'esac' >"$runner_logs/broken-git/git"
+        chmod +x "$runner_logs/broken-git/git"
+        : >"$calls"
+        runner_status=0
+        env -u AITERM_TEST_PATHS PATH="$runner_logs/broken-git:$PATH" AITERM_FIXTURE_CALLS="$calls" \
+            TEST_SWIFT_TOOLCHAIN_SKIP_RUNNER=1 SWIFT="$ROOT/scripts/fixtures/swift-test-run.sh" PYTEST="$pytest" \
+            "$ROOT/scripts/test.sh" >"$bad_output" 2>&1 || runner_status=$?
+        if [[ "$runner_status" != 1 || -s "$calls" ]] || ! grep -Fq "could not list the changes since main" "$bad_output"; then
+            print -u2 "expected a failing git diff to stop the run (status $runner_status, called '$(<"$calls")')"
+            sed -n '1,30p' "$bad_output" >&2
+            exit 1
+        fi
 
         # Without a main to compare with, nothing says what changed, so everything runs: a scratch
         # repository with these scripts and no main branch gets as far as the daemon's tests.
