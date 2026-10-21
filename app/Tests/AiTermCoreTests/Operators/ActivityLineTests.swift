@@ -39,6 +39,47 @@ import Foundation
         #expect(line("something_new") == "something_new")
     }
 
+    /// A call that did not go through says what was asked, in the imperative; one answered from the first keeps
+    /// the past tense, as the call it repeats.
+    @Test func aCallThatDidNotGoThroughSaysWhatWasAsked() {
+        func asked(_ tool: String, _ arguments: JSONValue = .object([:]), task: TaskItem? = nil,
+                   as outcome: ActivityEntry.Outcome = .refused) -> String {
+            ActivityLine.line(tool: tool, arguments: arguments, task: task, outcome: outcome)
+        }
+        #expect(asked("run_status") == "check the broadcast’s status")
+        #expect(asked("jira_search", ["jql": "project = SHOP"]) == "search Jira: project = SHOP")
+        #expect(asked("jira_create", ["summary": "Fix cart", "project": "SHOP"]) == "file “Fix cart” in SHOP")
+        #expect(asked("jira_move", ["key": "SHOP-1", "status": "Done"]) == "move SHOP-1 to Done")
+        #expect(asked("jira_link", ["key": "SHOP-1", "to": "SHOP-2"]) == "link SHOP-1 to SHOP-2")
+        #expect(asked("create_task", ["title": "Cart drawer"]) == "add Cart drawer to the plan")
+        #expect(asked("update_task", task: cart) == "change Cart drawer’s plan")
+        #expect(asked("submit_plan", as: .challenged) == "submit the plan")
+        #expect(asked("read_task", ["what": "diff"], task: cart) == "read Cart drawer’s diff")
+        #expect(asked("read_task", task: cart) == "read Cart drawer’s work")
+        #expect(asked("review_task", task: cart) == "ask for an agent review of Cart drawer")
+        #expect(asked("request_review", task: cart) == "ask people to review Cart drawer")
+        #expect(asked("reply_thread", task: cart) == "reply in a review thread on Cart drawer")
+        #expect(asked("find_user", ["query": "Ann"]) == "look up “Ann”")
+        #expect(asked("message_task", ["text": "Use the hook"], task: cart) == "tell Cart drawer’s worker: Use the hook")
+        #expect(asked("open_tab", task: cart) == "open another tab on Cart drawer")
+        #expect(asked("mark_task", ["outcome": "accepted"], task: cart, as: .challenged) == "mark Cart drawer accepted")
+        #expect(asked("resume_task", task: cart) == "put Cart drawer back to work")
+        #expect(asked("retry_task", task: cart) == "queue Cart drawer again")
+        #expect(asked("finish_task", task: cart, as: .failed) == "finish Cart drawer")
+        #expect(asked("ask_you", ["question": "Ship it?"]) == "ask you: Ship it?")
+        #expect(asked("resolve_question", ["summary": "Yes"]) == "note your answer: Yes")
+        #expect(asked("report_find", ["title": "Flaky test"]) == "note a find: Flaky test")
+        #expect(asked("leave_for_you", ["text": "Check staging"]) == "leave for you: Check staging")
+        #expect(asked("log_decision", ["text": "Use SwiftUI"]) == "decide: Use SwiftUI")
+        #expect(asked("write_summary") == "write the summary")
+        #expect(asked("something_new") == "something_new")
+        // The suffix is for a call that acted: a challenged one did not, whatever it replied.
+        #expect(asked("mark_task", ["outcome": "accepted", "challengeReply": "Flaky"], task: cart, as: .challenged) == "mark Cart drawer accepted")
+        // Answered from the first: the first's past tense.
+        #expect(asked("finish_task", task: cart, as: .repeated) == "Finished Cart drawer")
+        #expect(asked("finish_task", task: cart, as: .ok) == "Finished Cart drawer")
+    }
+
     @Test func theTaskArgumentStandsInWithoutATask() {
         #expect(line("finish_task", ["task": "SHOP-7"]) == "Finished SHOP-7")
         #expect(line("finish_task", ["task": "SHOP-7"], task: cart) == "Finished Cart drawer")

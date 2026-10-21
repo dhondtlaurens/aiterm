@@ -5,42 +5,52 @@ public enum ActivityLine {
     /// The tools that only look: the tab can fold their lines away.
     public static let reads: Set<String> = ["run_status", "read_task", "jira_search", "find_user"]
 
-    /// The line for `tool` called with `arguments`: `task` is the task it was about, when AiTerm found one.
-    /// A call that went ahead despite the Oracle's challenge says so.
-    public static func line(tool: String, arguments: JSONValue, task: TaskItem?) -> String {
+    /// The line for `tool` called with `arguments`: `task` is the task it was about, when AiTerm found one. A call
+    /// that went through, or was answered from the first, says what was done (`Finished Cart drawer`); one that was
+    /// challenged, refused or failed says what was asked (`finish Cart drawer`), since nothing happened. A call that
+    /// went ahead despite the Oracle's challenge says so.
+    public static func line(tool: String, arguments: JSONValue, task: TaskItem?, outcome: ActivityEntry.Outcome = .ok) -> String {
         func text(_ key: String) -> String { cut(arguments[key]?.stringValue ?? "") }
         let named = task?.title ?? text("task")
-        let words: String
+        // Each tool's words twice: what was done, then what was asked.
+        let words: (done: String, asked: String)
         switch tool {
-        case "run_status": words = "Checked the broadcast’s status"
-        case "jira_search": words = "Searched Jira: \(text("jql"))"
-        case "jira_create": words = "Filed “\(text("summary"))” in \(text("project"))"
-        case "jira_move": words = "Moved \(text("key")) to \(text("status"))"
-        case "jira_link": words = "Linked \(text("key")) to \(text("to"))"
-        case "create_task": words = "Added \(text("title")) to the plan"
-        case "update_task": words = "Changed \(named)’s plan"
-        case "submit_plan": words = "Submitted the plan"
-        case "read_task": words = "Read \(named)’s \(arguments["what"]?.stringValue.map(cut) ?? "work")"
-        case "review_task": words = "Asked for an agent review of \(named)"
-        case "request_review": words = "Asked people to review \(named)"
-        case "reply_thread": words = "Replied in a review thread on \(named)"
-        case "find_user": words = "Looked up “\(text("query"))”"
-        case "message_task": words = "Told \(named)’s worker: \(text("text"))"
-        case "open_tab": words = "Opened another tab on \(named)"
-        case "mark_task": words = "Marked \(named) \(text("outcome"))"
-        case "resume_task": words = "Put \(named) back to work"
-        case "retry_task": words = "Queued \(named) again"
-        case "finish_task": words = "Finished \(named)"
-        case "ask_you": words = "Asked you: \(text("question"))"
-        case "resolve_question": words = "Noted your answer: \(text("summary"))"
-        case "report_find": words = "Noted a find: \(text("title"))"
-        case "leave_for_you": words = "Left for you: \(text("text"))"
-        case "log_decision": words = "Decided: \(text("text"))"
-        case "write_summary": words = "Wrote the summary"
-        default: words = tool
+        case "run_status": words = ("Checked the broadcast’s status", "check the broadcast’s status")
+        case "jira_search": words = ("Searched Jira: \(text("jql"))", "search Jira: \(text("jql"))")
+        case "jira_create": words = ("Filed “\(text("summary"))” in \(text("project"))", "file “\(text("summary"))” in \(text("project"))")
+        case "jira_move": words = ("Moved \(text("key")) to \(text("status"))", "move \(text("key")) to \(text("status"))")
+        case "jira_link": words = ("Linked \(text("key")) to \(text("to"))", "link \(text("key")) to \(text("to"))")
+        case "create_task": words = ("Added \(text("title")) to the plan", "add \(text("title")) to the plan")
+        case "update_task": words = ("Changed \(named)’s plan", "change \(named)’s plan")
+        case "submit_plan": words = ("Submitted the plan", "submit the plan")
+        case "read_task":
+            let what = arguments["what"]?.stringValue.map(cut) ?? "work"
+            words = ("Read \(named)’s \(what)", "read \(named)’s \(what)")
+        case "review_task": words = ("Asked for an agent review of \(named)", "ask for an agent review of \(named)")
+        case "request_review": words = ("Asked people to review \(named)", "ask people to review \(named)")
+        case "reply_thread": words = ("Replied in a review thread on \(named)", "reply in a review thread on \(named)")
+        case "find_user": words = ("Looked up “\(text("query"))”", "look up “\(text("query"))”")
+        case "message_task": words = ("Told \(named)’s worker: \(text("text"))", "tell \(named)’s worker: \(text("text"))")
+        case "open_tab": words = ("Opened another tab on \(named)", "open another tab on \(named)")
+        case "mark_task": words = ("Marked \(named) \(text("outcome"))", "mark \(named) \(text("outcome"))")
+        case "resume_task": words = ("Put \(named) back to work", "put \(named) back to work")
+        case "retry_task": words = ("Queued \(named) again", "queue \(named) again")
+        case "finish_task": words = ("Finished \(named)", "finish \(named)")
+        case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
+        case "resolve_question": words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
+        case "report_find": words = ("Noted a find: \(text("title"))", "note a find: \(text("title"))")
+        case "leave_for_you": words = ("Left for you: \(text("text"))", "leave for you: \(text("text"))")
+        case "log_decision": words = ("Decided: \(text("text"))", "decide: \(text("text"))")
+        case "write_summary": words = ("Wrote the summary", "write the summary")
+        default: words = (tool, tool)
         }
-        let kept = !(arguments["challengeReply"]?.stringValue ?? "").isEmpty
-        return kept ? words + " · kept despite the Oracle" : words
+        switch outcome {
+        case .challenged, .refused, .failed: return words.asked
+        case .repeated: return words.done
+        case .ok:
+            let kept = !(arguments["challengeReply"]?.stringValue ?? "").isEmpty
+            return kept ? words.done + " · kept despite the Oracle" : words.done
+        }
     }
 
     /// Why the call went the way it did: AiTerm's answer to a refused or failed one, the Oracle's critique of

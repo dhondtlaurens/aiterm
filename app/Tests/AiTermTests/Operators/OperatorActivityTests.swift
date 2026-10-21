@@ -43,6 +43,7 @@ import Testing
         let answer = await world.call(run.id, "resolve_question", ["key": "nope", "summary": "Nothing."])
         let recorded = try #require(await entries(world, run.id).first)
         #expect(recorded.outcome == .refused && recorded.reason == "No question nope in this broadcast.")
+        #expect(recorded.line == "note your answer: Nothing.", "what was asked, not that it happened")
         #expect(recorded.result == answer.message)
         // The recording changed nothing of the answer.
         #expect(answer.message == "No question nope in this broadcast.")
@@ -103,6 +104,7 @@ import Testing
         let plans = await entries(world, run.id).filter { $0.tool == "submit_plan" }
         #expect(plans.map(\.outcome) == [.challenged, .ok, .repeated])
         #expect(plans[0].reason == "A is two tasks.")
+        #expect(plans[0].line == "submit the plan", "what was asked, not that it happened")
         #expect(plans[1].line == "Submitted the plan · kept despite the Oracle")
     }
 
@@ -116,7 +118,8 @@ import Testing
         _ = await world.call(run.id, "resume_task", ["task": "PLUTO-2"])
         let recorded = await entries(world, run.id)
         #expect(recorded.map(\.taskLabel) == ["SHOP-12", "PLUTO-2"] && recorded.map(\.task) == [ticketed.id, plain.id])
-        #expect(await entries(world, run.id).first?.line == "Put Task PLUTO-1 back to work")
+        // Neither task is blocked, so both resumes are refused: the line says what was asked.
+        #expect(recorded.first?.outcome == .refused && recorded.first?.line == "put Task PLUTO-1 back to work")
     }
 
     @Test func aWriteThatFailsNeverChangesTheAnswer() async throws {
