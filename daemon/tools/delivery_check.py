@@ -333,13 +333,37 @@ class Live:
         return (session := self.registry.get(session_id)) is not None and session.agent == agent
 
 
+async def dialog_or_idle(live: Live, agent: AgentKind, sid: str, dialog: Callable[[str], bool]) -> bool | None:
+    """Whether `dialog` opens as the agent starts: true when it shows, false when the agent settles on
+    its idle screen and two seconds later still shows none, None when neither shows within a minute."""
+    ready = idle(agent)
+    if not await live.wait_for(sid, lambda screen: dialog(screen) or ready(screen), 60):
+        return None
+    if dialog(await live.screen(sid)):
+        return True
+    await asyncio.sleep(2)
+    screen = await live.screen(sid)
+    return True if dialog(screen) else False if ready(screen) else None
+
+
+def not_shown(agent: AgentKind, what: str) -> ScenarioResult:
+    """A startup dialog the CLI did not open this time: one opens only before the CLI's input box
+    does, so no delivery can race into it, and delivery refuses one on the screen (open_prompt). A
+    paste into a selection list like its own is menuPaste's to check."""
+    return ScenarioResult(True, f"not shown: {agent} opened on its idle screen with no {what}, so there was none to paste into")
+
+
 async def startup_paste(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     """Pastes the hazard into the folder-trust dialog a fresh folder opens with; the dialog must stay
-    open. answer_trust answers it after."""
+    open. answer_trust answers it after. A CLI that opens on its idle screen has none (`not_shown`):
+    Codex 0.163 asks nothing in a fresh folder, though another start may."""
     trust = trust_open(agent)
-    if not await live.wait_for(sid, trust, 60):
+    shown = await dialog_or_idle(live, agent, sid, trust)
+    if shown is False:
+        return not_shown(agent, "trust dialog")
+    if not shown:
         return await live.failure(sid, agent, expected_prompt(agent, "startup"),
-                                  "No startup dialog showed, so pasting into one was not checked.")
+                                  "No startup dialog showed, nor the agent's idle screen, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
     await asyncio.sleep(3)
     if not trust(await live.screen(sid)):
@@ -395,9 +419,10 @@ async def multi_line(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
 
 
 async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
-    """A message typed while the agent writes a story is queued, and answered. It is typed before the
-    story's last line, an answer the prompt does not spell out, shows: what proves the agent busy in
-    every version, where a footer does not (Claude 2.1.306 dropped "esc to interrupt")."""
+    """A message typed while the agent writes a story reaches it, and is answered: Claude queues it,
+    Codex steers it into the turn at work, and may answer it alone. It is typed before the story's
+    last line, an answer the prompt does not spell out, shows: what proves the agent busy in every
+    version, where a footer does not (Claude 2.1.306 dropped "esc to interrupt")."""
     story = "Write a 200-word story about a lighthouse keeper, then end with the word FIN followed by the result of 3 plus 4."
     first = await live.deliverer(agent).deliver(sid, story, 1)
     if first.result != "delivered":
@@ -412,9 +437,9 @@ async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
         return await live.failure(sid, agent, f"queued delivery while the story was being written (no {STORY_END!r} yet), "
                                   f"with input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
                                   f"{second.result}: {second.reason}", refresh=True)
-    if not await live.wait_for(sid, shows(STORY_END, "CHARLIE 9"), 240):
-        return await live.failure(sid, agent, f"the story's {STORY_END!r} and the queued message's answer 'CHARLIE 9'")
-    return ScenarioResult(True, "the message typed while it wrote was queued and answered")
+    if not await live.wait_for(sid, shows("CHARLIE 9"), 120):
+        return await live.failure(sid, agent, "the answer 'CHARLIE 9' to the message typed while it wrote")
+    return ScenarioResult(True, "the message typed while it wrote reached it, and was answered")
 
 
 async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
@@ -507,10 +532,13 @@ async def update_paste(live: Live, agent: AgentKind, sid: str, folder: Path) -> 
         # markers to models.py so this scenario checks it again.
         return ScenarioResult(True, "not applicable: this CLI has no update dialog marker (update_prompt is empty), "
                                     "so there is no update dialog to paste into")
-    await live.wait_for(sid, lambda screen: shows_update_offer(agent, screen) or idle(agent)(screen), 60)
-    if not shows_update_offer(agent, await live.screen(sid)):
+    # An update is offered only while a newer version is out.
+    shown = await dialog_or_idle(live, agent, sid, lambda screen: shows_update_offer(agent, screen))
+    if shown is False:
+        return not_shown(agent, "update offer")
+    if not shown:
         return await live.failure(sid, agent, expected,
-                                  "no update dialog showed, so pasting into one was not checked.")
+                                  "no update dialog showed, nor the agent's idle screen, so pasting into one was not checked.")
     await live.paste(sid, HAZARD)
     await asyncio.sleep(3)
     still_open = shows_update_offer(agent, await live.screen(sid))
@@ -586,7 +614,7 @@ async def check_agent(live: Live, agent: AgentKind, folder: Path) -> dict[str, S
     try:
         await asyncio.sleep(1)  # the shell starting
         await live.bridge.send_text(sid, f" {command}\n")
-        say(f"{agent}: starting it in a scratch folder, and waiting for its trust dialog")
+        say(f"{agent}: starting it in a scratch folder, and waiting for its first screen")
         # Codex may offer its update before or after folder trust. Check it where it actually
         # appears, before ready would wait forever for the still-open dialog.
         if HARNESS_BY_AGENT[agent].update_prompt:
