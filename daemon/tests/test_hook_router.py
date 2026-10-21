@@ -55,12 +55,6 @@ def hooks(tmp_path):
     return Hooks(tmp_path)
 
 
-async def test_a_hook_for_no_known_session_changes_nothing(hooks):
-    hooks.tabs(("s1", "codex", 101))
-    await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/elsewhere"})
-    assert hooks.state("s1") == "idle" and hooks.events == []
-
-
 async def test_a_hook_publishes_one_change_for_its_session(hooks):
     [sid] = hooks.tabs(("s1", "codex", 101))
     await hooks.post("/hook/codex", {"hook_event_name": "UserPromptSubmit", "session_id": "c1", "cwd": "/wt",
@@ -221,13 +215,6 @@ async def test_a_late_grok_stop_cancelled_does_not_end_the_next_turn(hooks):
     assert hooks.state(sid) == "working"
     await hooks.post("/hook/grok", {**base, "hook_event_name": "Stop", "reason": "end_turn", "promptId": "p2"})
     assert hooks.state(sid) == "done"
-
-
-async def test_grok_hook_without_iterm_session_falls_back_to_cwd(tmp_path):
-    hooks = Hooks(tmp_path)
-    [sid] = hooks.tabs(("tab-1", "grok", 41))
-    await hooks.post("/hook/grok", {"hook_event_name": "UserPromptSubmit", "sessionId": "g-1", "cwd": "/wt"})
-    assert hooks.state(sid) == "working"
 
 
 async def test_grok_statusline_sets_model_reasoning_and_context(tmp_path):

@@ -1,5 +1,8 @@
 import json
 import os
+
+import pytest
+
 from aitermd.claude_sessions import ClaudeSessionFiles
 
 
@@ -46,10 +49,14 @@ def test_malformed_file_is_none(tmp_path):
     assert ClaudeSessionFiles(tmp_path).read(7) is None
 
 
-def test_a_pid_that_is_not_a_finite_number_makes_a_file_unreadable_not_the_scan_fail(tmp_path):
+@pytest.mark.parametrize("content", [
     # json.loads accepts `Infinity`, and int() of it raises OverflowError. pid_for_session parses
     # every file in the directory, so one such file would otherwise fail every Claude hook.
-    (tmp_path / "7.json").write_text('{"pid": Infinity, "sessionId": "bad"}')
+    '{"pid": Infinity, "sessionId": "bad"}',
+    "[]",
+], ids=["pid-not-a-finite-number", "not-an-object"])
+def test_a_file_that_cannot_be_read_as_a_session_is_none_and_does_not_fail_the_scan(tmp_path, content):
+    (tmp_path / "7.json").write_text(content)
     write(tmp_path, 8)
     files = ClaudeSessionFiles(tmp_path)
     assert files.read(7) is None
@@ -96,14 +103,6 @@ def test_read_names_the_version_claude_wrote_into_its_file(tmp_path):
     write(tmp_path, 45, version="")
     files = ClaudeSessionFiles(tmp_path)
     assert [files.read(pid).version for pid in (42, 43, 44, 45)] == ["2.1.301", None, None, None]
-
-
-def test_non_object_session_file_does_not_break_other_sessions(tmp_path):
-    (tmp_path / "7.json").write_text("[]")
-    write(tmp_path, 8)
-    files = ClaudeSessionFiles(tmp_path)
-    assert files.read(7) is None
-    assert files.pid_for_session("sid-8") == 8
 
 
 def test_unreadable_session_file_is_retried_without_a_file_change(tmp_path, monkeypatch):

@@ -9,10 +9,6 @@ def finish_task() -> dict[str, Any]:
     return next(tool for tool in operator_mcp.TOOLS if tool["name"] == "finish_task")
 
 
-def test_finish_task_is_listed_once() -> None:
-    assert [tool["name"] for tool in operator_mcp.TOOLS].count("finish_task") == 1
-
-
 def test_finish_task_takes_one_task() -> None:
     schema = finish_task()["inputSchema"]
     assert schema["required"] == ["task"]

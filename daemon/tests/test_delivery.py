@@ -280,6 +280,8 @@ async def test_control_characters_cannot_end_the_paste_or_act_as_keys(rig):
 
 
 @pytest.mark.parametrize("screen,reason", [
+    # An approval's selected option starts with the input marker ❯ too: the prompt is named before
+    # the screen could be called unrecognised.
     (CLAUDE_PERMISSION, "a permission prompt is open"),
     (CLAUDE_TRUST, "a startup prompt is open"),
     (CLAUDE_MENU, "a menu prompt is open"),
@@ -405,13 +407,6 @@ async def test_a_non_empty_screen_without_the_input_box_is_refused_and_nothing_i
     rig.iterm.screens[rig.sid] = UNRECOGNISED
     assert await rig.deliverer.deliver(rig.sid, "hello", 1) == DeliveryResult("refused", "unrecognised screen")
     assert rig.iterm.sent == []
-
-
-async def test_a_prompt_is_named_before_the_screen_is_called_unrecognised(rig):
-    # An approval's selected option starts with the input marker too; the prompt wins.
-    assert "❯" in CLAUDE_PERMISSION
-    rig.iterm.screens[rig.sid] = CLAUDE_PERMISSION
-    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).reason == "a permission prompt is open"
 
 
 async def test_an_input_box_that_disappears_between_paste_and_enter_gets_no_enter(rig):

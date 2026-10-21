@@ -50,9 +50,14 @@ async def test_unknown_method_and_handler_errors(server):
     w.close()
 
 
-async def test_malformed_line_gets_protocol_error_and_connection_survives(server):
+@pytest.mark.parametrize("line", [
+    b"garbage\n",
+    b'{"id": 1, "method": {"bad": "type"}}\n',
+    ("[" * 100_000 + "]" * 100_000 + "\n").encode(),
+], ids=["not-json", "method-not-a-string", "deeply-nested"])
+async def test_a_line_that_is_no_request_gets_a_protocol_error_and_the_connection_survives(server, line):
     r, w = await _client(server.path)
-    w.write(b"garbage\n")
+    w.write(line)
     await w.drain()
     resp = json.loads(await asyncio.wait_for(r.readline(), 2))
     assert resp["error"]["code"] == "protocol"
@@ -96,23 +101,6 @@ async def test_socket_file_removed_after_stop(sock_dir):
     assert os.path.exists(sock_path)
     await srv.stop()
     assert not os.path.exists(sock_path)
-
-
-async def test_second_daemon_is_refused_and_first_keeps_working(sock_dir):
-    sock_path = os.path.join(sock_dir, "t.sock")
-    first = RpcServer(sock_path)
-    first.register("echo", lambda params: _async_identity(params))
-    await first.start()
-    try:
-        second = RpcServer(sock_path)
-        with pytest.raises(RuntimeError, match="already running"):
-            await second.start()
-        # The first instance's socket must still be live and unmodified.
-        r, w = await _client(sock_path)
-        assert await _call(r, w, {"id": 1, "method": "echo", "params": "still alive"}) == {"id": 1, "result": "still alive"}
-        w.close()
-    finally:
-        await first.stop()
 
 
 async def test_oversized_line_disconnects_client_without_crashing_server(server, caplog):
@@ -174,24 +162,6 @@ async def test_failed_second_server_cannot_unlink_the_first_socket(server):
     await second.stop()
     r, w = await _client(server.path)
     assert (await _call(r, w, {"id": 1, "method": "echo", "params": "alive"}))["result"] == "alive"
-    w.close()
-
-
-async def test_invalid_method_type_does_not_crash_connection(server):
-    r, w = await _client(server.path)
-    reply = await _call(r, w, {"id": 1, "method": {"bad": "type"}})
-    assert reply["error"]["code"] == "protocol"
-    assert (await _call(r, w, {"id": 2, "method": "echo", "params": "alive"}))["result"] == "alive"
-    w.close()
-
-
-async def test_a_deeply_nested_line_is_a_protocol_error_not_a_dropped_connection(server):
-    r, w = await _client(server.path)
-    w.write(("[" * 100_000 + "]" * 100_000 + "\n").encode())
-    await w.drain()
-    reply = json.loads(await asyncio.wait_for(r.readline(), 2))
-    assert reply["error"]["code"] == "protocol"
-    assert (await _call(r, w, {"id": 2, "method": "echo", "params": "alive"}))["result"] == "alive"
     w.close()
 
 

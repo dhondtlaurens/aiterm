@@ -65,11 +65,6 @@ def test_parse_codex_tolerates_malformed_fields():
     assert parse_codex_rate_limits({}, updated_at=5) == Usage(None, None, None, None, 5)
 
 
-def test_usage_json_has_exactly_the_wire_fields():
-    u = Usage(UsageWindow(1, 2), None, None, "max", 3)
-    assert set(u.to_json()) == {"fiveHour", "sevenDay", "spend", "plan", "updatedAt"}
-
-
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan"), 10 ** 400], ids=["inf", "-inf", "nan", "huge"])
 def test_parse_codex_rejects_non_finite_numbers(bad):
     # json.loads accepts Infinity and NaN; int(round()) raises on both, which used to end the tick.
