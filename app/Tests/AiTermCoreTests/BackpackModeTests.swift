@@ -106,17 +106,6 @@ import Synchronization
         #expect(mode.state == .off)
     }
 
-    /// A failed `disablesleep 0` keeps the marker, so the next launch tries again.
-    @Test func aFailedRestoreKeepsTheMarker() throws {
-        let fake = FakeBackpack()
-        let mode = mode(fake)
-        _ = try mode.turnOn().get()
-        fake.lid.succeeds = false
-        mode.turnOff()
-        #expect(fake.settings.engaged)
-        #expect(mode.state == .off)
-    }
-
     /// Quit closes the mode first: a turn-on still on its way must not disable sleep after it.
     @Test func aClosedModeNeverTurnsOn() {
         let fake = FakeBackpack()
@@ -127,7 +116,8 @@ import Synchronization
         #expect(mode.state == .off)
     }
 
-    /// A failed `disablesleep 0` is reported, keeps the marker, and the next check tries again.
+    /// A failed `disablesleep 0` is reported and keeps the marker, so the next launch tries again,
+    /// and so does the next check.
     @Test func aFailedRestoreIsReportedAndRetriedOnTheTick() throws {
         let fake = FakeBackpack()
         let mode = mode(fake)
@@ -286,10 +276,13 @@ import Synchronization
         #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
     }
 
-    /// Turning on with nothing working lets you start a task on the way out: the same two minutes.
-    @Test func aTurnOnWithNothingWorkingStartsTheGrace() throws {
+    /// Turning on with nothing working lets you start a task on the way out: the same two minutes,
+    /// with the lid shut (`true`). A Mac without a lid (`nil`) has no open lid to hold it: the grace
+    /// runs as with the lid shut.
+    @Test(arguments: [true, nil] as [Bool?])
+    func aTurnOnWithNothingWorkingStartsTheGrace(lidClosed: Bool?) throws {
         let fake = FakeBackpack(), clock = TestClock()
-        fake.lidSensor.closed = true
+        fake.lidSensor.closed = lidClosed
         let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
         _ = try mode.turnOn().get()
         clock.advance(by: 120)
@@ -312,16 +305,6 @@ import Synchronization
         #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
     }
 
-    /// A Mac without a lid has no open lid to hold it: the grace runs as with the lid shut.
-    @Test func noLidLeavesTheGraceRunning() throws {
-        let fake = FakeBackpack(), clock = TestClock()
-        fake.lidSensor.closed = nil
-        let mode = BackpackMode(ports: fake.ports, settings: fake.settings, now: { clock.now })
-        _ = try mode.turnOn().get()
-        clock.advance(by: 120)
-        #expect(mode.tick(agentsWorking: false) == .ended(.agentsStopped))
-    }
-
     /// Turned on until turned off, the idle grace never runs: no work, the lid shut, for hours.
     @Test func untilTurnedOffItOutlastsTheGrace() throws {
         let fake = FakeBackpack(), clock = TestClock()
@@ -335,11 +318,13 @@ import Synchronization
         #expect(fake.lid.calls == [true])
     }
 
-    /// The cutoff is no choice: turned on until turned off, it still ends the mode at 10 %.
-    @Test func untilTurnedOffItStillEndsAtTheCutoff() throws {
+    /// The cutoff is no choice and not the person's to hold: with the lid open (the fake's own), it
+    /// ends the mode at 10 % whether it was turned on to end with the work or until turned off.
+    @Test(arguments: [BackpackUntil.agentsStop, .turnedOff])
+    func anOpenLidStillEndsAtTheCutoff(until: BackpackUntil) throws {
         let fake = FakeBackpack()
         let mode = mode(fake)
-        _ = try mode.turnOn(until: .turnedOff).get()
+        _ = try mode.turnOn(until: until).get()
         fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
         #expect(mode.tick(agentsWorking: false) == .ended(.batteryLow(level: BackpackSettings.cutoff)))
     }
@@ -348,15 +333,6 @@ import Synchronization
     @Test func aTurnOnEndsWithTheWorkByDefault() throws {
         let fake = FakeBackpack()
         #expect(try mode(fake).turnOn().get().until == .agentsStop)
-    }
-
-    /// The battery cutoff is not the person's to hold: it ends the mode with the lid open too.
-    @Test func anOpenLidStillEndsAtTheCutoff() throws {
-        let fake = FakeBackpack()
-        let mode = mode(fake)
-        _ = try mode.turnOn().get()
-        fake.power.value = PowerReading(level: BackpackSettings.cutoff, onBattery: true)
-        #expect(mode.tick(agentsWorking: false) == .ended(.batteryLow(level: BackpackSettings.cutoff)))
     }
 
     @Test func theCutoffIsAFixedTenPercent() throws {

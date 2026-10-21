@@ -59,18 +59,13 @@ struct FixProposalTests {
         }
     }
 
-    @Test func aPlainVerifyCommandPasses() throws {
-        let look = try FixLook(validating: answer(verify: "pnpm typecheck"), request: request, localOnly: local, agent: .claude)
+    /// A plain command passes as it is, and so does one with a `:`: that is part of many a script's
+    /// name, and only `*` makes Claude's `Bash(…)` rule a prefix rule, which is refused.
+    @Test(arguments: ["pnpm typecheck", "pnpm test:unit"])
+    func aVerifyCommandPasses(_ verify: String) throws {
+        let look = try FixLook(validating: answer(verify: verify), request: request, localOnly: local, agent: .claude)
         guard case .fix(let proposal) = look else { Issue.record("expected a proposal"); return }
-        #expect(proposal.verify == "pnpm typecheck")
-    }
-
-    /// A `:` is part of many a script's name; only `*` makes Claude's `Bash(…)` rule a prefix rule,
-    /// and that is refused.
-    @Test func aVerifyWithAColonPasses() throws {
-        let look = try FixLook(validating: answer(verify: "pnpm test:unit"), request: request, localOnly: local, agent: .claude)
-        guard case .fix(let proposal) = look else { Issue.record("expected a proposal"); return }
-        #expect(proposal.verify == "pnpm test:unit")
+        #expect(proposal.verify == verify)
     }
 
     @Test func refusalsSaySentences() {
