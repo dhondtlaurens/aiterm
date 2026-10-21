@@ -69,7 +69,8 @@
         "reply.operator.revoke.json"
       ],
       "session.deliver": [
-        "reply.session.deliver.json"
+        "reply.session.deliver.json",
+        "reply.session.deliver.refused.json"
       ],
       "session.dismissStartup": [
         "reply.session.dismissStartup.json"

@@ -219,6 +219,9 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         replies["companion.notify"] = await app.call("companion.notify", {"title": "AiTerm", "body": "Claude Code needs your input."})
         iterm.push_refusal = "No paired companion device is registered for notifications."
         replies["companion.notify.refused"] = await app.call("companion.notify", {"title": "AiTerm", "body": "Claude Code finished."})
+        # A wake line PI cannot be sent: no prompt of its can be read off its screen. The refusal names why.
+        replies["session.deliver.refused"] = await app.call("session.deliver", {
+            "sessionId": pi, "text": "[AiTerm] updates waiting, call run_status", "ownership": 1, "wake": True, "worktree": None})
         mark = app.mark()
         await app.send("[]")
         errors[protocol.PROTOCOL] = await app.first(mark, lambda m: "error" in m and m.get("id") is None)
