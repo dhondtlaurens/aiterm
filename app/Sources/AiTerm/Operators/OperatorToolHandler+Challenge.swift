@@ -102,8 +102,8 @@ extension OperatorToolHandler {
         let kind: ChallengeKind = ["create_task", "finish_task"].contains(call.tool) ? .veto : .critique
         let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
         let prompt: String
-        if let merging, let operated = merging.operated {
-            prompt = ChallengeLaunch.mergePrompt(task: operated.key, brief: operated.brief, review: OperatorCommand.said(run.review),
+        if let merging, let operated = merging.operated, let sha = operated.acceptance?.resultSHA {
+            prompt = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, review: OperatorCommand.said(run.review),
                                                  done: OperatorCommand.said(run.done), run: status)
         } else if kind == .veto {
             // A call that would be refused anyway costs no Oracle run.
