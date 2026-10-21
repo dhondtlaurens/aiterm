@@ -154,7 +154,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var live: SessionState?
         public var branch: String, lastCommit: String?, summary: String?
         public var dependsOn: [Dependency]
-        public var acceptedSHA: String?, blockedReason: String?
+        public var acceptedSHA: String?, blockedReason: String?, mergeRefusal: String?
         public var flags: [OperatedFlag]
         public var takenOver: Bool, retriesUsed: Int
         public var agentReview: AgentReviewLine?, peopleReview: PeopleReviewLine?
@@ -167,7 +167,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                     lastCommit: String? = nil, summary: String? = nil, dependsOn: [Dependency] = [],
                     acceptedSHA: String? = nil, blockedReason: String? = nil, flags: [OperatedFlag] = [],
                     takenOver: Bool = false, retriesUsed: Int = 0, agentReview: AgentReviewLine? = nil,
-                    peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil) {
+                    peopleReview: PeopleReviewLine? = nil, branchDrift: BranchDrift? = nil, tabs: [TabLine]? = nil, mergeRefusal: String? = nil) {
             self.id = id; self.key = key; self.title = title; self.project = project; self.agent = agent; self.model = model
             self.state = state; self.end = end; self.revision = revision; self.live = live; self.branch = branch
             self.lastCommit = lastCommit; self.summary = summary; self.dependsOn = dependsOn
@@ -175,6 +175,7 @@ public struct RunStatus: Encodable, Equatable, Sendable {
             self.takenOver = takenOver; self.retriesUsed = retriesUsed
             self.agentReview = agentReview; self.peopleReview = peopleReview; self.branchDrift = branchDrift
             self.tabs = tabs
+            self.mergeRefusal = mergeRefusal
         }
     }
 
@@ -233,7 +234,9 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                 acceptedSHA: o.acceptance?.resultSHA, blockedReason: o.blockedReason,
                 flags: o.flags.sorted { $0.rawValue < $1.rawValue }, takenOver: o.takenOver, retriesUsed: o.retriesUsed,
                 agentReview: o.agentReview.map(AgentReviewLine.init), peopleReview: o.peopleReview.map(PeopleReviewLine.init),
-                branchDrift: o.branchDrift, tabs: tabLines(item, facts)))
+                branchDrift: o.branchDrift, tabs: tabLines(item, facts),
+                // As on its card: a task finished or taken over is past the refusal.
+                mergeRefusal: o.takenOver || o.isFinished ? nil : o.publication?.mergeRefusal))
             let tabPrompts = facts.tabs.filter { $0.waitingPrompt != nil }.map { "\(o.key)/\($0.key)" }
             if facts.waitingPrompt != nil || !tabPrompts.isEmpty {
                 // Only a prompt open in a terminal is listed: the task's key stands for its first worker's prompt.

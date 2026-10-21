@@ -15,6 +15,16 @@ import Foundation
         oracle: OracleSetting(isOn: true, agent: .codex, model: "gpt-6-astra", reasoning: "medium"),
         instructions: "Keep changes small.")
 
+    @Test func oldOracleRefusalsBecomeSeparateNotes() throws {
+        let reason = "The Oracle judged that the conditions to merge don’t hold yet: review missing."
+        let data = try JSONEncoder().encode(["problem": reason])
+        let publication = try JSONDecoder().decode(TaskPublication.self, from: data)
+        #expect(publication.problem == nil && publication.mergeRefusal == reason)
+        #expect(try roundTrip(publication).mergeRefusal == reason)
+        let failure = try JSONDecoder().decode(TaskPublication.self, from: Data(#"{"problem":"Pipeline failed"}"#.utf8))
+        #expect(failure.problem == "Pipeline failed" && failure.mergeRefusal == nil)
+    }
+
     /// The raw values are what `state.json` spells: renaming a case would orphan every saved
     /// broadcast, so they are pinned.
     @Test func theSavedSpellingsArePinned() {

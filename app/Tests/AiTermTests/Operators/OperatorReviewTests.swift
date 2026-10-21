@@ -362,7 +362,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         #expect(r.world.task(r.task.id)?.operated?.peopleReview?.reviewers.isEmpty == true)
     }
 
-    @Test func anAgentReviewNeedsNoSlice() async throws {
+    @Test(arguments: [OperatedState.working, .inReview]) func anAgentReviewNeedsNoSlice(_ state: OperatedState) async throws {
         let gate = ReviewGate()
         let seen = TaskFinisherTests.Recorded<String>()
         let runner = SecondOpinionRunner(locate: { "/opt/bin/\($0)" }, run: { _, arguments, _, directory, _ in
@@ -371,7 +371,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
             let json = String(decoding: try JSONEncoder().encode(["result": "Line 3 leaks the token."]), as: UTF8.self)
             return ProcessOutput(status: 0, stdout: json, stderr: "", timedOut: false)
         })
-        let r = try reviewed(.working, review: "Do an adversarial review, fix what it finds.") { $0.agentReviewer = runner }
+        let r = try reviewed(state, review: "Do an adversarial review, fix what it finds.") { $0.agentReviewer = runner }
         let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Do an adversarial review."])
         // Required, so a review that never started cannot leave the gate waiting.
         try #require(answer.value?["review"] == "started")
@@ -387,16 +387,27 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         await gate.release()
         await r.world.controller.tools.lastReview?.value
         #expect(r.world.task(r.task.id)?.operated?.agentReview?.findings == "Line 3 leaks the token.")
-        #expect(r.world.task(r.task.id)?.operated?.state == .working, "the review changes nothing of its state")
+        #expect(r.world.task(r.task.id)?.operated?.state == state, "the review changes nothing of its state")
         let read = await r.world.call(r.run.id, "read_task", ["task": "A", "what": "review"])
         #expect(read.value?["agentReview"]?["findings"] == "Line 3 leaks the token.")
         #expect(await wakes(r.world) == ["[AiTerm] Claude reviewed one task: call run_status"])
-        #expect(r.world.run(r.run.id)?.leftForYou == [] && r.host.log.isEmpty, "nobody was notified")
+        // A task in review was set up through the host; one at work has never reached it.
+        let notified = state == .working ? !r.host.log.isEmpty
+            : r.host.log.contains { $0.hasPrefix("reviewers") || $0.hasPrefix("ready") || $0.hasPrefix("reply") }
+        #expect(r.world.run(r.run.id)?.leftForYou == [] && !notified, "nobody was notified")
     }
 
-    @Test func anAgentReviewReadsAWorkingTaskOnly() async throws {
+    @Test func anInReviewAgentReviewRequiresTheAcceptedHead() async throws {
+        let r = try reviewed(.inReview)
+        r.world.workspace.mutate { $0.updateOperated(r.task.id) { $0.acceptance?.resultSHA = "old-sha" } }
+        let answer = await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."])
+        #expect(answer.message?.contains("differs from its accepted commit") == true)
+        #expect(r.world.task(r.task.id)?.operated?.agentReview == nil)
+    }
+
+    @Test func anAgentReviewRefusesAnAcceptedTask() async throws {
         let r = try reviewed(.accepted)
-        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).message?.contains("before you accept it") == true)
+        #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review."]).message?.contains("A is accepted: an agent review reads a working task") == true)
         #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Review.", "agent": "grok"]).message != nil)
     }
 
@@ -434,6 +445,20 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         let ended = await r.world.call(r.run.id, "finish_task", ["task": "A"])
         #expect(ended.value?["result"] == "waitingToMerge")
         #expect(r.host.log.contains { $0.hasPrefix("readiness") })
+    }
+
+    @Test func approvalWithoutThreadsWakesTheOperatorOnce() async throws {
+        let r = try reviewed(.inReview, slices: Slices(review: true))
+        let watcher = r.world.controller.reviewWatcher
+        watcher.poll(); await watcher.lastPoll?.value
+        #expect(await wakes(r.world).isEmpty)
+        r.host.update { $0.approvals = ["jan"] }
+        watcher.poll(); await watcher.lastPoll?.value
+        #expect(await wakes(r.world) == ["[AiTerm] review feedback on one task: call run_status"])
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.threads.isEmpty == true)
+        #expect(r.world.task(r.task.id)?.operated?.peopleReview?.approvals == ["jan"])
+        watcher.poll(); await watcher.lastPoll?.value
+        #expect(await wakes(r.world).count == 1)
     }
 
     @Test func newFeedbackWakesTheOperator() async throws {

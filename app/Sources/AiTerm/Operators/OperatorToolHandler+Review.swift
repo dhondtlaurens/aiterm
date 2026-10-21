@@ -20,8 +20,8 @@ extension OperatorToolHandler {
         let task = try self.task(call, in: run), instructions = try call.string("instructions")
         try acceptsWork(run)
         let operated = try notTakenOver(task)
-        guard operated.state == .working else {
-            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): an agent review reads a task while it works, before you accept it.")
+        guard [.working, .inReview].contains(operated.state) else {
+            throw ToolRefusal("\(operated.key) is \(operated.state.rawValue): an agent review reads a working task before you accept it, or the accepted commit while inReview.")
         }
         guard task.hasCheckout else { throw ToolRefusal("\(operated.key) hasn’t started: it has no worktree yet.") }
         let agent = try reviewer(call, for: task)
@@ -37,6 +37,9 @@ extension OperatorToolHandler {
             throw ToolRefusal("AiTerm couldn’t read \(operated.key)’s branch against \(base.isEmpty ? "its base" : base).")
         }
         try recheck(task)
+        if operated.state == .inReview, read.head != operated.acceptance?.resultSHA {
+            throw ToolRefusal("\(operated.key)’s branch differs from its accepted commit: accept the current commit before reviewing it.")
+        }
         // Another call started one while the branch was read, or this exact review is done already.
         if let review = state.task(id: task.id)?.operated?.agentReview {
             if review.isRunning, runningReviews[task.id] != nil { return Self.reviewAnswer(review, started: false) }

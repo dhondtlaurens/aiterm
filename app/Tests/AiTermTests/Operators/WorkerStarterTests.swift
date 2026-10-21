@@ -43,7 +43,7 @@ import Testing
         #expect(window.params["cwd"] as? String == started.worktreePath)
         // AiTerm's own first line, not the Operator's: where the worker is, and where alone it commits.
         let prompt = "[AiTerm] You are already in this task's worktree, on branch feat/pluto-1. Commit only here, on feat/pluto-1. "
-            + "Do not create another worktree or branch.\n\nDo PLUTO-1."
+            + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, never in a new file in the repository.\n\nDo PLUTO-1."
         let expected = try AgentCommand.build(agent: .codex, model: "m", reasoning: nil, prompt: prompt,
                                               worktreePath: started.worktreePath, git: git, operated: true)
         #expect(window.params["agentCommand"] as? String == expected)

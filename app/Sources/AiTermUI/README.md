@@ -390,7 +390,9 @@ in one `Typography.help` line ("Nothing started yet.") at
 on every card, started or not, and `Space.base` beside it every line on the title's leading edge, as on a
 task row, `Space.tight` apart: the title in `Typography.body`, two lines at most; then the quiet Jira and merge-request `Badge`s (`TaskBadges`) and, only when the broadcast
 spans several projects, the project in `Typography.mono`, never the branch; then its status line, the
-task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
+task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. An Oracle refusal adds a
+separate `HelpText`, "merge refused by the Oracle", with its reason in the tooltip; the status and column
+stay unchanged, and the next `finish_task` clears the note. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
 Its tooltip is the model the Operator chose and its one-line reason. A task with several worker tabs keeps one
 card, `Operator watching · 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.TabLine`),

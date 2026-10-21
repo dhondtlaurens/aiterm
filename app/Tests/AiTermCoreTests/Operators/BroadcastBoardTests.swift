@@ -44,6 +44,29 @@ import Testing
         board.columns.first { $0.column == column }?.cards.map(\.title) ?? []
     }
 
+    @Test func anOracleRefusalKeepsTheReviewStatusAndAddsASeparateNote() throws {
+        let run = run()
+        var task = task("Review me", run: run.id, .inReview)
+        task.operated?.publication = TaskPublication(mergeRefusal: "Jan has not approved it.")
+        let board = BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
+        let card = try #require(board.columns.first { $0.column == .review }?.cards.first)
+        #expect(card.line?.text == "in review")
+        #expect(card.mergeRefusal == "Jan has not approved it.")
+        #expect(!card.needsYou)
+    }
+
+    @Test func anOracleRefusalOfAnAcceptedMergeSaysNothingIsMerging() throws {
+        let run = run()
+        var task = task("Merge me", run: run.id, .accepted, end: .merge)
+        task.operated?.publication = TaskPublication(mergeRefusal: "Jan has not approved it.")
+        let board = BroadcastBoard.make(run: run, state: state(run, [task]), acting: .none, requests: [])
+        let card = try #require(board.columns.flatMap(\.cards).first)
+        #expect(card.line?.text == "waiting to merge · refused by the Oracle")
+        #expect(card.line?.look == .quiet)
+        #expect(card.mergeRefusal == "Jan has not approved it.")
+        #expect(!card.needsYou)
+    }
+
     @Test func theHeaderRestatesTheBrief() throws {
         let run = run()
         let tasks = [task("Checkout layout", jira: "PAY-230", run: run.id, .published, end: .merge),

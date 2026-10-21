@@ -89,6 +89,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var result: String?
         /// Its worker tabs, the first worker's first, while it has more than one; empty otherwise.
         public var tabs: [TabLine] = []
+        /// The Oracle’s reason for refusing a merge, separate from the task’s status.
+        public var mergeRefusal: String? = nil
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -272,7 +274,8 @@ public struct BroadcastBoard: Equatable, Sendable {
                     needsYou: !takenOver && line?.look == .needsYou,
                     opens: opens(task, operated, requests: requests),
                     modelTooltip: modelTooltip(task, operated), result: OperatorLine.ending(of: operated),
-                    tabs: tabs(of: task, sessions: sessions))
+                    tabs: tabs(of: task, sessions: sessions),
+                    mergeRefusal: takenOver || operated.isFinished ? nil : operated.publication?.mergeRefusal)
     }
 
     /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one.

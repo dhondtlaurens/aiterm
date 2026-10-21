@@ -82,6 +82,8 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     /// The Merge slice with the Oracle on: the accepted commit the Oracle said yes for, that the conditions written in
     /// the Review and the Done hold. A merge goes ahead only while it is the commit accepted now.
     public var conditionsHeld: String?
+    /// The Oracle refused this merge; separate from a publication failure, cleared on the next finish_task.
+    public var mergeRefusal: String?
     /// The repository the request was opened in, as its host and path (`MergeRequestPublishing.repository`). A review
     /// write or a merge goes ahead only while the project's origin still resolves to it: a request opened before
     /// AiTerm kept it is not acted on.
@@ -90,16 +92,17 @@ public struct TaskPublication: Codable, Equatable, Sendable {
     public init(pushedSHA: String? = nil, mergeRequestURL: String? = nil, mergeRequestNumber: Int? = nil,
                 targetBranch: String? = nil, waitingSince: Date? = nil, readySince: Date? = nil, merged: Bool = false,
                 mergedSHA: String? = nil, mergedHead: String? = nil, problem: String? = nil, conditionsHeld: String? = nil,
-                repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil) {
+                repository: String? = nil, leftForYou: Bool = false, waitingReason: String? = nil, mergeRefusal: String? = nil) {
         self.pushedSHA = pushedSHA; self.mergeRequestURL = mergeRequestURL; self.mergeRequestNumber = mergeRequestNumber
         self.targetBranch = targetBranch; self.waitingSince = waitingSince; self.readySince = readySince; self.merged = merged
         self.mergedSHA = mergedSHA; self.mergedHead = mergedHead; self.problem = problem; self.conditionsHeld = conditionsHeld
+        self.mergeRefusal = mergeRefusal
         self.repository = repository; self.leftForYou = leftForYou; self.waitingReason = waitingReason
     }
 
     private enum CodingKeys: String, CodingKey {
         case pushedSHA, mergeRequestURL, mergeRequestNumber, targetBranch, waitingSince, readySince, merged, mergedSHA, mergedHead, problem
-        case conditionsHeld, repository, leftForYou, waitingReason
+        case conditionsHeld, repository, leftForYou, waitingReason, mergeRefusal
     }
 
     /// Every field may be missing: a publication saved before the merge steps reads as not merged.
@@ -117,6 +120,13 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         mergedSHA = try c.decodeIfPresent(String.self, forKey: .mergedSHA)
         mergedHead = try c.decodeIfPresent(String.self, forKey: .mergedHead)
         problem = try c.decodeIfPresent(String.self, forKey: .problem)
+        mergeRefusal = try c.decodeIfPresent(String.self, forKey: .mergeRefusal)
+        // A refusal saved before it had its own field, in the words `refuseVetoed` wrote then: kept as a literal
+        // so it still matches when the writer's wording changes.
+        if mergeRefusal == nil, problem?.hasPrefix("The Oracle judged that the conditions to merge don’t hold yet:") == true {
+            mergeRefusal = problem
+            problem = nil
+        }
         conditionsHeld = try c.decodeIfPresent(String.self, forKey: .conditionsHeld)
         repository = try c.decodeIfPresent(String.self, forKey: .repository)
         leftForYou = try c.decodeIfPresent(Bool.self, forKey: .leftForYou) ?? false
@@ -136,6 +146,7 @@ public struct TaskPublication: Codable, Equatable, Sendable {
         try c.encodeIfPresent(mergedSHA, forKey: .mergedSHA)
         try c.encodeIfPresent(mergedHead, forKey: .mergedHead)
         try c.encodeIfPresent(problem, forKey: .problem)
+        try c.encodeIfPresent(mergeRefusal, forKey: .mergeRefusal)
         try c.encodeIfPresent(conditionsHeld, forKey: .conditionsHeld)
         try c.encodeIfPresent(repository, forKey: .repository)
         try c.encode(leftForYou, forKey: .leftForYou)
