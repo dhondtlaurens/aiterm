@@ -10,12 +10,7 @@ import Foundation
         RunScheduler.startable(in: s, run: F.runId)
     }
 
-    @Test func aQueuedTaskWithNoDependenciesStartsInPlanOrder() {
-        let a = F.task("A"), b = F.task("B")
-        #expect(startable(F.state(F.run(), [a, b])) == [a.id, b.id])
-    }
-
-    /// There is no cap: every ready task starts, and a claim takes all of them.
+    /// There is no cap: every ready task starts, in plan order, and a claim takes all of them.
     @Test func everyReadyTaskStarts() {
         let tasks = (1...6).map { F.task("T\($0)") }
         var s = F.state(F.run(), tasks)
