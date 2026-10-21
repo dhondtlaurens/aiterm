@@ -168,9 +168,10 @@ import Foundation
                 == OperatorCommand.briefHeadings.filter { $0 != "## Instructions" })
     }
 
-    /// Restructured, not grown: the largest brief stays near the 1,609 words it had before the restructure.
+    /// Restructured, not grown: the largest brief stays near the 1,582 words it had before the restructure, with the
+    /// Operator sheet's summary rule in it.
     @Test func theBriefStaysNearItsLength() {
-        let today = 1609
+        let today = 1582
         #expect(words(largest()) <= today + 250, "\(words(largest())) words")
     }
 

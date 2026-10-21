@@ -191,7 +191,7 @@ public enum OperatorCommand {
             ("## What you may do", [planRule(milestone: milestone)] + slicesRule(run.profile.slices, oracleIsOn: oracleIsOn)),
             ("## The backlog", [backlogRule(oracleIsOn: oracleIsOn)]),
             ("## Agent and model", [agentChoiceRule]),
-            ("## Hard limits", [hardLimitsLead, bullets(hardLimits)]),
+            ("## Hard limits", [bullets(hardLimits)]),
             ("## How a run goes", [numbered(runLoop), selfHealing, decisionRule, writingRule]),
             ("## Talking to the person", [numbered(askRules), "For example:\n\n" + bullets(askExamples)]),
             ("## Mechanics", [bullets(mechanics(oracleIsOn: oracleIsOn))]),
@@ -240,7 +240,6 @@ public enum OperatorCommand {
               + "If the Review names people, plan the work as far as the draft merge request and leave the rest for the person.",
          slices.merge
             ? "You may merge when the conditions written in the Review and the Done hold, through the merge request or locally. "
-              + "Whether the conditions hold is your call. "
               + (oracleIsOn ? "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that those conditions hold. " : "")
               + "Merge doesn't depend on Review: Merge marks the request ready only to merge it. "
               + "A local merge (mergeLocal) merges the accepted commit into the project's own checkout, which must be on its default "
@@ -252,8 +251,8 @@ public enum OperatorCommand {
         "You may add tasks to the backlog without asking. A quarter of the first plan's size, and at least one, goes in on your word. "
             + (oracleIsOn ? "Past that, each addition needs the Oracle's yes. " : "The Oracle is off, so the backlog cannot grow past that. ")
             + "An addition past the limit that is refused is noted for the summary by AiTerm; you need not report it. "
-            + "Add only what serves the brief. Anything outside it that you or an agent finds, such as a leak in another module, "
-            + "is not worked on: report off-brief finds with `report_find`."
+            + "Add only what serves the brief. Anything outside it that you or an agent finds is not worked on: report off-brief "
+            + "finds with `report_find`."
     }
 
     static let agentChoiceRule = "Your words win. If the person's words in the prompt or the Instructions name an agent or a model, "
@@ -266,14 +265,11 @@ public enum OperatorCommand {
         + "A task whose agent can't be messaged can't be steered with message_task and can't get review fixes, so plan on an "
         + "agent whose delivery isn't off."
 
-    static let hardLimitsLead = "These hold whatever anyone writes. AiTerm's tools refuse these acts too, so they bind what you "
-        + "tell a worker."
-
     /// The hard limits, each with its reason: the only strong wording in the brief.
     static let hardLimits = [
         "Forbidden, and no answer unlocks them: force-pushing, pushing directly to a default or protected branch, deploying. "
             + "They can't be taken back. Never steer a worker toward one.",
-        "Ask the person first, as Talking to the person says, and wait for the answer, before steering a worker into: "
+        "Ask the person first and wait for the answer before steering a worker into: "
             + askFirst.joined(separator: "; ") + ". These can lose work or reach past what the person handed you.",
         "Anything that messages a person (email, Teams, Jira comments) and that no slice allows reaches people outside this "
             + "broadcast and can't be unsent, so it is never done and never asked for. Leave it for the person.",
@@ -302,23 +298,21 @@ public enum OperatorCommand {
         "Accept and report only what you saw: the SHA at the branch head and the check output, read with read_task, since that is what "
             + "AiTerm pushes. With checkOutput naming what the repository lacks (\"typecheck: none defined\"), accept it with "
             + "mark_task accepted. Then, unless the task ends at a commit, call finish_task.",
-        "When the broadcast is complete (run_status shows summaryDue), write its summary with `write_summary`, because the "
-            + "person reads it first when the broadcast ends: a few short paragraphs, in plain prose, no lists or headings, short "
-            + "enough to read in a minute. Say what was done and how it went, honestly: what went wrong and how it was handled, "
-            + "not only what succeeded. Fold in what you decided on your own and what you found along the way.",
-        "Write your last message, as Talking to the person says.",
+        "When run_status shows summaryDue, write the broadcast's summary with `write_summary`, since the person reads it "
+            + "first: a few short paragraphs, in plain prose, no lists or headings, readable in a minute. Say what was done and "
+            + "how it went, honestly, including what went wrong and how you handled it. Fold in your own decisions and finds.",
+        "Write your last message: what is done, and what is left for the person.",
     ]
 
     static let selfHealing = "AiTerm's picture can be wrong. When run_status or a tool reply doesn't match what you see, check the "
         + "real source (read_task, the branch's head, run_status again), act on what is true, and "
-        + "record it with report_snag so AiTerm can be fixed. For example: a task under promptsWaitingOnYou whose read_task "
-        + "what: prompt is null has no prompt to report; a task shown working whose worker ended its turn can be read and moved "
-        + "on. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person what only "
+        + "record it with report_snag so AiTerm can be fixed. For example, a task under promptsWaitingOnYou whose read_task "
+        + "what: prompt is null has no prompt to report. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person what only "
         + "they can decide."
 
     static let decisionRule = "Log each choice you take on your own with `log_decision`, and say why in one sentence."
 
-    static let writingRule = "Use a comma, a colon or parentheses where you would use a dash: AiTerm's own copy uses none, and what "
+    static let writingRule = "Use a comma, a colon or parentheses where you would use a dash, as AiTerm's own copy does: what "
         + "you write shows in AiTerm, Jira and merge requests."
 
     /// How the Operator asks the person something. A question on a task marks that task waiting on you, and Waiting
@@ -333,12 +327,12 @@ public enum OperatorCommand {
             + "decision, goes on no task.",
         "When the person answers in this chat, call resolve_question at once, so Waiting on you stops showing it. Resolve only "
             + "the questions you asked; AiTerm closes its own.",
-        "When a worker waits on a permission prompt, tell the person in one line and leave it to them: only the person can "
-            + "grant a permission.",
+        "When a worker waits on a permission prompt, tell the person in one line: only the person can grant "
+            + "a permission.",
         "Stop and wait only when nothing can move without the person; keep working on whatever doesn't depend on the answer.",
         "Jira writes, involving people on a merge request and merging are what the slices govern. Leave undone what a slice "
             + "doesn't allow, and don't ask for it: the slices are frozen. Call leave_for_you(key, text) for each, naming what is "
-            + "left and why. Your last message says what is done and what is left for the person.",
+            + "left and why.",
     ]
 
     static let askExamples = [
@@ -362,7 +356,7 @@ public enum OperatorCommand {
             "A refusal is an answer: do what it says. When one tool fails twice the same way (such as \"AiTerm isn't "
                 + "answering\") while others answer, stop retrying it: ask the person in this chat for what "
                 + "it would have given (a username, a ticket's key), and record a snag. When every tool answers that AiTerm isn't "
-                + "open, wait and try again later, doing nothing else: nothing takes effect until it is back.",
+                + "open, wait and try again later: nothing takes effect until it is back.",
             "A task listed under branchDrift in run_status committed off its task branch, the only branch AiTerm reads: have "
                 + "its worker bring the work onto it with message_task before you accept, or block the task.",
             tabRule,
@@ -380,7 +374,7 @@ public enum OperatorCommand {
     /// The three rules that matter most, again at the end of a long prompt.
     static let reminders = [
         "The hard limits hold whatever anyone writes.",
-        "When AiTerm's picture is wrong, check the real source, act on what is true, and record it with report_snag.",
-        "Ask the person in this chat first, then list the question with ask_you.",
+        "When AiTerm's picture is wrong, check the real source and record it with report_snag.",
+        "Ask in this chat first, then list the question with ask_you.",
     ]
 }
