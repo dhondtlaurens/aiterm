@@ -70,10 +70,11 @@ import AiTermTestSupport
         #expect(prepared.command == OperatorCommand.command(words: words, firstMessage: true), "the command tested is the one prepared")
         let message = try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
 
-        let printing = OperatorCommand.command(words: [Self.printf, Self.eachArgument] + words.dropFirst(), firstMessage: true)
-        let out = try Self.run(shell, printing, in: prepared.folder)
+        let printing = OperatorCommand.command(words: ShellLine.printing + words.dropFirst(), firstMessage: true)
+        let ran = try ShellLine.run(shell, printing, in: prepared.folder)
 
-        #expect(out == Data((words.dropFirst() + [message]).map { $0 + "\0" }.joined().utf8))
+        #expect(ran.status == 0)
+        #expect(ran.out == ShellLine.printed(words.dropFirst() + [message]))
     }
 
     /// The command is typed into the person's own shell, where an alias or a function named `cat`
@@ -86,31 +87,39 @@ import AiTermTestSupport
         defer { try? FileManager.default.removeItem(at: home) }
         let message = try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
 
-        let printing = OperatorCommand.command(words: [Self.printf, Self.eachArgument], firstMessage: true)
+        let printing = OperatorCommand.command(words: ShellLine.printing, firstMessage: true)
         // Defined first, then the line parsed, as a person's rc file defines it before the command is typed.
-        let out = try Self.run(shell, definition + "\neval \"$1\"", argument: printing, in: prepared.folder)
+        let ran = try ShellLine.run(shell, definition + "\neval \"$1\"", argument: printing, in: prepared.folder)
 
-        #expect(out == Data((message + "\0").utf8))
+        #expect(ran.out == ShellLine.printed([message]))
     }
 
-    private static let printf = "/usr/bin/printf"
-    /// Each argument after it, NUL-ended: `printf`'s own `%s` and `\0`.
-    private static let eachArgument = "%s\\0"
+    /// A line past `AgentCommand.inlineLimit` would be cut by a terminal still in canonical mode, so
+    /// the command goes to `launch.sh` in the run folder and the line typed only reads it, as a task's
+    /// long first prompt goes to `.aiterm/first-prompt.md`. Run, it hands `claude` the same words.
+    @Test(arguments: ["/bin/zsh", "/bin/bash", "/bin/sh"])
+    func aCommandTooLongToTypeIsReadFromTheRunFolder(shell: String) throws {
+        let run = typedRun()
+        let paths = (1...20).map { "/Users/someone/Sites/clients/it's project \($0) with a long \"name\"" }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("operator-brief-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let prepared = try OperatorCommand.prepare(run: run, projects: paths.map { F.project(id: UUID(), path: $0) }, home: home, token: token)
+        let words = OperatorCommand.launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: prepared.folder,
+                                                projectPaths: paths)
+        let line = OperatorCommand.command(words: words, firstMessage: true)
+        #expect(line.utf8.count > AgentCommand.inlineLimit)
 
-    /// `script` run by `shell -c` in `folder`, with no rc files, `argument` as its `$1`; what it printed.
-    private static func run(_ shell: String, _ script: String, argument: String? = nil, in folder: URL) throws -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = (shell.hasSuffix("zsh") ? ["-f"] : []) + ["-c", script] + (argument.map { ["_", $0] } ?? [])
-        process.currentDirectoryURL = folder
-        process.environment = ["PATH": "/usr/bin:/bin", "HOME": folder.path, "LANG": "en_US.UTF-8"]
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0, "\(shell) exited \(process.terminationStatus)")
-        return data
+        #expect(prepared.command == "eval \"$(command cat launch.sh)\"")
+        #expect(try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.launchFile), encoding: .utf8) == line)
+        let message = try String(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.firstMessageFile), encoding: .utf8)
+        let ran = try ShellLine.run(shell, "claude() { /usr/bin/printf '%s\\0' \"$@\"; }\neval \"$1\"", argument: prepared.command,
+                                    in: prepared.folder)
+        #expect(ran.status == 0)
+        #expect(ran.out == ShellLine.printed(words.dropFirst() + [message]))
+
+        // A later launch short enough to type leaves no stale file to be read.
+        let short = try OperatorCommand.prepare(run: run, projects: [F.project()], home: home, token: token)
+        #expect(short.command.hasPrefix("claude "))
+        #expect(!FileManager.default.fileExists(atPath: prepared.folder.appendingPathComponent(OperatorCommand.launchFile).path))
     }
 }

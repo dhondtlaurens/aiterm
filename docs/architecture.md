@@ -130,7 +130,10 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   id, which no row has, so the window lock never plans it. It runs `claude` with
   `--append-system-prompt-file brief.md --tools Read,Grep,Glob`, an `--add-dir` per project, and
   `--mcp-config mcp.json --allowedTools mcp__aiterm__* --strict-mcp-config` last: it can read code and
-  call AiTerm, and nothing else (`OperatorCommand`).
+  call AiTerm, and nothing else (`OperatorCommand`). The broadcast is its prompt argument,
+  `"$(command cat first-message.md)"`; a command past the typed-line limit (many projects) goes to
+  `launch.sh` in the folder and the window types `eval "$(command cat launch.sh)"`, as a long first
+  prompt goes to `.aiterm/first-prompt.md`.
 - **Planning and starting are one step.** The Operator's `create_task` calls fill the open plan
   revision and `submit_plan` closes it: its tasks are queued at once, with nothing to approve. The
   start pass (`startReadyTasks`) claims every queued task whose dependencies are met, with no cap,
@@ -475,9 +478,10 @@ posts nothing, and a card whose file does not hold the daemon's port is outdated
 
 **A long first prompt** — When the typed command would pass 1000 bytes, or the prompt holds a
 control character, the prompt goes to `<worktree>/.aiterm/first-prompt.md` and the command becomes
-`"$(cat …)"`; `.aiterm/` is added to the repository's exclude file, best-effort. The command is
-typed before the shell's line editor may be up, and a terminal in canonical mode keeps only 1024
-bytes of input (`MAX_CANON`).
+`"$(command cat …)"`, which an alias or function of the person's own named `cat` can't change;
+`.aiterm/` is added to the repository's exclude file, best-effort. The command is typed before
+the shell's line editor may be up, and a terminal in canonical mode keeps only 1024 bytes of input
+(`MAX_CANON`).
 
 ## Recovery, removal and appearance
 
