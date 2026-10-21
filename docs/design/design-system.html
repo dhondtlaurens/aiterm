@@ -2923,10 +2923,16 @@
   row: <code>Palette.onAccent</code> words and <code>Palette.badgeSelected</code> under a needs-you badge, the amber left to the mark.
   Its menu is the broadcast row’s (Pause, End) plus Bring to Front; VoiceOver says “Operator, Checkout redesign”.</p>
 <div class="figs"><figure class="fig"><div class="scroll"><div class="mk-sidebar statecol"><div class="lab">unselected · the Operator acts</div><div class="mk-row"><span class="av"><span class="mark vm opm s18"><svg><use href="#fb-headset"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob acting"><span class="tx">answering Claude · PAY-231</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div><div class="lab">unselected · between its turns</div><div class="mk-row"><span class="av"><span class="mark vm opm s18"><svg><use href="#fb-headset"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob quiet"><span class="tx">monitoring 3 tasks</span></span></span></span><span class="slot"><span class="st idle"></span></span></div><div class="lab">selected · its window in front</div><div class="mk-row sel"><span class="av"><span class="mark vm opm s18"><svg><use href="#fb-headset"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob acting"><span class="tx">answering Claude · PAY-231</span></span></span></span><span class="slot"><svg class="st spin" width="10" height="10"><use href="#op-spin"/></svg></span></div><div class="lab">needs you · a question in its window</div><div class="mk-row"><span class="av"><span class="mark vm opm s18"><svg><use href="#fb-headset"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob you"><span class="tx">waiting on you</span></span></span></span><span class="slot"><span class="st needs"></span></span></div><div class="lab">needs you · selected</div><div class="mk-row sel"><span class="av"><span class="mark vm opm s18"><svg><use href="#fb-headset"/></svg></span></span><span class="ln"><span class="tt">Operator</span><span class="ol"><span class="ob you"><span class="tx">waiting on you</span></span></span></span><span class="slot"><span class="st needs"></span></span></div></div></div><figcaption>The Operator row: acting, between turns, selected, needs you, needs you selected</figcaption></figure></div>
-<div class="placeholder"><p class="eyebrow">Placeholder · to be filled in</p>
-<h3>Why the click fix alone may not be enough</h3>
-<p>A separate fix makes one click on the broadcast row bring the Operator’s window to front. This paragraph is kept for
-  why that alone may not be enough.</p></div>
+<h3 class="group">Why the click fix alone is not enough (part G)</h3>
+<p class="why">Clicking the broadcast row opens its board, an 820 pt sheet attached to the sidebar, so the same click can’t
+  also leave the Operator’s window in front: the sheet covers the area where that window is tiled, and it blocks the
+  sidebar until it is closed. Today the only thing that raises the Operator’s window is a leftover arrow-key peek from the
+  list’s mouse-down selection: it raises the window inside iTerm2 without bringing iTerm2 forward, and lands under the
+  board. So the click was left as it is, and the fix is this proposal: a row of its own that behaves like a task row, where
+  one click or ↩ brings its window forward with iTerm2, or reopens it in front when it is closed, through
+  <code>RowFocus.select(.operation)</code>, which already does this. The broadcast row’s click keeps opening the board. The
+  other way, 1C, makes the broadcast row’s click the Operator’s window and moves the board to ↩, a double-click or the
+  menu. Either way, one click does one thing.</p>
 
 </div>
 
