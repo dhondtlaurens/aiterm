@@ -211,8 +211,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           ("key", "to", "type")),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
           "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
-          "size need the Oracle's yes, which may answer pending: call again with its challengeId. One the Oracle refuses, "
-          "or any past that limit with the Oracle off, is refused and noted for the summary by AiTerm.",
+          "size need the Oracle's yes. One the Oracle refuses, or any past that limit with the Oracle off, is refused and "
+          "noted for the summary by AiTerm.",
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
            "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
@@ -267,7 +267,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("open_tab", "Adds a worker tab to a task that is working or in review: another agent in the task's window, on the "
           "same worktree and branch, for more work on that task. It is part of the task: one card, one branch, accepted once. "
           "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "
-          "behind the user's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
+          "behind the person's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
           "key with other arguments is refused. Returns the tab's key, agent, model, and opened or opening.",
           {"task": _TASK, "key": _KEY, "agent": _AGENT, "model": _MODEL,
            "modelReason": _text("Why this agent and model, in one line."),
@@ -305,8 +305,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, "
           "as \"Push main in <project>: merged locally.\" "
           "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the conditions written "
-          "in the Review and the Done hold; it may answer pending: call again with its challengeId. A no is recorded on "
-          "the task and refuses the merge. "
+          "in the Review and the Done hold; a no is recorded on the task and refuses the merge. "
           "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
           "done. "
@@ -319,12 +318,13 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "or cannot say whether it does, or it is the default branch. "
           "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
           {"task": _TASK}, ("task",)),
-    _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the user. "
+    _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
           "They answer in this window; close it with resolve_question. The same key returns the open question.",
           {"key": _KEY, "question": _text("The question, complete on its own."),
            "task": _text("Only when that task's worker is itself stopped on the answer: the task, by its key or its id from "
-                         "run_status. The task then waits on the user, and Waiting on you brings its worker's tab. Left out for a "
-                         "question about your own next step, such as a reviewer's username, a scope choice or a merge decision.")},
+                         "run_status. The task then shows waiting on the person, and Waiting on you opens its worker's terminal. "
+                         "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
+                         "merge decision.")},
           ("key", "question")),
     _tool("resolve_question", "Closes a question you asked with ask_you, once the person has answered, with a one-line summary "
           "of the answer. Call it at once when they answer in your chat. AiTerm's own questions (a worker's prompt, a merge on "

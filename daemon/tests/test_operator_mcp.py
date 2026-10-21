@@ -4,6 +4,7 @@ the forwarding of tool calls to the app, driven directly rather than over HTTP."
 import asyncio
 import json
 import os
+import re
 from uuid import UUID
 
 import pytest
@@ -275,8 +276,22 @@ def test_create_task_end_is_optional():
 
 
 def test_create_task_says_a_refused_addition_is_noted_for_the_summary():
-    description = next(tool for tool in TOOLS if tool["name"] == "create_task")["description"]
-    assert "pending" in description and "noted for the summary" in description and "report_find" not in description
+    create = next(tool for tool in TOOLS if tool["name"] == "create_task")
+    assert "noted for the summary" in create["description"] and "report_find" not in create["description"]
+    assert "pending" in create["inputSchema"]["properties"]["challengeId"]["description"]
+
+
+def test_the_challenge_is_told_once_in_challenge_id():
+    """The Oracle's call-again exchange lives in the challengeId property (and the Operator's brief), not in
+    each challenged tool's own description."""
+    for tool in TOOLS:
+        assert "challengeId" not in tool["description"], tool["name"]
+
+
+def test_no_tool_says_the_user():
+    """One word for one thing: the person, in every description; a username stays a username."""
+    text = json.dumps(TOOLS)
+    assert not re.search(r"\bthe user\b|\buser's\b", text, re.IGNORECASE), re.findall(r".{40}(?:\bthe user\b|\buser's\b).{20}", text, re.I)
 
 
 def test_no_tool_text_carries_an_em_dash():

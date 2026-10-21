@@ -123,7 +123,8 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **Start.** New Broadcast hands its name, Jira projects, projects, prompt, Review and Done to
   `startBroadcast`, which is refused while another broadcast has not ended. The run is saved first,
   state `planning`, its profile frozen. Then its folder, `operators/runs/<run-id>/` in the support
-  folder: `brief.md` (the system prompt: the base, the frozen slices, the Never list, the tools),
+  folder: `brief.md` (the system prompt, in the sections of `OperatorCommand.briefHeadings`: the base, the
+  frozen slices, the hard limits, how a run goes, talking to the person, the tools' mechanics),
   `mcp.json` (one HTTP server, `aiterm`, at the daemon's `/operator` route with the run's Bearer token),
   `token` (0600) and `first-message.md` (the broadcast). The token is registered with the daemon
   (`operator.register`) and the Operator's window opens in front: a task window tagged with the run's
