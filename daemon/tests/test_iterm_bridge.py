@@ -1497,3 +1497,21 @@ def test_a_prompt_drawn_with_skipped_cells_is_still_seen():
     screen = iterm_bridge.screen_string(_DRAWN_WITH_NULS)
     assert open_prompt("claude", screen) == "startup"
     assert shows_trust_prompt("claude", screen)
+
+
+async def test_closing_stops_the_librarys_reader_before_the_socket_closes():
+    # The library's reader prints a traceback when the socket closes under it, and iTerm2 is slow to
+    # answer the close: cancelled first, it stops quietly.
+    conn = _FakeConn()
+    under_the_reader = []
+
+    async def reader():
+        await conn.websocket.wait_closed()
+        under_the_reader.append("closed")
+
+    task = asyncio.ensure_future(reader())
+    conn._Connection__dispatch_forever_future = task  # the name the library mangles its own to
+    await asyncio.sleep(0)
+    await iterm_bridge._close(conn)
+    await asyncio.sleep(0)
+    assert task.cancelled() and under_the_reader == [] and conn.websocket.closed

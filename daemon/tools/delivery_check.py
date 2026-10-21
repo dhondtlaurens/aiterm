@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -54,16 +55,24 @@ AGENTS: tuple[AgentKind, ...] = ("claude", "codex")
 # Pasted into an open prompt: the keys that answer one -- Codex's y, a and p (p chose "always allow"
 # in the spike, §2.2), Claude's digits.
 HAZARD = "please wait 1 2 3 y a p"
-# Both CLIs' footer while a turn runs ("esc to interrupt"), without whitespace and case-folded.
+# The footer while a turn runs ("esc to interrupt"), without whitespace and case-folded: Codex's, and
+# Claude's until 2.1.30x, whose turn shows none. Only `idle` reads it, as a backstop: every scenario
+# waits for its own answer before the next.
 WORKING = "tointerrupt"
-# How each CLI starts: Claude asking before every command, Codex sandboxed and asking on request.
-COMMANDS: dict[AgentKind, str] = {"claude": "claude --permission-mode default", "codex": "codex -s workspace-write -a on-request"}
+# How each CLI starts: Claude asking before every command, Codex sandboxed and asking on request. Each on
+# its cheapest model, at low effort: the check reads the CLI's screens, which no model changes, and
+# its answers are a word and a sum. Codex's model is its catalogue's "fast and affordable" one
+# (~/.codex/models_cache.json) at 0.16x; a version that drops it fails at startup, on the screen.
+COMMANDS: dict[AgentKind, str] = {
+    "claude": "claude --permission-mode default --model haiku --effort low",
+    "codex": "codex -s workspace-write -a on-request -m gpt-6-luna -c model_reasoning_effort=low",
+}
 # What each scenario after the startup dialog does, as the check says it runs: each waits first for
 # the agent to be idle, up to three minutes.
 STEPS: dict[str, str] = {
     "idleSubmit": "sending one message, and waiting for its answer",
     "multiLine": "sending three lines as one message",
-    "busyQueue": "sending a message while it works on a story",
+    "busyQueue": "sending a message while it writes a story",
     "takeover": "pasting a message and holding its Enter back",
     "menuPaste": "pasting into its /model menu",
     "approvalRace": "pasting while an approval opens",
@@ -73,6 +82,8 @@ STEPS: dict[str, str] = {
 # (answer_trust): Claude's opens on "No, exit", Codex's on this.
 TRUST_OPTION: dict[AgentKind, str] = {"claude": "Yes, I trust this folder", "codex": "Yes, allow Codex to work in this folder"}
 DOWN = "\x1b[B"
+# The story busyQueue asks for ends on this: its answer, which the prompt does not spell out.
+STORY_END = "FIN 7"
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,14 +140,41 @@ def merged_policy(existing: Any, entries: Mapping[str, dict[str, Any]]) -> dict[
 
 
 def scratch_codex_home(real: Path, into: Path) -> Path:
-    """A CODEX_HOME holding only copies of the real one's login and settings, so an allow rule a
-    failing scenario writes (its `rules/`) lands here and never in ~/.codex (the spike's hazard, §2.2)."""
+    """A CODEX_HOME holding only a copy of the real one's login and its screen settings, so an allow
+    rule a failing scenario writes (its `rules/`) lands here and never in ~/.codex (the spike's
+    hazard, §2.2)."""
     home = into / "codex-home"
     home.mkdir(parents=True)
-    for name in ("auth.json", "config.toml"):
-        if (real / name).is_file():
-            shutil.copy2(real / name, home / name)
+    if (real / "auth.json").is_file():
+        shutil.copy2(real / "auth.json", home / "auth.json")
+    if (real / "config.toml").is_file():
+        (home / "config.toml").write_text(screen_settings((real / "config.toml").read_text(encoding="utf-8")),
+                                          encoding="utf-8")
     return home
+
+
+_TABLE = re.compile(r"\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?")
+
+
+def screen_settings(config: str) -> str:
+    """The `[tui]` tables of a Codex config.toml, and nothing else: what its screens already showed you,
+    so a fresh home opens on no first-run notice. Everything else stays out -- hooks, trusted under the
+    real file's path, would all ask for review again; servers would start and fill the context; a
+    reviewer would answer the approvals the check pastes into; the model is the check's own. Nothing,
+    when what is kept does not parse."""
+    kept: list[str] = []
+    keep = False
+    for line in config.splitlines():
+        if table := _TABLE.fullmatch(line):
+            keep = table.group(1) == "tui" or table.group(1).startswith("tui.")
+        if keep:
+            kept.append(line)
+    text = "\n".join(kept) + "\n" if kept else ""
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return ""
+    return text
 
 
 def allow_rules(agent: AgentKind, folder: Path) -> list[str]:
@@ -200,8 +238,19 @@ def say(line: str) -> None:
     print(f"  {line}", flush=True)
 
 
+# The screen lines a failure shows in the check's window; the policy file keeps all it read.
+SHOWN_LINES = 12
+
+
 def report(where: str, name: str, result: ScenarioResult) -> None:
-    print(f"  {where} {name}: {'pass' if result.passed else 'FAIL'} -- {result.detail}", flush=True)
+    """A pass in one line; a failure with its reason and the end of the screen it read."""
+    if result.passed:
+        print(f"  {where} {name}: pass", flush=True)
+        return
+    reason, _, screen = result.detail.partition("Last screen")
+    tail = "\n".join(line for line in screen.splitlines()[1:] if line.strip())
+    tail = "\n".join(tail.splitlines()[-SHOWN_LINES:])
+    print(f"  {where} {name}: FAIL -- {reason.strip()}" + (f"\n  End of its screen:\n{tail}" if tail else ""), flush=True)
 
 
 def front_app() -> str:
@@ -346,23 +395,26 @@ async def multi_line(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
 
 
 async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
-    story = "Write a 200-word story about a lighthouse keeper, then end with the line STORY OVER."
+    """A message typed while the agent writes a story is queued, and answered. It is typed before the
+    story's last line, an answer the prompt does not spell out, shows: what proves the agent busy in
+    every version, where a footer does not (Claude 2.1.306 dropped "esc to interrupt")."""
+    story = "Write a 200-word story about a lighthouse keeper, then end with the word FIN followed by the result of 3 plus 4."
     first = await live.deliverer(agent).deliver(sid, story, 1)
     if first.result != "delivered":
         return await live.failure(sid, agent, "first message delivered from " + expected_idle(agent),
                                   f"{first.result}: {first.reason}", refresh=True)
-    if not await live.wait_for(sid, lambda screen: WORKING in _flat(screen).lower(), 30):
-        return await live.failure(sid, agent, f"working footer 'esc to interrupt' ({WORKING!r})",
-                                  "The agent never showed it was working, so a queued message was not checked.")
+    # At once: a small model writes the story in seconds.
+    if shows(STORY_END)(await live.screen(sid)):
+        return await live.failure(sid, agent, f"the story still being written (no {STORY_END!r} yet)",
+                                  "It was done before the second message could be typed, so a queued message was not checked.")
     second = await live.deliverer(agent).deliver(sid, "When you are done, reply with only the word CHARLIE followed by 5 plus 4.", 1)
     if second.result != "delivered":
-        return await live.failure(sid, agent, f"queued delivery while working ({WORKING!r}) with "
-                                  f"input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
+        return await live.failure(sid, agent, f"queued delivery while the story was being written (no {STORY_END!r} yet), "
+                                  f"with input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
                                   f"{second.result}: {second.reason}", refresh=True)
-    answered = await live.wait_for(sid, shows("CHARLIE 9"), 240)
-    if not answered:
-        return await live.failure(sid, agent, "answer marker 'CHARLIE 9' for the queued message")
-    return ScenarioResult(True, "the message typed while it worked was queued and answered")
+    if not await live.wait_for(sid, shows(STORY_END, "CHARLIE 9"), 240):
+        return await live.failure(sid, agent, f"the story's {STORY_END!r} and the queued message's answer 'CHARLIE 9'")
+    return ScenarioResult(True, "the message typed while it wrote was queued and answered")
 
 
 async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
@@ -661,13 +713,15 @@ async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, poli
                 entries[agent] = agent_entry(version, await check_agent(live, agent, Path(scratch)), checked_at)
     finally:
         await bridge.close()
-    print(json.dumps(entries, indent=2, sort_keys=True))
     for name, entry in entries.items():
         failed = [scenario for scenario, result in entry["scenarios"].items() if not result["passed"]]
         print(f"{name}: {'FAILED ' + ', '.join(failed) if failed else 'passed'}")
     if write:
         write_policy(policy_path, merged_policy(read_json(policy_path), entries))
-        print(f"Written to {policy_path}. Settings shows it now; you can close this window.")
+        print(f"Written to {policy_path}, each failure's whole screen with it. Settings shows it now; "
+              "you can close this window.")
+    else:
+        print(json.dumps(entries, indent=2, sort_keys=True))
     return 0
 
 

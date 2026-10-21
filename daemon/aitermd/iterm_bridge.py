@@ -271,6 +271,12 @@ def _iterm_frame(frame: Frame) -> iterm2.Frame:
 
 
 async def _close(conn: iterm2.Connection) -> None:
+    # The library's own reader (`async_create` starts it, under a private name) prints a traceback
+    # when the socket closes under it, and iTerm2 is often slow to answer the close: cancelled
+    # first, it stops quietly.
+    if (reader := getattr(conn, "_Connection__dispatch_forever_future", None)) is not None:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
     with contextlib.suppress(Exception):
         if conn.websocket is not None:
             await conn.websocket.close()

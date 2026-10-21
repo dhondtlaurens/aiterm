@@ -94,6 +94,44 @@ def test_the_scratch_codex_home_gets_only_the_login_and_the_settings(tmp_path):
     assert (home / "auth.json").read_text(encoding="utf-8") == "auth.json"
 
 
+def test_the_scratch_codex_settings_keep_only_what_its_screens_have_shown_you(tmp_path):
+    # Hooks trusted by the real config's path would all ask for review again, servers would start and
+    # fill the context, and a reviewer would answer the approvals the check pastes into.
+    import tomllib
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "auth.json").write_text("{}", encoding="utf-8")
+    (real / "config.toml").write_text("""model = "gpt-6-astra"
+approvals_reviewer = "auto_review"
+
+[projects."/Users/me"]
+trust_level = "trusted"
+
+[tui]
+theme = "dark"
+screen_reader_detection_done = true
+
+[tui.model_availability_nux]
+"gpt-6.1-sol" = 1
+
+[mcp_servers.cloudflare]
+command = "npx"
+args = [
+  "-y",
+  "cloudflare",
+]
+
+[hooks.state."/Users/me/.codex/config.toml:stop:0:0"]
+trusted_hash = "abc"
+
+[[hooks.SessionStart]]
+command = "curl"
+""", encoding="utf-8")
+    home = scratch_codex_home(real, tmp_path / "scratch")
+    assert tomllib.loads((home / "config.toml").read_text(encoding="utf-8")) == {
+        "tui": {"theme": "dark", "screen_reader_detection_done": True, "model_availability_nux": {"gpt-6.1-sol": 1}}}
+
+
 def test_an_allow_rule_a_paste_wrote_is_found(tmp_path):
     assert allow_rules("codex", tmp_path) == [] and allow_rules("claude", tmp_path) == []
     (tmp_path / "codex-home" / "rules").mkdir(parents=True)
@@ -150,7 +188,7 @@ async def no_sleep(seconds):
     ("startup_paste", "Yes, I trust this folder"),
     ("idle_submit", "ALPHA 42"),
     ("multi_line", "DELTA 5"),
-    ("busy_queue", "tointerrupt"),
+    ("busy_queue", "CHARLIE 9"),
     ("permission_paste", "Do you want to proceed?"),
 ])
 async def test_failed_scenario_keeps_expected_marker_and_screen(scenario, marker, tmp_path, monkeypatch):
@@ -168,6 +206,7 @@ async def test_failed_scenario_keeps_expected_marker_and_screen(scenario, marker
 
     bridge, sid = await fake_session()
     bridge.screens[sid] = "unexpected screen text\n\n"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
     live = NeverReady(bridge)
     args = (live, "claude", sid, tmp_path) if scenario == "permission_paste" else (live, "claude", sid)
     result = await getattr(check, scenario)(*args)
@@ -356,18 +395,16 @@ async def test_background_failure_reports_front_apps_and_screen():
 
 
 @pytest.mark.parametrize("queued", ["blocked", "delivered"])
-async def test_busy_queue_failure_after_working_keeps_screen(queued):
+async def test_busy_queue_failure_after_working_keeps_screen(queued, monkeypatch):
     from types import SimpleNamespace
     from tools import delivery_check as check
 
     deliveries = iter(["delivered", queued])
-    waits = iter([True, False])
 
     class Busy(check.Live):
         async def wait_for(self, sid, seen, seconds):
-            self.bridge.screens[sid] = "working screen without reply"
             await self.screen(sid)
-            return next(waits)
+            return False
 
         def deliverer(self, agent, **kwargs):
             async def deliver(*args):
@@ -375,10 +412,51 @@ async def test_busy_queue_failure_after_working_keeps_screen(queued):
             return SimpleNamespace(deliver=deliver)
 
     bridge, sid = await fake_session()
+    bridge.screens[sid] = "working screen without reply"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
     result = await check.busy_queue(Busy(bridge), "claude", sid)
     assert not result.passed
-    assert ("tointerrupt" if queued == "blocked" else "CHARLIE 9") in result.detail
+    assert ("queued delivery" if queued == "blocked" else "CHARLIE 9") in result.detail
     assert "working screen without reply" in result.detail
+
+
+async def test_busy_queue_types_the_second_message_only_while_the_story_is_unfinished(monkeypatch):
+    from types import SimpleNamespace
+    from tools import delivery_check as check
+    sent = []
+
+    class Done(check.Live):
+        def deliverer(self, agent, **kwargs):
+            async def deliver(sid, text, *args):
+                sent.append(text)
+                return SimpleNamespace(result="delivered", reason="")
+            return SimpleNamespace(deliver=deliver)
+
+    bridge, sid = await fake_session()
+    # The story typed out in full before the second message: the agent was not busy when it would go.
+    bridge.screens[sid] = "Once upon a time.\n\nFIN 7"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    result = await check.busy_queue(Done(bridge), "claude", sid)
+    assert not result.passed and "FIN 7" in result.detail
+    assert len(sent) == 1
+
+
+async def test_busy_queue_passes_once_both_answers_show(monkeypatch):
+    from types import SimpleNamespace
+    from tools import delivery_check as check
+
+    class Busy(check.Live):
+        def deliverer(self, agent, **kwargs):
+            async def deliver(sid, text, *args):
+                if text.startswith("When you are done"):
+                    self.bridge.screens[sid] = "Once upon a time.\n\nFIN 7\n\nCHARLIE 9"
+                return SimpleNamespace(result="delivered", reason="")
+            return SimpleNamespace(deliver=deliver)
+
+    bridge, sid = await fake_session()
+    bridge.screens[sid] = "Once upon a"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    assert (await check.busy_queue(Busy(bridge), "claude", sid)).passed
 
 
 async def test_screen_diagnostic_caps_long_lines():
@@ -743,3 +821,22 @@ async def test_an_unanswered_trust_ends_the_agents_check_at_once(tmp_path, monke
 
 async def _ok():
     return OK
+
+
+def test_each_cli_runs_on_its_cheapest_model():
+    from tools.delivery_check import COMMANDS
+    assert "--model haiku --effort low" in COMMANDS["claude"]
+    assert "-m gpt-6-luna -c model_reasoning_effort=low" in COMMANDS["codex"]
+
+
+def test_the_window_says_a_failure_briefly_and_the_file_keeps_it_whole(capsys):
+    from tools import delivery_check as check
+    screen = "\n".join(f"line {n}" for n in range(40))
+    detail = ("Expected answer marker 'ALPHA 42'. \nopen_prompt=None, shows_input_box=True\n"
+              f"Last screen (up to 40 lines, 8000 characters):\n{screen}")
+    check.report("claude", "idleSubmit", ScenarioResult(False, detail))
+    check.report("claude", "multiLine", ScenarioResult(True, "all three lines arrived as one message"))
+    printed = capsys.readouterr().out
+    assert "Expected answer marker 'ALPHA 42'" in printed and "line 39" in printed
+    assert "line 27" not in printed, "the last twelve lines of the screen, not forty"
+    assert "claude multiLine: pass\n" in printed, "a pass in one short line"
