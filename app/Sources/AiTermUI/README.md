@@ -251,7 +251,8 @@ in a `ProviderIcon` (its `IconSource` init) where a project has its host, the na
 progress `Space.gap` after it, `2 of 6` (`paused · 2 of 6` while paused; nothing until the first plan is in
 Todo) in `Typography.monoChip` and the surface's secondary ink, then in the trailing slot where a project has
 "+" the board button, `rectangle.split.3x1` drawn as the "+" is. Its tooltip is its projects over its whole
-status line (`OperatorLine.broadcast`, as the board's band says it). A click on its label or ↩ folds it,
+status line (`OperatorLine.broadcast`, as the board's band says it, the counts `OperatorLine.Count`'s), which
+VoiceOver reads as its value. A click on its label or ↩ folds it,
 kept with the workspace (`AppState.foldedRuns`), as a project's fold is; selected it shows no window. Folded,
 it shows what needs you in it once, as an amber `StatusCountChips` count, and nothing else of what it hides;
 that chip's click opens the group and selects its first row that needs you. Its menu is Open Board, Rename…
@@ -263,10 +264,10 @@ The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first u
 `SelectableRow`, `washed` at rest in `Palette.operatorRow` (an alias of `badge`) and `Palette.badgeHovered`
 hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.washed` and `.washedHover`, so the
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
-`Operator` its title, its line its own session's alone (its act, between its turns what its tasks do, `waiting
-on you` while it asks in its window, `paused · the Operator’s window is closed`; never a task's request) and its
-`StatusMark` trailing: amber while it asks, spinning while it or its line moves, the accent dot once the debrief
-is ready, else the idle ring. No project, ticket or branch line. It has an id of its own
+`Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `waiting for
+its tasks` between its turns, `asks you in its window`, `paused`, `window closed`; never a task's request nor
+what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
+acts or works, the accent dot once the debrief is ready, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
 ↑ ↓ peek at its window; a click or ↩ brings it to front with iTerm2, or reopens it in front when it is
 closed. VoiceOver calls it "Operator, Claude Code session".
@@ -286,7 +287,9 @@ the Operator holds the task and nothing on it is yours (`TaskRowCaption.folds(un
 no caption) the badge line folds away, so the row is its title over that line, a `Size.row` like your own
 tasks'; a request, a publication left for you, a removal's progress or a caption unfolds it. The fold is the
 badge line's opacity and the row's height, 0.2 s ease-out (the toast's curve), at once under Reduce
-Motion. Its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
+Motion. Its click or ↩ raises its window with the worker tab that asks in front, else the one last in front
+(`AppController.choose(task:)`, `TaskItem.tabToBring`, `session.activate`); ↑ ↓ peek at its window as at any
+task's. Its menu leads with Take Over or Hand Back, and Stop Task… (it asks first) while the task is open; a
 task of an ended broadcast is yours, and its menu is any task's. Everything the Operator says on a
 status line is that badge: its words in `Typography.monoChip` and no mark, since where the line sits
 says whose it is, always one `Size.chip` line cut with an ellipsis, the whole in its tooltip. Quiet, and

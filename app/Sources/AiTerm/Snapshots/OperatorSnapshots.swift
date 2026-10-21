@@ -106,9 +106,9 @@ struct OperatorScene {
     /// Puts `run` and `tasks` in the workspace, the tabs of the tasks at work, and what the Operator does.
     /// A task with an open permission prompt has its agent waiting on you; an extra worker tab with a session
     /// ended its turn. `operatorTab` is the Operator's own tab, in the state its session is in; nil leaves it
-    /// unlisted. `others` are tasks of your own beside them.
+    /// unlisted. `others` are tasks of your own beside them; `turnEnded` the tasks whose first worker ended its turn.
     func show(_ run: OperatorRun?, _ tasks: [TaskItem], acting: OperatorActs = .none, operatorTab: String? = nil,
-              others: [TaskItem] = [], folded: Bool = false) {
+              others: [TaskItem] = [], folded: Bool = false, turnEnded: Set<UUID> = []) {
         controller.rows.actingSource = { acting }
         controller.workspace.mutate { state in
             state.runs = run.map { [$0] } ?? []; state.tasks = others + tasks
@@ -118,7 +118,8 @@ struct OperatorScene {
         let workers = tasks.flatMap { task -> [SessionInfo] in
             guard let operated = task.operated, operated.state == .working else { return [] }
             let main = Fixture.session("s-\(task.id.uuidString.prefix(6))", task.windowId ?? "", task.id, task.agent.rawValue,
-                                       prompted.contains(task.id) ? "needsInput" : "working", 0, cwd: task.worktreePath, active: true)
+                                       prompted.contains(task.id) ? "needsInput" : turnEnded.contains(task.id) ? "idle" : "working", 0,
+                                       cwd: task.worktreePath, active: true)
             let extra = operated.extraTabs.enumerated().compactMap { index, tab in
                 tab.sessionId.flatMap { Fixture.session($0, task.windowId ?? "", task.id, tab.agent.rawValue, "idle", index + 1,
                                                         cwd: task.worktreePath, tabKey: tab.key) }
@@ -328,7 +329,7 @@ enum OperatorSnapshots {
     private static func broadcastRowStates() -> some View {
         func watching(_ scene: OperatorScene) -> [TaskItem] { scene.checkout([scene.shipping: .working]) }
         let planning = OperatorScene()
-        planning.show(planning.run(.planning, planned: nil), [])
+        planning.show(planning.run(.planning, planned: nil), [], operatorTab: "working")
 
         let oracle = OperatorScene()
         let planned = oracle.checkout([oracle.layout: .queued, oracle.provider: .queued, oracle.drawer: .queued,
@@ -337,7 +338,7 @@ enum OperatorSnapshots {
                     acting: OperatorActs(runs: [oracle.runId: .init(act: .consultingTheOracle)]))
 
         let watched = OperatorScene()
-        watched.show(watched.run(.active), watching(watched))
+        watched.show(watched.run(.active), watching(watched), operatorTab: "idle")
 
         let asked = OperatorScene()
         asked.show(asked.run(.active, questions: [asked.question("retry policy?")]), watching(asked))
@@ -388,13 +389,20 @@ enum OperatorSnapshots {
     /// The broadcast running over webshop: a driven task in every state, Payment provider switch selected.
     private static func drivenTaskRows() -> some View {
         let scene = OperatorScene()
-        let more = (coupon: UUID(), tax: UUID(), icon: UUID(), wrap: UUID(), express: UUID(), tidy: UUID())
+        let more = (coupon: UUID(), tax: UUID(), icon: UUID(), wrap: UUID(), express: UUID(), tidy: UUID(), basket: UUID())
+        let opened = LaunchAttempt(number: 1, requestedAt: Snapshots.clock.now, openedAt: Snapshots.clock.now)
         let checkout = scene.checkout([scene.summary: .working, scene.price: .accepted], oneProject: true).map { task -> TaskItem in
             var task = task
             if task.id == scene.price { task.operated?.publication = nil }
+            // Two worker tabs open: `monitoring 2 tabs`.
+            if task.id == scene.summary {
+                task.operated?.extraTabs = [ExtraTab(key: "docs", agent: .codex, model: "gpt-5.5", reasoning: nil, modelReason: "Codex writes the copy.",
+                                                     brief: "Write the summary's copy.", launch: opened, sessionId: "s-docs")]
+            }
             return task
         }
         let tasks = checkout + [
+            scene.task(more.basket, "Save the basket", .working),
             scene.task(more.express, "Express checkout", .queued),
             scene.task(more.coupon, "Coupon field", .blocked, reason: "the tests fail on main"),
             scene.task(more.tax, "Tax rounding", .failed, reason: "npm ci failed"),
@@ -402,7 +410,8 @@ enum OperatorSnapshots {
             scene.task(more.wrap, "Gift wrap option", .published, end: .draftMR, sha: "c2d4e6f", mr: 422),
             scene.task(more.tidy, "Tidy the footer", .working, takenOver: true),
         ]
-        scene.show(scene.run(.active, questions: [scene.npmInstall]), tasks, acting: scene.answeringTheDrawer, others: [scene.footerTask()])
+        scene.show(scene.run(.active, questions: [scene.npmInstall]), tasks, acting: scene.answeringTheDrawer, operatorTab: "working",
+                   others: [scene.footerTask()], turnEnded: [more.basket])
         scene.controller.focus.browse(.task(scene.provider))
         return sidebar(scene)
     }
