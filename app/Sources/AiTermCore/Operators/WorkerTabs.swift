@@ -55,6 +55,14 @@ public extension TaskItem {
         return tabs.first { $0.key == key }
     }
 
+    /// Whether its result waits for the Operator to accept it, its workers as `sessions` list them: working, and
+    /// every worker ended its turn (`RunStatus.isReadyForAcceptance`).
+    func isReadyForAcceptance(in sessions: [SessionInfo]) -> Bool {
+        guard let operated else { return false }
+        let workers = workerTabs(in: sessions).map(\.status)
+        return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()))
+    }
+
     /// Its worker tabs: its first worker, then each extra tab in the order asked for, all but one the daemon refused.
     /// An extra tab is the tab tagged with the task and its key, whatever runs in it.
     func workerTabs(in sessions: [SessionInfo]) -> [WorkerTab] {

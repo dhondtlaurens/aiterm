@@ -282,13 +282,14 @@ on it is over, and the row's trailing mark is a `checkmark` at the mark's size i
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
 and for the accent dot of an unseen turn; a session at work or waiting on input keeps its own mark, and a
 removal or shelving spins. No other state has a mark of its own. Acting: `working` (the task's agent works), the
-broadcast's `working · 3 tasks`, and the acts: `loading the construct`, `consulting the Oracle`,
+broadcast's `working · 3 tasks` (`working · 2 tasks · 1 ready to accept` while some wait to be accepted, their
+workers done; the words are `OperatorLine.Count`'s), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
 `assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
 a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
 task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-and on the broadcast's line `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
+and on the broadcast's line `ready to accept · 2 tasks` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
 and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
 window shows it whole), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
