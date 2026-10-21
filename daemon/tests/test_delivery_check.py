@@ -104,15 +104,17 @@ def test_an_allow_rule_a_paste_wrote_is_found(tmp_path):
     assert allow_rules("claude", tmp_path) == [str(tmp_path / "work" / ".claude" / "settings.local.json")]
 
 
+@pytest.mark.parametrize("agent", ["claude", "codex"])
 @pytest.mark.parametrize("missing", ["menuPaste", "updatePaste", "approvalRace"])
 @pytest.mark.parametrize("failed", [False, True])
-def test_required_prompt_checks_must_run_and_pass(tmp_path, missing, failed):
+def test_required_prompt_checks_must_run_and_pass(tmp_path, agent, missing, failed):
     results = every(PASTE_SAFE + SUBMIT_SAFE + ("menuPaste", "updatePaste", "approvalRace"), OK)
     results.pop(missing)
     if failed:
         results[missing] = FAILED
     entry = agent_entry("2.1.301", results, NOW)
-    assert read_back(tmp_path, {"claude": entry})["claude"].policy == "off"
+    assert not entry["pasteSafe"]
+    assert read_back(tmp_path, {agent: entry})[agent].policy == "off"
 
 
 @pytest.mark.parametrize("value", ["claude-code", "claude codex", "", " ", "claude,", "claude,grok"])
@@ -455,13 +457,37 @@ def write_allow_rule(agent, folder):
     path.write_text("allow")
 
 
-@pytest.mark.parametrize("failure", [None, "missing", "no_marker", "closed", "rules", "dismiss"])
+async def test_update_paste_without_markers_is_not_applicable(tmp_path, monkeypatch):
+    from aitermd.models import HARNESS_BY_AGENT
+    from tests.fake_iterm import FakeIterm
+    from tools import delivery_check as check
+
+    assert not HARNESS_BY_AGENT["claude"].update_prompt
+    bridge = FakeIterm()
+    live = check.Live(bridge)
+    monkeypatch.setattr(live, "wait_for", lambda *args: pytest.fail("must not wait"))
+    monkeypatch.setattr(check.asyncio, "sleep", lambda *args: pytest.fail("must not sleep"))
+    result = await check.update_paste(live, "claude", "unused", tmp_path)
+    assert result == ScenarioResult(
+        True, "not applicable: this CLI has no update dialog marker (update_prompt is empty), "
+        "so there is no update dialog to paste into")
+    assert not bridge.screen_reads and not bridge.sent
+    assert not bridge.windows and not bridge.sessions
+    results = every(PASTE_SAFE + SUBMIT_SAFE, OK) | {"updatePaste": result}
+    entry = agent_entry("2.1.301", results, NOW)
+    assert entry["pasteSafe"]
+    assert read_back(tmp_path, {"claude": entry})["claude"].policy == "auto"
+    results.pop("updatePaste")
+    assert not agent_entry("2.1.301", results, NOW)["pasteSafe"]
+
+
+@pytest.mark.parametrize("failure", [None, "missing", "closed", "rules", "dismiss"])
 async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeypatch):
     from dataclasses import replace
     from aitermd.delivery import ESC, PASTE_START, PASTE_END
     from tools import delivery_check as check
 
-    agent = "claude" if failure == "no_marker" else "codex"
+    agent = "codex"
     offer = "Update now\nSkip until next version"
     bridge, sid = await fake_session()
     bridge.sessions[sid] = replace(bridge.sessions[sid], command_line=agent)
@@ -490,15 +516,13 @@ async def test_update_paste_checks_offer_and_declines(failure, tmp_path, monkeyp
     result = await check.update_paste(Update(bridge), agent, sid, tmp_path)
     assert result.passed == (failure is None)
     sent = [text for _, text in bridge.sent]
-    assert (PASTE_START + check.HAZARD + PASTE_END in sent) == (failure not in ("missing", "no_marker"))
+    assert (PASTE_START + check.HAZARD + PASTE_END in sent) == (failure != "missing")
     if failure is None:
         assert sent[-1] == ESC
     if failure:
         assert "Expected" in result.detail and "Last screen" in result.detail
     if failure == "missing":
         assert "no update dialog showed" in result.detail
-    if failure == "no_marker":
-        assert "this CLI has no update dialog marker" in result.detail
 
 
 @pytest.mark.parametrize("agent", ["claude", "codex"])
