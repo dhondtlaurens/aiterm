@@ -32,6 +32,9 @@ cp "$ROOT/LICENSE" "$OUT/Contents/Resources/LICENSE"
 # AITERM_RELEASE=1.
 [[ "${AITERM_RELEASE:-0}" == 1 ]] || /usr/libexec/PlistBuddy -c "Add :AiTermDevBuild bool true" "$OUT/Contents/Info.plist"
 "$PY" -m pip install --quiet --no-compile --target "$OUT/Contents/Resources/daemon" "$ROOT/daemon"
+# The delivery check, beside the package it drives: Settings › Agents' Run check runs it from here,
+# with the helper's own Python (`DeliveryCheck.command`).
+cp -R "$ROOT/daemon/tools" "$OUT/Contents/Resources/daemon/tools"
 find "$OUT/Contents/Resources/daemon" -name '__pycache__' -type d -prune -exec rm -rf {} +
 cp "$ROOT/hooks/claude-statusline-shim.sh" "$OUT/Contents/Resources/hooks/"
 cp "$ROOT/hooks/pi-aiterm-status.ts" "$OUT/Contents/Resources/hooks/"

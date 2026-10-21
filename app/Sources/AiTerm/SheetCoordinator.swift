@@ -130,15 +130,16 @@ final class SheetCoordinator {
     /// Not through `present`, which replaces whatever is up: Settings is the one sheet the app menu
     /// (⌘,) reaches while another is up, so it refuses rather than take that sheet's place, and it
     /// is put in the slot only once its connections are read — if the slot is still empty then.
-    /// `tab` is the tab it opens on; nil is the one it opened on last.
-    func presentSettings(tab: SettingsTab? = nil) {
+    /// `tab` is the tab it opens on; nil is the one it opened on last. `agent` opens Agents, scrolled to
+    /// that agent's card.
+    func presentSettings(tab: SettingsTab? = nil, agent: AgentKind? = nil) {
         guard canPresentSettings else { return }
         preparingSheet?.cancel()
         let jira = jiraSettings, gitLab = gitLabSettings, gitHub = gitHubSettings
         preparingSheet = Task {
             let saved = await BackgroundWork.run { (jira: jira(), gitLab: gitLab(), gitHub: gitHub()) }
             guard !Task.isCancelled, canPresentSettings else { return }
-            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: tab)
+            sheet = .settings(jira: saved.jira, gitLab: saved.gitLab, gitHub: saved.gitHub, tab: agent == nil ? tab : .agents, agent: agent)
         }
     }
 

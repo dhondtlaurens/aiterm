@@ -63,6 +63,9 @@ final class AppController {
     let reviewThreads: ReviewThreadsWatcher
     /// The agent CLIs on this machine and AiTerm's hooks into them; probed at `start()`.
     let agents: AgentIntegrations
+    /// Whether AiTerm may type into Claude Code and Codex, as the delivery check last wrote it: their
+    /// cards' Messaging in Settings › Agents, and part of what New Broadcast waits for.
+    let messaging: MessagingChecks
     /// Every modal question the app asks goes through here, so tests answer them from a script.
     let prompter: Prompter
     /// Backpack Mode: its state, setup and battery reading. The footer's Mac rows, its sheet, Settings ›
@@ -198,6 +201,16 @@ final class AppController {
         }
         // A broadcast freezes Settings › Operator's profile as these preferences keep it.
         if operatorPorts.profile == nil { operatorPorts.profile = agents.operatorProfile }
+        // The delivery check's file beside the helper's others, read against the versions the Operator is told of;
+        // Run check's window opens through the helper, tiled as a task's, and its closing reads the file again.
+        let messaging = MessagingChecks(policyURL: AiTermPaths.deliveryPolicyURL(home: harnessHome),
+                                        versions: operatorPorts.installedVersions ?? { _ in [:] })
+        messaging.opener = MessagingChecks.Opener(daemon: daemon, runtime: { helper.runtime }, frame: { tiling.taskFrame() },
+                                                  activateIterm: activateIterm)
+        helper.onEvent { [weak messaging] event in
+            if case .windowClosed(let window) = event { messaging?.windowClosed(window) }
+        }
+        self.messaging = messaging
         // After the window lock, which hands the live sessions each event first: the operators read
         // the operator's tab from them.
         let operatorController = OperatorController(workspace: workspace, live: live, notices: notices, daemon: daemon,
@@ -446,7 +459,8 @@ final class AppController {
     // -- sheets ---------------------------------------------------------------------
     /// `sheets`', forwarded: the menus, the rows and the tests open a sheet here.
     var canPresentSettings: Bool { sheets.canPresentSettings }
-    func presentSettings(tab: SettingsTab? = nil) { sheets.presentSettings(tab: tab) }
+    /// `agent` opens Agents at that agent's card: the sidebar's "Fix in Settings" for one that can't be messaged.
+    func presentSettings(tab: SettingsTab? = nil, agent: AgentKind? = nil) { sheets.presentSettings(tab: tab, agent: agent) }
     var canPresentArchive: Bool { sheets.canPresentArchive }
 
     /// The Archive sheet, reading the archive as it is whenever it draws.

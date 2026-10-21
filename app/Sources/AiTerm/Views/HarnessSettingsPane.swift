@@ -5,11 +5,29 @@ import AiTermUI
 enum HarnessCardPresentation {
     static let agents = AgentKind.allCases
 
-    /// The CLI and the driver. Models stay out: the picker below carries an empty catalogue, and the
-    /// opening test's daemon and delivery checks reach the user through the status sentence.
+    /// The CLI, the driver and, on Claude Code's and Codex's cards, Messaging. Models stay out: the
+    /// picker below carries an empty catalogue, and the opening test's daemon and delivery checks
+    /// reach the user through the status sentence.
     static func chips(for snapshot: HarnessSnapshot) -> [HarnessCheck] {
-        snapshot.checks.filter { $0.id == .cli || $0.id == .integration }
+        snapshot.checks.filter { [.cli, .integration, .messaging].contains($0.id) }
     }
+
+    /// The card as it is drawn: the probe's snapshot with Messaging added (`MessagingChecks`), one more
+    /// check that Install cannot fix, after the others so a missing CLI or driver is said first. Its
+    /// sentence is the chip's tooltip while it passes and the status line while it is what needs
+    /// attention. `runFailure` is why the last Run check could not open its window. Left as it is over
+    /// a missing CLI, for an agent the check does not cover, and until the file is read.
+    static func snapshot(_ snapshot: HarnessSnapshot, messaging: DeliveryReadiness?, runFailure: String? = nil) -> HarnessSnapshot {
+        guard snapshot.health != .unavailable, let messaging else { return snapshot }
+        var checks = snapshot.checks.filter { $0.id != .messaging }
+        if let runFailure { checks.insert(HarnessCheck(.operation, passed: false, explanation: runFailure, repairable: false), at: 0) }
+        checks.append(HarnessCheck(.messaging, passed: messaging.isReady, explanation: messaging.sentence, repairable: false))
+        return .reduce(agent: snapshot.agent, cliAvailable: true, integrationState: snapshot.integrationState,
+                       models: snapshot.models, modelsAreStale: snapshot.modelsAreStale, checks: checks)
+    }
+
+    /// The card's action while Messaging is what needs attention: the delivery check, in an iTerm2 window.
+    static let runCheck = "Run check"
 
     static func status(for snapshot: HarnessSnapshot) -> SettingsStatus {
         // A passing test confirms the probe, so the label holds at "Ready" through the spinner and
@@ -27,9 +45,12 @@ enum HarnessCardPresentation {
     /// The card's one action, named for what it will do here; every label runs the same install.
     /// Install while the CLI or the driver is missing, Repair while a check is amber, Reinstall
     /// over a card that is Ready. No action while the only amber check is one Install cannot fix:
-    /// the button would run, write nothing and leave the card as it was.
+    /// the button would run, write nothing and leave the card as it was; Run check instead, when
+    /// Messaging is among them.
     static func action(for snapshot: HarnessSnapshot) -> String? {
-        if snapshot.installChangesNothing { return nil }
+        if snapshot.installChangesNothing {
+            return snapshot.checks.contains { $0.id == .messaging && !$0.passed } ? runCheck : nil
+        }
         if snapshot.health == .unavailable || snapshot.integrationState == .missing { return "Install" }
         return snapshot.health == .ready ? "Reinstall" : "Repair"
     }
@@ -46,6 +67,12 @@ struct HarnessSettingsPane: View {
     let model: HarnessSettingsModel
     /// Help with problems' switch, and which agents are installed.
     let agents: AgentIntegrations
+    /// Each card's Messaging, and its Run check.
+    var messaging = MessagingChecks.inert()
+    /// The card Settings was opened at (`AppController.presentSettings(tab:agent:)`), scrolled to once
+    /// its probe has drawn it, through the sheet's scroll view.
+    var focus: AgentKind?
+    var scroll: ScrollViewProxy?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.block) {
@@ -53,11 +80,16 @@ struct HarnessSettingsPane: View {
                                installed: agents.availableAgents)
             ForEach(HarnessCardPresentation.agents, id: \.self) { agent in
                 if let snapshot = model.snapshots[agent] {
-                    card(snapshot)
+                    card(HarnessCardPresentation.snapshot(snapshot, messaging: messaging.readiness(of: agent),
+                                                          runFailure: messaging.failures[agent]))
+                        .id(agent)
                         .accessibilityIdentifier("harness-card-\(agent.rawValue)")
                 }
             }
-            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver. The install and Help with problems both take effect immediately; Cancel does not undo them.")
+            HelpText("Settings tests each agent when it opens. Install adds a missing CLI with its vendor’s own installer, then AiTerm’s driver; Run check opens iTerm2 to check that AiTerm can message the agent. The install and Help with problems both take effect immediately; Cancel does not undo them.")
+        }
+        .onChange(of: focus.map { model.snapshots[$0] != nil } ?? false, initial: true) { _, drawn in
+            if drawn, let focus { scroll?.scrollTo(focus, anchor: .top) }
         }
     }
 
@@ -83,13 +115,17 @@ struct HarnessSettingsPane: View {
 
     @ViewBuilder
     private func actions(_ snapshot: HarnessSnapshot) -> some View {
-        if model.running.contains(snapshot.agent) {
+        if model.running.contains(snapshot.agent) || messaging.opening.contains(snapshot.agent) {
             ProgressView().controlSize(.small)
         }
         // On every card but one whose only warning Install cannot fix, so a working driver can be
         // overwritten on purpose and a missing CLI installed. Disabled only where the file is not
-        // AiTerm's to replace.
-        if let action = HarnessCardPresentation.action(for: snapshot) {
+        // AiTerm's to replace. Run check while Messaging is what needs attention.
+        if let action = HarnessCardPresentation.action(for: snapshot), action == HarnessCardPresentation.runCheck {
+            Button(action) { Task { await messaging.run(snapshot.agent) } }
+                .disabled(messaging.opening.contains(snapshot.agent))
+                .help("Opens iTerm2 and runs AiTerm’s delivery check for \(snapshot.agent.displayName). Answer its questions there.")
+        } else if let action = HarnessCardPresentation.action(for: snapshot) {
             Button(action) { Task { await model.install(snapshot.agent) } }
                 .disabled(model.running.contains(snapshot.agent) || !snapshot.canInstall)
                 .help(snapshot.health == .unavailable
