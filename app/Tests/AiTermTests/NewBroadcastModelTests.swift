@@ -156,7 +156,7 @@ struct NewBroadcastModelTests {
         let off = model(slices: .none), on = model(slices: Slices(jira: false, review: true, merge: true))
         #expect(on.reviewHelp == "Who reviews each task and how. Optional. An agent review (“an adversarial review with /code-review”) needs no switch; involving people needs Review, which is on in Settings › Operator.")
         #expect(off.reviewHelp == "Who reviews each task and how. Optional. An agent review needs no switch. Review is off in Settings › Operator, so the Operator won’t involve people: those tasks stop at their draft MR.")
-        #expect(on.doneHelp == "Where each task ends: a commit, a draft MR, or merged and when. Optional: left empty, each task ends at a draft MR.")
+        #expect(on.doneHelp == "Where each task ends: a commit, a draft MR, or merged and when. Write a condition per MR: “each MR merges once approved with all threads resolved; the run is done when every MR is merged”. Before a merge, the Oracle checks what the Review asks of an agent review against the review of the accepted commit. Optional: left empty, each task ends at a draft MR.")
         #expect(off.doneHelp == "Where each task ends. Optional: left empty, each task ends at a draft MR. Merge is off in Settings › Operator: each task ends at a commit or a draft MR, and a merge you ask for is left for you.")
         let reviewOnly = model(slices: Slices(review: true))
         #expect(reviewOnly.reviewHelp == on.reviewHelp && reviewOnly.doneHelp == off.doneHelp, "each help reads its own slice")

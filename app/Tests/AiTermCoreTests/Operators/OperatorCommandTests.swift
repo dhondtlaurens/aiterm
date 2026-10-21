@@ -32,6 +32,7 @@ import Foundation
                                                 projectPaths: [], resuming: "conv-1")
         #expect(Array(words.prefix(5)) == ["claude", "--resume", "conv-1", "--model", "opus"])
         #expect(words.contains("--strict-mcp-config") && words.contains("Read,Grep,Glob"))
+        #expect(words.joined(separator: " ").contains("--system-prompt-snapshot off --append-system-prompt-file /r/brief.md"))
     }
 
     /// Part B's contract: server `aiterm`, type `http`, the `/operator` route on the hook port, the
@@ -245,6 +246,9 @@ import Foundation
             #expect(brief.contains(phrase), "\(phrase)")
         }
         #expect(brief.split(separator: "\n").contains { $0.contains("inReview") && $0.contains("on every turn") })
+        #expect(!brief.contains("because an approval can arrive with no [AiTerm] line"))
+        #expect(brief.contains("While inReview, review_task can review the accepted SHA"))
+        #expect(!brief.contains("it is refused once the task is in review"))
     }
 
     @Test func theBriefStatesEachSlice() {
@@ -337,7 +341,7 @@ import Foundation
         let may = section("## What you may do", of: brief)
         #expect(may.contains("Each task ends in a commit, a draft MR, a merge or a local merge, as the Done"))
         #expect(may.contains("This version of AiTerm carries out: commit, draft MR, merge, local merge."))
-        #expect(may.contains("AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge"))
+        #expect(may.contains("For draft MR and merge ends, AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge"))
         #expect(may.contains("A local merge (mergeLocal) merges the accepted commit into the project's own checkout"))
         #expect(brief.components(separatedBy: "Each task ends in").count == 2, "said once")
         #expect(brief.components(separatedBy: "A local merge").count == 2, "said once")

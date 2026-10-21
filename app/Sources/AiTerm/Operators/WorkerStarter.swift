@@ -330,9 +330,11 @@ final class WorkerStarter {
 
     /// The fixed line every worker's first prompt starts with, from AiTerm and never the Operator: AiTerm reads
     /// the task branch alone, so work committed anywhere else goes unseen (`BranchWatch` flags it).
+    /// Inventories stay in the conversation: repository files can expose personal paths and addresses.
     static func worktreeLine(branch: String) -> String {
         "[AiTerm] You are already in this task's worktree, on branch \(branch). Commit only here, on \(branch). "
-            + "Do not create another worktree or branch."
+            + "Do not create another worktree or branch. Inventories, audits and lists go in your final message, "
+            + "never in a new file in the repository."
     }
 
     /// Whether the task has a code parent and no accepted commit of its parent's to start from.

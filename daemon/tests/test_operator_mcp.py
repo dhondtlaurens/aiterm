@@ -438,6 +438,30 @@ async def test_a_call_without_arguments_forwards_an_empty_object():
     assert json.loads((await calling)[1])["result"]["structuredContent"] == {}
 
 
+@pytest.mark.parametrize("tool,arguments,items", [
+    ("find_user", {"task": "api", "query": "sam"}, [{"username": "sam", "name": None}]),
+    ("jira_search", {"jql": "project = API"}, [{"key": "API-1", "summary": "Fix API"}]),
+    ("find_user", {"task": "api", "query": "nobody"}, []),
+    ("jira_search", {"jql": "project = EMPTY"}, []),
+])
+async def test_list_replies_reach_the_operator_as_structured_items(tool, arguments, items):
+    app = App()
+    route = route_for(app)
+    calling = asyncio.create_task(route.serve("POST", AUTH, call(tool, arguments)))
+    try:
+        await answer_with(app, route, result=items)
+        status, text = await calling
+        result = json.loads(text)["result"]
+        assert status == 200 and result["isError"] is False
+        assert result["structuredContent"] == {"items": items}
+        assert json.loads(result["content"][0]["text"]) == {"items": items}
+    finally:
+        if not calling.done():
+            calling.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await calling
+
+
 async def test_the_token_names_the_run_whatever_the_arguments_say():
     app = App()
     route = route_for(app)
@@ -505,7 +529,7 @@ async def test_a_call_to_no_such_tool_is_a_json_rpc_error(params):
     ("register", {"runId": "run-3"}),
     ("revoke", {}),
     ("reply", {"result": {}}),
-    ("reply", {"requestId": "op-1", "result": [1]}),
+    ("reply", {"requestId": "op-1", "result": "not an object or array"}),
     ("reply", {"requestId": "op-1", "error": 404}),
 ])
 async def test_the_rpc_handlers_refuse_malformed_params(handler, params):

@@ -238,8 +238,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
            "tab": _text("For lastMessage and prompt, the key of the tab to read, as run_status lists it. Left out, or main, "
                         "the first worker.")},
           ("task", "what")),
-    _tool("review_task", "Starts an agent review of a working task's branch, before you accept it: another agent reads its "
-          "commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
+    _tool("review_task", "Starts an agent review of a working task's branch, or its accepted commit while inReview: another agent "
+          "reads its commits, diff and worktree headless and read-only, as instructions asks, a skill they name passed to it as text. "
           "Nobody is notified, so it needs no slice. It answers started at once; AiTerm wakes you when the findings are in, "
           "and read_task with what: review reads them. Have the task's agent fix them with message_task. A review running "
           "already, or the same review of the same commit, is not started again.",
@@ -483,7 +483,13 @@ class OperatorRoute:
         """operator.reply: the app's answer to an operator.request, its result or the error the
         operator is told. One nobody waits for any more -- timed out, or answered already -- is dropped."""
         request_id = param(p, "requestId", str)
-        result, error = optional_param(p, "result", dict), optional_param(p, "error", str)
+        result, error = p.get("result"), optional_param(p, "error", str)
+        if isinstance(result, list):
+            # List tools (jira_search, find_user) answer arrays. MCP's structuredContent
+            # needs an object, so normalize every list reply at this shared boundary.
+            result = {"items": result}
+        elif result is not None and not isinstance(result, dict):
+            raise RpcError(protocol.BAD_PARAMS, "result must be an object or array")
         answer = self._pending.get(request_id)
         if answer is None or answer.done():
             log.info("dropped the app's reply to %s: nothing waits for it", request_id)

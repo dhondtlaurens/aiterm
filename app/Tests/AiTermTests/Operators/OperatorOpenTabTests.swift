@@ -92,6 +92,7 @@ import Testing
         #expect(await world.call(run.id, "open_tab", Self.arguments(agent: "claude", model: "claude-named")).value?["state"] == "opened")
         let command = try #require(world.daemon.requests("tab.create").first?.params["agentCommand"] as? String)
         let prompt = TabOpener.prompt(branch: task.branch, brief: "Write the tests.")
+        #expect(prompt.contains("Inventories, audits and lists go in your final message, never in a new file in the repository."))
         #expect(prompt.hasPrefix(WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + TabOpener.sharedLine + "\n\n"))
         #expect(command.hasPrefix("claude --model claude-named ") && command.hasSuffix(AgentCommand.shellQuote(prompt)))
         #expect(command.contains("--permission-mode auto"), "the Operator's worker flags")

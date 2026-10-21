@@ -118,7 +118,7 @@ public struct OperatorLine: Equatable, Sendable {
             }
         }
         if let acting, operated.state != .blocked { return act(acting, task: task, onItsRow: true) }
-        if operated.state == .working, let review = operated.agentReview, review.isRunning {
+        if [.working, .inReview].contains(operated.state), let review = operated.agentReview, review.isRunning {
             return act(.reviewingWith, task: task, onItsRow: true)
         }
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
@@ -156,6 +156,8 @@ public struct OperatorLine: Equatable, Sendable {
             }
             if let problem = reason(operated.publication?.problem) { return needsYou("blocked", problem, tooltip: nil) }
             if let publication = operated.publication, publication.waitingSince != nil { return quiet("waiting to merge", publication.waitingReason ?? "the host is not ready") }
+            // Nothing merges until the Operator finishes it again; the card's note holds the reason.
+            if operated.publication?.mergeRefusal != nil { return quiet("waiting to merge", "refused by the Oracle") }
             // AiTerm publishes it now: something moves, as with any act.
             return OperatorLine(operated.end == .draftMR ? "opening the MR" : "merging", look: .acting)
         case .noChange, .published:

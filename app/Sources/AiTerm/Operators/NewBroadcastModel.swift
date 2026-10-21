@@ -108,10 +108,11 @@ final class NewBroadcastModel: Identifiable {
             : "Who reviews each task and how. Optional. An agent review needs no switch. Review is off in Settings › Operator, so the Operator won’t involve people: those tasks stop at their draft MR."
     }
 
-    /// Plain text naming Settings › Operator: with Merge off a task ends at a commit or a draft MR.
+    /// Plain text naming Settings › Operator: with Merge off a task ends at a commit or a draft MR. Only with Merge
+    /// on does the Oracle weigh an agent review before merging, so only then does the help say so.
     var doneHelp: String {
         slices.merge
-            ? "Where each task ends: a commit, a draft MR, or merged and when. Optional: left empty, each task ends at a draft MR."
+            ? "Where each task ends: a commit, a draft MR, or merged and when. Write a condition per MR: “each MR merges once approved with all threads resolved; the run is done when every MR is merged”. Before a merge, the Oracle checks what the Review asks of an agent review against the review of the accepted commit. Optional: left empty, each task ends at a draft MR."
             : "Where each task ends. Optional: left empty, each task ends at a draft MR. Merge is off in Settings › Operator: each task ends at a commit or a draft MR, and a merge you ask for is left for you."
     }
 

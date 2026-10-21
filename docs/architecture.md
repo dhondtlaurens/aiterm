@@ -141,7 +141,9 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   saves the claims, then `WorkerStarter` opens each worker's window behind your work. A worker runs
   `AgentCommand.workerWords`: Claude with `--disallowedTools` for asking through a menu, pushing and
   merging, then `--permission-mode auto`; Codex with `--dangerously-bypass-approvals-and-sandbox`,
-  just like a manually created task, on both launch and resume. The agent and
+  just like a manually created task, on both launch and resume. AiTerm's own worker preamble, also
+  used by `TabOpener`, puts inventories, audits and lists in the final message, never a new repository
+  file, independently of the Operator's brief. The agent and
   model are the Operator's choice within limits (`ModelChoice`): an installed agent, a model from that
   agent's list in Settings › Agents, and the other agent once one's weekly use reaches 80 %.
 - **Running.** Everything the Operator does goes through its tools (below). `OperatorWaker` wakes an
@@ -165,11 +167,12 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **The window closed.** It ends nothing: a broadcast under way goes `operatorOffline` and reads
   `paused · the Operator’s window is closed`. A click on its row opens the board and reopens the window
   behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
-  same frozen profile. A resumed Operator keeps the brief its conversation started with, even when
-  `brief.md` has changed since: Claude Code records the system prompt on a conversation's first request
-  and reuses it on `--resume` (checked by hand on Claude Code 2.1.306, 2026-10-21); its documentation
-  says the recorded prompt holds until a compaction, which was not checked, and
-  `--system-prompt-snapshot off` would render it fresh. When that conversation is gone from Claude's
+  same frozen profile. A resume also passes `--system-prompt-snapshot off`, so Claude reads the current
+  `brief.md` instead of reusing its first request's system prompt. AiTerm rewrites that brief from the
+  run's frozen profile and the current rules before launch, so updates reach broadcasts already under
+  way without changing their settings. Without this flag, even another `--append-system-prompt-file`
+  keeps the original prompt (checked by hand on Claude Code 2.1.306, 2026-10-21).
+  When that conversation is gone from Claude's
   folder, the board keeps a `Notice` in its footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
@@ -195,7 +198,12 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 host itself; AiTerm does each write on its tool call, and checks the run's frozen `profile.slices`
 first. The tool handler refuses `jira_create`, `jira_move` and `jira_link` with the Jira slice off
 (`OperatorToolHandler+Jira`), and `request_review` and `reply_thread` with the Review slice off
-(`OperatorToolHandler+Review`); `review_task`, an agent review, needs none. A merge, through the
+(`OperatorToolHandler+Review`); `review_task`, an agent review, needs none. It can review a working
+task or one `inReview`; the latter must still have its accepted commit at HEAD. The merge Oracle receives
+the completed agent review’s instructions and findings only when its head matches that accepted SHA,
+labeled as evidence, never instructions. An Oracle refusal is saved separately as `TaskPublication.mergeRefusal`,
+shown in `run_status` and as a board-card note until the task is finished or taken over, and cleared on the
+next `finish_task`; an accepted task it holds back reads `waiting to merge · refused by the Oracle`. A merge, through the
 request or local, is refused by `PublicationGuard` with the Merge slice off, checked when `finish_task`
 starts and read again in `TaskPublisher` right before the host merges. Each refusal also appends one
 sentence to the run's `leftForYou` (`Merge !418: the Merge slice is off.`), which Summary lists under Left for you.

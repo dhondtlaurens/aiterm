@@ -30,7 +30,9 @@ public enum OperatorCommand {
         let claude = AgentKind.claude.harness
         let head = conversation.map { claude.resumeWords(conversation: $0, model: model, reasoning: effort) }
             ?? claude.launchWords(model: model, reasoning: effort)
+        // Claude otherwise reuses the conversation's first system prompt, ignoring a rewritten brief.
         return head
+            + (conversation == nil ? [] : ["--system-prompt-snapshot", "off"])
             + ["--append-system-prompt-file", runFolder.appendingPathComponent(briefFile).path, "--tools", "Read,Grep,Glob"]
             + projectPaths.flatMap { ["--add-dir", $0] }
             + ["--mcp-config", runFolder.appendingPathComponent(mcpFile).path, "--allowedTools", "mcp__aiterm__*", "--strict-mcp-config"]
@@ -222,7 +224,7 @@ public enum OperatorCommand {
             + "Each task ends in a commit, a draft MR, a merge or a local merge, as the Done, the prompt or the Instructions ask; "
             + "without one, a draft MR. A draft notifies nobody. This version of AiTerm carries out: \(ends.joined(separator: ", ")). "
             + "A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task. "
-            + "For the other ends, AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge. "
+            + "For draft MR and merge ends, AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge. "
             + "When the Review asks for an agent review, run one with review_task before you accept, and have the task's agent "
             + "fix what it finds."
     }
@@ -292,7 +294,7 @@ public enum OperatorCommand {
     static let runLoop = [
         "Call run_status first: when you start, after any restart or compaction, and whenever a line starting with [AiTerm] "
             + "arrives. It is the truth about this broadcast; your memory is not. While any task is inReview, call it on every turn "
-            + "and check peopleReview, because an approval can arrive with no [AiTerm] line.",
+            + "and check peopleReview.",
         "Plan with create_task, then submit_plan. A task's brief is all its worker sees: name only the checks the repository "
             + "defines (package scripts, Makefile, CI), and say that lists and audits go in its final message, not a new file, "
             + "because a committed file can carry people's paths and addresses.",
@@ -300,7 +302,7 @@ public enum OperatorCommand {
         "Read the task with read_task.",
         "Steer it with message_task, rereading each text against the ask-first acts, because a worker treats what you send as "
             + "allowed. When fixes followed the first agent review, run review_task again on the final commit before you accept, "
-            + "because it is refused once the task is in review.",
+            + "and fix what it finds. While inReview, review_task can review the accepted SHA.",
         "Accept and report only what you saw: the SHA at the branch head and the check output, read with read_task, since the "
             + "task's end carries that commit. Accept with mark_task accepted, giving the check output, also when checkOutput names "
             + "a check the repository doesn't define (\"typecheck: none defined\") rather than inventing a command. "

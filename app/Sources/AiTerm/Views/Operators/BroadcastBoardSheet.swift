@@ -390,6 +390,9 @@ struct BoardCardView: View, Equatable {
             } else if let line = card.line {
                 OperatorBadge(line: line)
             }
+            if let refusal = card.mergeRefusal {
+                HelpText("merge refused by the Oracle").help(refusal)
+            }
         }
     }
 

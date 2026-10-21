@@ -48,6 +48,9 @@ extension OperatorToolHandler {
 
     /// Nil: the call takes effect. Otherwise what the operator reads instead.
     func challengeGate(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue? {
+        if call.tool == "finish_task", let task = try? task(call, in: run), task.operated?.publication?.mergeRefusal != nil {
+            mutate(in: run.id) { $0.updateOperated(task.id) { $0.publication?.mergeRefusal = nil } }
+        }
         let opinion = run.profile.oracle
         // A call naming a challenge of its tool is that challenge's, whatever the call's arguments say now: the acting call
         // repeated must still replay, not act again.
@@ -103,8 +106,12 @@ extension OperatorToolHandler {
         let status = Self.json(currentStatus(of: run).flatMap { try? JSONValue(encoding: $0) } ?? .null)
         let prompt: String
         if let merging, let operated = merging.operated, let sha = operated.acceptance?.resultSHA {
+            // Only a finished review of this very commit is evidence for merging it.
+            let evidence = operated.agentReview.flatMap { review in
+                review.head == sha && review.findings != nil ? (try? JSONValue(encoding: review)).map(Self.json) : nil
+            }
             prompt = ChallengeLaunch.mergePrompt(task: operated.key, acceptedSHA: sha, brief: operated.brief, review: OperatorCommand.said(run.review),
-                                                 done: OperatorCommand.said(run.done), run: status)
+                                                 done: OperatorCommand.said(run.done), agentReview: evidence, run: status)
         } else if kind == .veto {
             // A call that would be refused anyway costs no Oracle run.
             try await vetoPrecheck(call, in: run)
@@ -280,7 +287,7 @@ extension OperatorToolHandler {
         mutate(in: run.id) { state in
             state.updateOperated(task.id) { operated in
                 var publication = operated.publication ?? TaskPublication()
-                publication.problem = problem
+                publication.mergeRefusal = problem
                 publication.conditionsHeld = nil
                 operated.publication = publication
             }
