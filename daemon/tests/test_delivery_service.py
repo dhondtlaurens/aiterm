@@ -53,7 +53,7 @@ async def claude(make_service, monkeypatch, tmp_path):
 async def test_a_message_is_delivered_over_the_socket(claude):
     _svc, it, sid, call, _policy = claude
     reply = await call("session.deliver", {"sessionId": sid, "text": "Run the tests.", "ownership": 1})
-    assert reply["result"] == {"result": "delivered", "reason": None}
+    assert reply["result"] == {"result": "delivered", "reason": None, "code": None}
     assert it.sent == [(sid, PASTE_START + "Run the tests." + PASTE_END), (sid, "\r")]
 
 
@@ -66,9 +66,10 @@ async def test_a_cli_without_a_passed_check_gets_nothing(claude):
 
 async def test_a_cli_updated_since_its_check_gets_nothing(claude):
     _svc, it, sid, call, policy = claude
-    policy["claude"] = ("auto", "2.1.300")
+    policy["claude"] = ("auto", "2.0.9")  # another minor version: a patch release would be covered
     reply = await call("session.deliver", {"sessionId": sid, "text": "hello", "ownership": 1})
-    assert reply["result"] == {"result": "refused", "reason": "claude 2.1.301 has not passed the delivery check"}
+    assert reply["result"] == {"result": "refused", "reason": "claude 2.1.301 has not passed the delivery check",
+                               "code": "notChecked"}
     assert it.sent == []
 
 
@@ -76,7 +77,8 @@ async def test_set_ownership_turns_away_an_older_send(claude):
     _svc, it, sid, call, _policy = claude
     assert (await call("session.setOwnership", {"sessionId": sid, "ownership": 2}))["result"] == {}
     reply = await call("session.deliver", {"sessionId": sid, "text": "hello", "ownership": 1})
-    assert reply["result"] == {"result": "refused", "reason": "the task changed hands after this message was written"}
+    assert reply["result"] == {"result": "refused", "reason": "the task changed hands after this message was written",
+                               "code": "ownership"}
 
 
 async def test_set_ownership_never_lowers_a_generation(claude):
@@ -84,17 +86,30 @@ async def test_set_ownership_never_lowers_a_generation(claude):
     await call("session.setOwnership", {"sessionId": sid, "ownership": 5})
     assert (await call("session.setOwnership", {"sessionId": sid, "ownership": 2}))["result"] == {}
     reply = await call("session.deliver", {"sessionId": sid, "text": "hello", "ownership": 4})
-    assert reply["result"] == {"result": "refused", "reason": "the task changed hands after this message was written"}
+    assert reply["result"] == {"result": "refused", "reason": "the task changed hands after this message was written",
+                               "code": "ownership"}
     assert it.sent == []
 
 
 async def test_a_wake_line_waits_while_you_type_in_that_session(claude):
     _svc, it, sid, call, _policy = claude
     await it.user_types(sid)
-    reply = await call("session.deliver", {"sessionId": sid, "text": "[AiTerm] 1 update, call run_status", "ownership": 1,
+    reply = await call("session.deliver", {"sessionId": sid, "text": "[AiTerm] reconnected, call run_status", "ownership": 1,
                                            "wake": True})
-    assert reply["result"] == {"result": "refused", "reason": "you are typing"}
+    assert reply["result"] == {"result": "refused", "reason": "you are typing", "code": "typing"}
     assert it.sent == []
+
+
+async def test_a_wake_line_needs_no_policy_and_a_workers_message_does(claude):
+    svc, it, sid, call, policy = claude
+    policy.clear()
+    svc.typing.note_key(sid, 400.0, "\r")  # your last key there sent what you typed, long enough ago
+    reply = await call("session.deliver", {"sessionId": sid, "text": "hello", "ownership": 1})
+    assert reply["result"]["code"] == "notChecked" and it.sent == []
+    wake = "[AiTerm] updates waiting, call run_status"
+    reply = await call("session.deliver", {"sessionId": sid, "text": wake, "ownership": 1, "wake": True})
+    assert reply["result"] == {"result": "delivered", "reason": None, "code": None}
+    assert it.sent == [(sid, PASTE_START + wake + PASTE_END), (sid, "\r")]
 
 
 async def test_a_long_message_goes_through_the_worktree(claude, tmp_path):

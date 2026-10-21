@@ -1,4 +1,22 @@
 {
+  "deliveryCodes": [
+    "itermDisconnected",
+    "itermRefused",
+    "messageFile",
+    "notChecked",
+    "nothing",
+    "ownership",
+    "pasteOnly",
+    "prompt",
+    "replaced",
+    "screenUnread",
+    "sessionClosed",
+    "typing",
+    "unrecognisedScreen",
+    "unsentInput",
+    "unsupported",
+    "wakeText"
+  ],
   "errorCodes": [
     "bad_params",
     "internal",
@@ -65,7 +83,8 @@
         "reply.operator.revoke.json"
       ],
       "session.deliver": [
-        "reply.session.deliver.json"
+        "reply.session.deliver.json",
+        "reply.session.deliver.refused.json"
       ],
       "session.dismissStartup": [
         "reply.session.dismissStartup.json"

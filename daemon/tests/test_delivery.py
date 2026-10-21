@@ -311,7 +311,9 @@ async def test_a_cli_not_checked_paste_safe_gets_nothing(rig, verdict):
 
 
 @pytest.mark.parametrize("running,reason", [
-    ("2.1.302", "claude 2.1.302 has not passed the delivery check"),   # updated since its check
+    ("2.2.0", "claude 2.2.0 has not passed the delivery check"),       # a new minor since its check
+    ("3.1.301", "claude 3.1.301 has not passed the delivery check"),   # a new major
+    ("2.1", "claude 2.1 has not passed the delivery check"),           # not a version the rule can read
     (None, "claude (version unknown) has not passed the delivery check"),
 ])
 async def test_a_cli_version_the_check_did_not_pass_gets_nothing(rig, running, reason):
@@ -401,7 +403,7 @@ async def test_an_input_box_that_disappears_between_paste_and_enter_gets_no_ente
     assert rig.iterm.sent == [(rig.sid, pasted("hello"))]
 
 
-WAKE = "[AiTerm] 2 updates, call run_status"
+WAKE = "[AiTerm] updates waiting, call run_status"
 
 
 async def test_a_send_older_than_the_tasks_ownership_is_refused(rig):
@@ -518,16 +520,15 @@ def _another_process(rig):
     rig.registry.apply_snapshot([tab])
 
 
-@pytest.mark.parametrize("change,wake,reason", [
-    (lambda rig: rig.deliverer.set_ownership(rig.sid, 2), False, "the task changed hands after this message was written"),
-    (lambda rig: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION), False, "a permission prompt is open"),
-    (lambda rig: rig.registry.apply_snapshot([]), False, "the session has closed"),
-    (_another_process, False, "another process now runs in the session"),
-    (lambda rig: rig.policy.__setitem__("claude", ("auto", "2.1.300")), False, "claude 2.1.301 has not passed the delivery check"),
-    (lambda rig: rig.guard.note_key(rig.sid, rig.clock.now, "a"), True, "you are typing"),
+@pytest.mark.parametrize("change,reason", [
+    (lambda rig: rig.deliverer.set_ownership(rig.sid, 2), "the task changed hands after this message was written"),
+    (lambda rig: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION), "a permission prompt is open"),
+    (lambda rig: rig.registry.apply_snapshot([]), "the session has closed"),
+    (_another_process, "another process now runs in the session"),
+    (lambda rig: rig.policy.__setitem__("claude", ("auto", "2.0.301")), "claude 2.1.301 has not passed the delivery check"),
 ])
 async def test_what_changed_while_the_message_file_was_written_is_checked_again_before_the_paste(
-        rig, tmp_path, monkeypatch, change, wake, reason):
+        rig, tmp_path, monkeypatch, change, reason):
     write = delivery.write_message_file
 
     def write_then_change(worktree, text):
@@ -536,7 +537,7 @@ async def test_what_changed_while_the_message_file_was_written_is_checked_again_
         return line
 
     monkeypatch.setattr(delivery, "write_message_file", write_then_change)
-    result = await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, wake=wake, worktree=str(tmp_path))
+    result = await rig.deliverer.deliver(rig.sid, "x" * 2001, 1, worktree=str(tmp_path))
     assert result == DeliveryResult("refused", reason)
     assert rig.iterm.sent == []
 
@@ -641,3 +642,162 @@ async def test_wake_refused_without_observed_input_history(rig):
     result = await rig.deliverer.deliver(rig.sid, "wake", 1, wake=True)
     assert result.result == "refused"
     assert rig.iterm.sent == []
+
+
+# -- a verdict holds across patch releases ------------------------------------------------------
+
+@pytest.mark.parametrize("checked,installed,covered", [
+    ("2.1.301", "2.1.301", True),     # the very version checked
+    ("2.1.301", "2.1.305", True),     # a later patch
+    ("2.1.301", "2.1.300", True),     # an earlier patch
+    ("2.1.301", "2.2.0", False),      # a new minor
+    ("2.1.301", "3.1.301", False),    # a new major
+    ("0.160.0", "0.160.4", True),
+    ("0.160.0", "0.16.0", False),     # compared as numbers, not text
+    ("2.1.301", None, False),         # a version its files have not named yet
+    ("2.1.301", "", False),
+    ("2.1.301", "2.1", False),        # versions the rule cannot read
+    ("2.1.301", "2.1.301-beta", False),
+    ("2.1.301", "v2.1.301", False),
+    (None, "2.1.301", False),
+    ("garbage", "garbage", False),
+])
+def test_a_verdict_covers_the_patch_releases_of_its_version(checked, installed, covered):
+    assert delivery.verdict_covers(checked, installed) is covered
+
+
+@pytest.mark.parametrize("running", ["2.1.301", "2.1.309", "2.1.2"])
+async def test_a_patch_release_of_the_checked_version_takes_text(rig, running):
+    rig.registry.get(rig.sid).cli_version = running
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).result == "delivered"
+
+
+# -- the operator's wake line --------------------------------------------------------------------
+
+async def test_a_wake_line_needs_no_pass_from_the_delivery_check(rig):
+    rig.policy.clear()  # as with no policy file at all
+    assert await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True) == DeliveryResult("delivered", None)
+    assert rig.iterm.sent == [(rig.sid, pasted(WAKE)), (rig.sid, "\r")]
+
+
+@pytest.mark.parametrize("running", ["2.9.0", None])
+async def test_a_wake_line_goes_to_any_version_the_check_did_not_pass(rig, running):
+    rig.registry.get(rig.sid).cli_version = running
+    assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).result == "delivered"
+
+
+async def test_a_workers_message_still_needs_the_pass(rig):
+    rig.policy.clear()
+    result = await rig.deliverer.deliver(rig.sid, "hello", 1)
+    assert (result.result, result.code) == ("refused", "notChecked")
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("screen,code", [
+    (CLAUDE_PERMISSION, "prompt"), (CLAUDE_TRUST, "prompt"), (CLAUDE_MENU, "prompt"),
+    (UNRECOGNISED, "unrecognisedScreen"), ("  \n", "screenUnread"),
+])
+async def test_a_wake_line_is_refused_on_a_prompt_or_without_the_input_box(rig, screen, code):
+    rig.policy.clear()
+    rig.iterm.screens[rig.sid] = screen
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("refused", code)
+    assert rig.iterm.sent == []
+
+
+async def test_a_wake_line_is_refused_while_you_type_without_a_pass(rig):
+    rig.policy.clear()
+    rig.guard.note_key(rig.sid, rig.clock.now - 1, "a")
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.reason, result.code) == ("refused", "you are typing", "typing")
+
+
+async def test_a_prompt_that_opens_before_a_wake_lines_enter_gets_no_enter(rig):
+    rig.policy.clear()
+    rig.pauses.during.append(lambda: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION))
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("partial", "prompt")
+    assert rig.iterm.sent == [(rig.sid, pasted(WAKE))]
+
+
+async def test_a_wake_line_is_refused_without_iterm2_or_its_session(rig):
+    rig.policy.clear()
+    assert (await rig.deliverer.deliver("s404", WAKE, 1, wake=True)).code == "sessionClosed"
+    await rig.iterm.disconnect()
+    assert (await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)).code == "itermDisconnected"
+
+
+async def test_a_wake_line_is_held_to_ownership(rig):
+    rig.deliverer.set_ownership(rig.sid, 3)
+    assert (await rig.deliverer.deliver(rig.sid, WAKE, 2, wake=True)).code == "ownership"
+
+
+async def test_a_wake_line_to_a_cli_whose_prompts_cannot_be_read_is_refused(rig):
+    await rig.iterm.user_runs(rig.sid, "pi", job_pid=6161)
+    rig.registry.apply_snapshot(await rig.iterm.snapshot())
+    rig.iterm.screens[rig.sid] = IDLE
+    result = await rig.deliverer.deliver(rig.sid, WAKE, 1, wake=True)
+    assert (result.result, result.code) == ("refused", "unsupported")
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("text,reason", [
+    ("[AiTerm] 2 updates, call run_status", "a wake line may not carry a digit"),
+    ("[AiTerm] review feedback on PAY-12: call run_status", "a wake line may not carry a digit"),
+    ("[AiTerm] y", "a wake line may not carry a one-letter word"),
+    ("[AiTerm] a task merged: call run_status", "a wake line may not carry a one-letter word"),
+    ("[AiTerm] “a” waits", "a wake line may not carry a one-letter word"),
+])
+async def test_a_wake_line_that_a_prompt_could_read_as_an_answer_is_refused(rig, text, reason):
+    result = await rig.deliverer.deliver(rig.sid, text, 1, wake=True)
+    assert (result.result, result.reason, result.code) == ("refused", reason, "wakeText")
+    assert rig.iterm.sent == []
+
+
+@pytest.mark.parametrize("text", [
+    WAKE, "[AiTerm] reconnected, call run_status", "[AiTerm] Codex’s review failed: call run_status",
+    "[AiTerm] broadcast complete, call run_status",
+])
+def test_plain_wake_lines_pass(text):
+    assert delivery.wake_text_problem(text) is None
+
+
+async def test_a_wake_line_never_goes_through_a_message_file(rig, tmp_path):
+    result = await rig.deliverer.deliver(rig.sid, "wake " * 500, 1, wake=True, worktree=str(tmp_path))
+    assert (result.result, result.reason, result.code) == ("refused", "a wake line is too long to paste", "wakeText")
+    assert rig.iterm.sent == [] and not (tmp_path / ".aiterm").exists()
+
+
+# -- why, in one word ----------------------------------------------------------------------------
+
+@pytest.mark.parametrize("setup,code", [
+    (lambda rig: rig.policy.clear(), "notChecked"),
+    (lambda rig: setattr(rig.registry.get(rig.sid), "cli_version", "2.2.0"), "notChecked"),
+    (lambda rig: rig.iterm.screens.__setitem__(rig.sid, CLAUDE_PERMISSION), "prompt"),
+    (lambda rig: rig.iterm.screens.__setitem__(rig.sid, UNRECOGNISED), "unrecognisedScreen"),
+    (lambda rig: setattr(rig.iterm, "screen_error", ItermUnavailable("no answer")), "screenUnread"),
+    (lambda rig: setattr(rig.iterm, "send_error", ItermUnavailable("closed")), "itermRefused"),
+    (lambda rig: rig.registry.apply_snapshot([]), "sessionClosed"),
+    (lambda rig: rig.deliverer.set_ownership(rig.sid, 9), "ownership"),
+])
+async def test_each_refusal_names_its_reason_in_one_word(rig, setup, code):
+    setup(rig)
+    assert (await rig.deliverer.deliver(rig.sid, "hello", 1)).code == code
+
+
+@pytest.mark.parametrize("change,code", [
+    (_another_process, "replaced"),
+    (lambda rig: rig.deliverer.set_ownership(rig.sid, 2), "ownership"),
+    (lambda rig: rig.iterm.screens.__setitem__(rig.sid, UNRECOGNISED), "unrecognisedScreen"),
+])
+async def test_an_enter_held_back_keeps_the_code_of_what_changed(rig, change, code):
+    rig.deliverer.set_ownership(rig.sid, 1)
+    rig.pauses.during.append(lambda: change(rig))
+    result = await rig.deliverer.deliver(rig.sid, "hello", 1)
+    assert (result.result, result.code) == ("partial", code)
+
+
+def test_the_reply_carries_the_code():
+    assert DeliveryResult("refused", "you are typing", "typing").to_json() == {
+        "result": "refused", "reason": "you are typing", "code": "typing"}
+    assert DeliveryResult("delivered").to_json() == {"result": "delivered", "reason": None, "code": None}

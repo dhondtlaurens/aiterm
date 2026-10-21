@@ -18,6 +18,8 @@ import Testing
         var events: [String], methods: [String], errorCodes: [String]
         /// The raw values of a session's `agent` and `state`.
         var sessionAgents: [String], sessionStates: [String]
+        /// The codes a refused delivery can name (`DeliveryCode`).
+        var deliveryCodes: [String]
         /// The file, or files, that show each name.
         var fixtures: Fixtures
         struct Fixtures: Decodable { var events: [String: String], replies: [String: [String]], errors: [String: String] }
@@ -45,6 +47,7 @@ import Testing
         // the daemon has grown one.
         #expect(Set(manifest.sessionAgents) == Set(SessionAgent.allCases.map(\.rawValue)))
         #expect(Set(manifest.sessionStates) == Set(SessionState.allCases.map(\.rawValue)))
+        #expect(Set(manifest.deliveryCodes) == Set(DeliveryCode.allCases.filter { $0 != .unknown }.map(\.rawValue)))
     }
 
     @Test(arguments: DaemonEventName.allCases) func everyEventReadsAsItsName(_ name: DaemonEventName) throws {
@@ -86,7 +89,12 @@ import Testing
             case .itermStatus, .windowActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
                  .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
                 _ = try read(DaemonClient.Empty.self)
-            case .sessionDeliver: #expect(try read(Delivery.self).result.rawValue == field("result") as? String)
+            case .sessionDeliver:
+                let delivery = try read(Delivery.self)
+                #expect(try delivery.result.rawValue == field("result") as? String)
+                // A code this app knows: one it did not would read as `.unknown`.
+                #expect(try delivery.code?.rawValue == field("code") as? String)
+                #expect(delivery.code != .unknown)
             case .sessionPrompt: #expect(try read(DaemonClient.PromptResult.self).kind?.rawValue == field("kind") as? String)
             case .sessionDismissStartup: #expect(try read(DaemonClient.DismissResult.self).dismissed == field("dismissed") as? Bool)
             case .deliveryPolicy:

@@ -32,7 +32,7 @@ import Testing
     }
 
     func driftLines(_ world: OperatorWorld) -> [String] {
-        world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.contains("off its task branch") }
+        world.daemon.requests("session.deliver").compactMap { $0.params["text"] as? String }.filter { $0.hasSuffix("call run_status") }
     }
 
     @Test func aWorkerOnItsTaskBranchIsNotFlagged() async throws {
@@ -55,7 +55,7 @@ import Testing
         let status = try #require(world.controller.status(of: current))
         #expect(status.obligations.branchDrift == ["PLUTO-1"])
         #expect(await eventually(describing: "the operator told") {
-            driftLines(world) == ["[AiTerm] PLUTO-1 committed off its task branch, call run_status"]
+            driftLines(world) == ["[AiTerm] updates waiting, call run_status"]
         })
         await tick(world)
         await world.controller.waker.lastSend?.value
