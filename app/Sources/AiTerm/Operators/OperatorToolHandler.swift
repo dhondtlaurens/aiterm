@@ -151,7 +151,8 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "write_summary",
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "report_snag",
+                                        "write_summary",
                                         "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
@@ -260,6 +261,7 @@ final class OperatorToolHandler {
         case "log_decision": return try logDecision(call, in: run)
         case "write_summary": return try writeSummary(call, in: run)
         case "report_find": return try await reportFind(call, in: run)
+        case "report_snag": return try reportSnag(call, in: run)
         case "create_task": return try await createTask(call, in: run)
         case "update_task": return try await updateTask(call, in: run)
         case "submit_plan": return try submitPlan(call, in: run)
@@ -357,19 +359,26 @@ final class OperatorToolHandler {
     // -- the records ----------------------------------------------------------------------------
     private func askYou(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), text = try call.string("question")
+        guard !OperatorQuestion.aitermPrefixes.contains(where: key.hasPrefix) else {
+            throw ToolRefusal("Keys starting with “prompt-” or “merged-on-host-” are AiTerm’s own questions. Choose another key.")
+        }
         let taskId = try call.optionalString("task").map { _ in try task(call, in: run).id }
-        if let open = run.questions.first(where: { $0.id == key }) { return Self.questionAnswer(open) }
+        if let open = run.questions.first(where: { $0.id == key }) { return Self.askAnswer(open) }
         let question = OperatorQuestion(id: key, text: text, task: taskId, askedAt: ports.now(), resolution: nil)
         mutate(in: run.id) { state in
             state.updateRun(id: run.id) { $0.questions.append(question) }
             if let taskId { state.updateOperated(taskId) { $0.flags.insert(.waitingOnYou) } }
         }
-        return Self.questionAnswer(question)
+        return Self.askAnswer(question)
     }
 
     private func resolveQuestion(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), summary = try call.string("summary")
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
+        // A merge on the host is the person's to decide, so the Operator closes that one once they have answered.
+        guard !question.id.hasPrefix(OperatorQuestion.promptPrefix) else {
+            throw ToolRefusal("\(key) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
+        }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
         mutate(in: run.id) { state in
@@ -435,6 +444,32 @@ final class OperatorToolHandler {
         case .notAttempted: break
         }
         return .object(answer)
+    }
+
+    /// What AiTerm got wrong (`report_snag`): kept beside the summary once per key, with the task it happened on. Unlike a
+    /// find it is about AiTerm and not the project, so it needs no slice and is filed nowhere.
+    private func reportSnag(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+        let key = try call.string("key"), title = try call.string("title"), showed = try call.string("showed")
+        let actual = try call.string("actual"), workaround = try call.string("workaround")
+        let task = try call.optionalString("task").map { _ in try self.task(call, in: run) }
+        if !run.snags.contains(where: { $0.key == key }) {
+            let snag = OperatorSnag(key: key, title: title, showed: showed, actual: actual, workaround: workaround,
+                                    evidence: call.optionalString("evidence"), task: task?.id, taskKey: task?.operated?.key,
+                                    branch: task?.branch, appVersion: ports.appVersion, at: ports.now())
+            mutate(in: run.id) { $0.updateRun(id: run.id) { $0.snags.append(snag) } }
+        }
+        return ["snag": .string(key), "recorded": true]
+    }
+
+    /// `ask_you`'s answer: an open question on a task also says what that does, so the Operator knows it is no plain note.
+    /// A repeat of one already resolved says only that.
+    private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
+        var answer = questionAnswer(question)
+        if question.task != nil, question.resolution == nil, case .object(var fields) = answer {
+            fields["note"] = "This task now shows waiting on the person, and Waiting on you opens its worker’s terminal."
+            answer = .object(fields)
+        }
+        return answer
     }
 
     private static func questionAnswer(_ question: OperatorQuestion) -> JSONValue {

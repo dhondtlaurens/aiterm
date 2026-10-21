@@ -4,6 +4,7 @@ the forwarding of tool calls to the app, driven directly rather than over HTTP."
 import asyncio
 import json
 import os
+import re
 from uuid import UUID
 
 import pytest
@@ -136,8 +137,8 @@ def test_memory_wins_over_a_file(tmp_path):
 
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
                   "submit_plan", "read_task", "message_task", "open_tab", "mark_task", "resume_task", "retry_task", "finish_task",
-                  "ask_you", "resolve_question", "report_find", "log_decision", "leave_for_you", "review_task", "request_review",
-                  "reply_thread", "find_user", "write_summary"}
+                  "ask_you", "resolve_question", "report_find", "report_snag", "log_decision", "leave_for_you", "review_task",
+                  "request_review", "reply_thread", "find_user", "write_summary"}
 
 
 def test_the_tools_are_the_contracts():
@@ -220,6 +221,29 @@ def test_message_task_and_read_task_take_a_tab_key_and_reach_the_first_worker_wi
     assert "lastMessage" in tools["read_task"]["inputSchema"]["properties"]["tab"]["description"]
 
 
+def test_ask_you_lists_a_question_asked_in_chat_and_takes_a_task_only_for_a_stopped_worker():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    ask = tools["ask_you"]
+    assert "asked in your chat" in ask["description"] and "Waiting on you" in ask["description"]
+    assert "stopped on the answer" in ask["inputSchema"]["properties"]["task"]["description"]
+    assert "own next step" in ask["inputSchema"]["properties"]["task"]["description"]
+    assert "at once" in tools["resolve_question"]["description"]
+    assert "you asked" in tools["resolve_question"]["description"]
+    assert "worker's terminal" in tools["run_status"]["description"]
+
+
+def test_resolve_question_closes_a_merge_on_the_host_and_leaves_a_prompt_to_aiterm():
+    resolve = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["description"]
+    assert "merge on the host" in resolve
+    assert "worker's prompt is refused" in resolve and "closes it itself" in resolve
+
+
+def test_run_status_says_what_a_restarted_operator_needs():
+    status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
+    assert "snags you recorded" in status and "twice" in status
+    assert "delivery" in status
+
+
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
     tools = {tool["name"]: tool for tool in TOOLS}
     for name in ("jira_create", "jira_move", "jira_link"):
@@ -249,6 +273,14 @@ def test_schema_has_report_find_and_no_propose_lesson():
     assert "summary" in tools["report_find"]["description"]
 
 
+def test_report_snag_is_about_aiterm_not_the_project():
+    tools = {tool["name"]: tool for tool in TOOLS}
+    snag = tools["report_snag"]
+    assert set(snag["inputSchema"]["required"]) == {"key", "title", "showed", "actual", "workaround"}
+    assert {"evidence", "task"} <= set(snag["inputSchema"]["properties"])
+    assert "report_find" in snag["description"] and "AiTerm itself" in snag["description"]
+
+
 def test_create_task_end_is_optional():
     create = next(tool for tool in TOOLS if tool["name"] == "create_task")["inputSchema"]
     assert "end" in create["properties"] and "end" not in create["required"]
@@ -256,8 +288,22 @@ def test_create_task_end_is_optional():
 
 
 def test_create_task_says_a_refused_addition_is_noted_for_the_summary():
-    description = next(tool for tool in TOOLS if tool["name"] == "create_task")["description"]
-    assert "pending" in description and "noted for the summary" in description and "report_find" not in description
+    create = next(tool for tool in TOOLS if tool["name"] == "create_task")
+    assert "noted for the summary" in create["description"] and "report_find" not in create["description"]
+    assert "pending" in create["inputSchema"]["properties"]["challengeId"]["description"]
+
+
+def test_the_challenge_is_told_once_in_challenge_id():
+    """The Oracle's call-again exchange lives in the challengeId property (and the Operator's brief), not in
+    each challenged tool's own description."""
+    for tool in TOOLS:
+        assert "challengeId" not in tool["description"], tool["name"]
+
+
+def test_no_tool_says_the_user():
+    """One word for one thing: the person, in every description; a username stays a username."""
+    text = json.dumps(TOOLS)
+    assert not re.search(r"\bthe user\b|\buser's\b", text, re.IGNORECASE), re.findall(r".{40}(?:\bthe user\b|\buser's\b).{20}", text, re.I)
 
 
 def test_no_tool_text_carries_an_em_dash():

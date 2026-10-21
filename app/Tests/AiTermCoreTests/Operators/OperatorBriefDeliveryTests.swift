@@ -55,7 +55,7 @@ import AiTermTestSupport
         #expect(first.count > 100_000)
         let brief = try Data(contentsOf: prepared.folder.appendingPathComponent(OperatorCommand.briefFile))
         #expect(holds(brief, "\nReview: " + review + "\nDone: " + done + "\n"))
-        #expect(holds(brief, "\n## Instructions\n\n" + run.profile.instructions + "\n\n## Run rules\n"))
+        #expect(holds(brief, "\n## Instructions\n\n" + run.profile.instructions + "\n\n## Remember\n"))
     }
 
     /// The command line hands `claude` each word and the first message as one argument each, with

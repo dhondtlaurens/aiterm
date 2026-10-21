@@ -110,6 +110,31 @@ import Testing
         #expect(await world.call(run.id, "report_find", ["key": "x", "title": "t"]).message == "report_find needs `why`.")
     }
 
+    /// AiTerm's own mistake is recorded once per key, with the task's key and branch and the app's version, and
+    /// run_status lists it by key and title.
+    @Test func reportSnagRecordsItOnceAndRunStatusListsIt() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = OperatorServiceFixtures.task(in: run, project: project, key: "PAY-240", state: .working)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run], tasks: [task])) { $0.appVersion = "0.28.0" }
+        let snag = ["key": "stale-prompt", "title": "A prompt shows as working", "showed": "The row said working.",
+                    "actual": "The worker was waiting on a prompt.", "workaround": "Answered it in its tab.",
+                    "evidence": "Tab 2 showed Allow edits?", "task": "PAY-240"] as JSONValue
+        let answer = await world.call(run.id, "report_snag", snag)
+        #expect(answer.value?["snag"] == "stale-prompt" && answer.value?["recorded"] == true)
+        _ = await world.call(run.id, "report_snag", ["key": "stale-prompt", "title": "Again", "showed": "s", "actual": "a", "workaround": "w"])
+
+        let recorded = try #require(world.run(run.id)?.snags)
+        #expect(recorded.count == 1)
+        #expect(recorded.first?.title == "A prompt shows as working" && recorded.first?.evidence == "Tab 2 showed Allow edits?")
+        #expect(recorded.first?.task == task.id && recorded.first?.taskKey == "PAY-240" && recorded.first?.branch == "feat/pay-240")
+        #expect(recorded.first?.appVersion == "0.28.0")
+
+        let listed = await world.call(run.id, "run_status").value?["run"]?["snags"]?.arrayValue
+        #expect(listed == [["key": "stale-prompt", "title": "A prompt shows as working"]])
+        let missing = await world.call(run.id, "report_snag", ["key": "x", "title": "t", "showed": "s", "workaround": "w"])
+        #expect(missing.message == "report_snag needs `actual`.")
+    }
+
     /// The Operator says why in a sentence, and the debrief shows it under the decision.
     @Test func aDecisionCarriesItsWhy() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
@@ -376,6 +401,59 @@ import Testing
         #expect(!waiting())
     }
 
+    /// A worker's prompt is AiTerm's to close, when its worker leaves the prompt; a merge on the host is the person's to
+    /// decide, so the Operator closes that question once the person has answered in its chat.
+    @Test func aPromptIsAiTermsToCloseAndAMergeOnTheHostIsClosedOnceThePersonAnswers() async throws {
+        var run = OperatorServiceFixtures.run(projects: [project])
+        let prompted = workingTask(in: run), merged = workingTask(in: run, key: "T2")
+        let prompt = OperatorQuestion(id: "prompt-\(prompted.id.uuidString)-1", text: "Claude asks to run npm install", task: prompted.id, askedAt: Date(timeIntervalSince1970: 0))
+        let merge = OperatorQuestion(id: "merged-on-host-\(merged.id.uuidString)", text: "The host merged it.", task: merged.id, askedAt: Date(timeIntervalSince1970: 0))
+        run.questions = [prompt, merge]
+        let world = try makeWorld(run, tasks: [prompted, merged])
+        world.workspace.mutate { state in
+            for id in [prompted.id, merged.id] { state.updateOperated(id) { $0.flags.insert(.waitingOnYou) } }
+        }
+        let refused = await world.call(run.id, "resolve_question", ["key": .string(prompt.id), "summary": "Done."])
+        #expect(refused.message == "\(prompt.id) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
+        let resolved = await world.call(run.id, "resolve_question", ["key": .string(merge.id), "summary": "Go on without PAY-14."])
+        #expect(resolved.value?["open"] == false)
+        #expect(world.run(run.id)?.questions.map(\.resolution) == [nil, "Go on without PAY-14."])
+        #expect(world.task(prompted.id)?.operated?.flags.contains(.waitingOnYou) == true)
+        #expect(world.task(merged.id)?.operated?.flags.contains(.waitingOnYou) == false, "its last open question")
+    }
+
+    @Test func askYouRefusesAiTermsQuestionKeys() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        for key in ["prompt-mine", "merged-on-host-mine"] {
+            #expect(await world.call(run.id, "ask_you", ["key": .string(key), "question": "Q?"]).message
+                    == "Keys starting with “prompt-” or “merged-on-host-” are AiTerm’s own questions. Choose another key.")
+        }
+        #expect(world.run(run.id)?.questions.isEmpty == true)
+    }
+
+    @Test func askYouOnATaskSaysWhatThatDoes() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        let onTask = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
+        #expect(onTask.value?["note"] == "This task now shows waiting on the person, and Waiting on you opens its worker’s terminal.")
+        #expect(await world.call(run.id, "ask_you", ["key": "b", "question": "Which scope?"]).value?["note"] == nil)
+    }
+
+    /// A repeat of a key already resolved says so, and not that the task now waits on the person.
+    @Test func askYouAgainOnAResolvedQuestionSaysNothingOfWaiting() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let task = workingTask(in: run)
+        let world = try makeWorld(run, tasks: [task])
+        _ = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
+        _ = await world.call(run.id, "resolve_question", ["key": "a", "summary": "No."])
+        let again = await world.call(run.id, "ask_you", ["key": "a", "question": "Stuck?", "task": "T1"])
+        #expect(again.value?["open"] == false)
+        #expect(again.value?["note"] == nil)
+        #expect(world.task(task.id)?.operated?.flags.contains(.waitingOnYou) == false)
+    }
+
     @Test func aRepeatedResolveReturnsTheRecordedResolution() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])
         let world = try makeWorld(run)
@@ -466,6 +544,7 @@ import Testing
         #expect(act("run_status") == nil && act("read_task") == nil)
         #expect(OperatorToolHandler.actsOnBroadcast["submit_plan"] == .loadingTheConstruct)
         #expect(OperatorToolHandler.actsOnBroadcast["jira_create"] == .filingATicket)
+        #expect(OperatorToolHandler.actsOnBroadcast["report_snag"] == nil, "it files nothing")
     }
 
     // MARK: - Gate C: Jira writes wait while the operation does not run, and a lost answer makes no second ticket

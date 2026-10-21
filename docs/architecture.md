@@ -123,7 +123,8 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **Start.** New Broadcast hands its name, Jira projects, projects, prompt, Review and Done to
   `startBroadcast`, which is refused while another broadcast has not ended. The run is saved first,
   state `planning`, its profile frozen. Then its folder, `operators/runs/<run-id>/` in the support
-  folder: `brief.md` (the system prompt: the base, the frozen slices, the Never list, the tools),
+  folder: `brief.md` (the system prompt, in the sections of `OperatorCommand.briefHeadings`: the base, the
+  frozen slices, the hard limits, how a run goes, talking to the person, the tools' mechanics),
   `mcp.json` (one HTTP server, `aiterm`, at the daemon's `/operator` route with the run's Bearer token),
   `token` (0600) and `first-message.md` (the broadcast). The token is registered with the daemon
   (`operator.register`) and the Operator's window opens in front: a task window tagged with the run's
@@ -164,15 +165,21 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **The window closed.** It ends nothing: a broadcast under way goes `operatorOffline` and reads
   `paused · the Operator’s window is closed`. A click on its row opens the board and reopens the window
   behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
-  same frozen profile. When that conversation is gone from Claude's folder, the board keeps a `Notice` in its
-  footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
+  same frozen profile. A resumed Operator keeps the brief its conversation started with, even when
+  `brief.md` has changed since: Claude Code records the system prompt on a conversation's first request
+  and reuses it on `--resume` (checked by hand on Claude Code 2.1.306, 2026-10-21); its documentation
+  says the recorded prompt holds until a compaction, which was not checked, and
+  `--system-prompt-snapshot off` would render it fresh. When that conversation is gone from Claude's
+  folder, the board keeps a `Notice` in its footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
 - **Complete.** Once every task has ended and no question is open, `settle` makes the run `complete`:
   the board's columns stay, every card in Done, and the Operator writes its summary with `write_summary`,
-  as its brief asks (`OperatorCommand.summaryRule`; `run_status` shows `summaryDue` until it has), in its
-  own words, what it decided on its own and found along the way folded in. The sheet's Summary shows it
-  with what was left for you (`leftForYou`, from `leave_for_you` and the slices' refusals). The finished
+  as its brief asks (step 7 of How a run goes, `OperatorCommand.runLoop`; `run_status` shows `summaryDue`
+  until it has), in its own words, what it decided on its own and found along the way folded in. The
+  sheet's Summary shows it with what was left for you (`leftForYou`, from `leave_for_you` and the slices'
+  refusals), then Worked around in AiTerm: the snags the Operator recorded with `report_snag`
+  (`run.snags`). The finished
   broadcast's notification goes out once the summary is written, or once AiTerm stops waiting for it
   (`OperatorTiming.summaryWait`, `RunSummary.notComing`). A later `submit_plan` makes it active again.
 - **End.** `end(run:)` saves your stop first; one that cannot be saved is taken back and nothing else
@@ -229,8 +236,8 @@ registered token and forwards each call to the app as `operator.request`; `Opera
 answers with `operator.reply`. Every mutating tool is safe to repeat (a `key`, or a recorded step):
 `run_status`; `jira_search`, `jira_create`, `jira_move`, `jira_link`; `create_task`, `update_task`,
 `submit_plan`; `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`; `message_task`,
-`mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`
-and `log_decision`.
+`mark_task`, `resume_task`, `retry_task`, `finish_task`; `ask_you`, `resolve_question`; `report_find`,
+`report_snag` and `log_decision`.
 
 ### Help with problems
 
@@ -331,7 +338,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `rpc_params.py` | reading parameters, and the errors every handler answers the same way |
 | `delivery.py` · `Deliverer` | typing into an agent's tab (Operators spec §7.1): the prompt markers, the policy the delivery check wrote for each CLI version, paste · re-check · Enter |
 | `keystrokes.py` · `TypingGuard` | when you last typed in each tab and whether its input may hold unsent text, from iTerm2's keystroke monitor: never the key itself |
-| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `open_tab`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `log_decision` |
+| `operator_mcp.py` · `OperatorRoute` | the Operator's MCP server on the hook port's `/operator`: a registered run's Bearer token or 401, the tools' schemas, every tool call forwarded to the app as `operator.request`. The tools: `run_status`, `jira_search`, `jira_create`, `jira_move`, `jira_link`, `create_task`, `update_task`, `submit_plan`, `read_task`, `review_task`, `request_review`, `reply_thread`, `find_user`, `message_task`, `open_tab`, `mark_task`, `resume_task`, `retry_task`, `finish_task`, `ask_you`, `resolve_question`, `report_find`, `report_snag`, `log_decision` |
 | `iterm_bridge.py` | the only module that imports `iterm2` |
 | `__main__.py` · `IdleWatchdog` | quitting once no app has been attached for a minute |
 

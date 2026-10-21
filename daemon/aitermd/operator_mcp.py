@@ -182,12 +182,14 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 # Every one that changes something is safe to repeat: the repeat returns the recorded result.
 TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
-          "and a one-line summary, and what is open: questions waiting, prompts waiting on the user, tasks ready to accept, "
+          "and a one-line summary, and what is open: questions waiting, prompts waiting on the person (a prompt open in a "
+          "worker's terminal), tasks ready to accept, "
           "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "
-          "Under run it also shows the off-brief finds, each agent's weekly use, "
-          "and each installed agent's models with its default model. Call it first after any restart or compaction."),
+          "Under run it also shows the off-brief finds, the snags you recorded with report_snag (so you don't record one "
+          "twice after a restart), each agent's weekly use, and under agents each installed agent's models with its default "
+          "model and, under delivery, whether its workers can be messaged. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
@@ -210,8 +212,8 @@ TOOLS: tuple[dict[str, Any], ...] = (
           ("key", "to", "type")),
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
           "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
-          "size need the Oracle's yes, which may answer pending: call again with its challengeId. One the Oracle refuses, "
-          "or any past that limit with the Oracle off, is refused and noted for the summary by AiTerm.",
+          "size need the Oracle's yes. One the Oracle refuses, or any past that limit with the Oracle off, is refused and "
+          "noted for the summary by AiTerm.",
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
            "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
@@ -266,7 +268,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("open_tab", "Adds a worker tab to a task that is working or in review: another agent in the task's window, on the "
           "same worktree and branch, for more work on that task. It is part of the task: one card, one branch, accepted once. "
           "Its first prompt is your brief, after AiTerm's lines on where it works and that it shares the worktree. It opens "
-          "behind the user's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
+          "behind the person's work. The same key on the same task returns the first call's tab and opens nothing more; the same "
           "key with other arguments is refused. Returns the tab's key, agent, model, and opened or opening.",
           {"task": _TASK, "key": _KEY, "agent": _AGENT, "model": _MODEL,
            "modelReason": _text("Why this agent and model, in one line."),
@@ -304,8 +306,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "that checkout must be on its default branch with nothing uncommitted. AiTerm leaves the push for the person, "
           "as \"Push main in <project>: merged locally.\" "
           "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that the conditions written "
-          "in the Review and the Done hold; it may answer pending: call again with its challengeId. A no is recorded on "
-          "the task and refuses the merge. "
+          "in the Review and the Done hold; a no is recorded on the task and refuses the merge. "
           "It answers result: published, inReview, waitingToMerge, blocked, refused or failed, with reason, mergeRequest, "
           "pushedSHA, merged and mergedSHA as far as they are known; refused and failed also say what was already "
           "done. "
@@ -318,16 +319,36 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "or cannot say whether it does, or it is the default branch. "
           "AiTerm never deploys, never force-pushes, and never pushes to a default or protected branch.",
           {"task": _TASK}, ("task",)),
-    _tool("ask_you", "Asks the user a question: it shows under Waiting on you and notifies them. They answer in this window; "
-          "close it with resolve_question. The same key returns the open question.",
-          {"key": _KEY, "question": _text("The question, complete on its own."), "task": _TASK}, ("key", "question")),
-    _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer.",
+    _tool("ask_you", "Lists a question you asked in your chat under Waiting on you, with the same text, and notifies the person. "
+          "They answer in this window; close it with resolve_question. The same key returns the open question.",
+          {"key": _KEY, "question": _text("The question, complete on its own."),
+           "task": _text("Only when that task's worker is itself stopped on the answer: the task, by its key or its id from "
+                         "run_status. The task then shows waiting on the person, and Waiting on you opens its worker's terminal. "
+                         "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
+                         "merge decision.")},
+          ("key", "question")),
+    _tool("resolve_question", "Closes a question once the person has answered it, with a one-line summary of the answer: one "
+          "you asked with ask_you, or AiTerm's question about a merge on the host, which only the person decides. Call it at "
+          "once when they answer in your chat. A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
+          "the prompt.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
           "worked on, and the summary may mention it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "
           "Task in the first of its Jira projects and answers the ticket's key, or why it could not. The same key is recorded once.",
           {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
           ("key", "title", "why")),
+    _tool("report_snag", "Records that AiTerm itself showed you something wrong and you worked around it: a state that was not "
+          "true, a prompt it missed, a tab it lost. After you checked the real source (the tab, git, the host), say what AiTerm "
+          "showed, what was true, and how you got unstuck. AiTerm keeps it beside the summary, and the person can start an "
+          "AiTerm task from it to fix the bug. A find (report_find) is about the project's code; a snag is about AiTerm itself. "
+          "It needs no slice, and nothing is filed or sent. The same key is recorded once.",
+          {"key": _KEY, "title": _text("The snag, in a few words."),
+           "showed": _text("What AiTerm showed, such as a status or a count, in one sentence."),
+           "actual": _text("What was true, and how you checked it, in one sentence."),
+           "workaround": _text("What you did to carry on, in one sentence."),
+           "evidence": _text("Optional: the exact text, state or output that shows it, such as a line from the tab."),
+           "task": _text("The task it happened on, by its key or its id from run_status. Left out when it is not about a task.")},
+          ("key", "title", "showed", "actual", "workaround")),
     _tool("leave_for_you", "Records what a slice kept you from doing, naming what is left and why. "
           "It changes no task and sends nothing. The same key is recorded once.",
           {"key": _KEY, "text": _text("What is left for the person and why, in one sentence.")}, ("key", "text")),

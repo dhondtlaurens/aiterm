@@ -17,7 +17,9 @@ let package = Package(
         // `@testable` — so a plain release build still compiles, and it stays below the app: what
         // needs `AiTerm` (ScriptedPrompter, the controller's test init) lives in `AiTermTests`.
         .target(name: "AiTermTestSupport", dependencies: ["AiTermCore"], path: "Tests/AiTermTestSupport"),
-        .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests"),
+        // The Operator evals' baseline (Fixtures/) is read by path from the checkout, not as a resource bundle.
+        .testTarget(name: "AiTermCoreTests", dependencies: ["AiTermCore", "AiTermTestSupport"], path: "Tests/AiTermCoreTests",
+                    exclude: ["Operators/Fixtures"]),
         .testTarget(name: "AiTermUITests", dependencies: ["AiTermUI", "AiTermTestSupport"], path: "Tests/AiTermUITests"),
         .testTarget(name: "AiTermTests", dependencies: ["AiTerm", "AiTermTestSupport"], path: "Tests/AiTermTests"),
     ],

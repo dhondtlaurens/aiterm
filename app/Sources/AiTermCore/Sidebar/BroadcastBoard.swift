@@ -7,8 +7,8 @@ import Foundation
 /// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then the Asked line. The board is
 /// the plan: Todo · In progress · Review · Done, Review only when the broadcast has a review, each task's
 /// card in the column its state puts it in, in the plan's order, and once every task is done they all sit in Done.
-/// What the sheet's other tabs read is here too: the Summary's state and what is left for you, and which tab it
-/// opens on. An ended broadcast read from the Shelf is a `shelved` board, read-only.
+/// What the sheet's other tabs read is here too: the Summary's state, what is left for you and what the Operator
+/// worked around in AiTerm, and which tab it opens on. An ended broadcast read from the Shelf is a `shelved` board, read-only.
 public struct BroadcastBoard: Equatable, Sendable {
     public enum Column: String, CaseIterable, Sendable {
         case todo, inProgress, review, done
@@ -138,11 +138,22 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var summary: RunSummary
     /// What the Operator left for you, as `leave_for_you` wrote it: the Summary tab's list.
     public var leftForYou: [String]
+    /// What the Operator worked around in AiTerm, as `report_snag` recorded it: the Summary tab's last list.
+    public var snags: [OperatorSnag] = []
     /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
     public var isShelved: Bool = false
 
     /// The Asked line whole, as its tooltip says it.
     public var asked: String { clauses.map { "\($0.label) \($0.text)" }.joined(separator: " · ") }
+
+    /// What a snag's Copy puts on the clipboard: the AiTerm task that fixes it, naming this broadcast.
+    public func fixTask(_ snag: OperatorSnag) -> String { snag.fixTask(broadcast: title, runId: runId) }
+
+    /// What Copy All puts on the clipboard: every snag's fix task in the order they were reported, a rule between
+    /// each. Nil with fewer than two, where an item's own Copy is all there is.
+    public var copyAll: String? {
+        snags.count > 1 ? snags.map(fixTask).joined(separator: "\n\n---\n\n") : nil
+    }
 
     /// The tab the sheet opens on: the Summary once there is one to read or a reason there is none, else the Board.
     public var firstTab: Tab { summary == .notYet ? .board : .summary }
@@ -192,7 +203,7 @@ public struct BroadcastBoard: Equatable, Sendable {
                 },
             columns: columns,
             isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused,
-            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou)
+            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou, snags: run.snags)
     }
 
     /// The board of an ended `run` for the Shelf: every task it drove, the live ones and those archived since, in the

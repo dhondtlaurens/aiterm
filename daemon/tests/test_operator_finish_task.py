@@ -52,5 +52,7 @@ def test_finish_task_says_what_refuses_it_and_what_it_never_does() -> None:
 def test_finish_task_says_what_the_merge_slice_allows_and_what_a_local_merge_leaves() -> None:
     description = finish_task()["description"]
     for phrase in ("Merge slice", "mergeLocal", "never pushes", "uncommitted", "Push", "review threads", "resolved",
-                   "the Oracle's yes", "pending", "marks it ready"):
+                   "the Oracle's yes", "marks it ready"):
         assert phrase in description, phrase
+    # A pending yes is called again with its challengeId: told once, in that property.
+    assert "pending" in finish_task()["inputSchema"]["properties"]["challengeId"]["description"]

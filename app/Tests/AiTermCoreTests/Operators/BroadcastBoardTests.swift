@@ -328,6 +328,55 @@ import Testing
         #expect(BroadcastBoard.count(of: run, tasks: state.tasks) == "0 of 0")
     }
 
+    /// A snag as `report_snag` records it.
+    private func snag(_ title: String, actual: String = "No prompt was open.", taskKey: String? = nil) -> OperatorSnag {
+        OperatorSnag(key: title, title: title, showed: "run_status listed it under promptsWaitingOnYou.", actual: actual,
+                     workaround: "Read the task's screen.", taskKey: taskKey, appVersion: "0.28.1", at: OperatorUIFixtures.epoch)
+    }
+
+    /// What the Operator worked around in AiTerm is the Summary's too, as `report_snag` kept it, and none with none.
+    @Test func theSummaryListsWhatTheOperatorWorkedAround() {
+        var run = run(.complete)
+        run.completedAt = OperatorUIFixtures.epoch
+        #expect(BroadcastBoard.make(run: run, state: state(run), acting: .none, requests: []).snags.isEmpty)
+        run.snags = [snag("Waiting on you showed a task with no prompt open", taskKey: "PAY-232"), snag("find_user answered AiTerm isn’t answering")]
+        let board = BroadcastBoard.make(run: run, state: state(run), acting: .none, requests: [])
+        #expect(board.snags == run.snags)
+        #expect(board.fixTask(board.snags[0]) == run.snags[0].fixTask(broadcast: "Checkout redesign", runId: run.id))
+    }
+
+    /// An ended broadcast opened from the Shelf keeps what the Operator worked around, each copying as its fix task.
+    @Test func aShelvedBroadcastsSummaryShowsItsSnags() throws {
+        var run = run(.active)
+        run.snags = [snag("Waiting on you showed a task with no prompt open", taskKey: "PAY-232")]
+        var state = state(run, [task("Cart drawer", run: run.id, .working)])
+        ended(run.id, in: &state)
+        let board = BroadcastBoard.shelved(run: try #require(state.run(id: run.id)), state: state)
+        #expect(board.isShelved && board.firstTab == .summary)
+        #expect(board.snags == run.snags)
+        #expect(board.fixTask(board.snags[0]) == run.snags[0].fixTask(broadcast: "Checkout redesign", runId: run.id))
+    }
+
+    /// Copy All puts every snag's fix task on the clipboard, in the order they were reported, a rule between each.
+    @Test func copyAllJoinsEveryFixTask() {
+        var run = run(.complete)
+        run.snags = [snag("First"), snag("Second", taskKey: "PAY-232"), snag("Third")]
+        let board = BroadcastBoard.make(run: run, state: state(run), acting: .none, requests: [])
+        let tasks = run.snags.map { $0.fixTask(broadcast: "Checkout redesign", runId: run.id) }
+        #expect(board.copyAll == tasks.joined(separator: "\n\n---\n\n"))
+        #expect(board.copyAll?.components(separatedBy: "\n\n---\n\n").count == 3)
+    }
+
+    /// With one snag its own Copy is all there is to copy, so there is no Copy All; with none, nothing.
+    @Test func copyAllIsLeftOutWithOneSnag() {
+        var run = run(.complete)
+        #expect(BroadcastBoard.make(run: run, state: state(run), acting: .none, requests: []).copyAll == nil)
+        run.snags = [snag("Only")]
+        #expect(BroadcastBoard.make(run: run, state: state(run), acting: .none, requests: []).copyAll == nil)
+        run.snags.append(snag("Another"))
+        #expect(BroadcastBoard.make(run: run, state: state(run), acting: .none, requests: []).copyAll != nil)
+    }
+
     /// With no creation order to tell them apart, the live tasks come first and the archived ones after, each in its own order.
     @Test func aShelvedBoardKeepsTheStateOrderWhenCreatedTogether() {
         var run = run(.stopped)

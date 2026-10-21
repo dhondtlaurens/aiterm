@@ -39,6 +39,7 @@ public enum ActivityLine {
         case "ask_you": words = ("Asked you: \(text("question"))", "ask you: \(text("question"))")
         case "resolve_question": words = ("Noted your answer: \(text("summary"))", "note your answer: \(text("summary"))")
         case "report_find": words = ("Noted a find: \(text("title"))", "note a find: \(text("title"))")
+        case "report_snag": words = ("Noted a snag in AiTerm: \(text("title"))", "note a snag in AiTerm: \(text("title"))")
         case "leave_for_you": words = ("Left for you: \(text("text"))", "leave for you: \(text("text"))")
         case "log_decision": words = ("Decided: \(text("text"))", "decide: \(text("text"))")
         case "write_summary": words = ("Wrote the summary", "write the summary")
