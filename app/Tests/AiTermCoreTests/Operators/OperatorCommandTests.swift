@@ -172,7 +172,7 @@ import Foundation
     /// Operator sheet's summary rule in it.
     @Test func theBriefStaysNearItsLength() {
         let today = 1582
-        // 250 for the restructure, and 50 more for write_summary's step, which arrived with the Operator sheet.
+        // 1582 already holds the sheet's summary rule: the 300 is this branch's own growth, the restructure's reasons and examples.
         #expect(words(largest()) <= today + 300, "\(words(largest())) words")
     }
 

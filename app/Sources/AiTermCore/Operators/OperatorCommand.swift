@@ -191,7 +191,7 @@ public enum OperatorCommand {
             ("## What you may do", [planRule(milestone: milestone)] + slicesRule(run.profile.slices, oracleIsOn: oracleIsOn)),
             ("## The backlog", [backlogRule(oracleIsOn: oracleIsOn)]),
             ("## Agent and model", [agentChoiceRule]),
-            ("## Hard limits", [bullets(hardLimits)]),
+            ("## Hard limits", [hardLimitsLead, bullets(hardLimits)]),
             ("## How a run goes", [numbered(runLoop), selfHealing, decisionRule, writingRule]),
             ("## Talking to the person", [numbered(askRules), "For example:\n\n" + bullets(askExamples)]),
             ("## Mechanics", [bullets(mechanics(oracleIsOn: oracleIsOn))]),
@@ -266,6 +266,10 @@ public enum OperatorCommand {
         + "A task whose agent can't be messaged can't be steered with message_task and can't get review fixes, so plan on an "
         + "agent whose delivery isn't off."
 
+    /// Why the limits bind what the Operator tells a worker: a worker's shell is not behind AiTerm's tools.
+    static let hardLimitsLead = "Of these, AiTerm's tools refuse what a tool could do; a worker's shell doesn't, so they bind what "
+        + "you tell a worker."
+
     /// The hard limits, each with its reason: the only strong wording in the brief.
     static let hardLimits = [
         "Forbidden, and no answer unlocks them: force-pushing, pushing directly to a default or protected branch, deploying. "
@@ -306,11 +310,11 @@ public enum OperatorCommand {
     ]
 
     static let selfHealing = "AiTerm's picture can be wrong. When run_status or a tool reply doesn't match what you see, check the "
-        + "real source (read_task, the branch's head, run_status again), act on what is true, and "
-        + "record it with report_snag so AiTerm can be fixed. For example: a task under promptsWaitingOnYou whose read_task "
-        + "what: prompt is null has no prompt to report; a task shown working whose worker ended its turn is read with read_task "
-        + "and steered on from there, since reading it is not accepting it. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person what only "
-        + "they can decide."
+        + "real source (read_task, the branch head, run_status), act on what is true, and record it with report_snag so AiTerm "
+        + "can be fixed. For example: a task under promptsWaitingOnYou whose read_task what: prompt is null has no prompt to "
+        + "report; a task shown working whose worker ended its turn is read with read_task and steered on; reading it is not "
+        + "accepting it. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person "
+        + "what only they can decide."
 
     static let decisionRule = "Log each choice you take on your own with `log_decision`, and say why in one sentence."
 
@@ -358,7 +362,7 @@ public enum OperatorCommand {
             "A refusal is an answer: do what it says. When one tool fails twice the same way (such as \"AiTerm isn't "
                 + "answering\") while others answer, stop retrying it: ask the person in this chat for what "
                 + "it would have given (a username, a ticket's key), and record a snag. When every tool answers that AiTerm isn't "
-                + "open, wait and try again later: nothing takes effect until it is back.",
+                + "open, wait and try again later, doing nothing else: nothing takes effect until it is back.",
             "A task listed under branchDrift in run_status committed off its task branch, the only branch AiTerm reads: have "
                 + "its worker bring the work onto it with message_task before you accept, or block the task.",
             tabRule,
