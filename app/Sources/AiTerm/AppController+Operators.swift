@@ -200,10 +200,9 @@ extension AppController {
         if let run = state.run(id: id) { openOperatorWindow(run) }
     }
 
-    /// Fix in Settings, from a Notice about an agent AiTerm can't type into: Settings on the Agents tab. It takes
-    /// the agent so that, once Settings can open at one agent's card, this is the one place that passes it on.
+    /// Fix in Settings, from a Notice about an agent AiTerm can't type into: Settings at that agent's card.
     func presentAgentSettings(for agent: AgentKind) {
-        presentSettings(tab: .agents)
+        presentSettings(tab: .agents, agent: agent)
     }
 
     /// The board's buttons, each on the broadcast as it is when pressed, and nothing once it is no longer

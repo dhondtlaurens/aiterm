@@ -66,14 +66,14 @@ import Testing
         world.link.attached = true
         world.daemon.deliveryVerdicts[.codex] = DeliveryVerdict(policy: .auto, version: "0.150.0")
         let refused = await create(world, run, "PLUTO-1")
-        #expect(refused.message == "Codex’s workers can’t be messaged: Codex 0.160.0 is installed, but AiTerm's delivery check passed 0.150.0 only. "
+        #expect(refused.message == "Codex’s workers can’t be messaged: Codex 0.160.0 is installed, but AiTerm's delivery check covers 0.150.x only. "
                 + "A task on it can’t be steered with message_task or get review fixes. Plan it on Claude, which can be messaged, "
                 + "or set agentPinned if the person’s words name Codex.")
         #expect(world.state.tasks.isEmpty)
         let pinned = await world.call(run.id, "create_task", ["key": "PLUTO-2", "title": "B", "brief": "b", "project": "Shop", "agent": "codex",
                                                               "model": "gpt-6-astra", "modelReason": "The prompt says Codex.", "agentPinned": true])
         #expect(pinned.value?["created"] == true)
-        #expect(pinned.value?["warning"] == .string("Codex’s workers can’t be messaged: Codex 0.160.0 is installed, but AiTerm's delivery check passed 0.150.0 only. "
+        #expect(pinned.value?["warning"] == .string("Codex’s workers can’t be messaged: Codex 0.160.0 is installed, but AiTerm's delivery check covers 0.150.x only. "
                 + "This task can’t be steered with message_task or get review fixes."))
     }
 

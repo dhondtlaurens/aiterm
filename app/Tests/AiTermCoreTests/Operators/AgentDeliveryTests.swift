@@ -13,11 +13,21 @@ import Foundation
         #expect(paste.note == "Messages to its workers are pasted without Enter: the person presses Enter to send each one.")
     }
 
-    /// The broadcast's case: Codex updated itself since the check, so nothing typed reaches its workers.
+    /// A patch release since the check is covered, as the daemon covers it: the same major and minor.
+    @Test func aPatchReleaseSinceTheCheckIsStillCovered() {
+        let patched = AgentDelivery.of(.claude, verdict: DeliveryVerdict(policy: .auto, version: "2.1.301"), installed: "2.1.305")
+        #expect(patched == AgentDelivery(messaging: .auto, installedVersion: "2.1.305", checkedVersion: "2.1.301", note: nil))
+        let earlier = AgentDelivery.of(.claude, verdict: DeliveryVerdict(policy: .auto, version: "2.1.301"), installed: "2.1.299")
+        #expect(earlier.messaging == .auto)
+    }
+
+    /// The broadcast's case: Codex moved to a new minor since the check, so nothing typed reaches its workers.
     @Test func anotherVersionInstalledOrNoneCheckedCannotBeMessaged() {
         let updated = AgentDelivery.of(.codex, verdict: DeliveryVerdict(policy: .auto, version: "0.150.0"), installed: "0.160.0")
         #expect(updated == AgentDelivery(messaging: .off, installedVersion: "0.160.0", checkedVersion: "0.150.0",
-                                         note: "Codex 0.160.0 is installed, but AiTerm's delivery check passed 0.150.0 only."))
+                                         note: "Codex 0.160.0 is installed, but AiTerm's delivery check covers 0.150.x only."))
+        let major = AgentDelivery.of(.claude, verdict: DeliveryVerdict(policy: .auto, version: "2.1.301"), installed: "3.1.301")
+        #expect(major.messaging == .off)
         let unchecked = AgentDelivery.of(.codex, verdict: nil, installed: "0.160.0")
         #expect(unchecked == AgentDelivery(messaging: .off, installedVersion: "0.160.0", checkedVersion: nil,
                                            note: "AiTerm's delivery check hasn't passed Codex 0.160.0."))
@@ -29,7 +39,7 @@ import Foundation
     @Test func anInstalledVersionNotReadLeavesTheVerdictAndSaysWhichVersionItHoldsFor() {
         let unread = AgentDelivery.of(.claude, verdict: DeliveryVerdict(policy: .auto, version: "2.1.301"), installed: nil)
         #expect(unread == AgentDelivery(messaging: .auto, installedVersion: nil, checkedVersion: "2.1.301",
-                                        note: "AiTerm couldn't read which Claude Code version is installed: its workers can be messaged only while it is 2.1.301."))
+                                        note: "AiTerm couldn't read which Claude Code version is installed: its workers can be messaged only while it is 2.1.x."))
     }
 
     @Test func itReadsAsJSONWithItsVersions() throws {
