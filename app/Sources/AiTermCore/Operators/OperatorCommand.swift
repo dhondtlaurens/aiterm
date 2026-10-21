@@ -11,7 +11,8 @@ import Darwin
 /// leaves it Read, Grep and Glob, `--strict-mcp-config` leaves it no MCP server but AiTerm's, and
 /// `--allowedTools` lets those tools run without a prompt.
 public enum OperatorCommand {
-    public static let briefFile = "brief.md", mcpFile = "mcp.json", tokenFile = "token", firstMessageFile = "first-message.md"
+    public static let briefFile = "brief.md", mcpFile = "mcp.json", tokenFile = "token", firstMessageFile = "first-message.md",
+        launchFile = "launch.sh"
 
     /// `operators/runs/<run-id>/` in AiTerm's support folder: outside every worktree.
     public static func runFolder(_ runId: UUID, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
@@ -37,9 +38,11 @@ public enum OperatorCommand {
 
     /// The line the operator's window runs, every word shell-safe; a first message is read from
     /// `first-message.md` in the run folder, the window's working directory, as a big first prompt
-    /// is read from `.aiterm/first-prompt.md` today.
+    /// is read from `.aiterm/first-prompt.md` today. The line is typed into the person's own shell, so
+    /// it reads the file with `command cat`: an alias or function of theirs named `cat` (one that pages,
+    /// colours or numbers) would hand Claude its output instead of the message.
     public static func command(words: [String], firstMessage: Bool) -> String {
-        (words.map(AgentCommand.shellWord) + (firstMessage ? ["\"$(cat \(firstMessageFile))\""] : [])).joined(separator: " ")
+        (words.map(AgentCommand.shellWord) + (firstMessage ? ["\"$(command cat \(firstMessageFile))\""] : [])).joined(separator: " ")
     }
 
     /// `mcp.json`: one HTTP server, `aiterm` — so its tools are `mcp__aiterm__*` — at the daemon's
@@ -79,7 +82,7 @@ public enum OperatorCommand {
     /// readable by you alone (0600, in a 0700 folder) — and returns the command to run in it.
     /// A fresh launch also writes the broadcast as `first-message.md`, the operator's first message:
     /// `firstMessage` when given (`freshStartMessage`), else `firstMessage(for:)`; `resuming` a
-    /// conversation sends none.
+    /// conversation sends none. A command too long to type goes to `launch.sh` (`typed`).
     public static func prepare(run: OperatorRun, projects: [Project], hookPort: Int = AiTermPaths.hookPort,
                                home: URL = FileManager.default.homeDirectoryForCurrentUser, token: String = makeToken(),
                                resuming conversation: String? = nil, firstMessage message: String? = nil,
@@ -99,7 +102,21 @@ public enum OperatorCommand {
         }
         let words = launchWords(model: run.profile.model, effort: run.profile.reasoning, runFolder: folder,
                                 projectPaths: projects.map(\.path), resuming: conversation)
-        return Prepared(folder: folder, command: command(words: words, firstMessage: first), token: token)
+        return Prepared(folder: folder, command: try typed(command(words: words, firstMessage: first), in: folder), token: token)
+    }
+
+    /// What the Operator's window has typed: `line` itself, or, past `AgentCommand.inlineLimit` (many
+    /// projects, each its `--add-dir`), a line that reads it from `launch.sh` in the run folder, as a
+    /// task's long first prompt is read from `.aiterm/first-prompt.md`: a terminal still in canonical
+    /// mode keeps only 1024 bytes of a line. A launch short enough to type removes an earlier one's file.
+    static func typed(_ line: String, in folder: URL) throws -> String {
+        let file = folder.appendingPathComponent(launchFile)
+        guard line.utf8.count > AgentCommand.inlineLimit else {
+            try? FileManager.default.removeItem(at: file)
+            return line
+        }
+        try Data(line.utf8).write(to: file, options: .atomic)
+        return "eval \"$(command cat \(launchFile))\""
     }
 
     /// The Operator's first message: the broadcast's prompt, its Review and its Done under a fixed

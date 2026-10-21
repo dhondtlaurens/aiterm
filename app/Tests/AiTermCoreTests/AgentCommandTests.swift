@@ -63,8 +63,25 @@ import Darwin
         try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
         let long = String(repeating: "x", count: 9000)
         let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: long, worktreePath: wt, git: .hermetic())
-        #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"")
+        #expect(cmd == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"")
         #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == long)
+    }
+
+    /// Typed into the person's own shell, the command reads the file past any alias or function of
+    /// theirs named `cat`, and hands the agent the prompt byte for byte, whatever it holds.
+    @Test(arguments: [("/bin/zsh", "alias cat='tr a-z A-Z'"), ("/bin/zsh", "cat() { echo replaced; }"),
+                      ("/bin/bash", "cat() { echo replaced; }"), ("/bin/sh", "cat() { echo replaced; }")])
+    func testAPromptFromTheFileArrivesWholePastTheShellsOwnCat(shell: String, definition: String) throws {
+        try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
+        let prompt = TypedText.text("Prompt", bytes: 110_000)
+        let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
+
+        let ran = try ShellLine.run(shell, definition + "\nclaude() { /usr/bin/printf '%s\\0' \"$@\"; }\neval \"$1\"", argument: cmd,
+                                    in: URL(fileURLWithPath: wt))
+
+        #expect(ran.status == 0)
+        // A pasted Windows line end is a newline, as `build` has always written it.
+        #expect(ran.out == ShellLine.printed(["--model", "opus", prompt.replacingOccurrences(of: "\r\n", with: "\n")]))
     }
 
     /// The command is typed into a tab whose shell may not have started its line editor yet. Until
@@ -79,7 +96,7 @@ import Darwin
         // Short as text, but each `'` is typed as four bytes once it is quoted.
         for prompt in [String(repeating: "x", count: 1100), String(repeating: "it's ", count: 150)] {
             let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
-            #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"")
+            #expect(cmd == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"")
             #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == prompt)
             #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: prompt) == cmd)
         }
@@ -92,7 +109,7 @@ import Darwin
         try FileManager.default.createDirectory(atPath: wt, withIntermediateDirectories: true)
         for prompt in ["fix\tit", "one\rtwo", "stop\u{1B}here", "x\u{03}y", "x\u{7F}y"] {
             let cmd = try AgentCommand.build(agent: .claude, model: "opus", reasoning: nil, prompt: prompt, worktreePath: wt, git: .hermetic())
-            #expect(cmd == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"", "\(prompt.debugDescription)")
+            #expect(cmd == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"", "\(prompt.debugDescription)")
             #expect(try String(contentsOfFile: wt + "/.aiterm/first-prompt.md", encoding: .utf8) == prompt)
             #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: prompt) == cmd)
         }
@@ -146,14 +163,14 @@ import Darwin
     }
 
     /// Final review item H: the New Task footer must show the exact command before any worktree
-    /// exists, so the preview never touches the disk and switches to the `$(cat …)` form at the same
+    /// exists, so the preview never touches the disk and switches to the `$(command cat …)` form at the same
     /// threshold `build` uses.
     @Test func testPreviewCommandMatchesBuildWithoutTouchingDisk() {
         #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: "high", prompt: "/plan fix it") == "claude --model opus --effort high '/plan fix it'")
         #expect(AgentCommand.previewCommand(agent: .codex, model: "gpt-5.6", reasoning: nil, prompt: nil) == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.6")
 
         let long = String(repeating: "x", count: 9000)
-        #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: long) == "claude --model opus \"$(cat .aiterm/first-prompt.md)\"")
+        #expect(AgentCommand.previewCommand(agent: .claude, model: "opus", reasoning: nil, prompt: long) == "claude --model opus \"$(command cat .aiterm/first-prompt.md)\"")
         #expect(!FileManager.default.fileExists(atPath: wt), "the preview must not create a worktree directory")
     }
 

@@ -62,13 +62,13 @@ public enum AgentCommand {
     }
 
     /// The exact command a task would launch, built without touching the disk: a prompt that goes
-    /// through the file shows the `$(cat …)` form the real build would produce, instead of
+    /// through the file shows the `$(command cat …)` form the real build would produce, instead of
     /// pretending the prompt is inline. For the New Task footer (spec 4.4), where no worktree exists yet.
     public static func previewCommand(agent: AgentKind, model: String, reasoning: String?, prompt: String?,
                                       operated: Bool = false) -> String {
         var parts = invocation(agent: agent, model: model, reasoning: reasoning, operated: operated)
         if let prompt = prompt.map(normalized), !prompt.isEmpty {
-            parts.append(readsFromFile(prompt, after: parts) ? "\"$(cat .aiterm/first-prompt.md)\"" : shellQuote(prompt))
+            parts.append(readsFromFile(prompt, after: parts) ? "\"$(command cat .aiterm/first-prompt.md)\"" : shellQuote(prompt))
         }
         return parts.joined(separator: " ")
     }
@@ -84,7 +84,7 @@ public enum AgentCommand {
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
                 try prompt.write(toFile: dir + "/first-prompt.md", atomically: true, encoding: .utf8)
                 excludeAitermDirectory(worktreePath: worktreePath, git: git)
-                parts.append("\"$(cat .aiterm/first-prompt.md)\"")
+                parts.append("\"$(command cat .aiterm/first-prompt.md)\"")
             } else {
                 parts.append(shellQuote(prompt))
             }
