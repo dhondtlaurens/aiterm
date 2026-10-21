@@ -190,13 +190,13 @@ import Foundation
         #expect(!off.contains("needs the Oracle's yes"))
         #expect(off.contains("report off-brief finds with `report_find`"))
         for brief in [on, off] {
-            #expect(brief.contains("An addition past the limit that is refused is noted for the debrief by AiTerm; you need not report it."))
+            #expect(brief.contains("An addition past the limit that is refused is noted for the summary by AiTerm; you need not report it."))
         }
         #expect(on.contains("Such an addition may answer pending: call create_task again with its challengeId."))
         #expect(!off.contains("may answer pending"))
     }
 
-    /// A choice the brief did not spell out is logged for the debrief, with its reason.
+    /// A choice the brief did not spell out is logged for the summary, with its reason.
     @Test func theBriefAsksForEachDecisionsWhy() {
         for oracle in [true, false] {
             let brief = OperatorCommand.brief(run: F.run(oracle: oracle), projects: [])
@@ -307,6 +307,17 @@ import Foundation
             }
         }
         #expect(!OperatorCommand.firstMessage(for: F.run()).contains("\u{2014}"))
+    }
+
+    /// The summary the sheet shows is the Operator's own words: the brief asks for it when the broadcast completes.
+    @Test func theBriefAsksForTheSummary() {
+        for oracle in [true, false] {
+            let brief = OperatorCommand.brief(run: F.run(oracle: oracle), projects: [])
+            #expect(brief.contains("write_summary"))
+            #expect(brief.contains("Say what was done and how it went, honestly"))
+            #expect(brief.contains("a few short paragraphs, in plain prose, no lists or headings"))
+            #expect(!brief.localizedCaseInsensitiveContains("debrief"))
+        }
     }
 
     @Test func theBriefTellsTheOperatorNotToWriteEmDashes() {

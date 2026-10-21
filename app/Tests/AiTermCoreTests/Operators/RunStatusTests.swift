@@ -41,6 +41,17 @@ import Foundation
         #expect(status.tasks[4].live == nil)
     }
 
+    /// A complete run with no summary says one is due, so a restarted Operator writes it; with one, or while active, none is.
+    @Test func aCompleteRunWithoutASummaryHasOneDue() throws {
+        var (s, live, _) = scene()
+        func due() throws -> Bool { try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)).run.summaryDue }
+        #expect(try !due(), "an active run")
+        s.runs[0].state = .complete
+        #expect(try due())
+        s.runs[0].summary = "Everything merged."
+        #expect(try !due())
+    }
+
     @Test func theObligationsSayWhatWaits() throws {
         let (s, live, _) = scene()
         let o = try #require(RunStatus.build(state: s, run: F.runId, revision: 1, live: live)).obligations

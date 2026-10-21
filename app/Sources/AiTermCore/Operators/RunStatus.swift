@@ -86,13 +86,17 @@ public struct RunStatus: Encodable, Equatable, Sendable {
         public var usage: [String: Int]
         /// Each installed agent's models and default, by the agent's raw value; an agent not installed is left out.
         public var agents: [String: AgentChoice]
+        /// The run is complete and its summary is not written: the Operator writes it with `write_summary`.
+        public var summaryDue: Bool
         public init(id: UUID, name: String, state: OperatorRunState, prompt: String, review: String? = nil, done: String? = nil,
                     planRevision: Int, openRevision: Int, firstPlanSize: Int? = nil, finds: [OffBriefFind] = [],
-                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:], jiraProjectKeys: [String] = []) {
+                    slices: Slices = .none, oracleIsOn: Bool = false, usage: [String: Int] = [:], agents: [String: AgentChoice] = [:], jiraProjectKeys: [String] = [],
+                    summaryDue: Bool = false) {
             self.id = id; self.name = name; self.state = state; self.prompt = prompt; self.review = review; self.done = done
             self.planRevision = planRevision; self.openRevision = openRevision; self.firstPlanSize = firstPlanSize
             self.jiraProjectKeys = jiraProjectKeys
             self.finds = finds; self.slices = slices; self.oracleIsOn = oracleIsOn; self.usage = usage; self.agents = agents
+            self.summaryDue = summaryDue
         }
     }
 
@@ -237,7 +241,8 @@ public struct RunStatus: Encodable, Equatable, Sendable {
                      planRevision: run.planRevision, openRevision: run.openRevision, firstPlanSize: run.firstPlanSize,
                      finds: run.finds, slices: run.profile.slices, oracleIsOn: run.profile.oracle.isOn,
                      usage: Dictionary(runLive.weeklyUsage.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }),
-                     agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }), jiraProjectKeys: run.jiraProjectKeys),
+                     agents: Dictionary(runLive.agents.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }), jiraProjectKeys: run.jiraProjectKeys,
+                     summaryDue: run.state == .complete && run.summary == nil),
             tasks: lines,
             obligations: Obligations(
                 questionsWaiting: run.questions.filter { $0.resolution == nil }.map {

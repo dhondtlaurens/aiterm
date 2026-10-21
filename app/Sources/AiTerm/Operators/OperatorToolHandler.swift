@@ -151,7 +151,7 @@ final class OperatorToolHandler {
     /// The tools that change the run, its tasks or its records: the operator has seen what they changed.
     /// `finish_task` is one from M3 (part G): a publication changes the run, and may complete it.
     static let mutating: Set<String> = ["create_task", "update_task", "submit_plan", "message_task", "open_tab", "mark_task", "resume_task",
-                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find",
+                                        "retry_task", "finish_task", "ask_you", "resolve_question", "log_decision", "leave_for_you", "report_find", "write_summary",
                                         "jira_create", "jira_move", "jira_link", "review_task", "request_review", "reply_thread"]
 
     init(workspace: WorkspaceStore, live: LiveSessions, daemon: @escaping @MainActor () -> (any DaemonCommands)?, ports: OperatorPorts,
@@ -258,6 +258,7 @@ final class OperatorToolHandler {
         case "resolve_question": return try resolveQuestion(call, in: run)
         case "leave_for_you": return try leaveForYou(call, in: run)
         case "log_decision": return try logDecision(call, in: run)
+        case "write_summary": return try writeSummary(call, in: run)
         case "report_find": return try await reportFind(call, in: run)
         case "create_task": return try await createTask(call, in: run)
         case "update_task": return try await updateTask(call, in: run)
@@ -409,7 +410,17 @@ final class OperatorToolHandler {
         return ["decision": .string(key), "logged": true]
     }
 
-    /// An off-brief find (spec §4.1): never worked on, kept for the debrief, once per key, and filed in Jira when
+    /// The Operator's summary of the broadcast, accepted once the run is complete: its words (trimmed) and the time they came.
+    /// Calling it again replaces them.
+    private func writeSummary(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
+        let text = try call.string("text")
+        guard run.state == .complete else { throw ToolRefusal("The broadcast isn\u{2019}t complete yet.") }
+        let at = ports.now()
+        mutate(in: run.id) { $0.updateRun(id: run.id) { $0.summary = text; $0.summaryAt = at } }
+        return ["written": true]
+    }
+
+    /// An off-brief find (spec §4.1): never worked on, kept for the summary, once per key, and filed in Jira when
     /// the broadcast's Jira slice is on (`ticket` says which; `notFiled` says why not).
     private func reportFind(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let key = try call.string("key"), title = try call.string("title"), why = try call.string("why")

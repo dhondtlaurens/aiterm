@@ -49,6 +49,45 @@ import Testing
         #expect(world.run(run.id)?.decisions.map(\.text) == ["Kept the old endpoint."])
     }
 
+    /// The Operator writes the summary once the broadcast is complete; the run keeps it with the time it came.
+    @Test func writeSummaryIsRefusedBeforeComplete() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project])
+        let world = try makeWorld(run)
+        #expect(await world.call(run.id, "write_summary", ["text": "Done."]).message == "The broadcast isn\u{2019}t complete yet.")
+        #expect(world.run(run.id)?.summary == nil && world.run(run.id)?.summaryAt == nil)
+    }
+
+    @Test func writeSummaryStoresIt() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .complete)
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        let world = try OperatorWorld(OperatorServiceFixtures.state(projects: [project], runs: [run])) { $0.now = { at } }
+        let answer = await world.call(run.id, "write_summary", ["text": "  Two tasks merged; one needed a retry.\n"])
+        #expect(answer.value?["written"] == true)
+        #expect(world.run(run.id)?.summary == "Two tasks merged; one needed a retry.", "surrounding whitespace is trimmed")
+        #expect(world.run(run.id)?.summaryAt == at)
+    }
+
+    @Test func writeSummaryAgainReplacesIt() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .complete)
+        let world = try makeWorld(run)
+        _ = await world.call(run.id, "write_summary", ["text": "First."])
+        _ = await world.call(run.id, "write_summary", ["text": "Second."])
+        #expect(world.run(run.id)?.summary == "Second.")
+    }
+
+    @Test func writeSummaryNeedsText() async throws {
+        let run = OperatorServiceFixtures.run(projects: [project], state: .complete)
+        let world = try makeWorld(run)
+        #expect(await world.call(run.id, "write_summary", [:]).message == "write_summary needs `text`.")
+        #expect(await world.call(run.id, "write_summary", ["text": "  \n "]).message == "write_summary needs `text`.")
+        #expect(world.run(run.id)?.summary == nil)
+    }
+
+    /// The summary is a change the Operator has seen: the call counts as its own news, so the wake does not echo it.
+    @Test func writeSummaryIsAMutatingTool() {
+        #expect(OperatorToolHandler.mutating.contains("write_summary"))
+    }
+
     /// Lessons went with the personas: the tool is no longer AiTerm's.
     @Test func proposeLessonIsGone() async throws {
         let run = OperatorServiceFixtures.run(projects: [project])

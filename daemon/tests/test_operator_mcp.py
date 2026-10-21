@@ -137,7 +137,7 @@ def test_memory_wins_over_a_file(tmp_path):
 CONTRACT_TOOLS = {"run_status", "jira_search", "jira_create", "jira_move", "jira_link", "create_task", "update_task",
                   "submit_plan", "read_task", "message_task", "open_tab", "mark_task", "resume_task", "retry_task", "finish_task",
                   "ask_you", "resolve_question", "report_find", "log_decision", "leave_for_you", "review_task", "request_review",
-                  "reply_thread", "find_user"}
+                  "reply_thread", "find_user", "write_summary"}
 
 
 def test_the_tools_are_the_contracts():
@@ -167,6 +167,19 @@ def test_only_the_challenged_tools_take_a_challenge_reply():
         if tool["name"] in CHALLENGED_TOOLS:
             # Integration decision 3: a pending challenge is called again with its id.
             assert "pending" in properties["challengeId"]["description"]
+
+
+def test_write_summary_takes_its_text_and_asks_for_the_summary():
+    tool = next(tool for tool in TOOLS if tool["name"] == "write_summary")
+    assert tool["inputSchema"]["required"] == ["text"]
+    assert list(tool["inputSchema"]["properties"]) == ["text"]
+    assert "write_summary" not in CHALLENGED_TOOLS
+    assert "Say what was done and how it went, honestly" in tool["description"]
+
+
+def test_no_tool_speaks_of_a_debrief():
+    for tool in TOOLS:
+        assert "debrief" not in json.dumps(tool).lower(), tool["name"]
 
 
 def test_the_values_are_the_apps():
@@ -233,7 +246,7 @@ def test_schema_has_report_find_and_no_propose_lesson():
     assert "propose_lesson" not in tools
     report = tools["report_find"]["inputSchema"]
     assert set(report["properties"]) == {"key", "title", "why"} and set(report["required"]) == {"key", "title", "why"}
-    assert "debrief" in tools["report_find"]["description"]
+    assert "summary" in tools["report_find"]["description"]
 
 
 def test_create_task_end_is_optional():
@@ -242,9 +255,9 @@ def test_create_task_end_is_optional():
     assert "draftMR" in create["properties"]["end"]["description"]
 
 
-def test_create_task_says_a_refused_addition_is_noted_for_the_debrief():
+def test_create_task_says_a_refused_addition_is_noted_for_the_summary():
     description = next(tool for tool in TOOLS if tool["name"] == "create_task")["description"]
-    assert "pending" in description and "noted for the debrief" in description and "report_find" not in description
+    assert "pending" in description and "noted for the summary" in description and "report_find" not in description
 
 
 def test_no_tool_text_carries_an_em_dash():

@@ -242,10 +242,17 @@ public enum OperatorCommand {
             + (oracleIsOn ? "Past that, each addition needs the Oracle's yes. "
                             + "Such an addition may answer pending: call create_task again with its challengeId. "
                           : "The Oracle is off, so the backlog cannot grow past that. ")
-            + "An addition past the limit that is refused is noted for the debrief by AiTerm; you need not report it. "
+            + "An addition past the limit that is refused is noted for the summary by AiTerm; you need not report it. "
             + "Add only what serves the brief. Anything outside the brief that you or an agent finds, such as a leak in another "
-            + "module, is not worked on: report off-brief finds with `report_find`, and it goes into the debrief."
+            + "module, is not worked on: report off-brief finds with `report_find`, and the summary may mention it."
     }
+
+    /// The Operator's last act: its summary of the broadcast, in its own words, once every task is done. The wording
+    /// is the spec's, minus the em dash the Operator is told not to write.
+    static let summaryRule = "When the broadcast is complete, write its summary with `write_summary`: a few short paragraphs, in plain "
+        + "prose, no lists or headings. Say what was done and how it went, honestly: what went wrong and how it was handled, "
+        + "not only what succeeded. Fold in what you decided on your own and what you found along the way. "
+        + "Keep it short enough to read in a minute. run_status shows summaryDue while a complete broadcast has none."
 
     static let agentChoiceRule = "Your words win. If the person's words in the prompt or the Instructions name an agent or a model, "
         + "for everything or for one task, use it. Otherwise choose per task, from the installed agents, Claude or Codex. "
@@ -300,13 +307,14 @@ public enum OperatorCommand {
             "A task listed under branchDrift in run_status committed off its task branch, and AiTerm reads only that branch. "
                 + "Have its worker bring the work onto the task branch with message_task before you accept, or block the task.",
             tabRule,
+            summaryRule,
         ]
         if oracle.isOn {
             rules.append("Some of your calls are challenged by the Oracle, a second opinion. A challenged call may first return a critique, "
                          + "or `pending: true` while the critique is still being written; either way nothing has happened yet. "
                          + "Read the critique, then call the same tool again with the challengeId and either a challengeReply "
                          + "(your answer to the critique) or revised arguments; only that second call takes effect. "
-                         + "Keeping the act with a challengeReply is your decision: the debrief lists it with the Oracle's objection.")
+                         + "Keeping the act with a challengeReply is your decision: the summary may say it with the Oracle's objection.")
         }
         return rules
     }

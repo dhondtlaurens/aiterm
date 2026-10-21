@@ -211,12 +211,12 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("create_task", "Adds an unstarted task to the open plan revision, in one of the broadcast's projects. The same key "
           "in this broadcast returns the task already made. Once the first plan is submitted, additions past a quarter of its "
           "size need the Oracle's yes, which may answer pending: call again with its challengeId. One the Oracle refuses, "
-          "or any past that limit with the Oracle off, is refused and noted for the debrief by AiTerm.",
+          "or any past that limit with the Oracle off, is refused and noted for the summary by AiTerm.",
           {"key": _KEY, "title": _text("The task's title, as its row shows it."),
            "brief": _text("The worker's first prompt: everything it needs, since it sees nothing else."),
            "project": _text("The project it belongs to, one of the broadcast's, by name or by id from run_status."),
            "ticket": _text("The Jira key it works, if any."), "agent": _AGENT, "model": _MODEL,
-           "modelReason": _text("Why this agent and model, in one line, as the task's card and the debrief show it."),
+           "modelReason": _text("Why this agent and model, in one line, as the task's card and the summary show it."),
            "agentPinned": {"type": "boolean", "description": "True when the person's words named this task's agent: it then "
                                                              "starts on that agent whatever its weekly use."},
            "end": _END, "dependsOn": _DEPENDS_ON},
@@ -324,18 +324,23 @@ TOOLS: tuple[dict[str, Any], ...] = (
     _tool("resolve_question", "Closes a question the user answered, with a one-line summary of the answer.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
-          "worked on, and the debrief lists it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "
+          "worked on, and the summary may mention it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "
           "Task in the first of its Jira projects and answers the ticket's key, or why it could not. The same key is recorded once.",
           {"key": _KEY, "title": _text("The find, in a few words."), "why": _text("Why it matters, in one line.")},
           ("key", "title", "why")),
     _tool("leave_for_you", "Records what a slice kept you from doing, naming what is left and why. "
-          "It changes no task and sends nothing. The same key is recorded once for the debrief.",
+          "It changes no task and sends nothing. The same key is recorded once.",
           {"key": _KEY, "text": _text("What is left for the person and why, in one sentence.")}, ("key", "text")),
-    _tool("log_decision", "Writes a decision you took on your own to the broadcast's log, for the debrief. The same key is "
+    _tool("log_decision", "Writes a decision you took on your own to the broadcast's log, for the summary. The same key is "
           "written once.",
           {"key": _KEY, "text": _text("The decision, in a few words."), "task": _TASK,
            "why": _text("Why you decided it, in one sentence."),
            "objection": _text("The Oracle's objection, when you decided against it.")}, ("key", "text")),
+    _tool("write_summary", "When the broadcast is complete, write its summary with write_summary: a few short paragraphs, in "
+          "plain prose, no lists or headings. Say what was done and how it went, honestly: what went wrong and how it was "
+          "handled, not only what succeeded. Fold in what you decided on your own and what you found along the way. Keep it "
+          "short enough to read in a minute. Refused until the broadcast is complete; calling it again replaces the summary.",
+          {"text": _text("The summary: a few short paragraphs of plain prose.")}, ("text",)),
 )
 TOOL_NAMES = frozenset(tool["name"] for tool in TOOLS)
 
