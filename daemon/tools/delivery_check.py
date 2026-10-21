@@ -54,7 +54,9 @@ AGENTS: tuple[AgentKind, ...] = ("claude", "codex")
 # Pasted into an open prompt: the keys that answer one -- Codex's y, a and p (p chose "always allow"
 # in the spike, §2.2), Claude's digits.
 HAZARD = "please wait 1 2 3 y a p"
-# Both CLIs' footer while a turn runs ("esc to interrupt"), without whitespace and case-folded.
+# The footer while a turn runs ("esc to interrupt"), without whitespace and case-folded: Codex's, and
+# Claude's until 2.1.30x, whose turn shows none. Only `idle` reads it, as a backstop: every scenario
+# waits for its own answer before the next.
 WORKING = "tointerrupt"
 # How each CLI starts: Claude asking before every command, Codex sandboxed and asking on request.
 COMMANDS: dict[AgentKind, str] = {"claude": "claude --permission-mode default", "codex": "codex -s workspace-write -a on-request"}
@@ -63,7 +65,7 @@ COMMANDS: dict[AgentKind, str] = {"claude": "claude --permission-mode default", 
 STEPS: dict[str, str] = {
     "idleSubmit": "sending one message, and waiting for its answer",
     "multiLine": "sending three lines as one message",
-    "busyQueue": "sending a message while it works on a story",
+    "busyQueue": "sending a message while it writes a story",
     "takeover": "pasting a message and holding its Enter back",
     "menuPaste": "pasting into its /model menu",
     "approvalRace": "pasting while an approval opens",
@@ -73,6 +75,8 @@ STEPS: dict[str, str] = {
 # (answer_trust): Claude's opens on "No, exit", Codex's on this.
 TRUST_OPTION: dict[AgentKind, str] = {"claude": "Yes, I trust this folder", "codex": "Yes, allow Codex to work in this folder"}
 DOWN = "\x1b[B"
+# The story busyQueue asks for ends on this: its answer, which the prompt does not spell out.
+STORY_END = "FIN 7"
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,23 +350,26 @@ async def multi_line(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
 
 
 async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
-    story = "Write a 200-word story about a lighthouse keeper, then end with the line STORY OVER."
+    """A message typed while the agent writes a story is queued, and answered. It is typed before the
+    story's last line, an answer the prompt does not spell out, shows: what proves the agent busy in
+    every version, where a footer does not (Claude 2.1.306 dropped "esc to interrupt")."""
+    story = "Write a 200-word story about a lighthouse keeper, then end with the word FIN followed by the result of 3 plus 4."
     first = await live.deliverer(agent).deliver(sid, story, 1)
     if first.result != "delivered":
         return await live.failure(sid, agent, "first message delivered from " + expected_idle(agent),
                                   f"{first.result}: {first.reason}", refresh=True)
-    if not await live.wait_for(sid, lambda screen: WORKING in _flat(screen).lower(), 30):
-        return await live.failure(sid, agent, f"working footer 'esc to interrupt' ({WORKING!r})",
-                                  "The agent never showed it was working, so a queued message was not checked.")
+    await asyncio.sleep(2)  # its turn starting
+    if shows(STORY_END)(await live.screen(sid)):
+        return await live.failure(sid, agent, f"the story still being written (no {STORY_END!r} yet)",
+                                  "It was done before the second message could be typed, so a queued message was not checked.")
     second = await live.deliverer(agent).deliver(sid, "When you are done, reply with only the word CHARLIE followed by 5 plus 4.", 1)
     if second.result != "delivered":
-        return await live.failure(sid, agent, f"queued delivery while working ({WORKING!r}) with "
-                                  f"input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
+        return await live.failure(sid, agent, f"queued delivery while the story was being written (no {STORY_END!r} yet), "
+                                  f"with input_box marker {HARNESS_BY_AGENT[agent].input_box!r} and no prompt",
                                   f"{second.result}: {second.reason}", refresh=True)
-    answered = await live.wait_for(sid, shows("CHARLIE 9"), 240)
-    if not answered:
-        return await live.failure(sid, agent, "answer marker 'CHARLIE 9' for the queued message")
-    return ScenarioResult(True, "the message typed while it worked was queued and answered")
+    if not await live.wait_for(sid, shows(STORY_END, "CHARLIE 9"), 240):
+        return await live.failure(sid, agent, f"the story's {STORY_END!r} and the queued message's answer 'CHARLIE 9'")
+    return ScenarioResult(True, "the message typed while it wrote was queued and answered")
 
 
 async def takeover(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:

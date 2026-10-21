@@ -150,7 +150,7 @@ async def no_sleep(seconds):
     ("startup_paste", "Yes, I trust this folder"),
     ("idle_submit", "ALPHA 42"),
     ("multi_line", "DELTA 5"),
-    ("busy_queue", "tointerrupt"),
+    ("busy_queue", "CHARLIE 9"),
     ("permission_paste", "Do you want to proceed?"),
 ])
 async def test_failed_scenario_keeps_expected_marker_and_screen(scenario, marker, tmp_path, monkeypatch):
@@ -168,6 +168,7 @@ async def test_failed_scenario_keeps_expected_marker_and_screen(scenario, marker
 
     bridge, sid = await fake_session()
     bridge.screens[sid] = "unexpected screen text\n\n"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
     live = NeverReady(bridge)
     args = (live, "claude", sid, tmp_path) if scenario == "permission_paste" else (live, "claude", sid)
     result = await getattr(check, scenario)(*args)
@@ -356,18 +357,16 @@ async def test_background_failure_reports_front_apps_and_screen():
 
 
 @pytest.mark.parametrize("queued", ["blocked", "delivered"])
-async def test_busy_queue_failure_after_working_keeps_screen(queued):
+async def test_busy_queue_failure_after_working_keeps_screen(queued, monkeypatch):
     from types import SimpleNamespace
     from tools import delivery_check as check
 
     deliveries = iter(["delivered", queued])
-    waits = iter([True, False])
 
     class Busy(check.Live):
         async def wait_for(self, sid, seen, seconds):
-            self.bridge.screens[sid] = "working screen without reply"
             await self.screen(sid)
-            return next(waits)
+            return False
 
         def deliverer(self, agent, **kwargs):
             async def deliver(*args):
@@ -375,10 +374,51 @@ async def test_busy_queue_failure_after_working_keeps_screen(queued):
             return SimpleNamespace(deliver=deliver)
 
     bridge, sid = await fake_session()
+    bridge.screens[sid] = "working screen without reply"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
     result = await check.busy_queue(Busy(bridge), "claude", sid)
     assert not result.passed
-    assert ("tointerrupt" if queued == "blocked" else "CHARLIE 9") in result.detail
+    assert ("queued delivery" if queued == "blocked" else "CHARLIE 9") in result.detail
     assert "working screen without reply" in result.detail
+
+
+async def test_busy_queue_types_the_second_message_only_while_the_story_is_unfinished(monkeypatch):
+    from types import SimpleNamespace
+    from tools import delivery_check as check
+    sent = []
+
+    class Done(check.Live):
+        def deliverer(self, agent, **kwargs):
+            async def deliver(sid, text, *args):
+                sent.append(text)
+                return SimpleNamespace(result="delivered", reason="")
+            return SimpleNamespace(deliver=deliver)
+
+    bridge, sid = await fake_session()
+    # The story typed out in full before the second message: the agent was not busy when it would go.
+    bridge.screens[sid] = "Once upon a time.\n\nFIN 7"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    result = await check.busy_queue(Done(bridge), "claude", sid)
+    assert not result.passed and "FIN 7" in result.detail
+    assert len(sent) == 1
+
+
+async def test_busy_queue_passes_once_both_answers_show(monkeypatch):
+    from types import SimpleNamespace
+    from tools import delivery_check as check
+
+    class Busy(check.Live):
+        def deliverer(self, agent, **kwargs):
+            async def deliver(sid, text, *args):
+                if text.startswith("When you are done"):
+                    self.bridge.screens[sid] = "Once upon a time.\n\nFIN 7\n\nCHARLIE 9"
+                return SimpleNamespace(result="delivered", reason="")
+            return SimpleNamespace(deliver=deliver)
+
+    bridge, sid = await fake_session()
+    bridge.screens[sid] = "Once upon a"
+    monkeypatch.setattr(check.asyncio, "sleep", no_sleep)
+    assert (await check.busy_queue(Busy(bridge), "claude", sid)).passed
 
 
 async def test_screen_diagnostic_caps_long_lines():
