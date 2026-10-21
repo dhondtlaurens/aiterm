@@ -1,11 +1,21 @@
 #!/bin/zsh
-# scripts/test.sh [all|swift|daemon] [-- <swift test arguments>] — runs AiTerm's automated suites
+# scripts/test.sh [changed|all|swift|daemon] [-- <swift test arguments>] — runs AiTerm's automated suites
 # with the same validated Swift toolchain as builds.
-#   all     (the default) the toolchain guard, the daemon's tests and lint, then every Swift test
+#   changed (the default) what this checkout's changes since main can affect: its commits, what is
+#           staged and unstaged, and new files. scripts/test-select.sh turns those paths into suites
+#           (scripts/test-routes.tsv says why each goes where), and this prints them, with the paths
+#           that picked each, before it runs them. Nothing a test reads changed: nothing runs.
+#   all     the toolchain guard, the daemon's tests and lint, then every Swift test
 #   swift   the toolchain guard and the Swift tests
 #   daemon  the daemon's tests and lint
-# Anything after `--` goes to `swift test`, e.g. `scripts/test.sh swift -- --filter DesignRulesTests`;
-# with no suite named (`scripts/test.sh -- --filter X`) the suite is `all`, the daemon's included.
+# The toolchain guard is scripts/test-swift-toolchain.sh and scripts/test-test-select.sh; `changed`
+# runs it only when the toolchain or the runner changed, or when it runs everything.
+# Anything after `--` goes to `swift test`, e.g. `scripts/test.sh swift -- --filter DesignRulesTests`.
+# With no suite named (`scripts/test.sh -- --filter X`) the suite is `changed` and the arguments
+# replace the Swift tests it picked, running even when it picked none; the daemon and the guard run
+# only if it picked them.
+# AITERM_TEST_PATHS, one path per line, stands in for the changed paths (the guard's fixture runs set
+# it), and AITERM_TEST_LOGS_KEEP=0 drops a failed run's logs instead of keeping them.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,17 +23,115 @@ PYTHON="${PYTHON:-python3}"
 DAEMON_VENV="$ROOT/daemon/.venv"
 DEFAULT_PYTEST="$DAEMON_VENV/bin/pytest"
 PYTEST="${PYTEST:-$DEFAULT_PYTEST}"
+ROUTES="$ROOT/scripts/test-routes.tsv"
 
-usage() { print -u2 "usage: scripts/test.sh [all|swift|daemon] [-- <swift test arguments>]"; exit 2; }
-SUITE=all
+usage() { print -u2 "usage: scripts/test.sh [changed|all|swift|daemon] [-- <swift test arguments>]"; exit 2; }
+SUITE=changed
 if (( $# )) && [[ "$1" != -- ]]; then SUITE="$1"; shift; fi
-[[ "$SUITE" == (all|swift|daemon) ]] || usage
+[[ "$SUITE" == (changed|all|swift|daemon) ]] || usage
 SWIFT_ARGS=()
 if (( $# )); then
     [[ "$1" == -- ]] || usage
     shift
     SWIFT_ARGS=("$@")
-    [[ "$SUITE" != daemon ]] || { print -u2 "swift test arguments need the swift or all suite"; usage; }
+    [[ "$SUITE" != daemon ]] || { print -u2 "swift test arguments need the changed, swift or all suite"; usage; }
+fi
+
+# What runs. A filtered Swift run has one target: or suite: selector per filter.
+RUN_TOOLCHAIN=0 RUN_DAEMON=0 RUN_SWIFT=0
+SWIFT_SELECTORS=()
+case "$SUITE" in
+    all) RUN_TOOLCHAIN=1 RUN_DAEMON=1 RUN_SWIFT=1 ;;
+    swift) RUN_TOOLCHAIN=1 RUN_SWIFT=1 ;;
+    daemon) RUN_DAEMON=1 ;;
+esac
+
+# The paths this checkout changed since it left main, into CHANGED: its commits, what is staged and
+# unstaged (both sides of a rename, since a test may read either), and files git neither tracks nor
+# ignores. Fails when there is no main, or no merge base with it, to compare with.
+changed_paths() {
+    local base committed worktree untracked
+    base="$(git -C "$ROOT" merge-base HEAD main 2>/dev/null)" || return 1
+    committed="$(git -C "$ROOT" diff --name-only --no-renames -z "$base" HEAD)"
+    worktree="$(git -C "$ROOT" diff --name-only --no-renames -z HEAD)"
+    untracked="$(git -C "$ROOT" ls-files --others --exclude-standard -z)"
+    CHANGED=(${(0)committed} ${(0)worktree} ${(0)untracked})
+    CHANGED=(${(u)CHANGED})
+}
+
+route_error() { print -u2 "scripts/test-routes.tsv: $1"; exit 1; }
+
+# A selector this script does not know, or one naming a target the package lacks, is an error, never
+# skipped: a skipped selector is a run that tested less than it says.
+check_swift_selector() {
+    local item="$1" rest="${1#*:}" targets
+    targets=(${(f)"$(sed -nE 's/.*\.testTarget\(name: "([^"]+)".*/\1/p' "$ROOT/app/Package.swift")"})
+    if [[ "$item" == target:* ]]; then
+        [[ "$rest" =~ '^[A-Za-z_][A-Za-z0-9_]*$' ]] || route_error "malformed selector $item"
+    else
+        [[ "$rest" =~ '^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$' ]] || route_error "malformed selector $item, expected suite:<Target>.<Suite>"
+    fi
+    (( ${targets[(Ie)${rest%%.*}]} )) || route_error "$item names no test target of app/Package.swift"
+}
+
+# Chosen before the lock is taken, so a run with nothing to do never waits for one.
+if [[ "$SUITE" == changed ]]; then
+    # A row with a glob and no selectors would route its paths to nothing without a word.
+    while IFS=$'\t' read -r glob selectors; do
+        [[ -n "$glob" && "$glob" != \#* ]] || continue
+        [[ -n "${selectors//[[:space:]]/}" ]] || route_error "the row for $glob names no selectors"
+    done <"$ROUTES"
+
+    CHANGED=()
+    SELECTION=()
+    WHY=()
+    if [[ -n "${AITERM_TEST_PATHS+set}" ]]; then
+        CHANGED=(${(f)AITERM_TEST_PATHS})
+        SINCE="in AITERM_TEST_PATHS"
+    elif changed_paths; then
+        SINCE="since main"
+    else
+        SINCE=""
+        SELECTION=(everything)
+    fi
+    if [[ -n "$SINCE" ]]; then
+        SELECTION=(${(f)"$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh")"})
+        WHY=(${(f)"$(print -rl -- $CHANGED | "$ROOT/scripts/test-select.sh" --why)"})
+    fi
+
+    for item in $SELECTION; do
+        case "$item" in
+            everything) RUN_TOOLCHAIN=1 RUN_DAEMON=1 RUN_SWIFT=1 ;;
+            toolchain) RUN_TOOLCHAIN=1 ;;
+            daemon) RUN_DAEMON=1 ;;
+            target:*|suite:*) check_swift_selector "$item"; RUN_SWIFT=1; SWIFT_SELECTORS+=("$item") ;;
+            *) route_error "unknown selector $item" ;;
+        esac
+    done
+    # Everything is every Swift test, not a filtered few.
+    if (( ${SELECTION[(Ie)everything]} )); then SWIFT_SELECTORS=(); fi
+    (( ${#SWIFT_ARGS} )) && RUN_SWIFT=1
+
+    if [[ -z "$SINCE" ]]; then
+        print "No merge base with main to tell what changed, so this runs:"
+        print "  everything"
+    elif (( ${#SELECTION} )); then
+        print -r -- "The changes $SINCE select:"
+        for item in $SELECTION; do
+            print -r -- "  $item"
+            for pair in $WHY; do
+                [[ "${pair%%$'\t'*}" != "$item" ]] || print -r -- "      ${pair#*$'\t'}"
+            done
+        done
+    elif (( ${#CHANGED} )); then
+        print -r -- "Nothing to test: only ${(j:, :)CHANGED} changed."
+    else
+        print -r -- "Nothing changed since main."
+    fi
+    if (( ${#SWIFT_ARGS} )); then
+        print -r -- "The Swift tests are the arguments after --: ${SWIFT_ARGS[*]}"
+    fi
+    (( RUN_TOOLCHAIN || RUN_DAEMON || RUN_SWIFT )) || exit 0
 fi
 
 # One run at a time on this machine. Agents in other worktrees test in parallel, and tests with
@@ -45,9 +153,10 @@ if [[ -z "${AITERM_TEST_LOCK_HELD:-}" ]]; then
     export AITERM_TEST_LOCK_HELD=1
 fi
 
-if [[ "$SUITE" != daemon ]]; then
+if (( RUN_TOOLCHAIN )); then
     # Validate first, before spending time on daemon tests with an unusable Swift compiler.
     TEST_SWIFT_TOOLCHAIN_SKIP_AGGREGATE=1 "$ROOT/scripts/test-swift-toolchain.sh"
+    "$ROOT/scripts/test-test-select.sh"
 fi
 
 # The daemon's tests, then its lint.
@@ -78,8 +187,8 @@ daemon_suite() {
     (cd "$ROOT/daemon" && env -u PYTHONPATH "$DAEMON_VENV/bin/mypy" aitermd tests tools && env -u PYTHONPATH "$DAEMON_VENV/bin/ruff" check aitermd tests tools)
 }
 
-if [[ "$SUITE" != swift ]]; then daemon_suite; fi
-if [[ "$SUITE" == daemon ]]; then exit 0; fi
+if (( RUN_DAEMON )); then daemon_suite; fi
+if (( ! RUN_SWIFT )); then exit 0; fi
 
 TEST_LOGS="$(mktemp -d -t aiterm-test)"
 
@@ -87,11 +196,12 @@ TEST_LOGS="$(mktemp -d -t aiterm-test)"
 # (a modal alert once ended one's run loop), and a --filter that matches nothing
 # is only a warning. Neither shows in the exit status, so a pass is green only if it also
 # printed what swift-testing prints when a run reaches its end -- one
-# "Test run with N tests ... passed" line per test host that got there.
+# "Test run with N tests ... passed" line per test host that got there -- and, for each suite it
+# was asked for by name, that suite's "Suite <Suite> passed" line.
 swift_test() {
-    local label="$1" expect_runs="$2"
-    shift 2
-    local log rc runs passed tests
+    local label="$1" expect_runs="$2" expect_suites="$3"
+    shift 3
+    local log rc runs passed tests suite
     log="$TEST_LOGS/$label.log"
 
     set +e
@@ -109,7 +219,7 @@ swift_test() {
 
     if [[ -n "$expect_runs" && "$runs" -ne "$expect_runs" ]]; then
         print -u2 "$label pass: $runs test hosts finished their run, expected $expect_runs."
-        print -u2 "  A host that dies before its run ends still exits 0. See $log."
+        print -u2 "  A host that dies before its run ends still exits 0, and so does one its filter matches nothing in. See $log."
         return 1
     fi
     if [[ "$runs" -eq 0 ]]; then
@@ -124,26 +234,57 @@ swift_test() {
         print -u2 "$label pass: a test host reported its run as failed. See $log."
         return 1
     fi
+    for suite in ${=expect_suites}; do
+        if ! grep -Fq "Suite $suite passed " "$log"; then
+            print -u2 "$label pass: suite $suite did not report passing. A suite filter that matches nothing still exits 0. See $log."
+            return 1
+        fi
+    done
 }
 
-# One host per test target, so that is what the run must report; pinning its test count instead
+# One host per test target, so that is what a full run must report; pinning its test count instead
 # would churn on every test added. No test raises a real modal alert — the app's questions go
 # through a `Prompter` that tests script, and the test controller's default one fails the test on a
 # question nobody scripted — so every test runs in this one pass. (AiTermTestSupport is a library,
-# not a test target: it adds no host.) Arguments after `--` narrow the run to hosts that are not
-# known beforehand, so it is green when at least one finished and every one that did passed.
+# not a test target: it adds no host.)
+# A run filtered to selectors (^<Target>\. for a target, ^<Target>\.<Suite>/ for a suite: Swift
+# Testing's IDs read AiTermCoreTests.ReleaseFeedTests/missingFeedIsNoFeed()) reports only the hosts
+# its filters reach. Measured on Swift 6.4: a host the filters match nothing in prints no "Test run
+# with" line at all, not one with 0 tests, so filters on a Core and a UI suite printed two, none for
+# AiTermTests. Every selector names a target with tests in it, so the run must report exactly one
+# line per distinct target the selectors name, and each named suite its own passing line.
+# Arguments after `--` narrow the run to hosts that are not known beforehand, so it is green when at
+# least one finished and every one that did passed.
 swift_suite() {
     if (( ${#SWIFT_ARGS} )); then
-        swift_test main '' "${SWIFT_ARGS[@]}"
+        swift_test main '' '' "${SWIFT_ARGS[@]}"
+    elif (( ${#SWIFT_SELECTORS} )); then
+        local item rest filters=() targets=() suites=()
+        for item in $SWIFT_SELECTORS; do
+            rest="${item#*:}"
+            targets+=("${rest%%.*}")
+            if [[ "$item" == suite:* ]]; then
+                suites+=("${rest#*.}")
+                filters+=(--filter "^${rest%%.*}\\.${rest#*.}/")
+            else
+                filters+=(--filter "^$rest\\.")
+            fi
+        done
+        targets=(${(u)targets})
+        swift_test main "${#targets}" "${suites[*]}" "${filters[@]}"
     else
-        swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")"
+        swift_test main "$(grep -c '\.testTarget(' "$ROOT/app/Package.swift")" ''
     fi
 }
 
-# A failed run keeps its logs and says where. Not in an EXIT trap: zsh runs none when errexit ends
-# the script from inside a function, as a failed pass does.
+# A failed run keeps its logs and says where, unless told not to (the toolchain guard's fixture runs
+# fail on purpose). Not in an EXIT trap: zsh runs none when errexit ends the script from inside a
+# function, as a failed pass does.
 if swift_suite; then
     rm -rf "$TEST_LOGS"
+elif [[ "${AITERM_TEST_LOGS_KEEP:-1}" == 0 ]]; then
+    rm -rf "$TEST_LOGS"
+    exit 1
 else
     print -u2 "Swift test logs kept in $TEST_LOGS"
     exit 1
