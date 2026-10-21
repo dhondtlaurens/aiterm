@@ -58,8 +58,14 @@ HAZARD = "please wait 1 2 3 y a p"
 # Claude's until 2.1.30x, whose turn shows none. Only `idle` reads it, as a backstop: every scenario
 # waits for its own answer before the next.
 WORKING = "tointerrupt"
-# How each CLI starts: Claude asking before every command, Codex sandboxed and asking on request.
-COMMANDS: dict[AgentKind, str] = {"claude": "claude --permission-mode default", "codex": "codex -s workspace-write -a on-request"}
+# How each CLI starts: Claude asking before every command, Codex sandboxed and asking on request. Each on
+# its cheapest model, at low effort: the check reads the CLI's screens, which no model changes, and
+# its answers are a word and a sum. Codex's model is its catalogue's "fast and affordable" one
+# (~/.codex/models_cache.json) at 0.16x; a version that drops it fails at startup, on the screen.
+COMMANDS: dict[AgentKind, str] = {
+    "claude": "claude --permission-mode default --model haiku --effort low",
+    "codex": "codex -s workspace-write -a on-request -m gpt-6-luna -c model_reasoning_effort=low",
+}
 # What each scenario after the startup dialog does, as the check says it runs: each waits first for
 # the agent to be idle, up to three minutes.
 STEPS: dict[str, str] = {
@@ -204,8 +210,19 @@ def say(line: str) -> None:
     print(f"  {line}", flush=True)
 
 
+# The screen lines a failure shows in the check's window; the policy file keeps all it read.
+SHOWN_LINES = 12
+
+
 def report(where: str, name: str, result: ScenarioResult) -> None:
-    print(f"  {where} {name}: {'pass' if result.passed else 'FAIL'} -- {result.detail}", flush=True)
+    """A pass in one line; a failure with its reason and the end of the screen it read."""
+    if result.passed:
+        print(f"  {where} {name}: pass", flush=True)
+        return
+    reason, _, screen = result.detail.partition("Last screen")
+    tail = "\n".join(line for line in screen.splitlines()[1:] if line.strip())
+    tail = "\n".join(tail.splitlines()[-SHOWN_LINES:])
+    print(f"  {where} {name}: FAIL -- {reason.strip()}" + (f"\n  End of its screen:\n{tail}" if tail else ""), flush=True)
 
 
 def front_app() -> str:
@@ -358,7 +375,7 @@ async def busy_queue(live: Live, agent: AgentKind, sid: str) -> ScenarioResult:
     if first.result != "delivered":
         return await live.failure(sid, agent, "first message delivered from " + expected_idle(agent),
                                   f"{first.result}: {first.reason}", refresh=True)
-    await asyncio.sleep(2)  # its turn starting
+    # At once: a small model writes the story in seconds.
     if shows(STORY_END)(await live.screen(sid)):
         return await live.failure(sid, agent, f"the story still being written (no {STORY_END!r} yet)",
                                   "It was done before the second message could be typed, so a queued message was not checked.")
@@ -668,13 +685,15 @@ async def run(agents: tuple[AgentKind, ...], skip_iterm: bool, write: bool, poli
                 entries[agent] = agent_entry(version, await check_agent(live, agent, Path(scratch)), checked_at)
     finally:
         await bridge.close()
-    print(json.dumps(entries, indent=2, sort_keys=True))
     for name, entry in entries.items():
         failed = [scenario for scenario, result in entry["scenarios"].items() if not result["passed"]]
         print(f"{name}: {'FAILED ' + ', '.join(failed) if failed else 'passed'}")
     if write:
         write_policy(policy_path, merged_policy(read_json(policy_path), entries))
-        print(f"Written to {policy_path}. Settings shows it now; you can close this window.")
+        print(f"Written to {policy_path}, each failure's whole screen with it. Settings shows it now; "
+              "you can close this window.")
+    else:
+        print(json.dumps(entries, indent=2, sort_keys=True))
     return 0
 
 

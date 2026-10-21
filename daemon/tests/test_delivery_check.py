@@ -783,3 +783,22 @@ async def test_an_unanswered_trust_ends_the_agents_check_at_once(tmp_path, monke
 
 async def _ok():
     return OK
+
+
+def test_each_cli_runs_on_its_cheapest_model():
+    from tools.delivery_check import COMMANDS
+    assert "--model haiku --effort low" in COMMANDS["claude"]
+    assert "-m gpt-6-luna -c model_reasoning_effort=low" in COMMANDS["codex"]
+
+
+def test_the_window_says_a_failure_briefly_and_the_file_keeps_it_whole(capsys):
+    from tools import delivery_check as check
+    screen = "\n".join(f"line {n}" for n in range(40))
+    detail = ("Expected answer marker 'ALPHA 42'. \nopen_prompt=None, shows_input_box=True\n"
+              f"Last screen (up to 40 lines, 8000 characters):\n{screen}")
+    check.report("claude", "idleSubmit", ScenarioResult(False, detail))
+    check.report("claude", "multiLine", ScenarioResult(True, "all three lines arrived as one message"))
+    printed = capsys.readouterr().out
+    assert "Expected answer marker 'ALPHA 42'" in printed and "line 39" in printed
+    assert "line 27" not in printed, "the last twelve lines of the screen, not forty"
+    assert "claude multiLine: pass\n" in printed, "a pass in one short line"
