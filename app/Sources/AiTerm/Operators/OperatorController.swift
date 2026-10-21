@@ -249,7 +249,7 @@ final class OperatorController {
 
     /// The operator's tab: the first tab tagged with the run, by its place in the window.
     static func operatorTab(of run: UUID, in sessions: [SessionInfo]) -> SessionInfo? {
-        sessions.filter { $0.taskUUID == run }.min { ($0.tabIndex, $0.sessionId) < ($1.tabIndex, $1.sessionId) }
+        SidebarModel.operatorTab(of: run, in: sessions)
     }
 
     /// The run as `run_status` would show it now, numbered 0: the waker compares content.

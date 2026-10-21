@@ -193,14 +193,19 @@ The base needs no slice: a commit on the task's branch, its push, a draft MR, an
 every slice AiTerm's floor holds: only the commit the Operator accepted, a green pipeline, every
 review thread resolved, never a push to a default or protected branch, and a local merge never pushed.
 
-**The board.** `SidebarProjection.refresh` derives the broadcast's row (`SidebarModel.broadcastRow`,
-a `BroadcastRow`) and its board (`BroadcastBoard.make(run:state:acting:requests:)`) with the sidebar's
-rows, from the workspace and `OperatorController.acting` (`rows.actingSource`), and writes each only when
+**The board.** `SidebarProjection.refresh` derives the broadcast's group (`SidebarModel.broadcastSection`,
+a `BroadcastSection`: its header, a `BroadcastRow`, the Operator's own row, an `OperatorRow`, and the tasks it
+holds, which the projects' `entries` leave out and count) and its board
+(`BroadcastBoard.make(run:state:acting:requests:)`) with the sidebar's rows, from the workspace and `OperatorController.acting` (`rows.actingSource`), and writes each only when
 it differs, so a change the board draws nothing of redraws no board. `BroadcastBoard` is a value in
 `AiTermCore/Sidebar/`: the band (`OperatorLine.broadcast`, where a request outranks everything), the
 columns and their cards, what each card's click opens (`BroadcastBoard.Opens`) and, once complete, the
 debrief. `BroadcastBoardHost` presents it; `OperatorRequests.open` says what needs you, and
-`OperatorLine` every status line's words.
+`OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`monitoring
+2 tabs`, `checking next`), the Operator's row's from its own session alone (`OperatorLine.session`, read from
+`run.operatorSessionId`'s tab), the header's tooltip and the band from the whole broadcast. A driven task's
+click (`AppController.choose(task:)`) raises its window and then brings `TaskItem.tabToBring`'s tab with
+`session.activate`.
 
 **Notifications** follow the state, never the events that led to it. After any change to a run or its
 tasks, `OperatorController.notifyRequests(of:)` hands the run to `OperatorNotifier.requestsChanged(run:)`,
@@ -330,6 +335,7 @@ wires the three parts below to them, registers every RPC handler and runs the 2 
 | `window.createTask` | new window in a worktree, launching the agent command; a retry returns the existing window. Once iTerm2 has made a window it is returned, even if tagging it, typing the command or the tick after fails — that is logged, since an error would make the app open a second one. The new window is found through the same locked refresh as every tick, never one that overlaps a tick's. Only a window whose shell ended at once is answered `iterm_unavailable`. A restored window passes the first remembered conversation's resume command, or none. With `background`, the window is placed and tagged but neither activated nor brought forward: a task the Operator starts opens behind your work |
 | `window.createTerminal` | new window in the project folder, no agent. The optional `terminalId` tags it `aiterm_terminal`, which the app adopts the window by; the sessions carry it back as `terminalId` |
 | `window.activate` | bring it forward when its row is clicked |
+| `session.activate` | select one tab in its window and bring that window forward: an Operator's task with several worker tabs, its asking tab on a row's click, or the tab a board card's line names |
 | `window.setFrame` | re-snap beside the sidebar |
 | `window.close` | on remove, and before a worktree is deleted. The window is closed once iTerm2 has answered: a failed tick after it is logged, not answered |
 | `tab.create` | a tab in an existing window, tagged like it: in `cwd` when given (a review opened in its task, a conversation resumed in a restored window), else where the active tab is. The optional `tabKey` tags that one tab `aiterm_tab` beside its task's tag, never inherited, and the sessions carry it back as `tabKey`: an Operator's extra worker tab (`open_tab`). A request with a `tabKey` already on a tab of its task returns that tab. With `background`, iTerm2 is asked not to select it: its window is not brought forward and keeps the tab you were on |
@@ -351,7 +357,7 @@ time with `iterm_unavailable` — the tick a command runs before it changes anyt
 Requests are answered concurrently, each as soon as its handler returns, so a slow
 `window.createTask` holds up nothing behind it. The `workspace.snapshot` reply is still written
 before any later event. `sessions.setTitles`, `interface.setMatchItermBackground`,
-`window.setFrame` and `window.activate` each leave a state the next one replaces, so each takes
+`window.setFrame`, `window.activate` and `session.activate` each leave a state the next one replaces, so each takes
 effect in the order it was sent.
 
 ## Events the daemon broadcasts

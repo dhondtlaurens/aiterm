@@ -86,7 +86,7 @@ import Testing
             func field(_ key: String) throws -> Any? { try #require(result["result"] as? [String: Any])[key] }
             switch method {
             // The liveness check: any answer is a helper that is there, so nothing in it is read.
-            case .itermStatus, .windowActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
+            case .itermStatus, .windowActivate, .sessionActivate, .windowSetFrame, .windowClose, .interfaceSetMatchItermBackground,
                  .sessionSetOwnership, .operatorRegister, .operatorRevoke, .operatorReply:
                 _ = try read(DaemonClient.Empty.self)
             case .sessionDeliver:

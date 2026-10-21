@@ -83,7 +83,7 @@ struct NewBroadcastSheet: View {
             FormField("Projects") {
                 ChipsPicker(placeholder: NewBroadcastModel.projectsPlaceholder, picks: model.projects,
                             open: _projectsOpen.projectedValue, matches: model.matchingProjects(query:),
-                            mark: { BroadcastRowView.hostIcon($0.provider) }, label: \.name,
+                            mark: { ProviderIcon.source(of: $0.provider) }, label: \.name,
                             row: { ProjectResultRow(project: $0) },
                             onPick: { model.add(project: $0) }, onRemove: { model.remove(project: $0) })
                 HelpText(NewBroadcastModel.projectsHelp)
@@ -155,7 +155,7 @@ struct ProjectResultRow: View {
 
     var body: some View {
         HStack(spacing: Space.base) {
-            Icon(BroadcastRowView.hostIcon(project.provider), size: Size.pickerRowLogo, tint: PickerResultRow.logoTint(on: surface))
+            Icon(ProviderIcon.source(of: project.provider), size: Size.pickerRowLogo, tint: PickerResultRow.logoTint(on: surface))
             Text(project.name).font(Typography.caption).foregroundStyle(surface.ink).lineLimit(1)
             Spacer(minLength: Space.snug)
         }

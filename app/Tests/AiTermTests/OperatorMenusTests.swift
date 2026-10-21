@@ -5,7 +5,7 @@ import Testing
 @testable import AiTermTestSupport
 
 /// The operator items of the sidebar's menus, in the picked design's words and order: the OPERATOR
-/// heading's "+", the broadcast row's menu and a driven task's (spec §3, §9, §13).
+/// heading's "+", the broadcast header's menu and a driven task's (spec §3, §9, §13).
 struct OperatorMenusTests {
     private func titles(_ items: [OperatorMenuItem]) -> [String] { items.map { $0 == .separator ? "—" : $0.title } }
 
@@ -13,7 +13,7 @@ struct OperatorMenusTests {
         #expect(titles(OperatorMenus.headingPlus) == ["New Broadcast…"])
     }
 
-    /// No Overview…, no Interrupt Agents: a click opens the overview and an agent always finishes its turn.
+    /// Open Board first, as the header's button; no Interrupt Agents: an agent always finishes its turn.
     @Test func theBroadcastsMenuOffersWhatItsStateAllows() {
         func menu(_ state: OperatorRunState, intent: OperatorRunState? = nil) -> [String] {
             var run = OperatorUIFixtures.run(state: state)
@@ -22,12 +22,12 @@ struct OperatorMenusTests {
             workspace.runs = [run]
             return SidebarModel.broadcastRow(state: workspace).map { titles(OperatorMenus.broadcast($0)) } ?? []
         }
-        #expect(menu(.active) == ["Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
-        #expect(menu(.planning) == ["Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
-        #expect(menu(.paused) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
-        #expect(menu(.active, intent: .paused) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
-        #expect(menu(.operatorOffline) == ["Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
-        #expect(menu(.complete) == ["Rename…", "—", "End Broadcast…"])
+        #expect(menu(.active) == ["Open Board", "—", "Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.planning) == ["Open Board", "—", "Rename…", "—", "Pause Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.paused) == ["Open Board", "—", "Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.active, intent: .paused) == ["Open Board", "—", "Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.operatorOffline) == ["Open Board", "—", "Rename…", "—", "Resume Broadcast", "—", "End Broadcast…"])
+        #expect(menu(.complete) == ["Open Board", "—", "Rename…", "—", "End Broadcast…"])
         var workspace = AppState()
         workspace.runs = [OperatorUIFixtures.run()]
         #expect(SidebarModel.broadcastRow(state: workspace).map { OperatorMenus.broadcast($0).filter(\.isDestructive) } == [],
@@ -65,7 +65,9 @@ struct OperatorMenusTests {
         func row(_ run: OperatorRun?) throws -> TaskRow {
             var state = AppState()
             state.append(project: project); state.tasks = [task]; state.runs = run.map { [$0] } ?? []
-            return try #require(SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:]).first?.tasks.first)
+            // Under the broadcast while it lives, back in its project once it has ended.
+            return try #require(SidebarModel.broadcastSection(state: state, sessions: [])?.tasks.first
+                                ?? SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:]).first?.tasks.first)
         }
         #expect(try row(run).broadcastLive)
         #expect(titles(OperatorMenus.task(task.operated, broadcastLive: try row(run).broadcastLive)) == ["Hand Back", "—", "Stop Task…"])

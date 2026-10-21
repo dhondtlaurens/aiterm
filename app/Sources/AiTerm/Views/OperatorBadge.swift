@@ -6,15 +6,16 @@ import AiTermCore
 /// Everything the Operator says on a status line (spec §7, §13, §14): the words of an `OperatorLine` in
 /// `Typography.monoChip`, no mark: where the line sits says whose it is. Always one `Size.chip` line: the
 /// words cut with an ellipsis rather than wrap, the whole of them in the tooltip and VoiceOver's label. The
-/// last line of a driven task's row and of the broadcast row, a card's last line on the board, the band
+/// last line of a driven task's row and of the Operator's row, a card's last line on the board, the band
 /// under the board's title.
 ///
 /// It reads its ground (`Surface`), as `RowCaption(warns:)` does:
 /// - quiet, and ended: no box, the words in the surface's secondary ink (an ended row's check is its
 ///   trailing mark's, `TaskRowMark`, never the line's);
-/// - acting: no box, the words shimmering, a light band sweeping from the surface's secondary ink through
-///   its ink every `shimmerPeriod` on Core Animation's clock (`ShimmerWordsView`), nothing updated per
-///   frame; standing still in the surface's ink under Reduce Motion and in the snapshots;
+/// - acting: no box, the words in the surface's ink. New words decode once (P3, decision 3, 21 Oct 2026):
+///   each character runs through glyphs and they settle from the left over `decodeDuration`, then stand
+///   still; the row's spinner carries the ongoing motion (`DecodeWordsView`, its own view, so the row is not
+///   redrawn per frame). At once under Reduce Motion and in the snapshots;
 /// - needs you: the attention chip's pair (`Palette.statusChipAttentionFill` and `Stroke`) with the words
 ///   in `Palette.text`, never amber; on `Surface.accent` the surface's `badgeWash` and ink, the amber left
 ///   to the row's `StatusMark`, since an amber wash on the selection's blue reads as mud.
@@ -29,22 +30,22 @@ struct OperatorBadge: View {
     private let still = false
     #endif
 
-    /// One sweep of the shimmer, in seconds: about 1.6 s, as picked (19 Oct 2026).
-    static let shimmerPeriod = 1.6
+    /// How long new acting words take to decode, in seconds: calm, once per change, never looped.
+    static let decodeDuration = 0.5
 
     /// The box a look draws, when it draws one.
     struct Box: Equatable { var fill: Color; var stroke: Color? }
 
-    /// Whether the words move: only while acting, never under Reduce Motion, never in a snapshot.
-    static func shimmers(_ look: OperatorLine.Look, reduceMotion: Bool, still: Bool) -> Bool {
+    /// Whether new words decode: only while acting, never under Reduce Motion, never in a snapshot.
+    static func decodes(_ look: OperatorLine.Look, reduceMotion: Bool, still: Bool) -> Bool {
         look == .acting && !reduceMotion && !still
     }
 
-    /// The words' ink. Shimmering, the band of the surface's ink sweeps over the secondary ink.
-    static func ink(_ look: OperatorLine.Look, surface: Surface, shimmering: Bool) -> Color {
+    /// The words' ink, decoding or standing still.
+    static func ink(_ look: OperatorLine.Look, surface: Surface) -> Color {
         switch look {
         case .quiet, .ended: surface.secondaryInk
-        case .acting: shimmering ? surface.secondaryInk : surface.ink
+        case .acting: surface.ink
         case .needsYou: surface.isOnAccent ? surface.ink : Palette.text
         }
     }
@@ -57,9 +58,9 @@ struct OperatorBadge: View {
     }
 
     var body: some View {
-        let shimmering = Self.shimmers(line.look, reduceMotion: reduceMotion, still: still)
+        let decoding = Self.decodes(line.look, reduceMotion: reduceMotion, still: still)
         let box = Self.box(line.look, surface: surface)
-        words(shimmering: shimmering)
+        words(decoding: decoding)
             .padding(.horizontal, box == nil ? 0 : scale(Space.tight))
             .frame(height: scale(Size.chip))
             .background {
@@ -74,16 +75,16 @@ struct OperatorBadge: View {
     }
 
     @ViewBuilder
-    private func words(shimmering: Bool) -> some View {
+    private func words(decoding: Bool) -> some View {
         let text = Text(line.text).font(Typography.monoChip).lineLimit(1).truncationMode(.tail)
-        if shimmering {
-            // Laid out by the text, drawn by Core Animation: nothing here is updated per frame.
+        if decoding {
+            // Laid out by the final words, drawn by the decode's own view: a frame is never a SwiftUI update.
             text.opacity(0).overlay {
-                ShimmerWords(text: line.text, font: Typography.monoChip.scaled(by: scale).nsFont,
-                             base: Self.ink(.acting, surface: surface, shimmering: true), ink: surface.ink, period: Self.shimmerPeriod)
+                DecodeWords(text: line.text, font: Typography.monoChip.scaled(by: scale).nsFont,
+                            ink: Self.ink(.acting, surface: surface), duration: Self.decodeDuration)
             }
         } else {
-            text.foregroundStyle(Self.ink(line.look, surface: surface, shimmering: false))
+            text.foregroundStyle(Self.ink(line.look, surface: surface))
         }
     }
 }
@@ -111,58 +112,61 @@ struct BroadcastStatusLine: View {
 
 #if DEBUG
 extension OperatorBadge {
-    /// How many times a shimmering line's words view has been updated, which a test reads to show the
-    /// sweep is Core Animation's rather than an update per frame. Debug builds only.
-    @MainActor static var shimmerUpdates = 0
+    /// How many times a decoding line's words view has been updated, which a test reads to show the
+    /// decode's frames are its own view's rather than SwiftUI updates. Debug builds only.
+    @MainActor static var decodeUpdates = 0
 }
 #endif
 
-/// The shimmering words: drawn by `ShimmerWordsView`, so the sweep runs on Core Animation's clock in the
-/// window server, as `StatusMark`'s turn does.
-private struct ShimmerWords: NSViewRepresentable {
+/// The decoding words: drawn by `DecodeWordsView`, which runs its frames itself.
+private struct DecodeWords: NSViewRepresentable {
     let text: String
     let font: NSFont
-    let base: Color
     let ink: Color
-    let period: Double
+    let duration: Double
 
-    func makeNSView(context: Context) -> ShimmerWordsView { ShimmerWordsView() }
+    func makeNSView(context: Context) -> DecodeWordsView { DecodeWordsView() }
 
-    func updateNSView(_ view: ShimmerWordsView, context: Context) {
+    func updateNSView(_ view: DecodeWordsView, context: Context) {
         #if DEBUG
-        OperatorBadge.shimmerUpdates += 1
+        OperatorBadge.decodeUpdates += 1
         #endif
-        view.configure(text: text, font: font, base: NSColor(base), ink: NSColor(ink), period: period)
+        view.configure(text: text, font: font, ink: NSColor(ink), duration: duration)
     }
 }
 
-/// The words twice, in the surface's secondary ink and over them in its ink, the ink masked by a band
-/// that fades in and out at its edges and is swept across the words and off them every `period`: a
-/// `CABasicAnimation` on the band's position, added once and running for as long as the layer lives.
-/// Layer-hosting, so AppKit leaves its layers to it; it passes every click through to its row.
-final class ShimmerWordsView: NSView {
-    static let sweepKey = "sweep"
-    /// The band's width, as a share of the words'.
-    private static let bandShare: CGFloat = 0.4
-    let base = CATextLayer(), lit = CATextLayer(), band = CAGradientLayer()
-    private var text = "", font: NSFont?, baseColor = NSColor.clear, inkColor = NSColor.clear
-    private var period: CFTimeInterval = OperatorBadge.shimmerPeriod
-    /// The width the running sweep was made for: one for another width is made again.
-    private var sweptWidth: CGFloat = 0
+/// Acting words that decode once when they change: each letter and digit runs through `glyphs` and the words
+/// settle from the left over `duration`, a frame every `1 / frameRate` s, then stand still; spaces and
+/// separators stay put. In the monospaced face every glyph is one advance wide, so the line never changes its
+/// width. A `CATextLayer`, layer-hosting, so AppKit leaves its layer to it; it passes every click through to
+/// its row. Its clock is `now`, Core Animation's media time unless a test drives it, each frame drawn by `tick`.
+final class DecodeWordsView: NSView {
+    /// What a character runs through while it decodes.
+    static let glyphs = Array("0123456789abcdefghijklmnopqrstuvwxyz")
+    static let frameRate = 30.0
+    let words = CATextLayer()
+    /// The decode's clock, in seconds.
+    var now: () -> CFTimeInterval = CACurrentMediaTime
+    /// What it draws now: a frame of the decode, or the words once settled.
+    private(set) var shown = ""
+    /// Frames drawn since it was made, which a test reads to show the decode stops.
+    private(set) var frames = 0
+    private var text = "", font: NSFont?, inkColor = NSColor.clear
+    private var duration: CFTimeInterval = OperatorBadge.decodeDuration
+    /// When the running decode began; nil once it settled.
+    private var began: CFTimeInterval?
+    private var timer: Timer?
+
+    var isDecoding: Bool { began != nil }
 
     init() {
         super.init(frame: .zero)
         layer = CALayer()
         wantsLayer = true
-        for words in [base, lit] {
-            words.isWrapped = false
-            words.truncationMode = .end
-            words.alignmentMode = .left
-            layer?.addSublayer(words)
-        }
-        band.startPoint = CGPoint(x: 0, y: 0.5)
-        band.endPoint = CGPoint(x: 1, y: 0.5)
-        lit.mask = band
+        words.isWrapped = false
+        words.truncationMode = .end
+        words.alignmentMode = .left
+        layer?.addSublayer(words)
     }
 
     @available(*, unavailable)
@@ -170,28 +174,72 @@ final class ShimmerWordsView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func configure(text: String, font: NSFont, base: NSColor, ink: NSColor, period: Double) {
-        guard text != self.text || font != self.font || base != baseColor || ink != inkColor || period != self.period else { return }
-        let restart = period != self.period
-        self.text = text; self.font = font; baseColor = base; inkColor = ink; self.period = period
+    /// New words start a decode; the same words in another ink or face are only redrawn.
+    func configure(text: String, font: NSFont, ink: NSColor, duration: Double) {
+        let changed = text != self.text
+        guard changed || font != self.font || ink != inkColor || duration != self.duration else { return }
+        self.text = text; self.font = font; inkColor = ink; self.duration = duration
+        if changed { start() } else { paint() }
+    }
+
+    /// The decode's frame at `now`: the next frame while it runs, the words and the end of it once its time is up.
+    func tick() {
+        guard let began else { return }
+        let progress = duration > 0 ? (now() - began) / duration : 1
+        frames += 1
+        if progress >= 1 {
+            stop()
+            shown = text
+        } else {
+            shown = Self.frame(of: text, progress: progress, step: frames)
+        }
         paint()
-        if restart { sweptWidth = 0; sweep() }
+    }
+
+    /// The words `progress` of the way through their decode: settled from the left up to that share, each
+    /// letter or digit after it a glyph picked by its place and the frame's `step`, everything else as it is.
+    static func frame(of text: String, progress: Double, step: Int) -> String {
+        let settled = Int(Double(text.count) * min(max(progress, 0), 1))
+        return String(text.enumerated().map { index, character in
+            guard index >= settled, character.isLetter || character.isNumber else { return character }
+            let pick = (index + 1) &* 7919 &+ (step + 1) &* 104_729 &+ index &* step &* 31
+            return glyphs[abs(pick) % glyphs.count]
+        })
+    }
+
+    private func start() {
+        began = now()
+        shown = Self.frame(of: text, progress: 0, step: frames)
+        paint()
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 1 / Self.frameRate, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            MainActor.assumeIsolated { self.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func stop() {
+        began = nil
+        timer?.invalidate()
+        timer = nil
+    }
+
+    override func removeFromSuperview() {
+        // Gone from its row mid-decode: no frame is drawn for no one.
+        if isDecoding { stop(); shown = text; paint() }
+        super.removeFromSuperview()
     }
 
     override func layout() {
         super.layout()
-        unanimated {
-            base.frame = bounds
-            lit.frame = bounds
-            band.frame = CGRect(x: 0, y: 0, width: bounds.width * Self.bandShare, height: bounds.height)
-        }
-        sweep()
+        unanimated { words.frame = bounds }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         rescale()
-        sweep()
     }
 
     override func viewDidChangeBackingProperties() {
@@ -206,35 +254,16 @@ final class ShimmerWordsView: NSView {
 
     private func rescale() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        unanimated { for words in [base, lit] { words.contentsScale = scale } }
+        unanimated { words.contentsScale = scale }
     }
 
     private func paint() {
         guard let font else { return }
         unanimated {
             effectiveAppearance.performAsCurrentDrawingAppearance {
-                base.string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: baseColor])
-                lit.string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: inkColor])
-                // A mask reads only alpha: the ink, faded out at the band's edges.
-                let ink = inkColor.cgColor
-                band.colors = [ink.copy(alpha: 0) ?? ink, ink, ink.copy(alpha: 0) ?? ink]
+                words.string = NSAttributedString(string: shown, attributes: [.font: font, .foregroundColor: inkColor])
             }
         }
-    }
-
-    /// Starts the sweep if the band has none for this width: from just before the words to just past them.
-    private func sweep() {
-        guard bounds.width > 0, window != nil else { return }
-        guard band.animation(forKey: Self.sweepKey) == nil || sweptWidth != bounds.width else { return }
-        let half = band.bounds.width / 2
-        let pass = CABasicAnimation(keyPath: "position.x")
-        pass.fromValue = -half
-        pass.toValue = bounds.width + half
-        pass.duration = period
-        pass.repeatCount = .infinity
-        pass.isRemovedOnCompletion = false
-        band.add(pass, forKey: Self.sweepKey)
-        sweptWidth = bounds.width
     }
 
     private func unanimated(_ change: () -> Void) {

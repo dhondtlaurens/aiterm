@@ -220,20 +220,35 @@ final class ProjectActions {
         workspace.mutate { $0.updateProject(id: project.id) { $0.collapsed.toggle() } }
     }
 
-    /// Whether the project has a task, review or terminal row — anything to fold.
+    /// Whether the project has a task, review or terminal row — anything to fold. The live broadcast's
+    /// tasks are drawn under it, not here, so a project with only those has none.
     func hasRows(_ project: Project) -> Bool {
-        state.tasks.contains(where: { $0.projectId == project.id })
+        let held = state.activeRun?.id
+        return state.tasks.contains(where: { $0.projectId == project.id && (held == nil || $0.operated?.runId != held) })
             || state.terminals.contains(where: { $0.projectId == project.id })
     }
 
-    /// Stores `layout`'s collapsed states — Focus View's or List View's — in one change to the
-    /// workspace, which saves only if one changed. Whether it was stored: not in a locked workspace.
+    /// Folds or opens the live broadcast's group, kept with the workspace as a project's fold is
+    /// (`AppState.foldedRuns`).
+    func toggleFolded(run id: UUID) {
+        guard canChangeWorkspace, state.activeRun?.id == id else { return }
+        let folded = state.foldedRuns.contains(id)
+        workspace.mutate { $0.setFolded(run: id, !folded) }
+    }
+
+    /// Stores `layout`'s collapsed states — Focus View's or List View's, a broadcast's group's by its
+    /// id among them — in one change to the workspace, which saves only if one changed. Whether it was
+    /// stored: not in a locked workspace.
     @discardableResult
     func setCollapsed(_ layout: [UUID: Bool]) -> Bool {
         guard canChangeWorkspace else { return false }
         workspace.mutate { state in
             for (id, collapsed) in layout {
-                state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
+                if state.run(id: id) != nil {
+                    if state.foldedRuns.contains(id) != collapsed { state.setFolded(run: id, collapsed) }
+                } else {
+                    state.updateProject(id: id) { if $0.collapsed != collapsed { $0.collapsed = collapsed } }
+                }
             }
         }
         return true
@@ -260,10 +275,11 @@ final class ProjectActions {
     func confirmRemove(project: Project) async {
         guard canChangeWorkspace else { return }
         if let busy = busyReason(of: project) { return await refuseRemoval(of: project, because: busy) }
-        let tasks = state.tasks.filter { $0.projectId == project.id }.count
+        let tasks = state.tasks.filter { $0.projectId == project.id }
+        let held = state.activeRun.map { run in tasks.filter { $0.operated?.runId == run.id && $0.hasCheckout }.count } ?? 0
         let answer = await prompter.ask(AlertPrompt(
             message: "Remove project “\(project.name)”?",
-            detail: Self.removalDetail(tasks: tasks, archived: state.archived(projectId: project.id)),
+            detail: Self.removalDetail(tasks: tasks.count, archived: state.archived(projectId: project.id), operatorWorktrees: held),
             buttons: ["Remove", "Cancel"]))
         // Anything can run across the await, a create in the project among them, so it is asked
         // again — and the answer acted on in the same turn, with nothing able to start in between.
@@ -274,8 +290,10 @@ final class ProjectActions {
 
     /// The Remove Project alert's detail: what goes from AiTerm — its tasks, and the archived rows it
     /// forgets — and what stays on disk. Archive never changes git, so forgetting an archived row
-    /// loses nothing but AiTerm's memory of it.
-    static func removalDetail(tasks: Int, archived: [ArchivedTask]) -> String {
+    /// loses nothing but AiTerm's memory of it. `operatorWorktrees` are the worktrees the live broadcast
+    /// holds in it, which its tasks count and its header's tooltip names: said so, since its rows are drawn
+    /// under the broadcast and not under the project.
+    static func removalDetail(tasks: Int, archived: [ArchivedTask], operatorWorktrees: Int = 0) -> String {
         let forgets: String
         switch archived.count {
         case 0: forgets = ""
@@ -284,7 +302,8 @@ final class ProjectActions {
         }
         if tasks == 0 { return "Removes the project from AiTerm\(forgets). Files are kept and terminal windows stay open." }
         let kept = archived.isEmpty ? "Files, worktrees and windows are kept." : "Files, branches, worktrees and windows are kept."
-        return "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm\(forgets). \(kept)"
+        let held = operatorWorktrees == 0 ? "" : " " + ProjectSection.operatorHelp(worktrees: operatorWorktrees)
+        return "Removes the project and its \(tasks == 1 ? "task" : "\(tasks) tasks") from AiTerm\(forgets). \(kept)\(held)"
     }
 
     /// Why `project` cannot be removed yet, if it cannot: work still in flight would land in a

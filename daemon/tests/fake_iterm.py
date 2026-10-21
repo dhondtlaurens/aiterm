@@ -104,6 +104,12 @@ class FakeIterm:
             w["active"] = False
         self.windows[window_id]["active"] = True
 
+    async def activate_session(self, session_id: str) -> None:
+        """Selects its tab, which becomes its window's current session, and brings that window forward."""
+        window_id = self.sessions[session_id].window_id
+        self.windows[window_id]["current"] = session_id
+        await self.activate_window(window_id)
+
     async def set_frame(self, window_id: str, frame: Frame) -> None:
         self.windows[window_id]["frame"] = frame
 

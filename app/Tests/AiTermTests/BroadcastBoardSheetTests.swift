@@ -24,17 +24,40 @@ struct BroadcastBoardSheetTests {
         let actions = BoardActions(open: { opens in
             switch opens {
             case .taskWindow(let id): moments.append(id == task ? "open the task's window" : "open another window")
+            case .tab(_, let session): moments.append("bring tab \(session)")
             case .operatorWindow: moments.append("open the Operator's window")
             case .sidebarBanner(let issue): moments.append("show the banner's \(issue)")
             case .nothing: moments.append("open nothing")
             }
         })
-        for opens: BroadcastBoard.Opens in [.taskWindow(task), .operatorWindow, .sidebarBanner(issue: "issue-7"), .nothing] {
+        for opens: BroadcastBoard.Opens in [.taskWindow(task), .tab(task: task, sessionId: "s2"), .operatorWindow,
+                                            .sidebarBanner(issue: "issue-7"), .nothing] {
             BroadcastBoardSheet.choose(opens, dismiss: { moments.append("dismiss") }, actions: actions)
         }
-        #expect(moments == ["dismiss", "open the task's window", "dismiss", "open the Operator's window",
+        #expect(moments == ["dismiss", "open the task's window", "dismiss", "bring tab s2", "dismiss", "open the Operator's window",
                             "dismiss", "show the banner's issue-7"], "a Todo card does nothing, not even close the sheet")
         #expect(!BroadcastBoardSheet.isButton(.nothing) && BroadcastBoardSheet.isButton(.operatorWindow))
+    }
+
+    /// A card's tab line brings that tab forward: the task's row selected and its window raised as a row's click
+    /// raises it, then that tab selected in the window.
+    @Test func aTabLineBringsItsTab() async throws {
+        let controller = AppController(preferences: .scratch())
+        defer { controller.shutdown() }
+        try controller.loadWorkspace()
+        let daemon = RecordingDaemon()
+        controller.helper.setDaemonClient(daemon)
+        let run = OperatorUIFixtures.run()
+        let project = OperatorUIFixtures.project("pluto-web")
+        let task = OperatorUIFixtures.task("Footer", project: project.id, windowId: "w1",
+                                           operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
+        controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
+        controller.open(.tab(task: task.id, sessionId: "s2"), run: run.id)
+        #expect(controller.focus.selection == .task(task.id))
+        #expect(await eventually(describing: "the tab brought forward") { !daemon.requests("session.activate").isEmpty })
+        #expect(daemon.requests("session.activate").map { $0.params["sessionId"] as? String } == ["s2"])
+        #expect(daemon.requests.map(\.method).filter { $0.hasSuffix(".activate") } == ["window.activate", "session.activate"],
+                "its window raised first, then the tab selected in it")
     }
 
     @Test func theFooterOffersWhatTheMomentAllows() {
@@ -107,7 +130,7 @@ struct BroadcastBoardSheetTests {
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
         var chosen: [UUID] = []
-        controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
+        controller.focus.onChoosingOperationWithoutWindow { id in chosen.append(id); return nil }
         controller.open(.taskWindow(task.id), run: run.id)
         #expect(controller.focus.selection == .task(task.id))
         controller.open(.sidebarBanner(issue: "issue-7"), run: run.id)
@@ -129,7 +152,7 @@ struct BroadcastBoardSheetTests {
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "a", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.runs = [run]; state.tasks = [task] }
         var chosen: [UUID] = []
-        controller.focus.onChoosingOperationWithoutWindow { id, _ in chosen.append(id); return nil }
+        controller.focus.onChoosingOperationWithoutWindow { id in chosen.append(id); return nil }
         controller.workspace.mutate { $0.runs[0].intent = .stopped }
         controller.open(.taskWindow(task.id), run: run.id)
         controller.open(.operatorWindow, run: run.id)

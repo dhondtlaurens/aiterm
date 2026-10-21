@@ -173,6 +173,8 @@ async def emitted(make_service, monkeypatch) -> dict[str, str]:
         events[protocol.WINDOW_ACTIVATED] = await app.event(protocol.WINDOW_ACTIVATED, mark)
 
         replies["window.activate"] = await app.call("window.activate", {"windowId": task_window})
+        # One worker tab among its task's brought forward: its tab selected, its window raised.
+        replies["session.activate"] = await app.call("session.activate", {"sessionId": pi})
         replies["window.setFrame"] = await app.call("window.setFrame", {"windowId": task_window, "frame": FRAME})
         replies["sessions.setTitles"] = await app.call("sessions.setTitles", {"titles": [{"sessionId": pi, "title": "feat/wire"}]})
         replies["sessions.markSeen"] = await app.call("sessions.markSeen", {"taskId": TASK_ID})

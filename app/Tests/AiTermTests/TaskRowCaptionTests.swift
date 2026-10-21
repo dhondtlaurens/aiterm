@@ -31,20 +31,20 @@ import Testing
     /// status line; what is yours to act on unfolds it, and so does anything the caption says.
     @Test func theBadgeLineFoldsUnderTheOperatorUntilItIsYours() {
         let plain = TaskRowCaption(removal: nil, missing: false, failed: false)
-        for line in [OperatorLine("working", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c", look: .ended)] {
+        for line in [OperatorLine("monitoring Claude", look: .acting), OperatorLine("queued · after PAY-232"), OperatorLine("done · 4f2a91c", look: .ended)] {
             #expect(plain.folds(under: line), "\(line.text)")
         }
         #expect(!plain.folds(under: OperatorLine("waiting on you", look: .needsYou)))
         #expect(!plain.folds(under: OperatorLine("left for you · 4f2a91c", look: .needsYou)))
         #expect(!plain.folds(under: nil), "a task of your own keeps its badges")
-        let working = OperatorLine("working", look: .acting)
+        let working = OperatorLine("monitoring Claude", look: .acting)
         #expect(!TaskRowCaption(removal: .removing, missing: false, failed: false).folds(under: working), "Removing… is the badge line's")
         #expect(!TaskRowCaption(removal: nil, missing: true, failed: false).folds(under: working), "the note takes the status line's place")
     }
 }
 
-/// A task row's trailing mark: its sessions' `StatusMark`, or the green check once the Operator's work on the
-/// task is over (1A, 21 Oct 2026).
+/// A task row's trailing mark: its status's `StatusMark`, the green check once the Operator's work on the task
+/// is over (1A, 21 Oct 2026), or the pause sign while the Operator has it queued.
 @Suite struct TaskRowMarkTests {
     let ended = OperatorLine("merged · 9b3e07d", look: .ended)
 
@@ -60,5 +60,11 @@ import Testing
         #expect(TaskRowMark(status: .idle, line: OperatorLine("failed · the tests fail"), removing: false) == .status(.idle))
         #expect(TaskRowMark(status: .done, line: OperatorLine("left for you · 4f2a91c", look: .needsYou), removing: false) == .status(.done))
         #expect(TaskRowMark(status: .done, line: nil, removing: false) == .status(.done), "a task of your own")
+    }
+
+    @Test func aQueuedTaskShowsThePauseSignUnlessItIsBeingRemoved() {
+        let queued = OperatorLine("queued · after PAY-232")
+        #expect(TaskRowMark(status: .idle, line: queued, removing: false, queued: true) == .queued)
+        #expect(TaskRowMark(status: .idle, line: queued, removing: true, queued: true) == .status(.working))
     }
 }

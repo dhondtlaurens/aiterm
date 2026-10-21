@@ -61,6 +61,10 @@ public struct TaskRow: Equatable, Identifiable, Sendable {
     /// The task is driven by a broadcast that has not ended: its menu leads with the Operator's items.
     /// False for a task you made yourself, and for every task of an ended broadcast, handed to you.
     public var broadcastLive = false
+    /// A task the Operator has planned and not started (`TaskItem.isQueuedByOperator`): drawn last in the
+    /// broadcast's group, its planned agent as its avatar, its title in secondary ink and the pause sign as its
+    /// mark. Selectable, but nothing opens: it has no window yet.
+    public var queued = false
 }
 /// How far a task's checkout has moved from the branch it started at — a task's base, a review's
 /// merge-request target. The VS Code badge draws only the counts, `+12 −3`; the base it measures
@@ -90,7 +94,13 @@ public struct StatusCount: Equatable, Sendable {
 public struct ProjectSection: Equatable, Identifiable, Sendable {
     public var id: UUID { project.id }; public var project: Project, tasks: [TaskRow], terminals: [TerminalRow]
     public var canMoveUp = false, canMoveDown = false
-    /// No task and no terminal: nothing to disclose.
+    /// How many of the project's tasks the live broadcast holds: moved out of the project into the
+    /// broadcast's group, and counted on the header's badge.
+    public var operatorTasks = 0
+    /// How many of those have a worktree yet, as the header's tooltip and Remove Project's question say it.
+    public var operatorWorktrees = 0
+    /// No task and no terminal of its own: nothing to disclose. A project left with only the Operator's
+    /// tasks is empty too: they are drawn under the broadcast.
     public var isEmpty: Bool { tasks.isEmpty && terminals.isEmpty }
     /// Whether the section draws collapsed. An empty project always does, whatever it stored, and
     /// returns to its stored state once a row lands in it — so nothing is written for it.
@@ -203,14 +213,14 @@ public struct UsageTaskRow: Equatable, Sendable {
     }
 }
 
-/// A sidebar row that can have a window: a task (or review), or a terminal. Focus View steps
-/// through them, and the Dock badge counts them.
+/// A sidebar row that can have a window: a task (or review), a terminal, or the Operator's row, by its
+/// broadcast's id. Focus View steps through them, and the Dock badge counts them.
 public enum RowID: Hashable, Sendable {
-    case task(UUID), terminal(UUID)
+    case task(UUID), terminal(UUID), operation(UUID)
 
     public var id: UUID {
         switch self {
-        case .task(let id), .terminal(let id): id
+        case .task(let id), .terminal(let id), .operation(let id): id
         }
     }
 }
@@ -248,35 +258,45 @@ public enum SidebarModel {
     }
 
     /// Focus View (⌘F): the collapsed state each project with rows should store — open when a row
-    /// needs attention, folded otherwise. Empty projects are left out: they draw collapsed whatever
-    /// they stored. With no row needing attention, every project folds down to its header.
-    public static func focusView(_ sections: [ProjectSection]) -> [UUID: Bool] {
-        collapsedStates(sections) { !$0.needsAttention }
+    /// needs attention, folded otherwise — and the broadcast's group's, by its id, on the same rule.
+    /// Empty projects are left out: they draw collapsed whatever they stored. With no row needing
+    /// attention, every project and the broadcast fold down to their headers.
+    public static func focusView(_ sections: [ProjectSection], broadcast: BroadcastSection? = nil) -> [UUID: Bool] {
+        collapsedStates(sections, broadcast: broadcast, broadcastFolded: { !$0.needsAttention }) { !$0.needsAttention }
     }
 
     /// The rows Focus View steps through: every done (and so unseen — a seen one is idle) or
-    /// needs-input row, terminals included, in the order the sidebar draws them: projects top to
+    /// needs-input row, terminals included, in the order the sidebar draws them: the broadcast's
+    /// group first (`BroadcastSection.needingAttention`: only what needs you), then projects top to
     /// bottom, and within one its terminals above its tasks. `skippingTasks` are passed over — the
     /// app's, for tasks on their way out. Focus View goes to the first; the Dock badge counts them.
-    public static func needingAttention(_ sections: [ProjectSection], skippingTasks: Set<UUID> = []) -> [RowID] {
-        sections.flatMap { section in
-            section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
-                + section.tasks.filter { $0.status.needsAttention && !skippingTasks.contains($0.id) }.map { RowID.task($0.id) }
-        }
+    public static func needingAttention(_ sections: [ProjectSection], broadcast: BroadcastSection? = nil,
+                                        skippingTasks: Set<UUID> = []) -> [RowID] {
+        (broadcast?.needingAttention.filter { !skippingTasks.contains($0.id) } ?? [])
+            + sections.flatMap { section in
+                section.terminals.filter { $0.status.needsAttention }.map { RowID.terminal($0.id) }
+                    + section.tasks.filter { $0.status.needsAttention && !skippingTasks.contains($0.id) }.map { RowID.task($0.id) }
+            }
     }
 
     /// The first of `needingAttention`: where Focus View goes.
-    public static func firstNeedingAttention(_ sections: [ProjectSection], skippingTasks: Set<UUID> = []) -> RowID? {
-        needingAttention(sections, skippingTasks: skippingTasks).first
+    public static func firstNeedingAttention(_ sections: [ProjectSection], broadcast: BroadcastSection? = nil,
+                                             skippingTasks: Set<UUID> = []) -> RowID? {
+        needingAttention(sections, broadcast: broadcast, skippingTasks: skippingTasks).first
     }
 
-    /// List View (⌘L): every project with rows open. Empty ones are left out, as in `focusView`.
-    public static func listView(_ sections: [ProjectSection]) -> [UUID: Bool] {
-        collapsedStates(sections) { _ in false }
+    /// List View (⌘L): every project with rows open, and the broadcast's group. Empty ones are left
+    /// out, as in `focusView`.
+    public static func listView(_ sections: [ProjectSection], broadcast: BroadcastSection? = nil) -> [UUID: Bool] {
+        collapsedStates(sections, broadcast: broadcast, broadcastFolded: { _ in false }) { _ in false }
     }
 
-    private static func collapsedStates(_ sections: [ProjectSection], _ collapsed: (ProjectSection) -> Bool) -> [UUID: Bool] {
-        Dictionary(sections.filter { !$0.isEmpty }.map { ($0.id, collapsed($0)) }, uniquingKeysWith: { first, _ in first })
+    private static func collapsedStates(_ sections: [ProjectSection], broadcast: BroadcastSection?,
+                                        broadcastFolded: (BroadcastSection) -> Bool,
+                                        _ collapsed: (ProjectSection) -> Bool) -> [UUID: Bool] {
+        var states = Dictionary(sections.filter { !$0.isEmpty }.map { ($0.id, collapsed($0)) }, uniquingKeysWith: { first, _ in first })
+        if let broadcast { states[broadcast.id] = broadcastFolded(broadcast) }
+        return states
     }
 
     /// The same counts as a sentence, for the row's tooltip and for VoiceOver — the chips
@@ -344,9 +364,12 @@ public enum SidebarModel {
                                diffByTask: [UUID: DiffStat] = [:], acting: [UUID: OperatorAct] = [:]) -> [SidebarEntry] {
         // Grouped once for every row, rather than filtered per task and per terminal — and the
         // rows by project once, rather than filtered again for every project.
-        let tabs = Tabs(byTask: Dictionary(grouping: sessions, by: \.taskUUID), byWindow: Dictionary(grouping: sessions, by: \.windowId))
-        let rows = Rows(tasks: Dictionary(grouping: state.tasks, by: \.projectId),
-                        terminals: Dictionary(grouping: state.terminals, by: \.projectId))
+        let tabs = Tabs(sessions)
+        // The live broadcast's tasks are drawn under it (`broadcastSection`), out of their projects, which count them.
+        let held = state.activeRun.map { run in Set(state.tasks(inRun: run.id).map(\.id)) } ?? []
+        let rows = Rows(tasks: Dictionary(grouping: state.tasks.filter { !held.contains($0.id) }, by: \.projectId),
+                        terminals: Dictionary(grouping: state.terminals, by: \.projectId),
+                        held: Dictionary(grouping: state.tasks.filter { held.contains($0.id) }, by: \.projectId))
         let operated = OperatedLookup(state: state, acting: acting)
         // A row only a newer build can draw is skipped, and does not count as an end to move towards.
         let drawn = state.items.indices.filter { state.items[$0].isDrawn }
@@ -366,13 +389,19 @@ public enum SidebarModel {
 
     /// The session list as the rows look it up: a task's tabs by their tag, a terminal's by its window.
     /// Untagged tabs sit under `nil`, which no task asks for.
-    private struct Tabs { var byTask: [UUID?: [SessionInfo]], byWindow: [String: [SessionInfo]] }
-    /// The workspace's tasks and terminals by project, each list in the workspace's order.
-    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]] }
+    struct Tabs {
+        var byTask: [UUID?: [SessionInfo]], byWindow: [String: [SessionInfo]]
+        init(_ sessions: [SessionInfo]) {
+            byTask = Dictionary(grouping: sessions, by: \.taskUUID); byWindow = Dictionary(grouping: sessions, by: \.windowId)
+        }
+    }
+    /// The workspace's tasks and terminals by project, each list in the workspace's order; `held` the live
+    /// broadcast's tasks, which the projects only count.
+    private struct Rows { var tasks: [UUID: [TaskItem]], terminals: [UUID: [TerminalItem]], held: [UUID: [TaskItem]] }
 
     /// The runs, tasks and requests a driven task's row reads, built once per derivation, and left empty,
     /// at no cost, while no task is driven. `acting` is what the Operator is doing to each task.
-    private struct OperatedLookup {
+    struct OperatedLookup {
         var runs: [UUID: OperatorRun] = [:], tasks: [UUID: TaskItem] = [:], acting: [UUID: OperatorAct] = [:]
         var requests: [UUID: [BroadcastRequest]] = [:]
         init(state: AppState, acting: [UUID: OperatorAct]) {
@@ -403,19 +432,7 @@ public enum SidebarModel {
         // the second lane.
         let orderedTasks = projectTasks.filter { $0.kind != .review }
             + projectTasks.filter { $0.kind == .review }
-        let tasks = orderedTasks.map { task -> TaskRow in
-            let own = tabs.byTask[task.id] ?? []
-            let run = task.operated.flatMap { operated.runs[$0.runId] }
-            let line = run.flatMap { run in
-                OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
-                                  tasks: operated.tasks)
-            }
-            return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
-                           branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
-                           avatars: avatars(for: own), status: aggregate(own.map(\.state)),
-                           diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
-                           broadcastLive: run.map { !$0.hasEnded } ?? false)
-        }
+        let tasks = orderedTasks.map { taskRow($0, tabs: tabs, operated: operated, branchByCwd: branchByCwd, diffByTask: diffByTask) }
         let terminals = (rows.terminals[project.id] ?? []).map { term -> TerminalRow in
             // Matched on the window, not on `projectId`: every terminal of a project carries the
             // same project id, so only the window tells two of them apart.
@@ -425,7 +442,39 @@ public enum SidebarModel {
                                avatars: own.isEmpty ? AvatarGroup(marks: [.shell], overflow: 0) : avatars(for: own),
                                status: aggregate(own.map(\.state)))
         }
-        return ProjectSection(project: project, tasks: tasks, terminals: terminals)
+        let held = rows.held[project.id] ?? []
+        return ProjectSection(project: project, tasks: tasks, terminals: terminals,
+                              operatorTasks: held.count, operatorWorktrees: held.filter(\.hasCheckout).count)
+    }
+
+    /// One task's row: its tabs' agents, branch and status, and, driven, the Operator's line, read from the same
+    /// tabs, so it says `checking next` once every worker ended its turn and `monitoring 2 tabs` with several
+    /// open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
+    static func taskRow(_ task: TaskItem, tabs: Tabs, operated: OperatedLookup, branchByCwd: [String: String],
+                        diffByTask: [UUID: DiffStat]) -> TaskRow {
+        let own = tabs.byTask[task.id] ?? []
+        let run = task.operated.flatMap { operated.runs[$0.runId] }
+        let line = run.flatMap { run in
+            OperatorLine.task(task, run: run, acting: operated.acting[task.id], requests: operated.requests[run.id] ?? [],
+                              tasks: operated.tasks, sessions: own)
+        }
+        let queued = line != nil && task.isQueuedByOperator
+        let status = aggregate(own.map(\.state))
+        return TaskRow(id: task.id, title: task.title, jiraKey: task.jira?.key, jiraUrl: task.jira?.url, mr: task.mr,
+                       branch: branchLabel(sessions: own, branchByCwd: branchByCwd, own: task.branch, fallback: nil),
+                       avatars: queued && own.isEmpty ? AvatarGroup(marks: [task.agent.session], overflow: 0) : avatars(for: own),
+                       status: queued ? status : heldStatus(status, line: line),
+                       diff: baseDiff(task: task, stat: diffByTask[task.id]), operatorLine: line,
+                       broadcastLive: run.map { !$0.hasEnded } ?? false, queued: queued)
+    }
+
+    /// A driven task's status while the Operator holds it, its line neither gone nor ended (P3 1A, 21 Oct
+    /// 2026): at work, whatever its tabs say, so an idle tab or a turn's end shows the spinner and no done dot,
+    /// those being the Operator's to read. It needs you, amber, when its tab waits on input or its line does
+    /// (a prompt, a question, a block). A task you made, one you took over and an ended one keep their tabs'.
+    public static func heldStatus(_ status: TaskStatus, line: OperatorLine?) -> TaskStatus {
+        guard let line, line.look != .ended else { return status }
+        return line.look == .needsYou || status == .needsInput ? .needsInput : .working
     }
 
     /// Only a diff with something in it extends the badge; no base, no answer yet, or nothing

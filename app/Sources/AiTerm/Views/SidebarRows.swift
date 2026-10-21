@@ -118,6 +118,13 @@ struct ProjectHeaderRow: View {
                             controller.presentJiraProjects(for: project)
                         }
                     }
+                    // The tasks the broadcast holds, drawn under it: a click opens its group at the first.
+                    if let held = ProjectOperatorBadge(section: section) {
+                        Badge(held.label, icon: .symbol(BroadcastHeaderRow.glyph), help: held.help, style: .quiet,
+                              accessibilityLabel: held.accessibilityLabel) {
+                            controller.showOperatorTasks(of: project)
+                        }
+                    }
                 }
                 Spacer(minLength: scale(Space.tight))
                 // Only when collapsed: expanded, the task and terminal rows say all of this and more, and a
@@ -139,6 +146,7 @@ struct ProjectHeaderRow: View {
         }
         .frame(height: scale(Size.projectRow)).padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
         .modifier(RowPill(selected: selected))
+        .help(section.operatorHelp ?? "")
         // ↩ on an empty header opens this menu, which it has in place of a fold.
         .background(RowMenuAnchor(id: project.id))
         .contextMenu {
@@ -181,11 +189,13 @@ struct ProjectHeaderRow: View {
     }
 }
 
-/// The pill a selectable row — a task or a terminal — is drawn in: its hover wash, its selection
-/// fill, and the click that activates it. The hover lives here, in the row, so moving the pointer
-/// redraws that row rather than the whole sidebar.
+/// The pill a selectable row — a task, a terminal or the Operator's — is drawn in: its hover wash, its
+/// selection fill, and the click that activates it. The hover lives here, in the row, so moving the
+/// pointer redraws that row rather than the whole sidebar. `washed` is the Operator's row: its wash at
+/// rest (`RowPill`).
 struct SelectableRow<Content: View>: View {
     let selected: Bool
+    var washed = false
     let activate: () -> Void
     @ViewBuilder let content: () -> Content
     @Environment(\.interfaceScale) private var scale
@@ -200,8 +210,8 @@ struct SelectableRow<Content: View>: View {
     @Environment(\.rowHovered) private var seededHover
     #endif
 
-    init(selected: Bool, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
-        self.selected = selected; self.activate = activate; self.content = content
+    init(selected: Bool, washed: Bool = false, activate: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+        self.selected = selected; self.washed = washed; self.activate = activate; self.content = content
     }
 
     /// The pointer's hover, or in a debug build a test's.
@@ -218,7 +228,7 @@ struct SelectableRow<Content: View>: View {
             .padding(.leading, scale(Space.base)).padding(.trailing, SidebarRowLayout.trailingInset(scale))
             .padding(.vertical, scale(Space.base))
             .frame(minHeight: scale(Size.row))
-            .modifier(RowPill(selected: selected, hovered: drawsHover))
+            .modifier(RowPill(selected: selected, hovered: drawsHover, washed: washed))
             // The pill is inset from the project row, so the indent goes *outside* the background —
             // painting it inside made the blue run all the way to the sidebar's edge. Selection is drawn
             // here too, not by the list: AppKit's own row highlight covers the whole row rect, which is
@@ -234,25 +244,43 @@ struct SelectableRow<Content: View>: View {
     }
 }
 
-/// The pill a selectable sidebar row is drawn in — a task's, a terminal's, a project header's, and the
-/// Archive sheet's rows, which read as the sidebar's: the selection fill, else the hover wash, behind
-/// the row's own padding. It declares the ground everything inside reads — `ground` at rest, the
-/// sidebar's unless the pill sits on a sheet.
+/// The pill a selectable sidebar row is drawn in — a task's, a terminal's, the Operator's, a project's or a
+/// broadcast's header, and the Archive sheet's rows, which read as the sidebar's: the selection fill, else
+/// the hover wash, behind the row's own padding. It declares the ground everything inside reads — `ground`
+/// at rest, the sidebar's unless the pill sits on a sheet. A `washed` row, the Operator's, wears
+/// `Palette.operatorRow` at rest and `Palette.badgeHovered` hovered, in the hover wash's place; selection
+/// replaces either, as it does the hover.
 struct RowPill: ViewModifier {
     let selected: Bool
     var hovered = false
+    var washed = false
     var ground = Surface.sidebar
     @Environment(\.interfaceScale) private var scale
+
+    /// The ground the row declares: `.hover` or `.washedHover` hovered, `.washed` at rest on the Operator's.
+    static func surface(selected: Bool, hovered: Bool, washed: Bool, ground: Surface) -> Surface {
+        if selected { return .accent }
+        if washed { return hovered ? .washedHover : .washed }
+        return hovered ? .hover : ground
+    }
+
+    /// The pill's fill, under the row's own padding.
+    static func fill(selected: Bool, hovered: Bool, washed: Bool) -> Color {
+        if selected { return Palette.selection }
+        if washed { return hovered ? Palette.badgeHovered : Palette.operatorRow }
+        return hovered ? Palette.rowHover : .clear
+    }
 
     func body(content: Content) -> some View {
         content
             // `.hover`, not `.sidebar`, while the row is merely hovered: `AvatarGroupView`'s ring reads
-            // `Surface.occludingBackground`, which is `Palette.rowHoverSolid` for `.hover`. Every other
-            // consumer of `surface` on a row (`Badge`, `StatusMark`, `BranchLabelView`) only branches on
-            // `isOnAccent`, which `.hover` and `.sidebar` share.
-            .surface(selected ? .accent : (hovered ? .hover : ground))
+            // `Surface.occludingBackground`, which is `Palette.rowHoverSolid` for `.hover` (and the washed
+            // row's solids for `.washed` and `.washedHover`). Every other consumer of `surface` on a row
+            // (`Badge`, `StatusMark`, `BranchLabelView`) only branches on `isOnAccent`, which these and
+            // `.sidebar` share.
+            .surface(Self.surface(selected: selected, hovered: hovered, washed: washed, ground: ground))
             .background(RoundedRectangle(cornerRadius: scale(Radius.control))
-                .fill(selected ? Palette.selection : (hovered ? Palette.rowHover : .clear)))
+                .fill(Self.fill(selected: selected, hovered: hovered, washed: washed)))
     }
 }
 
@@ -353,13 +381,14 @@ struct TaskRowView: View {
         let badges = TaskRowBadges(row: row, details: controller.preferences.badgeDetails,
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
-                                             awaitsRetry: awaitsRetry, canChangeWorkspace: controller.canChangeWorkspace)
+                                             awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
         // A row being removed is not activated: its window is closing, or gone.
-        SelectableRow(selected: selected, activate: { if let task, !removing { controller.focus.select(.task(task.id)) } }) {
+        SelectableRow(selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
                 AvatarGroupView(group: row.avatars)
                 VStack(alignment: .leading, spacing: scale(Space.tight)) {
-                    RowTitle(row.title, dimmed: removing)
+                    // A queued task's title in secondary ink, as one on its way out: it has not started.
+                    RowTitle(row.title, dimmed: removing || row.queued)
                     if let progress = caption.progress {
                         // In the badge line's place and at its height, so the row keeps its own.
                         RowCaption(progress).frame(height: scale(Size.chip))
@@ -399,8 +428,9 @@ struct TaskRowView: View {
                 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
                 Spacer(minLength: scale(Space.tight))
-                // The status mark's spinner: the row's agents went with its window. An ended driven task's is the check.
-                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.operatorLine, removing: removing),
+                // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
+                // check, a queued one's the pause sign.
+                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued),
                                 size: SidebarRowLayout.trailingGlyph(scale))
                     .frame(width: SidebarRowLayout.trailingSlot(scale))
             }
@@ -641,6 +671,25 @@ extension ProjectJiraBadge.Overflow {
     }
 }
 
+/// The quiet badge a project header wears while the live broadcast holds some of its tasks, drawn under the
+/// broadcast and not here (decided 21 Oct 2026): the broadcast's glyph and how many. Its click opens the
+/// broadcast's group and selects the first of them. A value, so what it says is tested without rendering.
+struct ProjectOperatorBadge: Equatable {
+    let label: String
+    let help: String
+    let accessibilityLabel: String
+
+    /// The project's badge, or none while the broadcast holds none of its tasks.
+    init?(section: ProjectSection) {
+        let count = section.operatorTasks
+        guard count > 0 else { return nil }
+        let tasks = count == 1 ? "1 task" : "\(count) tasks"
+        label = "\(count)"
+        help = "\(tasks) with the Operator. Click to show \(count == 1 ? "it" : "them")."
+        accessibilityLabel = "\(tasks) with the Operator"
+    }
+}
+
 /// What VoiceOver reads and offers on a task row: its branch after its title when it has one, only
 /// the actions its context menu would let the person choose now, and what choosing the row does — its
 /// hint, and the tooltip: a row whose window could not be reopened tries again, unless the workspace
@@ -666,15 +715,17 @@ struct TaskRowAccessibility: Equatable {
     }
 
     /// `awaitsRetry` is a removal that stopped after the worktree went: the row waits on Remove's retry,
-    /// so Archive, which its menu greys, is not offered.
+    /// so Archive, which its menu greys, is not offered. `queued` is a task the Operator has not started:
+    /// choosing it opens nothing, and its line's tooltip says when it starts.
     init(title: String, task: TaskItem?, missing: Bool, failed: Bool, removing: Bool = false, awaitsRetry: Bool = false,
-         canChangeWorkspace: Bool) {
+         queued: Bool = false, canChangeWorkspace: Bool) {
         let branch = task?.branch ?? ""
         label = branch.isEmpty ? title : "\(title), \(branch)"
         let kindName = task?.kindName ?? "Task"
         self.kindName = kindName
         let words: (hint: String, help: String) =
             removing ? ("", "")
+            : queued ? ("It has no window until the Operator starts it.", "")
             : missing ? ("Restore the worktree or use Remove \(kindName).", "Worktree missing. Restore it or use Remove \(kindName).")
             : failed ? canChangeWorkspace ? ("Press Return to try again.", "Couldn’t reopen its window. Click to try again.")
                                           : ("", "Couldn’t reopen its window.")
@@ -691,22 +742,26 @@ struct TaskRowAccessibility: Equatable {
 /// task is missing — its worktree, or a window that could not be reopened. While a removal runs
 /// neither shows: its window closing first, and its checkout going, are the removal, not news.
 
-/// A task row's trailing mark: its sessions' `StatusMark`, or once the Operator's work on the task is over
-/// (its line's look `ended`) the check (1A, 21 Oct 2026). The check stands in for an idle session and for an
-/// unseen turn, whose last words are the Operator's to read; a session at work or waiting on input is yours
-/// again and keeps its own mark, and a removal or shelving in progress spins.
+/// A task row's trailing mark: its status's `StatusMark` (while the Operator holds the task, the spinner
+/// unless it needs you: `SidebarModel.heldStatus`), or once the Operator's work on the task is over (its
+/// line's look `ended`) the check (1A, 21 Oct 2026), or while the Operator has it queued the pause sign. The
+/// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
+/// a session at work or waiting on input is yours again and keeps its own mark, and a removal or shelving in
+/// progress spins.
 enum TaskRowMark: Equatable {
-    case status(TaskStatus), ended
+    case status(TaskStatus), ended, queued
 
-    init(status: TaskStatus, line: OperatorLine?, removing: Bool) {
+    init(status: TaskStatus, line: OperatorLine?, removing: Bool, queued: Bool = false) {
         if removing { self = .status(.working) }
+        else if queued { self = .queued }
         else if line?.look == .ended, status != .working, status != .needsInput { self = .ended }
         else { self = .status(status) }
     }
 }
 
-/// `TaskRowMark` drawn: the `StatusMark`, or `checkmark` at the mark's size in `Palette.green`, and on the
-/// accent in `Palette.onAccent`, as the working arc turns there. Decorative: the row's value reads the line.
+/// `TaskRowMark` drawn: the `StatusMark`; `checkmark` at the mark's size in `Palette.green`; or `pause.fill`
+/// at the mark's size in `Palette.idleRing`, the idle ring's ink, since nothing runs yet. On the accent either
+/// is `Palette.onAccent`, as the working arc turns there. Decorative: the row's value reads the line.
 struct TaskRowMarkView: View {
     let mark: TaskRowMark
     let size: CGFloat
@@ -717,6 +772,9 @@ struct TaskRowMarkView: View {
         case .status(let status): StatusMark(status: status, size: size)
         case .ended:
             Icon(.symbol("checkmark"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.green)
+                .frame(width: size, height: size).accessibilityHidden(true)
+        case .queued:
+            Icon(.symbol("pause.fill"), size: size, tint: surface.isOnAccent ? Palette.onAccent : Palette.idleRing)
                 .frame(width: size, height: size).accessibilityHidden(true)
         }
     }
@@ -847,12 +905,28 @@ struct TaskRowBadges: Equatable {
     }
 }
 
-/// A project's provider, centred in a ``Size/avatar`` square so the name after it lines up with the
-/// avatars in the rows below. No tile behind it: the header sits on the sidebar's own ground.
+/// A header's mark, centred in a ``Size/avatar`` square so the name after it lines up with the avatars in
+/// the rows below: a project's provider, or a broadcast's glyph (`IconSource` alone). No tile behind it:
+/// the header sits on the sidebar's own ground. A vendor's mark is drawn at ``logoSize`` in its colour, an
+/// SF Symbol at ``glyphSize`` in the surface's secondary ink.
 struct ProviderIcon: View {
-    let provider: Provider
+    let source: IconSource
     @Environment(\.interfaceScale) private var scale
     @Environment(\.surface) private var surface
+
+    init(provider: Provider) { source = Self.source(of: provider) }
+    init(_ source: IconSource) { self.source = source }
+
+    /// A project's host as its header marks it, and New Broadcast's pickers with it.
+    static func source(of provider: Provider) -> IconSource {
+        switch provider {
+        case .gitlab: .gitlabTanuki
+        case .github: .brand(Palette.github)
+        case .git: .symbol("arrow.triangle.branch")
+        case .none: .symbol("folder.fill")
+        }
+    }
+
     /// The GitLab and GitHub marks' drawn size, inside the ``Size/avatar`` square — neither `Size` nor
     /// `Typography` has a step this close without visibly shrinking or enlarging the logo.
     private static let logoSize: CGFloat = 13
@@ -861,13 +935,9 @@ struct ProviderIcon: View {
     private static let glyphSize: CGFloat = 10
     var body: some View {
         ZStack {
-            switch provider {
-            case .gitlab:
-                Icon(.gitlabTanuki, size: scale(Self.logoSize))
-            case .github:
-                Icon(.brand(Palette.github), size: scale(Self.logoSize))
-            case .git: Icon(.symbol("arrow.triangle.branch"), size: scale(Self.glyphSize), tint: surface.secondaryInk)
-            case .none: Icon(.symbol("folder.fill"), size: scale(Self.glyphSize), tint: surface.secondaryInk)
+            switch source {
+            case .symbol: Icon(source, size: scale(Self.glyphSize), tint: surface.secondaryInk)
+            case .brand, .artwork: Icon(source, size: scale(Self.logoSize))
             }
         }.frame(width: scale(Size.avatar), height: scale(Size.avatar))
     }

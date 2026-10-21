@@ -73,4 +73,42 @@ import Testing
         task.conversations = [TaskConversation(agent: .claude, id: "conv-review")]
         #expect(task.firstWorkerConversation == nil)
     }
+
+    // MARK: - Which tab a click brings forward (P5 A, 21 Oct 2026)
+
+    /// A row's click brings the tab that asks; of several, the first by `OperatorLine.first`'s order, then by tab
+    /// order (`main`, then the extra tabs as they opened); with none asking, the tab last in front in its window.
+    @Test func aClickBringsTheAskingTabElseTheOneLastInFront() {
+        let task = task([extra("docs", sessionId: "s2", opened: true), extra("e2e-tests", sessionId: "s3", opened: true)])
+        func tabs(main: SessionState = .working, docs: SessionState = .working, e2e: SessionState = .working,
+                  active: String = "s1") -> [SessionInfo] {
+            var listed = [session("s1", task: task.id, state: main), session("s2", task: task.id, index: 1, state: docs, key: "docs"),
+                          session("s3", task: task.id, index: 2, state: e2e, key: "e2e-tests")]
+            for i in listed.indices { listed[i].active = listed[i].sessionId == active }
+            return listed
+        }
+        func prompt(_ tab: String, _ kind: BroadcastRequest.Kind = .permission) -> BroadcastRequest {
+            BroadcastRequest(kind: kind, runId: task.operated!.runId, taskId: task.id, text: "Asks.", tab: tab)
+        }
+        // Nothing asks: the tab last in front, as its window last showed it.
+        #expect(task.tabToBring(sessions: tabs(active: "s3"), requests: [])?.sessionId == "s3")
+        #expect(task.tabToBring(sessions: tabs(active: "none"), requests: [])?.sessionId == "s1", "none in front: its first worker")
+        // One asks: that one, whichever is in front.
+        #expect(task.tabToBring(sessions: tabs(active: "s1"), requests: [prompt("docs")])?.sessionId == "s2")
+        #expect(task.tabToBring(sessions: tabs(e2e: .needsInput), requests: [])?.sessionId == "s3", "a prompt not recorded yet asks too")
+        // Several ask: by tab order between equals, `main` first.
+        #expect(task.tabToBring(sessions: tabs(docs: .needsInput, e2e: .needsInput, active: "s1"), requests: [])?.sessionId == "s2")
+        #expect(task.tabToBring(sessions: tabs(main: .needsInput, e2e: .needsInput), requests: [prompt("e2e-tests")])?.sessionId == "s1")
+        // A request no one tab makes, or another task's, picks none.
+        let question = BroadcastRequest(kind: .question, runId: task.operated!.runId, taskId: task.id, text: "The Operator asks.")
+        var elsewhere = prompt("docs")
+        elsewhere.taskId = UUID()
+        #expect(task.tabToBring(sessions: tabs(active: "s3"), requests: [question, elsewhere])?.sessionId == "s3")
+        // A tab of the task that is no worker's (a review opened in its window) in front is the one last in front.
+        var review = session("s4", task: task.id, index: 3, agent: .codex, state: .idle, key: nil)
+        review.active = true
+        #expect(task.tabToBring(sessions: tabs(active: "none") + [review], requests: [])?.sessionId == "s4")
+        // None listed: nothing to bring, its window comes back as a row's click brings it today.
+        #expect(task.tabToBring(sessions: [], requests: [prompt("docs")]) == nil)
+    }
 }

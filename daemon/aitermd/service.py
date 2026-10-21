@@ -103,7 +103,7 @@ class Service:
         self.operators = OperatorRoute(rpc.broadcast, lambda: rpc.client_count, OperatorTokens(operator_runs))
         self.hooks.operator_route = self.operators
         self._poll_task: asyncio.Task[None] | None = None
-        # window.setFrame and window.activate each leave a state the next one replaces, and the app
+        # window.setFrame, window.activate and session.activate each leave a state the next one replaces, and the app
         # sends them from separate tasks; requests are answered concurrently, so they take this in
         # turn, in the order they came, and the last one sent is the one that stays.
         self._placement_lock = asyncio.Lock()
@@ -164,6 +164,7 @@ class Service:
         r("window.createTask", self.windows.create_task)
         r("window.createTerminal", self.windows.create_terminal)
         r("window.activate", self._h_activate)
+        r("session.activate", self._h_activate_session)
         r("window.setFrame", self._h_set_frame)
         r("window.close", self._h_close)
         r("tab.create", self.windows.create_tab)
@@ -202,6 +203,14 @@ class Service:
         async with self._placement_lock:
             require_iterm(self.iterm)
             await guard(self.iterm.activate_window(window_id))
+        return {}
+
+    async def _h_activate_session(self, p: Any) -> dict[str, Any]:
+        # One tab selected and its window raised: in turn with window.activate, whose state it replaces.
+        session_id = param(p, "sessionId", str)
+        async with self._placement_lock:
+            require_iterm(self.iterm)
+            await guard(self.iterm.activate_session(session_id))
         return {}
 
     async def _h_set_frame(self, p: Any) -> dict[str, Any]:

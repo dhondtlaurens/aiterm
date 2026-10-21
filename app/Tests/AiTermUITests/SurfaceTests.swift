@@ -45,7 +45,7 @@ struct SurfaceTests {
         // A ring or divider painted *over* content — AvatarGroupView's ring over the avatar behind
         // it — needs a colour that occludes. A wash with any transparency lets what's underneath
         // show through, which is the one thing this property exists to prevent.
-        for surface in [Surface.sidebar, .hover, .accent, .sheet] {
+        for surface in [Surface.sidebar, .hover, .washed, .washedHover, .accent, .sheet] {
             #expect(ColorProbe.alpha(surface.occludingBackground) == 1,
                     "\(surface) does not occlude")
         }
@@ -60,5 +60,15 @@ struct SurfaceTests {
         #expect(ColorProbe.hex(Surface.hover.occludingBackground) == ColorProbe.hex(Palette.rowHoverSolid))
         #expect(ColorProbe.hex(Surface.accent.occludingBackground) == ColorProbe.hex(Palette.selection))
         #expect(ColorProbe.hex(Surface.sheet.occludingBackground) == ColorProbe.hex(Palette.surface))
+        #expect(ColorProbe.hex(Surface.washed.occludingBackground) == ColorProbe.hex(Palette.operatorRowSolid))
+        #expect(ColorProbe.hex(Surface.washedHover.occludingBackground) == ColorProbe.hex(Palette.operatorRowHoveredSolid))
+    }
+
+    /// The Operator's row is washed, not selected: its ink is the sidebar's.
+    @Test func aWashedRowInksAsTheSidebarDoes() {
+        for surface in [Surface.washed, .washedHover] {
+            #expect(!surface.isOnAccent)
+            #expect(ColorProbe.hex(surface.ink) == ColorProbe.hex(Surface.sidebar.ink))
+        }
     }
 }

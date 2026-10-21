@@ -139,14 +139,15 @@ struct Fixture {
     /// the same way the daemon's do: as JSON.
     static func session(_ id: String, _ window: String, _ task: UUID, _ agent: String, _ state: String, _ tab: Int,
                         cwd: String = "/r", active: Bool = false, context: Int? = nil, tokens: TokenTally? = nil,
-                        model: String? = nil, reasoning: String? = nil) -> SessionInfo? {
+                        model: String? = nil, reasoning: String? = nil, tabKey: String? = nil) -> SessionInfo? {
         let counts = tokens.map { #"{"input":\#($0.input),"cached":\#($0.cached.map(String.init) ?? "null"),"output":\#($0.output)}"# } ?? "null"
         let json = """
         {"sessionId":"\(id)","windowId":"\(window)","tabIndex":\(tab),"taskId":"\(task.uuidString)","projectId":null,
          "agent":"\(agent)","model":\(model.map { "\"\($0)\"" } ?? "null"),
          "reasoning":\(reasoning.map { "\"\($0)\"" } ?? "null"),
          "state":"\(state)","title":"\(agent)","cwd":"\(cwd)","active":\(active),
-         "contextPercent":\(context.map(String.init) ?? "null"),"tokens":\(counts)}
+         "contextPercent":\(context.map(String.init) ?? "null"),"tokens":\(counts),
+         "tabKey":\(tabKey.map { "\"\($0)\"" } ?? "null")}
         """
         return try? JSONDecoder().decode(SessionInfo.self, from: Data(json.utf8))
     }

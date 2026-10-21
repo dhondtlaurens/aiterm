@@ -86,6 +86,19 @@ final class DaemonClientTests {
         #expect(params?["background"] as? Bool == true)
     }
 
+    /// One worker tab brought forward among its task's: the daemon selects it and raises its window.
+    @Test func testActivatingASessionNamesTheTab() async throws {
+        server.handler = { req in
+            #expect(req["method"] as? String == "session.activate")
+            return ["id": req["id"]!, "result": [:]]
+        }
+        try client.connect()
+        #expect(server.waitForClient(timeout: 2))
+        try await client.activate(sessionId: "s9")
+        let params = server.received.first?["params"] as? [String: Any]
+        #expect(params?["sessionId"] as? String == "s9")
+    }
+
     /// The terminal's name titles its iTerm2 window, so it has to reach the daemon.
     @Test func testCreateTerminalSendsTheTerminalName() async throws {
         server.handler = { req in

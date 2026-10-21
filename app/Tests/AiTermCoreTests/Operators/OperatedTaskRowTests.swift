@@ -5,7 +5,8 @@ import Testing
 
 /// A task the Operator drives draws its own agents, as any task does, and the Operator's status line as
 /// its third line (`OperatorLine`), until the Operator lets go: you took it over, it was stopped, or the
-/// broadcast ended (spec §7, §13).
+/// broadcast ended (spec §7, §13). While the broadcast lives the row is drawn in its group; once it has ended,
+/// in its project again.
 @Suite struct OperatedTaskRowTests {
     private let web = OperatorUIFixtures.project("pluto-web")
 
@@ -19,8 +20,10 @@ import Testing
         state.append(project: web)
         state.tasks = [task]
         state.runs = [run]
-        let sections = SidebarModel.sections(state: state, sessions: tabs, branchByCwd: [:], projectBranch: [:], acting: acting)
-        return sections[0].tasks[0]
+        if let held = SidebarModel.broadcastSection(state: state, sessions: tabs, acting: OperatorActs(tasks: acting))?.tasks.first {
+            return held
+        }
+        return SidebarModel.sections(state: state, sessions: tabs, branchByCwd: [:], projectBranch: [:], acting: acting)[0].tasks[0]
     }
 
     @Test func itsAvatarsAreItsOwnAgentsAndTheOperatorSpeaksOnItsLine() {
@@ -29,7 +32,7 @@ import Testing
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         let drawn = row(task, run: run, tabs: [tab(task, .claude)])
         #expect(drawn.avatars == AvatarGroup(marks: [.claude], overflow: 0))
-        #expect(drawn.operatorLine == OperatorLine("working", look: .acting))
+        #expect(drawn.operatorLine == OperatorLine("monitoring Claude", look: .acting))
         let acting = row(task, run: run, tabs: [tab(task, .claude)], acting: [task.id: .answering])
         #expect(acting.operatorLine == OperatorLine("answering Claude", look: .acting))
     }
@@ -67,7 +70,7 @@ import Testing
     }
 
     /// What waits on you is read from the broadcast's requests, as the notifications say them.
-    @Test func aQuestionOnTheTaskIsItsLine() {
+    @Test func aQuestionOnTheTaskIsItsLine() throws {
         let footerId = UUID()
         let run = OperatorUIFixtures.run(questions: [OperatorUIFixtures.question("retry policy?", task: footerId)])
         let task = OperatorUIFixtures.task("Fix the /privacy footer link", id: footerId, agent: .codex, project: web.id,
@@ -85,7 +88,7 @@ import Testing
         state.append(project: web)
         state.tasks = [parent, child]
         state.runs = [run]
-        let rows = SidebarModel.sections(state: state, sessions: [], branchByCwd: [:], projectBranch: [:])[0].tasks
+        let rows = try #require(SidebarModel.broadcastSection(state: state, sessions: [])).tasks
         #expect(rows.map(\.operatorLine?.text) == ["done · 4f2a91c", "queued · after PLUTO-231"])
     }
 }

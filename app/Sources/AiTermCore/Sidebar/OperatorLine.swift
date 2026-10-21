@@ -48,7 +48,7 @@ public struct OperatorActs: Equatable, Sendable {
     /// Nothing in flight.
     public static let none = OperatorActs()
 
-    /// The broadcast's act as `OperatorLine.broadcast` takes it.
+    /// The broadcast's act as `OperatorLine.broadcast` and `OperatorLine.session` take it.
     public func broadcast(_ run: UUID) -> (OperatorAct, task: String?)? { runs[run].map { ($0.act, task: $0.task) } }
 }
 
@@ -59,10 +59,12 @@ public struct OperatorActs: Equatable, Sendable {
 ///   Jan`, `paused`).
 /// - `ended`: drawn as quiet, the Operator's work on the task is over (`done · 4f2a91c`, `merged · 9b3e07d`,
 ///   `draft MR · !412`): the row's trailing mark is the check (1A, 21 Oct 2026).
-/// - `acting`: something moves, as the row's `StatusMark` turns: the task's agent works (`working`), or
+/// - `acting`: something moves, as the row's `StatusMark` turns: the Operator holds the task, in its own verbs
+///   (`monitoring Claude` while the task's agent works, `checking next` once its workers ended their turn), or
 ///   AiTerm carries out one of the Operator's acts (`OperatorAct`).
-/// - `needsYou`: yours to act on: a request (`waiting on you`, `waiting on you · 2 tasks`, `blocked · the
-///   tests fail on main`), or a publication left for you (`left for you · 4f2a91c`).
+/// - `needsYou`: yours to act on: a request (`waiting on you`, `waiting on you · docs` from one of several worker
+///   tabs, `waiting on you · 2 tasks`, `blocked · the tests fail on main`), or a publication left for you
+///   (`left for you · 4f2a91c`).
 ///
 /// A request outranks an act. What a prompt or a question asks is in `tooltip`, not on the line: the
 /// task's window, a click away, shows it whole. A blocked task's reason stays, cut to fit the sidebar's
@@ -87,9 +89,11 @@ public struct OperatorLine: Equatable, Sendable {
 
     /// The line on a driven task's row and its card; nil for a task you made yourself, one you took over
     /// (its card says `taken over`), one the Operator let go of, and every task of an ended broadcast.
-    /// `tasks` names the tasks it waits for; without them the parent is "another task".
+    /// `tasks` names the tasks it waits for; without them the parent is "another task". `sessions` are its tabs as
+    /// iTerm2 lists them (any others are passed over): they tell a task whose workers all ended their turn, and how
+    /// many worker tabs it has open. Without them it reads as monitored, its agent named.
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
-                            tasks: [UUID: TaskItem] = [:]) -> OperatorLine? {
+                            tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = []) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
               run.state != .stopped, run.intent != .stopped else { return nil }
         // A finished task's leftover asks nothing.
@@ -112,8 +116,12 @@ public struct OperatorLine: Equatable, Sendable {
             // Added to the backlog after the first plan (spec §4.1).
             return quiet(operated.firstRevision > 1 ? "added by the Operator" : "queued")
         case .working:
-            // The agent works: the line moves with the row's mark.
-            return OperatorLine("working", look: .acting)
+            // The Operator holds it: the line moves with the row's mark, whether the agent works or the Operator
+            // checks it next.
+            if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) { return OperatorLine(Count.checkingNext.words, look: .acting) }
+            let open = task.workerTabs(in: sessions).filter { !$0.isClosed }.count
+            if open > 1 { return OperatorLine(Count.monitoring.words + " \(open) tabs", look: .acting) }
+            return OperatorLine(Count.monitoring.words + " " + SidebarModel.agentName(task.agent), look: .acting)
         case .inReview:
             if let people = operated.peopleReview, !people.reviewers.isEmpty, !people.ended {
                 return quiet("in review", "waiting on " + list(people.reviewers))
@@ -169,7 +177,8 @@ public struct OperatorLine: Equatable, Sendable {
 
     // MARK: - The broadcast's line
 
-    /// The broadcast row's line and the board's band: the one thing that needs you, else the run's own
+    /// The broadcast's whole status line, on its header's tooltip and VoiceOver value and as the board's band
+    /// (the Operator's row says its own session's, `session`): the one thing that needs you, else the run's own
     /// state, else what the Operator is doing, else what its tasks are doing. `acting`'s task is the
     /// task's `key` (or its id); `tasks` are the broadcast's; `ready` the working ones whose workers all
     /// ended their turn, waiting for the Operator to accept them (`TaskItem.isReadyForAcceptance(in:)`).
@@ -212,30 +221,59 @@ public struct OperatorLine: Equatable, Sendable {
 
     // MARK: - The words
 
-    /// What the broadcast's line counts its working tasks as, each with its words: kept here alone, so
-    /// renaming one is one edit.
+    /// What the Operator does about a working task, in its own verbs (P3, 21 Oct 2026): accepting is the
+    /// Operator's job, so only what you must do is amber. A task row says them, the broadcast's line counts
+    /// them: kept here alone, so renaming one is one edit.
     public enum Count: Sendable {
-        /// Its agent is at work.
-        case working
-        /// Its workers all ended their turn: its result waits for the Operator to check and accept it.
-        case readyToAccept
+        /// Its agent is at work: `monitoring Claude`, `monitoring 2 tabs`.
+        case monitoring
+        /// Its workers all ended their turn: the Operator checks and accepts its result next.
+        case checkingNext
 
         public var words: String {
             switch self {
-            case .working: "working"
-            case .readyToAccept: "ready to accept"
+            case .monitoring: "monitoring"
+            case .checkingNext: "checking next"
+            }
+        }
+
+        /// As the broadcast's line counts them: `monitoring 2 tasks`, `checking 1 next`.
+        public func counted(_ count: Int) -> String {
+            switch self {
+            case .monitoring: "monitoring \(count) \(count == 1 ? "task" : "tasks")"
+            case .checkingNext: "checking \(count) next"
             }
         }
     }
 
-    /// The working tasks counted: `working · 2 tasks`, `ready to accept · 1 task`, or both, `working · 2 tasks
-    /// · 1 ready to accept`. While one is at work the line moves with the row's mark; with every one ready it
-    /// waits on the Operator, quiet.
+    /// The working tasks counted: `monitoring 2 tasks`, `checking 1 next`, or both, `monitoring 2 tasks ·
+    /// checking 1 next`. While one is at work the line moves with the row's mark; with every one ready it
+    /// waits for the Operator's turn, quiet.
     static func counted(working: Int, ready: Int) -> OperatorLine {
-        func tasks(_ count: Int) -> String { "\(count) \(count == 1 ? "task" : "tasks")" }
-        guard working > 0 else { return OperatorLine(Count.readyToAccept.words + " · " + tasks(ready)) }
-        let waiting = ready > 0 ? " · \(ready) " + Count.readyToAccept.words : ""
-        return OperatorLine(Count.working.words + " · " + tasks(working) + waiting, look: .acting)
+        guard working > 0 else { return OperatorLine(Count.checkingNext.counted(ready)) }
+        let waiting = ready > 0 ? " · " + Count.checkingNext.counted(ready) : ""
+        return OperatorLine(Count.monitoring.counted(working) + waiting, look: .acting)
+    }
+
+    // MARK: - The Operator's own session
+
+    /// The Operator row's line: its own session's, nothing of its tasks (the broadcast's header and board say
+    /// those). Its window closed, `window closed`; a prompt open in its tab, `asks you in its window`; paused,
+    /// `paused`; every task done, `done · debrief ready`, as the header says it; else its act, the task it is
+    /// about named (`answering Claude · PAY-231`); else `working` while its session works, and between turns
+    /// `waiting for its tasks`. `acting` is the broadcast's act as
+    /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
+    public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, windowClosed: Bool,
+                               paused: Bool = false, complete: Bool = false, tasks: [TaskItem] = []) -> OperatorLine {
+        if windowClosed { return OperatorLine("window closed") }
+        if asking { return OperatorLine("asks you in its window", look: .needsYou) }
+        if paused { return OperatorLine("paused") }
+        if complete { return OperatorLine("done · debrief ready") }
+        if let (act, ref) = acting {
+            let task = ref.flatMap { ref in tasks.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
+            return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
+        }
+        return working ? OperatorLine("working", look: .acting) : OperatorLine("waiting for its tasks")
     }
 
     /// An act's line: the words in the task's agent (a review's in its reviewer's), and on the broadcast's
@@ -260,11 +298,14 @@ public struct OperatorLine: Equatable, Sendable {
         return requests.min { order.firstIndex(of: $0.kind)! < order.firstIndex(of: $1.kind)! }
     }
 
-    /// A request as a line: `waiting on you` for a prompt or a question, its sentence the tooltip;
-    /// `blocked · the tests fail on main` for what blocks, the reason kept.
+    /// A request as a line: `waiting on you` for a prompt or a question, its sentence the tooltip, and the tab
+    /// that asks named when its task has several (`waiting on you · docs`); `blocked · the tests fail on main` for
+    /// what blocks, the reason kept.
     private static func line(for request: BroadcastRequest, task: TaskItem?) -> OperatorLine {
         switch request.kind {
         case .permission, .question:
+            let tabbed = task?.operated?.extraTabs.contains { $0.failure == nil } ?? false
+            if let tab = request.tab, tabbed { return needsYou("waiting on you", tab, tooltip: request.text) }
             return OperatorLine("waiting on you", look: .needsYou, tooltip: request.text)
         case .blocked:
             return needsYou("blocked", reason(task?.operated?.blockedReason) ?? "it needs you", tooltip: request.text)

@@ -31,8 +31,31 @@ public struct BroadcastBoard: Equatable, Sendable {
         case operatorWindow
         /// A problem AiTerm hit: the sidebar banner's Notice already shows the issue, with its recovery.
         case sidebarBanner(issue: String)
+        /// One of a task's worker tabs, from its line on the card: that tab selected and its window brought forward.
+        case tab(task: UUID, sessionId: String)
         /// A Todo task that has not started: the card is not a button.
         case nothing
+    }
+
+    /// One worker tab of a task with several (P5 A, 21 Oct 2026), a line of its card: its agent, its key, what it
+    /// does and its mark. A closed tab is listed, muted, with no mark, and is no button; one opening is no button
+    /// until iTerm2 lists it.
+    public struct Tab: Equatable, Identifiable, Sendable {
+        /// `main` for the first worker (`WorkerTab.firstKey`), else the extra tab's key.
+        public var key: String
+        public var agent: AgentKind
+        /// `at work`, `turn ended`, `waiting on you` (needs you), `opening` or `closed`.
+        public var line: OperatorLine
+        /// Its `StatusMark`; nil once closed.
+        public var status: TaskStatus?
+        /// `.tab` while iTerm2 lists it, else `.nothing`.
+        public var opens: Opens
+        public var id: String { key }
+        public var isClosed: Bool { status == nil }
+
+        public init(key: String, agent: AgentKind, line: OperatorLine, status: TaskStatus?, opens: Opens) {
+            self.key = key; self.agent = agent; self.line = line; self.status = status; self.opens = opens
+        }
     }
 
     /// One task on the board, and its row in the debrief's Delivered.
@@ -63,6 +86,8 @@ public struct BroadcastBoard: Equatable, Sendable {
         public var modelTooltip: String?
         /// What a finished task ended at (`merged · 9b3e07d`): the debrief's mono result.
         public var result: String?
+        /// Its worker tabs, the first worker's first, while it has more than one; empty otherwise.
+        public var tabs: [Tab] = []
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -130,7 +155,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         // A task you stopped is no longer the broadcast's work: it is on no column.
         let cards = tasks.compactMap { task -> (Column, Card, AgentKind)? in
             guard let operated = task.operated, operated.state != .stopped else { return nil }
-            let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId,
+            let card = Self.card(task, operated, run: run, acting: acting.tasks[task.id], requests: requests, tasks: byId, sessions: sessions,
                                  project: projects.count > 1 ? names[task.projectId] : nil)
             return (Self.column(of: operated, hasReview: hasReview), card, task.agent)
         }
@@ -161,20 +186,26 @@ public struct BroadcastBoard: Equatable, Sendable {
             isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused)
     }
 
-    /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped. The broadcast
-    /// row's progress too.
+    /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped, as the board's
+    /// band says it.
     public static func progress(of run: OperatorRun, tasks: [TaskItem]) -> String? {
+        count(of: run, tasks: tasks).map { $0 + " done" }
+    }
+
+    /// `2 of 8`, the progress as the broadcast's header in the sidebar says it; nil until the first plan is
+    /// in Todo. A stopped task is not counted.
+    public static func count(of run: OperatorRun, tasks: [TaskItem]) -> String? {
         guard run.firstPlanSize != nil else { return nil }
         let counted = tasks.filter { $0.operated?.runId == run.id && $0.operated?.state != .stopped }
         let done = counted.filter { $0.operated.map(\.isFinished) ?? false }.count
-        return "\(done) of \(counted.count) done"
+        return "\(done) of \(counted.count)"
     }
 
     // MARK: - A card
 
     private static func card(_ task: TaskItem, _ operated: OperatedTask, run: OperatorRun, acting: OperatorAct?,
-                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], project: String?) -> Card {
-        let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks)
+                             requests: [BroadcastRequest], tasks: [UUID: TaskItem], sessions: [SessionInfo], project: String?) -> Card {
+        let line = OperatorLine.task(task, run: run, acting: acting, requests: requests, tasks: tasks, sessions: sessions)
         let takenOver = operated.takenOver
         let mr: (reference: String, host: CodeHost, title: String?)? = task.mr.map { ($0.reference, $0.host, $0.title) }
             ?? operated.publication.flatMap { publication in
@@ -189,7 +220,26 @@ public struct BroadcastBoard: Equatable, Sendable {
                     line: takenOver ? nil : line, takenOver: takenOver,
                     needsYou: !takenOver && line?.look == .needsYou,
                     opens: opens(task, operated, requests: requests),
-                    modelTooltip: modelTooltip(task, operated), result: OperatorLine.ending(of: operated))
+                    modelTooltip: modelTooltip(task, operated), result: OperatorLine.ending(of: operated),
+                    tabs: tabs(of: task, sessions: sessions))
+    }
+
+    /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one.
+    private static func tabs(of task: TaskItem, sessions: [SessionInfo]) -> [Tab] {
+        let workers = task.workerTabs(in: sessions)
+        guard workers.count > 1 else { return [] }
+        return workers.map { worker in
+            let key = worker.key ?? WorkerTab.firstKey
+            let opens = worker.session.map { Opens.tab(task: task.id, sessionId: $0.sessionId) } ?? .nothing
+            if worker.isOpening { return Tab(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
+            switch worker.session?.state {
+            case nil: return Tab(key: key, agent: worker.agent, line: OperatorLine("closed"), status: nil, opens: .nothing)
+            case .working?: return Tab(key: key, agent: worker.agent, line: OperatorLine("at work"), status: .working, opens: opens)
+            case .needsInput?:
+                return Tab(key: key, agent: worker.agent, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, opens: opens)
+            case .idle?, .done?: return Tab(key: key, agent: worker.agent, line: OperatorLine("turn ended"), status: .idle, opens: opens)
+            }
+        }
     }
 
     /// The column a task's state puts it in. A blocked task stays where it was: In progress once it has

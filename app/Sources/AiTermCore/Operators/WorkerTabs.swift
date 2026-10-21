@@ -63,6 +63,26 @@ public extension TaskItem {
         return RunStatus.isReadyForAcceptance(operated, live: workers[0], extraTabs: Array(workers.dropFirst()))
     }
 
+    /// The tab a click on its row brings forward (P5 A, 21 Oct 2026), its tabs as `sessions` list them: the worker tab
+    /// that asks, a request of `requests` naming it (`BroadcastRequest.tab`) or its tab at a prompt not recorded yet;
+    /// of several, the first by `OperatorLine.first`'s order, then by tab order (`main`, then the extra tabs as they
+    /// opened). With none asking, the tab of the task last in front in its window, else its first worker. Nil while
+    /// none is listed: its window comes back as a row's click brings it.
+    func tabToBring(sessions: [SessionInfo], requests: [BroadcastRequest]) -> SessionInfo? {
+        let tabs = workerTabs(in: sessions)
+        let order: [BroadcastRequest.Kind] = [.permission, .question, .blocked, .problem]
+        var asking: [(rank: Int, place: Int, session: SessionInfo)] = []
+        for (place, tab) in tabs.enumerated() {
+            guard let session = tab.session else { continue }
+            let key = tab.key ?? WorkerTab.firstKey
+            var ranks = requests.filter { $0.taskId == id && $0.tab == key }.compactMap { order.firstIndex(of: $0.kind) }
+            if session.state == .needsInput { ranks.append(order.firstIndex(of: .permission)!) }
+            if let rank = ranks.min() { asking.append((rank, place, session)) }
+        }
+        if let first = asking.min(by: { ($0.rank, $0.place) < ($1.rank, $1.place) }) { return first.session }
+        return sessions.first { $0.taskUUID == id && $0.active } ?? tabs[0].session ?? tabs.lazy.compactMap(\.session).first
+    }
+
     /// Its worker tabs: its first worker, then each extra tab in the order asked for, all but one the daemon refused.
     /// An extra tab is the tab tagged with the task and its key, whatever runs in it.
     func workerTabs(in sessions: [SessionInfo]) -> [WorkerTab] {

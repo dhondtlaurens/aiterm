@@ -7,9 +7,9 @@ import AiTermUI
 @testable import AiTermTestSupport
 
 /// The operator badge draws an `OperatorLine` (spec §7, §13, §14): its words alone, no mark, one
-/// `Size.chip` line whatever it says, quiet with no box, acting with no box and its words shimmering, needs-you in the attention chip's
-/// pair, and on the selection the surface's wash and ink. The shimmer stands still under Reduce Motion and
-/// in the snapshots.
+/// `Size.chip` line whatever it says, quiet with no box, acting with no box in the surface's ink, needs-you in the
+/// attention chip's pair, and on the selection the surface's wash and ink. Acting words decode through glyphs once
+/// when they change, then stand still (P3, decision 3): at once under Reduce Motion and in the snapshots.
 @MainActor
 struct OperatorBadgeTests {
     private func fitting(_ line: OperatorLine, width: CGFloat? = nil) -> CGSize {
@@ -28,16 +28,15 @@ struct OperatorBadgeTests {
     }
 
     @Test func stillUnderReduceMotion() {
-        #expect(OperatorBadge.shimmers(.acting, reduceMotion: false, still: false))
-        #expect(!OperatorBadge.shimmers(.acting, reduceMotion: true, still: false))
-        #expect(!OperatorBadge.shimmers(.acting, reduceMotion: false, still: true))
-        #expect(!OperatorBadge.shimmers(.quiet, reduceMotion: false, still: false))
-        #expect(!OperatorBadge.shimmers(.needsYou, reduceMotion: false, still: false))
-        // Standing still, acting is the surface's ink; quiet sits back in its secondary ink.
+        #expect(OperatorBadge.decodes(.acting, reduceMotion: false, still: false))
+        #expect(!OperatorBadge.decodes(.acting, reduceMotion: true, still: false))
+        #expect(!OperatorBadge.decodes(.acting, reduceMotion: false, still: true))
+        #expect(!OperatorBadge.decodes(.quiet, reduceMotion: false, still: false))
+        #expect(!OperatorBadge.decodes(.needsYou, reduceMotion: false, still: false))
+        // Acting stands in the surface's ink, decoding or not; quiet sits back in its secondary ink.
         for surface in [Surface.sidebar, .accent] {
-            #expect(OperatorBadge.ink(.acting, surface: surface, shimmering: false) == surface.ink)
-            #expect(OperatorBadge.ink(.acting, surface: surface, shimmering: true) == surface.secondaryInk)
-            #expect(OperatorBadge.ink(.quiet, surface: surface, shimmering: false) == surface.secondaryInk)
+            #expect(OperatorBadge.ink(.acting, surface: surface) == surface.ink)
+            #expect(OperatorBadge.ink(.quiet, surface: surface) == surface.secondaryInk)
         }
         // A still acting badge draws the same twice: nothing moves in a snapshot.
         let line = OperatorLine("answering Claude", look: .acting)
@@ -49,8 +48,8 @@ struct OperatorBadgeTests {
     @Test func needsYouIsTheAttentionChipOffTheAccentAndTheWashOnIt() {
         #expect(OperatorBadge.box(.needsYou, surface: .sidebar) == .init(fill: Palette.statusChipAttentionFill, stroke: Palette.statusChipAttentionStroke))
         #expect(OperatorBadge.box(.needsYou, surface: .accent) == .init(fill: Surface.accent.badgeWash, stroke: nil))
-        #expect(OperatorBadge.ink(.needsYou, surface: .sidebar, shimmering: false) == Palette.text)
-        #expect(OperatorBadge.ink(.needsYou, surface: .accent, shimmering: false) == Surface.accent.ink)
+        #expect(OperatorBadge.ink(.needsYou, surface: .sidebar) == Palette.text)
+        #expect(OperatorBadge.ink(.needsYou, surface: .accent) == Surface.accent.ink)
         for surface in [Surface.sidebar, .accent] {
             #expect(OperatorBadge.box(.quiet, surface: surface) == nil)
             #expect(OperatorBadge.box(.acting, surface: surface) == nil, "acting has no box")
@@ -66,10 +65,55 @@ struct OperatorBadgeTests {
         #expect(fitting(OperatorLine("merging", look: .needsYou)).width == words + 2 * Space.tight)
     }
 
-    /// The shimmer is Core Animation's: a gradient band swept across the words' mask on the layer, so over
-    /// half a second (some thirty frames) the words' view is not updated once, and nothing shimmers when
-    /// the badge stands still.
-    @Test func theShimmerSweepsOnALayerWithoutAnUpdatePerFrame() throws {
+    /// Each frame of the decode: the words settled from the left up to the frame's share, the rest a glyph each,
+    /// their spaces and separators kept, so the line keeps its length, and in the mono face its width.
+    @Test func aDecodeFrameSettlesFromTheLeftAndKeepsTheLinesWidth() {
+        let text = "answering Claude · PAY-231"
+        let font = Typography.monoChip.nsFont
+        func width(_ string: String) -> CGFloat { NSAttributedString(string: string, attributes: [.font: font]).size().width }
+        for progress in stride(from: 0.0, through: 1.0, by: 0.1) {
+            let frame = DecodeWordsView.frame(of: text, progress: progress, step: Int(progress * 10))
+            #expect(frame.count == text.count)
+            #expect(abs(width(frame) - width(text)) < 0.01, "\(frame)")
+            for (shown, real) in zip(frame, text) where !(real.isLetter || real.isNumber) { #expect(shown == real, "\(frame)") }
+            let settled = Int(Double(text.count) * progress)
+            #expect(frame.hasPrefix(String(text.prefix(settled))), "\(frame)")
+        }
+        #expect(DecodeWordsView.frame(of: text, progress: 0, step: 0) != text, "it starts scrambled")
+        #expect(DecodeWordsView.frame(of: text, progress: 1, step: 9) == text)
+        #expect(DecodeWordsView.frame(of: text, progress: 0.2, step: 1) != DecodeWordsView.frame(of: text, progress: 0.2, step: 2),
+                "the glyphs change from frame to frame")
+    }
+
+    /// On a clock the test drives: new words decode once over `decodeDuration`, then stand still; the same words
+    /// again, or another ink (the row selected), start nothing.
+    @Test func newWordsDecodeOnceOnTheClockThenStandStill() {
+        var now: CFTimeInterval = 100
+        let view = DecodeWordsView()
+        view.now = { now }
+        let font = Typography.monoChip.nsFont, duration = OperatorBadge.decodeDuration
+        #expect((0.4...0.6).contains(duration), "calm: about half a second")
+        view.configure(text: "monitoring Claude", font: font, ink: .white, duration: duration)
+        #expect(view.isDecoding && view.shown != "monitoring Claude" && view.shown.count == "monitoring Claude".count)
+        now += duration / 2
+        view.tick()
+        #expect(view.isDecoding && view.shown.hasPrefix("monitor") && view.shown != "monitoring Claude", "\(view.shown)")
+        now += duration / 2
+        view.tick()
+        #expect(!view.isDecoding && view.shown == "monitoring Claude", "settled at its end")
+        let frames = view.frames
+        now += 5
+        view.tick()
+        #expect(view.frames == frames && view.shown == "monitoring Claude", "it never loops")
+        view.configure(text: "monitoring Claude", font: font, ink: .black, duration: duration)
+        #expect(!view.isDecoding, "a new ink is no new words")
+        view.configure(text: "checking next", font: font, ink: .black, duration: duration)
+        #expect(view.isDecoding && view.shown != "checking next", "new words decode again")
+    }
+
+    /// Hosted on the wall clock: the decode runs once in its own view, a frame at a time, settles within its
+    /// duration and stops; the badge's SwiftUI view is not updated per frame, and nothing decodes when it stands still.
+    @Test func theDecodeSettlesAndStopsWithoutAnUpdatePerFrame() throws {
         func hosted(_ view: some View) -> (NSWindow, NSView) {
             let host = NSHostingView(rootView: view.padding(Space.base).background(Palette.sidebar).surface(.sidebar))
             host.appearance = NSAppearance(named: .darkAqua)
@@ -78,21 +122,24 @@ struct OperatorBadgeTests {
             window.orderFrontRegardless()
             return (window, host)
         }
+        let before = OperatorBadge.decodeUpdates
         let (window, host) = hosted(OperatorBadge(line: OperatorLine("consulting the Oracle", look: .acting)))
         defer { window.close() }
-        settle(host) { host.firstDescendant(ShimmerWordsView.self) != nil }
-        let words = try #require(host.firstDescendant(ShimmerWordsView.self))
-        settle(host, for: 0.1)
-        #expect(words.band.animation(forKey: ShimmerWordsView.sweepKey) != nil, "the band sweeps on Core Animation's clock")
-        #expect(words.lit.mask === words.band)
-        let before = OperatorBadge.shimmerUpdates
+        settle(host) { host.firstDescendant(DecodeWordsView.self) != nil }
+        let words = try #require(host.firstDescendant(DecodeWordsView.self))
+        settle(host, for: OperatorBadge.decodeDuration + 0.3)
+        #expect(!words.isDecoding && words.shown == "consulting the Oracle", "settled: \(words.shown)")
+        #expect(words.frames > 1, "it decoded a frame at a time")
+        let frames = words.frames, updates = OperatorBadge.decodeUpdates
+        #expect(updates - before < frames / 2, "the words were updated \(updates - before) times in \(frames) frames")
         settle(host, for: 0.5)
-        #expect(OperatorBadge.shimmerUpdates - before == 0, "the words were updated \(OperatorBadge.shimmerUpdates - before) times in 0.5 s")
+        #expect(words.frames == frames, "it stopped: \(words.frames - frames) more frames")
+        #expect(OperatorBadge.decodeUpdates == updates)
 
-        // Standing still (a snapshot here; Reduce Motion takes the same path, `shimmers` above) there is no layer.
+        // Standing still (a snapshot here; Reduce Motion takes the same path, `decodes` above) there is no view of its own.
         let (still, stillHost) = hosted(OperatorBadge(line: OperatorLine("merging", look: .acting)).environment(\.stillSpinners, true))
         defer { still.close() }
         settle(stillHost, for: 0.1)
-        #expect(stillHost.firstDescendant(ShimmerWordsView.self) == nil, "standing still, the words are SwiftUI's text")
+        #expect(stillHost.firstDescendant(DecodeWordsView.self) == nil, "standing still, the words are SwiftUI's text")
     }
 }

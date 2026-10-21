@@ -92,6 +92,8 @@ final class RecordingDaemon: DaemonCommands {
 
     func activate(windowId: String) async throws { try await answer("window.activate", ["windowId": windowId]) }
 
+    func activate(sessionId: String) async throws { try await answer("session.activate", ["sessionId": sessionId]) }
+
     func setFrame(windowId: String, frame: Frame) async throws {
         try await answer("window.setFrame", ["windowId": windowId, "frame": Self.frame(frame)])
     }

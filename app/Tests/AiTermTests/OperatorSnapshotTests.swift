@@ -3,8 +3,9 @@ import Testing
 @testable import AiTerm
 
 /// Every Operator image draws, and draws the same twice: the OPERATOR heading with no broadcast, the
-/// broadcast row in each state, driven task rows, the board at each moment and the debrief, New Broadcast's
-/// steps, Settings › Operator, Help with problems, Find a Fix's Notices and a Notice in a sheet's footer.
+/// broadcast's header and Operator row in each state, driven task rows, the board at each moment and the
+/// debrief, New Broadcast's steps, Settings › Operator, Help with problems, Find a Fix's Notices, a Notice in a
+/// sheet's footer, and the broadcast's group folded and just started.
 @MainActor
 struct OperatorSnapshotTests {
     static let files = [
@@ -20,6 +21,7 @@ struct OperatorSnapshotTests {
         "banner-find-a-fix-failed.png",
         "notice-footer.png",
         "new-broadcast-4-not-ready.png",
+        "broadcast-folded.png", "broadcast-queued.png",
     ]
 
     @Test func everyOperatorStateHasItsImage() {

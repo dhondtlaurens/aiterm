@@ -1,23 +1,27 @@
 import Foundation
 import AiTermCore
 
-/// The one sidebar row that is selected: a project header, a task (or review), a terminal, or an
-/// operation, whose window is its operator's. A header has no window: selecting it shows nothing and
-/// raises nothing.
+/// The one sidebar row that is selected: a project header, a broadcast's header, a task (or review), a
+/// terminal, or the Operator's row, `operation`, by its broadcast's id, whose window is the Operator's. A
+/// header has no window: selecting it shows nothing and raises nothing.
 enum RowSelection: Equatable {
-    case project(UUID), task(UUID), terminal(UUID), operation(UUID)
+    case project(UUID), broadcast(UUID), task(UUID), terminal(UUID), operation(UUID)
 
+    /// The row's id in the list, which keys each row by one UUID: the Operator's row has one of its own
+    /// (`OperatorRow.id(of:)`), so it is never its broadcast's header, which has the run's.
     var id: UUID {
         switch self {
-        case .project(let id), .task(let id), .terminal(let id), .operation(let id): return id
+        case .project(let id), .broadcast(let id), .task(let id), .terminal(let id): return id
+        case .operation(let run): return OperatorRow.id(of: run)
         }
     }
 
-    /// A task's or a terminal's row, selected.
+    /// A row that can have a window, selected.
     init(_ row: RowID) {
         switch row {
         case .task(let id): self = .task(id)
         case .terminal(let id): self = .terminal(id)
+        case .operation(let run): self = .operation(run)
         }
     }
 }
@@ -63,10 +67,9 @@ final class RowFocus {
     /// Who restores a row's window when the row is chosen without one: `WindowReconciler`, which adds
     /// itself as it is built. Its answer is the restore under way, or nil when nothing opens now.
     @ObservationIgnored private var restoreOwed: (@MainActor (RowSelection) -> Task<Void, Never>?)?
-    /// Who brings back an operation's chat when its row is chosen without a window — one you closed,
-    /// an operator gone offline: the operator controller, which the app adds as it is built. `behind`: the
-    /// broadcast's board is coming forward, and the window reopens behind it.
-    @ObservationIgnored private var operatorWindowOwed: (@MainActor (UUID, _ behind: Bool) -> Task<Void, Never>?)?
+    /// Who brings back the Operator's chat, in front, when its row is chosen without a window — one you
+    /// closed, an operator gone offline: the operator controller, which the app adds as it is built.
+    @ObservationIgnored private var operatorWindowOwed: (@MainActor (UUID) -> Task<Void, Never>?)?
     /// Who brings back the window of a task an operator drives when its row is chosen without one: the
     /// operator controller, resuming its conversation — never the reconciler, which would plan a fresh
     /// agent beside one that may still be alive.
@@ -116,18 +119,10 @@ final class RowFocus {
         restoreOwed = restore
     }
 
-    /// Sets who reopens an operation's window when its row is chosen — a click or Return — without one,
-    /// in front, or behind the board the broadcast row's click opens (`reopenOperatorBehind`).
-    func onChoosingOperationWithoutWindow(_ open: @escaping @MainActor (UUID, _ behind: Bool) -> Task<Void, Never>?) {
+    /// Sets who reopens the Operator's window, in front, when its row is chosen — a click or Return —
+    /// without one.
+    func onChoosingOperationWithoutWindow(_ open: @escaping @MainActor (UUID) -> Task<Void, Never>?) {
         operatorWindowOwed = open
-    }
-
-    /// The broadcast row's click with the Operator's window closed (spec §9): the window is asked back
-    /// behind the board the click opens, and nothing is raised. The row is only selected.
-    @discardableResult
-    func reopenOperatorBehind(_ id: UUID) -> Task<Void, Never>? {
-        browse(.operation(id))
-        return operatorWindowOwed?(id, true)
     }
 
     /// Sets who reopens a driven task's window when its row is chosen — a click or Return — without one.
@@ -162,18 +157,29 @@ final class RowFocus {
         return nil
     }
 
+    /// The broadcast whose Operator's row is selected.
     var selectedOperationId: UUID? {
         if case .operation(let id) = selection { return id }
         return nil
     }
 
-    /// The row with this id, whichever kind it is — what the list's own selection hands over.
+    /// The broadcast whose header is selected.
+    var selectedBroadcastId: UUID? {
+        if case .broadcast(let id) = selection { return id }
+        return nil
+    }
+
+    /// The row with this id, whichever kind it is — what the list's own selection hands over: the live
+    /// broadcast's id is its header's, `OperatorRow.id(of:)` its Operator's row's.
     func row(id: UUID) -> RowSelection? {
         let state = workspace.state
         if state.task(id: id) != nil { return .task(id) }
         if state.terminal(id: id) != nil { return .terminal(id) }
         if state.project(id: id) != nil { return .project(id) }
-        if state.activeRun?.id == id { return .operation(id) }
+        if let run = state.activeRun {
+            if run.id == id { return .broadcast(id) }
+            if OperatorRow.id(of: run.id) == id { return .operation(run.id) }
+        }
         return nil
     }
 
@@ -197,20 +203,27 @@ final class RowFocus {
     /// A click or Return: selects the row, brings its window forward and iTerm2 with it, and marks a
     /// task seen. A row whose window is owed has it restored first (`onChoosingOwedRow`), then raised
     /// as any other — unless the selection has moved on by then; with nothing restoring it, it is only
-    /// selected, as it has no window to raise nor tab to mark seen. A project header is only selected:
-    /// it has no window. An operation's row without a window, or whose window turns out gone, asks the
-    /// operator controller for it (`onChoosingOperationWithoutWindow`); a driven task's row without one
-    /// asks it too (`onChoosingOperatedTaskWithoutWindow`), and its reopened window is then raised as
-    /// any other.
+    /// selected, as it has no window to raise nor tab to mark seen. A project's or a broadcast's header is
+    /// only selected: it has no window. So is a task the Operator has queued (2B, 21 Oct 2026): nothing opens,
+    /// not even the error a window it does not have yet would raise. The Operator's row without a window, or
+    /// whose window turns out gone, asks the operator controller for it, in front
+    /// (`onChoosingOperationWithoutWindow`); a driven task's row without one asks it too
+    /// (`onChoosingOperatedTaskWithoutWindow`), and its reopened window is then raised as any other.
     @discardableResult
     func select(_ row: RowSelection) -> Task<Void, Never>? {
-        if case .project = row {
+        switch row {
+        case .project, .broadcast:
             browse(row)
             return nil
+        case .task(let id) where workspace.state.task(id: id)?.isQueuedByOperator == true:
+            browse(row)
+            return nil
+        default:
+            break
         }
         if case .operation(let id) = row, window(for: row) == nil {
             browse(row)
-            return operatorWindowOwed?(id, false)
+            return operatorWindowOwed?(id)
         }
         if window(for: row) == nil {
             let restoring = owedRestore(row)
@@ -225,7 +238,7 @@ final class RowFocus {
             return activate(row, failure: "Couldn’t activate the terminal")
         case .operation:
             return activate(row, failure: "Couldn’t activate the operator’s window")
-        case .project:
+        case .project, .broadcast:
             return nil
         }
     }
@@ -289,7 +302,7 @@ final class RowFocus {
                     for hook in windowGoneHooks { hook(window) }
                     // An operator's window closed before the app heard: on a click — not a peek — its
                     // chat is asked back, as a missing one is.
-                    if case .operation(let id) = row, focus, isCurrent() { _ = operatorWindowOwed?(id, false) }
+                    if case .operation(let id) = row, focus, isCurrent() { _ = operatorWindowOwed?(id) }
                 } catch is CancellationError { return }
                 catch {
                     if selfRaised == window { selfRaised = nil }
@@ -333,7 +346,7 @@ final class RowFocus {
     private func window(for row: RowSelection) -> String? {
         let state = workspace.state
         return switch row {
-        case .project: nil
+        case .project, .broadcast: nil
         case .task(let id): state.task(id: id)?.windowId
         case .terminal(let id): state.terminal(id: id)?.windowId
         case .operation(let id): state.runs.first { $0.id == id }?.operatorWindowId
