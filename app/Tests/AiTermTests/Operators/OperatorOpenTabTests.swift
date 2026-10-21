@@ -76,7 +76,7 @@ import Testing
         #expect(request.params["background"] as? Bool == true)
         let file = TabOpener.promptFile(for: "review")
         #expect(request.params["agentCommand"] as? String
-                == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-mini \"$(cat .aiterm/\(file))\"")
+                == "codex --dangerously-bypass-approvals-and-sandbox -m gpt-6-mini \"$(command cat .aiterm/\(file))\"")
         let prompt = try String(contentsOfFile: task.worktreePath + "/.aiterm/" + file, encoding: .utf8)
         #expect(prompt == WorkerStarter.worktreeLine(branch: task.branch) + "\n\n" + TabOpener.sharedLine + "\n\n" + brief)
         #expect(!FileManager.default.fileExists(atPath: task.worktreePath + "/.aiterm/first-prompt.md"), "the first worker's file is its own")

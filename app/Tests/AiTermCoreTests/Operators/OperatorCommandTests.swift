@@ -23,7 +23,7 @@ import Foundation
                           "--add-dir", "/code/shop", "--add-dir", "/code/pay",
                           "--mcp-config", "/runs/R/mcp.json", "--allowedTools", "mcp__aiterm__*", "--strict-mcp-config"])
         #expect(OperatorCommand.command(words: words, firstMessage: true).hasSuffix(
-            "--allowedTools 'mcp__aiterm__*' --strict-mcp-config \"$(cat first-message.md)\""))
+            "--allowedTools 'mcp__aiterm__*' --strict-mcp-config \"$(command cat first-message.md)\""))
     }
 
     /// Spec §9: a gone operator session is relaunched on its conversation, under the same profile.
@@ -73,7 +73,7 @@ import Foundation
                 .contains("Ask before adding a field a ticket doesn't mention."))
         #expect(prepared.command.contains("--add-dir '/code/shop dir'"))
         #expect(prepared.command.contains("'\(folder.appendingPathComponent("brief.md").path)'"))
-        #expect(prepared.command.hasSuffix("\"$(cat first-message.md)\""))
+        #expect(prepared.command.hasSuffix("\"$(command cat first-message.md)\""))
         // No leftover temporary files beside them.
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
                 == ["brief.md", "first-message.md", "mcp.json", "token"])
