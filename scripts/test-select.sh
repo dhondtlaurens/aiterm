@@ -15,7 +15,8 @@ ROUTES="$(cd "$(dirname "$0")" && pwd)/test-routes.tsv"
 
 selected=()
 # Not `path`: in zsh that variable is tied to PATH.
-while IFS= read -r changed; do
+# `|| [[ -n ... ]]` keeps a last path with no trailing newline: read fails on it but has filled the variable.
+while IFS= read -r changed || [[ -n "$changed" ]]; do
     [[ -n "$changed" ]] || continue
     matched=0
     while IFS=$'\t' read -r glob selectors; do

@@ -12,7 +12,8 @@ SELECT="$ROOT/scripts/test-select.sh"
 
 # check <name> <expected selectors…> -- <changed paths…>
 # Pipes the paths, one per line, into the selector and compares what it prints with the expected
-# selectors, which come out sorted. No paths after `--` is an empty change.
+# selectors, which come out sorted. No paths after `--` is an empty change. With NO_NEWLINE=1 before
+# the call the last path has no trailing newline, as from `printf` or a tool that does not end its output.
 check() {
     local name="$1"
     shift
@@ -23,7 +24,11 @@ check() {
     local want got
     want="$(print -rl -- "${(@o)expected}")"
     (( ${#expected} )) || want=""
-    got="$( { (( $# )) && print -rl -- "$@" || true } | "$SELECT" )"
+    if [[ -n "${NO_NEWLINE:-}" ]]; then
+        got="$( { (( $# )) && print -rn -- "${(pj:\n:)@}" || true } | "$SELECT" )"
+    else
+        got="$( { (( $# )) && print -rl -- "$@" || true } | "$SELECT" )"
+    fi
     if [[ "$got" != "$want" ]]; then
         print -u2 "FAIL $name"
         print -u2 "  expected: ${want//$'\n'/ }"
@@ -45,5 +50,7 @@ check "the toolchain runs everything" everything toolchain -- .swift-version
 check "an unknown path runs everything" everything -- Makefile
 check "a rename routes both sides" daemon target:AiTermTests -- app/Tests/AiTermTests/A.swift daemon/b.py
 check "no paths runs nothing" --
+NO_NEWLINE=1 check "a last path without a newline still counts" daemon -- daemon/x.py
+NO_NEWLINE=1 check "only the last of several paths lacks its newline" daemon target:AiTermTests -- daemon/b.py app/Tests/AiTermTests/A.swift
 
 print "test selector guard passed"
