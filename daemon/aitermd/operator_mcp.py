@@ -187,8 +187,9 @@ TOOLS: tuple[dict[str, Any], ...] = (
           "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
           "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
           "named task/tab, and a tab that was closed is marked closed and never opened again. "
-          "Under run it also shows the off-brief finds, each agent's weekly use, "
-          "and each installed agent's models with its default model. Call it first after any restart or compaction."),
+          "Under run it also shows the off-brief finds, the snags you recorded with report_snag (so you don't record one "
+          "twice after a restart), each agent's weekly use, and under agents each installed agent's models with its default "
+          "model and, under delivery, whether its workers can be messaged. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),
     _tool("jira_create", "Creates a Jira ticket in one of the broadcast's Jira projects. Refused unless the broadcast's Jira slice "
@@ -326,9 +327,10 @@ TOOLS: tuple[dict[str, Any], ...] = (
                          "Left out for a question about your own next step, such as a reviewer's username, a scope choice or a "
                          "merge decision.")},
           ("key", "question")),
-    _tool("resolve_question", "Closes a question you asked with ask_you, once the person has answered, with a one-line summary "
-          "of the answer. Call it at once when they answer in your chat. AiTerm's own questions (a worker's prompt, a merge on "
-          "the host) are refused: AiTerm closes those itself.",
+    _tool("resolve_question", "Closes a question once the person has answered it, with a one-line summary of the answer: one "
+          "you asked with ask_you, or AiTerm's question about a merge on the host, which only the person decides. Call it at "
+          "once when they answer in your chat. A worker's prompt is refused: AiTerm closes it itself once the worker leaves "
+          "the prompt.",
           {"key": _text("The question's key."), "summary": _text("The answer, in one line.")}, ("key", "summary")),
     _tool("report_find", "Records something off-brief that you or an agent found, such as a leak in another module: it is not "
           "worked on, and the summary may mention it with why it matters. With the broadcast's Jira slice on, AiTerm also files it as a "

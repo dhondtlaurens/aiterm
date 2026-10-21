@@ -226,7 +226,8 @@ enum OperatorEvalGrading {
         })
 
     /// AiTerm lists PAY-14 under promptsWaitingOnYou, with a prompt question, but read_task finds no prompt and the
-    /// worker done: the Operator reports no prompt, leaves AiTerm's question alone, records a snag, and carries on.
+    /// worker done: the Operator reads its last message too, reports no prompt, leaves AiTerm's question alone, records a
+    /// snag, and carries on.
     static let promptWithNoPrompt = EvalScenario(
         name: "promptWithNoPrompt", firstMessage: wakeLine,
         replies: replies([
@@ -245,6 +246,10 @@ enum OperatorEvalGrading {
             var failures: [String] = []
             if !t.calls(["read_task"], on: "PAY-14").contains(where: { $0.arguments["what"]?.stringValue == "prompt" }) {
                 failures.append("PAY-14's prompt was never read")
+            }
+            // A null prompt alone is also how AiTerm shows a prompt it can't read: the finished turn is the second source.
+            if !t.calls(["read_task"], on: "PAY-14").contains(where: { $0.arguments["what"]?.stringValue == "lastMessage" }) {
+                failures.append("PAY-14's last message was never read")
             }
             if !t.called("report_snag") { failures.append("no report_snag") }
             if t.called("ask_you") { failures.append("ask_you was called, though nothing waits on the person") }

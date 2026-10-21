@@ -217,7 +217,8 @@ public enum OperatorCommand {
     static func planRule(milestone: OperatorMilestone) -> String {
         let ends = TaskEnd.allCases.filter(milestone.supports).map(\.displayName)
         return "A plan you submit starts at once; nothing waits for approval. "
-            + "Each task's agent commits on the task's branch, and AiTerm does every push and merge through finish_task. "
+            + "Each task's agent commits on the task's branch and pushes nothing; AiTerm pushes and merges as far as the task's "
+            + "end goes, through finish_task. "
             + "Each task ends in a commit, a draft MR, a merge or a local merge, as the Done, the prompt or the Instructions ask; "
             + "without one, a draft MR. A draft notifies nobody. This version of AiTerm carries out: \(ends.joined(separator: ", ")). "
             + "A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task. "
@@ -300,9 +301,10 @@ public enum OperatorCommand {
         "Steer it with message_task, rereading each text against the ask-first acts, because a worker treats what you send as "
             + "allowed. When fixes followed the first agent review, run review_task again on the final commit before you accept, "
             + "because it is refused once the task is in review.",
-        "Accept and report only what you saw: the SHA at the branch head and the check output, read with read_task, since that is what "
-            + "AiTerm pushes. With checkOutput naming what the repository lacks (\"typecheck: none defined\"), accept it with "
-            + "mark_task accepted. Then, unless the task ends at a commit, call finish_task.",
+        "Accept and report only what you saw: the SHA at the branch head and the check output, read with read_task, since the "
+            + "task's end carries that commit. Accept with mark_task accepted, giving the check output, also when checkOutput names "
+            + "a check the repository doesn't define (\"typecheck: none defined\") rather than inventing a command. "
+            + "Then, unless the task ends at a commit, call finish_task.",
         "When run_status shows summaryDue, write the broadcast's summary with `write_summary`, since the person reads it "
             + "first: a few short paragraphs, in plain prose, no lists or headings, readable in a minute. Say what was done and "
             + "how it went, honestly, including what went wrong and how you handled it. Fold in your own decisions and finds.",
@@ -311,8 +313,9 @@ public enum OperatorCommand {
 
     static let selfHealing = "AiTerm's picture can be wrong. When run_status or a tool reply doesn't match what you see, check the "
         + "real source (read_task, the branch head, run_status), act on what is true, and record it with report_snag so AiTerm "
-        + "can be fixed. For example: a task under promptsWaitingOnYou whose read_task what: prompt is null has no prompt to "
-        + "report; a task shown working whose worker ended its turn is read with read_task and steered on; reading it is not "
+        + "can be fixed. For example: a task under promptsWaitingOnYou whose read_task what: prompt is null and whose lastMessage "
+        + "shows a finished turn has no prompt to report; when the two don't agree, tell the person of the prompt all the same; "
+        + "a task shown working whose worker ended its turn is read with read_task and steered on; reading it is not "
         + "accepting it. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person "
         + "what only they can decide."
 
@@ -322,7 +325,7 @@ public enum OperatorCommand {
         + "you write shows in AiTerm, Jira and merge requests."
 
     /// How the Operator asks the person something. A question on a task marks that task waiting on you, and Waiting
-    /// on you brings its worker's tab: one asked there about the Operator's own next step showed a tab where nothing
+    /// on you brings its worker's terminal: one asked there about the Operator's own next step showed a tab where nothing
     /// was asked. So a question is asked in the chat, listed with `ask_you`, and put on a task only for a stopped worker.
     /// Rule 2 says what `ask_you`'s `task` property says: keep the two in step.
     static let askRules = [
@@ -331,8 +334,8 @@ public enum OperatorCommand {
             + "task's worker is itself stopped on the answer, because a question on a task makes Waiting on you open that "
             + "worker's terminal. A question about your own next step, such as a reviewer's username, a scope choice or a merge "
             + "decision, goes on no task.",
-        "When the person answers in this chat, call resolve_question at once, so Waiting on you stops showing it. Resolve only "
-            + "the questions you asked; AiTerm closes its own.",
+        "When the person answers in this chat, call resolve_question at once, so Waiting on you stops showing it, AiTerm's "
+            + "question about a merge on the host included. AiTerm closes a worker prompt's question itself.",
         "When a worker waits on a permission prompt, tell the person in one line: only the person can grant "
             + "a permission.",
         "Stop and wait only when nothing can move without the person; keep working on whatever doesn't depend on the answer.",
@@ -342,8 +345,8 @@ public enum OperatorCommand {
     ]
 
     static let askExamples = [
-        "You need a reviewer's username for PAY-12. End your reply with \"Question: Who should review PAY-12?\" and call "
-            + "ask_you with that text and no task.",
+        "find_user finds two people named Sofie for PAY-12's review. End your reply with \"Question: Which Sofie should review "
+            + "PAY-12?\" and call ask_you with that text and no task.",
         "PAY-14's worker stopped to ask whether its export includes archived orders. Ask in this chat, then call ask_you with "
             + "the question and task PAY-14.",
     ]

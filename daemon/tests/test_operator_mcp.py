@@ -232,6 +232,18 @@ def test_ask_you_lists_a_question_asked_in_chat_and_takes_a_task_only_for_a_stop
     assert "worker's terminal" in tools["run_status"]["description"]
 
 
+def test_resolve_question_closes_a_merge_on_the_host_and_leaves_a_prompt_to_aiterm():
+    resolve = {tool["name"]: tool for tool in TOOLS}["resolve_question"]["description"]
+    assert "merge on the host" in resolve
+    assert "worker's prompt is refused" in resolve and "closes it itself" in resolve
+
+
+def test_run_status_says_what_a_restarted_operator_needs():
+    status = {tool["name"]: tool for tool in TOOLS}["run_status"]["description"]
+    assert "snags you recorded" in status and "twice" in status
+    assert "delivery" in status
+
+
 def test_the_jira_writes_say_what_the_slice_governs_and_there_is_no_comment_tool():
     tools = {tool["name"]: tool for tool in TOOLS}
     for name in ("jira_create", "jira_move", "jira_link"):

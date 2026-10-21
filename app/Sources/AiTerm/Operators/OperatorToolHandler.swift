@@ -115,7 +115,7 @@ final class OperatorToolHandler {
     /// The tools that are the broadcast's own acts while they run.
     static let actsOnBroadcast: [String: OperatorAct] = ["create_task": .loadingTheConstruct, "update_task": .loadingTheConstruct,
                                                          "submit_plan": .loadingTheConstruct, "jira_create": .filingATicket,
-                                                         "report_find": .filingATicket, "report_snag": .filingATicket]
+                                                         "report_find": .filingATicket]
 
     /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
     /// under way, relaying their feedback; checking the work; opening the MR or merging, by the task's end.
@@ -375,8 +375,9 @@ final class OperatorToolHandler {
     private func resolveQuestion(_ call: ToolCall, in run: OperatorRun) throws -> JSONValue {
         let key = try call.string("key"), summary = try call.string("summary")
         guard var question = run.questions.first(where: { $0.id == key }) else { throw ToolRefusal("No question \(key) in this broadcast.") }
-        guard !question.isAiTerms else {
-            throw ToolRefusal("\(key) is AiTerm’s own question, not yours: AiTerm closes a prompt’s question when its worker leaves the prompt, and only the person decides a merge on the host. If it looks stale, record it with report_snag.")
+        // A merge on the host is the person's to decide, so the Operator closes that one once they have answered.
+        guard !question.id.hasPrefix(OperatorQuestion.promptPrefix) else {
+            throw ToolRefusal("\(key) is a worker’s prompt: AiTerm closes its question itself once the worker leaves the prompt. If it looks stale, record it with report_snag.")
         }
         guard question.resolution == nil else { return Self.questionAnswer(question) }
         question.resolution = summary
@@ -460,10 +461,11 @@ final class OperatorToolHandler {
         return ["snag": .string(key), "recorded": true]
     }
 
-    /// `ask_you`'s answer: a question on a task also says what that does, so the Operator knows it is no plain note.
+    /// `ask_you`'s answer: an open question on a task also says what that does, so the Operator knows it is no plain note.
+    /// A repeat of one already resolved says only that.
     private static func askAnswer(_ question: OperatorQuestion) -> JSONValue {
         var answer = questionAnswer(question)
-        if question.task != nil, case .object(var fields) = answer {
+        if question.task != nil, question.resolution == nil, case .object(var fields) = answer {
             fields["note"] = "This task now shows waiting on the person, and Waiting on you opens its worker’s terminal."
             answer = .object(fields)
         }

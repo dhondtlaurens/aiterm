@@ -167,16 +167,19 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
   same frozen profile. A resumed Operator keeps the brief its conversation started with, even when
   `brief.md` has changed since: Claude Code records the system prompt on a conversation's first request
-  and reuses it on `--resume` until a compaction (checked by hand on Claude Code 2.1.306, 2026-10-21;
-  `--system-prompt-snapshot off` would render it fresh). When that conversation is gone from Claude's
+  and reuses it on `--resume` (checked by hand on Claude Code 2.1.306, 2026-10-21); its documentation
+  says the recorded prompt holds until a compaction, which was not checked, and
+  `--system-prompt-snapshot off` would render it fresh. When that conversation is gone from Claude's
   folder, the board keeps a `Notice` in its footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
 - **Complete.** Once every task has ended and no question is open, `settle` makes the run `complete`:
   the board's columns stay, every card in Done, and the Operator writes its summary with `write_summary`,
-  as its brief asks (`OperatorCommand.summaryRule`; `run_status` shows `summaryDue` until it has), in its
-  own words, what it decided on its own and found along the way folded in. The sheet's Summary shows it
-  with what was left for you (`leftForYou`, from `leave_for_you` and the slices' refusals). The finished
+  as its brief asks (step 7 of How a run goes, `OperatorCommand.runLoop`; `run_status` shows `summaryDue`
+  until it has), in its own words, what it decided on its own and found along the way folded in. The
+  sheet's Summary shows it with what was left for you (`leftForYou`, from `leave_for_you` and the slices'
+  refusals), then Worked around in AiTerm: the snags the Operator recorded with `report_snag`
+  (`run.snags`). The finished
   broadcast's notification goes out once the summary is written, or once AiTerm stops waiting for it
   (`OperatorTiming.summaryWait`, `RunSummary.notComing`). A later `submit_plan` makes it active again.
 - **End.** `end(run:)` saves your stop first; one that cannot be saved is taken back and nothing else

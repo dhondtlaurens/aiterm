@@ -105,9 +105,14 @@ import Foundation
         let reported = transcript([status, ("ask_you", ["key": "k", "question": "PAY-14 waits on a prompt.", "task": "PAY-14"]),
                                    ("resolve_question", ["key": .string("prompt-\(G.pay14.uuidString)-1"), "summary": "Stale."])],
                                   "PAY-14 waits on a prompt in its terminal.")
-        #expect(check(reported) == ["PAY-14's prompt was never read", "no report_snag", "ask_you was called, though nothing waits on the person",
+        #expect(check(reported) == ["PAY-14's prompt was never read", "PAY-14's last message was never read", "no report_snag",
+                                    "ask_you was called, though nothing waits on the person",
                                     "resolve_question closed AiTerm's own prompt question", "PAY-14's work did not go on",
                                     "the reply says PAY-14 waits at a prompt"])
+        // A null prompt alone is also AiTerm's signal for a prompt it can't read: the last message is the second source.
+        var promptOnly = good
+        promptOnly.calls.removeAll { $0.tool == "read_task" && $0.arguments["what"]?.stringValue == "lastMessage" }
+        #expect(check(promptOnly) == ["PAY-14's last message was never read"])
         // The old brief's reply in the live run (promptWithNoPrompt old #1), after the calls a pass makes.
         let oldReply = transcript(Array(good.calls.map { ($0.tool, $0.arguments) }),
                                   "PAY-14's Claude worker in Shop is stopped at a prompt AiTerm can't read. Please look at that session "

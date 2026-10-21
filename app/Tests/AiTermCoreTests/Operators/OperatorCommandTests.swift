@@ -172,8 +172,10 @@ import Foundation
     /// Operator sheet's summary rule in it.
     @Test func theBriefStaysNearItsLength() {
         let today = 1582
-        // 1582 already holds the sheet's summary rule: the 300 is this branch's own growth, the restructure's reasons and examples.
-        #expect(words(largest()) <= today + 300, "\(words(largest())) words")
+        // 1582 already holds the sheet's summary rule: the 350 is this branch's own growth, the restructure's reasons and examples.
+        // Raised from 300 in the final review's fixes, which made rules true rather than short: the second source a missing
+        // prompt needs, the merge on the host the Operator now closes, find_user before asking, and what a local merge pushes.
+        #expect(words(largest()) <= today + 350, "\(words(largest())) words")
     }
 
     /// Strong words are kept for the hard limits, so they keep their weight; every other rule says what to do.
@@ -204,6 +206,9 @@ import Foundation
         #expect(run.contains("read_task") && run.contains("report_snag"))
         #expect(run.contains("inside the hard limits"))
         #expect(run.contains("promptsWaitingOnYou"), "its first case, as an example")
+        // A null prompt alone is also AiTerm's signal for a prompt it can't read: the example needs the last message too.
+        #expect(run.contains("whose read_task what: prompt is null and whose lastMessage shows a finished turn"))
+        #expect(run.contains("when the two don't agree, tell the person of the prompt all the same"))
     }
 
     /// A question is asked in the Operator's chat first; `ask_you` only lists it under Waiting on you, on a task
@@ -212,13 +217,15 @@ import Foundation
         let talk = section("## Talking to the person", of: largest())
         for phrase in ["1. Ask the person in this chat first", "only when that task's worker is itself stopped on the answer",
                        "a reviewer's username, a scope choice or a merge decision, goes on no task",
-                       "call resolve_question at once", "Resolve only the questions you asked", "only the person can grant",
+                       "call resolve_question at once", "AiTerm's question about a merge on the host included",
+                       "AiTerm closes a worker prompt's question itself", "only the person can grant",
                        "Stop and wait only when nothing can move without the person", "leave_for_you(key, text)"] {
             #expect(talk.contains(phrase), "\(phrase)")
         }
         let examples = talk.components(separatedBy: "For example:").dropFirst().first ?? ""
         #expect(examples.components(separatedBy: "ask_you").count - 1 >= 2, "both examples call ask_you")
         #expect(examples.contains("no task") && examples.contains("task PAY-14"))
+        #expect(examples.contains("find_user finds two people named Sofie"), "it looks before it asks")
     }
 
     /// The closing reminder repeats the three rules that matter most, briefly.
@@ -341,8 +348,12 @@ import Foundation
         var run = F.run()
         run.done = nil
         let brief = OperatorCommand.brief(run: run, projects: [])
-        #expect(brief.contains("Each task's agent commits on the task's branch, and AiTerm does every push and merge through finish_task"))
-        #expect(brief.contains("accept it with mark_task accepted. Then, unless the task ends at a commit, call finish_task"))
+        #expect(brief.contains("Each task's agent commits on the task's branch and pushes nothing; AiTerm pushes and merges as far as the task's end goes, "
+                               + "through finish_task."))
+        #expect(brief.contains("Accept with mark_task accepted, giving the check output, also when checkOutput names a check the "
+                               + "repository doesn't define (\"typecheck: none defined\") rather than inventing a command. "
+                               + "Then, unless the task ends at a commit, call finish_task"))
+        #expect(brief.contains("read with read_task, since the task's end carries that commit."))
         #expect(brief.contains("AiTerm pushes the branch and opens its merge request, a draft unless the task ends in a merge."))
         #expect(brief.contains("A Done of \"a commit\" ends at the accepted commit, with no push, no merge request and no finish_task."))
         #expect(!brief.contains("then call finish_task:"), "finish_task is never asked for on a commit end")

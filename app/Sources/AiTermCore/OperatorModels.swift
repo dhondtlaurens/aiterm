@@ -411,10 +411,10 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// The keys AiTerm records its own questions under: a worker's prompt is `prompt-<task>-<n>`, a merge on the host
-    /// `merged-on-host-<task>`. The Operator neither picks keys in these namespaces nor closes such a question.
+    /// `merged-on-host-<task>`. The Operator picks no key in these namespaces. AiTerm closes a prompt's question itself;
+    /// a merge on the host is the person's to decide, and the Operator closes it once they have answered.
     public static let promptPrefix = "prompt-", mergedOnHostPrefix = "merged-on-host-"
     public static let aitermPrefixes = [promptPrefix, mergedOnHostPrefix]
-    public var isAiTerms: Bool { Self.aitermPrefixes.contains { id.hasPrefix($0) } }
 }
 
 /// One line of the decisions log; `why` is its reason in a sentence, `challenge` the Oracle's critique and
