@@ -240,6 +240,7 @@ public enum OperatorCommand {
               + "If the Review names people, plan the work as far as the draft merge request and leave the rest for the person.",
          slices.merge
             ? "You may merge when the conditions written in the Review and the Done hold, through the merge request or locally. "
+              + "Whether the conditions hold is your call. "
               + (oracleIsOn ? "With the Oracle on, a finish_task that would merge first needs the Oracle's yes that those conditions hold. " : "")
               + "Merge doesn't depend on Review: Merge marks the request ready only to merge it. "
               + "A local merge (mergeLocal) merges the accepted commit into the project's own checkout, which must be on its default "
@@ -306,8 +307,9 @@ public enum OperatorCommand {
 
     static let selfHealing = "AiTerm's picture can be wrong. When run_status or a tool reply doesn't match what you see, check the "
         + "real source (read_task, the branch's head, run_status again), act on what is true, and "
-        + "record it with report_snag so AiTerm can be fixed. For example, a task under promptsWaitingOnYou whose read_task "
-        + "what: prompt is null has no prompt to report. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person what only "
+        + "record it with report_snag so AiTerm can be fixed. For example: a task under promptsWaitingOnYou whose read_task "
+        + "what: prompt is null has no prompt to report; a task shown working whose worker ended its turn is read with read_task "
+        + "and steered on from there, since reading it is not accepting it. Heal inside the hard limits, by reading, calling again and correcting your own records; ask the person what only "
         + "they can decide."
 
     static let decisionRule = "Log each choice you take on your own with `log_decision`, and say why in one sentence."

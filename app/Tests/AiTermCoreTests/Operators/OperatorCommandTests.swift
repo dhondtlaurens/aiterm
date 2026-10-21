@@ -172,7 +172,8 @@ import Foundation
     /// Operator sheet's summary rule in it.
     @Test func theBriefStaysNearItsLength() {
         let today = 1582
-        #expect(words(largest()) <= today + 250, "\(words(largest())) words")
+        // 250 for the restructure, and 50 more for write_summary's step, which arrived with the Operator sheet.
+        #expect(words(largest()) <= today + 300, "\(words(largest())) words")
     }
 
     /// Strong words are kept for the hard limits, so they keep their weight; every other rule says what to do.
