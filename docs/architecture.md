@@ -165,8 +165,11 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
 - **The window closed.** It ends nothing: a broadcast under way goes `operatorOffline` and reads
   `paused · the Operator’s window is closed`. A click on its row opens the board and reopens the window
   behind it (`reopenOperator(run:background:)`), resuming its conversation (`claude --resume`) under the
-  same frozen profile. When that conversation is gone from Claude's folder, the board keeps a `Notice` in its
-  footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
+  same frozen profile. A resumed Operator keeps the brief its conversation started with, even when
+  `brief.md` has changed since: Claude Code records the system prompt on a conversation's first request
+  and reuses it on `--resume` until a compaction (checked by hand on Claude Code 2.1.306, 2026-10-21;
+  `--system-prompt-snapshot off` would render it fresh). When that conversation is gone from Claude's
+  folder, the board keeps a `Notice` in its footer (`reopenFailed`) and offers **Start Fresh** (`startFresh`): a new Operator session, its first
   message the broadcast, where it stands as `run_status` shows it, and the decisions so far
   (`OperatorCommand.freshStartMessage`).
 - **Complete.** Once every task has ended and no question is open, `settle` makes the run `complete`:
