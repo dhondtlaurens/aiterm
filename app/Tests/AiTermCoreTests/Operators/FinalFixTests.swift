@@ -78,19 +78,6 @@ extension FinalFixTests {
         #expect(brief.contains("leave_for_you(key, text)"))
         #expect(OperatorCommand.freshStartMessage(for: run, status: "{}").contains("Kept the endpoint. Why: Clients still use it."))
     }
-
-    @Test func challengeBookkeepingStaysOutOfDecided() {
-        var run = OperatorFixtures.run(state: .complete)
-        run.decisions = [OperatorDecision(key: "challenge-a", text: "mark_task: proceeded", task: nil, at: OperatorFixtures.epoch, challenge: "unchallenged"),
-                         OperatorDecision(key: "d", text: "Kept the endpoint.", task: nil, at: OperatorFixtures.epoch),
-                         OperatorDecision(key: "challenge-b", text: "Accepted Cart drawer despite the Oracle’s objection.", task: nil,
-                                          at: OperatorFixtures.epoch, challenge: "Too much.", objection: "Too much."),
-                         OperatorDecision(key: "unchallenged-merge", text: "Merged unchallenged.", task: nil, at: OperatorFixtures.epoch,
-                                          challenge: "unchallenged", why: "The Oracle didn’t answer, so the merge went ahead unchallenged.")]
-        let board = BroadcastBoard.make(run: run, state: OperatorFixtures.state(run, []), acting: .none, requests: [])
-        #expect(board.debrief?.decided.map(\.key) == ["d", "challenge-b"])
-        #expect(run.decisions.count == 4)
-    }
 }
 
 extension FinalFixTests {

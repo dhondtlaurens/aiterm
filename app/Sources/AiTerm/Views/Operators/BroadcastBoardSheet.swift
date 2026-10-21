@@ -9,16 +9,16 @@ struct BoardActions {
     var open: @MainActor (BroadcastBoard.Opens) -> Void = { _ in }
     var pause: @MainActor () -> Void = {}
     var resume: @MainActor () -> Void = {}
-    /// `confirming`: End Broadcast… asks first; the debrief's End Broadcast does not.
+    /// `confirming`: End Broadcast… asks first; End Broadcast from a complete broadcast does not.
     var end: @MainActor (_ confirming: Bool) -> Void = { _ in }
     var startFresh: @MainActor () -> Void = {}
 }
 
 /// The board's footer at each moment (spec §9, §13): Pause Broadcast or Resume Broadcast and End
-/// Broadcast… while it runs; End Broadcast on ⌘↩ once it is the debrief, asking nothing; and when the
-/// Operator's window could not be reopened, a Notice saying so with Start Fresh on ⌘↩. The debrief
-/// outranks a failed reopening: it keeps End Broadcast on ⌘↩, the Notice still shown and Start Fresh a
-/// plain button beside it. Close (⎋) always.
+/// Broadcast… while it runs; End Broadcast on ⌘↩ once it is complete, asking nothing; and when the
+/// Operator's window could not be reopened, a Notice saying so with Start Fresh on ⌘↩. A complete
+/// broadcast outranks a failed reopening: it keeps End Broadcast on ⌘↩, the Notice still shown and Start Fresh a
+/// plain button beside it. A shelved board, read from the Shelf, has Close alone. Close (⎋) always.
 struct BoardFooter: Equatable {
     enum Button: Hashable {
         case pause, resume, endConfirm, end, startFresh
@@ -53,11 +53,13 @@ struct BoardFooter: Equatable {
     var notice: NoticeText?
 
     init(_ board: BroadcastBoard, reopenFailed: Bool) {
-        notice = reopenFailed
+        notice = reopenFailed && !board.isShelved
             ? NoticeText(title: "Couldn’t reopen the Operator’s window",
                          description: "Its conversation couldn’t be resumed. A fresh one starts from the board and what it decided so far.")
             : nil
-        if board.debrief != nil {
+        if board.isShelved {
+            leading = []; primary = nil
+        } else if board.isComplete {
             leading = reopenFailed ? [.startFresh] : []; primary = .end
         } else if reopenFailed {
             // End Broadcast… stays in the row's menu.
@@ -71,8 +73,8 @@ struct BoardFooter: Equatable {
 /// The broadcast's board (spec §4, §13), `Sheet.boardWidth` by `Sheet.height` in `SheetLayout`'s
 /// anatomy: the title; a band line, the broadcast's `BroadcastStatusLine` as its row says it; then the
 /// Asked line, two lines at most, the whole of it in its tooltip. Under them the columns, each
-/// a `SidebarHeading` and its count over its cards, scrolling on its own; once every task is done, the
-/// debrief in their place (`BroadcastDebriefView`). A card's click closes the sheet first, then opens what
+/// a `SidebarHeading` and its count over its cards, scrolling on its own, at every moment: once every task
+/// is done they all sit in Done. A card's click closes the sheet first, then opens what
 /// resolves it (`choose`). Equatable by what it draws, its actions left out (they act on the broadcast
 /// as it is when pressed), so the host's `.equatable()` skips a body that would draw the same.
 struct BroadcastBoardSheet: View, Equatable {
@@ -117,14 +119,10 @@ struct BroadcastBoardSheet: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } content: {
-            if let debrief = board.debrief {
-                BroadcastDebriefView(debrief: debrief, choose: choose)
-            } else {
-                HStack(alignment: .top, spacing: Space.gap) {
-                    ForEach(board.columns) { lane in column(lane) }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            HStack(alignment: .top, spacing: Space.gap) {
+                ForEach(board.columns) { lane in column(lane) }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } footer: {
             SheetFooter(secondary: footer.secondary, primary: footer.primary?.title, cancel: { dismiss.afterThisEvent() },
                         submit: { footer.primary?.perform(actions) }) {
@@ -166,7 +164,7 @@ struct BroadcastBoardSheet: View, Equatable {
     }
 }
 
-/// A column's or a debrief list's head: a `SidebarHeading` and its count in `Typography.monoChip`,
+/// A column's head: a `SidebarHeading` and its count in `Typography.monoChip`,
 /// `Size.menuRow` tall.
 struct BoardHeading: View {
     let title: String
@@ -307,7 +305,7 @@ struct BoardCardView: View, Equatable {
 /// `Space.tight` beyond the line. Its click closes the board and brings the tab forward; a closed tab is muted,
 /// with no mark, and is no button.
 struct BoardTabLine: View {
-    let tab: BroadcastBoard.Tab
+    let tab: BroadcastBoard.TabLine
     let choose: () -> Void
     private var _hovered = State(initialValue: false)
     private var hovered: Bool {
@@ -315,7 +313,7 @@ struct BoardTabLine: View {
         nonmutating set { _hovered.wrappedValue = newValue }
     }
 
-    init(tab: BroadcastBoard.Tab, choose: @escaping () -> Void) {
+    init(tab: BroadcastBoard.TabLine, choose: @escaping () -> Void) {
         self.tab = tab; self.choose = choose
     }
 
@@ -360,89 +358,5 @@ struct TaskBadges: View {
     var body: some View {
         if let ticket { Badge(ticket, icon: .brand(Palette.jira), help: ticketSummary, style: .quiet).fixedSize() }
         if let mr { Badge(mr, icon: .brand((mrHost ?? .gitLab).brand), help: mrTitle, style: .quiet).fixedSize() }
-    }
-}
-
-/// The debrief (spec §4.2, §13), in the board's place once every task is done: Delivered, every task and
-/// its result, in a full-height column on the left that scrolls; on the right, stacked and scrolling,
-/// Decided on its own, Found along the way and Left for you, a list with nothing in it left out. A
-/// Delivered row is the agent's mark, the title, the quiet Jira and MR `Badge`s and the result in
-/// `Typography.mono`, the model and its reason in its tooltip, and opens its task's window.
-struct BroadcastDebriefView: View {
-    let debrief: BroadcastBoard.Debrief
-    let choose: (BroadcastBoard.Opens) -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Space.margin) {
-            VStack(alignment: .leading, spacing: Space.tight) {
-                BoardHeading(title: "Delivered", count: debrief.delivered.count)
-                BoardScroll {
-                    VStack(alignment: .leading, spacing: Space.tight) {
-                        ForEach(debrief.delivered) { card in delivered(card) }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            BoardScroll {
-                VStack(alignment: .leading, spacing: Space.section) {
-                    ForEach(debrief.sections, id: \.self) { section in list(section) }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func delivered(_ card: BroadcastBoard.Card) -> some View {
-        Button { choose(card.opens) } label: {
-            HStack(spacing: Space.base) {
-                if let agent = card.agent { VendorMark(agent: agent.session, size: Size.vendorMark) }
-                Text(card.title).font(Typography.caption).foregroundStyle(Palette.text).lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: Space.tight)
-                TaskBadges(ticket: card.ticket, ticketSummary: card.ticketSummary, mr: card.mr, mrHost: card.mrHost, mrTitle: card.mrTitle)
-                if let result = card.result {
-                    Text(result).font(Typography.mono).foregroundStyle(Palette.muted).lineLimit(1).fixedSize()
-                }
-            }
-            .frame(minHeight: Size.menuRow)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(card.modelTooltip ?? "")
-        .accessibilityHint(Text(BoardCardView.hint(card.opens)))
-    }
-
-    @ViewBuilder
-    private func list(_ section: BroadcastBoard.Debrief.Section) -> some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            switch section {
-            case .decided:
-                BoardHeading(title: "Decided on its own", count: debrief.decided.count)
-                ForEach(Array(debrief.decided.enumerated()), id: \.offset) { _, decision in
-                    item(decision.text, why: decision.reason)
-                }
-            case .finds:
-                BoardHeading(title: "Found along the way", count: debrief.finds.count)
-                ForEach(Array(debrief.finds.enumerated()), id: \.offset) { _, find in
-                    item(find.title, why: find.why, ticket: find.ticket)
-                }
-            case .leftForYou:
-                BoardHeading(title: "Left for you", count: debrief.leftForYou.count)
-                ForEach(Array(debrief.leftForYou.enumerated()), id: \.offset) { _, text in item(text, why: nil) }
-            }
-        }
-    }
-
-    private func item(_ text: String, why: String?, ticket: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: Space.hairline) {
-            HStack(alignment: .firstTextBaseline, spacing: Space.base) {
-                Text(text).font(Typography.caption).foregroundStyle(Palette.text).fixedSize(horizontal: false, vertical: true)
-                if let ticket { Badge(ticket, icon: .brand(Palette.jira), style: .quiet).fixedSize() }
-            }
-            if let why, !why.isEmpty {
-                Text(why).font(Typography.help).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .textSelection(.enabled)
     }
 }

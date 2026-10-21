@@ -194,7 +194,7 @@ vendor needs both.
 `SettingsSwitch`, `SettingsSection`, `NumberedSteps`, `MacSettingsCard`, `IntegrationMark`, `HarnessSettingsPane`,
 `HelpWithProblemsGroup`, `OperatorSettingsPane`, `InterfaceSettingsPane`, `KeyboardSettingsPane`, `NameSheet`, `NewTaskSheet`, `NewReviewSheet`,
 `NewBroadcastSheet` (with `ChipsPicker`, `PickChip`, `ChipFlow` and `ProjectResultRow`), `BroadcastBoardSheet`, `BroadcastBoardHost`, `BoardCardView`, `BoardTabLine`, `BoardHeading`, `BoardScroll`,
-`TaskBadges`, `BroadcastDebriefView`, `ArchiveSheet`, `ArchiveRow`.
+`TaskBadges`, `ArchiveSheet`, `ArchiveRow`.
 
 **Backpack Mode.** The sidebar's foot (`SidebarFooter`) is two groups under a `Hairline`, on the
 list's grid: SYSTEM, then USAGE. SYSTEM is the selected task's or terminal's `ctx` row (its active
@@ -376,7 +376,7 @@ spans several projects, the project in `Typography.mono`, never the branch; then
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
 Its tooltip is the model the Operator chose and its one-line reason. A task with several worker tabs keeps one
-card, `monitoring 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.Tab`),
+card, `monitoring 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.TabLine`),
 `Space.base` either side of it, `Space.tight` apart: a `Size.chip` line of the tab's agent's `VendorMark` at
 `Size.inlineMark`, centred under the card's mark; its key (`main`, `e2e-tests`) in `Typography.monoChip` and
 `Palette.text` on the title's leading edge; `Space.base` after it its state, an `OperatorBadge` (`at work`, `turn
@@ -391,15 +391,8 @@ Resume Broadcast, End Broadcast… (the blue alert), and Close (⎋). When the O
 be resumed as its window reopens, the board's footer carries a `Notice` ("Couldn’t reopen the
 Operator’s window") with Close and Start Fresh on ⌘↩ (`OperatorController.reopenFailed`).
 
-Once every task is done the debrief takes the columns' place (`BroadcastDebriefView`), `Space.margin`
-between its two columns: Delivered on the left, full height and scrolling, each row at least
-`Size.menuRow` the agent's `VendorMark` at `Size.vendorMark`, the title in `Typography.caption`, the quiet
-`Badge`s and the result in `Typography.mono` (`merged · 9b3e07d`), its tooltip the model and its reason,
-its click the task's window; on the right, stacked `Space.section` apart and scrolling, Decided on its own
-(with its why in a sentence under it, then the Oracle's objection when it made the decision against it), Found along the way (a filed find's
-ticket as a quiet Jira `Badge`) and Left for you, each a `BoardHeading` over items in `Typography.caption`
-with their why in `Typography.help` and `Palette.muted`; a list with nothing in it is left out. Its footer
-is Close and End Broadcast on ⌘↩, which asks nothing. A broadcast whose last task waits on a person keeps
+Once every task is done the columns stay, every card in Done, and the footer is Close and End Broadcast on ⌘↩,
+which asks nothing. A broadcast whose last task waits on a person keeps
 the board. No new `Palette` or `Metrics` member.
 
 **A sheet's anatomy.** The band under a sheet's title holds a `StepBar` (New Task, New Review, New Broadcast), a

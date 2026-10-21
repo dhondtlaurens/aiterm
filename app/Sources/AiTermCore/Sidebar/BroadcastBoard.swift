@@ -6,8 +6,9 @@ import Foundation
 /// The header restates the brief: the title, a band line with the broadcast's own status line
 /// (`OperatorLine.broadcast`) and `· 2 of 8 done` after it, then the Asked line. The board is
 /// the plan: Todo · In progress · Review · Done, Review only when the broadcast has a review, each task's
-/// card in the column its state puts it in, in the plan's order. Once every task is done (the run is
-/// complete) the debrief takes the board's place.
+/// card in the column its state puts it in, in the plan's order, and once every task is done they all sit in Done.
+/// What the sheet's other tabs read is here too: the Summary's state and what is left for you, and which tab it
+/// opens on. An ended broadcast read from the Shelf is a `shelved` board, read-only.
 public struct BroadcastBoard: Equatable, Sendable {
     public enum Column: String, CaseIterable, Sendable {
         case todo, inProgress, review, done
@@ -37,10 +38,10 @@ public struct BroadcastBoard: Equatable, Sendable {
         case nothing
     }
 
-    /// One worker tab of a task with several (P5 A, 21 Oct 2026), a line of its card: its agent, its key, what it
+    /// One worker tab of a task with several (P5 A, 21 Oct 2026), a line of its card (not one of the sheet's `Tab`s): its agent, its key, what it
     /// does and its mark. A closed tab is listed, muted, with no mark, and is no button; one opening is no button
     /// until iTerm2 lists it.
-    public struct Tab: Equatable, Identifiable, Sendable {
+    public struct TabLine: Equatable, Identifiable, Sendable {
         /// `main` for the first worker (`WorkerTab.firstKey`), else the extra tab's key.
         public var key: String
         public var agent: AgentKind
@@ -58,7 +59,7 @@ public struct BroadcastBoard: Equatable, Sendable {
         }
     }
 
-    /// One task on the board, and its row in the debrief's Delivered.
+    /// One task on the board.
     public struct Card: Equatable, Identifiable, Sendable {
         /// The task's id.
         public var id: UUID
@@ -84,10 +85,10 @@ public struct BroadcastBoard: Equatable, Sendable {
         /// The model the Operator chose and its one-line reason (spec §15.4): `Codex · gpt-5.5 · high`, then
         /// the reason on a line of its own.
         public var modelTooltip: String?
-        /// What a finished task ended at (`merged · 9b3e07d`): the debrief's mono result.
+        /// What a finished task ended at (`merged · 9b3e07d`).
         public var result: String?
         /// Its worker tabs, the first worker's first, while it has more than one; empty otherwise.
-        public var tabs: [Tab] = []
+        public var tabs: [TabLine] = []
     }
 
     /// A column: its head, its cards, and the one muted line it says while it has none.
@@ -106,20 +107,16 @@ public struct BroadcastBoard: Equatable, Sendable {
         public init(label: String, text: String) { self.label = label; self.text = text }
     }
 
-    /// What the debrief lists beside Delivered: what the Operator decided on its own, found along the way,
-    /// and left for you. A list with nothing in it is left out.
-    public struct Debrief: Equatable, Sendable {
-        public enum Section: Equatable, Sendable { case decided, finds, leftForYou }
-        /// Every task the broadcast delivered, in the plan's order.
-        public var delivered: [Card]
-        public var decided: [OperatorDecision]
-        public var finds: [OffBriefFind]
-        public var leftForYou: [String]
+    /// The sheet's tabs, in the order they are drawn.
+    public enum Tab: CaseIterable, Sendable {
+        case board, activity, summary
 
-        /// The right column's lists, stacked in this order, the empty ones left out.
-        public var sections: [Section] {
-            let lists: [(Section, Bool)] = [(.decided, !decided.isEmpty), (.finds, !finds.isEmpty), (.leftForYou, !leftForYou.isEmpty)]
-            return lists.filter(\.1).map(\.0)
+        public var title: String {
+            switch self {
+            case .board: "Board"
+            case .activity: "Activity"
+            case .summary: "Summary"
+            }
         }
     }
 
@@ -133,13 +130,25 @@ public struct BroadcastBoard: Equatable, Sendable {
     public var clauses: [Clause]
     /// The board's columns, Review left out without a review.
     public var columns: [Lane]
-    /// Set once every task is done: the debrief takes the board's place.
-    public var debrief: Debrief?
     /// Paused by you, or its Operator's window closed: the footer offers Resume Broadcast.
     public var isPaused: Bool
+    /// Every task is done (the run is complete): the footer's End Broadcast, asking nothing.
+    public var isComplete: Bool
+    /// What the Summary tab says (`RunSummary`).
+    public var summary: RunSummary
+    /// What the Operator left for you, as `leave_for_you` wrote it: the Summary tab's list.
+    public var leftForYou: [String]
+    /// An ended broadcast read from the Shelf: nothing on it acts, and the footer is Close alone.
+    public var isShelved: Bool = false
 
     /// The Asked line whole, as its tooltip says it.
     public var asked: String { clauses.map { "\($0.label) \($0.text)" }.joined(separator: " · ") }
+
+    /// The tab the sheet opens on: the Summary once there is one to read or a reason there is none, else the Board.
+    public var firstTab: Tab { summary == .notYet ? .board : .summary }
+
+    /// Whether `tab` can be selected: the Summary only once the broadcast has reached it.
+    public func isSelectable(_ tab: Tab) -> Bool { tab != .summary || summary != .notYet }
 
     /// The board of `run` as `state` has it. `acting` is what the Operator is doing now, as
     /// `OperatorController.acting` says it; `requests` are the broadcast's open requests (`OperatorRequests`);
@@ -162,17 +171,6 @@ public struct BroadcastBoard: Equatable, Sendable {
         let columns = Column.allCases.filter { $0 != .review || hasReview }.map { column in
             Lane(column: column, cards: cards.filter { $0.0 == column }.map(\.1), empty: Self.empty(column, planned: !tasks.isEmpty))
         }
-        // Every delivered task wears its agent's mark and opens its window, as a started card does.
-        let delivered = cards.map { _, card, agent in
-            var row = card
-            row.agent = agent
-            row.opens = .taskWindow(card.id)
-            return row
-        }
-        let debrief = run.state == .complete
-            ? Debrief(delivered: delivered, decided: run.decisions.filter { $0.challenge == nil || $0.objection != nil }, finds: run.finds, leftForYou: run.leftForYou)
-            : nil
-
         return BroadcastBoard(
             runId: run.id, title: run.name,
             band: OperatorLine.broadcast(run, tasks: tasks, acting: acting.broadcast(run.id), requests: requests,
@@ -182,8 +180,32 @@ public struct BroadcastBoard: Equatable, Sendable {
                 + [("Review", run.review), ("Done", run.done)].compactMap { label, text in
                     text.map(oneLine).flatMap { $0.isEmpty ? nil : Clause(label: label, text: $0) }
                 },
-            columns: columns, debrief: debrief,
-            isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused)
+            columns: columns,
+            isPaused: run.state == .paused || run.state == .operatorOffline || run.intent == .paused,
+            isComplete: run.state == .complete, summary: RunSummary(run), leftForYou: run.leftForYou)
+    }
+
+    /// The board of an ended `run` for the Shelf: every task it drove, the live ones and those archived since, in the
+    /// order they were created (the state's order where that ties), and no card a button, no worker tab listed, nothing
+    /// paused. Nothing is live: no acts, no requests, no sessions.
+    public static func shelved(run: OperatorRun, state: AppState) -> BroadcastBoard {
+        var all = state
+        let driven = state.tasks(inRun: run.id).map(\.self) + state.archive.map(\.task).filter { $0.operated?.runId == run.id }
+        all.tasks = driven.enumerated().sorted { ($0.element.createdAt, $0.offset) < ($1.element.createdAt, $1.offset) }.map(\.element)
+        var board = make(run: run, state: all, acting: .none, requests: [])
+        board.columns = board.columns.map { lane in
+            var lane = lane
+            lane.cards = lane.cards.map { card in
+                var card = card
+                card.opens = .nothing
+                card.tabs = []
+                return card
+            }
+            return lane
+        }
+        board.isPaused = false
+        board.isShelved = true
+        return board
     }
 
     /// `2 of 8 done`, once the first plan is in Todo: the finished tasks of those not stopped, as the board's
@@ -225,19 +247,19 @@ public struct BroadcastBoard: Equatable, Sendable {
     }
 
     /// A card's tab lines, as `sessions` list its worker tabs; none for a task with one.
-    private static func tabs(of task: TaskItem, sessions: [SessionInfo]) -> [Tab] {
+    private static func tabs(of task: TaskItem, sessions: [SessionInfo]) -> [TabLine] {
         let workers = task.workerTabs(in: sessions)
         guard workers.count > 1 else { return [] }
         return workers.map { worker in
             let key = worker.key ?? WorkerTab.firstKey
             let opens = worker.session.map { Opens.tab(task: task.id, sessionId: $0.sessionId) } ?? .nothing
-            if worker.isOpening { return Tab(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
+            if worker.isOpening { return TabLine(key: key, agent: worker.agent, line: OperatorLine("opening"), status: .working, opens: .nothing) }
             switch worker.session?.state {
-            case nil: return Tab(key: key, agent: worker.agent, line: OperatorLine("closed"), status: nil, opens: .nothing)
-            case .working?: return Tab(key: key, agent: worker.agent, line: OperatorLine("at work"), status: .working, opens: opens)
+            case nil: return TabLine(key: key, agent: worker.agent, line: OperatorLine("closed"), status: nil, opens: .nothing)
+            case .working?: return TabLine(key: key, agent: worker.agent, line: OperatorLine("at work"), status: .working, opens: opens)
             case .needsInput?:
-                return Tab(key: key, agent: worker.agent, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, opens: opens)
-            case .idle?, .done?: return Tab(key: key, agent: worker.agent, line: OperatorLine("turn ended"), status: .idle, opens: opens)
+                return TabLine(key: key, agent: worker.agent, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput, opens: opens)
+            case .idle?, .done?: return TabLine(key: key, agent: worker.agent, line: OperatorLine("turn ended"), status: .idle, opens: opens)
             }
         }
     }

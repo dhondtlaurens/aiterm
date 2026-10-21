@@ -90,6 +90,21 @@ struct BroadcastBoardSheetTests {
         #expect(both.secondary == "Close")
     }
 
+    /// An ended broadcast, read from the Shelf, is read-only: Close alone, whether or not it once reached complete,
+    /// and a failed reopening is no part of it.
+    @Test func aShelvedBoardsFooterIsCloseAlone() {
+        for state in [OperatorRunState.stopped, .complete] {
+            var run = OperatorUIFixtures.run(state: state)
+            run.endedAt = OperatorUIFixtures.epoch
+            let shelved = BroadcastBoard.shelved(run: run, state: { var s = AppState(); s.runs = [run]; return s }())
+            for reopenFailed in [false, true] {
+                let footer = BoardFooter(shelved, reopenFailed: reopenFailed)
+                #expect(footer.leading == [] && footer.primary == nil && footer.notice == nil)
+                #expect(footer.secondary == "Close")
+            }
+        }
+    }
+
     @Test func eachButtonDoesItsOneThing() {
         var moments: [String] = []
         let actions = BoardActions(pause: { moments.append("pause") }, resume: { moments.append("resume") },

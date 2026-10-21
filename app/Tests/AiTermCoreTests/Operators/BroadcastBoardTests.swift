@@ -5,7 +5,7 @@ import Testing
 
 /// The broadcast's board as a value (spec §4, §4.2, §13): the header restating the brief, the columns
 /// Todo · In progress · Review · Done with each task's card where its state puts it, what a card opens,
-/// and the debrief that takes the board's place once every task is done.
+/// and what its tabs read: the summary, what is left for you, and the shelved form of an ended broadcast.
 @Suite struct BroadcastBoardTests {
     private let web = OperatorUIFixtures.project("webshop"), api = OperatorUIFixtures.project("payments-api")
 
@@ -206,63 +206,106 @@ import Testing
         #expect(card.opens == .taskWindow(mine.id))
     }
 
-    @Test func theDebriefListsEveryDeliveredTask() throws {
+    /// Once every task is done the board keeps its columns, everything in Done: the Summary tab holds what the
+    /// debrief did, and the board has no value of its own for it.
+    @Test func aCompleteRunKeepsItsColumnsAndOpensOnItsSummary() throws {
         var run = run(.complete)
-        run.decisions = [OperatorDecision(key: "d1", text: "Added Retry failed payments (PAY-240)", task: nil, at: OperatorUIFixtures.epoch,
-                                          why: "The provider switch left failed payments with no retry."),
-                         OperatorDecision(key: "d2", text: "Kept the old button behind a flag", task: nil, at: OperatorUIFixtures.epoch,
-                                          why: "PAY-231’s ticket didn’t say.", objection: "The flag is dead code."),
-                         OperatorDecision(key: "d3", text: "Kept the subtitle", task: nil, at: OperatorUIFixtures.epoch,
-                                          objection: "It repeats the title.")]
-        run.finds = [OffBriefFind(key: "f1", title: "An API key in payments-api's test fixtures", why: "A live-looking key.", ticket: "PAY-250")]
         run.leftForYou = ["Marking !412 ready is yours."]
+        run.completedAt = OperatorUIFixtures.epoch
         var layout = task("Checkout layout", jira: "PAY-230", run: run.id, .published, end: .merge)
         layout.mr = MergeRequestRef(iid: 412, title: "Checkout layout", url: "https://gitlab.example/shop/-/merge_requests/412")
-        layout.model = "opus"
-        layout.operated?.modelReason = "Layout work."
         let drawer = task("Cart drawer", jira: "PAY-231", run: run.id, .accepted, agent: .codex)
         let nothing = task("Already done", run: run.id, .noChange, started: false)
         let state = state(run, [layout, drawer, nothing, task("You stopped it", run: run.id, .stopped)])
         let board = BroadcastBoard.make(run: run, state: state, acting: .none, requests: [])
-        let debrief = try #require(board.debrief)
-        #expect(debrief.delivered.map(\.title) == ["Checkout layout", "Cart drawer", "Already done"])
-        #expect(debrief.delivered.map(\.result) == ["merged · 9b3e07d", "done · 9b3e07d", "done · no change"])
-        #expect(debrief.delivered.map(\.agent) == [.claude, .codex, .claude], "every row wears its agent's mark")
-        #expect(debrief.delivered.last?.opens == .taskWindow(nothing.id))
-        #expect(debrief.delivered.first?.ticket == "PAY-230" && debrief.delivered.first?.mr == "!412")
-        #expect(debrief.delivered.first?.mrHost == .gitLab)
-        #expect(debrief.delivered.first?.modelTooltip == "Claude · opus\nLayout work.")
-        #expect(debrief.delivered.first?.opens == .taskWindow(layout.id), "a row opens its task's window, as a card does")
-        #expect(debrief.decided == run.decisions)
-        #expect(debrief.decided.first?.why == "The provider switch left failed payments with no retry.")
-        #expect(debrief.decided.map(\.reason) == ["The provider switch left failed payments with no retry.",
-                                                  "PAY-231’s ticket didn’t say. The Oracle objected: “The flag is dead code.”",
-                                                  "The Oracle objected: “It repeats the title.”"])
-        #expect(OperatorDecision(key: "k", text: "t", task: nil, at: OperatorUIFixtures.epoch).reason == nil)
-        #expect(debrief.finds == run.finds)
-        #expect(debrief.leftForYou == ["Marking !412 ready is yours."])
-        #expect(debrief.sections == [.decided, .finds, .leftForYou])
+        #expect(column(board, .done) == ["Checkout layout", "Cart drawer", "Already done"])
+        #expect(column(board, .todo).isEmpty && column(board, .inProgress).isEmpty && column(board, .review).isEmpty)
+        let cards = board.columns.flatMap(\.cards)
+        #expect(cards.map(\.result) == ["merged · 9b3e07d", "done · 9b3e07d", "done · no change"])
+        #expect(cards.first?.mr == "!412" && cards.first?.opens == .taskWindow(layout.id))
+        #expect(board.isComplete && !board.isShelved)
         #expect(board.band.text == "done · writing summary", "every task done, no summary written yet")
+        #expect(board.leftForYou == ["Marking !412 ready is yours."])
+        #expect(board.summary == .writing)
+        #expect(board.firstTab == .summary)
+        #expect(board.isSelectable(.summary) && board.isSelectable(.board) && board.isSelectable(.activity))
 
-        // A task waiting on a person keeps the board.
+        // A task waiting on a person keeps the run going, on its Board.
         var waiting = self.run()
         waiting.state = .active
         var reviewed = task("Shipping step", run: waiting.id, .inReview)
         reviewed.operated?.peopleReview = PeopleReview(reviewers: ["Jan"])
-        #expect(BroadcastBoard.make(run: waiting, state: self.state(waiting, [reviewed]), acting: .none, requests: []).debrief == nil)
+        let working = BroadcastBoard.make(run: waiting, state: self.state(waiting, [reviewed]), acting: .none, requests: [])
+        #expect(!working.isComplete)
     }
 
-    @Test func emptyDebriefListsAreLeftOut() throws {
-        let run = run(.complete)
-        let board = BroadcastBoard.make(run: run, state: state(run, [task("Checkout layout", run: run.id, .accepted)]),
-                                        acting: .none, requests: [])
-        let debrief = try #require(board.debrief)
-        #expect(debrief.sections.isEmpty, "nothing decided, found or left: no list")
-        var found = run
-        found.finds = [OffBriefFind(key: "f1", title: "A flaky cart test on main", why: "Fails one run in five.")]
-        let some = try #require(BroadcastBoard.make(run: found, state: state(found, [task("Checkout layout", run: found.id, .accepted)]),
-                                                    acting: .none, requests: []).debrief)
-        #expect(some.sections == [.finds])
+    /// The tabs: Board · Activity · Summary. A running broadcast opens on its Board and has no Summary to select;
+    /// a written one opens on its Summary.
+    @Test func theBoardOpensOnItsSummaryOnceThereIsOne() {
+        #expect(BroadcastBoard.Tab.allCases == [.board, .activity, .summary])
+        #expect(BroadcastBoard.Tab.allCases.map(\.title) == ["Board", "Activity", "Summary"])
+        let running = BroadcastBoard.make(run: run(), state: state(run()), acting: .none, requests: [])
+        #expect(running.summary == .notYet)
+        #expect(running.firstTab == .board)
+        #expect(running.isSelectable(.board) && running.isSelectable(.activity))
+        #expect(!running.isSelectable(.summary), "nothing to read while it works")
+        #expect(!running.isComplete && !running.isShelved)
+        #expect(running.leftForYou.isEmpty)
+
+        var written = run(.complete)
+        written.completedAt = OperatorUIFixtures.epoch
+        written.summary = "Everything merged."
+        written.summaryAt = OperatorUIFixtures.epoch
+        let board = BroadcastBoard.make(run: written, state: state(written), acting: .none, requests: [])
+        #expect(board.summary == .written(text: "Everything merged.", at: OperatorUIFixtures.epoch))
+        #expect(board.firstTab == .summary && board.isSelectable(.summary))
+    }
+
+    /// An ended broadcast, read from the Shelf: every task it drove, the live and the archived, in the order they were
+    /// created, no card a button and no worker tab listed, never paused, opening on its Summary.
+    @Test func aShelvedBoardListsLiveAndArchivedTasksAndOpensNothing() throws {
+        var run = run(.stopped)
+        run.endedAt = OperatorUIFixtures.epoch
+        run.intent = .paused
+        run.leftForYou = ["Marking !412 ready is yours."]
+        func dated(_ item: TaskItem, _ seconds: TimeInterval) -> TaskItem {
+            var item = item
+            item.createdAt = Date(timeIntervalSince1970: seconds)
+            return item
+        }
+        var price = dated(task("Price formatting", run: run.id, .working, agent: .codex), 40)
+        price.operated?.extraTabs = [OperatorUIFixtures.extraTab("docs", agent: .claude)]
+        let live = [dated(task("Cart drawer", run: run.id, .working), 20), price]
+        let archived = [dated(task("Checkout layout", jira: "PAY-230", run: run.id, .published, end: .merge), 10),
+                        dated(task("Shipping step", run: run.id, .accepted), 30),
+                        dated(task("Another run's task", run: UUID(), .accepted), 5)]
+        var state = state(run, live)
+        state.archive = archived.map { ArchivedTask(task: $0, archivedAt: OperatorUIFixtures.epoch) }
+
+        let board = BroadcastBoard.shelved(run: run, state: state)
+        let cards = board.columns.flatMap(\.cards)
+        #expect(cards.map(\.title).sorted() == ["Cart drawer", "Checkout layout", "Price formatting", "Shipping step"],
+                "the live and the archived tasks of this run, no other run's")
+        #expect(column(board, .inProgress) == ["Cart drawer", "Price formatting"])
+        #expect(column(board, .done) == ["Checkout layout", "Shipping step"], "in the order they were created")
+        #expect(cards.allSatisfy { $0.opens == .nothing }, "a shelved board opens no window")
+        #expect(cards.allSatisfy { $0.tabs.isEmpty })
+        #expect(cards.first { $0.title == "Checkout layout" }?.ticket == "PAY-230")
+        #expect(board.isShelved && !board.isPaused)
+        #expect(board.summary == .endedEarly, "stopped before its plan was done, nothing written")
+        #expect(board.firstTab == .summary && board.isSelectable(.summary))
+        #expect(board.leftForYou == ["Marking !412 ready is yours."])
+        #expect(board.title == "Checkout redesign")
+    }
+
+    /// With no creation order to tell them apart, the live tasks come first and the archived ones after, each in its own order.
+    @Test func aShelvedBoardKeepsTheStateOrderWhenCreatedTogether() {
+        var run = run(.stopped)
+        run.endedAt = OperatorUIFixtures.epoch
+        var state = state(run, [task("Live one", run: run.id, .accepted), task("Live two", run: run.id, .accepted)])
+        state.archive = [ArchivedTask(task: task("Archived one", run: run.id, .accepted), archivedAt: OperatorUIFixtures.epoch),
+                         ArchivedTask(task: task("Archived two", run: run.id, .accepted), archivedAt: OperatorUIFixtures.epoch)]
+        #expect(column(BroadcastBoard.shelved(run: run, state: state), .done) == ["Live one", "Live two", "Archived one", "Archived two"])
     }
 
     @Test func aPauseOrAClosedWindowIsPaused() {
@@ -286,7 +329,7 @@ import Testing
         let board = BroadcastBoard.make(run: run, state: state(run, [price, drawer]), acting: .none, requests: [], sessions: sessions)
         let cards = try #require(board.columns.first { $0.column == .inProgress }?.cards)
         let tabs = try #require(cards.first { $0.title == "Price formatting" }?.tabs)
-        typealias Tab = BroadcastBoard.Tab
+        typealias Tab = BroadcastBoard.TabLine
         #expect(tabs == [
             Tab(key: "main", agent: .codex, line: OperatorLine("turn ended"), status: .idle, opens: .tab(task: price.id, sessionId: "s1")),
             Tab(key: "docs", agent: .claude, line: OperatorLine("waiting on you", look: .needsYou), status: .needsInput,
