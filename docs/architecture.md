@@ -144,7 +144,10 @@ applies to the next broadcast. Help with problems is kept apart, under `operator
   idle Operator with one short fixed line when `run_status` would show it something new, gathered over
   a burst; `ReviewWatcher` reads the requests people review; `reconcileTick` looks at the real tabs every
   `OperatorTiming.reconcileInterval` (60 s), and `StallWatch` flags a task quiet for
-  `OperatorTiming.stallAfter` (20 min), probing it for an open prompt first. Additions after the first
+  `OperatorTiming.stallAfter` (20 min), probing it for an open prompt first. A task counts every worker
+  tab it has (`WorkerTab`: its first worker and the Operator's `open_tab` tabs, one still opening at
+  work): its runtime runs while any is at work, it waits for acceptance once all ended their turn, each
+  tab is on its own stall clock and probed for its own prompt, and `BranchWatch` reads each one's last message. Additions after the first
   plan are budgeted (`BacklogBudget`): a quarter of the first plan's size, at least one, go in on the
   Operator's word; past that each needs the Oracle's yes, a veto run headless and read-only
   (`ChallengeLaunch`, `SecondOpinionRunner`) for up to `OperatorTiming.challengeTimeout`. On the first

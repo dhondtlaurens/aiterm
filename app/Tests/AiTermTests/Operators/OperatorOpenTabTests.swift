@@ -56,6 +56,14 @@ import Testing
 
     // -- opening -------------------------------------------------------------------------------------
 
+    /// `main` is what `run_status` calls the task's first worker among its tabs: no extra tab takes it.
+    @Test func theFirstWorkersNameIsRefusedAsAKey() async throws {
+        let (world, run, task) = try makeWorld()
+        #expect(await world.call(run.id, "open_tab", Self.arguments(key: "main")).message
+                == "The key main names PLUTO-1’s first worker in run_status. Call open_tab with another key.")
+        #expect(tabs(of: task, in: world).isEmpty && world.daemon.requests("tab.create").isEmpty)
+    }
+
     @Test func itOpensInTheTasksWindowAndWorktreeBehindYourWorkWithAiTermsLinesThenTheBrief() async throws {
         let (world, run, task) = try makeWorld()
         let brief = "Write the tests.\n\n" + String(repeating: "Cover every refusal. ", count: 80) + "Then stop."

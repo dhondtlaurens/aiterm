@@ -1,0 +1,63 @@
+import Foundation
+import Testing
+@testable import AiTermCore
+@testable import AiTermTestSupport
+
+/// A task's worker tabs: its first worker, then each extra tab the Operator added (`open_tab`), each with the tab
+/// iTerm2 lists for it.
+@Suite struct WorkerTabsTests {
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func session(_ id: String, task: UUID, index: Int = 0, agent: SessionAgent = .claude, state: SessionState = .working,
+                 key: String? = nil) -> SessionInfo {
+        var session = SessionInfo(sessionId: id, windowId: "w1", tabIndex: index, taskId: task.uuidString, projectId: nil,
+                                  agent: agent, model: nil, state: state, title: "", cwd: "/tmp")
+        session.tabKey = key
+        return session
+    }
+
+    func extra(_ key: String, sessionId: String? = nil, opened: Bool = false, failure: String? = nil) -> ExtraTab {
+        ExtraTab(key: key, agent: .codex, model: "gpt-6-mini", reasoning: nil, modelReason: "Tests.", brief: "Write the tests.",
+                 launch: LaunchAttempt(number: 1, requestedAt: start, openedAt: opened ? start : nil), sessionId: sessionId, failure: failure)
+    }
+
+    func task(_ tabs: [ExtraTab]) -> TaskItem {
+        var world = OperatedWorld()
+        let id = world.addTask("T-1", run: world.addRun(), state: .working)
+        world.update(id) { $0.extraTabs = tabs }
+        return world.state.task(id: id)!
+    }
+
+    @Test func aTaskWithNoExtraTabHasItsFirstWorkerAlone() {
+        let task = task([])
+        let tabs = task.workerTabs(in: [session("s1", task: task.id)])
+        #expect(tabs.count == 1)
+        #expect(tabs[0].key == nil && tabs[0].agent == .claude && tabs[0].model == task.model && tabs[0].session?.sessionId == "s1")
+        #expect(tabs[0].status == .working && !tabs[0].isOpening)
+        #expect(task.workerTabs(in: []).map(\.status) == [nil], "no tab listed: no status")
+    }
+
+    /// An extra tab moved before the first worker in its window is still not the first worker.
+    @Test func theFirstWorkerIsNeverAnExtraTab() {
+        let task = task([extra("review", sessionId: "s2", opened: true)])
+        let sessions = [session("s2", task: task.id, index: 0, agent: .codex, state: .idle, key: "review"),
+                        session("s1", task: task.id, index: 1)]
+        #expect(task.firstWorker(in: sessions)?.sessionId == "s1")
+        let tabs = task.workerTabs(in: sessions)
+        #expect(tabs.map(\.key) == [nil, "review"])
+        #expect(tabs.map { $0.session?.sessionId } == ["s1", "s2"] && tabs.map(\.status) == [.working, .idle])
+        #expect(tabs[1].agent == .codex && tabs[1].model == "gpt-6-mini")
+    }
+
+    /// Asked for and not shown yet, or listed as the shell its command is typed into: still opening, which counts as at
+    /// work. Closed once it showed: listed with no status. Refused: no tab at all.
+    @Test func anExtraTabStillOpeningCountsAsAtWorkAndAClosedOneHasNoStatus() {
+        let task = task([extra("waiting"), extra("typing", sessionId: "s3", opened: true), extra("closed", sessionId: "s4", opened: true),
+                         extra("refused", failure: "No window.")])
+        let tabs = task.workerTabs(in: [session("s1", task: task.id, state: .idle),
+                                        session("s3", task: task.id, index: 2, agent: .shell, state: .idle, key: "typing")])
+        #expect(tabs.map(\.key) == [nil, "waiting", "typing", "closed"])
+        #expect(tabs.map(\.isOpening) == [false, true, true, false])
+        #expect(tabs.map(\.status) == [.idle, .working, .working, nil])
+    }
+}

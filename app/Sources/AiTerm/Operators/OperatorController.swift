@@ -94,8 +94,8 @@ final class OperatorController {
     @ObservationIgnored private var loop: Task<Void, Never>?
     /// An attach whose first connected snapshot is still to come: it reconciles and sets ownership again.
     @ObservationIgnored private var reattached = false
-    /// The tasks whose open prompt is being read.
-    @ObservationIgnored private var probing: Set<UUID> = []
+    /// The worker tabs, by session, whose open prompt is being read.
+    @ObservationIgnored private var probing: Set<String> = []
     /// When each working task last showed a sign of life (spec §8, *possibly stalled*): any change the
     /// daemon reports for one of its tabs — status, title, tokens, context, conversation.
     @ObservationIgnored private var stallWatch = StallWatch()
@@ -256,15 +256,23 @@ final class OperatorController {
                         runLive: RunLiveFacts(weeklyUsage: usage))
     }
 
-    /// What the tabs say of each of the run's tasks: its worker's live status, and the prompt it waits on
-    /// you with (the open question D14 records for it).
+    /// What the tabs say of each of the run's tasks: each worker tab's live status (`WorkerTab`), and the prompt
+    /// each waits on you with (the open question D14 records for it).
     static func liveFacts(of run: UUID, state: AppState, sessions: [SessionInfo]) -> [UUID: TaskLiveFacts] {
         let questions = state.run(id: run)?.questions ?? []
         var facts: [UUID: TaskLiveFacts] = [:]
         for task in state.tasks(inRun: run) {
-            let tab = sessions.filter { $0.taskUUID == task.id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
-            let prompt = questions.first { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }?.text
-            if tab != nil || prompt != nil { facts[task.id] = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt) }
+            let open = questions.filter { $0.task == task.id && $0.resolution == nil && $0.id.hasPrefix("prompt-") }
+            let workers = task.workerTabs(in: sessions), tab = workers[0].session, prompt = open.first { $0.tab == nil }?.text
+            let extra = workers.dropFirst().compactMap { worker in
+                worker.key.map { key in
+                    TaskLiveFacts.Tab(key: key, agent: worker.agent, model: worker.model, status: worker.session?.state,
+                                      opening: worker.isOpening, waitingPrompt: open.first { $0.tab == key }?.text)
+                }
+            }
+            if tab != nil || prompt != nil || !extra.isEmpty {
+                facts[task.id] = TaskLiveFacts(status: tab?.state, waitingPrompt: prompt, tabs: Array(extra))
+            }
         }
         return facts
     }
@@ -630,11 +638,17 @@ final class OperatorController {
     /// A worker that waits on a prompt: recorded as a question waiting on you, on its task, saying what
     /// the prompt is, and you are notified with its window; once the tab leaves the prompt the question
     /// is resolved and the row stops waiting on you. Codex's update offer is declined instead (`dismissStartup`).
+    /// Each worker tab of the task (`WorkerTab`) on its own: a prompt in an extra tab is its question, on that tab.
     func probePrompt(_ id: UUID) {
+        guard let task = workspace.state.task(id: id) else { return }
+        for worker in task.workerTabs(in: live.sessions) { probePrompt(id, worker) }
+    }
+
+    private func probePrompt(_ id: UUID, _ worker: WorkerTab) {
         guard let task = workspace.state.task(id: id), let operated = task.operated, let run = run(id: operated.runId) else { return }
         let prefix = "prompt-\(id.uuidString)-"
-        let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.resolution == nil }
-        let tab = live.sessions.filter { $0.taskUUID == id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
+        let open = run.questions.first { $0.id.hasPrefix(prefix) && $0.tab == worker.key && $0.resolution == nil }
+        let tab = worker.session
         if let open, tab?.state != .needsInput {
             // No tab at all is not an answer: a window that is not listed (yet) leaves the question open.
             guard tab != nil || tabsKnown else { return }
@@ -650,14 +664,13 @@ final class OperatorController {
             runChanged(run.id)
             return
         }
-        guard open == nil, let tab, tab.state == .needsInput, !probing.contains(id), let daemon = daemon() else { return }
-        probing.insert(id)
-        let number = run.questions.filter { $0.id.hasPrefix(prefix) }.count + 1
+        guard open == nil, let tab, tab.state == .needsInput, !probing.contains(tab.sessionId), let daemon = daemon() else { return }
+        probing.insert(tab.sessionId)
         lastProbe = Task { [weak self] in
             // The helper gone is not a prompt AiTerm can't read: nothing is recorded, and the next pass asks again.
             let kind: PromptKind?
             do { kind = try await daemon.prompt(sessionId: tab.sessionId) } catch {
-                self?.probing.remove(id)
+                self?.probing.remove(tab.sessionId)
                 return
             }
             // Codex's update offer is AiTerm's to decline (spec §7.1): the daemon sends Esc only when the
@@ -665,13 +678,16 @@ final class OperatorController {
             // a dismissal that did not happen: only a dismissed offer is never put to you.
             let declined = kind == .startup ? (try? await daemon.dismissStartup(sessionId: tab.sessionId)) == true : false
             guard let self else { return }
-            probing.remove(id)
+            probing.remove(tab.sessionId)
             guard !declined else { return }
             // The tab may have left the prompt while it was read: nothing is asked of you then.
             guard live.sessions.contains(where: { $0.sessionId == tab.sessionId && $0.state == .needsInput }) else { return }
-            let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: task.agent), task: id,
-                                            askedAt: ports.now(), resolution: nil)
+            let now = ports.now()
             workspace.mutate { state in
+                // Numbered as it is recorded: another tab of the task may have recorded one while this was read.
+                let number = (state.run(id: run.id)?.questions.filter { $0.id.hasPrefix(prefix) }.count ?? 0) + 1
+                let question = OperatorQuestion(id: prefix + String(number), text: Self.promptText(kind, agent: worker.agent), task: id,
+                                                askedAt: now, resolution: nil, tab: worker.key)
                 state.updateRun(id: run.id) { $0.questions.append(question) }
                 state.updateOperated(id) { $0.flags.insert(.waitingOnYou) }
             }

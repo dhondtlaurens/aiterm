@@ -183,7 +183,9 @@ def _tool(name: str, description: str, properties: dict[str, Any] | None = None,
 TOOLS: tuple[dict[str, Any], ...] = (
     _tool("run_status", "The broadcast now, numbered by revision: every task with its state, live status, branch, last commit "
           "and a one-line summary, and what is open: questions waiting, prompts waiting on the user, tasks ready to accept, "
-          "tasks possibly stalled, anything uncertain. Under run it also shows the off-brief finds, each agent's weekly use, "
+          "tasks possibly stalled, anything uncertain. A task with tabs added by open_tab lists every worker tab under tabs, "
+          "its first worker as main, and is ready to accept only once every tab ended its turn; a prompt in an added tab is "
+          "named task/tab. Under run it also shows the off-brief finds, each agent's weekly use, "
           "and each installed agent's models with its default model. Call it first after any restart or compaction."),
     _tool("jira_search", "Searches Jira, read-only, within the Jira projects linked to the broadcast's projects.",
           {"jql": _text("The JQL query.")}, ("jql",)),

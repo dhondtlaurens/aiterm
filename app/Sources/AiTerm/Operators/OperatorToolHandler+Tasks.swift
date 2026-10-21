@@ -8,10 +8,11 @@ extension OperatorToolHandler {
     /// The most of a diff an answer carries.
     static let diffLimit = 60_000
 
-    /// The worker's tab: the task's first agent tab.
-    func workerTab(of task: TaskItem) -> SessionInfo? {
-        live.sessions.filter { $0.taskUUID == task.id && $0.agent.agentKind != nil }.min { $0.tabIndex < $1.tabIndex }
-    }
+    /// The worker's tab: the task's first worker, never one of the Operator's extra tabs (`TaskItem.firstWorker`).
+    func workerTab(of task: TaskItem) -> SessionInfo? { task.firstWorker(in: live.sessions) }
+
+    /// Every worker tab of the task: its first worker, then each extra tab (`TaskItem.workerTabs`).
+    func workerTabs(of task: TaskItem) -> [WorkerTab] { task.workerTabs(in: live.sessions) }
 
     func readTask(_ call: ToolCall, in run: OperatorRun) async throws -> JSONValue {
         let task = try self.task(call, in: run), key = task.operated?.key ?? task.title

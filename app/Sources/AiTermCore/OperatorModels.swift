@@ -399,8 +399,10 @@ public struct OperatorQuestion: Codable, Equatable, Sendable, Identifiable {
     public var task: UUID?
     public var askedAt: Date
     public var resolution: String?
-    public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil) {
-        self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution
+    /// For a prompt open in one of its task's extra worker tabs (`open_tab`), that tab's key; nil for any other question.
+    public var tab: String?
+    public init(id: String, text: String, task: UUID?, askedAt: Date, resolution: String? = nil, tab: String? = nil) {
+        self.id = id; self.text = text; self.task = task; self.askedAt = askedAt; self.resolution = resolution; self.tab = tab
     }
 }
 

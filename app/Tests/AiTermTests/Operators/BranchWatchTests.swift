@@ -104,6 +104,31 @@ import Testing
         #expect(world.task(task.id)?.operated?.branchDrift == nil)
     }
 
+    /// Each worker tab's last message is read once its own turn ended: an extra tab's names a commit off the task
+    /// branch while the first worker is still at work.
+    @Test func anExtraTabsLastMessageNamingACommitOffItsBranchIsFlagged() async throws {
+        let (world, run, task, worktree) = try makeWorld(worker: .working, conversation: "conv-first")
+        world.workspace.mutate { $0.updateOperated(task.id) { $0.extraTabs = [
+            ExtraTab(key: "review", agent: .claude, model: "m", reasoning: nil, modelReason: "Tests.", brief: "Write the tests.",
+                     launch: LaunchAttempt(number: 1, requestedAt: Date(timeIntervalSince1970: 0), openedAt: Date(timeIntervalSince1970: 0)),
+                     sessionId: "w2")
+        ] } }
+        var extra = OperatorServiceFixtures.session("w2", window: "w9", tag: task.id, state: .idle, conversation: "conv-review")
+        extra.tabIndex = 1
+        extra.tabKey = "review"
+        world.show([OperatorServiceFixtures.session("op", window: "wo", tag: run.id),
+                    OperatorServiceFixtures.session("w1", window: "w9", tag: task.id, state: .working, conversation: "conv-first"), extra])
+        let elsewhere = try GitFixture.folder("op-drift-tmp-") + "/other"
+        try git.run(["worktree", "add", "-q", "-b", "feat/tests-elsewhere", elsewhere], in: worktree)
+        try git.run(["commit", "--allow-empty", "-q", "-m", "the tests"], in: elsewhere)
+        let sha = try git.run(["rev-parse", "HEAD"], in: elsewhere)
+        try saveReply("Tests written in \(sha) on feat/tests-elsewhere.", conversation: "conv-review", in: world)
+        try saveReply("Still working.", conversation: "conv-first", in: world)
+        await tick(world)
+        let drift = try #require(world.task(task.id)?.operated?.branchDrift)
+        #expect(drift.source == .lastMessage && drift.sha == sha && drift.branch == "feat/tests-elsewhere")
+    }
+
     /// A worker's last reply, in its Claude conversation file under the scratch home.
     func saveReply(_ text: String, conversation: String, in world: OperatorWorld) throws {
         let folder = world.ports.home.appendingPathComponent(".claude/projects/-wt")
