@@ -414,8 +414,8 @@ import Testing
             return OperatorToolHandler.act(for: tool, on: task)
         }
         #expect(act("message_task") == .answering)
-        #expect(act("message_task", .inReview) == .fixingReviewFeedback)
-        #expect(act("reply_thread", .inReview) == .fixingReviewFeedback)
+        #expect(act("message_task", .inReview) == .relayingFeedback)
+        #expect(act("reply_thread", .inReview) == .relayingFeedback)
         #expect(act("mark_task") == .checkingTheWork)
         #expect(act("review_task") == .reviewingWith)
         #expect(act("request_review") == .assigning)

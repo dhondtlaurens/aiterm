@@ -4,9 +4,10 @@ import Foundation
 /// words. Only `loadingTheConstruct` and `consultingTheOracle` use Matrix words.
 public enum OperatorAct: String, CaseIterable, Sendable {
     case loadingTheConstruct, consultingTheOracle, starting, answering, checkingTheWork, reviewingWith, openingTheMR, assigning,
-         fixingReviewFeedback, merging, filingATicket, reopeningItsWindow
+         relayingFeedback, merging, filingATicket, reopeningItsWindow
 
-    /// Its words. `agent` is the agent it starts, answers or reviews with; `names` the people it assigns.
+    /// Its words, as the broadcast's line and the Operator's row say them. `agent` is the agent it starts,
+    /// answers or reviews with; `names` the people it assigns.
     public func words(agent: AgentKind, names: [String] = []) -> String {
         let agent = SidebarModel.agentName(agent)
         switch self {
@@ -18,10 +19,24 @@ public enum OperatorAct: String, CaseIterable, Sendable {
         case .reviewingWith: return "reviewing with \(agent)"
         case .openingTheMR: return "opening the MR"
         case .assigning: return "assigning " + (names.isEmpty ? "reviewers" : OperatorLine.list(names))
-        case .fixingReviewFeedback: return "fixing review feedback"
+        case .relayingFeedback: return "relaying feedback"
         case .merging: return "merging"
         case .filingATicket: return "filing a ticket"
         case .reopeningItsWindow: return "reopening its window"
+        }
+    }
+
+    /// Its words on the task's own row, whose icon already names its agent: the Operator named as the one who
+    /// acts, so `answering Codex` on a Codex row never reads as Codex answering itself; a review names its
+    /// reviewer, `Claude reviewing`. The rest say what happens to the task, `merging`, as they are.
+    public func rowWords(agent: AgentKind, names: [String] = []) -> String {
+        switch self {
+        case .starting: return "Operator starting it"
+        case .answering: return "Operator answering"
+        case .checkingTheWork: return "Operator checking the work"
+        case .reviewingWith: return SidebarModel.agentName(agent) + " reviewing"
+        case .relayingFeedback: return "Operator relaying feedback"
+        default: return words(agent: agent, names: names)
         }
     }
 
@@ -59,9 +74,9 @@ public struct OperatorActs: Equatable, Sendable {
 ///   Jan`, `paused`).
 /// - `ended`: drawn as quiet, the Operator's work on the task is over (`done · 4f2a91c`, `merged · 9b3e07d`,
 ///   `draft MR · !412`): the row's trailing mark is the check (1A, 21 Oct 2026).
-/// - `acting`: something moves, as the row's `StatusMark` turns: the Operator holds the task, in its own verbs
-///   (`monitoring Claude` while the task's agent works, `checking next` once its workers ended their turn), or
-///   AiTerm carries out one of the Operator's acts (`OperatorAct`).
+/// - `acting`: something moves, as the row's `StatusMark` turns: the Operator holds the task, named as who
+///   holds it (`Operator watching` while the task's agent works, `ready for the Operator` once its workers ended
+///   their turn), or AiTerm carries out one of the Operator's acts (`OperatorAct`).
 /// - `needsYou`: yours to act on: a request (`waiting on you`, `waiting on you · docs` from one of several worker
 ///   tabs, `waiting on you · 2 tasks`, `blocked · the tests fail on main`), or a publication left for you
 ///   (`left for you · 4f2a91c`).
@@ -91,7 +106,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// (its card says `taken over`), one the Operator let go of, and every task of an ended broadcast.
     /// `tasks` names the tasks it waits for; without them the parent is "another task". `sessions` are its tabs as
     /// iTerm2 lists them (any others are passed over): they tell a task whose workers all ended their turn, and how
-    /// many worker tabs it has open. Without them it reads as monitored, its agent named.
+    /// many worker tabs it has open. Without them it reads as watched.
     public static func task(_ task: TaskItem, run: OperatorRun, acting: OperatorAct?, requests: [BroadcastRequest],
                             tasks: [UUID: TaskItem] = [:], sessions: [SessionInfo] = []) -> OperatorLine? {
         guard let operated = task.operated, operated.runId == run.id, !operated.takenOver, operated.state != .stopped,
@@ -102,9 +117,9 @@ public struct OperatorLine: Equatable, Sendable {
                 return line(for: request, task: task)
             }
         }
-        if let acting, operated.state != .blocked { return act(acting, task: task, named: nil) }
+        if let acting, operated.state != .blocked { return act(acting, task: task, onItsRow: true) }
         if operated.state == .working, let review = operated.agentReview, review.isRunning {
-            return act(.reviewingWith, task: task, named: nil)
+            return act(.reviewingWith, task: task, onItsRow: true)
         }
         func quiet(_ text: String) -> OperatorLine { OperatorLine(text) }
         func quiet(_ state: String, _ detail: String) -> OperatorLine { OperatorLine.quiet(state, detail) }
@@ -117,11 +132,11 @@ public struct OperatorLine: Equatable, Sendable {
             return quiet(operated.firstRevision > 1 ? "added by the Operator" : "queued")
         case .working:
             // The Operator holds it: the line moves with the row's mark, whether the agent works or the Operator
-            // checks it next.
-            if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) { return OperatorLine(Count.checkingNext.words, look: .acting) }
+            // checks it next. The row's icon names the agent, so the line names the Operator.
+            if !sessions.isEmpty, task.isReadyForAcceptance(in: sessions) { return OperatorLine(Count.ready.words, look: .acting) }
             let open = task.workerTabs(in: sessions).filter { !$0.isClosed }.count
-            if open > 1 { return OperatorLine(Count.monitoring.words + " \(open) tabs", look: .acting) }
-            return OperatorLine(Count.monitoring.words + " " + SidebarModel.agentName(task.agent), look: .acting)
+            if open > 1 { return OperatorLine(Count.working.words + " · \(open) tabs", look: .acting) }
+            return OperatorLine(Count.working.words, look: .acting)
         case .inReview:
             if let people = operated.peopleReview, !people.reviewers.isEmpty, !people.ended {
                 return quiet("in review", "waiting on " + list(people.reviewers))
@@ -221,38 +236,38 @@ public struct OperatorLine: Equatable, Sendable {
 
     // MARK: - The words
 
-    /// What the Operator does about a working task, in its own verbs (P3, 21 Oct 2026): accepting is the
-    /// Operator's job, so only what you must do is amber. A task row says them, the broadcast's line counts
-    /// them: kept here alone, so renaming one is one edit.
+    /// Where a working task stands with the Operator (P3, 21 Oct 2026): accepting is the Operator's job, so only
+    /// what you must do is amber. A task row says it with the Operator named, since the row's icon already names
+    /// the agent and a bare verb would read as the agent's; the broadcast's line counts them as task states,
+    /// leaving the watching to the Operator. Kept here alone, so renaming one is one edit.
     public enum Count: Sendable {
-        /// Its agent is at work: `monitoring Claude`, `monitoring 2 tabs`.
-        case monitoring
+        /// Its agent is at work: `Operator watching`, `Operator watching · 2 tabs`.
+        case working
         /// Its workers all ended their turn: the Operator checks and accepts its result next.
-        case checkingNext
+        case ready
 
         public var words: String {
             switch self {
-            case .monitoring: "monitoring"
-            case .checkingNext: "checking next"
+            case .working: "Operator watching"
+            case .ready: "ready for the Operator"
             }
         }
 
-        /// As the broadcast's line counts them: `monitoring 2 tasks`, `checking 1 next`.
+        /// As the broadcast's line counts them: `2 working`, `1 to check`.
         public func counted(_ count: Int) -> String {
             switch self {
-            case .monitoring: "monitoring \(count) \(count == 1 ? "task" : "tasks")"
-            case .checkingNext: "checking \(count) next"
+            case .working: "\(count) working"
+            case .ready: "\(count) to check"
             }
         }
     }
 
-    /// The working tasks counted: `monitoring 2 tasks`, `checking 1 next`, or both, `monitoring 2 tasks ·
-    /// checking 1 next`. While one is at work the line moves with the row's mark; with every one ready it
-    /// waits for the Operator's turn, quiet.
+    /// The working tasks counted: `2 working`, `1 to check`, or both, `2 working · 1 to check`. While one is
+    /// at work the line moves with the row's mark; with every one ready it waits for the Operator's turn, quiet.
     static func counted(working: Int, ready: Int) -> OperatorLine {
-        guard working > 0 else { return OperatorLine(Count.checkingNext.counted(ready)) }
-        let waiting = ready > 0 ? " · " + Count.checkingNext.counted(ready) : ""
-        return OperatorLine(Count.monitoring.counted(working) + waiting, look: .acting)
+        guard working > 0 else { return OperatorLine(Count.ready.counted(ready)) }
+        let waiting = ready > 0 ? " · " + Count.ready.counted(ready) : ""
+        return OperatorLine(Count.working.counted(working) + waiting, look: .acting)
     }
 
     // MARK: - The Operator's own session
@@ -261,7 +276,7 @@ public struct OperatorLine: Equatable, Sendable {
     /// those). Its window closed, `window closed`; a prompt open in its tab, `asks you in its window`; paused,
     /// `paused`; every task done, `done · debrief ready`, as the header says it; else its act, the task it is
     /// about named (`answering Claude · PAY-231`); else `working` while its session works, and between turns
-    /// `waiting for its tasks`. `acting` is the broadcast's act as
+    /// `watching 3 tasks`, its working ones counted (`waiting for its tasks` with none). `acting` is the broadcast's act as
     /// `OperatorActs.broadcast` gives it, its task a `key` (or an id) among `tasks`, the broadcast's.
     public static func session(acting: (OperatorAct, task: String?)?, working: Bool, asking: Bool, windowClosed: Bool,
                                paused: Bool = false, complete: Bool = false, tasks: [TaskItem] = []) -> OperatorLine {
@@ -273,12 +288,14 @@ public struct OperatorLine: Equatable, Sendable {
             let task = ref.flatMap { ref in tasks.first { $0.operated?.key == ref || $0.id.uuidString == ref } }
             return self.act(act, task: task, named: act.namesItsTask ? (label(of: task) ?? ref) : nil)
         }
-        return working ? OperatorLine("working", look: .acting) : OperatorLine("waiting for its tasks")
+        if working { return OperatorLine("working", look: .acting) }
+        let watched = tasks.filter { task in task.operated.map { !$0.takenOver && $0.state == .working } ?? false }.count
+        return OperatorLine(watched > 0 ? "watching \(watched) \(watched == 1 ? "task" : "tasks")" : "waiting for its tasks")
     }
 
-    /// An act's line: the words in the task's agent (a review's in its reviewer's), and on the broadcast's
-    /// line the task it is about after them.
-    private static func act(_ act: OperatorAct, task: TaskItem?, named label: String?) -> OperatorLine {
+    /// An act's line: the words in the task's agent (a review's in its reviewer's), on the task's own row with
+    /// the Operator named (`OperatorAct.rowWords`), and on the broadcast's line the task it is about after them.
+    private static func act(_ act: OperatorAct, task: TaskItem?, named label: String? = nil, onItsRow: Bool = false) -> OperatorLine {
         let agent: AgentKind
         if act == .reviewingWith {
             // The reviewer is the other family unless the review says which (`review_task`).
@@ -286,7 +303,8 @@ public struct OperatorLine: Equatable, Sendable {
         } else {
             agent = task?.agent ?? .claude
         }
-        let words = act.words(agent: agent, names: task?.operated?.peopleReview?.reviewers ?? [])
+        let names = task?.operated?.peopleReview?.reviewers ?? []
+        let words = onItsRow ? act.rowWords(agent: agent, names: names) : act.words(agent: agent, names: names)
         let whole = label.map { words + " · " + $0 } ?? words
         return OperatorLine(label.map { fit(words, $0) } ?? cut(words), look: .acting, tooltip: whole)
     }

@@ -419,7 +419,7 @@ struct TaskRowView: View {
                         .transition(.opacity)
                     }
                     // Why a removal stopped, or what the task is missing, comes first; else what the
-                    // Operator says of it: `queued · after PAY-232`, `answering Claude`, `done · 4f2a91c`.
+                    // Operator says of it: `queued · after PAY-232`, `Operator answering`, `done · 4f2a91c`.
                     if let note = caption.note {
                         RowCaption(note.text, warns: note.warns).lineLimit(1)
                     } else if let line = row.operatorLine {

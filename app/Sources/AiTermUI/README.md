@@ -264,8 +264,8 @@ The Operator's row (`OperatorRowView`, an `OperatorRow` value) is always first u
 `SelectableRow`, `washed` at rest in `Palette.operatorRow` (an alias of `badge`) and `Palette.badgeHovered`
 hovered, in `RowPill`'s pill, which selection replaces; its ground `Surface.washed` and `.washedHover`, so the
 avatar ring is `Palette.operatorRowSolid` and `operatorRowHoveredSolid`. Claude's `VendorMark` is its avatar,
-`Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `waiting for
-its tasks` between its turns, `asks you in its window`, `paused`, `window closed`; never a task's request nor
+`Operator` its title, its line its own session's alone (`OperatorLine.session`: its act, `working`, `watching
+3 tasks` between its turns (`waiting for its tasks` with none at work), `asks you in its window`, `paused`, `window closed`; never a task's request nor
 what its tasks do) and its `StatusMark` trailing, following the line: amber while it asks, spinning while it
 acts or works, the accent dot once the debrief is ready, else the idle ring. No project, ticket or branch line. It has an id of its own
 (`OperatorRow.id(of:)`), selected as `RowSelection.operation`, the header being `.broadcast` with the run's.
@@ -311,23 +311,29 @@ and for the accent dot of an unseen turn; a session at work or waiting on input 
 removal or shelving spins. Until then, while the Operator holds the task, its mark spins whatever its tabs say,
 with no done dot, and turns amber only when it needs you: its tab waiting on input, or its line needing you
 (`SidebarModel.heldStatus`, P3 1A). A queued task's is the pause sign. No other state has a mark of its own. The
-Operator's words are its own plain verbs: accepting is its job, so only what you must do is amber. Acting:
-`monitoring Claude` (the task's agent works; `monitoring 2 tabs` with several worker tabs open), `checking next`
-(every worker ended its turn: the Operator checks it next), the broadcast's `monitoring 3 tasks` (`monitoring 2
-tasks · checking 1 next` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
+Operator's words are plain verbs: accepting is its job, so only what you must do is amber. A task row's icon
+already names its agent, so wherever the Operator acts on a task its row names the Operator, never the agent
+(`Operator answering`, not `answering Codex` on a Codex row, which reads as Codex answering itself). Acting:
+`Operator watching` (the task's agent works; `Operator watching · 2 tabs` with several worker tabs open), `ready
+for the Operator` (every worker ended its turn: the Operator checks it next), the broadcast's `3 working` (`2
+working · 1 to check` while some wait for the Operator; the words are `OperatorLine.Count`'s, on the header's
 tooltip and VoiceOver value, the folded chips and the board's band), and the acts: `loading the construct`, `consulting the Oracle`,
 `starting Claude`, `answering Claude`, `checking the work`, `reviewing with Codex`, `opening the MR`,
-`assigning Jan` (`assigning reviewers` before it knows who), `fixing review feedback`, `merging`, `filing
-a ticket` and `reopening its window`; `opening the MR` and `merging` also while AiTerm publishes an accepted
+`assigning Jan` (`assigning reviewers` before it knows who), `relaying feedback`, `merging`, `filing
+a ticket` and `reopening its window`, on the broadcast's line and the Operator's row with the task named
+after them (`answering Claude · PAY-231`), on the task's own row as `OperatorAct.rowWords` says them:
+`Operator starting it`, `Operator answering`, `Operator checking the work`, `Claude reviewing` (its reviewer)
+and `Operator relaying feedback`, the rest as they are; `opening the MR` and `merging` also while AiTerm publishes an accepted
 task with no act in flight. Quiet: `queued`, `queued · after PAY-232`, `added by the Operator`,
 `in review`, `in review · waiting on Jan`, `in review · Codex`, `failed`, `failed · <reason>`,
-and on the broadcast's line `checking 2 next` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
+and on the broadcast's line `2 to check` (every working task's workers done), `paused`, `paused · the Operator’s window is closed`, `done · debrief ready`
 and `ended`. Needs you: `waiting on you` (a prompt or a question, what it asks in the tooltip: the task's
 window shows it whole), `waiting on you · docs` (one of several worker tabs asks: the first by
 `OperatorLine.first`'s order, then by tab order, `main` first), `waiting on you · 2 tasks` (the broadcast's, when several ask), `blocked · the
 tests fail on main` and `blocked · the rebase conflicted` (the reason kept: no window says it), and
 `left for you · 4f2a91c`, a publication handed back. The Operator's own row says its session's line
-(`OperatorLine.session`), nothing of its tasks: its act, `working`, `waiting for its tasks` between turns, `done · debrief ready` once every task is,
+(`OperatorLine.session`), nothing of its tasks but how many it watches: its act, `working`, `watching 3 tasks`
+between turns (`waiting for its tasks` with none at work), `done · debrief ready` once every task is,
 `paused`, `asks you in its window` (needs you: its tab waits on input, or a question for the whole broadcast is
 open) and `window closed`; its mark follows the line, the idle ring between turns and amber when it needs you.
 A line is at most `OperatorLine.maxLength` (40) characters, its detail cut at a word. The group, its header and
@@ -375,7 +381,7 @@ spans several projects, the project in `Typography.mono`, never the branch; then
 task's `OperatorBadge`, or `taken over` in `Typography.mono` with no badge. A card that needs you has its
 edge in `Palette.statusChipAttentionStroke` and the needs-you badge, and no Notice: the card is the action.
 Its tooltip is the model the Operator chose and its one-line reason. A task with several worker tabs keeps one
-card, `monitoring 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.Tab`),
+card, `Operator watching · 2 tabs` on its line, and lists each tab under a `Hairline` (`BoardTabLine`, `BroadcastBoard.Tab`),
 `Space.base` either side of it, `Space.tight` apart: a `Size.chip` line of the tab's agent's `VendorMark` at
 `Size.inlineMark`, centred under the card's mark; its key (`main`, `e2e-tests`) in `Typography.monoChip` and
 `Palette.text` on the title's leading edge; `Space.base` after it its state, an `OperatorBadge` (`at work`, `turn

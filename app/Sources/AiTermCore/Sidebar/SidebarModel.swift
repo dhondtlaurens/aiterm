@@ -448,8 +448,8 @@ public enum SidebarModel {
     }
 
     /// One task's row: its tabs' agents, branch and status, and, driven, the Operator's line, read from the same
-    /// tabs, so it says `checking next` once every worker ended its turn and `monitoring 2 tabs` with several
-    /// open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
+    /// tabs, so it says `ready for the Operator` once every worker ended its turn and `Operator watching · 2 tabs`
+    /// with several open. A queued task (`TaskRow.queued`) has no tabs yet: its planned agent is its avatar.
     static func taskRow(_ task: TaskItem, tabs: Tabs, operated: OperatedLookup, branchByCwd: [String: String],
                         diffByTask: [UUID: DiffStat]) -> TaskRow {
         let own = tabs.byTask[task.id] ?? []
