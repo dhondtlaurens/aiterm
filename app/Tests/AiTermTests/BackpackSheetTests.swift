@@ -192,46 +192,6 @@ import Testing
         #expect(!model.isLooking)
     }
 
-    /// Notifies is remembered, unlike Turns off: every sheet opens on the saved choice, and Connect
-    /// saves the one made on it, as it does the hotspot.
-    @Test func notifiesStartsOnTheSavedChoiceAndConnectCarriesIt() async {
-        let fake = FakeBackpack()
-        fake.settings.pushes = .needsInputOrDone
-        let backpack = backpack(fake)
-        let model = BackpackSheetModel(backpack: backpack)
-        #expect(model.pushes == .needsInputOrDone)
-        await model.load()
-        model.pushes = .never
-        model.connect()
-        await eventually(describing: "the connect to end safe") { model.backpack.phase == .safe }
-        #expect(fake.settings.pushes == .never)
-        #expect(BackpackSheetModel(backpack: backpack).pushes == .never, "the next sheet starts on it")
-    }
-
-    @Test func theSheetSaysWhatAPushCarries() {
-        #expect(BackpackSheetPresentation.notifies == "Notifies")
-        #expect(BackpackSheetPresentation.pushChoices == [.needsInput, .needsInputOrDone, .never])
-        #expect(BackpackSheetPresentation.pushLabel(.needsInput) == "When agents need you")
-        #expect(BackpackSheetPresentation.pushLabel(.needsInputOrDone) == "Also when they finish")
-        #expect(BackpackSheetPresentation.pushLabel(.never) == "Never")
-        #expect(BackpackSheetPresentation.pushHelp == "Through iTerm2 Buddy, naming only the agent.")
-    }
-
-    /// The person was away when it failed: the next trip's sheet says why, in the warning tone, while
-    /// pushes are on.
-    @Test func aFailedPushShowsUntilNotifiesIsNever() {
-        let backpack = BackpackController.inert()
-        backpack.preview(state: .off, setup: BackpackSetup(sleepRule: true, location: true, network: "Phone"),
-                         pushFailure: "No paired companion device is registered for notifications.")
-        let model = BackpackSheetModel(backpack: backpack)
-        #expect(model.notifiesHelp.text == "Last push failed. No paired companion device is registered for notifications.")
-        #expect(model.notifiesHelp.warns)
-        model.pushes = .never
-        #expect(model.notifiesHelp.text == BackpackSheetPresentation.pushHelp)
-        #expect(!model.notifiesHelp.warns)
-        #expect(BackpackSheetModel(backpack: BackpackController.inert()).notifiesHelp.text == BackpackSheetPresentation.pushHelp)
-    }
-
     @Test func theSheetSaysWhatItDoes() {
         #expect(BackpackSheetPresentation.subtitle == "Keeps your agents working with the lid closed, online through your iPhone.")
         #expect(BackpackSheetPresentation.onTheIPhone == "On the iPhone")

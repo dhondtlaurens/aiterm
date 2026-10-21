@@ -278,9 +278,6 @@ enum SheetSnapshots {
             backpackSheet("not-found", setup: ready, chosen: hotspot, started: true, phase: .notInRange, busy: true),
             backpackSheet("failed", setup: ready, chosen: hotspot, started: true, phase: .failed(.joinFailed(network: hotspot))),
             backpackSheet("safe", setup: ready, chosen: hotspot, started: true, phase: .safe, state: safe),
-            // The next trip after a push that did not go out: Notifies says why, in the warning tone.
-            backpackSheet("push-failed", setup: ready, chosen: hotspot,
-                          pushFailure: "No paired companion device is registered for notifications."),
         ]
     }
 
@@ -289,12 +286,11 @@ enum SheetSnapshots {
     /// `backpack-sheet-<name>.png`: the hotspot chosen as a scan would choose it, and Connect pressed
     /// when `started`.
     private static func backpackSheet(_ name: String, setup: BackpackSetup, chosen: String?, started: Bool = false,
-                                      phase: ConnectPhase? = nil, busy: Bool = false, state: BackpackState = .off,
-                                      pushFailure: String? = nil) -> Snapshot {
+                                      phase: ConnectPhase? = nil, busy: Bool = false, state: BackpackState = .off) -> Snapshot {
         Snapshot("backpack-sheet-\(name).png") {
             let backpack = BackpackController.inert()
             backpack.network = hotspot
-            backpack.preview(state: state, setup: setup, phase: phase, busy: busy, pushFailure: pushFailure)
+            backpack.preview(state: state, setup: setup, phase: phase, busy: busy)
             let model = BackpackSheetModel(backpack: backpack)
             model.choose(chosen)
             if started { model.previewStarted() }

@@ -225,13 +225,7 @@ password, filled with the saved one as if typed (`caretAtEnd`) for the remembere
 for any other; a `HelpText` under them, led by a `.working` `StatusMark` (“Looking for hotspots…”)
 while nothing is chosen. Under them “Turns off”, a `Select` in the Hotspot's column — “When agents
 stop” (the 2-minute idle grace) or “When I turn it off” — with “Either way, at 10 % battery.” as its
-`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. Beside
-it, in the Password's column, “Notifies”: what reaches the iPhone paired with iTerm2 (iTerm2 Buddy)
-while the lid is shut — “When agents need you”, “Also when they finish” or “Never” — over its own
-`HelpText`, “Through iTerm2 Buddy, naming only the agent.”, or, while it is not Never and the last push
-did not go out, “Last push failed.” and why, in the `.warning` tone. Each column's help sits under its
-own select. Unlike Turns off, Notifies is remembered: every sheet opens on the saved choice, and
-Connect saves it with the hotspot. “On the
+`HelpText`; every sheet opens on “When agents stop”, and the choice holds for that trip only. “On the
 iPhone” follows as the hotspot's help: three `NumberedSteps`, `receded` (text in `Palette.muted`)
 once a hotspot is chosen, full again while a connect waits for it.
 Connect (⌘↩) is disabled until both permissions are granted and a hotspot is chosen; it runs in
