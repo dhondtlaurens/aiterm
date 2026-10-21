@@ -61,10 +61,10 @@ struct OperatorProjectionTests {
                         agent: .claude, model: nil, state: state, title: "", cwd: "/")
         }
         controller.live.sessions = [worker(.working)]
-        #expect(rows.broadcast?.header.line == OperatorLine("monitoring 1 task", look: .acting))
+        #expect(rows.broadcast?.header.line == OperatorLine("1 working", look: .acting))
         controller.live.sessions = [worker(.idle)]
-        #expect(rows.broadcast?.header.line == OperatorLine("checking 1 next"))
-        #expect(rows.board?.band == OperatorLine("checking 1 next"))
+        #expect(rows.broadcast?.header.line == OperatorLine("1 to check"))
+        #expect(rows.board?.band == OperatorLine("1 to check"))
     }
 
     @Test func whatTheOperatorActsOnRedrawsTheTaskItDrives() throws {
@@ -75,10 +75,10 @@ struct OperatorProjectionTests {
         let acting = Box<OperatorActs>(.none)
         rows.actingSource = { acting.value }
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("monitoring Claude", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("Operator watching", look: .acting))
         acting.value = OperatorActs(tasks: [task.id: .answering])
         rows.refresh()
-        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("answering Claude", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("Operator answering", look: .acting))
         #expect(rows.acting.tasks == [task.id: .answering])
     }
 
@@ -111,7 +111,7 @@ struct OperatorProjectionTests {
         let task = OperatorUIFixtures.task("The homepage section", project: project.id,
                                            operated: OperatorUIFixtures.operated(run: run.id, key: "pluto-232", state: .working))
         controller.workspace.mutate { state in state.append(project: project); state.tasks = [task]; state.runs = [run] }
-        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("monitoring Claude", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("Operator watching", look: .acting))
 
         // Through the operator controller's own hook, as the tool handler reports it.
         let before = rows.derivations
@@ -124,7 +124,7 @@ struct OperatorProjectionTests {
 
         controller.operatorController.setActing(answering, false)
         #expect(rows.acting == .none)
-        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("monitoring Claude", look: .acting))
+        #expect(rows.broadcast?.tasks[0].operatorLine == OperatorLine("Operator watching", look: .acting))
     }
 
     @Test func runsWithTheSameIdDoNotTrapTheLookup() throws {

@@ -74,15 +74,15 @@ import Testing
         let line = OperatorLine.broadcast(run, tasks: [reviewed, done], acting: nil, requests: [])
         #expect(line == OperatorLine("in review · waiting on Jan"))
         #expect(OperatorLine.task(reviewed, run: run, acting: nil, requests: []) == OperatorLine("in review · waiting on Jan"))
-        // With an agent at work the Operator monitors it, by count.
+        // With an agent at work the broadcast counts it, as a task state.
         let working = [task(run: run, .working), task(run: run, .working), task(run: run, .working), reviewed]
-        #expect(OperatorLine.broadcast(run, tasks: working, acting: nil, requests: []) == OperatorLine("monitoring 3 tasks", look: .acting),
+        #expect(OperatorLine.broadcast(run, tasks: working, acting: nil, requests: []) == OperatorLine("3 working", look: .acting),
                 "its tasks work: the line moves")
     }
 
     /// A task whose workers all ended their turn waits for the Operator to accept it: the line counts it apart
-    /// from the tasks still at work, in the Operator's own verbs (P3, 21 Oct 2026: accepting is the Operator's
-    /// job, never yours), and once none works it says what it checks next, quiet.
+    /// from the tasks still at work (P3, 21 Oct 2026: accepting is the Operator's job, never yours), and once none
+    /// works it says how many it has to check, quiet.
     @Test func tasksReadyToAcceptAreCountedApartFromThoseAtWork() {
         let run = OperatorUIFixtures.run()
         let working = [task(run: run, .working), task(run: run, .working)]
@@ -91,13 +91,13 @@ import Testing
             OperatorLine.broadcast(run, tasks: tasks, acting: nil, requests: [], ready: Set(ready.map(\.id)))
         }
         #expect(line(working + ready.prefix(1), ready: Array(ready.prefix(1)))
-                == OperatorLine("monitoring 2 tasks · checking 1 next", look: .acting), "both, each counted once")
-        #expect(line(working, ready: []) == OperatorLine("monitoring 2 tasks", look: .acting))
-        #expect(line(ready, ready: ready) == OperatorLine("checking 2 next"), "nothing works: it waits for its turn, quiet")
-        #expect(line(Array(ready.prefix(1)), ready: ready) == OperatorLine("checking 1 next"))
+                == OperatorLine("2 working · 1 to check", look: .acting), "both, each counted once")
+        #expect(line(working, ready: []) == OperatorLine("2 working", look: .acting))
+        #expect(line(ready, ready: ready) == OperatorLine("2 to check"), "nothing works: it waits for its turn, quiet")
+        #expect(line(Array(ready.prefix(1)), ready: ready) == OperatorLine("1 to check"))
         // Only a working task waits to be accepted: one accepted already is done, whatever its tabs say.
         let accepted = task("The schema", run: run, .accepted, sha: "4f2a91cdeadbeef")
-        #expect(line(working + [accepted], ready: [accepted]) == OperatorLine("monitoring 2 tasks", look: .acting))
+        #expect(line(working + [accepted], ready: [accepted]) == OperatorLine("2 working", look: .acting))
         // The longest count fits the sidebar's line.
         let many = (0..<24).map { _ in task(run: run, .working) }
         #expect(line(many, ready: Array(many.prefix(12))).text.count <= OperatorLine.maxLength)
@@ -111,17 +111,26 @@ import Testing
             .loadingTheConstruct: "loading the construct", .consultingTheOracle: "consulting the Oracle",
             .starting: "starting Codex", .answering: "answering Codex", .checkingTheWork: "checking the work",
             .reviewingWith: "reviewing with Codex", .openingTheMR: "opening the MR", .assigning: "assigning Jan",
-            .fixingReviewFeedback: "fixing review feedback", .merging: "merging", .filingATicket: "filing a ticket",
+            .relayingFeedback: "relaying feedback", .merging: "merging", .filingATicket: "filing a ticket",
             .reopeningItsWindow: "reopening its window",
         ]
         #expect(Set(words.keys) == Set(OperatorAct.allCases), "the list is closed: every act has its words")
         for act in OperatorAct.allCases { #expect(act.words(agent: .codex, names: ["Jan"]) == words[act], "\(act)") }
         #expect(OperatorAct.assigning.words(agent: .claude, names: ["Jan", "Piet"]) == "assigning Jan and Piet")
         #expect(OperatorAct.assigning.words(agent: .claude) == "assigning reviewers")
-        // On a task's line the act is the task's: its agent.
+        // On a task's own row its icon names the agent, so the line names the Operator; a review its reviewer.
+        let rowWords: [OperatorAct: String] = [
+            .starting: "Operator starting it", .answering: "Operator answering", .checkingTheWork: "Operator checking the work",
+            .reviewingWith: "Codex reviewing", .relayingFeedback: "Operator relaying feedback",
+        ]
+        for act in OperatorAct.allCases {
+            #expect(act.rowWords(agent: .codex, names: ["Jan"]) == rowWords[act] ?? words[act], "\(act)")
+        }
         let run = OperatorUIFixtures.run()
         let codex = task(agent: .codex, run: run, .working)
-        #expect(OperatorLine.task(codex, run: run, acting: .starting, requests: []) == OperatorLine("starting Codex", look: .acting))
+        #expect(OperatorLine.task(codex, run: run, acting: .starting, requests: []) == OperatorLine("Operator starting it", look: .acting))
+        #expect(OperatorLine.task(codex, run: run, acting: .answering, requests: []) == OperatorLine("Operator answering", look: .acting),
+                "never Codex answering Codex")
         #expect(OperatorLine.task(codex, run: run, acting: .consultingTheOracle, requests: []) == OperatorLine("consulting the Oracle", look: .acting))
     }
 
@@ -147,7 +156,7 @@ import Testing
         #expect(line(task(run: run, .planned)) == "queued")
         #expect(line(task(run: run, .queued, dependsOn: [TaskDependency(task: parent.id, kind: .order)])) == "queued · after another task",
                 "with no lookup the parent is named generically")
-        #expect(OperatorLine.task(task(run: run, .working), run: run, acting: nil, requests: []) == OperatorLine("monitoring Claude", look: .acting),
+        #expect(OperatorLine.task(task(run: run, .working), run: run, acting: nil, requests: []) == OperatorLine("Operator watching", look: .acting),
                 "the agent works: the line moves with the row's mark")
         #expect(line(task(run: run, .queued, revision: 3)) == "added by the Operator")
         #expect(line(task(run: run, .blocked, reason: "the tests fail on main")) == "blocked · the tests fail on main")
@@ -231,7 +240,7 @@ import Testing
         let done = task(run: run, .accepted, sha: "4f2a91cdeadbeef"), working = task("Bump nuxt", run: run, .working)
         let leftover = request(.question, run, done, "The Operator asks: retry policy?")
         #expect(OperatorLine.task(done, run: run, acting: nil, requests: [leftover])?.text == "done · 4f2a91c")
-        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover]) == OperatorLine("monitoring 1 task", look: .acting))
+        #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover]) == OperatorLine("1 working", look: .acting))
         // Beside another task's request it is not counted either.
         let asks = request(.permission, run, working, "Claude Code asks for permission in Bump nuxt.")
         #expect(OperatorLine.broadcast(run, tasks: [done, working], acting: nil, requests: [leftover, asks]).text == "waiting on you")
@@ -239,32 +248,33 @@ import Testing
 
     // MARK: - A task the Operator holds, in its plain verbs (P3, 21 Oct 2026)
 
-    /// The Operator's own verbs, kept in `Count` alone.
-    @Test func theCountsWordsAreTheOperatorsVerbs() {
-        #expect(OperatorLine.Count.monitoring.words == "monitoring")
-        #expect(OperatorLine.Count.checkingNext.words == "checking next")
-        #expect(OperatorLine.Count.monitoring.counted(1) == "monitoring 1 task")
-        #expect(OperatorLine.Count.monitoring.counted(2) == "monitoring 2 tasks")
-        #expect(OperatorLine.Count.checkingNext.counted(1) == "checking 1 next")
+    /// The words, kept in `Count` alone: the Operator named on a task's row, task states counted on the broadcast's.
+    @Test func theCountsWordsNameTheOperator() {
+        #expect(OperatorLine.Count.working.words == "Operator watching")
+        #expect(OperatorLine.Count.ready.words == "ready for the Operator")
+        #expect(OperatorLine.Count.working.counted(1) == "1 working")
+        #expect(OperatorLine.Count.working.counted(2) == "2 working")
+        #expect(OperatorLine.Count.ready.counted(1) == "1 to check")
     }
 
-    /// While its agent works the Operator monitors it, by the agent's name; once every worker ended its turn the
-    /// Operator checks it next. Both move with the row's spinner: the Operator holds the task.
-    @Test func aWorkingTaskIsMonitoredThenCheckedNext() {
+    /// While its agent works the Operator watches it, never named by the agent the row's icon already shows; once
+    /// every worker ended its turn it is ready for the Operator. Both move with the row's spinner: the Operator
+    /// holds the task.
+    @Test func aWorkingTaskIsWatchedThenReadyForTheOperator() {
         let run = OperatorUIFixtures.run()
         let codex = task(agent: .codex, run: run, .working)
         func line(_ state: SessionState) -> OperatorLine? {
             OperatorLine.task(codex, run: run, acting: nil, requests: [],
                               sessions: [OperatorUIFixtures.tab("s1", of: codex, state, agent: .codex)])
         }
-        #expect(line(.working) == OperatorLine("monitoring Codex", look: .acting))
-        #expect(line(.idle) == OperatorLine("checking next", look: .acting))
-        #expect(line(.done) == OperatorLine("checking next", look: .acting))
-        // Without its tabs listed nothing says it is done: the Operator monitors it, as before.
-        #expect(OperatorLine.task(codex, run: run, acting: nil, requests: []) == OperatorLine("monitoring Codex", look: .acting))
+        #expect(line(.working) == OperatorLine("Operator watching", look: .acting))
+        #expect(line(.idle) == OperatorLine("ready for the Operator", look: .acting))
+        #expect(line(.done) == OperatorLine("ready for the Operator", look: .acting))
+        // Without its tabs listed nothing says it is done: the Operator watches it, as before.
+        #expect(OperatorLine.task(codex, run: run, acting: nil, requests: []) == OperatorLine("Operator watching", look: .acting))
         // An act outranks both.
         #expect(OperatorLine.task(codex, run: run, acting: .checkingTheWork, requests: [],
-                                  sessions: [OperatorUIFixtures.tab("s1", of: codex, .idle)]) == OperatorLine("checking the work", look: .acting))
+                                  sessions: [OperatorUIFixtures.tab("s1", of: codex, .idle)]) == OperatorLine("Operator checking the work", look: .acting))
     }
 
     /// A driven task with several worker tabs keeps one row (P5 A): its line counts the tabs still open, and a
@@ -279,9 +289,9 @@ import Testing
         func line(_ sessions: [SessionInfo], _ requests: [BroadcastRequest] = []) -> OperatorLine? {
             OperatorLine.task(tabbed, run: run, acting: nil, requests: requests, sessions: sessions)
         }
-        #expect(line([main, docs, mocks]) == OperatorLine("monitoring 3 tabs", look: .acting))
-        #expect(line([main, docs]) == OperatorLine("monitoring 2 tabs", look: .acting), "a closed tab is no longer monitored")
-        #expect(line([main]) == OperatorLine("monitoring Codex", look: .acting), "one tab left: its agent by name")
+        #expect(line([main, docs, mocks]) == OperatorLine("Operator watching · 3 tabs", look: .acting))
+        #expect(line([main, docs]) == OperatorLine("Operator watching · 2 tabs", look: .acting), "a closed tab is no longer watched")
+        #expect(line([main]) == OperatorLine("Operator watching", look: .acting), "one tab left: no count")
 
         let asks = BroadcastRequest(kind: .permission, runId: run.id, taskId: tabbed.id, text: "Claude Code asks to run npm ci in Price formatting.",
                                     tab: "docs")
@@ -341,7 +351,9 @@ import Testing
             OperatorLine.session(acting: acting, working: working, asking: asking, windowClosed: windowClosed, paused: paused,
                                  complete: complete, tasks: [pay])
         }
-        #expect(line() == OperatorLine("waiting for its tasks"), "between turns: quiet")
+        #expect(line() == OperatorLine("watching 1 task"), "between turns: its working tasks counted, quiet")
+        #expect(OperatorLine.session(acting: nil, working: false, asking: false, windowClosed: false, tasks: [])
+                == OperatorLine("waiting for its tasks"), "none at work")
         #expect(line(complete: true) == OperatorLine("done · debrief ready"), "every task done: as the header says it")
         #expect(line(asking: true, complete: true).look == .needsYou, "its own ask still comes first")
         #expect(line(working: true) == OperatorLine("working", look: .acting))

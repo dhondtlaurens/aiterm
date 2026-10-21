@@ -379,7 +379,7 @@ private final class ReviewGit: GitRunning, @unchecked Sendable {
         await gate.started()
         let task = try #require(r.world.task(r.task.id))
         let run = try #require(r.world.run(r.run.id))
-        #expect(OperatorLine.task(task, run: run, acting: nil, requests: []) == OperatorLine("reviewing with Claude", look: .acting))
+        #expect(OperatorLine.task(task, run: run, acting: nil, requests: []) == OperatorLine("Claude reviewing", look: .acting))
         #expect(await r.world.call(r.run.id, "review_task", ["task": "A", "instructions": "Do an adversarial review."]).value?["review"] == "running",
                 "a review running is not started twice")
         #expect(seen.all.contains("cwd:" + r.task.worktreePath), "it reads the task's worktree")

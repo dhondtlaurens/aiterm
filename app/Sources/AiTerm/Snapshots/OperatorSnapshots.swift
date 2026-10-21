@@ -162,7 +162,7 @@ struct OperatorScene {
         }
     }
 
-    /// What the Operator does to the cart drawer: answering Claude, on its row and the broadcast's.
+    /// What the Operator does to the cart drawer: `Operator answering` on its row, `answering Claude` on the broadcast's.
     var answeringTheDrawer: OperatorActs {
         OperatorActs(tasks: [drawer: .answering], runs: [runId: .init(act: .answering, task: "Cart drawer")])
     }
@@ -394,7 +394,7 @@ enum OperatorSnapshots {
         let checkout = scene.checkout([scene.summary: .working, scene.price: .accepted], oneProject: true).map { task -> TaskItem in
             var task = task
             if task.id == scene.price { task.operated?.publication = nil }
-            // Two worker tabs open: `monitoring 2 tabs`.
+            // Two worker tabs open: `Operator watching · 2 tabs`.
             if task.id == scene.summary {
                 task.operated?.extraTabs = [ExtraTab(key: "docs", agent: .codex, model: "gpt-5.5", reasoning: nil, modelReason: "Codex writes the copy.",
                                                      brief: "Write the summary's copy.", launch: opened, sessionId: "s-docs")]

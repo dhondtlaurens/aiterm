@@ -141,7 +141,7 @@ public extension SidebarModel {
     /// header's tooltip, the board's band and the tasks' own rows say. It asks you while its tab waits on input
     /// or one of its own questions, the broadcast's and no task's, is open; its window is closed while the run
     /// is `operatorOffline`; else paused, `done · debrief ready` once every task is, its act, `working` while its
-    /// session works, and `waiting for its tasks` between turns. Its mark follows the line: amber when it asks,
+    /// session works, and between turns `watching 3 tasks`, its working ones counted. Its mark follows the line: amber when it asks,
     /// spinning while it acts or works, the accent dot once the debrief is ready, else the idle ring: a turn
     /// ended is routine.
     static func operatorRow(_ run: OperatorRun, tasks: [TaskItem], acting: OperatorActs, requests: [BroadcastRequest],

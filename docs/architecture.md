@@ -201,8 +201,8 @@ it differs, so a change the board draws nothing of redraws no board. `BroadcastB
 `AiTermCore/Sidebar/`: the band (`OperatorLine.broadcast`, where a request outranks everything), the
 columns and their cards, what each card's click opens (`BroadcastBoard.Opens`) and, once complete, the
 debrief. `BroadcastBoardHost` presents it; `OperatorRequests.open` says what needs you, and
-`OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`monitoring
-2 tabs`, `checking next`), the Operator's row's from its own session alone (`OperatorLine.session`, read from
+`OperatorLine` every status line's words: a task's from its state, its requests and its own tabs (`Operator
+watching · 2 tabs`, `ready for the Operator`), the Operator's row's from its own session alone (`OperatorLine.session`, read from
 `run.operatorSessionId`'s tab), the header's tooltip and the band from the whole broadcast. A driven task's
 click (`AppController.choose(task:)`) raises its window and then brings `TaskItem.tabToBring`'s tab with
 `session.activate`.

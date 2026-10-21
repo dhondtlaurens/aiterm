@@ -113,15 +113,15 @@ final class OperatorToolHandler {
                                                          "report_find": .filingATicket]
 
     /// What a call on `task` is, as its status line says it: answering its agent, or, with people's review
-    /// under way, fixing their feedback; checking the work; opening the MR or merging, by the task's end.
+    /// under way, relaying their feedback; checking the work; opening the MR or merging, by the task's end.
     static func act(for tool: String, on task: TaskItem) -> OperatorAct? {
         let operated = task.operated
         switch tool {
-        case "message_task": return operated?.state == .inReview ? .fixingReviewFeedback : .answering
+        case "message_task": return operated?.state == .inReview ? .relayingFeedback : .answering
         case "mark_task": return .checkingTheWork
         case "review_task": return .reviewingWith
         case "request_review": return .assigning
-        case "reply_thread": return .fixingReviewFeedback
+        case "reply_thread": return .relayingFeedback
         case "finish_task":
             switch operated?.end ?? .commit {
             case .commit: return .checkingTheWork

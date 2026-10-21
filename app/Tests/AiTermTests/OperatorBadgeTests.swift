@@ -93,22 +93,22 @@ struct OperatorBadgeTests {
         view.now = { now }
         let font = Typography.monoChip.nsFont, duration = OperatorBadge.decodeDuration
         #expect((0.4...0.6).contains(duration), "calm: about half a second")
-        view.configure(text: "monitoring Claude", font: font, ink: .white, duration: duration)
-        #expect(view.isDecoding && view.shown != "monitoring Claude" && view.shown.count == "monitoring Claude".count)
+        view.configure(text: "Operator watching", font: font, ink: .white, duration: duration)
+        #expect(view.isDecoding && view.shown != "Operator watching" && view.shown.count == "Operator watching".count)
         now += duration / 2
         view.tick()
-        #expect(view.isDecoding && view.shown.hasPrefix("monitor") && view.shown != "monitoring Claude", "\(view.shown)")
+        #expect(view.isDecoding && view.shown.hasPrefix("Operat") && view.shown != "Operator watching", "\(view.shown)")
         now += duration / 2
         view.tick()
-        #expect(!view.isDecoding && view.shown == "monitoring Claude", "settled at its end")
+        #expect(!view.isDecoding && view.shown == "Operator watching", "settled at its end")
         let frames = view.frames
         now += 5
         view.tick()
-        #expect(view.frames == frames && view.shown == "monitoring Claude", "it never loops")
-        view.configure(text: "monitoring Claude", font: font, ink: .black, duration: duration)
+        #expect(view.frames == frames && view.shown == "Operator watching", "it never loops")
+        view.configure(text: "Operator watching", font: font, ink: .black, duration: duration)
         #expect(!view.isDecoding, "a new ink is no new words")
-        view.configure(text: "checking next", font: font, ink: .black, duration: duration)
-        #expect(view.isDecoding && view.shown != "checking next", "new words decode again")
+        view.configure(text: "ready for the Operator", font: font, ink: .black, duration: duration)
+        #expect(view.isDecoding && view.shown != "ready for the Operator", "new words decode again")
     }
 
     /// Hosted on the wall clock: the decode runs once in its own view, a frame at a time, settles within its

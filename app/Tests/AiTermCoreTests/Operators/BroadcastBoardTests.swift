@@ -51,7 +51,7 @@ import Testing
             + (0..<6).map { task("Later \($0)", run: run.id, .queued) }
         let board = BroadcastBoard.make(run: run, state: state(run, tasks), acting: .none, requests: [])
         #expect(board.title == "Checkout redesign")
-        #expect(board.band == OperatorLine("monitoring 1 task", look: .acting))
+        #expect(board.band == OperatorLine("1 working", look: .acting))
         #expect(board.progress == "1 of 8 done", "the band's progress, and no projects")
         #expect(board.clauses == [BroadcastBoard.Clause(label: "Asked", text: "implement PAY-230 to PAY-236, the new checkout"),
                                   BroadcastBoard.Clause(label: "Review", text: "assign Jan, fix his feedback"),
@@ -175,7 +175,7 @@ import Testing
         let acting = OperatorActs(tasks: [working.id: .answering], runs: [asking.id: .init(act: .answering, task: "PAY-231")])
         let answering = BroadcastBoard.make(run: asking, state: state, acting: acting, requests: requests)
         let line = answering.columns.flatMap(\.cards).first { $0.id == working.id }?.line
-        #expect(line?.text == "answering Claude" && line?.look == .acting)
+        #expect(line?.text == "Operator answering" && line?.look == .acting)
     }
 
     @Test func theCardsTooltipCarriesTheModelAndItsReason() throws {
@@ -296,7 +296,7 @@ import Testing
         ])
         #expect(tabs.map(\.isClosed) == [false, false, true, false])
         #expect(cards.first { $0.title == "Cart drawer" }?.tabs == [], "one tab: nothing to tell apart")
-        #expect(cards.first { $0.title == "Price formatting" }?.line == OperatorLine("monitoring 3 tabs", look: .acting))
+        #expect(cards.first { $0.title == "Price formatting" }?.line == OperatorLine("Operator watching · 3 tabs", look: .acting))
         // At work, its words say so.
         let working = BroadcastBoard.make(run: run, state: state(run, [price]), acting: .none, requests: [],
                                           sessions: [OperatorUIFixtures.tab("s1", of: price, .working, agent: .codex)])
