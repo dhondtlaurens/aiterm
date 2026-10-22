@@ -367,9 +367,11 @@ public enum ShellGate {
             }
         }
 
-        /// Only npm-check-updates, and only the options that report: `-u`/`--upgrade`, `-i` and `--doctor` change things.
+        /// Only npm-check-updates, named in full, and only the options that report: `-u`/`--upgrade`, `-i` and `--doctor`
+        /// change things. Never `ncu`, its bin's short name: npx resolves a name it finds in no `node_modules` from the
+        /// registry, where `ncu` is another package, and installs and runs it without asking in a shell with no terminal.
         private func npx(_ args: [String]) -> Bool {
-            guard let tool = args.first, ["npm-check-updates", "ncu"].contains(tool) else { return false }
+            guard args.first == "npm-check-updates" else { return false }
             let values = ["--format", "--target", "-t", "--filter", "-f", "--reject", "-x"]
             return Options(switches: ["--workspaces", "--deep", "--peer"],
                            values: Dictionary(uniqueKeysWithValues: values.map { ($0, Judge.anything) }),

@@ -31,7 +31,7 @@ import Testing
             "glab mr list", "glab mr diff 3", "glab ci status", "glab ci view", "glab api projects/1 -X GET",
             "gh pr checks 12", "gh run list", "gh api repos/a/b --method GET",
             "npm ls", "npm list --depth 0", "npm audit", "npm view react version", "npm config get registry",
-            "npm config list", "npm -v", "npm --version", "npx ncu --workspaces",
+            "npm config list", "npm -v", "npm --version", "npx npm-check-updates --deep",
             "node -v", "node --version", "command -v git", "type git", "pwd",
             "ls -la", "ls -1t", "head -n 5 package.json", "head -5 package.json", "grep -n 'é' src", "git fetch origin main", "git fetch --prune --all",
             "git ls-remote --heads origin 'refs/heads/*'", "git status -s -b", "git diff --cached -U5", "git log HEAD~3..HEAD", "git show main~1:package.json", "git log --format=%H --since=2.weeks -n 5 main..HEAD",
@@ -49,12 +49,21 @@ import Testing
         let writes = [
             "git status && rm -rf x", "cat a > b", "git diff --output=x", "git branch -D old",
             "git -c core.sshCommand=x fetch", "git fetch --upload-pack=evil", "echo $(whoami)", "echo `id`",
-            "npx ncu -u", "npm install", "npm audit fix", "glab api -X POST projects/1/merge_requests",
+            "npx npm-check-updates -u", "npm install", "npm audit fix", "glab api -X POST projects/1/merge_requests",
             "glab api projects/1 -f a=b", "find . -delete", "sed -i s/a/b/ f", "git push", "cat 'unbalanced",
         ]
         for command in writes {
             #expect(route(command) == .oracle, "\(command)")
         }
+    }
+
+    /// `ncu` is npm-check-updates' bin, but on the registry it is another package: where npm-check-updates isn't installed,
+    /// npx would fetch that one and run it unasked. Only the full name is a read.
+    @Test func npxNcuIsNoRead() {
+        for command in ["npx ncu", "npx ncu --workspaces", "npx ncu --deep --format group"] {
+            #expect(route(command) == .oracle, "\(command)")
+        }
+        #expect(route("npx npm-check-updates --workspaces") == .read(rewrite: nil))
     }
 
     @Test func shellSyntaxThatCouldHideAWriteGoesToTheOracle() {
@@ -71,7 +80,7 @@ import Testing
             "glab api projects/1 -XPOST", "gh api repos/a/b --input x", "gh api repos/a/b -F a=b",
             "gh api repos/a/b --raw-field a=b", "gh pr merge 1", "gh run rerun 1", "gh api repos/a/b -X PATCH",
             "npm run build", "npm publish", "npm audit --fix", "npm config set a b", "npm config get //r/:_authToken",
-            "npm config", "npm", "npx", "npx cowsay hi", "npx ncu --upgrade", "npx ncu -ui", "npx ncu --doctor",
+            "npm config", "npm", "npx", "npx cowsay hi", "npx npm-check-updates --upgrade", "npx npm-check-updates -ui", "npx npm-check-updates --doctor",
             "node script.js", "node -e 1", "command git status", "ls | xargs rm", "echo hi", "curl x", "make",
             "tail -f log", "tail -F log", "file -C", "wc --files0-from=/etc/hosts", "grep -f /etc/hosts a",
             "grep -if /etc/hosts a", "grep --file=/etc/hosts a", "grep -R x .", "rg --pre sh x", "rg --follow x",
@@ -92,7 +101,7 @@ import Testing
     }
 
     @Test func unquotedBracesGlobsAndTildesGoToTheOracleWhereverTheyAre() {
-        for command in ["git log {--output=/tmp/x,-1}", "npm audit {fix,}", "npx ncu {-u,}", "git status {-s,}", "git log --output=/tmp/x{,}",
+        for command in ["git log {--output=/tmp/x,-1}", "npm audit {fix,}", "npx npm-check-updates {-u,}", "git status {-s,}", "git log --output=/tmp/x{,}",
                         "cat !x", "cat ~", "git log ~", "git log --author=~x", "git log -n ?", "npm ls [a]", "git branch {-D,} old", "git log *"] {
             #expect(route(command) == .oracle, "\(command)")
         }
@@ -108,7 +117,7 @@ import Testing
                         "git ls-remote --exec=x origin", "git log -n --output=x", "git log -nx", "git diff -U",
                         "ls -L", "ls -LR", "ls --color", "ls -lL", "ls -R", "cat -v x", "head -f x", "tail -n5x f", "wc -L x", "stat -f %N x", "file -b -f x",
                         "grep --fil=/etc/hosts a", "grep --exclude-f=/etc/hosts a", "grep -e", "rg --fil=x a", "rg --pr=sh a", "rg -z a",
-                        "npx ncu --upgrad", "npx ncu --format", "npx ncu --install always -u", "npm audit --fi", "npm audit signatures"] {
+                        "npx npm-check-updates --upgrad", "npx npm-check-updates --format", "npx npm-check-updates --install always -u", "npm audit --fi", "npm audit signatures"] {
             #expect(route(command) == .oracle, "\(command)")
         }
     }
