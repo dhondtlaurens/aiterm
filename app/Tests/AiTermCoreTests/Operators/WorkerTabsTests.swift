@@ -37,7 +37,7 @@ import Testing
         let runId = try #require(task.operated?.runId)
         let run = try #require(world.state.run(id: runId))
         var done = session("s1", task: task.id, state: .done)
-        done.background = ["npm run test:run"]
+        done.background = [BackgroundJob(kind: .shell, text: "npm run test:run")]
         #expect(task.workerTabs(in: [done]).flatMap(\.background) == ["npm run test:run"])
         #expect(!task.isReadyForAcceptance(in: [done]))
         let line = try #require(OperatorLine.task(task, run: run, acting: nil, requests: [], sessions: [done]))
@@ -46,7 +46,7 @@ import Testing
         done.background = []
         #expect(task.isReadyForAcceptance(in: [done]))
         var working = session("s1", task: task.id, state: .working)
-        working.background = ["npm run dev"]
+        working.background = [BackgroundJob(kind: .shell, text: "npm run dev")]
         #expect(task.workerTabs(in: [working]).flatMap(\.background).isEmpty, "a turn under way waits on nothing yet")
     }
 

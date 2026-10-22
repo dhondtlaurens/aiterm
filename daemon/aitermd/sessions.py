@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, RawSession, SessionInfo, State, classify_agent
+from .models import PROJECT_TAG, TAB_TAG, TASK_TAG, TERMINAL_TAG, AgentKind, BackgroundJob, RawSession, SessionInfo, State, classify_agent
 
 
 @dataclass(slots=True)
@@ -124,7 +124,7 @@ class SessionRegistry:
         s.conversation_id = conversation
         return True
 
-    def set_background(self, session_id: str, work: tuple[str, ...]) -> bool:
+    def set_background(self, session_id: str, work: tuple[BackgroundJob, ...]) -> bool:
         s = self._sessions.get(session_id)
         if s is None or s.background == work:
             return False

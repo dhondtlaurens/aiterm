@@ -363,6 +363,8 @@ struct TaskRowView: View {
     @Environment(\.rowBodyCounter) private var bodyCounter
     @Environment(\.hoveredRow) private var hoveredRow
     #endif
+    /// A test's, to draw the background mark's card open; the row's own is the card's (`backgroundCard`).
+    var cardHover: BackgroundCardHover? = nil
 
     var body: some View {
         #if DEBUG
@@ -382,6 +384,9 @@ struct TaskRowView: View {
                                    threads: controller.reviewThreads.threads(of: row.id))
         let voiceOver = TaskRowAccessibility(title: row.title, task: task, missing: missing, failed: failed, removing: removing,
                                              awaitsRetry: awaitsRetry, queued: row.queued, canChangeWorkspace: controller.canChangeWorkspace)
+        let mark = TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued)
+        // The card lists what the background mark waits on; no other mark opens one.
+        let jobs = mark == .status(.background) ? row.background : []
         // A row being removed is not activated: its window is closing, or gone.
         SelectableRow(selected: selected, activate: { if let task, !removing { controller.choose(task: task.id) } }) {
             HStack(spacing: scale(Space.inset)) {
@@ -395,26 +400,18 @@ struct TaskRowView: View {
                     } else if !folded {
                         // Ticket, merge request, editor, then the branch — the badges in the order they
                         // are reached for, the branch last because it is the one thing that truncates.
-                        // Quiet badges carry no box, so `Space.gap` is what keeps them apart.
-                        HStack(spacing: scale(Space.gap)) {
-                            if let ticket = badges.ticket {
-                                Badge(ticket.label, icon: .brand(Palette.jira), help: ticket.help,
-                                      style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
-                            }
-                            if let mr = badges.mergeRequest {
-                                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
-                                      style: .quiet, accessibilityLabel: mr.accessibilityLabel,
-                                      action: mr.url.map { url in { ExternalApps.open(link: url) } })
-                            }
-                            // "Absent, not disabled": no VS Code, no badge. Off its base it extends to
-                            // `+12 −3` unless Settings has turned that off, the base named only in the
-                            // tooltip; either way a click opens the worktree.
-                            if let task, ExternalApps.vscode != nil {
-                                Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: badges.diff, style: .quiet) {
-                                    ExternalApps.openInVSCode(path: task.worktreePath)
+                        // A badge never squeezes, so a row too narrow for all of them draws the fullest
+                        // fit that still leaves the status mark its slot (`TaskRowBadges.fits`), ahead of
+                        // the branch, which shortens in what is left.
+                        HStack(spacing: 0) {
+                            ViewThatFits(in: .horizontal) {
+                                // "Absent, not disabled": no VS Code, no badge.
+                                ForEach(badges.fits(editor: task != nil && ExternalApps.vscode != nil), id: \.self) { fit in
+                                    badgeLine(fit, of: badges, beforeBranch: !row.branch.name.isEmpty)
                                 }
                             }
-                            BranchLabelView(label: row.branch).layoutPriority(1)
+                            .layoutPriority(1)
+                            BranchLabelView(label: row.branch)
                         }
                         .transition(.opacity)
                     }
@@ -429,17 +426,18 @@ struct TaskRowView: View {
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: folded)
                 Spacer(minLength: scale(Space.tight))
                 // The status mark's spinner: the row's agents went with its window. An ended driven task's is the
-                // check, a queued one's the pause sign.
-                TaskRowMarkView(mark: TaskRowMark(status: row.status, line: row.operatorLine, removing: removing, queued: row.queued),
-                                size: SidebarRowLayout.trailingGlyph(scale))
-                    .frame(width: SidebarRowLayout.trailingSlot(scale))
+                // check, a queued one's the pause sign. In the background, its hover opens the card.
+                TaskRowMarkView(mark: mark, size: SidebarRowLayout.trailingGlyph(scale))
+                    .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
+            .backgroundCard(jobs, hover: cardHover)
         }
         #if DEBUG
         .environment(\.rowHovered, hoveredRow == row.id)
         #endif
         .accessibilityLabel(voiceOver.label)
-        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip ?? row.status.label)
+        .accessibilityValue(caption.progress ?? caption.note?.text ?? row.operatorLine?.tooltip
+                            ?? (jobs.isEmpty ? row.status.label : BackgroundCard(jobs: jobs).spoken))
         .accessibilityActions {
             if let task {
                 ForEach(voiceOver.actions, id: \.self) { action in
@@ -478,6 +476,31 @@ struct TaskRowView: View {
             }
         }
     }
+
+    /// One fit of the badge line. Quiet badges carry no box, so `Space.gap` is what keeps them apart,
+    /// and the last of them from the branch.
+    private func badgeLine(_ fit: TaskRowBadges.Fit, of badges: TaskRowBadges, beforeBranch: Bool) -> some View {
+        HStack(spacing: scale(Space.gap)) {
+            if fit.ticket, let ticket = badges.ticket {
+                Badge(ticket.label, icon: .brand(Palette.jira), help: ticket.help,
+                      style: .quiet, action: ticket.url.map { url in { ExternalApps.open(link: url) } })
+            }
+            if fit.mergeRequest, let mr = badges.mergeRequest {
+                Badge(mr.label, icon: .brand((mr.host ?? .gitLab).brand), help: mr.help, suffix: mr.threads,
+                      style: .quiet, accessibilityLabel: mr.accessibilityLabel,
+                      action: mr.url.map { url in { ExternalApps.open(link: url) } })
+            }
+            // Off its base it extends to `+12 −3` unless Settings has turned that off or the row is too
+            // narrow, the base named only in the tooltip, which keeps the counts; a click opens the worktree.
+            if fit.editor != .none, let task {
+                Badge(icon: .brand(Palette.vscode), help: badges.editorHelp, diff: fit.editor == .diff ? badges.diff : nil,
+                      style: .quiet) {
+                    ExternalApps.openInVSCode(path: task.worktreePath)
+                }
+            }
+        }
+        .padding(.trailing, beforeBranch && !fit.wearsNone ? scale(Space.gap) : 0)
+    }
 }
 
 /// A terminal is selectable exactly like a task and drawn like one: two lines, the branch on its own
@@ -514,11 +537,13 @@ struct TerminalRowView: View {
                     }
                 }
                 Spacer(minLength: scale(Space.tight))
-                StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale)).frame(width: SidebarRowLayout.trailingSlot(scale))
+                StatusMark(status: row.status, size: SidebarRowLayout.trailingGlyph(scale))
+                    .opensBackgroundCard(slot: SidebarRowLayout.trailingSlot(scale))
             }
+            .backgroundCard(row.status == .background ? row.background : [])
         }
         .accessibilityLabel(row.name)
-        .accessibilityValue(row.status.label)
+        .accessibilityValue(row.status == .background ? BackgroundCard(jobs: row.background).spoken : row.status.label)
         .accessibilityActions {
             if let terminal {
                 ForEach(TerminalRowAccessibility(terminal: terminal, canChangeWorkspace: controller.canChangeWorkspace).actions,
@@ -703,15 +728,15 @@ struct TaskRowAccessibility: Equatable {
 /// unless it needs you: `SidebarModel.heldStatus`), or once the Operator's work on the task is over (its
 /// line's look `ended`) the check (1A, 21 Oct 2026), or while the Operator has it queued the pause sign. The
 /// check stands in for an idle session and for an unseen turn, whose last words are the Operator's to read;
-/// a session at work or waiting on input is yours again and keeps its own mark, and a removal or shelving in
-/// progress spins.
+/// a session at work, waiting on input or on its background work is yours again and keeps its own mark, and a
+/// removal or shelving in progress spins.
 enum TaskRowMark: Equatable {
     case status(TaskStatus), ended, queued
 
     init(status: TaskStatus, line: OperatorLine?, removing: Bool, queued: Bool = false) {
         if removing { self = .status(.working) }
         else if queued { self = .queued }
-        else if line?.look == .ended, status != .working, status != .needsInput { self = .ended }
+        else if line?.look == .ended, ![.working, .needsInput, .background].contains(status) { self = .ended }
         else { self = .status(status) }
     }
 }
@@ -854,6 +879,34 @@ struct TaskRowBadges: Equatable {
         }
         diff = details.diff ? row.diff.map { Badge.Diff(added: $0.stat.added, removed: $0.stat.removed) } : nil
         editorHelp = row.diff?.help ?? "Open in VS Code"
+    }
+
+    /// How a fit draws the VS Code badge: with its `+12 −3`, as the plain mark, or not at all.
+    enum Editor: Hashable { case diff, plain, none }
+
+    /// The badges one width of the row keeps.
+    struct Fit: Hashable {
+        var ticket: Bool, mergeRequest: Bool, editor: Editor
+        var wearsNone: Bool { !ticket && !mergeRequest && editor == .none }
+    }
+
+    /// The badge line at every width, fullest first, each fit giving up one more thing than the last:
+    /// the VS Code counts fold to the plain mark, then the editor, the merge request and the ticket drop
+    /// in turn, from the end of the line, so what is left reads in the same order. Only what the row
+    /// wears is given up, and the last fit wears nothing. `editor` is whether the row has a VS Code badge.
+    func fits(editor: Bool) -> [Fit] {
+        var fit = Fit(ticket: ticket != nil, mergeRequest: mergeRequest != nil,
+                      editor: !editor ? .none : diff == nil ? .plain : .diff)
+        var fits = [fit]
+        func giveUp(_ change: (inout Fit) -> Void) {
+            change(&fit)
+            if fit != fits.last { fits.append(fit) }
+        }
+        giveUp { if $0.editor == .diff { $0.editor = .plain } }
+        giveUp { $0.editor = .none }
+        giveUp { $0.mergeRequest = false }
+        giveUp { $0.ticket = false }
+        return fits
     }
 
     /// The count as the tooltip and VoiceOver say it: "2 of 5 threads resolved", "1 of 1 thread resolved".

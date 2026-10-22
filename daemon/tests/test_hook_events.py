@@ -1,5 +1,5 @@
 import pytest
-from aitermd.models import UsageWindow
+from aitermd.models import BackgroundJob, UsageWindow
 from aitermd.hook_events import (
     StatusLine, parse_claude_hook, parse_codex_hook, parse_claude_statusline, parse_grok_hook, parse_grok_statusline,
     parse_pi_hook,
@@ -148,18 +148,36 @@ def test_a_claude_stop_lists_the_subagents_still_running(tasks, expected):
 
 
 def test_a_claude_stop_lists_the_background_work_still_running():
-    """What will wake the session again once it ends: a shell by its command, other work by its description. A
-    subagent is the turn's own (`running_subagents`), and work that has ended wakes nothing."""
+    """What will wake the session again once it ends, each by its kind: a shell by its command, a monitor and any
+    other task by its description. A subagent is the turn's own (`running_subagents`), and work that has ended wakes
+    nothing."""
     tasks = [{"id": "a1", "type": "subagent", "status": "running", "description": "Fix it"},
              {"id": "b1", "type": "shell", "status": "running", "description": "the gate", "command": "npm run test:run"},
              {"id": "b2", "type": "shell", "status": "completed", "description": "lint", "command": "npm run lint"},
-             {"id": "m1", "type": "monitor", "status": "pending", "description": "CI on !46"}]
+             {"id": "m1", "type": "monitor", "status": "pending", "description": "CI on !46"},
+             {"id": "t1", "type": "MCP task", "status": "running", "description": "Indexing the docs"}]
     event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
-    assert event.background_work == ("npm run test:run", "CI on !46")
+    assert event.background_work == (BackgroundJob("shell", "npm run test:run"), BackgroundJob("monitor", "CI on !46"),
+                                     BackgroundJob("task", "Indexing the docs"))
     assert parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": []}).background_work == ()
     # An older Claude Code sends no list: nothing is known.
     assert parse_claude_hook({**BASE, "hook_event_name": "Stop"}).background_work is None
     assert parse_claude_hook({**BASE, "hook_event_name": "UserPromptSubmit", "background_tasks": tasks}).background_work is None
+
+
+def test_a_claude_stop_leaves_out_its_artifact_watches():
+    """Claude Code watches every artifact it publishes or is asked to watch for comments, for the rest of the session:
+    a monitor that never ends and that Claude Code itself counts as no activity. A monitor you armed still counts."""
+    tasks = [{"id": "w1", "type": "monitor", "status": "running",
+              "description": "live updates for artifact https://claude.ai/artifact/6xDD (auto-armed on publish)"},
+             {"id": "w2", "type": "monitor", "status": "running",
+              "description": "live updates for artifact https://claude.ai/artifact/MnYZ (watch requested)"},
+             {"id": "m1", "type": "monitor", "status": "running", "description": "CI on !46"},
+             {"id": "m2", "type": "monitor", "status": "running", "description": "live updates for artifact deploys",
+              "server": "ci", "tool": "watch"}]
+    event = parse_claude_hook({**BASE, "hook_event_name": "Stop", "background_tasks": tasks})
+    assert event.background_work == (BackgroundJob("monitor", "CI on !46"), BackgroundJob("monitor", "live updates for artifact deploys"))
+    assert event.running_subagents == frozenset()
 
 
 def test_a_prompt_submitted_carries_its_text():

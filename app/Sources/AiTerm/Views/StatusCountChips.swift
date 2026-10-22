@@ -36,7 +36,8 @@ private struct StatusCountChip: View {
         case .idle: return Palette.muted
         // Brighter than idle: at 8 pt a spinner arc and a hollow ring are nearly the same shape,
         // so the ink is what separates "running" from "waiting for nobody".
-        case .working: return Palette.text
+        // A row in the background is counted with working (`SidebarModel.statusCounts`).
+        case .working, .background: return Palette.text
         case .needsInput: return Palette.badgeAmber
         case .done: return Palette.link
         }
@@ -45,7 +46,7 @@ private struct StatusCountChip: View {
     /// The chip's fill and edge, one `Palette` pair per status family.
     private var wash: (fill: Color, stroke: Color) {
         switch count.status {
-        case .idle, .working: return (Palette.statusChipQuietFill, Palette.statusChipQuietStroke)
+        case .idle, .working, .background: return (Palette.statusChipQuietFill, Palette.statusChipQuietStroke)
         case .needsInput: return (Palette.statusChipAttentionFill, Palette.statusChipAttentionStroke)
         case .done: return (Palette.statusChipDoneFill, Palette.statusChipDoneStroke)
         }

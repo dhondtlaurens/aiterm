@@ -78,8 +78,10 @@ environment's `InterfaceScale` (`standard` ×1, `large` ×1.15, `extraLarge` ×1
   stroke, and scales with the size it is given.)
 - Every round status mark is a ring, never a disc: a `size * 0.15` stroke inside the `size` box,
   `strokeBorder` or a trimmed stroke padded by half its width. `StatusMark` is the idle ring, the
-  working arc over its whole track, needs input in `Palette.amber` and done in `Palette.done`
-  (`Palette.onAccent` on the accent, as the arc is); `UsageRing` and `ToneRing` are drawn the same way.
+  working arc over its whole track, needs input in `Palette.amber`, background — a turn that ended
+  with work still running, which wakes the agent again — the whole ring in eight dashes in the arc's
+  ink, turning once every 6 s, and done in `Palette.done` (`Palette.onAccent` on the accent, as the
+  arc is); `UsageRing` and `ToneRing` are drawn the same way.
 
 Only the sidebar is scaled; `SidebarSheet` resets to `.standard`. AppKit's pop-up and push-button
 bezels stop at 28 pt (`.extraLarge` draws `.large` on macOS 26), so a sheet — full of them — keeps
@@ -143,7 +145,7 @@ AiTerm is dark-only. There is no light variant to keep in sync.
 
 Default, hover, pressed, disabled, focused, selected. Declare them up front rather than discovering
 them. When a target does not exist, the control is **absent, not disabled**. Reduce Motion is
-honoured: `StatusMark` keeps its arc and drops the rotation.
+honoured: `StatusMark` keeps its arc, and its background ring, and drops the rotation.
 
 ## Inventory
 
@@ -153,7 +155,7 @@ Every name here is a type under `app/Sources/`. Nothing aspirational.
 
 | Type | What it is |
 |---|---|
-| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a merge request's reference (extended with a `suffix`: a bubble and its resolved review threads of all of them, `2/5`, in the label's ink), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows; `action` makes it a button, `menu` a menu — a project header's Jira mark and total count — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
+| `Badge` | the one chip: a Jira key, an editor mark (extended with a `+12 −3` `diff`), a merge request's reference (extended with a `suffix`: a bubble and its resolved review threads of all of them, `2/5`, in the label's ink), a `+n` count, a Settings check (with `iconTint`); `style: .quiet` drops the box at rest, for the sidebar rows, where a badge is never squeezed: a task row too narrow for all of them folds the `diff` to the plain mark, then drops whole badges from the end (`TaskRowBadges.fits`), so the branch is the only thing that truncates and the status mark always keeps its slot; `action` makes it a button, `menu` a menu — a project header's Jira mark and total count — the same chip with the same hover, and `accessibilityLabel` says what a bare count cannot |
 | `Icon` | every mark, at a size: an SF Symbol (its glyph's own width, in the surface's ink unless tinted), a vendor `Brand` (a `size` square, in its colour unless tinted), or a full-colour artwork that carries its own fallback (`.gitlabTanuki`, `.piBadge`). The one way the app draws a logo — no fill travels as a hex string |
 | `FormField` | a label above its control; what the control hangs out of itself — a dropdown's results — draws over the lines after it |
 | `FrontToBackStack` | a `VStack` whose earlier children draw over its later ones, so an overhang (a picker's results, the completion popup) needs no `zIndex` at any level of a sheet. `FormField` is one; a sheet's fields and steps go in another |
@@ -184,7 +186,7 @@ vendor needs both.
 ### Patterns — `app/Sources/AiTerm/Views/`
 
 `SheetLayout`, `SheetSubtitle`, `SheetFooter`, `SheetPrimaryButton`, `DestinationLine`, `CreationSheet`, `CreationFooter`,
-`AgentSegmented`, `AgentSegmentLabel`, `Notice`, `FixProposalBlock`, `FixBusyLine`, `FixOfferLabel`, `CommandBlock`, `StatusMark`, `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
+`AgentSegmented`, `AgentSegmentLabel`, `Notice`, `FixProposalBlock`, `FixBusyLine`, `FixOfferLabel`, `CommandBlock`, `StatusMark`, `BackgroundCardView` (with `BackgroundCard` and `BackgroundCardHover`), `StatusCountChips`, `AvatarGroupView`, `VendorMark`,
 `BranchLabelView`, `StepBar`, `ToastView`, `ProviderIcon`, `CompletionPopup`,
 `NativeRowHighlight`, `RowMenuAnchor`, `SidebarFooter`, `UsageRing`, `ToneRing` (with `SettingsTone`), `MacMode` (with `MacModeLine` and
 `MacModePresentation`, in `MacModeRow.swift`), `BackpackSheet`, `SearchPicker`, `DropdownList`, `DropdownKeys`,
@@ -309,8 +311,8 @@ acts exactly when its row's `StatusMark` turns. Ended is every end a task's line
 `done · no change`, `draft MR · !412`, `merged · 9b3e07d` and `merged locally · 1c84e20`: the Operator's work
 on it is over, and the row's trailing mark is a `checkmark` at the mark's size in `Palette.green`,
 `Palette.onAccent` on the selection (`TaskRowMark`, `TaskRowMarkView`). The check stands in for the idle ring
-and for the accent ring of an unseen turn; a session at work or waiting on input keeps its own mark, and a
-removal or shelving spins. Until then, while the Operator holds the task, its mark spins whatever its tabs say,
+and for the accent ring of an unseen turn; a session at work, waiting on input or on its background work keeps
+its own mark, and a removal or shelving spins. Until then, while the Operator holds the task, its mark spins whatever its tabs say,
 with no done ring, and turns amber only when it needs you: its tab waiting on input, or its line needing you
 (`SidebarModel.heldStatus`, P3 1A). A queued task's is the pause sign. No other state has a mark of its own. The
 Operator's words are plain verbs: accepting is its job, so only what you must do is amber. A task row's icon
@@ -585,6 +587,21 @@ from the row's own `controller.hasFailedRestore(_:)` cell) in the slot "Worktree
 again when chosen — a click or ↩, never the arrows; its hint and tooltip say so (`TaskRowAccessibility`),
 except while the workspace cannot change, when choosing the row retries nothing. A row whose window is
 still coming back is drawn as it was.
+
+A task or terminal row whose every tab ended its turn, one of them with work still running — Claude's
+`background_tasks`, a shell, a monitor or another task — is `TaskStatus.background` (`SidebarModel.aggregate(tabs:)`,
+proposal Background work on your own tasks B, 22 Oct 2026): working outranks it, it outranks done, and seen or
+not it stays until the agent takes its turn up again. It is not yours to act on — no Focus View, no Dock badge —
+and a collapsed header counts it with working. A driven task's status is held at working instead, its line
+saying `in background`. Its mark is the dashed ring; resting the pointer on the mark's `Size.slot` for 0.3 s
+opens `BackgroundCardView` over the row: `menuChrome`, its top on the pill's, its trailing edge `Space.tight`
+before the slot, no wider than the pill up to there and no taller than the row, hugging what it says and
+scrolling inside past that. It reads `Turn ended · running in the background`, or `Turn ended · 3 running in
+the background`, then one job per line in tab order: a shell's command in `Typography.mono` after
+`apple.terminal`, any other job's description in `Typography.help` after `eye`, each glyph at `Size.inlineMark`
+in `Palette.muted`, cut at the end when narrow (its several-jobs option A). It stays open while the pointer is
+on the mark or the card and closes 0.15 s after it left both (`BackgroundCardHover`). VoiceOver reads every job
+as the row's value (`BackgroundCard.spoken`).
 
 `CompletionHint` is the line `PromptStep` draws under the prompt editor (unless the step hands its own
 help, as New Broadcast's three do), saying what `/` and `@` open — `/` the one trigger for every agent's commands and skills, a Codex skill picked there written

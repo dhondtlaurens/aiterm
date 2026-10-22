@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
-from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, Transition, Usage
+from .models import HARNESSES, ITERM_SESSION_FIELD, AgentKind, BackgroundJob, Transition, Usage
 from .usage import finite_number, parse_claude_rate_limits
 
 NEEDS_INPUT_NOTIFICATIONS = {"permission_prompt", "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog"}
@@ -40,7 +40,7 @@ class HookEvent:
     running_subagents: frozenset[str] | None = None
     # The rest of the work a Claude Stop's `background_tasks` says is still in flight, which wakes the session
     # again once it ends: a shell by its command, anything else by its description. None when it cannot say.
-    background_work: tuple[str, ...] | None = None
+    background_work: tuple[BackgroundJob, ...] | None = None
     # What a UserPromptSubmit submitted, as the agent got it; None for every other event.
     prompt: str | None = None
     # The harness's own name for the event (`hook_event_name`): a Codex thread's binding to its tab
@@ -81,24 +81,36 @@ def _claude_subagent_transcript(p: dict[str, Any], child: str) -> str | None:
 CLAUDE_MATCHABLE_TASK_TYPES = frozenset({"subagent", "shell", "monitor", "MCP task"})
 # The statuses Claude Code lists a task under while it is in flight.
 CLAUDE_IN_FLIGHT_TASK_STATUSES = frozenset({"running", "pending"})
+# How Claude Code describes the watch it keeps on an artifact it published or was asked to watch: a monitor with no
+# MCP server that runs for the rest of the session, which Claude Code counts as no activity (`ambient`, a flag its
+# hooks do not carry). Its description is all a Stop says of it (Claude Code 2.1.308).
+CLAUDE_ARTIFACT_WATCH_PREFIX = "live updates for artifact "
 
 
-def _claude_background_work(tasks: Any) -> tuple[str, ...] | None:
+def _claude_background_work(tasks: Any) -> tuple[BackgroundJob, ...] | None:
     """What a Stop's `background_tasks` lists as in flight besides subagents: the shells, monitors and other work
-    Claude Code resumes the session for once each ends (a dev server left running among them). None when there is
-    no list to read."""
+    Claude Code resumes the session for once each ends (a dev server left running among them), each by its kind.
+    None when there is no list to read."""
     if not isinstance(tasks, list):
         return None
-    work: list[str] = []
+    work: list[BackgroundJob] = []
     for task in tasks:
-        if not isinstance(task, dict) or _nonempty_string(task.get("type")) in (None, "subagent"):
+        if not isinstance(task, dict) or (kind := _nonempty_string(task.get("type"))) in (None, "subagent"):
             continue
-        if _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES:
+        if _nonempty_string(task.get("status")) not in CLAUDE_IN_FLIGHT_TASK_STATUSES or _claude_artifact_watch(task):
             continue
-        said = _nonempty_string(task.get("command")) if task["type"] == "shell" else None
+        said = _nonempty_string(task.get("command")) if kind == "shell" else None
         if (said := said or _nonempty_string(task.get("description"))) is not None:
-            work.append(said)
+            work.append(BackgroundJob("shell" if kind == "shell" else "monitor" if kind == "monitor" else "task", said))
     return tuple(work)
+
+
+def _claude_artifact_watch(task: dict[str, Any]) -> bool:
+    """Whether a `background_tasks` entry is Claude Code watching an artifact for comments, which never ends and
+    wakes the session only when someone comments: no work in flight."""
+    said = _nonempty_string(task.get("description"))
+    return (task.get("type") == "monitor" and task.get("server") is None
+            and said is not None and said.startswith(CLAUDE_ARTIFACT_WATCH_PREFIX))
 
 
 def _claude_running_subagents(tasks: Any) -> frozenset[str] | None:
