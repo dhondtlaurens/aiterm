@@ -12,6 +12,7 @@ import Foundation
         #expect(OperatorTiming.reconcileInterval == 60)
         #expect(OperatorTiming.stallAfter == 1200)
         #expect(OperatorTiming.challengeTimeout == 180)
+        #expect(OperatorTiming.gateTimeout == 200)
         #expect(OperatorTiming.operatorRequestTimeout == 30)
         #expect(OperatorTiming.launchAdoptAfter == 60)
         #expect(OperatorTiming.mergePoll == 30)
@@ -30,7 +31,8 @@ import Foundation
             ("SUBMIT_DELAY", OperatorTiming.submitDelay), ("TYPING_QUIET", OperatorTiming.typingQuiet),
             ("MESSAGE_FILE_THRESHOLD", Double(OperatorTiming.messageFileThreshold)), ("WAKE_COALESCE", OperatorTiming.wakeCoalesce),
             ("RECONCILE_INTERVAL", OperatorTiming.reconcileInterval), ("STALL_AFTER", OperatorTiming.stallAfter),
-            ("CHALLENGE_TIMEOUT", OperatorTiming.challengeTimeout), ("OPERATOR_REQUEST_TIMEOUT", OperatorTiming.operatorRequestTimeout),
+            ("CHALLENGE_TIMEOUT", OperatorTiming.challengeTimeout), ("GATE_TIMEOUT", OperatorTiming.gateTimeout),
+            ("OPERATOR_REQUEST_TIMEOUT", OperatorTiming.operatorRequestTimeout),
             ("LAUNCH_ADOPT_AFTER", OperatorTiming.launchAdoptAfter),
         ]
         for (name, value) in shared {
