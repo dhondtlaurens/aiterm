@@ -86,6 +86,17 @@ public struct BackgroundJob: Codable, Equatable, Hashable, Sendable {
     }
     public var kind: Kind, text: String
     public init(kind: Kind, text: String) { self.kind = kind; self.text = text }
+
+    /// A daemon older than the kinds — one left running after a crash — sends each job as its text alone: read as
+    /// a task, described, rather than failing the session it came in.
+    public init(from decoder: Decoder) throws {
+        if let text = try? decoder.singleValueContainer().decode(String.self) {
+            self.init(kind: .task, text: text)
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(kind: try c.decode(Kind.self, forKey: .kind), text: try c.decode(String.self, forKey: .text))
+    }
 }
 
 /// A literal title for one iTerm2 tab. The daemon keeps it separate from the session's process

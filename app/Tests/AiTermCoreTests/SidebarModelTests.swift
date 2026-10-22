@@ -45,6 +45,8 @@ import Synchronization
         let json = #"[{"kind": "shell", "text": "npm run dev"}, {"kind": "teammate", "text": "Reviewer"}]"#
         let jobs = try JSONDecoder().decode([BackgroundJob].self, from: Data(json.utf8))
         #expect(jobs == [BackgroundJob(kind: .shell, text: "npm run dev"), BackgroundJob(kind: .task, text: "Reviewer")])
+        let older = try JSONDecoder().decode([BackgroundJob].self, from: Data(#"["npm run dev"]"#.utf8))
+        #expect(older == [BackgroundJob(kind: .task, text: "npm run dev")], "an older daemon's bare text")
     }
 
     /// The agent takes its turn up again by itself: nothing for Focus View or the Dock badge, and a collapsed
