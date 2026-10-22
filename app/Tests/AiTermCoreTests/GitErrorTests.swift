@@ -62,4 +62,28 @@ struct GitErrorTests {
         struct Other: Error {}
         #expect((Other() as Error as? any LogDetailed) == nil)
     }
+
+    /// A refusing pre-push hook says why on stderr, then git adds its own `failed to push` line: the Operator reads
+    /// everything the hook said, not the last few lines.
+    @Test func pushReasonKeepsTheHooksWholeOutput() {
+        let hook = ["lefthook: running pre-push", "lint failed: src/a.ts", "  1:5  error  no-unused-vars", "tsc: 2 errors", "pre-push script failed"]
+        let stderr = hook.joined(separator: "\n") + "\nerror: failed to push some refs to 'git@example.com:x/y.git'\n"
+        let error = GitError(args: ["push"], code: 1, stderr: stderr)
+        #expect(error.pushReason == hook.joined(separator: "\n"))
+    }
+
+    @Test func pushReasonKeepsTheLast200Lines() {
+        let lines = (1...250).map { "line \($0)" }
+        let reason = GitError(args: ["push"], code: 1, stderr: lines.joined(separator: "\n") + "\nerror: failed to push some refs to 'x'").pushReason
+        #expect(reason.split(separator: "\n").map(String.init) == Array(lines.suffix(200)))
+    }
+
+    /// `git push --porcelain` lists what a remote rejected on stdout, one `!` line each.
+    @Test func pushReasonAddsThePorcelainRejections() {
+        let rejection = "!\trefs/heads/x:refs/heads/x\t[remote rejected] (pre-receive hook declined)"
+        let error = GitError(args: ["push", "--porcelain"], code: 1,
+                             stderr: "remote: policy says no\nerror: failed to push some refs to 'x'",
+                             stdout: "hook step ok\nTo x\n \trefs/heads/y:refs/heads/y\t[up to date]\n\(rejection)\nDone\n")
+        #expect(error.pushReason == "hook step ok\nremote: policy says no\n" + rejection)
+    }
 }

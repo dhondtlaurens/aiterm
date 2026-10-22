@@ -60,6 +60,13 @@ final class TaskFinisher {
     private var watchers: [UUID: Task<Void, Never>] = [:]
     /// How many calls found a publication in flight and waited for it; for a test.
     private(set) var joined = 0
+    /// Drops what the login shell said and asks it again (`LoginShellLocator`), blocking: run off the main
+    /// actor. A hook that did not find its tool ran with a PATH that may have changed since it was read
+    /// (an install, a new nvm default), and git takes the next push's from the same answers. A test passes its own.
+    var forgetLogin: @Sendable () -> Void = {
+        LoginShellLocator.shared.forget()
+        _ = LoginShellLocator.shared.resolve()
+    }
 
     init(store: WorkspaceStore, git: any GitRunning,
          connect: @escaping @Sendable (RemoteInfo) throws -> any MergeRequestPublishing,
@@ -242,6 +249,10 @@ final class TaskFinisher {
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: Self.notSavedReason)
         } catch {
             let why = Self.failure(error, branch: branch)
+            if let git = error as? GitError, Self.commandNotFound(git) {
+                let forget = forgetLogin
+                await BackgroundWork.run { forget() }
+            }
             recordFailure(why, on: id)
             return Result(store.state.task(id: id)?.operated?.publication, result: "failed", reason: why)
         }
@@ -471,18 +482,19 @@ final class TaskFinisher {
         return GitError.displayReason(of: error)
     }
 
-    /// What a pre-push hook said when it refused a push, its last few lines; nil for any other failure. git
-    /// says only "failed to push some refs" then, and a push that reached origin prints `To <url>` first, so
-    /// one that failed without it never left this machine. The hook's own stderr says why; without any,
-    /// what it printed on stdout.
+    /// A push whose hook (or git) said a command was not found: the PATH it ran with did not have it.
+    static func commandNotFound(_ error: GitError) -> Bool {
+        error.args.contains("push") && !error.timedOut
+            && (error.pushReason.contains("command not found") || error.stderr.contains("command not found"))
+    }
+
+    /// What a pre-push hook said when it refused a push, all of it (`GitError.pushReason`); nil for any other
+    /// failure. git says only "failed to push some refs" then, and a push that reached origin prints `To <url>`
+    /// first, so one that failed without it never left this machine.
     static func hookRefusal(_ error: GitError) -> String? {
         guard error.args.contains("push"), !error.timedOut, error.stderr.contains("failed to push some refs"),
               !error.stdout.split(separator: "\n").contains(where: { $0.hasPrefix("To ") }) else { return nil }
-        func said(_ text: String) -> [String] {
-            text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty && !$0.hasPrefix("error: failed to push some refs") }
-        }
-        let lines = said(error.stderr).isEmpty ? said(error.stdout) : said(error.stderr)
-        return lines.isEmpty ? "it said nothing" : lines.suffix(3).joined(separator: " ")
+        let said = error.pushReason
+        return said.isEmpty ? "it said nothing" : said
     }
 }

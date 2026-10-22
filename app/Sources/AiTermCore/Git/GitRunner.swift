@@ -38,6 +38,31 @@ public struct GitError: Error, Equatable, LocalizedError, CustomStringConvertibl
         return failures.isEmpty ? lines.last ?? description : failures.joined(separator: "\n")
     }
 
+    /// How many lines of a refused push `pushReason` keeps.
+    public static let pushReasonLimit = 200
+
+    /// Everything a refused push said, for whoever must diagnose it (spec: the Operator reads a refusing
+    /// pre-push hook's whole output). First what a hook printed on stdout (lefthook reports its steps there),
+    /// then stderr, git's and the hook's own words less git's closing `error: failed to push some refs` line,
+    /// then the rejections `--porcelain` lists on stdout, one `!` line each. The rest of porcelain's framing
+    /// is left out: the `To <url>` header, `Done`, and the lines of refs that were not rejected. The last
+    /// `pushReasonLimit` lines are kept, since a verdict comes last; blank lines are dropped.
+    public var pushReason: String {
+        func lines(_ text: String) -> [String] {
+            text.split(separator: "\n", omittingEmptySubsequences: true).map { String($0).trimmingTrailingWhitespace }
+                .filter { !$0.isEmpty }
+        }
+        let printed = lines(stdout)
+        let rejected = printed.filter { $0.hasPrefix("!") }
+        let hook = printed.filter { line in
+            !line.hasPrefix("!") && !line.hasPrefix("To ") && line != "Done"
+                && ![" \t", "+\t", "-\t", "*\t", "=\t"].contains { line.hasPrefix($0) }
+        }
+        let said = lines(stderr).filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("error: failed to push some refs") }
+        return (hook + said + rejected).suffix(Self.pushReasonLimit).joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The tab-indented lines at the start of `rest`, as ` a, b, c and 2 more`; `""` when there are none.
     private static func listed(_ rest: ArraySlice<String>) -> String {
         let items = rest.prefix { $0.hasPrefix("\t") }.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -212,5 +237,11 @@ public struct GitRunner: GitRunning {
         while let first = rest.first, first.hasPrefix("-") { rest = rest.dropFirst(first == "-c" ? 2 : 1) }
         let words = rest.prefix(["worktree", "remote"].contains(rest.first) ? 2 : 1)
         return (["git"] + words).joined(separator: " ")
+    }
+}
+
+private extension String {
+    var trimmingTrailingWhitespace: String {
+        String(reversed().drop { $0.isWhitespace }.reversed())
     }
 }

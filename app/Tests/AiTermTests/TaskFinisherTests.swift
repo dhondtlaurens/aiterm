@@ -56,6 +56,8 @@ final class MergeClock: Sendable {
         let store: WorkspaceStore, finisher: TaskFinisher, host: FakeMergeHost, ticker: Ticker, changed: Changed, clock: MergeClock
         let task: UUID, run: UUID, sha: String, origin: String, path: String
         let remotes: Recorded<RemoteInfo>, mergedOnHost: Recorded<UUID>, stopped: Recorded<String>
+        /// How many times the finisher dropped the login shell's answers (`TaskFinisher.forgetLogin`).
+        let forgotten: Recorded<Void>
     }
 
     func setUp(end: TaskEnd, git finisherGit: (any GitRunning)? = nil, slices: Slices = OperatedWorld.profile.slices,
@@ -78,12 +80,14 @@ final class MergeClock: Sendable {
                                     },
                                     now: { clock.now },
                                     sleep: { seconds in await ticker.wait(); clock.slept(seconds) })
+        let forgotten = Recorded<Void>()
+        finisher.forgetLogin = { forgotten.append(()) }
         finisher.changed = { changed.ids.append($0) }
         finisher.mergedOnHost = { id, _ in mergedOnHost.append(id) }
         finisher.watchStopped = { _, why in stopped.append(why) }
         return Setup(store: store, finisher: finisher, host: host, ticker: ticker, changed: changed, clock: clock,
                      task: task, run: run, sha: fixture.sha, origin: fixture.origin, path: fixture.path,
-                     remotes: remotes, mergedOnHost: mergedOnHost, stopped: stopped)
+                     remotes: remotes, mergedOnHost: mergedOnHost, stopped: stopped, forgotten: forgotten)
     }
 
     func operated(_ s: Setup) -> OperatedTask? { s.store.state.task(id: s.task)?.operated }
@@ -298,7 +302,7 @@ final class MergeClock: Sendable {
             .write(to: hook, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
         let result = await s.finisher.finish(s.task)
-        let why = "The pre-push hook refused the push of feat/pluto-231: sh: npm: command not found"
+        let why = "The pre-push hook refused the push of feat/pluto-231: lefthook: running pre-push\nsh: npm: command not found"
         #expect(result.result == "failed")
         #expect(result.reason == why)
         #expect(operated(s)?.publication?.problem == why)
@@ -310,6 +314,41 @@ final class MergeClock: Sendable {
         let again = await s.finisher.finish(s.task)
         #expect(again.result == "published")
         #expect(operated(s)?.publication?.problem == nil)
+    }
+
+    func writeHook(_ script: String, in s: Setup) throws -> URL {
+        let hook = URL(fileURLWithPath: s.path).appendingPathComponent(".git/hooks/pre-push")
+        try script.write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        return hook
+    }
+
+    /// The Operator diagnoses a refusal itself, so it is told everything the hook said (git's own
+    /// `failed to push` line apart), however many lines that is.
+    @Test func aRefusingHookIsQuotedWhole() async throws {
+        let s = try setUp(end: .draftMR)
+        _ = try writeHook("#!/bin/sh\necho 'lefthook: running pre-push'\necho 'lint failed: src/a.ts'\necho '  1:5  error  no-unused-vars' >&2\n"
+                          + "echo 'tsc: 2 errors'\necho 'pre-push script failed' >&2\nexit 1\n", in: s)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == "failed")
+        let reason = try #require(result.reason)
+        for line in ["lefthook: running pre-push", "lint failed: src/a.ts", "1:5  error  no-unused-vars", "tsc: 2 errors", "pre-push script failed"] {
+            #expect(reason.contains(line), "\(line) is in: \(reason)")
+        }
+        #expect(!reason.contains("failed to push some refs"))
+        #expect(reason.hasPrefix("The pre-push hook refused the push of feat/pluto-231: "))
+        #expect(s.forgotten.all.isEmpty, "an ordinary refusal leaves the login answers alone")
+    }
+
+    /// A hook that could not find its tool was run with a PATH that has since changed (an install, a
+    /// new nvm default), so the login shell is asked again before the next push.
+    @Test func commandNotFoundReadsThePathAgain() async throws {
+        let s = try setUp(end: .draftMR)
+        _ = try writeHook("#!/bin/sh\necho 'fakenpm: command not found' >&2\nexit 1\n", in: s)
+        let result = await s.finisher.finish(s.task)
+        #expect(result.result == "failed")
+        #expect(result.reason?.contains("fakenpm: command not found") == true)
+        #expect(s.forgotten.all.count == 1)
     }
 
     @Test func aHostThatIsNotConnectedIsRefusedBeforeAnythingIsPushed() async throws {
