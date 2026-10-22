@@ -21,6 +21,10 @@ final class SidebarTiling {
     /// The re-tiling under way. A newer one, for a newer frame, cancels it: two running at once
     /// would leave each window wherever the later reply put it.
     private var snapTask: Task<Void, Never>?
+    /// The sidebar's frame as a sheet began, held until it ends. AppKit slides the sidebar aside to
+    /// fit a sheet wider than it — the 560-point ones beside a 360-point sidebar at the screen's
+    /// edge — and back once it closes; New Terminal opens its window while its sheet is closing.
+    private var frameBeforeSheet: CGRect?
 
     init(preferences: InterfacePreferences, moveDelay: TimeInterval = 0.15, workspace: WorkspaceStore,
          daemon: @escaping @MainActor () -> (any DaemonCommands)?) {
@@ -35,9 +39,10 @@ final class SidebarTiling {
     /// frame the daemon can still apply than a crash.
     private static let defaultTaskFrame = Frame(x: 312, y: 0, w: 1128, h: 800)
 
-    /// Where a task's or terminal's window goes: beside the sidebar, on its screen.
+    /// Where a task's or terminal's window goes: beside the sidebar, on its screen — where it rests,
+    /// not where a sheet has pushed it.
     func taskFrame() -> Frame {
-        let sidebar = sidebarWindow?.frame ?? Self.defaultSidebarRect
+        let sidebar = frameBeforeSheet ?? sidebarWindow?.frame ?? Self.defaultSidebarRect
         guard let screen = sidebarWindow?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return Self.defaultTaskFrame }
         return Frame(Snap.taskFrame(sidebar: sidebar, screenVisible: screen.visibleFrame))
     }
@@ -58,6 +63,8 @@ final class SidebarTiling {
         // Before the frame: a minimum above the current width would otherwise hold the old one.
         window.minSize = NSSize(width: scale(Size.sidebarMinWidth), height: window.minSize.height)
         window.setFrame(frame, display: true)
+        // Settings' Save runs under its sheet: the frame the sidebar returns to takes the new width.
+        frameBeforeSheet?.size.width = frame.width
         return sidebarFrameChanged()
     }
 
@@ -87,15 +94,28 @@ final class SidebarTiling {
         settle()
     }
 
+    /// A sheet is about to open: before AppKit moves the sidebar to make room for it.
+    func sheetWillBegin() {
+        if frameBeforeSheet == nil { frameBeforeSheet = sidebarWindow?.frame }
+    }
+
+    /// The sheet is gone and the sidebar back where it rests, or wherever it was dragged meanwhile.
+    func sheetDidEnd() {
+        frameBeforeSheet = nil
+        sidebarMoved()
+    }
+
     private func settle() {
         pendingMove = nil
+        // The sheet's slide is not saved nor tiled to: `sheetDidEnd()` settles the sidebar after it.
+        guard frameBeforeSheet == nil else { return }
         sidebarFrameChanged()
     }
 
     @discardableResult
     private func sidebarFrameChanged() -> Task<Void, Never>? {
         guard let window = sidebarWindow else { return nil }
-        let frame = window.frame
+        let frame = frameBeforeSheet ?? window.frame
         workspace.mutate { $0.sidebarFrame = frame }
         return snapAll()
     }

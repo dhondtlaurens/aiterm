@@ -51,6 +51,66 @@ struct SidebarTilingTests {
         #expect(changes == 0)
     }
 
+    /// AppKit slides the sidebar aside to fit a sheet wider than it, and back once the sheet ends. A
+    /// window opened meanwhile — New Terminal's, as its sheet closes — goes beside the sidebar where
+    /// it rests, not where the sheet pushed it.
+    @Test func aWindowOpenedUnderASheetGoesBesideTheRestingSidebar() {
+        let tiling = SidebarTiling(preferences: .scratch(), workspace: .holding(.empty), daemon: { nil })
+        let window = sidebarWindow()
+        tiling.sidebarWindow = window
+        let resting = tiling.taskFrame()
+
+        tiling.sheetWillBegin()
+        window.setFrameOrigin(NSPoint(x: 100, y: 0))
+        #expect(tiling.taskFrame() == resting)
+
+        window.setFrameOrigin(.zero)
+        tiling.sheetDidEnd()
+        window.setFrameOrigin(NSPoint(x: 40, y: 0))
+        #expect(tiling.taskFrame() != resting, "with the sheet gone, the sidebar's own frame counts again")
+    }
+
+    /// The sheet's slide is not a move of the sidebar's: nothing is saved or re-tiled for it. Its end
+    /// settles the sidebar, once, where it then is.
+    @Test func aSheetsSlideIsNotSavedAndItsEndSettles() {
+        let workspace = WorkspaceStore.holding(.empty)
+        var changes = 0
+        workspace.onChange { changes += 1 }
+        let tiling = SidebarTiling(preferences: .scratch(), workspace: workspace, daemon: { nil })
+        let window = sidebarWindow()
+        tiling.sidebarWindow = window
+
+        tiling.sheetWillBegin()
+        window.setFrameOrigin(NSPoint(x: 100, y: 0))
+        tiling.sidebarMoved()
+        tiling.finishPendingMove()
+        #expect(changes == 0)
+
+        window.setFrameOrigin(NSPoint(x: 20, y: 0))
+        tiling.sheetDidEnd()
+        tiling.finishPendingMove()
+        #expect(changes == 1)
+        #expect(workspace.state.sidebarFrame == window.frame)
+    }
+
+    /// Settings' Save zooms under its sheet: the sidebar is saved and tiled to where it rests, at its
+    /// new width.
+    @Test func aZoomUnderASheetKeepsTheRestingOrigin() {
+        let workspace = WorkspaceStore.holding(.empty)
+        let tiling = SidebarTiling(preferences: .scratch(), workspace: workspace, daemon: { nil })
+        let window = sidebarWindow()
+        tiling.sidebarWindow = window
+
+        tiling.sheetWillBegin()
+        window.setFrameOrigin(NSPoint(x: 100, y: 0))
+        tiling.setInterfaceSize(.large)
+
+        let saved = workspace.state.sidebarFrame
+        #expect(saved?.origin == .zero)
+        #expect(saved?.width == window.frame.width)
+        #expect(tiling.taskFrame().x == Double(window.frame.width) + 12)
+    }
+
     /// Quitting mid-debounce still saves where the sidebar ended up, into the workspace.
     @Test func quittingSavesAMoveStillSettling() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
