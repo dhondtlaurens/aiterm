@@ -30,6 +30,12 @@ RUNS_ROOT = Path.home() / "Library" / "Application Support" / "AiTerm" / "operat
 _TOKEN = re.compile(r"[0-9a-fA-F]{64}")
 
 
+def _gate_open(why: str) -> str:
+    """The gate's answer when it cannot ask: allow, saying the command ran unchallenged."""
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
+                                              "permissionDecisionReason": f"AiTerm ran this command unchallenged: {why}"}})
+
+
 class ToolError(Exception):
     """A tool call that failed, with what the operator is told: answered as a tool result with
     isError, as MCP has a tool's own failures, never as a protocol error."""
@@ -447,9 +453,10 @@ class OperatorRoute:
         return _answer(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result,
                                     "isError": False})
 
-    async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def ask_app(self, run_id: str, tool: str, arguments: dict[str, Any],
+                      timeout: float | None = None) -> dict[str, Any]:
         """The app's answer to one tool call: broadcast as `operator.request` and awaited until its
-        `operator.reply`, for OPERATOR_REQUEST_TIMEOUT at most. Raises ToolError with what the
+        `operator.reply`, for `timeout` at most (OPERATOR_REQUEST_TIMEOUT unless given). Raises ToolError with what the
         operator is told: the app's own error, NOT_OPEN with no app attached, NOT_ANSWERING after the
         timeout -- after which the app may still have acted, which every mutating tool's key makes
         safe to repeat (spec §11)."""
@@ -461,12 +468,45 @@ class OperatorRoute:
         try:
             await self.broadcast(protocol.OPERATOR_REQUEST, {"requestId": request_id, "runId": run_id, "tool": tool,
                                                              "arguments": arguments})
-            async with asyncio.timeout(delivery.OPERATOR_REQUEST_TIMEOUT):
+            async with asyncio.timeout(delivery.OPERATOR_REQUEST_TIMEOUT if timeout is None else timeout):
                 return await answer
         except TimeoutError as exc:
             raise ToolError(NOT_ANSWERING) from exc
         finally:
             self._pending.pop(request_id, None)
+
+    async def gate(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
+        """The Operator's Claude Code `PreToolUse` hook on its Bash calls (/operator/gate): the command
+        goes to the app as `gate_command` -- no MCP tool, so the Operator cannot call it -- and the
+        app's allow or deny comes back as Claude's hook JSON, an allow with a rewrite carrying it as
+        `updatedInput`. Waits GATE_TIMEOUT for the app. Fails open: with no app, no answer in time, a
+        bad token, a body or an answer it cannot read, the command is allowed and the reason says it
+        ran unchallenged, since a gate that is closed must not stall the Operator."""
+        if (run_id := self._run(headers)) is None:
+            return 200, _gate_open("a registered run's token was missing")
+        try:
+            hook = json.loads(body or b"{}")
+        except (ValueError, RecursionError):
+            return 200, _gate_open("the hook's body was not JSON")
+        if not isinstance(hook, dict) or not isinstance(tool_input := hook.get("tool_input"), dict):
+            return 200, _gate_open("the hook's body was malformed")
+        command, directory, description = tool_input.get("command"), hook.get("cwd", ""), tool_input.get("description", "")
+        if not isinstance(command, str) or not isinstance(directory, str) or not isinstance(description, str):
+            return 200, _gate_open("the hook's body was malformed")
+        try:
+            answer = await self.ask_app(run_id, "gate_command", {"command": command, "directory": directory,
+                                                                 "description": description},
+                                        timeout=delivery.GATE_TIMEOUT)
+        except ToolError as exc:
+            return 200, _gate_open(str(exc))
+        decision, reason, rewrite = answer.get("decision"), answer.get("reason"), answer.get("rewrite")
+        if decision not in ("allow", "deny") or not isinstance(reason, str) or not (rewrite is None or isinstance(rewrite, str)):
+            return 200, _gate_open("the app's answer was unreadable")
+        output: dict[str, Any] = {"hookEventName": "PreToolUse", "permissionDecision": decision,
+                                  "permissionDecisionReason": reason}
+        if decision == "allow" and rewrite:
+            output["updatedInput"] = {**tool_input, "command": rewrite}
+        return 200, json.dumps({"hookSpecificOutput": output})
 
     # -- the app's half, over the socket ----------------------------------
     async def register(self, p: Any) -> dict[str, Any]:

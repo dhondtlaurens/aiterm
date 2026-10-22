@@ -131,12 +131,12 @@ def posted_before_a_last_post(server):
     return before
 
 
-async def operator_post(port, body, token=None, *, method="POST", hook=True):
+async def operator_post(port, body, token=None, *, method="POST", hook=True, path="/operator"):
     """One request to the daemon's /operator route, sent as the operator's Claude sends it: the
     status, and the body as JSON -- as text when it is not JSON, None when there is none."""
     r, w = await asyncio.open_connection("127.0.0.1", port)
     data = json.dumps(body).encode() if body is not None else b""
-    head = f"{method} /operator HTTP/1.1\r\nHost: x\r\n"
+    head = f"{method} {path} HTTP/1.1\r\nHost: x\r\n"
     if hook:
         head += "X-AiTerm-Hook: 1\r\n"
     if token is not None:

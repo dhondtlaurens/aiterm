@@ -383,6 +383,10 @@ class StubRoute:
             raise RuntimeError("the route failed")
         return self.status, self.text
 
+    async def gate(self, method, headers, body):
+        self.seen.append(("GATE", headers.get("authorization"), body))
+        return 200, '{"gate":true}'
+
 
 async def test_the_operator_route_reaches_its_own_handler_not_the_hooks(server):
     srv, received = server
@@ -405,6 +409,27 @@ async def test_the_operator_route_hides_behind_the_hook_header_like_every_route(
     srv.operator_route = route = StubRoute()
     assert (await operator_post(srv.port, {}, token="t" * 40, hook=False))[0] == 404
     assert route.seen == []
+
+
+async def test_the_operator_gate_hides_behind_the_hook_header_too(server):
+    srv, _ = server
+    srv.operator_route = route = StubRoute()
+    assert (await operator_post(srv.port, {}, token="t" * 40, hook=False, path="/operator/gate"))[0] == 404
+    assert route.seen == []
+
+
+async def test_the_operator_gate_reaches_the_routes_gate(server):
+    srv, received = server
+    srv.operator_route = route = StubRoute()
+    status, body = await operator_post(srv.port, {"tool_name": "Bash"}, token="t" * 40, path="/operator/gate")
+    assert (status, body) == (200, {"gate": True})
+    assert route.seen == [("GATE", "Bearer " + "t" * 40, b'{"tool_name": "Bash"}')]
+    assert received == []
+
+
+async def test_without_an_operator_route_there_is_no_gate(server):
+    srv, _ = server
+    assert (await operator_post(srv.port, {}, token="t" * 40, path="/operator/gate"))[0] == 404
 
 
 async def test_without_an_operator_route_there_is_none(server):

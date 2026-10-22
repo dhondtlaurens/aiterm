@@ -23,12 +23,16 @@ MCP_PROTOCOL_VERSION = "2025-06-18"
 # The operator's MCP server (operator_mcp.OperatorRoute): apart from the hook routes and the Codex
 # hook MCP, and opened by a run's token rather than by anything a hook may send.
 OPERATOR_ROUTE = "/operator"
+# The operator's PreToolUse hook on its Bash calls (OperatorRoute.gate): answered in Claude's hook
+# JSON, after the app has decided, so it waits as long as GATE_TIMEOUT.
+OPERATOR_GATE_ROUTE = "/operator/gate"
 
 
 class Route(Protocol):
     """A route that answers its own requests: method, headers (names lower-cased) and raw body in,
     status and JSON body out."""
     async def serve(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]: ...
+    async def gate(self, method: str, headers: dict[str, str], body: bytes) -> tuple[int, str]: ...
 
 
 class _HeadTooLarge(Exception):
@@ -151,7 +155,10 @@ class HookServer:
                 return
 
             if path == OPERATOR_ROUTE and (route := self.operator_route) is not None:
-                await self._serve_route(writer, route, method, headers, body)
+                await self._serve_route(writer, route.serve, method, headers, body)
+                return
+            if path == OPERATOR_GATE_ROUTE and (route := self.operator_route) is not None:
+                await self._serve_route(writer, route.gate, method, headers, body)
                 return
 
             if method != "POST" or path not in ROUTES:
@@ -189,12 +196,12 @@ class HookServer:
                 return json.dumps({"ok": True, key: test_id}, separators=(",", ":"))
         return None
 
-    async def _serve_route(self, writer: asyncio.StreamWriter, route: Route, method: str, headers: dict[str, str],
-                           body: bytes) -> None:
+    async def _serve_route(self, writer: asyncio.StreamWriter, handler: Callable[[str, dict[str, str], bytes], Awaitable[tuple[int, str]]],
+                           method: str, headers: dict[str, str], body: bytes) -> None:
         """A route's own answer. One that raises is a 500, so its client sees a failed request rather
         than a connection dropped without a word."""
         try:
-            status, text = await route.serve(method, headers, body)
+            status, text = await handler(method, headers, body)
         except Exception:  # noqa: BLE001 - answered, not left to end the connection
             log.exception("the operator route failed")
             status, text = 500, json.dumps({"error": "internal"})
